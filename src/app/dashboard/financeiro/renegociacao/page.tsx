@@ -1,22 +1,46 @@
 'use client'
 
-// Lote C · Renegociação / Acerto — criar acerto (cliente→títulos→boletos→confirmar) + consultar (drill-down
-// origens↔gerados). Backend: fn_renegociacao_* (PR #805). Boleto gerado = erp_receber normal → remessa CNAB.
+// Lote C · Renegociação / Acerto — criar acerto (cliente→títulos→parcelas→confirmar) + consultar (drill-down
+// origens↔gerados). Backend: fn_renegociacao_* (PR #805; guarda de datas #105 PR1; forma por parcela #105 PR2).
+// #105 PR2: todas as formas de pagamento (não só boleto) · painel lateral de resumo (estilo inclusão de receita) ·
+// cálculo automático do valor da parcela pela quantidade (última absorve o resíduo) · exibe os avisos do backend.
+// Só forma='boleto' entra na emissão/remessa CNAB; as demais gravam o título e ficam fora.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { FORMAS_PAGAMENTO } from '@/lib/financeiro/formasPagamento'
 import Modal from '@/components/ui/Modal'
 
-const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D'
+const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D', AMBAR = '#C88A1A'
 const brl = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dbr = (s: string | null) => s ? s.slice(0, 10).split('-').reverse().join('/') : '—'
-const maisDias = (d: number) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10)
+const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+const iso = (d: Date) => d.toISOString().slice(0, 10)
+// Vencimento por MÊS-CALENDÁRIO a partir de hoje (dia preservado, com clamp p/ fim de mês). Sempre
+// não-decrescente → passa na guarda de ordem do backend (#105 PR1). m=1 → mês que vem, etc.
+const maisMeses = (m: number): string => {
+  const h = new Date(); const dia = h.getDate()
+  const d = new Date(h.getFullYear(), h.getMonth() + m, 1)
+  const ultimo = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  d.setDate(Math.min(dia, ultimo))
+  return iso(d)
+}
+// Distribui o total em N parcelas iguais (round2); a ÚLTIMA absorve o resíduo de centavos.
+const distribuir = (total: number, n: number): number[] => {
+  if (n <= 0) return []
+  const base = round2(total / n)
+  const arr = Array.from({ length: n }, () => base)
+  arr[n - 1] = round2(total - base * (n - 1))
+  return arr
+}
+const formaLabel = (v: string) => FORMAS_PAGAMENTO.find((f) => f.v === v)?.l ?? v
 
 type Cliente = { id: string; nome: string }
 type Conta = { id: string; nome: string }
 type Titulo = { id: string; descricao: string; valor: number; data_vencimento: string; status: string; numero_documento: string | null }
-type Boleto = { valor: string; data_vencimento: string }
+type Boleto = { valor: string; data_vencimento: string; forma_pagamento: string }
+type Aviso = { parcela: number; data_vencimento: string; aviso: string }
 type Acerto = { id: string; data_acerto: string; cliente_nome: string; valor_origem: number; valor_gerado: number; ajuste: number; status: string; qtd_origens: number; qtd_gerados: number }
 
 const inp: React.CSSProperties = { width: '100%', padding: '8px 10px', border: `0.5px solid ${LINE}`, borderRadius: 6, fontSize: 13, background: '#fff', color: ESP, fontFamily: 'inherit', boxSizing: 'border-box' }
@@ -33,7 +57,7 @@ export default function RenegociacaoPage() {
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '28px 20px' }}>
-      <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+      <div style={{ maxWidth: 1080, margin: '0 auto' }}>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>Financeiro · Contas a Receber</div>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 14px' }}>Renegociação / Acerto</h1>
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -54,13 +78,16 @@ function Criar({ companyId }: { companyId: string }) {
   const [contaId, setContaId] = useState('')
   const [titulos, setTitulos] = useState<Titulo[]>([])
   const [sel, setSel] = useState<Set<string>>(new Set())
-  const [boletos, setBoletos] = useState<Boleto[]>([{ valor: '', data_vencimento: maisDias(30) }])
+  const [boletos, setBoletos] = useState<Boleto[]>([{ valor: '', data_vencimento: maisMeses(1), forma_pagamento: 'boleto' }])
+  // Geração automática: quantidade de parcelas + forma padrão aplicada a todas.
+  const [qtd, setQtd] = useState('1')
+  const [formaPadrao, setFormaPadrao] = useState('boleto')
   const [motivo, setMotivo] = useState('')
   const [buscou, setBuscou] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [resultado, setResultado] = useState<{ renegociacao_id: string; gerados: string[] } | null>(null)
+  const [resultado, setResultado] = useState<{ renegociacao_id: string; gerados: string[]; avisos: Aviso[]; qtdBoleto: number } | null>(null)
 
   useEffect(() => {
     ;(async () => {
@@ -82,7 +109,26 @@ function Criar({ companyId }: { companyId: string }) {
 
   const totalOrigem = useMemo(() => titulos.filter((t) => sel.has(t.id)).reduce((s, t) => s + Number(t.valor), 0), [titulos, sel])
   const totalGerado = useMemo(() => boletos.reduce((s, b) => s + (parseFloat((b.valor || '0').replace(',', '.')) || 0), 0), [boletos])
-  const ajuste = Math.round((totalGerado - totalOrigem) * 100) / 100
+  const ajuste = round2(totalGerado - totalOrigem)
+  const qtdBoleto = useMemo(() => boletos.filter((b) => b.forma_pagamento === 'boleto').length, [boletos])
+  // Datas fora de ordem (espelha a guarda do backend #105 PR1 — feedback local, sem esperar o erro).
+  const datasForaOrdem = useMemo(() => {
+    for (let i = 1; i < boletos.length; i++) {
+      if (boletos[i].data_vencimento && boletos[i - 1].data_vencimento && boletos[i].data_vencimento < boletos[i - 1].data_vencimento) return true
+    }
+    return false
+  }, [boletos])
+
+  // #105 PR2 · calcula o valor da parcela a partir da QUANTIDADE: total das origens ÷ N (última absorve o
+  // resíduo de centavos), vencimentos mensais crescentes (guarda-safe), forma = a forma padrão escolhida.
+  function gerarParcelas() {
+    const n = Math.max(1, Math.min(60, parseInt(qtd) || 1))
+    const vals = distribuir(round2(totalOrigem), n)
+    setBoletos(vals.map((v, i) => ({ valor: v.toFixed(2).replace('.', ','), data_vencimento: maisMeses(i + 1), forma_pagamento: formaPadrao })))
+  }
+  function setBoleto(i: number, patch: Partial<Boleto>) {
+    setBoletos((bs) => bs.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+  }
 
   async function confirmar() {
     setSalvando(true); setErro(null)
@@ -90,25 +136,32 @@ function Criar({ companyId }: { companyId: string }) {
       const { data, error } = await supabase.rpc('fn_renegociacao_criar', {
         p_company: companyId, p_cliente: clienteId || null, p_conta: contaId || null,
         p_origem_ids: [...sel],
-        p_boletos: boletos.map((b) => ({ valor: parseFloat((b.valor || '0').replace(',', '.')) || 0, data_vencimento: b.data_vencimento })),
+        p_boletos: boletos.map((b) => ({ valor: parseFloat((b.valor || '0').replace(',', '.')) || 0, data_vencimento: b.data_vencimento, forma_pagamento: b.forma_pagamento })),
         p_observacao: motivo.trim() || null,
       })
       if (error) throw error
-      const j = data as { sucesso?: boolean; erro?: string; renegociacao_id?: string; gerados?: string[] } | null
+      const j = data as { sucesso?: boolean; erro?: string; renegociacao_id?: string; gerados?: string[]; avisos?: Aviso[] } | null
       if (!j?.sucesso) throw new Error(j?.erro ?? 'falha ao criar')
-      setResultado({ renegociacao_id: j.renegociacao_id!, gerados: j.gerados ?? [] })
+      setResultado({ renegociacao_id: j.renegociacao_id!, gerados: j.gerados ?? [], avisos: j.avisos ?? [], qtdBoleto })
       setConfirmOpen(false)
     } catch (e) { setErro((e as Error).message) } finally { setSalvando(false) }
   }
 
   if (resultado) {
+    const outras = resultado.gerados.length - resultado.qtdBoleto
     return (
       <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 24 }}>
         <div style={{ fontSize: 18, fontWeight: 600, color: VERDE }}>✅ Acerto CRIOU</div>
-        <p style={{ fontSize: 13, color: ESP, marginTop: 8 }}>{sel.size} título(s) consolidados em <b>{resultado.gerados.length} boleto(s)</b>. As origens ficaram como <b>renegociado</b>; os boletos gerados estão <b>abertos</b> e entram na remessa CNAB.</p>
+        <p style={{ fontSize: 13, color: ESP, marginTop: 8 }}>{sel.size} título(s) consolidados em <b>{resultado.gerados.length} parcela(s)</b>. As origens ficaram como <b>renegociado</b>; as parcelas nascem <b>abertas</b>. <b>{resultado.qtdBoleto}</b> por boleto (entram na remessa CNAB){outras > 0 ? <> · <b>{outras}</b> em outras formas (registradas, fora da remessa)</> : null}.</p>
+        {resultado.avisos.length > 0 && (
+          <div style={{ marginTop: 12, background: '#FFF8E1', border: `0.5px solid ${AMBAR}`, borderRadius: 8, padding: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: AMBAR, marginBottom: 4 }}>Avisos</div>
+            {resultado.avisos.map((a, i) => <div key={i} style={{ fontSize: 12, color: ESP }}>Parcela {a.parcela} ({dbr(a.data_vencimento)}): {a.aviso}</div>)}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-          <button onClick={() => router.push('/dashboard/financeiro/remessa-pagamento')} style={btnG}>Ir para remessa (emitir boletos)</button>
-          <button onClick={() => { setResultado(null); setSel(new Set()); setBoletos([{ valor: '', data_vencimento: maisDias(30) }]); setMotivo(''); setBuscou(false) }} style={btnO}>Novo acerto</button>
+          {resultado.qtdBoleto > 0 && <button onClick={() => router.push('/dashboard/financeiro/remessa-pagamento')} style={btnG}>Ir para remessa (emitir boletos)</button>}
+          <button onClick={() => { setResultado(null); setSel(new Set()); setBoletos([{ valor: '', data_vencimento: maisMeses(1), forma_pagamento: 'boleto' }]); setQtd('1'); setMotivo(''); setBuscou(false) }} style={btnO}>Novo acerto</button>
         </div>
       </div>
     )
@@ -146,29 +199,53 @@ function Criar({ companyId }: { companyId: string }) {
       )}
 
       {sel.size > 0 && (
-        <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: ESP, marginBottom: 8 }}>Boletos do acerto</div>
-          {boletos.map((b, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
-              <div><label style={lbl}>Valor (R$)</label><input value={b.valor} onChange={(e) => setBoletos((bs) => bs.map((x, j) => j === i ? { ...x, valor: e.target.value } : x))} inputMode="decimal" style={inp} /></div>
-              <div><label style={lbl}>Vencimento</label><input type="date" value={b.data_vencimento} onChange={(e) => setBoletos((bs) => bs.map((x, j) => j === i ? { ...x, data_vencimento: e.target.value } : x))} style={inp} /></div>
-              <button onClick={() => setBoletos((bs) => bs.length > 1 ? bs.filter((_, j) => j !== i) : bs)} style={{ ...btnO, color: VERM }}>✕</button>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: 16, alignItems: 'start' }}>
+          {/* Coluna principal: gerar parcelas + editar cada uma */}
+          <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: ESP, marginBottom: 10 }}>Parcelas do acerto</div>
+            {/* Gerador automático: quantidade + forma padrão */}
+            <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr auto', gap: 8, alignItems: 'end', padding: 10, background: BG, borderRadius: 8, marginBottom: 12 }}>
+              <div><label style={lbl}>Qtd. parcelas</label><input type="number" min={1} max={60} value={qtd} onChange={(e) => setQtd(e.target.value)} style={inp} /></div>
+              <div><label style={lbl}>Forma padrão</label>
+                <select value={formaPadrao} onChange={(e) => setFormaPadrao(e.target.value)} style={inp}>
+                  {FORMAS_PAGAMENTO.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
+                </select></div>
+              <button type="button" onClick={gerarParcelas} disabled={totalOrigem <= 0} style={{ ...btnO, opacity: totalOrigem <= 0 ? 0.5 : 1 }} title="Divide o total selecionado pela quantidade (última parcela absorve o resíduo)">Gerar</button>
             </div>
-          ))}
-          <button onClick={() => setBoletos((bs) => [...bs, { valor: '', data_vencimento: maisDias(30 * (bs.length + 1)) }])} style={btnO}>+ boleto</button>
 
-          <div style={{ marginTop: 14, padding: 12, background: BG, borderRadius: 8, fontSize: 13, color: ESP }}>
-            Origem <b>{brl(totalOrigem)}</b> · Gerado <b>{brl(totalGerado)}</b> · Ajuste <b style={{ color: ajuste === 0 ? MUT : ajuste > 0 ? VERM : VERDE }}>{ajuste > 0 ? '+' : ''}{brl(ajuste)}</b>
+            {boletos.map((b, i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                <div><label style={lbl}>Valor (R$)</label><input value={b.valor} onChange={(e) => setBoleto(i, { valor: e.target.value })} inputMode="decimal" style={inp} /></div>
+                <div><label style={lbl}>Vencimento</label><input type="date" value={b.data_vencimento} onChange={(e) => setBoleto(i, { data_vencimento: e.target.value })} style={inp} /></div>
+                <div><label style={lbl}>Forma</label>
+                  <select value={b.forma_pagamento} onChange={(e) => setBoleto(i, { forma_pagamento: e.target.value })} style={inp}>
+                    {FORMAS_PAGAMENTO.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
+                  </select></div>
+                <button onClick={() => setBoletos((bs) => bs.length > 1 ? bs.filter((_, j) => j !== i) : bs)} style={{ ...btnO, color: VERM }}>✕</button>
+              </div>
+            ))}
+            <button onClick={() => setBoletos((bs) => [...bs, { valor: '', data_vencimento: maisMeses(bs.length + 1), forma_pagamento: formaPadrao }])} style={btnO}>+ parcela</button>
+          </div>
+
+          {/* Painel lateral: resumo do acerto (estilo inclusão de receita) */}
+          <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, position: 'sticky', top: 16 }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: MUT, fontWeight: 700, marginBottom: 10 }}>Resumo</div>
+            <Linha k="Origem" v={brl(totalOrigem)} />
+            <Linha k="Gerado" v={brl(totalGerado)} />
+            <Linha k="Ajuste" v={`${ajuste > 0 ? '+' : ''}${brl(ajuste)}`} cor={ajuste === 0 ? MUT : ajuste > 0 ? VERM : VERDE} />
+            <div style={{ borderTop: `0.5px solid ${LINE}`, margin: '8px 0' }} />
+            <Linha k="Parcelas" v={String(boletos.length)} />
+            <Linha k="Por boleto (CNAB)" v={String(qtdBoleto)} />
+            {boletos.length - qtdBoleto > 0 && <Linha k="Outras formas" v={String(boletos.length - qtdBoleto)} />}
+            {datasForaOrdem && <div style={{ marginTop: 10, background: '#FCEBEB', color: VERM, padding: 8, borderRadius: 6, fontSize: 11 }}>Há vencimento fora de ordem (uma parcela vence antes da anterior). Corrija — o sistema recusa.</div>}
             {ajuste !== 0 && (
-              <div style={{ marginTop: 8 }}>
-                <label style={lbl}>Motivo do ajuste (obrigatório quando ≠ 0)</label>
-                <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex: juros de atraso / desconto p/ quitação" style={inp} />
+              <div style={{ marginTop: 10 }}>
+                <label style={lbl}>Motivo do ajuste (obrigatório)</label>
+                <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex: juros / desconto p/ quitação" style={inp} />
               </div>
             )}
-          </div>
-          {erro && <div style={{ marginTop: 10, background: '#FCEBEB', color: VERM, padding: 10, borderRadius: 6, fontSize: 12 }}>{erro}</div>}
-          <div style={{ marginTop: 12, textAlign: 'right' }}>
-            <button onClick={() => setConfirmOpen(true)} disabled={totalGerado <= 0 || (ajuste !== 0 && !motivo.trim())} style={{ ...btnG, opacity: (totalGerado <= 0 || (ajuste !== 0 && !motivo.trim())) ? 0.5 : 1 }}>Revisar e confirmar</button>
+            {erro && <div style={{ marginTop: 10, background: '#FCEBEB', color: VERM, padding: 10, borderRadius: 6, fontSize: 12 }}>{erro}</div>}
+            <button onClick={() => setConfirmOpen(true)} disabled={totalGerado <= 0 || datasForaOrdem || (ajuste !== 0 && !motivo.trim())} style={{ ...btnG, width: '100%', marginTop: 12, opacity: (totalGerado <= 0 || datasForaOrdem || (ajuste !== 0 && !motivo.trim())) ? 0.5 : 1 }}>Revisar e confirmar</button>
           </div>
         </div>
       )}
@@ -179,12 +256,21 @@ function Criar({ companyId }: { companyId: string }) {
           <button onClick={confirmar} disabled={salvando} style={btnG}>{salvando ? 'Criando…' : 'CRIAR acerto'}</button>
         </>}>
         <div style={{ fontSize: 13, color: ESP, lineHeight: 1.6 }}>
-          Consolidar <b>{sel.size} título(s)</b> ({brl(totalOrigem)}) em <b>{boletos.length} boleto(s)</b> ({brl(totalGerado)}).
+          Consolidar <b>{sel.size} título(s)</b> ({brl(totalOrigem)}) em <b>{boletos.length} parcela(s)</b> ({brl(totalGerado)}) — {qtdBoleto} por boleto{boletos.length - qtdBoleto > 0 ? `, ${boletos.length - qtdBoleto} em outras formas` : ''}.
           {ajuste !== 0 && <> Ajuste <b>{ajuste > 0 ? '+' : ''}{brl(ajuste)}</b> — motivo: <i>{motivo}</i>.</>}
-          <br /><br />As origens viram <b>renegociado</b>; os boletos gerados nascem <b>abertos</b>. Confirmar?
+          <br /><br />As origens viram <b>renegociado</b>; as parcelas nascem <b>abertas</b>. Confirmar?
         </div>
         {erro && <div style={{ marginTop: 10, background: '#FCEBEB', color: VERM, padding: 10, borderRadius: 6, fontSize: 12 }}>{erro}</div>}
       </Modal>
+    </div>
+  )
+}
+
+function Linha({ k, v, cor }: { k: string; v: string; cor?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '3px 0', fontSize: 13 }}>
+      <span style={{ color: MUT }}>{k}</span>
+      <b style={{ color: cor ?? ESP }}>{v}</b>
     </div>
   )
 }
@@ -236,7 +322,7 @@ function Consultar({ companyId }: { companyId: string }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: ESP }}>{a.cliente_nome} · {dbr(a.data_acerto)}</div>
-              <div style={{ fontSize: 11, color: MUT }}>{a.qtd_origens} origem(ns) → {a.qtd_gerados} boleto(s) · origem {brl(a.valor_origem)} · gerado {brl(a.valor_gerado)}{Number(a.ajuste) !== 0 ? ` · ajuste ${Number(a.ajuste) > 0 ? '+' : ''}${brl(a.ajuste)}` : ''}</div>
+              <div style={{ fontSize: 11, color: MUT }}>{a.qtd_origens} origem(ns) → {a.qtd_gerados} parcela(s) · origem {brl(a.valor_origem)} · gerado {brl(a.valor_gerado)}{Number(a.ajuste) !== 0 ? ` · ajuste ${Number(a.ajuste) > 0 ? '+' : ''}${brl(a.ajuste)}` : ''}</div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 12, color: a.status === 'cancelada' ? VERM : VERDE, background: a.status === 'cancelada' ? '#FCEBEB' : 'rgba(46,139,87,0.1)' }}>{a.status}</span>
@@ -248,7 +334,7 @@ function Consultar({ companyId }: { companyId: string }) {
             <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
               <div><div style={{ fontSize: 11, textTransform: 'uppercase', color: MUT, fontWeight: 700, marginBottom: 6 }}>Origens</div>
                 {detalhe[a.id].origens.map((o) => <div key={o.id} style={{ fontSize: 12, color: ESP, padding: '4px 0', borderTop: `0.5px solid ${BG}` }}>{o.descricao} · {brl(o.valor)} · <span style={{ color: MUT }}>{o.status}</span></div>)}</div>
-              <div><div style={{ fontSize: 11, textTransform: 'uppercase', color: MUT, fontWeight: 700, marginBottom: 6 }}>Boletos gerados</div>
+              <div><div style={{ fontSize: 11, textTransform: 'uppercase', color: MUT, fontWeight: 700, marginBottom: 6 }}>Parcelas geradas</div>
                 {detalhe[a.id].gerados.map((g) => <div key={g.id} style={{ fontSize: 12, color: ESP, padding: '4px 0', borderTop: `0.5px solid ${BG}` }}>{g.descricao} · {brl(g.valor)} · venc {dbr(g.data_vencimento)} · <span style={{ color: MUT }}>{g.status}</span></div>)}</div>
             </div>
           )}
