@@ -121,6 +121,24 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const docDest = String(nfeVenda.destinatario_cnpj ?? nfeVenda.destinatario_cpf ?? '').replace(/\D/g, '')
     const ehCnpj = docDest.length === 14
 
+    // #94 fast-follow (mesma raiz do #125): a devolução sai para o CLIENTE original. Se ele é
+    // contribuinte de ICMS, a Sefaz exige a IE do destinatário — sem ela, rejeição 232. O snapshot
+    // da nota de venda não guarda IE; busca no cadastro do cliente pelo documento (dígitos).
+    // Sem IE cadastrada, a validação (nfe-validator) barra o contribuinte antes da Sefaz.
+    let ieDest: string | undefined
+    let indicadorIE: 1 | 2 | 9 | undefined
+    if (docDest) {
+      const { data: cli } = await supabaseAdmin
+        .from('erp_clientes')
+        .select('ie, contribuinte_icms')
+        .eq('company_id', nfeVenda.company_id)
+        .or(`cnpj_cpf.eq.${docDest},cpf_cnpj.eq.${docDest}`)
+        .maybeSingle()
+      ieDest = String(cli?.ie ?? '').replace(/\D/g, '') || undefined
+      const indMap: Record<string, 1 | 2 | 9> = { contribuinte: 1, isento: 2, nao_contribuinte: 9 }
+      indicadorIE = indMap[String((cli as { contribuinte_icms?: string | null } | null)?.contribuinte_icms ?? '')]
+    }
+
     const enderecoRaw = nfeVenda.destinatario_endereco as Record<string, unknown> | null
     const enderecoBuilder = enderecoRaw && typeof enderecoRaw === 'object'
       ? {
@@ -146,6 +164,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           razaoSocial: String(nfeVenda.destinatario_razao_social ?? 'Cliente'),
           cnpj: ehCnpj ? docDest : undefined,
           cpf: !ehCnpj ? docDest : undefined,
+          inscricaoEstadual: ieDest,
+          indicadorIE,
           email: nfeVenda.destinatario_email ?? undefined,
           endereco: enderecoBuilder,
         },
