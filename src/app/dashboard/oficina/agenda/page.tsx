@@ -81,6 +81,21 @@ export default function OficinaAgendaPage() {
     void carregar()
   }
 
+  // #104 · EXCLUIR (erro de digitação), distinto de Cancelar. Soft-delete + autoria no servidor;
+  // recusa se já virou OS.
+  async function excluirAg(a: Ag) {
+    const motivo = window.prompt(`Excluir o agendamento${a.cliente_nome ? ` de ${a.cliente_nome}` : ''}?\n\nUse Excluir para lançamento errado — é diferente de Cancelar (cliente desmarcou).\n\nMotivo (opcional):`, '')
+    if (motivo === null) return
+    const { data, error } = await supabase.rpc('fn_agendamento_excluir', { p_id: a.id, p_motivo: motivo.trim() || null })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || r?.ok === false) {
+      setMsg('Erro: ' + (r?.erro === 'ja_virou_os' ? 'Este agendamento já virou OS — não dá para excluir pela agenda.' : (error?.message || r?.erro || 'falha ao excluir')))
+      return
+    }
+    setMsg(`EXCLUIU o agendamento${a.cliente_nome ? ` de ${a.cliente_nome}` : ''}.`)
+    void carregar()
+  }
+
   const diasSemana = useMemo(() => { const i = inicioSemana(ref); return Array.from({ length: 7 }, (_, k) => iso(somaDias(i, k))) }, [ref])
   const porDiaHora = (dia: string, hora: number) => ags.filter((a) => a.data === dia && Number((a.hora_inicio ?? '').slice(0, 2)) === hora)
   const semHora = (dia: string) => ags.filter((a) => a.data === dia && !a.hora_inicio)
@@ -126,7 +141,7 @@ export default function OficinaAgendaPage() {
             {semHora(range.de).length > 0 && (
               <div style={{ padding: '8px 12px', borderBottom: `0.5px solid ${BG}` }}>
                 <div style={{ fontSize: 10.5, color: MUT, marginBottom: 4 }}>SEM HORÁRIO</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{semHora(range.de).map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} onEditar={setEditAg} />)}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{semHora(range.de).map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} onEditar={setEditAg} onExcluir={excluirAg} />)}</div>
               </div>
             )}
             {HORAS.map((h) => {
@@ -134,7 +149,7 @@ export default function OficinaAgendaPage() {
               return (
                 <div key={h} style={{ display: 'grid', gridTemplateColumns: '54px 1fr', borderTop: `0.5px solid ${BG}`, minHeight: 40 }}>
                   <div style={{ fontSize: 11, color: MUT, padding: '8px 10px', borderRight: `0.5px solid ${BG}` }}>{String(h).padStart(2, '0')}:00</div>
-                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>{its.map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} onEditar={setEditAg} />)}</div>
+                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>{its.map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} onEditar={setEditAg} onExcluir={excluirAg} />)}</div>
                 </div>
               )
             })}
@@ -146,7 +161,7 @@ export default function OficinaAgendaPage() {
               return (
                 <div key={dia} style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 8, minHeight: 120 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: ESP, marginBottom: 6, textTransform: 'capitalize' }}>{fmtDiaCurto(dia)}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{its.length === 0 ? <span style={{ fontSize: 11, color: MUT }}>—</span> : its.map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} onEditar={setEditAg} compact />)}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{its.length === 0 ? <span style={{ fontSize: 11, color: MUT }}>—</span> : its.map((a) => <Card key={a.id} a={a} onStatus={mudarStatus} onEditar={setEditAg} onExcluir={excluirAg} compact />)}</div>
                 </div>
               )
             })}
@@ -160,7 +175,7 @@ export default function OficinaAgendaPage() {
   )
 }
 
-function Card({ a, onStatus, onEditar, compact }: { a: Ag; onStatus: (a: Ag, s: string) => void; onEditar?: (a: Ag) => void; compact?: boolean }) {
+function Card({ a, onStatus, onEditar, onExcluir, compact }: { a: Ag; onStatus: (a: Ag, s: string) => void; onEditar?: (a: Ag) => void; onExcluir?: (a: Ag) => void; compact?: boolean }) {
   const st = ST[a.status] ?? ST.agendado
   const veic = [a.dados?.placa, a.dados?.veiculo].filter(Boolean).join(' · ')
   const podeEditar = a.status === 'agendado' || a.status === 'confirmado'
@@ -173,10 +188,16 @@ function Card({ a, onStatus, onEditar, compact }: { a: Ag; onStatus: (a: Ag, s: 
       <div style={{ fontSize: 12.5, color: ESP, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.cliente_nome || a.titulo || 'Sem cliente'}</div>
       {veic && <div style={{ fontSize: 11, color: MUT }}>{veic}</div>}
       {!compact && a.responsavel_nome && <div style={{ fontSize: 10.5, color: MUT }}>👤 {a.responsavel_nome}</div>}
-      {!compact && ((ACOES[a.status] ?? []).length > 0 || (podeEditar && onEditar)) && (
+      {/* #104 · ações visíveis TAMBÉM na semana (compact): antes o !compact escondia o Editar na visão
+          Semana — era o "não consigo editar depois de salvo". Excluir (erro de digitação) ao lado, distinto
+          de Cancelar (fato do negócio); o servidor recusa se já virou OS. */}
+      {((ACOES[a.status] ?? []).length > 0 || (podeEditar && (onEditar || onExcluir))) && (
         <div style={{ display: 'flex', gap: 5, marginTop: 6, flexWrap: 'wrap' }}>
           {podeEditar && onEditar && (
             <button onClick={() => onEditar(a)} style={{ fontSize: 10.5, fontWeight: 600, padding: '3px 9px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#FFF', color: ESP }}>Editar</button>
+          )}
+          {podeEditar && onExcluir && (
+            <button onClick={() => onExcluir(a)} title="Excluir agendamento lançado por engano (diferente de Cancelar)" style={{ fontSize: 10.5, fontWeight: 600, padding: '3px 9px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#FFF', color: VERM }}>Excluir</button>
           )}
           {(ACOES[a.status] ?? []).map((ac) => (
             <button key={ac.s} onClick={() => onStatus(a, ac.s)} style={{ fontSize: 10.5, fontWeight: 600, padding: '3px 9px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#FFF', color: ac.s === 'cancelado' || ac.s === 'nao_compareceu' ? VERM : ESP }}>{ac.l}</button>
