@@ -195,6 +195,11 @@ export interface NFeResponse {
   motivoRejeicao?: string
   providerReference: string
   providerRaw?: unknown
+  // Espelho do #90/#64 (que já persiste o payload da NFS-e): corpo (JSON) efetivamente enviado ao
+  // provider na emissão — sem cert/token (que vão no header). Persistido em
+  // erp_nfe_emitidas.payload_enviado para depurar rejeições (ex.: SEFAZ 938 do ST retido) sem
+  // reconstruir o payload no escuro. Preenchido só nas emissões (NF-e/NFC-e), não nas consultas.
+  payloadEnviado?: unknown
 }
 
 export interface MDeListaRequest {

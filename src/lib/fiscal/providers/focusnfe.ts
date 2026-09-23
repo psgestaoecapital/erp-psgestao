@@ -564,7 +564,9 @@ export class FocusNFeProvider implements FiscalProvider {
       `/v2/nfe?ref=${encodeURIComponent(referencia)}`,
       payload
     )
-    return this.mapFocusNFeResponse(referencia, data)
+    // Devolve o payload ENVIADO (só o corpo — cert/token ficam no header) para persistir e parar de
+    // depurar rejeição no escuro (espelho do que a NFS-e já faz). Ver erp_nfe_emitidas.payload_enviado.
+    return { ...this.mapFocusNFeResponse(referencia, data), payloadEnviado: payload }
   }
 
   // NFC-e (modelo 65 · consumidor final / balcão). POST /v2/nfce.
@@ -623,7 +625,7 @@ export class FocusNFeProvider implements FiscalProvider {
       `/v2/nfce?ref=${encodeURIComponent(referencia)}`,
       payload
     )
-    return this.mapFocusNFeResponse(referencia, data)
+    return { ...this.mapFocusNFeResponse(referencia, data), payloadEnviado: payload }
   }
 
   async consultarNFe(referenceOrChave: string): Promise<NFeResponse> {
