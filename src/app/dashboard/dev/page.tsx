@@ -262,6 +262,44 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
   const [verVersao,setVerVersao]=useState<any|null>(null); // A3 — versão antiga aberta para leitura
   const [audit,setAudit]=useState<any|null>(null);   // ⑧ — número VERDADEIRO da auditoria (X de N · sem botão)
   const [verSemBotao,setVerSemBotao]=useState(false); // ⑧ — expandir a lista das telas sem botão de auditoria
+  // Cadastro de verticais na Central de Dev: a lista vem de dev_vertical (não mais fixa no código).
+  const [verticais,setVerticais]=useState<{id:string;slug:string;nome:string;ativo:boolean;ordem:number}[]>([]);
+  const [gerVert,setGerVert]=useState(false);
+  const [novoSlug,setNovoSlug]=useState(''); const [novoNome,setNovoNome]=useState('');
+  const [nomeEdits,setNomeEdits]=useState<Record<string,string>>({});
+  const [vertBusy,setVertBusy]=useState(false); const [vertMsg,setVertMsg]=useState<string|null>(null);
+  async function carregarVerticais(){
+    const{data}=await supabase.from('dev_vertical').select('id,slug,nome,ativo,ordem').order('ordem').order('nome');
+    const lista=((data||[]) as {id:string;slug:string;nome:string;ativo:boolean;ordem:number}[]);
+    setVerticais(lista);
+    const ativos=lista.filter(v=>v.ativo);
+    if(ativos.length && !ativos.some(v=>v.slug===vertical)) setVertical(ativos[0].slug);
+  }
+  useEffect(()=>{ void carregarVerticais(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },[]);
+  async function incluirVertical(){
+    const slug=novoSlug.trim().toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+    const nome=novoNome.trim();
+    if(!slug||!nome){ setVertMsg('Informe o slug e o nome.'); return; }
+    setVertBusy(true); setVertMsg(null);
+    const ordem=verticais.reduce((m,v)=>Math.max(m,v.ordem||0),0)+1;
+    const{error}=await supabase.from('dev_vertical').insert({slug,nome,ordem});
+    if(error) setVertMsg(/duplicate|unique/i.test(error.message)?'Já existe uma vertical com esse slug.':error.message);
+    else { setNovoSlug(''); setNovoNome(''); await carregarVerticais(); }
+    setVertBusy(false);
+  }
+  async function salvarNomeVert(id:string){
+    const nome=(nomeEdits[id]??'').trim(); if(!nome){ setVertMsg('O nome não pode ficar vazio.'); return; }
+    setVertBusy(true); setVertMsg(null);
+    const{error}=await supabase.from('dev_vertical').update({nome}).eq('id',id);
+    if(error) setVertMsg(error.message); else await carregarVerticais();
+    setVertBusy(false);
+  }
+  async function toggleAtivoVert(id:string,ativo:boolean){
+    setVertBusy(true); setVertMsg(null);
+    const{error}=await supabase.from('dev_vertical').update({ativo:!ativo}).eq('id',id);
+    if(error) setVertMsg(error.message); else await carregarVerticais();
+    setVertBusy(false);
+  }
   async function carregarDoc(){
     setCarregando(true);setSemDoc(false);setDoc(null);setAprovadorNome(null);
     const{data}=await supabase.from('erp_documento_vertical')
@@ -330,9 +368,35 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
         <span style={{fontSize:13,color:GOL,fontWeight:600}}>📄 Documento vivo da vertical</span>
         <select value={vertical} onChange={e=>setVertical(e.target.value)}
           style={{background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit'}}>
-          {Object.entries(NOME_VERTICAL).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+          {(verticais.filter(v=>v.ativo).length
+            ? verticais.filter(v=>v.ativo).map(v=>({k:v.slug,n:v.nome}))
+            : Object.entries(NOME_VERTICAL).map(([k,n])=>({k,n}))
+          ).map(o=><option key={o.k} value={o.k}>{o.n}</option>)}
         </select>
+        {isAdmin && <button onClick={()=>setGerVert(v=>!v)} style={{background:'transparent',color:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:11.5,cursor:'pointer'}}>{gerVert?'Fechar':'⚙ Gerenciar verticais'}</button>}
       </div>
+      {isAdmin && gerVert && (
+        <div style={{background:BG2,border:`1px solid ${BD}`,borderRadius:12,padding:14,marginBottom:14}}>
+          <div style={{fontSize:12.5,fontWeight:600,color:TX,marginBottom:2}}>Verticais da Central de Dev</div>
+          <div style={{fontSize:11,color:TXM,marginBottom:10}}>A lista vem do banco (dev_vertical). Inativar tira da lista sem apagar — o histórico e o blueprint continuam.</div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
+            <input value={novoSlug} onChange={e=>setNovoSlug(e.target.value)} placeholder="slug (ex.: corretora_seguros)" style={{flex:'1 1 200px',background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12}} />
+            <input value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Nome" style={{flex:'1 1 200px',background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12}} />
+            <button onClick={()=>void incluirVertical()} disabled={vertBusy} style={{background:`linear-gradient(135deg,${GO},${GOL})`,color:ONGOLD,border:'none',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:600,cursor:vertBusy?'not-allowed':'pointer'}}>Incluir</button>
+          </div>
+          {vertMsg && <div style={{fontSize:11.5,color:Y,marginBottom:8}}>{vertMsg}</div>}
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {verticais.map(v=>(
+              <div key={v.id} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',opacity:v.ativo?1:0.55}}>
+                <code style={{fontSize:11,color:TXM,minWidth:150}}>{v.slug}</code>
+                <input defaultValue={v.nome} onChange={e=>setNomeEdits(p=>({...p,[v.id]:e.target.value}))} style={{flex:'1 1 200px',background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 9px',fontSize:12}} />
+                <button onClick={()=>void salvarNomeVert(v.id)} disabled={vertBusy||!(v.id in nomeEdits)} style={{background:'transparent',color:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 10px',fontSize:11.5,cursor:vertBusy?'not-allowed':'pointer'}}>Salvar</button>
+                <button onClick={()=>void toggleAtivoVert(v.id,v.ativo)} disabled={vertBusy} style={{background:'transparent',color:v.ativo?Y:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 10px',fontSize:11.5,cursor:vertBusy?'not-allowed':'pointer'}}>{v.ativo?'Inativar':'Reativar'}</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {carregando && <div style={{color:TXM,fontSize:12}}>Carregando…</div>}
       {!carregando && semDoc && (
         <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:24,textAlign:'center'}}>
