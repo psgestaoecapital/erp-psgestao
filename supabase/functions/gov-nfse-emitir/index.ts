@@ -244,7 +244,8 @@ Deno.serve(async (req: Request) => {
     // #32: Simples Nacional (opcao 2 MEI / 3 ME/EPP) NAO destaca ISS na NFS-e — o imposto vai no DAS;
     // aliquota e valor de ISS sao 0 no documento. Empresa NAO-Simples (Lucro Real/Presumido, ex.: FC
     // Pisos) MANTEM o ISS destacado, com a aliquota do resolver (#1306). O regime decide, nao o operador.
-    const opcaoSN = (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 3
+    // Sem opção conhecida NAO assumir Simples (?? 3 arrastava nao-optante pro DAS/ISS=0). Default 1 = NAO optante.
+    const opcaoSN = (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 1
     const isSimples = opcaoSN === 2 || opcaoSN === 3
     const aliqIss = isSimples ? 0 : (aliqOverride ?? (p.servico.aliquota_iss ?? 5))
     const valorIss = isSimples ? 0 : round2(p.servico.valor * aliqIss / 100)
@@ -293,7 +294,7 @@ Deno.serve(async (req: Request) => {
       cnpj_prestador: cnpjPrest,
       // FIX-NFSE-OPCAO-SIMPLES-v1: 1=Nao optante, 2=Optante MEI, 3=Optante ME/EPP
       // (fonte: erp_fiscal_provider_config.opcao_simples_nacional · KGF=3)
-      codigo_opcao_simples_nacional: (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 3,
+      codigo_opcao_simples_nacional: (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 1,
       regime_especial_tributacao: 0,    // 0 = Nenhum
       // #32: o municipio da PRESTACAO (local da execucao) quando houver — nao mais sempre o emissor.
       codigo_municipio_prestacao: Number(prestacaoIbge ?? muniIbge),

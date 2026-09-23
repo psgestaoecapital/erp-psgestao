@@ -393,7 +393,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             .eq('provider', 'focusnfe')
             .eq('ativo', true)
             .maybeSingle()
-          nfseReq.opcaoSimplesNacional = (snCfg?.opcao_simples_nacional as number | null) ?? 3
+          // Config ausente NÃO pode virar "optante" (?? 3 assumia ME/EPP e arrastava não-optante pra
+          // lógica do Simples). Sem opção conhecida → 1 = NÃO optante (nunca exige alíquota do Simples).
+          nfseReq.opcaoSimplesNacional = (snCfg?.opcao_simples_nacional as number | null) ?? 1
           nfseReq.regimeApuracaoSN = (snCfg?.regime_apuracao_sn as number | null) ?? 1
           if (snCfg?.percentual_total_tributos_sn != null) nfseReq.percentualTribSN = Number(snCfg.percentual_total_tributos_sn)
           // DUAS FONTES DISTINTAS (não confundir): percentual_total_tributos_sn = TOTAL de tributos da
@@ -421,7 +423,12 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           // (tpRetISSQN=1) a DPS NÃO leva pAliq — a alíquota do SN vai no DAS (E0625) — então NÃO bloqueia
           // a emissão por falta da alíquota da competência. Se estiver cadastrada, ainda carregamos o valor
           // (usado em cálculo interno/registro); o builder decide o envio pela retenção.
-          if ((nfseReq.regimeApuracaoSN ?? 1) === 1) {
+          // A alíquota do Simples por competência (erp_fiscal_aliquota_sn) só existe/importa para OPTANTE
+          // (MEI=2 / ME/EPP=3). Empresa NÃO-optante (regime normal, ex.: FC Pisos) usa a alíquota municipal
+          // do resolver e NUNCA pode ser bloqueada por falta da alíquota do Simples — por isso o gate exige
+          // opção 2/3 (antes só olhava regApTribSN, que caía em 1 por default e pegava o não-optante).
+          const _optanteSN = nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3
+          if (_optanteSN && (nfseReq.regimeApuracaoSN ?? 1) === 1) {
             const tpRet = nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1)
             const issRetido = tpRet === 2 || tpRet === 3
             const bsb = new Date(Date.now() - 3 * 60 * 60 * 1000)  // competência = mês de Brasília (igual ao data_competencia da nota)
