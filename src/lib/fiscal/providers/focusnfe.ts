@@ -554,6 +554,12 @@ export class FocusNFeProvider implements FiscalProvider {
         pis_aliquota_porcentual: item.pis?.aliquota,
         cofins_situacao_tributaria: item.cofins?.cst,
         cofins_aliquota_porcentual: item.cofins?.aliquota,
+        // Grupo comb (NT 2016/002) · combustível/lubrificante. Nomes EXATOS da doc oficial Focus
+        // (campos.focusnfe.com.br/nfe/ItemNotaFiscalXML.html): cProdANP=combustivel_codigo_anp ·
+        // descANP=combustivel_descricao_anp · UFCons=combustivel_sigla_uf. Sem eles → rejeição (grupo comb).
+        ...(item.comb?.cProdANP != null ? { combustivel_codigo_anp: item.comb.cProdANP } : {}),
+        ...(item.comb?.descANP ? { combustivel_descricao_anp: item.comb.descANP } : {}),
+        ...(item.comb?.ufCons ? { combustivel_sigla_uf: item.comb.ufCons } : {}),
         // FIX-NFE-FRETE-RATEIO-v1 · frete/seguro/outras rateados por item (soma = total da nota)
         ...(freteItem ? { valor_frete: freteItem[idx] } : {}),
         ...(seguroItem ? { valor_seguro: seguroItem[idx] } : {}),
@@ -616,6 +622,10 @@ export class FocusNFeProvider implements FiscalProvider {
         pis_aliquota_porcentual: item.pis?.aliquota,
         cofins_situacao_tributaria: item.cofins?.cst,
         cofins_aliquota_porcentual: item.cofins?.aliquota,
+        // Grupo comb (NT 2016/002) · combustível/lubrificante — mesmos nomes oficiais Focus da NF-e.
+        ...(item.comb?.cProdANP != null ? { combustivel_codigo_anp: item.comb.cProdANP } : {}),
+        ...(item.comb?.descANP ? { combustivel_descricao_anp: item.comb.descANP } : {}),
+        ...(item.comb?.ufCons ? { combustivel_sigla_uf: item.comb.ufCons } : {}),
       })),
       formas_pagamento: [{ forma_pagamento: formaPag, valor_pagamento: req.pagamento?.valor ?? totalNota }],
     }

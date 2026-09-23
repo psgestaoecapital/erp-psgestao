@@ -186,7 +186,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   const { data: produtos } = await supabaseAdmin
     .from('erp_produtos')
     .select(
-      'id, codigo, nome, descricao, ncm, cfop_venda, cest, origem, cst_icms, cst_pis, cst_cofins, aliquota_icms, aliquota_ipi, aliquota_pis, aliquota_cofins, unidade, preco_venda, vbcst_ret, pst, vicms_substituto, vicms_st_ret'
+      'id, codigo, nome, descricao, ncm, cfop_venda, cest, origem, cst_icms, cst_pis, cst_cofins, aliquota_icms, aliquota_ipi, aliquota_pis, aliquota_cofins, unidade, preco_venda, vbcst_ret, pst, vicms_substituto, vicms_st_ret, combustivel_codigo_anp, combustivel_descricao_anp'
     )
     .in('id', produtoIds)
     .eq('company_id', input.companyId)
@@ -218,6 +218,20 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
           pst: prod.pst != null ? Number(prod.pst) : undefined,
           vIcmsSubstituto: prod.vicms_substituto != null ? Number(prod.vicms_substituto) * it.quantidade : undefined,
           vIcmsStRet: prod.vicms_st_ret != null ? Number(prod.vicms_st_ret) * it.quantidade : undefined,
+        }
+      : undefined
+
+    // Grupo comb (NT 2016/002): item cujo NCM é de combustível/lubrificante (começa com 2710) exige
+    // cProdANP + descANP (do cadastro do produto) e UFCons (UF do destinatário na emissão). Sem eles a
+    // SEFAZ rejeita o grupo comb; o nfe-validator barra antes, no padrão do 232/938. Só monta quando é 2710.
+    const ncmDigits = (prod.ncm ?? '').replace(/\D/g, '')
+    const ehCombustivel = ncmDigits.startsWith('2710')
+    const comb = ehCombustivel
+      ? {
+          cProdANP: prod.combustivel_codigo_anp != null ? Number(prod.combustivel_codigo_anp) : undefined,
+          descANP: prod.combustivel_descricao_anp || undefined,
+          // UFCons = UF do consumo (destinatário). "EX" quando exterior (sem UF nacional).
+          ufCons: destinatario.endereco?.uf ? destinatario.endereco.uf.toUpperCase() : undefined,
         }
       : undefined
 
@@ -260,6 +274,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
         cst: prod.cst_cofins ?? (ehSimples ? '04' : undefined),
         aliquota: prod.aliquota_cofins ?? (ehSimples ? 0 : undefined),
       },
+      ...(comb ? { comb } : {}),
     }
   })
 
