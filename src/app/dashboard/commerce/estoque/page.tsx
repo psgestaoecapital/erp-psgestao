@@ -721,6 +721,7 @@ function EstoqueInner() {
           buscando={filtroBusca.trim().length >= 2}
           reservas={reservas}
           onSelect={setProdutoSel}
+          onEditar={(id) => router.push(`/dashboard/cadastros/produtos?edit=${id}`)}
         />
       ) : tab === 'movimentacoes' ? (
         <TabMovimentacoes
@@ -863,7 +864,7 @@ function TabLocais({ locais, onEdit, onDelete, canCreate, onCreate }: { locais: 
   )
 }
 
-function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroBusca, filtroCategoria, setFiltroCategoria, filtroEstoque, setFiltroEstoque, page, setPage, pageSize, buscando, reservas, onSelect }: {
+function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroBusca, filtroCategoria, setFiltroCategoria, filtroEstoque, setFiltroEstoque, page, setPage, pageSize, buscando, reservas, onSelect, onEditar }: {
   rows: Produto[]; total: number; loading: boolean; categorias: string[];
   filtroBusca: string; setFiltroBusca: (v: string) => void;
   filtroCategoria: string; setFiltroCategoria: (v: string) => void;
@@ -872,6 +873,7 @@ function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroB
   buscando: boolean;
   reservas: Record<string, number>;  // Bloco D · produto_id → reservado
   onSelect: (p: Produto) => void;
+  onEditar: (id: string) => void;  // #118 (Jordana): abre a ficha do produto (cadastro) p/ editar dados fiscais
 }) {
   // FIX-PRODUTOS-BUSCA-SERVERSIDE-v1 · paginacao real (sem teto cego de 500)
   const totalPaginas = Math.max(1, Math.ceil(total / pageSize))
@@ -915,7 +917,7 @@ function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroB
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1080 }}>
               <thead style={{ background: C.cream }}>
-                <tr><Th>Código</Th><Th>Nome</Th><Th>Categoria</Th><Th>Unid.</Th><Th align="right">Físico</Th><Th align="right">Reservado</Th><Th align="right">Disponível</Th><Th align="right">Mín/Máx</Th><Th align="right">Custo médio</Th><Th align="right">Valor estoque</Th><Th>Status</Th></tr>
+                <tr><Th>Código</Th><Th>Nome</Th><Th>Categoria</Th><Th>Unid.</Th><Th align="right">Físico</Th><Th align="right">Reservado</Th><Th align="right">Disponível</Th><Th align="right">Mín/Máx</Th><Th align="right">Custo médio</Th><Th align="right">Valor estoque</Th><Th>Status</Th><Th align="right">Editar</Th></tr>
               </thead>
               <tbody>
                 {rows.map((p) => {
@@ -946,6 +948,10 @@ function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroB
                           status === 'baixo' ? <Badge cor={C.red}>Abaixo mín</Badge> :
                             status === 'excedente' ? <Badge cor={C.amber}>Excedente</Badge> :
                               <Badge cor={C.green}>OK</Badge>}
+                      </Td>
+                      <Td align="right">
+                        {/* #118 (Jordana): editar os dados do produto (nome, unidade, fiscal) na ficha do cadastro */}
+                        <button type="button" title="Editar dados do produto" onClick={(e) => { e.stopPropagation(); onEditar(p.id) }} style={btnIcon}><Pencil size={14} /></button>
                       </Td>
                     </tr>
                   )

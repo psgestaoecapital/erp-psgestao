@@ -116,6 +116,19 @@ export default function ProdutosPage() {
     return () => { alive = false }
   }, [companyId])
 
+  // #118 (Jordana): deep-link ?edit=<id> abre a ficha do produto direto — é como o Estoque manda o
+  // usuário editar aqui. Busca a linha COMPLETA (SELECT_COLS) para o ProdutoForm não perder campo
+  // fiscal (NCM/CST/ST) ao salvar.
+  useEffect(() => {
+    if (!companyId) return
+    const editId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('edit') : null
+    if (!editId) return
+    let alive = true
+    supabase.from('erp_produtos').select(SELECT_COLS).eq('company_id', companyId).eq('id', editId).maybeSingle()
+      .then(({ data }) => { if (alive && data) setEditando(data as unknown as Produto) })
+    return () => { alive = false }
+  }, [companyId])
+
   // Carrega grupos distintos (uma vez por empresa)
   useEffect(() => {
     if (!companyId) return
