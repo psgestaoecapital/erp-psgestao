@@ -371,6 +371,12 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
                 <option value="nao_contribuinte">Não contribuinte</option>
               </select>
             </Campo>
+            {tipoPessoa === 'PJ' && contribuinteIcms === '' && (
+              <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 6, background: '#FBF6EA', border: '0.5px solid rgba(201,154,46,0.5)', fontSize: 12, color: '#6B4B33' }}>
+                ⚠️ Defina o enquadramento ICMS desta empresa. Sem isso, a NF-e sai sem o indicador do
+                destinatário — e um contribuinte sem IE é rejeitado pela Sefaz (232).
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
