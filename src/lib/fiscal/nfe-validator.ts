@@ -22,6 +22,15 @@ export function validateNFeRequest(req: NFeRequest): void {
   if (!req.destinatario.cnpj && !req.destinatario.cpf) {
     erros.push('Destinatario precisa de CNPJ OU CPF')
   }
+  // Guarda 232: destinatario declarado CONTRIBUINTE (indIEDest=1) precisa de Inscricao Estadual. A
+  // SEFAZ rejeita "IE do destinatario nao informada" (232). Barra ANTES de enviar — melhor parar aqui
+  // com mensagem clara do que gastar uma rejeicao na frente do cliente. Isento(2)/nao-contribuinte(9)
+  // nao exigem IE. Chokepoint unico: todo caminho de emissao passa por validateNFeRequest.
+  if (req.destinatario.indicadorIE === 1 && !req.destinatario.inscricaoEstadual) {
+    erros.push('Destinatario e contribuinte de ICMS mas esta sem Inscricao Estadual · '
+      + 'informe a IE no cadastro do cliente, ou marque-o como isento / nao contribuinte · '
+      + 'sem isso a SEFAZ rejeita (232 · IE do destinatario nao informada)')
+  }
   if (!req.destinatario.endereco) {
     erros.push('Endereco completo do destinatario obrigatorio pra NFe')
   } else {

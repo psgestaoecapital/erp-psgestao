@@ -174,6 +174,14 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
       return
     }
 
+    // Guarda 232 (cadastro): declarar "contribuinte" de ICMS exige a Inscrição Estadual. Sem ela a
+    // Sefaz rejeita a NF-e ("IE do destinatário não informada"). "Isento"/"não contribuinte" NÃO exigem
+    // IE — só o contribuinte. Barra aqui pra não deixar o dado ausente entrar e quebrar o faturamento.
+    if (contribuinteIcms === 'contribuinte' && !onlyDigits(ie)) {
+      setErro('Contribuinte de ICMS exige Inscrição Estadual. Informe a IE, ou marque como isento / não contribuinte — sem isso a Sefaz rejeita a NF-e (232).')
+      return
+    }
+
     const cnpjLimpo = onlyDigits(cnpjCpf)
 
     // Duplicidade de CNPJ/CPF na empresa (so PJ ou PF com documento)
