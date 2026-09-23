@@ -8,7 +8,7 @@ import { isFiscalError } from '@/lib/fiscal/errors'
 import { emitirNFSeViaGovServer } from '@/lib/fiscal/gov-nfse-provider'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
-import type { NFSeRequest } from '@/lib/fiscal/types'
+import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -388,12 +388,23 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           nfseReq.padraoNacional = true
           const { data: snCfg } = await supabaseAdmin
             .from('erp_fiscal_provider_config')
-            .select('opcao_simples_nacional, regime_apuracao_sn, percentual_total_tributos_sn, reforma_finalidade_emissao, reforma_consumidor_final, reforma_indicador_destinatario, reforma_ibs_cbs_cst, reforma_ibs_cbs_classif_trib')
+            .select('opcao_simples_nacional, regime_tributario, regime_apuracao_sn, percentual_total_tributos_sn, reforma_finalidade_emissao, reforma_consumidor_final, reforma_indicador_destinatario, reforma_ibs_cbs_cst, reforma_ibs_cbs_classif_trib')
             .eq('company_id', body.companyId)
             .eq('provider', 'focusnfe')
             .eq('ativo', true)
             .maybeSingle()
-          nfseReq.opcaoSimplesNacional = (snCfg?.opcao_simples_nacional as number | null) ?? 3
+          // Opção do Simples RESOLVIDA sem adivinhar: usa a cadastrada; se nula, deriva do regime tributário;
+          // regime desconhecido → BLOQUEIA (assumir optante OU não-optante emite nota errada — ex.: VIANZ,
+          // opção nula + regime simples_nacional, não pode virar não-optante).
+          const _opcaoSN = resolverOpcaoSimplesNacional(
+            snCfg?.opcao_simples_nacional as number | null,
+            snCfg?.regime_tributario as string | null,
+          )
+          if (_opcaoSN == null) {
+            return NextResponse.json({ ok: false, mensagem: 'Configuração fiscal incompleta: defina a opção do Simples Nacional (ou o regime tributário) da empresa em Configurações › Fiscal antes de emitir. O sistema não adivinha o regime.' }, { status: 400 })
+          }
+          nfseReq.opcaoSimplesNacional = _opcaoSN
+          nfseReq.regimeTributario = (snCfg?.regime_tributario as string | null) ?? null
           nfseReq.regimeApuracaoSN = (snCfg?.regime_apuracao_sn as number | null) ?? 1
           if (snCfg?.percentual_total_tributos_sn != null) nfseReq.percentualTribSN = Number(snCfg.percentual_total_tributos_sn)
           // DUAS FONTES DISTINTAS (não confundir): percentual_total_tributos_sn = TOTAL de tributos da
@@ -421,7 +432,12 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           // (tpRetISSQN=1) a DPS NÃO leva pAliq — a alíquota do SN vai no DAS (E0625) — então NÃO bloqueia
           // a emissão por falta da alíquota da competência. Se estiver cadastrada, ainda carregamos o valor
           // (usado em cálculo interno/registro); o builder decide o envio pela retenção.
-          if ((nfseReq.regimeApuracaoSN ?? 1) === 1) {
+          // A alíquota do Simples por competência (erp_fiscal_aliquota_sn) só existe/importa para OPTANTE
+          // (MEI=2 / ME/EPP=3). Empresa NÃO-optante (regime normal, ex.: FC Pisos) usa a alíquota municipal
+          // do resolver e NUNCA pode ser bloqueada por falta da alíquota do Simples — por isso o gate exige
+          // opção 2/3 (antes só olhava regApTribSN, que caía em 1 por default e pegava o não-optante).
+          const _optanteSN = nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3
+          if (_optanteSN && (nfseReq.regimeApuracaoSN ?? 1) === 1) {
             const tpRet = nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1)
             const issRetido = tpRet === 2 || tpRet === 3
             const bsb = new Date(Date.now() - 3 * 60 * 60 * 1000)  // competência = mês de Brasília (igual ao data_competencia da nota)

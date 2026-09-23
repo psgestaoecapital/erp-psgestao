@@ -1,4 +1,5 @@
 import { FiscalError } from '../errors'
+import { resolverOpcaoSimplesNacional } from '../types'
 import type {
   FiscalProvider,
   NFSeRequest,
@@ -65,7 +66,11 @@ function isoBrasilia(d: Date = new Date()): string {
 }
 export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
   const muni = Number(String(req.prestador.codigoMunicipio ?? '').replace(/\D/g, ''))
-  const opc = req.opcaoSimplesNacional ?? 3
+  // Opção do Simples resolvida sem adivinhar (o route já resolve/bloqueia; aqui é defesa: regime desconhecido → erro, nunca chute).
+  const opc = resolverOpcaoSimplesNacional(req.opcaoSimplesNacional, req.regimeTributario)
+  if (opc == null) {
+    throw new FiscalError('PAYLOAD_INVALIDO', 'Configuração fiscal incompleta: defina a opção do Simples Nacional (ou o regime tributário) da empresa antes de emitir.')
+  }
   const emissao = isoBrasilia()
   const p: Record<string, unknown> = {
     // Sem serie_rps/numero_rps: o /v2/nfsen usa data_emissao (Focus numera).
@@ -104,7 +109,8 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
   // empresas do Simples sem retenção. regApTribSN≠1 (ISS por fora) segue como antes (não envia pAliq aqui).
   const _tpRetPAliq = Number(p.tipo_retencao_iss) || 1   // 1 não retido · 2 retido tomador · 3 retido interm.
   const _issRetido = _tpRetPAliq === 2 || _tpRetPAliq === 3
-  if ((req.regimeApuracaoSN ?? 1) === 1 && req.aliquotaISSSN != null && _issRetido) {
+  // pAliq do Simples só para OPTANTE (2/3). Não-optante não carrega a alíquota efetiva do SN aqui.
+  if ((opc === 2 || opc === 3) && (req.regimeApuracaoSN ?? 1) === 1 && req.aliquotaISSSN != null && _issRetido) {
     p.percentual_aliquota_relativa_municipio = req.aliquotaISSSN
   }
   if (req.codigoNbs) p.codigo_nbs = req.codigoNbs

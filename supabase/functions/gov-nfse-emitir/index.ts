@@ -24,6 +24,23 @@ const CORS_HEADERS = {
 
 type Ambiente = "homologacao" | "producao"
 
+// Resolve a opcao do Simples (1 nao optante / 2 MEI / 3 ME/EPP) SEM adivinhar: usa a cadastrada;
+// se nula, deriva do regime tributario; regime desconhecido/ausente -> null (o chamador BLOQUEIA).
+// Espelha src/lib/fiscal/types.ts::resolverOpcaoSimplesNacional (Deno nao importa de src/).
+function resolverOpcaoSN(opcao?: number | null, regime?: string | null): number | null {
+  if (opcao === 1 || opcao === 2 || opcao === 3) return opcao
+  switch ((regime ?? "").toLowerCase().trim()) {
+    case "mei": return 2
+    case "simples":
+    case "simples_nacional":
+    case "simples_nacional_excesso": return 3
+    case "regime_normal":
+    case "lucro_presumido":
+    case "lucro_real": return 1
+    default: return null
+  }
+}
+
 interface Payload {
   company_id: string
   teste_homologacao?: boolean
@@ -161,7 +178,7 @@ Deno.serve(async (req: Request) => {
     const ambiente: Ambiente = p.teste_homologacao ? "homologacao" : "producao"
     const { data: cfg } = await sb
       .from("erp_fiscal_provider_config")
-      .select("gov_nfse_municipio_codigo, focus_token_secret_homolog, focus_token_secret_prod, opcao_simples_nacional, percentual_total_tributos_sn, regime_apuracao_sn")
+      .select("gov_nfse_municipio_codigo, focus_token_secret_homolog, focus_token_secret_prod, opcao_simples_nacional, regime_tributario, percentual_total_tributos_sn, regime_apuracao_sn")
       .eq("company_id", p.company_id)
       .eq("provider", "gov_nfse_nacional")
       .eq("ativo", true)
@@ -244,7 +261,15 @@ Deno.serve(async (req: Request) => {
     // #32: Simples Nacional (opcao 2 MEI / 3 ME/EPP) NAO destaca ISS na NFS-e — o imposto vai no DAS;
     // aliquota e valor de ISS sao 0 no documento. Empresa NAO-Simples (Lucro Real/Presumido, ex.: FC
     // Pisos) MANTEM o ISS destacado, com a aliquota do resolver (#1306). O regime decide, nao o operador.
-    const opcaoSN = (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 3
+    // Opcao do Simples RESOLVIDA sem adivinhar: usa a cadastrada; se nula, deriva do regime tributario;
+    // regime desconhecido -> BLOQUEIA (assumir optante OU nao-optante emite nota errada).
+    const opcaoSN = resolverOpcaoSN(
+      (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional,
+      (cfg as { regime_tributario?: string | null }).regime_tributario,
+    )
+    if (opcaoSN == null) {
+      return respond(400, { ok: false, erro: "Configuracao fiscal incompleta: defina a opcao do Simples Nacional (ou o regime tributario) da empresa antes de emitir. O sistema nao adivinha o regime." })
+    }
     const isSimples = opcaoSN === 2 || opcaoSN === 3
     const aliqIss = isSimples ? 0 : (aliqOverride ?? (p.servico.aliquota_iss ?? 5))
     const valorIss = isSimples ? 0 : round2(p.servico.valor * aliqIss / 100)
@@ -293,7 +318,7 @@ Deno.serve(async (req: Request) => {
       cnpj_prestador: cnpjPrest,
       // FIX-NFSE-OPCAO-SIMPLES-v1: 1=Nao optante, 2=Optante MEI, 3=Optante ME/EPP
       // (fonte: erp_fiscal_provider_config.opcao_simples_nacional · KGF=3)
-      codigo_opcao_simples_nacional: (cfg as { opcao_simples_nacional?: number | null }).opcao_simples_nacional ?? 3,
+      codigo_opcao_simples_nacional: opcaoSN,
       regime_especial_tributacao: 0,    // 0 = Nenhum
       // #32: o municipio da PRESTACAO (local da execucao) quando houver — nao mais sempre o emissor.
       codigo_municipio_prestacao: Number(prestacaoIbge ?? muniIbge),
