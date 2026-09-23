@@ -45,6 +45,20 @@ export function validateNFeRequest(req: NFeRequest): void {
       if (!item.quantidade || item.quantidade <= 0) erros.push(`${prefixo}: quantidade > 0`)
       if (!item.valorUnitario || item.valorUnitario <= 0) erros.push(`${prefixo}: valor unitario > 0`)
       if (!item.unidade) erros.push(`${prefixo}: unidade obrigatoria (ex: UN, KG, M)`)
+      // Guarda ST retido (padrão do 232): CST 60/500 (ICMS cobrado antes por ST) exige os 4 campos de
+      // ST retido; sem eles a SEFAZ rejeita (938). Barra ANTES de emitir, dizendo quais faltam — melhor
+      // parar aqui do que gastar uma rejeição. Zero é valor válido, então testa == null (não falsy).
+      if (item.icms?.cst === '500' || item.icms?.cst === '60') {
+        const s = item.icms.stRet
+        const faltando: string[] = []
+        if (s?.vBcstRet == null) faltando.push('Base de cálculo do ICMS ST retido (vBCSTRet)')
+        if (s?.pst == null) faltando.push('Alíquota suportada pelo consumidor final (pST)')
+        if (s?.vIcmsSubstituto == null) faltando.push('ICMS próprio do substituto (vICMSSubstituto)')
+        if (s?.vIcmsStRet == null) faltando.push('ICMS ST retido (vICMSSTRet)')
+        if (faltando.length > 0) {
+          erros.push(`${prefixo}: CST ${item.icms.cst} exige os campos de ST retido no cadastro do produto (bloco Fiscal) · faltando: ${faltando.join(', ')}`)
+        }
+      }
     })
   }
 

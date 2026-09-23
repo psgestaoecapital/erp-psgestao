@@ -23,6 +23,11 @@ export interface Produto {
   aliquota_pis?: number | null
   cst_cofins?: string | null
   aliquota_cofins?: number | null
+  // CST 60/500 · ST retido (NT 2018.005), por unidade
+  vbcst_ret?: number | null
+  pst?: number | null
+  vicms_substituto?: number | null
+  vicms_st_ret?: number | null
   ativo?: boolean | null
 }
 
@@ -57,6 +62,11 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
   const [aliquotaPis, setAliquotaPis] = useState(String(produto?.aliquota_pis ?? '1.65'))
   const [cstCofins, setCstCofins] = useState(produto?.cst_cofins ?? '01')
   const [aliquotaCofins, setAliquotaCofins] = useState(String(produto?.aliquota_cofins ?? '7.6'))
+  // CST 60/500 · ST retido (por unidade). '' = não informado (mantém NULL no banco).
+  const [vbcstRet, setVbcstRet] = useState(produto?.vbcst_ret != null ? String(produto.vbcst_ret) : '')
+  const [pst, setPst] = useState(produto?.pst != null ? String(produto.pst) : '')
+  const [vicmsSubstituto, setVicmsSubstituto] = useState(produto?.vicms_substituto != null ? String(produto.vicms_substituto) : '')
+  const [vicmsStRet, setVicmsStRet] = useState(produto?.vicms_st_ret != null ? String(produto.vicms_st_ret) : '')
 
   async function salvar() {
     setSalvando(true)
@@ -85,6 +95,11 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
         aliquota_pis: parseFloat(aliquotaPis) || 0,
         cst_cofins: cstCofins || null,
         aliquota_cofins: parseFloat(aliquotaCofins) || 0,
+        // ST retido (CST 60/500) · '' → NULL; 0 é valor válido, por isso não uso `|| null`.
+        vbcst_ret: vbcstRet.trim() === '' ? null : parseFloat(vbcstRet.replace(',', '.')),
+        pst: pst.trim() === '' ? null : parseFloat(pst.replace(',', '.')),
+        vicms_substituto: vicmsSubstituto.trim() === '' ? null : parseFloat(vicmsSubstituto.replace(',', '.')),
+        vicms_st_ret: vicmsStRet.trim() === '' ? null : parseFloat(vicmsStRet.replace(',', '.')),
         ativo: true,
       }
       const body = produto ? { ...payload, id: produto.id } : payload
@@ -174,6 +189,23 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
                 <Campo label="CST COFINS" value={cstCofins} onChange={setCstCofins} placeholder="01" />
                 <Campo label="Aliquota COFINS (%)" value={aliquotaCofins} onChange={setAliquotaCofins} placeholder="7.6" />
               </div>
+
+              {(cstIcms === '500' || cstIcms === '60') && (
+                <div className="mt-4 rounded-lg border border-[#C99A2E]/40 bg-[#FBF6EA] p-3">
+                  <div className="text-[12px] font-semibold text-[#3D2314] mb-0.5">ICMS ST retido (CST {cstIcms})</div>
+                  <div className="text-[11px] text-[#6B4B33] mb-2.5">
+                    Obrigatorio pelo leiaute (NT 2018.005) — sem isto a SEFAZ rejeita (938). Valores <b>por unidade</b>:
+                    a nota multiplica pela quantidade vendida. A aliquota (pST) e percentual e nao multiplica.
+                    Os quatro vem da nota de compra do fornecedor.
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Campo label="vBCSTRet · Base ICMS ST retido (R$/un)" value={vbcstRet} onChange={setVbcstRet} placeholder="0.00" />
+                    <Campo label="pST · Aliquota consumidor final (%)" value={pst} onChange={setPst} placeholder="ex: 18" />
+                    <Campo label="vICMSSubstituto · ICMS do substituto (R$/un)" value={vicmsSubstituto} onChange={setVicmsSubstituto} placeholder="0.00" />
+                    <Campo label="vICMSSTRet · ICMS ST retido (R$/un)" value={vicmsStRet} onChange={setVicmsStRet} placeholder="0.00" />
+                  </div>
+                </div>
+              )}
             </>
           )}
 

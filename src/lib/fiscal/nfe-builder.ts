@@ -186,7 +186,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   const { data: produtos } = await supabaseAdmin
     .from('erp_produtos')
     .select(
-      'id, codigo, nome, descricao, ncm, cfop_venda, cest, origem, cst_icms, cst_pis, cst_cofins, aliquota_icms, aliquota_ipi, aliquota_pis, aliquota_cofins, unidade, preco_venda'
+      'id, codigo, nome, descricao, ncm, cfop_venda, cest, origem, cst_icms, cst_pis, cst_cofins, aliquota_icms, aliquota_ipi, aliquota_pis, aliquota_cofins, unidade, preco_venda, vbcst_ret, pst, vicms_substituto, vicms_st_ret'
     )
     .in('id', produtoIds)
     .eq('company_id', input.companyId)
@@ -205,6 +205,21 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     const valorUnit = it.valorUnitarioOverride ?? Number(prod.preco_venda ?? 0)
     const desconto = it.descontoUnitario ?? 0
     const valorTotal = (valorUnit - desconto) * it.quantidade
+
+    // CST 60 / 500 (ICMS cobrado anteriormente por ST): o item precisa do grupo ST retido, senão
+    // a SEFAZ rejeita (938). Os campos do produto são POR UNIDADE; os VALORES escalam pela quantidade,
+    // a alíquota (pst) NÃO (é percentual). Só monta quando o produto tem os valores — sem eles, o
+    // nfe-validator barra antes da SEFAZ com mensagem clara (guarda no padrão do 232).
+    const cstIcmsProd = prod.cst_icms ?? (ehSimples ? '102' : undefined)
+    const ehStRetido = cstIcmsProd === '500' || cstIcmsProd === '60'
+    const stRet = ehStRetido
+      ? {
+          vBcstRet: prod.vbcst_ret != null ? Number(prod.vbcst_ret) * it.quantidade : undefined,
+          pst: prod.pst != null ? Number(prod.pst) : undefined,
+          vIcmsSubstituto: prod.vicms_substituto != null ? Number(prod.vicms_substituto) * it.quantidade : undefined,
+          vIcmsStRet: prod.vicms_st_ret != null ? Number(prod.vicms_st_ret) * it.quantidade : undefined,
+        }
+      : undefined
 
     return {
       codigo: prod.codigo ?? prod.id,
@@ -232,8 +247,9 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
             modBc: it.icmsOverride.modBc ?? '1',
           }
         : {
-            cst: prod.cst_icms ?? (ehSimples ? '102' : undefined),
+            cst: cstIcmsProd,
             aliquota: prod.aliquota_icms ?? undefined,
+            ...(stRet ? { stRet } : {}),
           },
       ipi: undefined, // Simples Nacional / revenda: sem grupo IPI
       pis: {
