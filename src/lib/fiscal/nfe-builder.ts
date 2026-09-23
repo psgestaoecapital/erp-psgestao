@@ -87,6 +87,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       tem_produto?: boolean
       destinatario?: {
         tipo?: string; documento?: string; nome?: string; email?: string
+        // #125: IE + indicador do destinatário (fn_pedido_nfe_dados agora os fornece).
+        inscricao_estadual?: string | null; indicador_ie?: 1 | 2 | 9 | null
         logradouro?: string; numero?: string; bairro?: string
         municipio?: string; uf?: string; cep?: string
       }
@@ -98,6 +100,10 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario = {
       razaoSocial: dest.nome ?? '',
       ...(dest.tipo === 'cnpj' ? { cnpj: dest.documento } : { cpf: dest.documento }),
+      // #125: sem estes campos a Sefaz rejeita 232 "IE do destinatário não informada".
+      // indicadorIE undefined → o provider deriva de ter IE (contribuinte com IE → 1).
+      inscricaoEstadual: dest.inscricao_estadual || undefined,
+      indicadorIE: (dest.indicador_ie ?? undefined) as 1 | 2 | 9 | undefined,
       email: dest.email,
       endereco: {
         logradouro: dest.logradouro ?? '',
