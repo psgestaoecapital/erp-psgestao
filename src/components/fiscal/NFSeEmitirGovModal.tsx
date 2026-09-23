@@ -501,13 +501,19 @@ export default function NFSeEmitirGovModal({
       return
     }
 
+    // DECISÃO DO CEO (23/09): emissão fiscal EXCLUSIVAMENTE via Focus. ETAPA 1 (reversível, sem remoção):
+    // toda emissão vai pela rota REST /api/fiscal/nfse/emitir — a edge gov-nfse-emitir deixa de ser
+    // chamada, sem exceção nem bifurcação por município. O branch gov (else) fica INTACTO, só inalcançável.
+    // Reverter = trocar por `providerAtivo === 'focusnfe'`. (RD-38: 0 nota já saiu pelo gov; todas via Focus.)
+    const emitirViaFocus = providerAtivo != null
+
     // Focus → rota REST /api/fiscal/nfse/emitir, que emite POR parcela a receber (erp_receber). Resolve
     // a parcela do pedido AGORA (antes de "enviando"), pra falha de resolução aparecer no formulário.
     // NFS-e PRIMEIRO: se o pedido ainda NÃO tem parcela a receber, emite pelo caminho 'manual' (tomador +
     // serviço + valor) — o financeiro nasce DEPOIS, da nota, pelo LÍQUIDO. Se já houver título (fluxo atual),
     // emite por erp_receber e vincula sem duplicar. Sem tomador não emite (CEO: nem sem tomador nem sem serviço).
     let erpReceberIdFocus: string | undefined
-    if (providerAtivo === 'focusnfe') {
+    if (emitirViaFocus) {
       erpReceberIdFocus = await resolverReceberDoPedido()
       if (!erpReceberIdFocus && !soDigitos(tomDoc)) {
         setErroLocal('Informe o tomador (CNPJ/CPF) para emitir a NFS-e antes de faturar.')
@@ -517,7 +523,7 @@ export default function NFSeEmitirGovModal({
 
     setFase('enviando')
     try {
-      if (providerAtivo === 'focusnfe') {
+      if (emitirViaFocus) {
         // Mesmo formato do NFSePreviewModal/EmitirNFSeButton: authFetch (Bearer) + emissão por erp_receber.
         // A rota já roteia internamente (Focus municipal/nacional), aplica travas (obra E0370, duplicidade,
         // Simples) e devolve a mensagem da prefeitura JÁ em português (humanizarErroFiscal) — nunca o
