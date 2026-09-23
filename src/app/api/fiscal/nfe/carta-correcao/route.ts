@@ -58,7 +58,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       )
     }
 
-    const referenciaFocus = nfe.chave?.trim() || nfe.provider_reference?.trim()
+    // #94: a Focus indexa /v2/nfe/{ref}/carta_correcao pela REFERENCE de emissão, não pela chave de
+    // 44 dígitos. Preferir provider_reference (100% populado) — passar a chave dava 404 "não acha a nota".
+    const referenciaFocus = nfe.provider_reference?.trim() || nfe.chave?.trim()
     if (!referenciaFocus) {
       return NextResponse.json(
         { ok: false, mensagem: 'NFe sem chave nem provider_reference · sem como identificar na Focus' },
