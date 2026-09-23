@@ -28,6 +28,9 @@ export interface Produto {
   pst?: number | null
   vicms_substituto?: number | null
   vicms_st_ret?: number | null
+  // Grupo comb (NT 2016/002) · combustível/lubrificante (NCM 2710...). Da tabela SIMP da ANP.
+  combustivel_codigo_anp?: number | null
+  combustivel_descricao_anp?: string | null
   ativo?: boolean | null
 }
 
@@ -67,6 +70,10 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
   const [pst, setPst] = useState(produto?.pst != null ? String(produto.pst) : '')
   const [vicmsSubstituto, setVicmsSubstituto] = useState(produto?.vicms_substituto != null ? String(produto.vicms_substituto) : '')
   const [vicmsStRet, setVicmsStRet] = useState(produto?.vicms_st_ret != null ? String(produto.vicms_st_ret) : '')
+  // Grupo comb (NCM 2710) · ANP. '' = não informado (mantém NULL no banco).
+  const [combAnpCodigo, setCombAnpCodigo] = useState(produto?.combustivel_codigo_anp != null ? String(produto.combustivel_codigo_anp) : '')
+  const [combAnpDescricao, setCombAnpDescricao] = useState(produto?.combustivel_descricao_anp ?? '')
+  const ncmEhCombustivel = ncm.replace(/\D/g, '').startsWith('2710')
 
   async function salvar() {
     setSalvando(true)
@@ -100,6 +107,9 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
         pst: pst.trim() === '' ? null : parseFloat(pst.replace(',', '.')),
         vicms_substituto: vicmsSubstituto.trim() === '' ? null : parseFloat(vicmsSubstituto.replace(',', '.')),
         vicms_st_ret: vicmsStRet.trim() === '' ? null : parseFloat(vicmsStRet.replace(',', '.')),
+        // Grupo comb (NCM 2710) · código ANP é inteiro; '' → NULL.
+        combustivel_codigo_anp: combAnpCodigo.trim() === '' ? null : parseInt(combAnpCodigo.replace(/\D/g, ''), 10),
+        combustivel_descricao_anp: combAnpDescricao.trim() === '' ? null : combAnpDescricao.trim(),
         ativo: true,
       }
       const body = produto ? { ...payload, id: produto.id } : payload
@@ -203,6 +213,21 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
                     <Campo label="pST · Aliquota consumidor final (%)" value={pst} onChange={setPst} placeholder="ex: 18" />
                     <Campo label="vICMSSubstituto · ICMS do substituto (R$/un)" value={vicmsSubstituto} onChange={setVicmsSubstituto} placeholder="0.00" />
                     <Campo label="vICMSSTRet · ICMS ST retido (R$/un)" value={vicmsStRet} onChange={setVicmsStRet} placeholder="0.00" />
+                  </div>
+                </div>
+              )}
+
+              {ncmEhCombustivel && (
+                <div className="mt-4 rounded-lg border border-[#C99A2E]/40 bg-[#FBF6EA] p-3">
+                  <div className="text-[12px] font-semibold text-[#3D2314] mb-0.5">Combustivel / lubrificante — grupo ANP (NCM 2710)</div>
+                  <div className="text-[11px] text-[#6B4B33] mb-2.5">
+                    Obrigatorio pelo leiaute (NT 2016/002) — sem isto a SEFAZ rejeita o grupo comb. O codigo
+                    e a descricao vem da tabela SIMP da ANP (fixos por produto). A UF de consumo sai da nota
+                    (destinatario), nao e preenchida aqui.
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Campo label="cProdANP · Codigo ANP (SIMP)" value={combAnpCodigo} onChange={setCombAnpCodigo} placeholder="ex: 320101001" maxLength={9} mono />
+                    <Campo label="descANP · Descricao ANP" value={combAnpDescricao} onChange={setCombAnpDescricao} placeholder="descricao conforme a ANP" />
                   </div>
                 </div>
               )}

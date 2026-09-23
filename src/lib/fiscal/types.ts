@@ -137,6 +137,10 @@ export interface NFeProdutoItem {
   ipi?: { cst?: string; aliquota?: number; valor?: number }
   pis?: { cst?: string; aliquota?: number; valor?: number }
   cofins?: { cst?: string; aliquota?: number; valor?: number }
+  // Grupo comb (NT 2016/002) · combustível/lubrificante (NCM 2710...). cProdANP e descANP vêm do
+  // cadastro do produto (tabela SIMP da ANP); ufCons é a UF do destinatário na emissão ("EX" p/ exterior).
+  // Disparado no builder quando o NCM começa com 2710.
+  comb?: { cProdANP?: number; descANP?: string; ufCons?: string }
 }
 
 export interface NFeRequest {

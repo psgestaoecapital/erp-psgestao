@@ -68,6 +68,19 @@ export function validateNFeRequest(req: NFeRequest): void {
           erros.push(`${prefixo}: CST ${item.icms.cst} exige os campos de ST retido no cadastro do produto (bloco Fiscal) · faltando: ${faltando.join(', ')}`)
         }
       }
+      // Guarda comb (padrão do 232/938): item com NCM de combustível/lubrificante (começa com 2710) exige
+      // o grupo comb (NT 2016/002) — cProdANP e descANP no cadastro do produto (a UFCons vem do
+      // destinatário). Sem eles a SEFAZ rejeita. Barra ANTES de emitir, dizendo o que falta, pra a Jordana
+      // testar uma vez só com tudo. cProdANP é inteiro (aceita 0 teórico), por isso testa == null.
+      const ncmComb = (item.ncm ?? '').replace(/\D/g, '')
+      if (ncmComb.startsWith('2710')) {
+        const faltandoComb: string[] = []
+        if (item.comb?.cProdANP == null) faltandoComb.push('Código ANP do produto (cProdANP)')
+        if (!item.comb?.descANP) faltandoComb.push('Descrição ANP do produto (descANP)')
+        if (faltandoComb.length > 0) {
+          erros.push(`${prefixo}: produto com NCM ${ncmComb} (combustível/lubrificante) exige o grupo ANP no cadastro do produto (bloco Fiscal) · faltando: ${faltandoComb.join(', ')} · sem isso a SEFAZ rejeita (grupo comb · NT 2016/002)`)
+        }
+      }
     })
   }
 
