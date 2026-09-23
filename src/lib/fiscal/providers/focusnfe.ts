@@ -535,6 +535,13 @@ export class FocusNFeProvider implements FiscalProvider {
         icms_origem: String(item.origem ?? '0'),
         icms_situacao_tributaria: item.icms?.cst,
         icms_aliquota: item.icms?.aliquota,
+        // CST 60 / 500 · ICMS cobrado anteriormente por ST (NT 2018.005). Campos Focus:
+        // icms_base_calculo_st_retido=vBCSTRet · icms_aliquota_suportada_consumidor_final=pST ·
+        // icms_valor_substituto=vICMSSubstituto · icms_valor_st_retido=vICMSSTRet. Sem eles → rejeição 938.
+        ...(item.icms?.stRet?.vBcstRet != null ? { icms_base_calculo_st_retido: item.icms.stRet.vBcstRet } : {}),
+        ...(item.icms?.stRet?.pst != null ? { icms_aliquota_suportada_consumidor_final: item.icms.stRet.pst } : {}),
+        ...(item.icms?.stRet?.vIcmsSubstituto != null ? { icms_valor_substituto: item.icms.stRet.vIcmsSubstituto } : {}),
+        ...(item.icms?.stRet?.vIcmsStRet != null ? { icms_valor_st_retido: item.icms.stRet.vIcmsStRet } : {}),
         // devolucao-icms-espelho: base/valor/modalidade so saem quando informados (CSOSN 900 na
         // devolucao do Simples devolve o credito da entrada). Sem isto o ICMS zerava (CSOSN 102).
         ...(item.icms?.base != null ? { icms_base_calculo: item.icms.base } : {}),
