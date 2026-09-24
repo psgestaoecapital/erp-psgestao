@@ -150,13 +150,21 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
   }
 
   const ag = onlyDigits(input.agencia).padStart(4, '0').slice(-4)
-  const ct = onlyDigits(input.conta).padStart(7, '0').slice(-7)
   // nuNegociacao: prioridade absoluta para o valor da config (gerente Bradesco
-  // confirma o codigo correto da operacao); fallback para ag+0000000+conta
-  // pra manter compatibilidade com empresas que ainda nao configuraram.
-  // STRING preservando zeros a esquerda; so digitos.
+  // confirma o codigo correto da operacao). Fallback (empresa sem config) monta
+  // agencia(4) + zeros + conta(7) + digito, no total 18.
+  // BUG CORRIGIDO: antes fazia onlyDigits(conta).padStart(7).slice(-7), o que
+  //   (a) embutia o DIGITO VERIFICADOR dentro da conta e
+  //   (b) TRUNCAVA pelo slice(-7) quando conta+DV >= 8 digitos (perdia o 1o digito).
+  // Agora separa conta e DV pelo '-': a conta (sem DV) vai zero-preenchida a 7 e o
+  // DV entra como ultimo digito; o conjunto e alinhado a 14 (ag ja sao os 4 da frente).
+  const contaPartes = String(input.conta ?? '').split('-')
+  const contaSemDv = onlyDigits(contaPartes[0]).padStart(7, '0').slice(-7)
+  const contaDv = contaPartes.length > 1 ? onlyDigits(contaPartes[contaPartes.length - 1]).slice(-1) : ''
   const nuNegociacaoConfig = input.nuNegociacao ? onlyDigits(input.nuNegociacao) : ''
-  const nuNegociacao = nuNegociacaoConfig.length > 0 ? nuNegociacaoConfig : `${ag}0000000${ct}`
+  const nuNegociacaoDerivado = `${ag}${(contaSemDv + contaDv).padStart(14, '0')}`
+  const nuNegociacaoOrigem: 'config' | 'derivado' = nuNegociacaoConfig.length > 0 ? 'config' : 'derivado'
+  const nuNegociacao = nuNegociacaoConfig.length > 0 ? nuNegociacaoConfig : nuNegociacaoDerivado
 
   const payload: Record<string, unknown> = {
     nuCPFCNPJ, filialCPFCNPJ, ctrlCPFCNPJ,
@@ -213,6 +221,9 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
   if (typeof payload_resumo.nuCpfcnpjPagador === 'string') payload_resumo.nuCpfcnpjPagador = mask(payload_resumo.nuCpfcnpjPagador as string)
   if (typeof payload_resumo.nuCPFCNPJ === 'string') payload_resumo.nuCPFCNPJ = mask(payload_resumo.nuCPFCNPJ as string)
   payload_resumo._endpoint = `${HOSTS[input.cred.ambiente]}/boleto/cobranca-registro/v1/cobranca`
+  // Guarda de diagnostico: origem do nuNegociacao. Se der CBTT0004 de novo, sabemos de cara
+  // se o numero veio da CONFIG (gerente/painel) ou foi DERIVADO da agencia+conta (calculo).
+  payload_resumo._nuNegociacaoOrigem = nuNegociacaoOrigem
 
   return {
     status: res.status,
