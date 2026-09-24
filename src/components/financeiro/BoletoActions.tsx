@@ -42,7 +42,7 @@ export type BoletoEstado = {
   url: string | null
 }
 
-export type BoletoProvider = 'sicoob' | 'sicredi'
+export type BoletoProvider = 'sicoob' | 'sicredi' | 'bradesco'
 
 type Props = {
   provider: BoletoProvider
@@ -55,7 +55,7 @@ type Props = {
   onSucesso?: () => void
 }
 
-const LABEL: Record<BoletoProvider, string> = { sicoob: 'Sicoob', sicredi: 'Sicredi' }
+const LABEL: Record<BoletoProvider, string> = { sicoob: 'Sicoob', sicredi: 'Sicredi', bradesco: 'Bradesco' }
 
 const onlyDigits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')
 const cepValido = (cep: string | null) => onlyDigits(cep).length === 8

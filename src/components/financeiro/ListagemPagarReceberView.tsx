@@ -1336,7 +1336,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 motivo={nfeDocMap[r.id]?.motivo ?? undefined}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
-                              {provider === 'sicoob' || provider === 'sicredi' ? (
+                              {provider === 'sicoob' || provider === 'sicredi' || provider === 'bradesco' ? (
                                 <BoletoActions
                                   provider={provider}
                                   receberId={r.id}

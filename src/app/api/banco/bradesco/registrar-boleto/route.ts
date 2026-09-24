@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { registrarBoleto, type BradescoAmbiente } from '@/lib/banco/bradesco'
 import { onlyDigitsDoc, tipoPessoaPorDocumento } from '@/lib/banco/documento'
 import { extractBankMessage } from '@/lib/banco/bankError'
+import { gerarPdfBoleto } from '@/lib/boleto/gerarPdfBoleto'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -112,8 +113,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4) empresa (CNPJ)
-    const { data: empresa } = await supabaseAdmin.from('companies').select('cnpj').eq('id', companyId).single()
+    // 4) empresa (CNPJ + razão para o beneficiário do PDF)
+    const { data: empresa } = await supabaseAdmin.from('companies').select('cnpj, razao_social, nome_fantasia').eq('id', companyId).single()
     if (!empresa?.cnpj) {
       await logSync(companyId, 'erro', 'empresa sem CNPJ', { receber_id })
       return NextResponse.json({ ok: false, erro: 'Empresa sem CNPJ cadastrado.' }, { status: 412 })
@@ -200,24 +201,69 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, erro, detalhes: result.raw }, { status: 502 })
     }
 
-    // 7) persistir
+    // 7) PDF do boleto. A API Bradesco cobrança-registro v1 NÃO devolve PDF (diferente do Sicoob/Sicredi,
+    // que têm endpoint de 2ª via), então geramos localmente com o gerador FEBRABAN — mesmo caminho que o
+    // Sicredi usa como fallback. Só precisa de linha digitável + código de barras (44 díg.) + dados do
+    // pagador/beneficiário, que já temos. Falhar aqui NÃO derruba o registro (a linha digitável já foi
+    // salva e permite pagar); a falha vai pro sync_log e o operador pode gerar a 2ª via depois.
+    let boletoUrl: string | null = null
+    try {
+      const cdBarras = (result.cdBarras ?? '').replace(/\D/g, '')
+      if (cdBarras.length !== 44) {
+        throw new Error(`código de barras inesperado (${cdBarras.length} díg., esperado 44)`)
+      }
+      const seuNumero = (rec.numero_documento ?? rec.id.slice(0, 12)).toString()
+      const bytes = await gerarPdfBoleto({
+        banco: { codigo: BANCO, nome: 'Bradesco' },
+        linhaDigitavel: result.linhaDigitavel, codigoBarras: cdBarras, qrCodePix: null,
+        beneficiario: {
+          nome: (empresa.razao_social ?? empresa.nome_fantasia ?? 'BENEFICIARIO') as string,
+          cnpj: (empresa.cnpj ?? '') as string,
+          agencia: (credRow.agencia as string | null) ?? null,
+          conta: (credRow.conta as string | null) ?? null,
+          codigo: (credRow.codigo_beneficiario as string | null) ?? null,
+        },
+        pagador: {
+          nome: pagador.nome, cpfCnpj: pagador.documento,
+          endereco: { logradouro: pagador.logradouro, bairro: pagador.bairro, cidade: pagador.cidade, uf: pagador.uf, cep: pagador.cep },
+        },
+        nossoNumero: result.nuTituloGerado, numeroDocumento: seuNumero, especieDocumento: 'DM', aceite: false,
+        dataDocumento: rec.data_emissao ?? new Date().toISOString().slice(0, 10),
+        dataVencimento: rec.data_vencimento, valor: Number(rec.valor),
+        instrucoes: [
+          credRow.instrucao_linha1, credRow.instrucao_linha2, credRow.instrucao_linha3, credRow.instrucao_linha4,
+        ].filter((x): x is string => !!x),
+      })
+      const objectPath = `${companyId}/${receber_id}.pdf`
+      const up = await supabaseAdmin.storage.from('boletos').upload(objectPath, Buffer.from(bytes), { contentType: 'application/pdf', upsert: true })
+      if (up.error) throw new Error(`upload PDF falhou: ${up.error.message}`)
+      const signed = await supabaseAdmin.storage.from('boletos').createSignedUrl(objectPath, 60 * 60 * 24 * 365)
+      if (signed.data?.signedUrl) boletoUrl = signed.data.signedUrl
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      await logSync(companyId, 'erro', `PDF Bradesco (gerador local) falhou: ${msg}`, { receber_id })
+    }
+
+    // 8) persistir
     await supabaseAdmin.from('erp_receber').update({
       boleto_nosso_numero: result.nuTituloGerado,
       boleto_linha_digitavel: result.linhaDigitavel,
       boleto_codigo_barras: result.cdBarras ?? null,
+      boleto_url: boletoUrl,
       boleto_banco_codigo: BANCO,
       boleto_status: 'registrado',
       boleto_emitido_em: new Date().toISOString(),
       boleto_id_externo: result.nuTituloGerado,
     }).eq('id', receber_id)
 
-    await logSync(companyId, 'ok', `boleto registrado nu=${result.nuTituloGerado}`, { receber_id, ambiente })
+    await logSync(companyId, 'ok', `boleto registrado nu=${result.nuTituloGerado}${boletoUrl ? ' (PDF salvo)' : ' (sem PDF)'}`, { receber_id, ambiente })
 
     return NextResponse.json({
       ok: true,
       nosso_numero: result.nuTituloGerado,
       linha_digitavel: result.linhaDigitavel,
       codigo_barras: result.cdBarras ?? null,
+      boleto_url: boletoUrl,
       ambiente,
     })
   } catch (e) {
