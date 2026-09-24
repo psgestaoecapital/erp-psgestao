@@ -103,7 +103,8 @@ export async function POST(req: NextRequest) {
       aliquota_importado_federal: num(r.importado_federal),
       aliquota_estadual: num(r.estadual),
       aliquota_municipal: num(r.municipal),
-      ex_tipi: r.ex_tipi ?? null,
+      // EX faz parte da IDENTIDADE (PK ncm,ex_tipi,uf,versao). Vazio → '0' (chave não aceita NULL).
+      ex_tipi: (String(r.ex_tipi ?? '').trim() || '0'),
       tipo: r.tipo ?? null,
       descricao: r.descricao ?? null,
       versao, vigencia_inicio: vigIni, vigencia_fim: vigFim, fonte,
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest) {
 
   const { error: upErr } = await admin
     .from('fiscal_ibpt_aliquota')
-    .upsert(registros, { onConflict: 'ncm,uf,versao' });
+    .upsert(registros, { onConflict: 'ncm,ex_tipi,uf,versao' });
   if (upErr) return NextResponse.json({ error: `Falha ao gravar lote: ${upErr.message}` }, { status: 500 });
 
   return NextResponse.json({ ok: true, inseridos: registros.length, invalidas: invalidas.length, invalidas_amostra: invalidas.slice(0, 10) });

@@ -52,8 +52,8 @@ function analisarMetadados(texto: string): MetaArquivo {
   }
   const rotulo: Record<string,string> = { versao:'versao', vigencia_inicio:'vigenciainicio', vigencia_fim:'vigenciafim' };
   const faltando = (['versao','vigencia_inicio','vigencia_fim'] as const).filter(c => idx[c] === undefined).map(c => rotulo[c]);
-  // índice do código/NCM: usado só para PULAR cabeçalhos embutidos. Num ZIP com 1 CSV por UF, lerArquivo
-  // concatena os arquivos e cada um traz sua própria linha de cabeçalho — sem este guard, a palavra
+  // índice do código/NCM: usado só para PULAR cabeçalhos embutidos. Ao concatenar as tabelas de um ZIP
+  // multi-UF, cada arquivo traz sua própria linha de cabeçalho — sem este guard, a palavra
   // literal "versao"/"vigenciainicio" entraria nos conjuntos e o arquivo (legítimo, multi-UF) seria
   // recusado como heterogêneo. Só linhas com código numérico contam para a checagem.
   const iNcm = header.findIndex(h => COLS.ncm.includes(h));
@@ -83,21 +83,60 @@ function analisarMetadados(texto: string): MetaArquivo {
   };
 }
 
-async function lerArquivo(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
+// UF vem do NOME do arquivo do IBPT: TabelaIBPTaxSC26.2.B → 'SC'. Fallback quando o CSV não tem coluna UF.
+function ufDoNome(nome: string): string | undefined {
+  const m = nome.match(/IBPTax([A-Za-z]{2})/);
+  return m ? m[1].toUpperCase() : undefined;
+}
+// só o BASENAME (o ZIP pode ter pastas)
+function baseName(p: string): string { return p.split('/').pop() ?? p; }
+
+export interface EntradaTabela { nome: string; texto: string; uf?: string }
+export interface ClassificacaoArquivos {
+  entradas: EntradaTabela[];               // tabelas IBPT (TabelaIBPTax*.csv/.txt) para processar
+  ignorados: string[];                     // Cartaz*/Manual*/Material*/Tutorial*/PDF — ignorados em silêncio
+  recusados: { nome: string; motivo: string }[]; // TabelaIBPTax em formato errado (xls/pdf) — recusar com mensagem
+}
+
+// Classifica os arquivos: processa SOMENTE "TabelaIBPTax*" em CSV/TXT (a UF vem do nome). Ignora o
+// material de divulgação (Cartaz/Manual/Material/Tutorial/PDF). Recusa uma Tabela que venha como
+// XLS/PDF (WPS mostra "Planilha XLS" por associação; o arquivo do IBPT é CSV com ';'). Não parseia XLS.
+async function classificarArquivos(file: File): Promise<ClassificacaoArquivos> {
   const dec = new TextDecoder('iso-8859-1'); // IBPT costuma vir em Latin-1 (acento na descrição)
+  const entradas: EntradaTabela[] = [];
+  const ignorados: string[] = [];
+  const recusados: { nome: string; motivo: string }[] = [];
+  const ehTabela = (n: string) => /tabelaibptax/i.test(n);
+  const ehCsv = (n: string) => /\.(csv|txt)$/i.test(n);
+  const ehBloqueado = (n: string) => /\.(xls|xlsx|pdf)$/i.test(n);
+
   if (file.name.toLowerCase().endsWith('.zip')) {
-    const zip = await JSZip.loadAsync(buf);
-    const partes: string[] = [];
-    for (const nome of Object.keys(zip.files)) {
-      if (zip.files[nome].dir) continue;
-      if (!/\.(csv|txt)$/i.test(nome)) continue;
-      partes.push(dec.decode(await zip.files[nome].async('uint8array')));
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    for (const caminho of Object.keys(zip.files)) {
+      if (zip.files[caminho].dir) continue;
+      const nome = baseName(caminho);
+      if (ehTabela(nome) && ehCsv(nome)) {
+        entradas.push({ nome, texto: dec.decode(await zip.files[caminho].async('uint8array')), uf: ufDoNome(nome) });
+      } else if (ehTabela(nome) && ehBloqueado(nome)) {
+        recusados.push({ nome, motivo: 'Tabela em formato XLS/PDF — o importador lê CSV (;). Exporte/baixe a tabela como CSV.' });
+      } else {
+        ignorados.push(nome); // Cartaz/Manual/Material/Tutorial/PDF e quaisquer outros
+      }
     }
-    if (partes.length === 0) throw new Error('O ZIP não tem nenhum arquivo .csv/.txt dentro.');
-    return partes.join('\n');
+    if (entradas.length === 0 && recusados.length === 0) {
+      throw new Error('O ZIP não tem nenhuma "TabelaIBPTax*.csv". Confira se baixou a tabela (não só o cartaz/material).');
+    }
+    return { entradas, ignorados, recusados };
   }
-  return dec.decode(new Uint8Array(buf));
+
+  // arquivo único (não-ZIP)
+  const nome = baseName(file.name);
+  if (ehBloqueado(nome)) {
+    recusados.push({ nome, motivo: 'Arquivo XLS/PDF — parece o cartaz/material de divulgação. Suba a TabelaIBPTax em CSV (;).' });
+    return { entradas, ignorados, recusados };
+  }
+  entradas.push({ nome, texto: dec.decode(new Uint8Array(await file.arrayBuffer())), uf: ufDoNome(nome) });
+  return { entradas, ignorados, recusados };
 }
 
 function parseCsv(texto: string): { rows: Linha[]; header: string[] } {
@@ -157,18 +196,27 @@ export default function IbptImportPage() {
     if (!f) return;
     setAnalisando(true);
     try {
-      const texto = await lerArquivo(f);
-      const m = analisarMetadados(texto);
+      const cls = await classificarArquivos(f);
+      const resumoArquivos = `${cls.entradas.length} tabela(s)${cls.ignorados.length ? `, ${cls.ignorados.length} ignorado(s) (cartaz/material)` : ''}${cls.recusados.length ? `, ${cls.recusados.length} recusado(s)` : ''}`;
+      if (cls.entradas.length === 0) {
+        setArquivoInvalido(true);
+        setAvisoArquivo({ ok:false, texto:`Nenhuma TabelaIBPTax*.csv encontrada (${resumoArquivos}).${cls.recusados[0] ? ' ' + cls.recusados[0].motivo : ''}` });
+        return;
+      }
+      // metadados só das TABELAS (cartaz/material não contam). Concatena para checar homogeneidade.
+      const m = analisarMetadados(cls.entradas.map(e => e.texto).join('\n'));
       if (m.erro) { setArquivoInvalido(true); setAvisoArquivo({ ok:false, texto:m.erro }); return; }
       if (m.versao) setVersao(m.versao);
       if (m.vigIni) setVigIni(m.vigIni);
       if (m.vigFim) setVigFim(m.vigFim);
       if (m.fonte) setFonte(m.fonte);
+      const partesMeta = [m.versao && `versão ${m.versao}`, (m.vigIni && m.vigFim) && `vigência ${m.vigIni} a ${m.vigFim}`, m.fonte && `fonte ${m.fonte}`].filter(Boolean);
+      const ufs = [...new Set(cls.entradas.map(e => e.uf).filter(Boolean))];
+      const base = `${resumoArquivos}${ufs.length ? ` · UF: ${ufs.join(', ')}` : ''}. `;
       if (m.faltando.length) {
-        setAvisoArquivo({ ok:false, texto:`Preenchi o que o arquivo trouxe, mas faltou no cabeçalho: ${m.faltando.join(', ')}. Preencha esse(s) campo(s) à mão.` });
+        setAvisoArquivo({ ok:false, texto:`${base}Faltou no cabeçalho: ${m.faltando.join(', ')}. Preencha à mão.` });
       } else {
-        const partes = [m.versao && `versão ${m.versao}`, (m.vigIni && m.vigFim) && `vigência ${m.vigIni} a ${m.vigFim}`, m.fonte && `fonte ${m.fonte}`].filter(Boolean);
-        setAvisoArquivo({ ok:true, texto:`Pré-preenchido do arquivo (${partes.join(' · ')}). Confira e importe.` });
+        setAvisoArquivo({ ok:true, texto:`${base}Pré-preenchido (${partesMeta.join(' · ')}). Confira e importe.` });
       }
     } catch (e) {
       setAvisoArquivo({ ok:false, texto: e instanceof Error ? e.message : 'Não consegui ler o arquivo.' });
@@ -190,18 +238,48 @@ export default function IbptImportPage() {
     if (!vigIni || !vigFim) { setMsg({ ok:false, texto:'Informe a vigência (início e fim).' }); return; }
     setRodando(true);
     try {
-      const texto = await lerArquivo(file);
-      const { rows } = parseCsv(texto);
-      if (idxTemUf(rows) === false && !uf.trim()) {
-        throw new Error('O arquivo não tem coluna UF e você não informou a UF. Escolha a UF (o arquivo do IBPT costuma ser por estado).');
+      const cls = await classificarArquivos(file);
+      if (cls.entradas.length === 0) {
+        throw new Error(`Nenhuma TabelaIBPTax*.csv para processar.${cls.recusados[0] ? ' ' + cls.recusados[0].motivo : ''}`);
       }
+      // parseia CADA tabela e anexa a UF do NOME do arquivo quando a linha não traz coluna UF
+      // (arquivo por UF: TabelaIBPTaxSC…). Junta tudo num só conjunto de linhas.
+      const rows: Linha[] = [];
+      for (const entrada of cls.entradas) {
+        const { rows: rowsArq } = parseCsv(entrada.texto);
+        for (const r of rowsArq) {
+          if (!(r.uf ?? '').trim() && entrada.uf) r.uf = entrada.uf;
+          rows.push(r);
+        }
+      }
+      if (rows.some(r => !(r.uf ?? '').trim()) && !uf.trim()) {
+        throw new Error('Há linhas sem UF (nem na coluna, nem no nome do arquivo, nem no campo). Informe a UF ou use arquivos nomeados TabelaIBPTax<UF>.');
+      }
+      // Dedupe por (NCM, EX, UF) — a PK inclui o EX. Linha exatamente repetida (ou colisão residual de
+      // uma dimensão que ainda não mapeamos) não pode quebrar o upsert em lote. Última ocorrência vence.
+      // Reporta descartadas (se muitas → sinal de dimensão oculta) e quantas linhas têm EX≠0.
+      const ufForm = uf.trim().toUpperCase();
+      const posPorChave = new Map<string, number>();
+      const dedup: Linha[] = [];
+      let exNaoZero = 0;
+      for (const r of rows) {
+        const ex = (r.ex_tipi ?? '').trim() || '0';
+        if (ex !== '0') exNaoZero++;
+        const ufk = (r.uf ?? '').trim().toUpperCase() || ufForm;
+        const k = `${r.ncm}|${ex}|${ufk}`;
+        const pos = posPorChave.get(k);
+        if (pos !== undefined) dedup[pos] = r; // última vence
+        else { posPorChave.set(k, dedup.length); dedup.push(r); }
+      }
+      const descartadas = rows.length - dedup.length;
+      const linhasParaEnviar = dedup;
       const { data:{ session } } = await supabase.auth.getSession();
       const LOTE = 5000;
       let enviados = 0; let totalInseridos = 0; let totalInvalidas = 0;
       let confirmarReset = false; // vira true só se o operador confirmar substituir uma versão já carregada
-      setProg({ enviados:0, total:rows.length });
-      for (let i = 0; i < rows.length; i += LOTE) {
-        const lote = rows.slice(i, i + LOTE);
+      setProg({ enviados:0, total:linhasParaEnviar.length });
+      for (let i = 0; i < linhasParaEnviar.length; i += LOTE) {
+        const lote = linhasParaEnviar.slice(i, i + LOTE);
         const enviar = () => fetch('/api/dev/ibpt-importar', {
           method:'POST',
           headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${session?.access_token || ''}` },
@@ -223,9 +301,15 @@ export default function IbptImportPage() {
         }
         if (!res.ok || !d.ok) throw new Error(d.error || `Falha no lote ${i / LOTE + 1}.`);
         totalInseridos += d.inseridos || 0; totalInvalidas += d.invalidas || 0;
-        enviados += lote.length; setProg({ enviados, total:rows.length });
+        enviados += lote.length; setProg({ enviados, total:linhasParaEnviar.length });
       }
-      setMsg({ ok:true, texto:`Carga concluída: ${totalInseridos.toLocaleString('pt-BR')} linhas na versão ${versao.trim()} (vigência ${vigIni} a ${vigFim}).${totalInvalidas ? ` ${totalInvalidas} linha(s) ignorada(s).` : ''} A tabela serve todos os tenants.` });
+      const ufsCarregadas = new Set(linhasParaEnviar.map(r => (r.uf ?? '').trim().toUpperCase() || ufForm)).size;
+      setMsg({ ok:true, texto:`Carga concluída: ${totalInseridos.toLocaleString('pt-BR')} linhas · ${ufsCarregadas} UF(s) · versão ${versao.trim()} (vigência ${vigIni} a ${vigFim}).`
+        + ` Arquivos: ${cls.entradas.length} tabela(s) processada(s)${cls.ignorados.length ? `, ${cls.ignorados.length} ignorado(s) (cartaz/material)` : ''}${cls.recusados.length ? `, ${cls.recusados.length} recusado(s)` : ''}.`
+        + ` ${exNaoZero.toLocaleString('pt-BR')} linha(s) com EX≠0.`
+        + (descartadas ? ` ${descartadas.toLocaleString('pt-BR')} duplicata(s) de (NCM,EX,UF) descartada(s) — última venceu${descartadas > rows.length * 0.02 ? ' ⚠️ volume alto: possível dimensão além de NCM/EX/UF, investigar' : ''}.` : ' Sem duplicata de (NCM,EX,UF) — chave íntegra.')
+        + (totalInvalidas ? ` ${totalInvalidas} linha(s) inválida(s) ignorada(s).` : '')
+        + ' A tabela serve todos os tenants.' });
     } catch (e) {
       setMsg({ ok:false, texto: e instanceof Error ? e.message : 'Erro inesperado.' });
     } finally { setRodando(false); }
@@ -288,9 +372,4 @@ export default function IbptImportPage() {
       </div>
     </div>
   );
-}
-
-// arquivo tem coluna UF? (olha se alguma linha trouxe uf preenchida)
-function idxTemUf(rows: Linha[]): boolean {
-  return rows.some(r => (r.uf ?? '').length === 2);
 }
