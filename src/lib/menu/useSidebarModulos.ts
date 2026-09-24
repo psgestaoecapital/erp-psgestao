@@ -254,7 +254,7 @@ export function useSidebarModulos(): State {
     void (async () => {
       if (!userId) { if (alive) { setOwnerAtalho(false); setIsPS(false) } return }
       const { data: up } = await supabase.from('users').select('system_role').eq('id', userId).maybeSingle()
-      if (alive) setIsPS(up?.system_role === 'PS_ADMIN')
+      if (alive) setIsPS(up?.system_role === 'PS_ADMIN' || up?.system_role === 'PS_ADMIN_CVM')
       if (up?.system_role) { if (alive) setOwnerAtalho(false); return } // PS_ADMIN ja tem o painel via RPC
       const { data: owner } = await supabase
         .from('tenant_user_roles')

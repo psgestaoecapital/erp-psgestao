@@ -66,9 +66,10 @@ export default function AcessosCascataPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setErro("Sessão expirada. Entre novamente."); setLoading(false); return; }
       const { data: me } = await supabase.from("users").select("system_role").eq("id", user.id).maybeSingle();
-      setIsAdmin(me?.system_role === "PS_ADMIN");
+      const ehPS = me?.system_role === "PS_ADMIN" || me?.system_role === "PS_ADMIN_CVM";
+      setIsAdmin(ehPS);
       let empresas: Empresa[] = [];
-      if (me?.system_role === "PS_ADMIN") {
+      if (ehPS) {
         const { data } = await supabase.from("companies").select("id,nome_fantasia,razao_social").order("nome_fantasia");
         empresas = (data as Empresa[]) || [];
       } else {
