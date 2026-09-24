@@ -8,6 +8,7 @@ import FocusNFeConfigCard from '@/components/fiscal/FocusNFeConfigCard'
 import TestarConexaoButton from '@/components/fiscal/TestarConexaoButton'
 import WebhookConfigCard from '@/components/fiscal/WebhookConfigCard'
 import CardBoundary from '@/components/fiscal/CardBoundary'
+import PreVooFiscalCard from '@/components/fiscal/PreVooFiscalCard'
 import { ShieldCheck, AlertCircle, Loader2, FileCheck, CheckCircle2, XCircle, Lock } from 'lucide-react'
 
 // FIX-FISCAL-UX-v1 · Saneamento V1 Fase 1
@@ -403,6 +404,13 @@ export default function FiscalConfigClient() {
           ))}
         </ul>
       </div>
+
+      {/* Pré-voo NF-e · o que impede emitir (config + produtos + destinatários) e o que já está pronto */}
+      {state.companyId && (
+        <CardBoundary nome="PreVooFiscalCard">
+          <PreVooFiscalCard companyId={state.companyId} />
+        </CardBoundary>
+      )}
 
       {/* Detalhe certificado salvo */}
       {state.certificado && (

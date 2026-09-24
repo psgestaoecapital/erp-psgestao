@@ -62,6 +62,7 @@ export default function DevPage() {
     {id:'changelog',label:'📋 Changelog',icon:'📋'},
     {id:'files',label:'📁 Arquivos',icon:'📁'},
     {id:'ibpt',label:'🧾 IBPT',icon:'🧾'},
+    {id:'pre-voo',label:'✈️ Pré-voo fiscal',icon:'✈️'},
   ];
 
   return (
@@ -110,6 +111,7 @@ export default function DevPage() {
           {tab==='changelog'&&<Changelog/>}
           {tab==='files'&&<FileExplorer/>}
           {tab==='ibpt'&&<IbptLink/>}
+          {tab==='pre-voo'&&<PreVooLink/>}
         </div>
       </>}
     </div>
@@ -619,6 +621,23 @@ function IbptLink(){
         em <b>deolhonoimposto.ibpt.org.br</b> e suba pelo importador. O sistema valida o cabeçalho.
       </div>
       <a href="/dashboard/dev/ibpt" style={{display:"inline-block",padding:"9px 18px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:ONGOLD,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>Abrir importador da tabela IBPT →</a>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// PRÉ-VOO FISCAL — atalho para a contagem por empresa (quem está pronto para emitir NF-e)
+// ════════════════════════════════════════
+function PreVooLink(){
+  return(
+    <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${BD}`,maxWidth:560}}>
+      <div style={{fontSize:15,fontWeight:700,color:GOL,marginBottom:8}}>✈️ Pré-voo fiscal — NF-e</div>
+      <div style={{fontSize:12,color:TXM,lineHeight:1.6,marginBottom:14}}>
+        Contagem <b>por empresa</b> dos impeditivos de emissão de NF-e (config, produtos, destinatários) —
+        <b> quem está pronto</b> e quem ainda tem pendência. A lista detalhada fica na tela da própria
+        empresa, em <b>Configurações › Fiscal</b>. Mesmos predicados do validador (não reescreve a regra).
+      </div>
+      <a href="/dashboard/dev/fiscal-previo" style={{display:"inline-block",padding:"9px 18px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:ONGOLD,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>Abrir o pré-voo por empresa →</a>
     </div>
   );
 }
