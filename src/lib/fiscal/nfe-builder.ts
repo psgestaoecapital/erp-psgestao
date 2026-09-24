@@ -8,13 +8,11 @@ const UFS_BR = new Set([
   'RJ','RN','RS','RO','RR','SC','SP','SE','TO',
 ])
 
-// Extrai a UF de companies.cidade_estado (texto livre: "São Miguel do Oeste/SC", "Iporã do Oeste, sc",
-// "Cidade/SC", às vezes sem UF). Pega o token final de 2 letras após vírgula/barra e valida contra as 27.
-// Sem UF confiável → undefined (o chamador NÃO mexe no CFOP).
-function ufDoCidadeEstado(texto?: string | null): string | undefined {
-  const m = (texto ?? '').toUpperCase().match(/[/,]\s*([A-Z]{2})\s*$/)
-  const uf = m?.[1]
-  return uf && UFS_BR.has(uf) ? uf : undefined
+// Emitente estrangeiro: pais preenchido e diferente de Brasil. Estrangeira não emite NF-e modelo 55 (não
+// tem UF fiscal nacional) — a guarda de uf_fiscal a isenta, e o CFOP não é derivado.
+function emitenteEstrangeiro(pais?: string | null): boolean {
+  const p = (pais ?? '').trim()
+  return p !== '' && !/^(brasil|brazil|br)$/i.test(p)
 }
 
 // Deriva o 1º dígito do CFOP de saída pela relação UF emitente ↔ UF destinatário:
@@ -87,7 +85,7 @@ export interface NFeBuilderInput {
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
   const { data: emp, error: empErr } = await supabaseAdmin
     .from('companies')
-    .select('cnpj, razao_social, inscricao_estadual, inscricao_municipal, regime_tributario, cidade_estado')
+    .select('cnpj, razao_social, inscricao_estadual, inscricao_municipal, regime_tributario, uf_fiscal, pais')
     .eq('id', input.companyId)
     .maybeSingle()
   if (empErr || !emp) {
@@ -99,9 +97,20 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   // pode usar). Sem isto o grupo <imposto> nao sai e a SEFAZ rejeita com 620 "Expected is (imposto)".
   const ehSimples = String((emp as { regime_tributario?: string }).regime_tributario ?? '')
     .toLowerCase().includes('simples')
-  // UF do emitente (p/ derivar o escopo do CFOP interna×interestadual). companies não tem coluna uf —
-  // vem do texto livre cidade_estado; sem UF confiável, o CFOP não é derivado (mantém o cadastro).
-  const ufEmitente = ufDoCidadeEstado((emp as { cidade_estado?: string }).cidade_estado)
+  // UF do emitente (p/ derivar o escopo do CFOP interna×interestadual) = companies.uf_fiscal, FONTE DE
+  // VERDADE (não mais o texto livre cidade_estado — que quebrava em silêncio e o que quebra é o CFOP da
+  // nota, #1768). O parser de texto saiu da decisão fiscal.
+  const ufEmitBruta = String((emp as { uf_fiscal?: string }).uf_fiscal ?? '').trim().toUpperCase()
+  const ufEmitente = UFS_BR.has(ufEmitBruta) ? ufEmitBruta : undefined
+  const ehEstrangeira = emitenteEstrangeiro((emp as { pais?: string }).pais)
+  // Guarda fail-closed: empresa brasileira sem uf_fiscal cadastrada NÃO emite NF-e — bloqueia antes da
+  // Sefaz (no padrão do 232/938). Sem a UF, o CFOP interna×interestadual não tem como sair correto.
+  if (!ehEstrangeira && !ufEmitente) {
+    throw new FiscalError(
+      'PAYLOAD_INVALIDO',
+      'UF fiscal do emitente não cadastrada · defina a UF da empresa (companies.uf_fiscal) antes de emitir NF-e'
+    )
+  }
   if (!emp.inscricao_estadual) {
     throw new FiscalError(
       'PAYLOAD_INVALIDO',
