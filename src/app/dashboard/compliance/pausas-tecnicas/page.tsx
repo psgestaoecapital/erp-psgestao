@@ -1381,7 +1381,7 @@ type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null;
 // #92 · dia aguardando confirmação (pausa sem hora de saída). Natureza DIFERENTE do desvio: não
 // está provado — o supervisor pergunta ao colaborador o que houve; a responsável fecha na aba
 // Conferência. NUNCA é desvio no escuro (RD-38).
-type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; jornada: { entrada: string | null; saida: string | null } | null }
+type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; jornada: { entrada: string | null; saida: string | null } | null }
 
 const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
 // FATO, não julgamento (RH). Descreve o que aconteceu; a causa é a conversa.
@@ -1499,23 +1499,31 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
             <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
               <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
-                <b>{pendentes.length} dia(s) com pausa sem hora de saída.</b> Ainda <b>não são desvio</b> — o fim da pausa não está confirmado, então o sistema não julga no escuro. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>, onde viram conforme ou desvio.
+                <b>{pendentes.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Duas naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
-                  <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Setor</th><th style={th()}>Jornada</th>
+                  <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Motivo</th><th style={th()}>Setor</th><th style={th()}>Jornada</th>
                 </tr></thead>
                 <tbody>
-                  {pendentes.map((p, i) => (
+                  {pendentes.map((p, i) => {
+                    const semReg = p.sem_registro_pausa === true || p.motivo === 'sem_registro_pausa'
+                    return (
                     <tr key={p.cpf + p.data + i} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
                       <td style={td()}><div style={{ fontWeight: 600, color: C.espresso }}>{p.nome}</div>{p.funcao && <div style={{ fontSize: 11, color: C.gray }}>{p.funcao}</div>}</td>
                       <td style={td()}>{fmtData(p.data)}</td>
+                      <td style={td()}>
+                        <span style={{ display: 'inline-block', background: C.amberBg, color: C.amber, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
+                          {semReg ? 'Sem registro de pausa' : 'Pausa sem hora de saída'}
+                        </span>
+                      </td>
                       <td style={td()}>{p.setor || '—'}</td>
                       <td style={td()}>{p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}</td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
