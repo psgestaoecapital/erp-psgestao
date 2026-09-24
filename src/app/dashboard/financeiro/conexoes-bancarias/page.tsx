@@ -45,6 +45,24 @@ interface ProviderConfig {
   ultimo_sync_status: string | null
   banco_conta_id: string | null
   estado_conexao: string | null
+  // validade do certificado extraída no salvar (semáforo da lista). NULL = desconhecida.
+  cert_expira_em: string | null
+  // presença de segredo no Vault (indicador "configurado"): são apenas IDs de referência, NUNCA o valor.
+  client_secret_vault_id: string | null
+  cert_vault_id: string | null
+  cert_senha_vault_id: string | null
+  api_key_vault_id: string | null
+}
+
+// Semáforo da validade do certificado (lê cert_expira_em; NULL = desconhecida/cinza).
+function certSemaforo(expiraEm: string | null): { cor: string; bg: string; label: string } | null {
+  if (!expiraEm) return null
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+  const venc = new Date(expiraEm + 'T00:00:00')
+  const dias = Math.round((venc.getTime() - hoje.getTime()) / 86400000)
+  if (dias < 0) return { cor: '#A32D2D', bg: 'rgba(163,45,45,0.10)', label: `certificado VENCIDO em ${venc.toLocaleDateString('pt-BR')}` }
+  if (dias <= 30) return { cor: '#B26A00', bg: 'rgba(200,148,26,0.14)', label: `certificado vence em ${dias} dia(s) (${venc.toLocaleDateString('pt-BR')})` }
+  return { cor: '#2E6B2E', bg: 'rgba(46,107,46,0.10)', label: `certificado válido até ${venc.toLocaleDateString('pt-BR')}` }
 }
 
 interface BancoConta {
@@ -143,7 +161,7 @@ export default function ConexoesBancariasPage() {
     setLoading(true); setErro(null)
     const [cfgRes, contasRes, testesRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
-        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
         .eq('company_id', empresaUnica)
         .order('provider'),
       supabase.from('erp_banco_contas')
@@ -374,6 +392,20 @@ export default function ConexoesBancariasPage() {
                         {cfg.cap_extrato && <Badge cor="#3B82F6">Extrato</Badge>}
                         {cfg.cap_pagamento && <Badge cor="#7C3AED">Pagamento</Badge>}
                       </div>
+                      {/* Semáforo da validade do certificado (extraída no salvar). Certificado vencido
+                          derruba a integração sem aviso — por isso fica visível na própria lista. */}
+                      {(() => {
+                        const sem = certSemaforo(cfg.cert_expira_em)
+                        if (sem) return (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6, padding: '2px 8px', borderRadius: 999, background: sem.bg, color: sem.cor, fontSize: 10, fontWeight: 600 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: '50%', background: sem.cor, display: 'inline-block' }} /> {sem.label}
+                          </div>
+                        )
+                        if (cfg.cert_vault_id) return (
+                          <div style={{ fontSize: 10, color: ESP60, marginTop: 6 }}>certificado configurado · validade não lida (reconfigure ou teste para atualizar)</div>
+                        )
+                        return null
+                      })()}
                       <div style={{ fontSize: 10, color: ESP60, marginTop: 6 }}>
                         Último sync: <b>{fmtData(cfg.ultimo_sync_em)}</b>
                         {cfg.ultimo_sync_status && <> · {cfg.ultimo_sync_status.startsWith('erro') ? (
@@ -703,6 +735,11 @@ interface ConectarProps {
 }
 function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente }: ConectarProps) {
   const editMode = !!cfgExistente
+  // Indicador "configurado" (Rodrigo): o valor do segredo NUNCA volta do servidor (a tela nem o seleciona);
+  // usamos só a presença do *_vault_id (um id de referência, não o segredo) para mostrar que já há algo salvo.
+  const PH_CONFIG = '•••••••• configurado — deixe em branco para manter'
+  const jaTem = (slot: 'client_secret_vault_id' | 'cert_vault_id' | 'cert_senha_vault_id' | 'api_key_vault_id') =>
+    editMode && !!cfgExistente?.[slot]
   // Sicredi está em fase de teste → default Homologação (state controlado persiste a escolha).
   const [ambiente, setAmbiente] = useState<Ambiente>(cfgExistente?.ambiente ?? (banco.sigla === 'sicredi' ? 'homologacao' : 'producao'))
   const [clientId, setClientId] = useState(cfgExistente?.client_id ?? '')
@@ -788,6 +825,21 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
     finally { setConvertendo(false) }
   }
 
+  // Melhoria Rodrigo · lê a validade (notAfter) do .pfx que será salvo, para gravar cert_expira_em e mostrar
+  // o semáforo. Falha na extração NÃO impede salvar (retorna null = validade desconhecida). READ-ONLY.
+  async function extrairValidadeCert(pfxB64: string): Promise<string | null> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/cert-pfx', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ pfx_base64: pfxB64, pfx_senha: certSenha || '' }),
+      })
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; valido_ate?: string | null }
+      return j.ok ? (j.valido_ate ?? null) : null
+    } catch { return null }
+  }
+
   async function salvar() {
     setSalvando(true); setErro(null)
     try {
@@ -798,6 +850,13 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         const b = await converterCrtKeyEmPfx()
         if (!b) { setSalvando(false); return }
         certB64 = b
+      }
+      // Melhoria Rodrigo · validade do certificado: quando um cert NOVO está sendo enviado, extrai o
+      // notAfter (node-forge, server-side) para gravar em cert_expira_em. Se falhar, salva com null
+      // (validade desconhecida) — nunca bloqueia o salvamento.
+      let certExpiraEm: string | null = null
+      if (banco.campos.includes('cert_a1') && certB64) {
+        certExpiraEm = await extrairValidadeCert(certB64)
       }
       // #14 (Rodrigo/Bradesco): TODOS os bancos salvam via fn_banco_salvar_credencial — é a RPC que grava
       // os segredos no Vault E seta banco_codigo + os *_vault_id (client_secret/cert/cert_senha) + updated_at
@@ -821,6 +880,8 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         p_posto: cs.includes('posto') ? (posto || null) : null,
         // cap_pagamento (remessa CNAB) NÃO é capacidade desta tela de API: null preserva o valor (RD-57).
         p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: null, p_ativo: true,
+        // validade do cert (só quando um cert novo foi enviado; null preserva a existente na fn).
+        p_cert_expira_em: certExpiraEm,
       }
       const { data: salvarData, error: salvarErr } = await supabase.rpc('fn_banco_salvar_credencial', params)
       if (salvarErr) throw salvarErr
@@ -907,7 +968,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
           )}
           {banco.campos.includes('client_secret') && (
             <Field label="Client Secret">
-              <input type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} style={inp} />
+              <input type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} style={inp} placeholder={jaTem('client_secret_vault_id') ? PH_CONFIG : undefined} />
             </Field>
           )}
           {banco.campos.includes('cooperativa') && (
@@ -933,12 +994,12 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
           )}
           {banco.campos.includes('api_key') && (
             <Field label="x-api-key (Portal do Desenvolvedor)">
-              <input type="password" name="ps_apikey_nofill" autoComplete="new-password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={inp} placeholder="UUID da app" />
+              <input type="password" name="ps_apikey_nofill" autoComplete="new-password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={inp} placeholder={jaTem('api_key_vault_id') ? PH_CONFIG : 'UUID da app'} />
             </Field>
           )}
           {banco.campos.includes('codigo_acesso') && (
             <Field label="Código de Acesso (Internet Banking)">
-              <input type="password" name="ps_codacesso_nofill" autoComplete="new-password" value={codigoAcesso} onChange={(e) => setCodigoAcesso(e.target.value)} style={inp} />
+              <input type="password" name="ps_codacesso_nofill" autoComplete="new-password" value={codigoAcesso} onChange={(e) => setCodigoAcesso(e.target.value)} style={inp} placeholder={jaTem('client_secret_vault_id') ? PH_CONFIG : undefined} />
             </Field>
           )}
           {banco.campos.includes('posto') && (
@@ -990,8 +1051,13 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
                 label="Senha do certificado"
                 hint={certFormato === 'crtkey' ? 'Defina uma senha — ela protege o .pfx gerado a partir do .crt + .key (e será usada na conexão).' : undefined}
               >
-                <input type="password" autoComplete="off" value={certSenha} onChange={(e) => setCertSenha(e.target.value)} style={inp} />
+                <input type="password" autoComplete="off" value={certSenha} onChange={(e) => setCertSenha(e.target.value)} style={inp} placeholder={jaTem('cert_senha_vault_id') ? PH_CONFIG : undefined} />
               </Field>
+              {jaTem('cert_vault_id') && (
+                <small style={{ fontSize: 10, color: ESP60 }}>
+                  ✓ Certificado já configurado (guardado no Vault). Deixe os campos de arquivo em branco para manter o atual; envie um novo só para substituir.
+                </small>
+              )}
               {convertendo && <small style={{ fontSize: 10, color: ESP60 }}>Convertendo o par .crt + .key em .pfx…</small>}
             </>
           )}
