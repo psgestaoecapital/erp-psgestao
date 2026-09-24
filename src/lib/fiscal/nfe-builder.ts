@@ -189,7 +189,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   const { data: produtos } = await supabaseAdmin
     .from('erp_produtos')
     .select(
-      'id, codigo, nome, descricao, ncm, cfop_venda, cest, origem, cst_icms, cst_pis, cst_cofins, aliquota_icms, aliquota_ipi, aliquota_pis, aliquota_cofins, unidade, preco_venda, vbcst_ret, pst, vicms_substituto, vicms_st_ret, combustivel_codigo_anp, combustivel_descricao_anp'
+      'id, codigo, nome, descricao, ncm, ex_ipi, cfop_venda, cest, origem, cst_icms, cst_pis, cst_cofins, aliquota_icms, aliquota_ipi, aliquota_pis, aliquota_cofins, unidade, preco_venda, vbcst_ret, pst, vicms_substituto, vicms_st_ret, combustivel_codigo_anp, combustivel_descricao_anp'
     )
     .in('id', produtoIds)
     .eq('company_id', input.companyId)
@@ -249,6 +249,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       valorTotal,
       cest: prod.cest ?? undefined,
       origem: prod.origem ?? '0',
+      // EX da TIPI (IBPT Lei 12.741): entra na chave da tabela IBPT (NCM,EX,UF,versão). Vazio → '0'.
+      exTipi: (String(prod.ex_ipi ?? '').trim() || '0'),
       // Grupo <imposto> SEMPRE presente (SEFAZ 620). Produto sem campo fiscal cai no default do
       // regime do EMITENTE. Simples: ICMS CSOSN 102 + PIS/COFINS CST 04 — a convencao dos proprios
       // produtos configurados do KGF (auditado). Produto ja configurado: usa o dele (sem mudanca).

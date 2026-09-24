@@ -81,25 +81,65 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // destinatário é consumidor final. Sinal disponível: indicador de IE do destinatário — contribuinte
     // com IE (indIEDest=1, ex.: CIDIMAR/revenda) não é consumidor final; não-contribuinte/isento (9/2) e
     // NFC-e são. (Refinamento futuro: indFinal explícito; hoje o indIEDest já exclui a revenda B2B.)
-    // Empresa do Simples: percentual único (percentual_total_tributos_sn) × valor da nota. Só quando
-    // lei12741_ativo=true (rollout por empresa). CONCATENA com observação existente — não sobrescreve.
+    // SIMPLES: percentual único (percentual_total_tributos_sn) × valor da nota. REGIME NORMAL: tabela
+    // IBPT por item (NCM, EX, UF do destinatário, origem — a Focus NÃO calcula, provado no dado). Só
+    // quando lei12741_ativo=true, consumidor_final e empresa NÃO estrangeira. CONCATENA (não sobrescreve).
+    // UF/NCM sem linha na versão vigente → a nota SAI sem o valor daquele item + AVISO (nunca trava, nunca
+    // inventa). FONTES: Lei 12.741/2012 art.1º; Decreto 8.264/2014; Ajuste SINIEF 20/2012 (origem).
+    let avisoIbpt: string | null = null
     {
       const { data: cfg12741 } = await supabaseAdmin
         .from('erp_fiscal_provider_config')
-        .select('lei12741_ativo, percentual_total_tributos_sn, lei12741_observacao_template')
+        .select('lei12741_ativo, percentual_total_tributos_sn, lei12741_observacao_template, regime_tributario, opcao_simples_nacional')
         .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
-      // consumidor final: agora é decisão explícita do request (o builder já resolveu — default pelo
-      // indIEDest, com override do operador na venda). O bloco Lei 12.741 só entra a consumidor final.
+      const { data: emp12741 } = await supabaseAdmin
+        .from('companies').select('pais').eq('id', body.companyId).maybeSingle()
+      const ehEstrangeira = !!(emp12741?.pais && !/^\s*(brasil|brazil|br)\s*$/i.test(String(emp12741.pais)))
       const ehConsumidorFinal = nfeReq.consumidorFinal === true
       const pctTrib = Number(cfg12741?.percentual_total_tributos_sn ?? 0)
-      if (cfg12741?.lei12741_ativo === true && ehConsumidorFinal && Number.isFinite(pctTrib) && pctTrib > 0 && valorProdutos > 0) {
-        const valorAprox = Math.round((pctTrib / 100) * valorProdutos * 100) / 100
-        const fmt = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-        const template = (typeof cfg12741?.lei12741_observacao_template === 'string' && cfg12741.lei12741_observacao_template.trim())
-          ? cfg12741.lei12741_observacao_template.trim()
-          : 'Valor aproximado dos tributos: R$ {valor} ({percentual}%) — Fonte: Simples Nacional, Lei 12.741/2012'
-        const bloco = template.replace(/\{valor\}/g, fmt(valorAprox)).replace(/\{percentual\}/g, fmt(pctTrib))
-        nfeReq.observacoes = [bloco, nfeReq.observacoes].map((s) => (s ?? '').trim()).filter(Boolean).join(' | ')
+      const ehSimples = /simples/i.test(String(cfg12741?.regime_tributario ?? '')) || cfg12741?.opcao_simples_nacional != null
+      const fmt = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+      if (cfg12741?.lei12741_ativo === true && ehConsumidorFinal && valorProdutos > 0 && !ehEstrangeira) {
+        if (ehSimples && Number.isFinite(pctTrib) && pctTrib > 0) {
+          // Simples: percentual único do regime (não usa a tabela IBPT).
+          const valorAprox = Math.round((pctTrib / 100) * valorProdutos * 100) / 100
+          const template = (typeof cfg12741?.lei12741_observacao_template === 'string' && cfg12741.lei12741_observacao_template.trim())
+            ? cfg12741.lei12741_observacao_template.trim()
+            : 'Valor aproximado dos tributos: R$ {valor} ({percentual}%) — Fonte: Simples Nacional, Lei 12.741/2012'
+          const bloco = template.replace(/\{valor\}/g, fmt(valorAprox)).replace(/\{percentual\}/g, fmt(pctTrib))
+          nfeReq.observacoes = [bloco, nfeReq.observacoes].map((s) => (s ?? '').trim()).filter(Boolean).join(' | ')
+        } else if (!ehSimples) {
+          // Regime normal: soma por item da tabela IBPT vigente (federal por origem + estadual + municipal).
+          const ufDest = (nfeReq.destinatario?.endereco?.uf ?? '').trim()
+          let vFed = 0, vEst = 0, vMun = 0, versaoIbpt = ''
+          const semLinha: string[] = []
+          for (const it of nfeReq.itens) {
+            const { data: al } = await supabaseAdmin.rpc('fn_ibpt_aliquota_vigente', {
+              p_ncm: it.ncm, p_ex: it.exTipi ?? '0', p_uf: ufDest || null, p_origem: it.origem ?? null,
+            })
+            const row = Array.isArray(al) ? (al[0] as Record<string, unknown> | undefined) : (al as Record<string, unknown> | null)
+            if (!row || row.total == null) {
+              const n = (it.ncm ?? '').replace(/\D/g, '')
+              if (n && !semLinha.includes(n)) semLinha.push(n)
+              continue
+            }
+            vFed += it.valorTotal * Number(row.federal ?? 0) / 100
+            vEst += it.valorTotal * Number(row.estadual ?? 0) / 100
+            vMun += it.valorTotal * Number(row.municipal ?? 0) / 100
+            if (!versaoIbpt && row.versao) versaoIbpt = String(row.versao)
+          }
+          const round2 = (n: number) => Math.round(n * 100) / 100
+          vFed = round2(vFed); vEst = round2(vEst); vMun = round2(vMun)
+          if (vFed + vEst + vMun > 0) {
+            const pct = (v: number) => fmt(round2(v / valorProdutos * 100))
+            const bloco = `Valor aprox. dos tributos: R$ ${fmt(vFed)} Federal (${pct(vFed)}%), R$ ${fmt(vEst)} Estadual (${pct(vEst)}%) e R$ ${fmt(vMun)} Municipal (${pct(vMun)}%). Fonte: IBPT${versaoIbpt ? ' ' + versaoIbpt : ''}`
+            nfeReq.observacoes = [bloco, nfeReq.observacoes].map((s) => (s ?? '').trim()).filter(Boolean).join(' | ')
+          }
+          if (semLinha.length) {
+            avisoIbpt = `Lei 12.741: ${semLinha.length} NCM(s) sem alíquota IBPT na UF ${ufDest || '?'} / versão vigente (${semLinha.slice(0, 10).join(', ')}${semLinha.length > 10 ? '…' : ''}). A nota SAIU, sem esses itens no valor de tributos — atualize a tabela IBPT ou confira o NCM.`
+          }
+        }
       }
     }
 
@@ -211,6 +251,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       motivoRejeicao: resposta.motivoRejeicao,
       providerReference: resposta.providerReference,
       ambiente: svc.ambiente,
+      ...(avisoIbpt ? { avisoIbpt } : {}),
     })
   } catch (err) {
     if (isFiscalError(err)) {
