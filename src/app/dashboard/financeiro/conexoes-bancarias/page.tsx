@@ -89,11 +89,6 @@ function fmtData(iso: string | null): string {
   try { return new Date(iso).toLocaleString('pt-BR') } catch { return '—' }
 }
 
-function providerCanonico(sigla: string, amb: Ambiente): string {
-  // Provider no erp_credencial (Cofre B.9): banco_<sigla>_<prod|homolog>
-  return `banco_${sigla}_${amb === 'producao' ? 'prod' : 'homolog'}`
-}
-
 // chamado #14 · Teste de conexão. Histórico do último teste por config (erp_banco_teste_conexao).
 type UltimoTeste = {
   status: string
@@ -804,67 +799,34 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         if (!b) { setSalvando(false); return }
         certB64 = b
       }
-      // Bancos cujo adapter lê via fn_banco_obter_credencial (Vault *_vault_id):
-      // Sicredi e Sicoob. Salvar via fn_banco_salvar_credencial — que grava os
-      // segredos no Vault E seta banco_codigo + *_vault_id que o adapter lê. O fluxo
-      // genérico (fn_credencial_salvar) NÃO alimenta o adapter → daria "cert/segredo faltando".
-      if (banco.sigla === 'sicredi' || banco.sigla === 'sicoob') {
-        const params: Record<string, unknown> = {
-          p_company_id: companyId, p_banco_codigo: String(banco.codigo), p_provider: banco.sigla, p_ambiente: ambiente,
-          p_cooperativa: cooperativa || null, p_codigo_beneficiario: codBenef || null,
-          // cap_pagamento (remessa CNAB) NÃO é capacidade desta tela de API: null preserva o valor (RD-57; a RPC também ignora no UPDATE).
-          p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: null, p_ativo: true,
-        }
-        if (banco.sigla === 'sicredi') {
-          // OAuth Cobrança: x-api-key + Código de Acesso (slot client_secret). Sem client_id/cert.
-          Object.assign(params, { p_api_key: apiKey || null, p_client_secret: codigoAcesso || null, p_client_id: null, p_posto: posto || null })
-        } else {
-          // Sicoob: client_id + certificado A1 (mTLS) no Vault + conta. Sem api_key.
-          Object.assign(params, { p_client_id: clientId || null, p_cert_base64: certB64 || null, p_cert_senha: certSenha || null, p_conta: conta || null })
-        }
-        const { data, error } = await supabase.rpc('fn_banco_salvar_credencial', params)
-        if (error) throw error
-        const j = data as { ok?: boolean; erro?: string } | null
-        if (!j?.ok) throw new Error(j?.erro ?? `falha ao salvar credencial ${banco.nome}`)
-        await checarEFinalizar(); return
+      // #14 (Rodrigo/Bradesco): TODOS os bancos salvam via fn_banco_salvar_credencial — é a RPC que grava
+      // os segredos no Vault E seta banco_codigo + os *_vault_id (client_secret/cert/cert_senha) + updated_at
+      // que o ADAPTER lê (fn_banco_obter_credencial). ANTES, só Sicredi/Sicoob usavam essa RPC; Bradesco (e
+      // qualquer banco novo, ex.: BB) caía no caminho genérico (fn_credencial_salvar + upsert manual) que NÃO
+      // setava os *_vault_id → o certificado sumia (cert_vault_id vazio) e a emissão travava. Mapeia por
+      // campo do banco: só manda o que ele usa. Sicredi usa o slot client_secret p/ o Código de Acesso.
+      const cs = banco.campos
+      const params: Record<string, unknown> = {
+        p_company_id: companyId, p_banco_codigo: String(banco.codigo), p_provider: banco.sigla, p_ambiente: ambiente,
+        p_client_id: cs.includes('client_id') ? (clientId || null) : null,
+        p_client_secret: banco.sigla === 'sicredi'
+          ? (codigoAcesso || null)
+          : (cs.includes('client_secret') ? (clientSecret || null) : null),
+        p_cert_base64: cs.includes('cert_a1') ? (certB64 || null) : null,
+        p_cert_senha: cs.includes('cert_senha') ? (certSenha || null) : null,
+        p_api_key: cs.includes('api_key') ? (apiKey || null) : null,
+        p_cooperativa: cs.includes('cooperativa') ? (cooperativa || null) : null,
+        p_conta: cs.includes('conta') ? (conta || null) : null,
+        p_codigo_beneficiario: cs.includes('codigo_beneficiario') ? (codBenef || null) : null,
+        p_posto: cs.includes('posto') ? (posto || null) : null,
+        // cap_pagamento (remessa CNAB) NÃO é capacidade desta tela de API: null preserva o valor (RD-57).
+        p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: null, p_ativo: true,
       }
-      const provider = providerCanonico(banco.sigla, ambiente)
-      // Salvar credenciais no Vault (fn_credencial_salvar — Cofre B.9).
-      const salvar1 = async (chave: string, valor: string, label: string) => {
-        if (!valor) return
-        const { data, error } = await supabase.rpc('fn_credencial_salvar', {
-          p_provider: provider, p_chave: chave, p_valor: valor,
-          p_escopo: 'empresa', p_company_id: companyId,
-          p_label: label, p_nome_vault_override: null,
-        })
-        if (error) throw error
-        const j = data as { sucesso?: boolean; erro?: string } | null
-        if (!j?.sucesso) throw new Error(j?.erro ?? `falha ao salvar ${chave}`)
-      }
-      if (clientSecret) await salvar1('client_secret', clientSecret, `${banco.nome} · client secret`)
-      if (certB64) await salvar1('cert', certB64, `${banco.nome} · certificado de comunicação (base64)`)
-      if (certSenha) await salvar1('certpw', certSenha, `${banco.nome} · senha do cert A1`)
-
-      // Cria/atualiza a linha em erp_banco_provider_config.
-      // A ÚNICA constraint única da tabela é (company_id, banco_codigo, ambiente) — o onConflict tem
-      // que bater com ELA, senão o Postgres estoura "there is no unique or exclusion constraint matching
-      // the ON CONFLICT specification" (chamado do Rodrigo, Bradesco). E banco_codigo é NOT NULL, então
-      // precisa ir no payload (sicredi/sicoob já mandam via RPC; este caminho direto tinha esquecido).
-      const { error: upErr } = await supabase.from('erp_banco_provider_config').upsert({
-        company_id: companyId,
-        banco_codigo: String(banco.codigo),
-        provider: banco.sigla,
-        ambiente,
-        client_id: clientId || null,
-        cooperativa: banco.campos.includes('cooperativa') ? (cooperativa || null) : null,
-        conta: banco.campos.includes('conta') ? (conta || null) : null,
-        codigo_beneficiario: banco.campos.includes('codigo_beneficiario') ? (codBenef || null) : null,
-        cap_boleto: capBoleto,
-        cap_extrato: capExtrato,
-        ativo: true,
-      }, { onConflict: 'company_id,banco_codigo,ambiente' })
-      if (upErr) throw upErr
-      // chamado #14 (Rodrigo/Bradesco): o upsert acima NÃO seta estado_conexao, então a config recém-salva
+      const { data: salvarData, error: salvarErr } = await supabase.rpc('fn_banco_salvar_credencial', params)
+      if (salvarErr) throw salvarErr
+      const salvarJ = salvarData as { ok?: boolean; erro?: string } | null
+      if (!salvarJ?.ok) throw new Error(salvarJ?.erro ?? `falha ao salvar credencial ${banco.nome}`)
+      // chamado #14 (Rodrigo/Bradesco): a config recém-salva
       // ficava eternamente "Status não iniciado" (print do Rodrigo 08/09) e presa em "Em configuração".
       // Avança FORWARD-ONLY para 'recebido' (= "credenciais recebidas"): sai de "não iniciado" mas NÃO
       // vira "conectado" (isso exige homologado/produção). Nunca rebaixa homologacao/homologado/producao
