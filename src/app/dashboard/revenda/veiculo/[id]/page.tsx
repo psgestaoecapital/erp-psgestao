@@ -1306,6 +1306,8 @@ type Foto = { id: string; storage_path: string; principal: boolean; ordem: numbe
 function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: string; companyId: string; onErro: (m: string) => void; onMsg: (m: string) => void }) {
   const [fotos, setFotos] = useState<Foto[]>([])
   const [urls, setUrls] = useState<Record<string, string>>({})
+  // #48 (Fábio): fotos da VISTORIA (insp_foto) — fallback read-only quando a galeria do veículo está vazia.
+  const [fotosVist, setFotosVist] = useState<{ path: string; legenda: string | null; url: string }[]>([])
   const [busy, setBusy] = useState(false)
   // R8a · marca d'água da loja (logo + toggle na Configuração da garagem) — overlay na prévia das fotos.
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
@@ -1325,6 +1327,26 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
       ;(signed ?? []).forEach((s) => { if (s.signedUrl && s.path) m[s.path] = s.signedUrl })
       setUrls(m)
     } else setUrls({})
+    // #48 (Fábio · Alliance): a galeria (veic_veiculo_foto) estava vazia mas havia fotos da VISTORIA
+    // (insp_foto, subidas pela tela de vistoria). Antes sumiam da tela do veículo. Fallback read-only:
+    // quando a galeria está vazia, mostra as fotos da vistoria (mesmo bucket 'revenda-veiculos', ligadas
+    // por insp_vistoria: alvo_tabela='veic_veiculo' + alvo_id). Não migra nada — só exibe e deixa baixar.
+    if (list.length === 0) {
+      const { data: vis } = await supabase.from('insp_vistoria').select('id')
+        .eq('company_id', companyId).eq('alvo_tabela', 'veic_veiculo').eq('alvo_id', veiculoId)
+      const vIds = ((vis as { id: string }[] | null) ?? []).map((x) => x.id)
+      if (vIds.length) {
+        const { data: ifs } = await supabase.from('insp_foto').select('storage_path, legenda, criado_em')
+          .in('vistoria_id', vIds).order('criado_em')
+        const rows = ((ifs as { storage_path: string; legenda: string | null }[] | null) ?? [])
+        if (rows.length) {
+          const { data: signedV } = await supabase.storage.from('revenda-veiculos').createSignedUrls(rows.map((r) => r.storage_path), 3600)
+          const byPath: Record<string, string> = {}
+          ;(signedV ?? []).forEach((s) => { if (s.signedUrl && s.path) byPath[s.path] = s.signedUrl })
+          setFotosVist(rows.filter((r) => byPath[r.storage_path]).map((r) => ({ path: r.storage_path, legenda: r.legenda, url: byPath[r.storage_path] })))
+        } else setFotosVist([])
+      } else setFotosVist([])
+    } else setFotosVist([])
     // marca d'água da empresa (config da garagem) — sem logo ou desligada → não sobrepõe nada (RD-51)
     const { data: cfg } = await supabase.rpc('fn_veic_config_obter', { p_company_id: companyId })
     const c = (cfg as { config?: { logo_storage_path?: string | null; marca_dagua_ativa?: boolean | null } } | null)?.config
@@ -1409,7 +1431,22 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
       </label>
       <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>Tire pelo celular no pátio. Arraste (⠿) para ordenar — a 1ª some no anúncio; a ⭐ principal aparece no cartão do Pátio.{marcaAtiva ? ' A marca d’água da loja aparece na prévia.' : ''}</div>
       {fotos.length === 0 ? (
-        <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 10 }}>Sem fotos ainda. Frente, lateral, interior, motor.</div>
+        fotosVist.length > 0 ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 6 }}>Ainda não há fotos na galeria. Mostrando as <b>{fotosVist.length} foto(s) da vistoria</b> deste veículo — clique para abrir/baixar. Para usá-las no anúncio ou no cartão do Pátio, reenvie em “Adicionar fotos”.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+              {fotosVist.map((fv) => (
+                <a key={fv.path} href={fv.url} target="_blank" rel="noreferrer" download style={{ display: 'block', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, textDecoration: 'none' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={fv.url} alt={fv.legenda ?? 'Foto da vistoria'} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
+                  {fv.legenda ? <div style={{ fontSize: 10.5, color: C.espM, padding: '4px 6px' }}>{fv.legenda}</div> : null}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 10 }}>Sem fotos ainda. Frente, lateral, interior, motor.</div>
+        )
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={aoArrastar}>
           <SortableContext items={fotos.map((f) => f.id)} strategy={rectSortingStrategy}>
