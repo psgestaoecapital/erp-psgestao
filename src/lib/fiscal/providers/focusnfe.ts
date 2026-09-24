@@ -89,7 +89,14 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
     // regime_especial_tributacao (regEspTrib) é EXIGIDO pelo XSD dentro do grupo regTrib (0 = Nenhum · SN).
     codigo_opcao_simples_nacional: opc,
     regime_especial_tributacao: 0,
-    regime_tributario_simples_nacional: req.regimeApuracaoSN ?? 1,
+  }
+  // regApTribSN (regime de apuração do Simples): SÓ para OPTANTE (opSimpNac 2/3). NÃO OPTANTE (opc=1) e
+  // MEI NÃO podem preencher — a NFS-e Nacional rejeita E0162 ("Não é permitido ao não optante do Simples
+  // Nacional e o MEI preencherem o campo de indicação do regime de apuração dos tributos apurados").
+  // Provado no payload_enviado da FC Pisos (lucro presumido, opc=1): mandávamos
+  // regime_tributario_simples_nacional=1 → E0162. Confirmado na NF 418: "Regime de Apuração pelo SN: -".
+  if (opc === 2 || opc === 3) {
+    p.regime_tributario_simples_nacional = req.regimeApuracaoSN ?? 1
   }
   // totTrib (grupo trib exige tribFed OU totTrib):
   //  - ME/EPP (opção 3): usa percentual_total_tributos_simples_nacional (E0712 proíbe indicador_total_tributacao).
