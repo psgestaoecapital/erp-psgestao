@@ -10,6 +10,7 @@ import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { segundaViaBoleto, type SicoobAmbiente } from '@/lib/banco/sicoob'
+import { salvarPdfBoletoNoBucket } from '@/lib/boleto/salvarPdfBoleto'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -122,17 +123,12 @@ export async function POST(req: NextRequest) {
       }, { status: 502 })
     }
 
-    const pdfBytes = Buffer.from(sv.pdfBase64, 'base64')
-    const objectPath = `${companyId}/${receber_id}.pdf`
-    const up = await supabaseAdmin.storage.from('boletos')
-      .upload(objectPath, pdfBytes, { contentType: 'application/pdf', upsert: true })
-    if (up.error) {
-      await logSync(companyId, 'erro', `upload pdf falhou: ${up.error.message}`, { receber_id })
+    const saved = await salvarPdfBoletoNoBucket(companyId, receber_id, Buffer.from(sv.pdfBase64, 'base64'))
+    if (saved.erro) {
+      await logSync(companyId, 'erro', saved.erro, { receber_id })
       return NextResponse.json({ ok: false, erro: 'Falha ao salvar PDF.' }, { status: 500 })
     }
-    const signed = await supabaseAdmin.storage.from('boletos')
-      .createSignedUrl(objectPath, 60 * 60 * 24 * 365)
-    const boletoUrl = signed.data?.signedUrl ?? null
+    const boletoUrl = saved.url
     if (!boletoUrl) {
       await logSync(companyId, 'erro', 'signed url ausente', { receber_id })
       return NextResponse.json({ ok: false, erro: 'Falha ao gerar URL assinada.' }, { status: 500 })

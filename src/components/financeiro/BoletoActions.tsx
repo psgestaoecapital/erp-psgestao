@@ -38,6 +38,7 @@ export type BoletoEstado = {
   status: string | null            // 'registrado' | null
   nossoNumero: string | null
   linhaDigitavel: string | null
+  codigoBarras: string | null
   qrCode: string | null
   url: string | null
 }
@@ -97,7 +98,11 @@ function validaPreEmissao(cliente: ClienteContato | null, empresaCnpj: string | 
 export default function BoletoActions({ provider, receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, onSucesso }: Props) {
   const [busy, setBusy] = useState(false)
   const [imprimindo, setImprimindo] = useState(false)
-  const [copiou, setCopiou] = useState<'linha' | 'pix' | null>(null)
+  const [copiou, setCopiou] = useState<'linha' | 'pix' | 'barras' | null>(null)
+  // Fallback quando o PDF não abre (geração falhou): em vez de um alert que some, um modal com a
+  // linha digitável + código de barras e botões de copiar — o cliente paga sem o papel (pedido do CEO).
+  const [fallbackAberto, setFallbackAberto] = useState(false)
+  const [fallbackMotivo, setFallbackMotivo] = useState<string | null>(null)
   // Erro fica na TELA, não em alert(): depois de alguns alerts o navegador oferece
   // "impedir novos diálogos" e a partir daí a mensagem some — a Jordana clicava, o botão
   // voltava sozinho e nada aparecia, parecendo travado. Inline, a causa (a do banco) fica visível.
@@ -124,6 +129,13 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
     setCopiou('pix')
     setTimeout(() => setCopiou(null), 1500)
   }
+  const copiarBarras = () => {
+    if (!boleto.codigoBarras) return
+    navigator.clipboard.writeText(boleto.codigoBarras)
+    setCopiou('barras')
+    setTimeout(() => setCopiou(null), 1500)
+  }
+  const abrirFallback = (motivo: string) => { setFallbackMotivo(motivo); setFallbackAberto(true) }
 
   const abrirPdfBoleto = async () => {
     if (imprimindo) return
@@ -138,7 +150,8 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
       if (!r.ok) {
         let msg = `HTTP ${r.status}`
         try { const j = await r.json(); if (j?.erro) msg = j.erro } catch { /* binario sem json */ }
-        alert(`Nao foi possivel abrir o boleto: ${msg}`)
+        // Sem PDF: não deixa o operador sem saída — abre o modal com linha digitável + código de barras.
+        abrirFallback(`Não foi possível gerar o PDF (${msg}). Use a linha digitável ou o código de barras abaixo para cobrar.`)
         return
       }
       const blob = await r.blob()
@@ -159,7 +172,7 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
       // Se boleto_url acabou de ser materializado na rota, refresca listagem.
       if (!boleto.url) onSucesso?.()
     } catch (e) {
-      alert(`Nao foi possivel abrir o boleto: ${(e as Error).message || 'erro de rede'}`)
+      abrirFallback(`Não foi possível abrir o boleto (${(e as Error).message || 'erro de rede'}). Use a linha digitável ou o código de barras abaixo para cobrar.`)
     } finally {
       setImprimindo(false)
     }
@@ -306,6 +319,7 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
   }
 
   return (
+   <>
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
       <span title={boleto.nossoNumero ? `Nosso numero: ${boleto.nossoNumero}` : `Boleto ${label} gerado`}
         style={{
@@ -338,5 +352,52 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
         {copiou === 'pix' ? 'Copiado!' : 'Copiar Pix'}
       </button>
     </div>
+
+    {/* Fallback sem papel: quando o PDF não abre, o operador ainda cobra pela linha digitável
+        ou pelo código de barras. Modal em vez de alert (que some após alguns diálogos). */}
+    {fallbackAberto && (
+      <div role="dialog" aria-modal="true" onClick={() => setFallbackAberto(false)}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1200 }}>
+        <div onClick={(e) => e.stopPropagation()}
+          style={{ background: '#FFFDF9', borderRadius: 12, maxWidth: 480, width: '100%', padding: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314' }}>Boleto {label} · dados para pagamento</div>
+          {fallbackMotivo && (
+            <div style={{ fontSize: 11.5, lineHeight: 1.45, color: '#7A5A0F', background: '#FEF3C7', border: '0.5px solid rgba(200,148,26,0.4)', borderRadius: 6, padding: '8px 10px' }}>
+              {fallbackMotivo}
+            </div>
+          )}
+          <div style={{ display: 'grid', gap: 4 }}>
+            <div style={{ fontSize: 10.5, color: '#8A6A45', textTransform: 'uppercase', letterSpacing: 0.5 }}>Linha digitável</div>
+            <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#3D2314', wordBreak: 'break-all', background: '#FAF7F2', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 6, padding: '8px 10px' }}>
+              {boleto.linhaDigitavel ?? '—'}
+            </div>
+            <button type="button" onClick={copiarLinha} disabled={!boleto.linhaDigitavel} style={boleto.linhaDigitavel ? btnSec : btnDisabled}>
+              {copiou === 'linha' ? 'Copiado!' : 'Copiar linha digitável'}
+            </button>
+          </div>
+          {boleto.codigoBarras && (
+            <div style={{ display: 'grid', gap: 4 }}>
+              <div style={{ fontSize: 10.5, color: '#8A6A45', textTransform: 'uppercase', letterSpacing: 0.5 }}>Código de barras</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#3D2314', wordBreak: 'break-all', background: '#FAF7F2', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 6, padding: '8px 10px' }}>
+                {boleto.codigoBarras}
+              </div>
+              <button type="button" onClick={copiarBarras} style={btnSec}>
+                {copiou === 'barras' ? 'Copiado!' : 'Copiar código de barras'}
+              </button>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+            <button type="button" onClick={() => { setFallbackAberto(false); abrirPdfBoleto() }} disabled={imprimindo} style={btnSec}>
+              {imprimindo ? 'Tentando...' : 'Tentar PDF de novo'}
+            </button>
+            <button type="button" onClick={() => setFallbackAberto(false)}
+              style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 14px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+   </>
   )
 }

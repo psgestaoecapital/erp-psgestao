@@ -7,6 +7,7 @@ import { registrarBoleto, type BradescoAmbiente } from '@/lib/banco/bradesco'
 import { onlyDigitsDoc, tipoPessoaPorDocumento } from '@/lib/banco/documento'
 import { extractBankMessage } from '@/lib/banco/bankError'
 import { gerarPdfBoleto } from '@/lib/boleto/gerarPdfBoleto'
+import { salvarPdfBoletoNoBucket } from '@/lib/boleto/salvarPdfBoleto'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -234,11 +235,9 @@ export async function POST(req: NextRequest) {
           credRow.instrucao_linha1, credRow.instrucao_linha2, credRow.instrucao_linha3, credRow.instrucao_linha4,
         ].filter((x): x is string => !!x),
       })
-      const objectPath = `${companyId}/${receber_id}.pdf`
-      const up = await supabaseAdmin.storage.from('boletos').upload(objectPath, Buffer.from(bytes), { contentType: 'application/pdf', upsert: true })
-      if (up.error) throw new Error(`upload PDF falhou: ${up.error.message}`)
-      const signed = await supabaseAdmin.storage.from('boletos').createSignedUrl(objectPath, 60 * 60 * 24 * 365)
-      if (signed.data?.signedUrl) boletoUrl = signed.data.signedUrl
+      const saved = await salvarPdfBoletoNoBucket(companyId, receber_id, bytes)
+      if (saved.erro) throw new Error(saved.erro)
+      boletoUrl = saved.url
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       await logSync(companyId, 'erro', `PDF Bradesco (gerador local) falhou: ${msg}`, { receber_id })

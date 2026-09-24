@@ -16,6 +16,7 @@ import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { gerarPdfBoleto, type BoletoDados } from '@/lib/boleto/gerarPdfBoleto'
+import { salvarPdfBoletoNoBucket } from '@/lib/boleto/salvarPdfBoleto'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -200,21 +201,18 @@ export async function GET(req: NextRequest) {
     // regeracoes (?force=1 / ?regenerar=true). objectPath ja declarado
     // no topo (pra reuso no cache hit).
     let boletoUrl: string | null = null
-    try {
-      const up = await supabaseAdmin.storage.from('boletos')
-        .upload(objectPath, Buffer.from(pdfBytes), { contentType: 'application/pdf', upsert: true })
-      if (up.error) throw up.error
-      const signed = await supabaseAdmin.storage.from('boletos')
-        .createSignedUrl(objectPath, 60 * 60 * 24 * 365)
-      boletoUrl = signed.data?.signedUrl ?? null
-      if (boletoUrl) {
-        await supabaseAdmin.from('erp_receber').update({ boleto_url: boletoUrl }).eq('id', receberId)
-        await logGen(companyId, 'ok', `pdf gerado e salvo (${pdfBytes.byteLength} bytes)`, { receber_id: receberId })
+    {
+      const saved = await salvarPdfBoletoNoBucket(companyId, receberId, pdfBytes)
+      if (saved.erro) {
+        await logGen(companyId, 'erro', `upload/sign falhou: ${saved.erro}`, { receber_id: receberId })
+        // segue servindo o PDF inline mesmo sem cache no bucket
+      } else {
+        boletoUrl = saved.url
+        if (boletoUrl) {
+          await supabaseAdmin.from('erp_receber').update({ boleto_url: boletoUrl }).eq('id', receberId)
+          await logGen(companyId, 'ok', `pdf gerado e salvo (${pdfBytes.byteLength} bytes)`, { receber_id: receberId })
+        }
       }
-    } catch (upErr) {
-      const msg = upErr instanceof Error ? upErr.message : String(upErr)
-      await logGen(companyId, 'erro', `upload/sign falhou: ${msg}`, { receber_id: receberId })
-      // segue servindo o PDF inline mesmo sem cache no bucket
     }
 
     if (asJson) {
