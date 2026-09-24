@@ -128,6 +128,7 @@ export interface NFeProdutoItem {
   valorTotal: number
   cest?: string
   origem?: string
+  exTipi?: string // EX da TIPI (IBPT Lei 12.741) — entra na chave da tabela IBPT (NCM,EX,UF,versão)
   // cst carrega CST (regime normal) OU CSOSN (Simples). base/modBc/valor sao usados na devolucao
   // (espelho da entrada): CSOSN 900 + icms_base_calculo/icms_aliquota/icms_valor devolvem o credito.
   icms?: { cst?: string; aliquota?: number; base?: number; valor?: number; modBc?: string
