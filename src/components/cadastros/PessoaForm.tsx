@@ -192,6 +192,12 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
         .eq('company_id', companyId)
         .eq('cnpj_cpf', cnpjLimpo)
         .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
+        // Chamados #129/#130 (Jordana · KGF/Gean): a checagem de duplicidade só considera cadastros ATIVOS.
+        // Um duplicado INATIVADO (ativo=false, usado para "arquivar" um cadastro errado sem perder histórico)
+        // continuava batendo e disparava o alerta "criar um duplicado?" durante a EDIÇÃO do cadastro correto —
+        // o usuário clicava "abrir existente", o form fechava e a correção NÃO era salva. Ignorar inativos
+        // resolve os dois ângulos: editar deixa de parecer "criar novo", e o inativo não bloqueia mais.
+        .eq('ativo', true)
         .limit(1)
       if (dup && dup.length > 0) {
         const existente = dup[0] as { id: string; nome_fantasia: string | null; razao_social: string | null }
