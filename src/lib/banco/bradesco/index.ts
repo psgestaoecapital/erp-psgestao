@@ -150,19 +150,16 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
   }
 
   const ag = onlyDigits(input.agencia).padStart(4, '0').slice(-4)
-  // nuNegociacao: prioridade absoluta para o valor da config (gerente Bradesco
-  // confirma o codigo correto da operacao). Fallback (empresa sem config) monta
-  // agencia(4) + zeros + conta(7) + digito, no total 18.
-  // BUG CORRIGIDO: antes fazia onlyDigits(conta).padStart(7).slice(-7), o que
-  //   (a) embutia o DIGITO VERIFICADOR dentro da conta e
-  //   (b) TRUNCAVA pelo slice(-7) quando conta+DV >= 8 digitos (perdia o 1o digito).
-  // Agora separa conta e DV pelo '-': a conta (sem DV) vai zero-preenchida a 7 e o
-  // DV entra como ultimo digito; o conjunto e alinhado a 14 (ag ja sao os 4 da frente).
-  const contaPartes = String(input.conta ?? '').split('-')
-  const contaSemDv = onlyDigits(contaPartes[0]).padStart(7, '0').slice(-7)
-  const contaDv = contaPartes.length > 1 ? onlyDigits(contaPartes[contaPartes.length - 1]).slice(-1) : ''
+  // nuNegociacao (18 dígitos): FORMATO OFICIAL Bradesco = agência(4) + 0000000 (7 zeros) +
+  // conta SEM dígito verificador (7). Confirmado na doc/SDK (exemplo "123400000001234567" =
+  // 1234 + 0000000 + 1234567) e no comportamento do OMIE (aba Beneficiário em branco → usa o
+  // beneficiário PADRÃO = agência + conta, sem código especial). O DÍGITO VERIFICADOR NÃO ENTRA.
+  // Config tem prioridade absoluta (código informado pelo gerente); só cai no derivado quando vazia.
+  // BUG CORRIGIDO: antes fazia onlyDigits(conta).padStart(7).slice(-7), que embutia o DV na conta e
+  //   truncava (slice(-7)) quando conta+DV >= 8 dígitos. Agora usa a conta SEM o DV, zero-preenchida a 7.
+  const contaSemDv = onlyDigits(String(input.conta ?? '').split('-')[0]).padStart(7, '0').slice(-7)
   const nuNegociacaoConfig = input.nuNegociacao ? onlyDigits(input.nuNegociacao) : ''
-  const nuNegociacaoDerivado = `${ag}${(contaSemDv + contaDv).padStart(14, '0')}`
+  const nuNegociacaoDerivado = `${ag}0000000${contaSemDv}`
   const nuNegociacaoOrigem: 'config' | 'derivado' = nuNegociacaoConfig.length > 0 ? 'config' : 'derivado'
   const nuNegociacao = nuNegociacaoConfig.length > 0 ? nuNegociacaoConfig : nuNegociacaoDerivado
 
