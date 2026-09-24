@@ -639,6 +639,25 @@ export default function NFSeEmitirGovModal({
   const finLiquido = Math.max(0, finBruto - numBR(finRet.deducoes) - numBR(finRet.desconto) - finRetTotal)
   const fmtBRL = (n: number) => 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+  // Sugestão automática de retenções federais (Lei/serviço) — FACILITA, não decide (CEO 24/09). Percentuais
+  // consagrados: INSS 11% SÓ p/ cessão de mão de obra (detectada na descrição — ex.: FC "serviço de mão de
+  // obra em revestimento"); IRRF 1,5% p/ serviços profissionais; PIS 0,65% + COFINS 3% na retenção federal.
+  // Tudo EDITÁVEL e default ZERO: só preenche quando o operador clica (campo fiscal não se adivinha sozinho).
+  const brNum = (n: number) => (n > 0 ? n.toFixed(2).replace('.', ',') : '')
+  const cent = (n: number) => Math.round(n * 100) / 100
+  const ehCessaoMaoDeObra = /\bm[ãa]o[\s-]*de[\s-]*obra\b|cess[ãa]o\s+de\s+m[ãa]o/i.test(descricao)
+  function aplicarSugestaoRetencoes() {
+    const base = finBruto
+    if (base <= 0) return
+    setFinRet((p) => ({
+      ...p,
+      irrf: brNum(cent(base * 0.015)),
+      pis: brNum(cent(base * 0.0065)),
+      cofins: brNum(cent(base * 0.03)),
+      inss: ehCessaoMaoDeObra ? brNum(cent(base * 0.11)) : p.inss,
+    }))
+  }
+
   async function gerarFinanceiro() {
     if (!nfseIdGerado) return
     setFinFase('enviando'); setFinMsg(null)
@@ -1007,6 +1026,12 @@ export default function NFSeEmitirGovModal({
                   {finFase !== 'ok' ? (
                     <>
                       <p className="text-[11px] text-[#5C3B0B]/80">Informe as retenções (quando houver). O título a receber nasce pelo <b>valor líquido</b>.</p>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <button type="button" onClick={aplicarSugestaoRetencoes} disabled={finBruto <= 0} data-testid="nfse-sugerir-retencoes" className="text-[11px] font-medium text-[#8A5A00] underline decoration-dotted underline-offset-2 hover:text-[#5C3B0B] disabled:opacity-40">
+                          Sugerir retenções federais
+                        </button>
+                        <span className="text-[10.5px] text-[#5C3B0B]/60">IRRF 1,5% · PIS 0,65% · COFINS 3%{ehCessaoMaoDeObra ? ' · INSS 11% (mão de obra)' : ''} — editável, confira antes de gerar</span>
+                      </div>
                       <div className="grid grid-cols-3 gap-2">
                         {(['iss', 'irrf', 'pis', 'cofins', 'csll', 'inss'] as const).map((k) => (
                           <label key={k} className="block">
