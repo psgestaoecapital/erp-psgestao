@@ -51,6 +51,15 @@ export async function POST(req: NextRequest) {
     receberIdLog = receber_id
     if (!receber_id) return NextResponse.json({ ok: false, erro: 'receber_id obrigatorio' }, { status: 400 })
 
+    // RD-38 (falha sem log = falha invisível): resolve o company_id via service-role LOGO no início,
+    // só para LOG (independe da RLS do usuário). Assim qualquer falha a partir daqui — inclusive 401
+    // (não autenticado) e 404 (título não encontrado / RLS) — é registrada, e não ficamos cegos como
+    // aconteceu com a FC Pisos (Sicredi falhou e não gerou UMA linha em erp_banco_sync_log).
+    try {
+      const { data: recCo } = await supabaseAdmin.from('erp_receber').select('company_id').eq('id', receber_id).maybeSingle()
+      if (recCo?.company_id) companyIdLog = recCo.company_id as string
+    } catch { /* best-effort — nunca deixa a falha do lookup mascarar o fluxo */ }
+
     const segredoOk = temSegredoValido(req)
     let sb: ReturnType<typeof userSupabase>
     if (segredoOk) {
@@ -58,13 +67,19 @@ export async function POST(req: NextRequest) {
     } else {
       sb = userSupabase(req)
       const { data: { user } } = await sb.auth.getUser()
-      if (!user) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
+      if (!user) {
+        if (companyIdLog) await logSync(companyIdLog, 'erro', 'nao autenticado (sessao ausente/expirada)', { receber_id })
+        return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
+      }
     }
 
     const { data: rec, error: recErr } = await sb.from('erp_receber')
       .select('id, company_id, cliente_id, cliente_nome, valor, data_emissao, data_vencimento, numero_documento, boleto_status, boleto_nosso_numero')
       .eq('id', receber_id).single()
-    if (recErr || !rec) return NextResponse.json({ ok: false, erro: 'titulo nao encontrado' }, { status: 404 })
+    if (recErr || !rec) {
+      if (companyIdLog) await logSync(companyIdLog, 'erro', `titulo nao encontrado / RLS bloqueou leitura${recErr?.message ? ': ' + recErr.message : ''}`, { receber_id })
+      return NextResponse.json({ ok: false, erro: 'titulo nao encontrado' }, { status: 404 })
+    }
     if (rec.boleto_status === 'registrado' && rec.boleto_nosso_numero) {
       return NextResponse.json({ ok: false, erro: 'titulo ja possui boleto registrado', nosso_numero: rec.boleto_nosso_numero }, { status: 409 })
     }
