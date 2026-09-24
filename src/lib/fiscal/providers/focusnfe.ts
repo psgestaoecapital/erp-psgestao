@@ -603,6 +603,9 @@ export class FocusNFeProvider implements FiscalProvider {
       natureza_operacao: req.naturezaOperacao ?? 'Venda ao consumidor',
       data_emissao: new Date().toISOString(),
       presenca_comprador: 1,            // 1 = presencial (balcão)
+      // indFinal (consumidor_final) é OBRIGATÓRIO; NFC-e (modelo 65) é SEMPRE consumidor final → 1.
+      // Campo ausente = rejeição esperando. Fonte: doc Focus NotaFiscalXML.html (tag indFinal).
+      consumidor_final: 1,
       modalidade_frete: 9,
       serie: Number(req.serie ?? '1'),  // NFC-e costuma ter série própria
       cnpj_emitente: req.emitente.cnpj,
