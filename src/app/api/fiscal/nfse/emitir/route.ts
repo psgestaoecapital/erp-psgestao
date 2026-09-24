@@ -395,11 +395,21 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           nfseReq.padraoNacional = true
           const { data: snCfg } = await supabaseAdmin
             .from('erp_fiscal_provider_config')
-            .select('opcao_simples_nacional, regime_tributario, regime_apuracao_sn, percentual_total_tributos_sn, reforma_finalidade_emissao, reforma_consumidor_final, reforma_indicador_destinatario, reforma_ibs_cbs_cst, reforma_ibs_cbs_classif_trib')
+            .select('opcao_simples_nacional, regime_tributario, regime_apuracao_sn, percentual_total_tributos_sn, reforma_finalidade_emissao, reforma_consumidor_final, reforma_indicador_destinatario, reforma_ibs_cbs_cst, reforma_ibs_cbs_classif_trib, serie_nfse_padrao')
             .eq('company_id', body.companyId)
             .eq('provider', 'focusnfe')
             .eq('ativo', true)
             .maybeSingle()
+          // Série por TIPO DE EMISSOR (correção CEO 24/09): a emissão por INTEGRAÇÃO (nossa, via Focus) usa a
+          // faixa 00001–49999; a faixa 50000+ é do PORTAL NACIONAL (outro tipo de emissor). Uma série de portal
+          // na integração reprova E0010 ("série fora da faixa"). Bloqueia ANTES de enviar, com a faixa explicada
+          // — impede repetir o engano de configurar série de portal aqui.
+          {
+            const serieCfg = Number(String((snCfg as { serie_nfse_padrao?: string } | null)?.serie_nfse_padrao ?? '').replace(/\D/g, ''))
+            if (Number.isFinite(serieCfg) && serieCfg > 49999) {
+              return NextResponse.json({ ok: false, mensagem: `Série da NFS-e (${serieCfg}) fora da faixa da emissão por INTEGRAÇÃO (00001–49999). A faixa 50000+ é do Portal Nacional (outro tipo de emissor) e reprova na integração (E0010). Ajuste a série da empresa em Configurações › Fiscal.` }, { status: 400 })
+            }
+          }
           // Opção do Simples RESOLVIDA sem adivinhar: usa a cadastrada; se nula, deriva do regime tributário;
           // regime desconhecido → BLOQUEIA (assumir optante OU não-optante emite nota errada — ex.: VIANZ,
           // opção nula + regime simples_nacional, não pode virar não-optante).
