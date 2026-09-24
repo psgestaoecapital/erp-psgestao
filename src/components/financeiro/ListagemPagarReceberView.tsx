@@ -261,7 +261,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         .order('criado_em', { ascending: false }),
       supabase
         .from('erp_receber')
-        .select('id, cliente_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_qr_code, boleto_url')
+        .select('id, cliente_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_codigo_barras, boleto_qr_code, boleto_url')
         .eq('company_id', companyId),
       supabase
         .from('erp_banco_provider_config')
@@ -309,7 +309,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       type BoletoRow = {
         id: string; cliente_id: string | null
         boleto_status: string | null; boleto_nosso_numero: string | null
-        boleto_linha_digitavel: string | null; boleto_qr_code: string | null
+        boleto_linha_digitavel: string | null; boleto_codigo_barras: string | null
+        boleto_qr_code: string | null
         boleto_url: string | null
       }
       const recebMap: Record<string, BoletoRow> = {}
@@ -320,6 +321,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           status: row.boleto_status,
           nossoNumero: row.boleto_nosso_numero,
           linhaDigitavel: row.boleto_linha_digitavel,
+          codigoBarras: row.boleto_codigo_barras,
           qrCode: row.boleto_qr_code,
           url: row.boleto_url,
         }
@@ -1336,7 +1338,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 motivo={nfeDocMap[r.id]?.motivo ?? undefined}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
-                              {provider === 'sicoob' || provider === 'sicredi' ? (
+                              {provider === 'sicoob' || provider === 'sicredi' || provider === 'bradesco' ? (
                                 <BoletoActions
                                   provider={provider}
                                   receberId={r.id}
@@ -1344,7 +1346,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                   vencimentoISO={r.data_vencimento}
                                   cliente={clientesMap[r.id] ?? null}
                                   empresaCnpj={empresaCnpj}
-                                  boleto={boletoMap[r.id] ?? { status: null, nossoNumero: null, linhaDigitavel: null, qrCode: null, url: null }}
+                                  boleto={boletoMap[r.id] ?? { status: null, nossoNumero: null, linhaDigitavel: null, codigoBarras: null, qrCode: null, url: null }}
                                   onSucesso={() => setReloadKey((k) => k + 1)}
                                 />
                               ) : (

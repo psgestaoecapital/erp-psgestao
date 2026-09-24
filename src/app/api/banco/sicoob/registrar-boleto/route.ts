@@ -7,6 +7,7 @@ import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { registrarBoleto, segundaViaBoleto, type SicoobAmbiente } from '@/lib/banco/sicoob'
+import { salvarPdfBoletoNoBucket } from '@/lib/boleto/salvarPdfBoleto'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -184,16 +185,8 @@ export async function POST(req: NextRequest) {
         cooperativa, conta, codigo_beneficiario: codigoBeneficiario, convenio,
       }, result.nuTituloGerado)
       if (sv.pdfBase64) {
-        const pdfBytes = Buffer.from(sv.pdfBase64, 'base64')
-        const objectPath = `${companyId}/${receber_id}.pdf`
-        const up = await supabaseAdmin.storage.from('boletos')
-          .upload(objectPath, pdfBytes, { contentType: 'application/pdf', upsert: true })
-        if (!up.error) {
-          // signed URL longa (1 ano) — bucket privado, exposto so via URL.
-          const signed = await supabaseAdmin.storage.from('boletos')
-            .createSignedUrl(objectPath, 60 * 60 * 24 * 365)
-          if (signed.data?.signedUrl) boletoUrl = signed.data.signedUrl
-        }
+        const saved = await salvarPdfBoletoNoBucket(companyId, receber_id, Buffer.from(sv.pdfBase64, 'base64'))
+        boletoUrl = saved.url
       } else {
         await logSync(companyId, 'erro',
           `2a via sem PDF (status ${sv.status})`,

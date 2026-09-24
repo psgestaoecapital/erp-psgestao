@@ -9,6 +9,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { registrarBoleto, buscarPdf, type SicrediAmbiente } from '@/lib/banco/sicredi'
 import { gerarPdfBoleto } from '@/lib/boleto/gerarPdfBoleto'
+import { salvarPdfBoletoNoBucket } from '@/lib/boleto/salvarPdfBoleto'
 import { onlyDigitsDoc, tipoPessoaPorDocumento } from '@/lib/banco/documento'
 import { extractBankMessage } from '@/lib/banco/bankError'
 
@@ -189,12 +190,8 @@ export async function POST(req: NextRequest) {
       }
     }
     if (pdfBytes) {
-      const objectPath = `${companyId}/${receber_id}.pdf`
-      const up = await supabaseAdmin.storage.from('boletos').upload(objectPath, pdfBytes, { contentType: 'application/pdf', upsert: true })
-      if (!up.error) {
-        const signed = await supabaseAdmin.storage.from('boletos').createSignedUrl(objectPath, 60 * 60 * 24 * 365)
-        if (signed.data?.signedUrl) boletoUrl = signed.data.signedUrl
-      }
+      const saved = await salvarPdfBoletoNoBucket(companyId, receber_id, pdfBytes)
+      boletoUrl = saved.url
     }
 
     await supabaseAdmin.from('erp_receber').update({
