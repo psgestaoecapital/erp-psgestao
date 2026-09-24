@@ -61,6 +61,7 @@ export default function DevPage() {
     {id:'seguranca',label:'🔒 Segurança',icon:'🔒'},
     {id:'changelog',label:'📋 Changelog',icon:'📋'},
     {id:'files',label:'📁 Arquivos',icon:'📁'},
+    {id:'ibpt',label:'🧾 IBPT',icon:'🧾'},
   ];
 
   return (
@@ -108,6 +109,7 @@ export default function DevPage() {
           {tab==='seguranca'&&<Seguranca secResults={secResults} secLoading={secLoading} testar={testarSeguranca}/>}
           {tab==='changelog'&&<Changelog/>}
           {tab==='files'&&<FileExplorer/>}
+          {tab==='ibpt'&&<IbptLink/>}
         </div>
       </>}
     </div>
@@ -600,6 +602,23 @@ function Ambientes(){
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// IBPT (Lei 12.741) — atalho para o importador da tabela (núcleo, serve todos os tenants)
+// ════════════════════════════════════════
+function IbptLink(){
+  return(
+    <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${BD}`,maxWidth:560}}>
+      <div style={{fontSize:15,fontWeight:700,color:GOL,marginBottom:8}}>🧾 Tabela IBPT — Lei 12.741</div>
+      <div style={{fontSize:12,color:TXM,lineHeight:1.6,marginBottom:14}}>
+        A tabela IBPT é <b>única</b> (alíquotas por NCM×UF, iguais p/ todas as empresas). Uma carga serve
+        <b> todos os tenants</b> — inclusive clientes novos. A API do IBPT está fora do ar; baixe o CSV/ZIP
+        em <b>deolhonoimposto.ibpt.org.br</b> e suba pelo importador. O sistema valida o cabeçalho.
+      </div>
+      <a href="/dashboard/dev/ibpt" style={{display:"inline-block",padding:"9px 18px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:ONGOLD,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>Abrir importador da tabela IBPT →</a>
     </div>
   );
 }
