@@ -110,6 +110,10 @@ export type RegistrarBoletoInput = {
   }
   jurosPct?: number | null
   multaPct?: number | null
+  // Dias após o vencimento em que o encargo passa a incidir (qtdeDiasJuros/qtdeDiasMulta).
+  // Quando o percentual está preenchido mas o dia não, o adapter usa 1 (padrão sensato).
+  qtdeDiasJuros?: number | null
+  qtdeDiasMulta?: number | null
   instrucoes?: Array<string | null | undefined>
 }
 
@@ -172,8 +176,6 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     dtVencimentoTitulo: fmtDate(input.vencimentoISO),
     vlNominalTitulo: fmtVal(input.valor),
     cdEspecieTitulo: 2,
-    percentualJuros: fmtPct(input.jurosPct),
-    percentualMulta: fmtPct(input.multaPct),
     nomePagador: cleanText(input.pagador.nome, 70),
     logradouroPagador: cleanText(input.pagador.logradouro ?? '', 40),
     nuLogradouroPagador: cleanText(input.pagador.numero ?? '', 10),
@@ -197,6 +199,37 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
   // "NENHUM REGISTRO FOI ENCONTRADO".
   if (input.codigoBeneficiario) payload.codigoBeneficiario = onlyDigits(input.codigoBeneficiario)
   if (input.convenio) payload.numConvenio = onlyDigits(input.convenio)
+
+  // GRUPO MULTA/JUROS (CBTT0505 — "INFORME TODOS OS CAMPOS PARA MULTA"):
+  // O Bradesco só aceita o encargo quando o PERCENTUAL vem ACOMPANHADO da quantidade de dias após
+  // o vencimento em que ele passa a incidir (qtdeDiasMulta / qtdeDiasJuros). Regras aplicadas:
+  //  - só enviamos o grupo quando o percentual está preenchido (> 0); percentual 0/null → nenhum campo,
+  //    o boleto sai limpo (não inventamos encargo que o cliente não cobra);
+  //  - qtdeDias padrão = 1 quando não configurada (mantém configurável via dias_multa/dias_juros);
+  //  - percentual e vlMulta/vlJuros são ALTERNATIVOS — com percentual preenchido NÃO enviamos vl*;
+  //  - GUARDA: percentual preenchido mas qtdeDias inválida (0, negativa, não-inteira) → bloqueia ANTES
+  //    de chamar o banco, com mensagem clara (evita o CBTT0505 vindo do servidor sem contexto).
+  const aplicarEncargo = (
+    campoPct: 'percentualMulta' | 'percentualJuros',
+    campoDias: 'qtdeDiasMulta' | 'qtdeDiasJuros',
+    pctRaw: number | null | undefined,
+    diasRaw: number | null | undefined,
+    rotulo: string,
+  ) => {
+    const pct = pctRaw == null ? 0 : Number(pctRaw)
+    if (!(pct > 0)) return // sem encargo: não envia percentual nem dias
+    const dias = diasRaw == null ? 1 : Math.trunc(Number(diasRaw))
+    if (!Number.isFinite(dias) || dias < 1) {
+      throw new Error(
+        `${rotulo} de ${fmtPct(pct)}% configurada sem quantidade de dias válida (após o vencimento). ` +
+        `Informe os dias de ${rotulo.toLowerCase()} na configuração do banco (mínimo 1) antes de gerar o boleto.`,
+      )
+    }
+    payload[campoPct] = fmtPct(pct)
+    payload[campoDias] = dias
+  }
+  aplicarEncargo('percentualMulta', 'qtdeDiasMulta', input.multaPct, input.qtdeDiasMulta, 'Multa')
+  aplicarEncargo('percentualJuros', 'qtdeDiasJuros', input.jurosPct, input.qtdeDiasJuros, 'Juros')
 
   const body = JSON.stringify(payload)
   const res = await request<{ nuTituloGerado?: string; linhaDigitavel?: string; cdBarras?: string }>({
