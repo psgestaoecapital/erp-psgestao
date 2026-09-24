@@ -126,7 +126,10 @@ const CAMPOS_FINANCEIROS = ['valor', 'data_pagamento', 'conta_bancaria', 'conta_
 const NAO_REPLICA = new Set(['data_vencimento', 'data_pagamento', 'data_competencia', 'parcela', 'codigo_barras'])
 type Irma = { id: string; parcela: string | null; parcela_num: number | null; status: string; valor: number; data_vencimento: string; pago: boolean; atual: boolean }
 
-type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro' | 'cliente' | 'fornecedor' | 'categoria'
+// 'conta'/'centro' = dropdown que grava o _id (FK · receber). 'conta_txt'/'centro_txt' = dropdown com a MESMA
+// lista, mas grava o NOME no campo texto (pagar · erp_pagar não tem as FKs). Chamado "ERRO SALVAR EDIÇÃO CONTAS"
+// (#71 · Jordana): editar despesa deve puxar as listas suspensas igual à inclusão, não campo de texto solto.
+type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro' | 'conta_txt' | 'centro_txt' | 'cliente' | 'fornecedor' | 'categoria'
 type Campo = { col: string; label: string; tipo: CampoTipo; opcoes?: string[]; largo?: boolean }
 const FORMAS = ['', 'boleto', 'pix', 'dinheiro', 'transferencia', 'cartao_debito', 'cartao_credito', 'cheque', 'permuta', 'debito_automatico']
 const TIPOS_CHAVE_PIX_OPCOES = ['', 'cpf_cnpj', 'telefone', 'email', 'aleatoria', 'copia_cola']
@@ -135,13 +138,14 @@ function campos(tipo: Tipo): Campo[] {
   const contraparte: Campo = tipo === 'pagar'
     ? { col: 'fornecedor_nome', label: 'Fornecedor', tipo: 'fornecedor', largo: true }
     : { col: 'cliente_nome', label: 'Cliente', tipo: 'cliente', largo: true }
-  // conta/centro: dropdown (FK) no receber; texto no pagar.
+  // conta/centro: dropdown gravando o _id (FK) no receber; dropdown gravando o NOME (texto) no pagar — mesma
+  // lista da tela de inclusão (erp_pagar não tem as FKs). #71: editar despesa puxa as listas igual à inclusão.
   const contaCampo: Campo = tipo === 'receber'
     ? { col: 'conta_bancaria_id', label: 'Conta bancária', tipo: 'conta' }
-    : { col: 'conta_bancaria', label: 'Conta bancária', tipo: 'text' }
+    : { col: 'conta_bancaria', label: 'Conta bancária', tipo: 'conta_txt' }
   const centroCampo: Campo = tipo === 'receber'
     ? { col: 'centro_custo_id', label: 'Centro de custo', tipo: 'centro' }
-    : { col: 'centro_custo', label: 'Centro de custo', tipo: 'text' }
+    : { col: 'centro_custo', label: 'Centro de custo', tipo: 'centro_txt' }
   const base: Campo[] = [
     contraparte,
     { col: 'descricao', label: 'Descrição *', tipo: 'text', largo: true },
@@ -193,9 +197,9 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
   const [replicando, setReplicando] = useState(false)
   const [valorPago, setValorPago] = useState(0)   // p/ o saldo efetivo ao vivo (não editável aqui)
 
-  // dropdowns só no receber
+  // dropdowns de conta/centro: receber grava _id (FK); pagar grava o NOME (texto). A LISTA é a mesma nos dois.
   useEffect(() => {
-    if (!open || tipo !== 'receber') return
+    if (!open) return
     let alive = true
     ;(async () => {
       const [bcs, ccs] = await Promise.all([
@@ -251,6 +255,18 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
     const v = parseFloat((form.valor ?? '').replace(',', '.'))
     if (!v || v <= 0) { setErro('Valor deve ser maior que zero.'); return }
     if (!(form.data_vencimento ?? '')) { setErro('Data de vencimento é obrigatória.'); return }
+
+    // #71 (cuidado do CEO) · mesmo princípio do #1785: título PAGO ou CONCILIADO não permite alterar VALOR,
+    // VENCIMENTO ou CONTA — mexeria numa baixa com crédito bancário conciliado por trás. O resto (categoria,
+    // centro de custo, observações, etc.) pode. Para corrigir a baixa, o caminho é Desvincular no inbox.
+    if (pagoOuConciliado) {
+      const bloqueados = ['valor', 'data_vencimento', 'conta_bancaria', 'conta_bancaria_id']
+      const mexeu = bloqueados.some((c) => (form[c] ?? '') !== (orig[c] ?? ''))
+      if (mexeu) {
+        setErro(`Este lançamento está ${statusOrig === 'pago' ? 'PAGO' : 'CONCILIADO'} — não dá para alterar valor, vencimento ou conta (isso mexeria numa baixa já conciliada). Os demais campos podem ser editados. Para corrigir a baixa, use Desvincular no inbox de conciliação.`)
+        return
+      }
+    }
 
     // SAFEGUARD do código de barras (RD-57 · RD-55): só quando o usuário ALTEROU o barras nesta edição
     // (não bloqueia editar outros campos de uma linha com barras legado). Confere o DV e, p/ boleto
@@ -408,6 +424,23 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
                     </select>
                     {centros.length === 0 && <span style={hintErr}>nenhum centro · <a href="/dashboard/gestao-empresarial/centros-custo" style={{ color: GOLD }}>cadastrar</a></span>}
                     {!val && legadoCentro && <span style={hintErr}>centro atual (texto legado): {legadoCentro}</span>}
+                  </>
+                ) : c.tipo === 'conta_txt' ? (
+                  // pagar: dropdown com a MESMA lista de contas da inclusão, gravando o NOME (texto).
+                  // Mantém o valor legado como opção quando não bate com nenhuma conta cadastrada (não perde dado).
+                  <select value={val} onChange={(e) => set(c.col, e.target.value)} style={inp}>
+                    <option value="">— sem conta —</option>
+                    {val && !contas.some((o) => o.nome === val) && <option value={val}>{val} (atual)</option>}
+                    {contas.map((o) => <option key={o.id} value={o.nome}>{o.nome}{o.banco ? ` · ${o.banco}` : ''}</option>)}
+                  </select>
+                ) : c.tipo === 'centro_txt' ? (
+                  <>
+                    <select value={val} onChange={(e) => set(c.col, e.target.value)} style={inp}>
+                      <option value="">— sem centro de custo —</option>
+                      {val && !centros.some((o) => o.nome === val) && <option value={val}>{val} (atual)</option>}
+                      {centros.map((o) => <option key={o.id} value={o.nome}>{o.nome}</option>)}
+                    </select>
+                    {centros.length === 0 && <span style={hintErr}>nenhum centro · <a href="/dashboard/gestao-empresarial/centros-custo" style={{ color: GOLD }}>cadastrar</a></span>}
                   </>
                 ) : c.tipo === 'categoria' ? (
                   <CategoriaCombobox companyId={companyId} aplicacao={tipo} value={val} onChange={(codigo) => set(c.col, codigo)} />
