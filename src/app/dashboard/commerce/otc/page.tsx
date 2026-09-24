@@ -454,7 +454,9 @@ function OTCPageInner() {
           onClose={() => setOrcSel(null)}
           onEnviar={() => enviarOrcamento(orcSel.id)}
           onAprovar={() => aprovarOrcamento(orcSel.id)}
-          onConverter={() => converterEmPedido(orcSel.id)}
+          // PEDIDO 2 · um caminho: card, arrastar e drawer passam TODOS pela mesma confirmação →
+          // fn_converter_orcamento_em_pedido (antes o drawer convertia direto, sem confirmar).
+          onConverter={() => { const o = orcSel; setOrcSel(null); setConfirmConv(o) }}
         />
       )}
 
@@ -614,6 +616,15 @@ function KanbanBoard({
         <span>{fmtDate(o.data_validade) !== '—' ? `val. ${fmtDate(o.data_validade)}` : fmtDate(o.data_emissao)}</span>
         <strong style={{ color: C.gold }}>{fmtBRL(o.total)}</strong>
       </div>
+      {/* PEDIDO 2 (Rodrigo): a ação de negócio do orçamento é virar pedido — botão explícito no card.
+          Mesmo caminho do arrastar-para-Pedido e do drawer (onSoltarEmPedido → confirmação →
+          fn_converter_orcamento_em_pedido). stopPropagation p/ não abrir o drawer no clique do botão. */}
+      <button type="button"
+        onClick={(e) => { e.stopPropagation(); onSoltarEmPedido(o) }}
+        title="Converter este orçamento em pedido"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: 2, background: C.blue, color: C.white, border: 'none', borderRadius: 6, padding: '5px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+        <ArrowRight size={13} /> Converter em Pedido
+      </button>
     </div>
   )
   const cardPed = (p: Pedido) => (
