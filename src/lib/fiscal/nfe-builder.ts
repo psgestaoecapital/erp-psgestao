@@ -2,6 +2,38 @@ import type { NFeRequest, NFeProdutoItem } from './types'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
 
+// UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
+const UFS_BR = new Set([
+  'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI',
+  'RJ','RN','RS','RO','RR','SC','SP','SE','TO',
+])
+
+// Extrai a UF de companies.cidade_estado (texto livre: "São Miguel do Oeste/SC", "Iporã do Oeste, sc",
+// "Cidade/SC", às vezes sem UF). Pega o token final de 2 letras após vírgula/barra e valida contra as 27.
+// Sem UF confiável → undefined (o chamador NÃO mexe no CFOP).
+function ufDoCidadeEstado(texto?: string | null): string | undefined {
+  const m = (texto ?? '').toUpperCase().match(/[/,]\s*([A-Z]{2})\s*$/)
+  const uf = m?.[1]
+  return uf && UFS_BR.has(uf) ? uf : undefined
+}
+
+// Deriva o 1º dígito do CFOP de saída pela relação UF emitente ↔ UF destinatário:
+//  mesma UF → 5 (interna) · UFs diferentes (ambas nacionais) → 6 (interestadual). A família (3 últimos
+// dígitos: 102, 202, 405…) é preservada; só o escopo geográfico muda. Só toca CFOP de saída 5xxx/6xxx e
+// só quando AS DUAS UFs são nacionais confiáveis — senão devolve o CFOP do cadastro sem inventar
+// (exterior 7xxx, entradas 1/2/3, ou UF ausente ficam intactos). Corrige o bug estrutural: o CFOP vinha
+// fixo do cadastro (cfop_venda/cfopOverride) e venda/devolução p/ fora da UF do emitente rejeitava
+// "CFOP de operacao interna e idDest <> 1" (KGF-SC → fornecedor PR, 10/09; ninguém viu pq as vendas eram locais).
+function ajustarCfopEscopo(cfop: string, ufEmitente?: string, ufDestino?: string): string {
+  const c = (cfop ?? '').replace(/\D/g, '')
+  if (c.length !== 4) return cfop
+  if (c[0] !== '5' && c[0] !== '6') return cfop
+  const ud = (ufDestino ?? '').trim().toUpperCase()
+  if (!ufEmitente || !ud || !UFS_BR.has(ud)) return cfop // sem UF confiável / exterior: não deriva
+  const alvo = ufEmitente === ud ? '5' : '6'
+  return alvo === c[0] ? cfop : alvo + c.slice(1)
+}
+
 export interface NFeBuilderItemInput {
   produtoId: string
   quantidade: number
@@ -55,7 +87,7 @@ export interface NFeBuilderInput {
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
   const { data: emp, error: empErr } = await supabaseAdmin
     .from('companies')
-    .select('cnpj, razao_social, inscricao_estadual, inscricao_municipal, regime_tributario')
+    .select('cnpj, razao_social, inscricao_estadual, inscricao_municipal, regime_tributario, cidade_estado')
     .eq('id', input.companyId)
     .maybeSingle()
   if (empErr || !emp) {
@@ -67,6 +99,9 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   // pode usar). Sem isto o grupo <imposto> nao sai e a SEFAZ rejeita com 620 "Expected is (imposto)".
   const ehSimples = String((emp as { regime_tributario?: string }).regime_tributario ?? '')
     .toLowerCase().includes('simples')
+  // UF do emitente (p/ derivar o escopo do CFOP interna×interestadual). companies não tem coluna uf —
+  // vem do texto livre cidade_estado; sem UF confiável, o CFOP não é derivado (mantém o cadastro).
+  const ufEmitente = ufDoCidadeEstado((emp as { cidade_estado?: string }).cidade_estado)
   if (!emp.inscricao_estadual) {
     throw new FiscalError(
       'PAYLOAD_INVALIDO',
@@ -242,7 +277,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       codigo: prod.codigo ?? prod.id,
       descricao: prod.descricao || prod.nome,
       ncm: prod.ncm ?? '',
-      cfop: it.cfopOverride ?? prod.cfop_venda ?? '5102',
+      cfop: ajustarCfopEscopo(it.cfopOverride ?? prod.cfop_venda ?? '5102', ufEmitente, destinatario.endereco?.uf),
       unidade: prod.unidade ?? 'UN',
       quantidade: it.quantidade,
       valorUnitario: valorUnit,
