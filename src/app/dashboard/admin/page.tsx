@@ -135,7 +135,7 @@ export default function AdminPage(){
     if(!user){setCheckingAuth(false);return;}
     const{data:up}=await supabase.from("users").select("role,system_role").eq("id",user.id).single();
     const isSystemAdmin=up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"||!!up?.system_role;
-    setIsPS(up?.system_role==="PS_ADMIN");
+    setIsPS(up?.system_role==="PS_ADMIN"||up?.system_role==="PS_ADMIN_CVM");
     // Dono de empresa? (CLIENT_OWNER ativo) — RLS tur_self_read permite ler o proprio papel
     const{data:ownerRoles}=await supabase.from("tenant_user_roles").select("company_id").eq("user_id",user.id).eq("role","CLIENT_OWNER").eq("is_active",true);
     const ownerIds=(ownerRoles??[]).map((r:any)=>r.company_id);
