@@ -25,7 +25,7 @@ interface LinhaIbpt {
 }
 interface Body {
   versao?: string; vigencia_inicio?: string; vigencia_fim?: string;
-  fonte?: string; uf?: string; reset?: boolean; rows?: LinhaIbpt[];
+  fonte?: string; uf?: string; reset?: boolean; confirmar_reset?: boolean; rows?: LinhaIbpt[];
 }
 
 function num(v: unknown): number {
@@ -65,8 +65,24 @@ export async function POST(req: NextRequest) {
   }
   if (!Array.isArray(body.rows)) return NextResponse.json({ error: 'rows ausente' }, { status: 400 });
 
-  // 3) reset da versão no primeiro lote (idempotência: reimportar não duplica)
+  // 3) reset da versão no primeiro lote (idempotência: reimportar não duplica).
+  //    GUARDA ANTI-DATA-LOSS: se a versão JÁ tem dados, o reset apagaria tudo (cenário real: subir as
+  //    27 UFs hoje e, semana que vem, "acrescentar" 1 UF com reset apagaria as 27). BLOQUEIA (409) e
+  //    só apaga com confirmação explícita do operador (confirmar_reset=true). Recuperação legítima
+  //    (re-rodar a mesma carga) passa pela confirmação — perda de dados nunca é silenciosa.
   if (body.reset === true) {
+    if (body.confirmar_reset !== true) {
+      const { count } = await admin
+        .from('fiscal_ibpt_aliquota')
+        .select('*', { count: 'exact', head: true })
+        .eq('versao', versao);
+      if ((count ?? 0) > 0) {
+        return NextResponse.json({
+          error: `A versão ${versao} já tem ${count} linha(s) carregada(s). Recarregar VAI APAGAR tudo dessa versão e substituir. Confirme para substituir.`,
+          needs_confirm: true, existentes: count,
+        }, { status: 409 });
+      }
+    }
     const { error: delErr } = await admin.from('fiscal_ibpt_aliquota').delete().eq('versao', versao);
     if (delErr) return NextResponse.json({ error: `Falha ao limpar versão ${versao}: ${delErr.message}` }, { status: 500 });
   }
