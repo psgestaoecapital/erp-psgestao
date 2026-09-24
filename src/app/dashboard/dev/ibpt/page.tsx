@@ -19,7 +19,62 @@ const COLS: Record<string,string[]> = {
   nacional_federal:['nacionalfederal','nacional'], importado_federal:['importadosfederal','importadofederal','importado'],
   estadual:['estadual'], municipal:['municipal'],
   ex_tipi:['ex','extipi'], tipo:['tipo'], descricao:['descricao'], chave:['chave'],
+  // metadados que o próprio arquivo do IBPT traz em TODA linha (mesma estrutura da API):
+  versao:['versao'], vigencia_inicio:['vigenciainicio','iniciovigencia'], vigencia_fim:['vigenciafim','fimvigencia'], fonte:['fonte'],
 };
+
+// data do IBPT vem como DD/MM/AAAA (ou já AAAA-MM-DD). Devolve AAAA-MM-DD (formato do <input type=date>).
+function paraDataIso(s: string): string | null {
+  const t = (s ?? '').trim();
+  if (!t) return null;
+  const br = t.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+  const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  return null;
+}
+
+export interface MetaArquivo {
+  versao: string | null; vigIni: string | null; vigFim: string | null; fonte: string | null;
+  faltando: string[];        // colunas de metadado ausentes no cabeçalho
+  erro: string | null;       // arquivo heterogêneo (mais de uma versão/vigência) → recusar
+}
+
+// Lê os metadados (versão/vigência/fonte) do ARQUIVO e valida que são homogêneos entre TODAS as linhas.
+// A tabela do IBPT é homogênea; se vier misturada, é arquivo errado — recusa com mensagem clara.
+function analisarMetadados(texto: string): MetaArquivo {
+  const linhas = texto.replace(/\r/g,'').split('\n').filter(l => l.trim() !== '');
+  const header = (linhas[0] ?? '').split(';').map(h => norm(h));
+  const idx: Record<string, number> = {};
+  for (const campo of ['versao','vigencia_inicio','vigencia_fim','fonte'] as const) {
+    const i = header.findIndex(h => COLS[campo].includes(h));
+    if (i >= 0) idx[campo] = i;
+  }
+  const rotulo: Record<string,string> = { versao:'versao', vigencia_inicio:'vigenciainicio', vigencia_fim:'vigenciafim' };
+  const faltando = (['versao','vigencia_inicio','vigencia_fim'] as const).filter(c => idx[c] === undefined).map(c => rotulo[c]);
+  const sVer = new Set<string>(); const sIni = new Set<string>(); const sFim = new Set<string>(); const sFonte = new Set<string>();
+  for (let i = 1; i < linhas.length; i++) {
+    const c = linhas[i].split(';');
+    if (idx.versao !== undefined) { const v = (c[idx.versao] ?? '').trim(); if (v) sVer.add(v); }
+    if (idx.vigencia_inicio !== undefined) { const v = (c[idx.vigencia_inicio] ?? '').trim(); if (v) sIni.add(v); }
+    if (idx.vigencia_fim !== undefined) { const v = (c[idx.vigencia_fim] ?? '').trim(); if (v) sFim.add(v); }
+    if (idx.fonte !== undefined) { const v = (c[idx.fonte] ?? '').trim(); if (v) sFonte.add(v); }
+  }
+  const mistos: string[] = [];
+  if (sVer.size > 1) mistos.push(`versões diferentes (${[...sVer].slice(0,4).join(', ')}${sVer.size>4?'…':''})`);
+  if (sIni.size > 1) mistos.push(`vigência início diferente (${[...sIni].slice(0,4).join(', ')}${sIni.size>4?'…':''})`);
+  if (sFim.size > 1) mistos.push(`vigência fim diferente (${[...sFim].slice(0,4).join(', ')}${sFim.size>4?'…':''})`);
+  const erro = mistos.length
+    ? `Arquivo heterogêneo: ${mistos.join(' · ')}. A tabela do IBPT é homogênea — provavelmente é o arquivo errado. Baixe uma única versão/vigência.`
+    : null;
+  return {
+    versao: [...sVer][0] ?? null,
+    vigIni: paraDataIso([...sIni][0] ?? ''),
+    vigFim: paraDataIso([...sFim][0] ?? ''),
+    fonte: [...sFonte][0] ?? null,
+    faltando, erro,
+  };
+}
 
 async function lerArquivo(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
@@ -83,6 +138,35 @@ export default function IbptImportPage() {
   const [rodando, setRodando] = useState(false);
   const [prog, setProg] = useState<{ enviados:number; total:number } | null>(null);
   const [msg, setMsg] = useState<{ ok:boolean; texto:string } | null>(null);
+  // auto-preenchimento a partir do arquivo (dado que existe no arquivo não se digita)
+  const [analisando, setAnalisando] = useState(false);
+  const [avisoArquivo, setAvisoArquivo] = useState<{ ok:boolean; texto:string } | null>(null);
+  const [arquivoInvalido, setArquivoInvalido] = useState(false); // heterogêneo → bloqueia importar
+
+  // Ao escolher o arquivo: lê a 1ª linha de dados e pré-preenche versão/vigência/fonte (editáveis).
+  // Valida homogeneidade (recusa se misturado) e avisa qual coluna faltou (aí sim, manual).
+  async function aoEscolherArquivo(f: File | null) {
+    setFile(f); setMsg(null); setAvisoArquivo(null); setArquivoInvalido(false);
+    if (!f) return;
+    setAnalisando(true);
+    try {
+      const texto = await lerArquivo(f);
+      const m = analisarMetadados(texto);
+      if (m.erro) { setArquivoInvalido(true); setAvisoArquivo({ ok:false, texto:m.erro }); return; }
+      if (m.versao) setVersao(m.versao);
+      if (m.vigIni) setVigIni(m.vigIni);
+      if (m.vigFim) setVigFim(m.vigFim);
+      if (m.fonte) setFonte(m.fonte);
+      if (m.faltando.length) {
+        setAvisoArquivo({ ok:false, texto:`Preenchi o que o arquivo trouxe, mas faltou no cabeçalho: ${m.faltando.join(', ')}. Preencha esse(s) campo(s) à mão.` });
+      } else {
+        const partes = [m.versao && `versão ${m.versao}`, (m.vigIni && m.vigFim) && `vigência ${m.vigIni} a ${m.vigFim}`, m.fonte && `fonte ${m.fonte}`].filter(Boolean);
+        setAvisoArquivo({ ok:true, texto:`Pré-preenchido do arquivo (${partes.join(' · ')}). Confira e importe.` });
+      }
+    } catch (e) {
+      setAvisoArquivo({ ok:false, texto: e instanceof Error ? e.message : 'Não consegui ler o arquivo.' });
+    } finally { setAnalisando(false); }
+  }
 
   useEffect(() => { (async () => {
     const { data:{ user } } = await supabase.auth.getUser();
@@ -94,6 +178,7 @@ export default function IbptImportPage() {
   async function importar() {
     setMsg(null); setProg(null);
     if (!file) { setMsg({ ok:false, texto:'Selecione o arquivo CSV ou ZIP do IBPT.' }); return; }
+    if (arquivoInvalido) { setMsg({ ok:false, texto:'Arquivo heterogêneo (mais de uma versão/vigência). Corrija o arquivo antes de importar.' }); return; }
     if (!versao.trim()) { setMsg({ ok:false, texto:'Informe a versão da tabela (ex.: 26.1.C).' }); return; }
     if (!vigIni || !vigFim) { setMsg({ ok:false, texto:'Informe a vigência (início e fim).' }); return; }
     setRodando(true);
@@ -147,8 +232,10 @@ export default function IbptImportPage() {
           </div>
           <div style={{ display:'grid', gap:12 }}>
             <label style={{ display:'grid', gap:4, fontSize:12, color:C.txm }}>Arquivo (CSV ou ZIP do IBPT)
-              <input type="file" accept=".csv,.txt,.zip" onChange={e => setFile(e.target.files?.[0] ?? null)} style={inp} />
+              <input type="file" accept=".csv,.txt,.zip" onChange={e => void aoEscolherArquivo(e.target.files?.[0] ?? null)} style={inp} />
             </label>
+            {analisando && <div style={{ fontSize:11.5, color:C.txm }}>Lendo o arquivo…</div>}
+            {avisoArquivo && <div style={{ fontSize:11.5, color: avisoArquivo.ok ? C.g : C.r, lineHeight:1.5 }}>{avisoArquivo.ok ? '✓ ' : '⚠️ '}{avisoArquivo.texto}</div>}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
               <label style={{ display:'grid', gap:4, fontSize:12, color:C.txm }}>Versão (ex.: 26.1.C)
                 <input value={versao} onChange={e => setVersao(e.target.value)} placeholder="26.1.C" style={inp} />
@@ -166,9 +253,9 @@ export default function IbptImportPage() {
                 <input value={fonte} onChange={e => setFonte(e.target.value)} style={inp} />
               </label>
             </div>
-            <button onClick={() => void importar()} disabled={rodando}
-              style={{ background: rodando ? '#F0ECE3' : `linear-gradient(135deg,${C.s},#E0B048)`, color: rodando ? C.txm : C.p, border:'none', borderRadius:8, padding:'10px 16px', fontSize:13, fontWeight:600, cursor: rodando ? 'not-allowed' : 'pointer' }}>
-              {rodando ? 'Importando…' : 'Importar tabela'}
+            <button onClick={() => void importar()} disabled={rodando || analisando || arquivoInvalido}
+              style={{ background: (rodando || analisando || arquivoInvalido) ? '#F0ECE3' : `linear-gradient(135deg,${C.s},#E0B048)`, color: (rodando || analisando || arquivoInvalido) ? C.txm : C.p, border:'none', borderRadius:8, padding:'10px 16px', fontSize:13, fontWeight:600, cursor: (rodando || analisando || arquivoInvalido) ? 'not-allowed' : 'pointer' }}>
+              {rodando ? 'Importando…' : analisando ? 'Lendo arquivo…' : 'Importar tabela'}
             </button>
           </div>
           {prog && (
