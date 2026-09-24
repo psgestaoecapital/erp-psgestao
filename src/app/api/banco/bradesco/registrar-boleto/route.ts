@@ -95,6 +95,23 @@ export async function POST(req: NextRequest) {
     }
     const pfx = Buffer.from(await dl.data.arrayBuffer())
 
+    // 3b) dias de multa/juros (quantos dias após o vencimento o encargo passa a incidir).
+    // SELECT leve na config — NÃO passa pela fn_banco_obter_credencial (RD-57: aquela função é
+    // protegida e não deve ser tocada). Colunas nuláveis (dias_multa/dias_juros); quando ausentes
+    // o adapter usa o padrão de 1 dia. Tolera erro (ex.: coluna ainda não migrada) → cai no default.
+    let diasMulta: number | null = null
+    let diasJuros: number | null = null
+    {
+      const { data: diasCfg } = await supabaseAdmin.from('erp_banco_provider_config')
+        .select('dias_multa, dias_juros')
+        .eq('company_id', companyId).eq('banco_codigo', BANCO).eq('ambiente', ambiente)
+        .maybeSingle()
+      if (diasCfg) {
+        diasMulta = (diasCfg.dias_multa as number | null) ?? null
+        diasJuros = (diasCfg.dias_juros as number | null) ?? null
+      }
+    }
+
     // 4) empresa (CNPJ)
     const { data: empresa } = await supabaseAdmin.from('companies').select('cnpj').eq('id', companyId).single()
     if (!empresa?.cnpj) {
@@ -162,6 +179,8 @@ export async function POST(req: NextRequest) {
       pagador,
       jurosPct: (credRow.juros_pct as number | null) ?? null,
       multaPct: (credRow.multa_pct as number | null) ?? null,
+      qtdeDiasJuros: diasJuros,
+      qtdeDiasMulta: diasMulta,
       instrucoes: [
         credRow.instrucao_linha1 as string | null,
         credRow.instrucao_linha2 as string | null,
