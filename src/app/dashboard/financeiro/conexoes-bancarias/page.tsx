@@ -47,6 +47,15 @@ interface ProviderConfig {
   estado_conexao: string | null
   // validade do certificado extraída no salvar (semáforo da lista). NULL = desconhecida.
   cert_expira_em: string | null
+  // encargos do boleto (bloco espelhando o OMIE): % ao mês / %, dias p/ incidir, 4 linhas de instrução.
+  juros_pct: number | null
+  multa_pct: number | null
+  dias_multa: number | null
+  dias_juros: number | null
+  instrucao_linha1: string | null
+  instrucao_linha2: string | null
+  instrucao_linha3: string | null
+  instrucao_linha4: string | null
   // presença de segredo no Vault (indicador "configurado"): são apenas IDs de referência, NUNCA o valor.
   client_secret_vault_id: string | null
   cert_vault_id: string | null
@@ -161,7 +170,7 @@ export default function ConexoesBancariasPage() {
     setLoading(true); setErro(null)
     const [cfgRes, contasRes, testesRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
-        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, juros_pct, multa_pct, dias_multa, dias_juros, instrucao_linha1, instrucao_linha2, instrucao_linha3, instrucao_linha4, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
         .eq('company_id', empresaUnica)
         .order('provider'),
       supabase.from('erp_banco_contas')
@@ -764,6 +773,16 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
   const [posto, setPosto] = useState(cfgExistente?.posto ?? '')
   const [capBoleto, setCapBoleto] = useState(cfgExistente?.cap_boleto ?? true)
   const [capExtrato, setCapExtrato] = useState(cfgExistente?.cap_extrato ?? true)
+  // Encargos do boleto (bloco espelhando o OMIE). Guardados como texto no form; convertidos ao salvar.
+  const numStr = (n: number | null | undefined) => (n == null ? '' : String(n))
+  const [jurosPct, setJurosPct] = useState(numStr(cfgExistente?.juros_pct))
+  const [multaPct, setMultaPct] = useState(numStr(cfgExistente?.multa_pct))
+  const [diasMulta, setDiasMulta] = useState(numStr(cfgExistente?.dias_multa))
+  const [diasJuros, setDiasJuros] = useState(numStr(cfgExistente?.dias_juros))
+  const [instr1, setInstr1] = useState(cfgExistente?.instrucao_linha1 ?? '')
+  const [instr2, setInstr2] = useState(cfgExistente?.instrucao_linha2 ?? '')
+  const [instr3, setInstr3] = useState(cfgExistente?.instrucao_linha3 ?? '')
+  const [instr4, setInstr4] = useState(cfgExistente?.instrucao_linha4 ?? '')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   // ② aviso por provider: campos que o manifesto exige e ainda faltam (avisa, não bloqueia · regra 0e580f96)
@@ -882,6 +901,15 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: null, p_ativo: true,
         // validade do cert (só quando um cert novo foi enviado; null preserva a existente na fn).
         p_cert_expira_em: certExpiraEm,
+        // encargos do boleto (bloco OMIE): vírgula→ponto p/ numérico; vazio→null (fn faz COALESCE, RD-57).
+        p_juros_pct: jurosPct.trim() === '' ? null : Number(jurosPct.replace(',', '.')),
+        p_multa_pct: multaPct.trim() === '' ? null : Number(multaPct.replace(',', '.')),
+        p_dias_multa: diasMulta.trim() === '' ? null : parseInt(diasMulta, 10),
+        p_dias_juros: diasJuros.trim() === '' ? null : parseInt(diasJuros, 10),
+        p_instrucao_linha1: instr1.trim() || null,
+        p_instrucao_linha2: instr2.trim() || null,
+        p_instrucao_linha3: instr3.trim() || null,
+        p_instrucao_linha4: instr4.trim() || null,
       }
       const { data: salvarData, error: salvarErr } = await supabase.rpc('fn_banco_salvar_credencial', params)
       if (salvarErr) throw salvarErr
@@ -1072,6 +1100,36 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
               Sincronizar extrato
             </label>
           </div>
+          {/* Encargos do boleto — espelha o bloco do OMIE ("Juros e Multa para o Boleto"). Só aparece quando
+              a conexão emite boleto. Juros/multa em %, dias após o vencimento para cada encargo incidir, e as
+              4 linhas de instrução impressas no boleto. Tudo opcional; vazio preserva o valor atual (fn COALESCE). */}
+          {capBoleto && (
+            <div style={{ marginTop: 4, borderTop: `0.5px solid ${LINE}`, paddingTop: 12, display: 'grid', gap: 10 }}>
+              <div style={{ fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>Encargos e instruções do boleto</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <Field label="% de juros (ao mês)" hint="Ex.: 1,5 — juros de mora por atraso. Em branco = sem juros.">
+                  <input inputMode="decimal" value={jurosPct} onChange={(e) => setJurosPct(e.target.value)} style={inp} placeholder="ex.: 1,5" />
+                </Field>
+                <Field label="Dias para juros incidir" hint="Dias após o vencimento em que o juros começa. Em branco = 1 (padrão).">
+                  <input inputMode="numeric" value={diasJuros} onChange={(e) => setDiasJuros(e.target.value)} style={inp} placeholder="ex.: 1" />
+                </Field>
+                <Field label="% de multa" hint="Ex.: 2 — multa por atraso. Em branco = sem multa.">
+                  <input inputMode="decimal" value={multaPct} onChange={(e) => setMultaPct(e.target.value)} style={inp} placeholder="ex.: 2" />
+                </Field>
+                <Field label="Dias para multa incidir" hint="Dias após o vencimento em que a multa começa. Em branco = 1 (padrão).">
+                  <input inputMode="numeric" value={diasMulta} onChange={(e) => setDiasMulta(e.target.value)} style={inp} placeholder="ex.: 1" />
+                </Field>
+              </div>
+              <Field label="Instruções para o boleto (até 4 linhas)" hint="Texto impresso no boleto (ex.: instruções de protesto, contato). Opcional.">
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <input value={instr1} onChange={(e) => setInstr1(e.target.value)} style={inp} placeholder="Linha 1" maxLength={80} />
+                  <input value={instr2} onChange={(e) => setInstr2(e.target.value)} style={inp} placeholder="Linha 2" maxLength={80} />
+                  <input value={instr3} onChange={(e) => setInstr3(e.target.value)} style={inp} placeholder="Linha 3" maxLength={80} />
+                  <input value={instr4} onChange={(e) => setInstr4(e.target.value)} style={inp} placeholder="Linha 4" maxLength={80} />
+                </div>
+              </Field>
+            </div>
+          )}
           {/* chamado #14: o Rodrigo perguntou "como faço os testes de conexão?" (04/09). Resposta honesta na
               própria tela — bancos fora da escada automática (hoje só Sicoob/Sicredi) não têm ping. */}
           {!['sicoob', 'sicredi'].includes(banco.sigla) && (
