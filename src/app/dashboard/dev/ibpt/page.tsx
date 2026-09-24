@@ -198,19 +198,29 @@ export default function IbptImportPage() {
       const { data:{ session } } = await supabase.auth.getSession();
       const LOTE = 5000;
       let enviados = 0; let totalInseridos = 0; let totalInvalidas = 0;
+      let confirmarReset = false; // vira true só se o operador confirmar substituir uma versão já carregada
       setProg({ enviados:0, total:rows.length });
       for (let i = 0; i < rows.length; i += LOTE) {
         const lote = rows.slice(i, i + LOTE);
-        const res = await fetch('/api/dev/ibpt-importar', {
+        const enviar = () => fetch('/api/dev/ibpt-importar', {
           method:'POST',
           headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${session?.access_token || ''}` },
           body: JSON.stringify({
             versao: versao.trim(), vigencia_inicio: vigIni, vigencia_fim: vigFim,
             fonte: fonte.trim() || 'IBPT', uf: uf.trim().toUpperCase() || undefined,
-            reset: i === 0, rows: lote,
+            reset: i === 0, confirmar_reset: i === 0 ? confirmarReset : undefined, rows: lote,
           }),
         });
-        const d = await res.json();
+        let res = await enviar();
+        let d = await res.json();
+        // GUARDA ANTI-DATA-LOSS: a versão já tem dados → a rota bloqueia (409). Confirma com o operador
+        // antes de apagar/substituir. Se ele cancelar, aborta SEM tocar na versão existente.
+        if (i === 0 && res.status === 409 && d?.needs_confirm) {
+          const ok = window.confirm(`${d.error}\n\nOK = substituir a versão; Cancelar = abortar sem apagar nada.`);
+          if (!ok) { setMsg({ ok:false, texto:`Carga cancelada — a versão ${versao.trim()} foi mantida intacta.` }); return; }
+          confirmarReset = true;
+          res = await enviar(); d = await res.json();
+        }
         if (!res.ok || !d.ok) throw new Error(d.error || `Falha no lote ${i / LOTE + 1}.`);
         totalInseridos += d.inseridos || 0; totalInvalidas += d.invalidas || 0;
         enviados += lote.length; setProg({ enviados, total:rows.length });
