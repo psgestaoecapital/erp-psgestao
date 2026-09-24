@@ -659,6 +659,37 @@ export class FocusNFeProvider implements FiscalProvider {
     return this.mapFocusNFeResponse(referenceOrChave, data)
   }
 
+  // Baixa o XML AUTORIZADO da NF-e: consulta a nota (traz caminho_xml_nota_fiscal) e faz um GET bruto
+  // desse caminho (mesma Basic Auth). Retorna o XML como texto (não é JSON, por isso não usa request()).
+  // Usado para guardar o resultado no Storage e parsear o vTotTrib (prova da Lei 12.741).
+  async baixarXmlNota(referenceOrChave: string): Promise<{ xml: string; chave?: string }> {
+    const meta = await this.request<FocusNFeNFeResponse>(
+      'GET',
+      `/v2/nfe/${encodeURIComponent(referenceOrChave)}`
+    )
+    const caminho = meta.caminho_xml_nota_fiscal
+    if (!caminho) {
+      throw new FiscalError('CHAVE_NAO_ENCONTRADA', 'XML ainda não disponível para esta nota (sem caminho_xml_nota_fiscal).')
+    }
+    const url = caminho.startsWith('http') ? caminho : `${this.baseUrl}${caminho}`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs)
+    try {
+      const resp = await fetch(url, { method: 'GET', headers: { Authorization: this.authHeader }, signal: ctrl.signal })
+      if (!resp.ok) {
+        throw new FiscalError('PROVIDER_ERRO_INTERNO', `Falha ao baixar XML (HTTP ${resp.status})`, { status: resp.status }, resp.status >= 500)
+      }
+      const xml = await resp.text()
+      return { xml, chave: meta.chave_nfe }
+    } catch (err) {
+      if (err instanceof FiscalError) throw err
+      if ((err as Error)?.name === 'AbortError') throw new FiscalError('TIMEOUT', `Timeout ao baixar XML · ${url}`, undefined, true)
+      throw new FiscalError('API_INACESSIVEL', (err as Error).message ?? 'Erro de rede ao baixar XML', undefined, true)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   async cancelarNFe(chave: string, justificativa: string): Promise<NFeResponse> {
     if (justificativa.length < 15) {
       throw new FiscalError('PAYLOAD_INVALIDO', 'Justificativa de cancelamento exige minimo 15 caracteres')

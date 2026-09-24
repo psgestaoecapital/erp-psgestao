@@ -6,6 +6,7 @@ import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-buil
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
+import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -168,6 +169,12 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         .from('erp_nfe_emitidas')
         .update({ payload_enviado: resposta.payloadEnviado })
         .eq('id', registroId)
+    }
+
+    // Guarda o XML autorizado (o RESULTADO) — só quando já autorizada; se 'processando', o XML sai depois
+    // (backfill/consulta). Best-effort: guardarXmlNota nunca lança. Também grava o vTotTrib (Lei 12.741).
+    if (registroId && resposta.status === 'autorizada') {
+      await guardarXmlNota(registroId)
     }
 
     // FIX-NFE-ICMS-ORIGEM-v1 · vinculo pedido_id (anti-duplicata)
