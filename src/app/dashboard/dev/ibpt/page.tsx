@@ -52,9 +52,16 @@ function analisarMetadados(texto: string): MetaArquivo {
   }
   const rotulo: Record<string,string> = { versao:'versao', vigencia_inicio:'vigenciainicio', vigencia_fim:'vigenciafim' };
   const faltando = (['versao','vigencia_inicio','vigencia_fim'] as const).filter(c => idx[c] === undefined).map(c => rotulo[c]);
+  // índice do código/NCM: usado só para PULAR cabeçalhos embutidos. Num ZIP com 1 CSV por UF, lerArquivo
+  // concatena os arquivos e cada um traz sua própria linha de cabeçalho — sem este guard, a palavra
+  // literal "versao"/"vigenciainicio" entraria nos conjuntos e o arquivo (legítimo, multi-UF) seria
+  // recusado como heterogêneo. Só linhas com código numérico contam para a checagem.
+  const iNcm = header.findIndex(h => COLS.ncm.includes(h));
   const sVer = new Set<string>(); const sIni = new Set<string>(); const sFim = new Set<string>(); const sFonte = new Set<string>();
   for (let i = 1; i < linhas.length; i++) {
     const c = linhas[i].split(';');
+    const cod = (c[iNcm >= 0 ? iNcm : 0] ?? '').replace(/\D/g,'');
+    if (!cod) continue; // cabeçalho embutido (ZIP multi-CSV) ou linha sem código — não conta
     if (idx.versao !== undefined) { const v = (c[idx.versao] ?? '').trim(); if (v) sVer.add(v); }
     if (idx.vigencia_inicio !== undefined) { const v = (c[idx.vigencia_inicio] ?? '').trim(); if (v) sIni.add(v); }
     if (idx.vigencia_fim !== undefined) { const v = (c[idx.vigencia_fim] ?? '').trim(); if (v) sFim.add(v); }
