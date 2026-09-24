@@ -514,6 +514,10 @@ export class FocusNFeProvider implements FiscalProvider {
       municipio_destinatario: req.destinatario.endereco?.cidade,
       uf_destinatario: req.destinatario.endereco?.uf,
       cep_destinatario: req.destinatario.endereco?.cep,
+      // Informações Complementares (tag infCpl · doc oficial Focus NotaFiscalXML.html/DSL 4.0). É onde a
+      // DANFE imprime, e onde vai o "valor aproximado dos tributos" da Lei 12.741 (composto no route,
+      // gated por consumidor final). Campo único de até 5000 — o route já concatenou eventuais observações.
+      ...(req.observacoes ? { informacoes_adicionais_contribuinte: sanitizeTextoFiscal(req.observacoes).slice(0, 5000) } : {}),
       itens: req.itens.map((item, idx) => ({
         numero_item: idx + 1,
         codigo_produto: item.codigo,

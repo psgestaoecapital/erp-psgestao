@@ -67,10 +67,39 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 
     validateNFeRequest(nfeReq)
 
+    const valorProdutos = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
+
+    // Lei 12.741/2012 (Transparência Fiscal) · #70 — "valor aproximado dos tributos" nas Informações
+    // Complementares (tag infCpl → campo Focus informacoes_adicionais_contribuinte, mapeado no emitirNFe).
+    // FONTE LEGAL: Lei 12.741/2012 art. 1º caput — exigido nos documentos "emitidos por ocasião da VENDA
+    // AO CONSUMIDOR" (regul. Decreto 8.264/2014). Operação entre contribuintes para REVENDA (B2B) NÃO é
+    // venda ao consumidor → o bloco não entra. REGRA NO CÓDIGO (não no acaso): só compõe quando o
+    // destinatário é consumidor final. Sinal disponível: indicador de IE do destinatário — contribuinte
+    // com IE (indIEDest=1, ex.: CIDIMAR/revenda) não é consumidor final; não-contribuinte/isento (9/2) e
+    // NFC-e são. (Refinamento futuro: indFinal explícito; hoje o indIEDest já exclui a revenda B2B.)
+    // Empresa do Simples: percentual único (percentual_total_tributos_sn) × valor da nota. Só quando
+    // lei12741_ativo=true (rollout por empresa). CONCATENA com observação existente — não sobrescreve.
+    {
+      const { data: cfg12741 } = await supabaseAdmin
+        .from('erp_fiscal_provider_config')
+        .select('lei12741_ativo, percentual_total_tributos_sn, lei12741_observacao_template')
+        .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
+      const indDest = nfeReq.destinatario.indicadorIE ?? (nfeReq.destinatario.inscricaoEstadual ? 1 : 9)
+      const ehConsumidorFinal = indDest !== 1
+      const pctTrib = Number(cfg12741?.percentual_total_tributos_sn ?? 0)
+      if (cfg12741?.lei12741_ativo === true && ehConsumidorFinal && Number.isFinite(pctTrib) && pctTrib > 0 && valorProdutos > 0) {
+        const valorAprox = Math.round((pctTrib / 100) * valorProdutos * 100) / 100
+        const fmt = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const template = (typeof cfg12741?.lei12741_observacao_template === 'string' && cfg12741.lei12741_observacao_template.trim())
+          ? cfg12741.lei12741_observacao_template.trim()
+          : 'Valor aproximado dos tributos: R$ {valor} ({percentual}%) — Fonte: Simples Nacional, Lei 12.741/2012'
+        const bloco = template.replace(/\{valor\}/g, fmt(valorAprox)).replace(/\{percentual\}/g, fmt(pctTrib))
+        nfeReq.observacoes = [bloco, nfeReq.observacoes].map((s) => (s ?? '').trim()).filter(Boolean).join(' | ')
+      }
+    }
+
     const svc = await createFiscalService(body.companyId, { ambienteOverride: body.ambiente })
     const resposta = await svc.emitirNFe(nfeReq)
-
-    const valorProdutos = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
     // ICMS/IPI totais = soma do que cada item traz. Sem isso, a tela de NF-e emitidas mostrava
     // "ICMS: —" nas notas NORMAIS (mesma lacuna que o #1361 fechou só na devolução). A RPC
     // fn_registrar_nfe_emitida já lê valor_icms/valor_ipi do p_dados.
