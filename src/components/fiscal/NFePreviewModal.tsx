@@ -66,6 +66,9 @@ export default function NFePreviewModal(props: Props) {
   const [produtos, setProdutos] = useState<ProdutoOpcao[]>([])
   const [itens, setItens] = useState<ItemSelecionado[]>([])
   const [naturezaOp, setNaturezaOp] = useState('Venda de mercadoria')
+  // indFinal escolhido NA VENDA · null = automático (o servidor deriva do indIEDest do destinatário).
+  // O operador marca/desmarca quando for diferente do padrão (ex.: contribuinte comprando p/ consumo).
+  const [consumidorFinal, setConsumidorFinal] = useState<boolean | null>(null)
   const [resposta, setResposta] = useState<RespostaEmissao | null>(null)
   const [nfeId, setNfeId] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -180,6 +183,8 @@ export default function NFePreviewModal(props: Props) {
         body: JSON.stringify({
           companyId: props.companyId,
           erpReceberId: props.erpReceberId,
+          // undefined → servidor deriva do indIEDest; marcado/desmarcado → decisão explícita do operador
+          consumidorFinal: consumidorFinal ?? undefined,
           overrides: {
             naturezaOperacao: naturezaOp,
             finalidade: 'normal',
@@ -261,6 +266,21 @@ export default function NFePreviewModal(props: Props) {
                   className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40"
                 />
               </div>
+
+              {/* indFinal · Lei 12.741 e ICMS. Default automático pelo cadastro (indIEDest); marque só
+                  quando for diferente (ex.: contribuinte comprando para consumo próprio). */}
+              <label className="flex items-center gap-2 text-[12.5px] text-[#3D2314] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={consumidorFinal === true}
+                  onChange={(e) => setConsumidorFinal(e.target.checked ? true : false)}
+                  className="accent-[#C8941A]"
+                />
+                Operação a consumidor final
+                <span className="text-[11px] text-[#3D2314]/55">
+                  {consumidorFinal === null ? '(automático pelo cadastro)' : 'escolha manual'}
+                </span>
+              </label>
 
               <div>
                 <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">

@@ -496,6 +496,10 @@ export class FocusNFeProvider implements FiscalProvider {
       data_emissao: new Date().toISOString(),
       presenca_comprador: 1,
       tipo_documento: 1,
+      // indFinal (operação com consumidor final). Nome do campo Focus na NF-e modelo 55 A CONFIRMAR na
+      // doc oficial (NotaFiscalXML.html/DSL 4.0) — o CEO confirma; usamos 'consumidor_final' porque é o
+      // nome que a própria Focus usa no grupo equivalente (reforma da NFS-e neste arquivo). 0=não · 1=sim.
+      ...(req.consumidorFinal != null ? { consumidor_final: req.consumidorFinal ? 1 : 0 } : {}),
       cnpj_emitente: req.emitente.cnpj,
       nome_emitente: req.emitente.razaoSocial,
       inscricao_estadual_emitente: req.emitente.inscricaoEstadual,

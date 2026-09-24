@@ -47,6 +47,9 @@ export interface NFeBuilderInput {
     naturezaOperacao?: string
     finalidade?: 'normal' | 'complementar' | 'ajuste' | 'devolucao'
   }
+  // indFinal escolhido NA VENDA (não no cadastro): a mesma empresa compra p/ revenda numa nota e p/
+  // consumo em outra. Quando undefined, o builder deriva do indIEDest (contribuinte c/ IE = revenda).
+  consumidorFinal?: boolean
 }
 
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
@@ -286,10 +289,17 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     .eq('ativo', true)
     .maybeSingle()
 
+  // indFinal (consumidor final) — escolhido na venda; default derivado do indIEDest do destinatário
+  // (contribuinte com IE = revenda B2B → false; não-contribuinte/isento → true). O operador pode
+  // sobrescrever via input.consumidorFinal (pedido/OTC/modal de emissão).
+  const indDestFinal = destinatario.indicadorIE ?? (destinatario.inscricaoEstadual ? 1 : 9)
+  const consumidorFinal = input.consumidorFinal ?? (indDestFinal !== 1)
+
   return {
     serie: cfg?.serie_nfe_padrao ?? '1',
     naturezaOperacao: naturezaOp,
     finalidade,
+    consumidorFinal,
     emitente: {
       cnpj: String(emp.cnpj ?? '').replace(/\D/g, ''),
       razaoSocial: emp.razao_social,
