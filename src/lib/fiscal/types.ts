@@ -172,6 +172,9 @@ export interface NFeRequest {
     formaPagamento: string
     valor: number
   }
+  // indFinal (indicador de operação com consumidor final). Escolhido na venda; default derivado do
+  // indIEDest no builder. Usado no gate da Lei 12.741 (só a consumidor final) e no XML (consumidor_final).
+  consumidorFinal?: boolean
   observacoes?: string
   // fiscal-devolucao-compra-v1: chave 44 digitos da NF-e original
   // (usado em finalidade='devolucao'/'ajuste' · grupo NFref/refNFe)

@@ -38,6 +38,8 @@ interface EmitirNFeBody {
     naturezaOperacao?: string
     finalidade?: 'normal' | 'complementar' | 'ajuste' | 'devolucao'
   }
+  // indFinal escolhido na venda (modal/pedido). undefined → o builder deriva do indIEDest.
+  consumidorFinal?: boolean
 }
 
 export const POST = withAuth(async (req: NextRequest, { userId }) => {
@@ -63,6 +65,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       pedidoId: body.pedidoId,
       manual: body.manual,
       overrides: body.overrides,
+      consumidorFinal: body.consumidorFinal,
     })
 
     validateNFeRequest(nfeReq)
@@ -84,8 +87,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         .from('erp_fiscal_provider_config')
         .select('lei12741_ativo, percentual_total_tributos_sn, lei12741_observacao_template')
         .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
-      const indDest = nfeReq.destinatario.indicadorIE ?? (nfeReq.destinatario.inscricaoEstadual ? 1 : 9)
-      const ehConsumidorFinal = indDest !== 1
+      // consumidor final: agora é decisão explícita do request (o builder já resolveu — default pelo
+      // indIEDest, com override do operador na venda). O bloco Lei 12.741 só entra a consumidor final.
+      const ehConsumidorFinal = nfeReq.consumidorFinal === true
       const pctTrib = Number(cfg12741?.percentual_total_tributos_sn ?? 0)
       if (cfg12741?.lei12741_ativo === true && ehConsumidorFinal && Number.isFinite(pctTrib) && pctTrib > 0 && valorProdutos > 0) {
         const valorAprox = Math.round((pctTrib / 100) * valorProdutos * 100) / 100
