@@ -199,24 +199,14 @@ export default function MatrizPage() {
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
 
-        <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginRight: 4 }}>Grupo:</span>
+        {/* #75 (SST): filtros compactados numa única barra — grupo, selects e toggle
+            na mesma linha, reduzindo a altura ocupada antes da matriz. */}
+        <section style={{ backgroundColor: 'white', borderRadius: 12, padding: '10px 12px', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
           <button onClick={() => setFGrupo('')} style={chipStyle(fGrupo === '')}>Todos</button>
           {gruposDisponiveis.map((g: string) => (
             <button key={g} onClick={() => setFGrupo(g)} style={chipStyle(fGrupo === g)}>{labelGrupo(g)}</button>
           ))}
-          <span style={{ flex: 1 }} />
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: C.espresso, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={mostrarOpcionais}
-              onChange={(e: any) => setMostrarOpcionais(e.target.checked)}
-            />
-            Mostrar opcionais
-          </label>
-        </section>
-
-        <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+          <span style={{ width: 1, alignSelf: 'stretch', background: C.borderLt, margin: '0 2px' }} />
           <select value={fTomadora} onChange={(e: any) => setFTomadora(e.target.value)} style={selectStyle()}>
             <option value="">Todas as tomadoras</option>
             {opcoesTomadora.map((s: string) => (<option key={s} value={s}>{s}</option>))}
@@ -233,6 +223,15 @@ export default function MatrizPage() {
             <option value="">Todos os cargos</option>
             {opcoesCargo.map((s: string) => (<option key={s} value={s}>{s}</option>))}
           </select>
+          <span style={{ flex: 1 }} />
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: C.espresso, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={mostrarOpcionais}
+              onChange={(e: any) => setMostrarOpcionais(e.target.checked)}
+            />
+            Mostrar opcionais
+          </label>
         </section>
 
         <section style={{ backgroundColor: 'white', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
@@ -240,14 +239,14 @@ export default function MatrizPage() {
             <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, width: '100%' }}>
               <thead>
                 <tr>
-                  <th style={{ ...headerStyle(), left: 0, position: 'sticky', zIndex: 3, background: C.beigeLt, minWidth: 240 }}>Funcionário</th>
+                  <th style={{ ...headerStyle(), left: 0, position: 'sticky', zIndex: 3, background: C.beigeLt, minWidth: 200 }}>Funcionário</th>
                   {tiposFiltrados.map((t: Tipo) => (
                     <th
                       key={t.id}
-                      style={{ ...headerStyle(), minWidth: 80, opacity: t.obrigatorio ? 1 : 0.6 }}
+                      style={{ ...headerStyle(), padding: '6px 2px', minWidth: 30, opacity: t.obrigatorio ? 1 : 0.6 }}
                       title={`${t.nome}${t.obrigatorio ? ' (obrigatório)' : ' (opcional)'}`}
                     >
-                      <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', padding: '12px 4px', whiteSpace: 'nowrap' }}>
+                      <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', padding: '6px 2px', whiteSpace: 'nowrap', maxHeight: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {t.nome}{t.obrigatorio ? ' *' : ''}
                       </div>
                     </th>
@@ -259,15 +258,15 @@ export default function MatrizPage() {
                 {!loading && linhas.length === 0 && (<tr><td colSpan={tiposFiltrados.length + 1} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Sem funcionários</td></tr>)}
                 {linhas.map((l: Linha, i: number) => (
                   <tr key={l.funcionario_id} style={{ background: i % 2 === 0 ? 'white' : C.offwhite }}>
-                    <td style={{ padding: '8px 12px', borderBottom: `1px solid ${C.borderLt}`, left: 0, position: 'sticky', zIndex: 2, background: i % 2 === 0 ? 'white' : C.offwhite, minWidth: 240 }}>
+                    <td style={{ padding: '5px 12px', borderBottom: `1px solid ${C.borderLt}`, left: 0, position: 'sticky', zIndex: 2, background: i % 2 === 0 ? 'white' : C.offwhite, minWidth: 200 }}>
                       <Link href={`/dashboard/compliance/funcionarios/${l.funcionario_id}`} style={{ color: C.espresso, textDecoration: 'none', fontWeight: 600 }}>{l.nome_completo}</Link>
-                      <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{l.cargo || '—'} · {l.empresa_tomadora_nome || 'sem tomadora'}</div>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{l.cargo || '—'} · {l.empresa_tomadora_nome || 'sem tomadora'}</div>
                     </td>
                     {tiposFiltrados.map((t: Tipo) => {
                       const c = l.documentos[t.slug]
                       const d = corDotStatus(c?.status_final)
                       return (
-                        <td key={t.id} style={{ padding: 4, borderBottom: `1px solid ${C.borderLt}`, textAlign: 'center' }}>
+                        <td key={t.id} style={{ padding: 2, borderBottom: `1px solid ${C.borderLt}`, textAlign: 'center' }}>
                           <button
                             onClick={() => {
                               if (!c) return
@@ -279,9 +278,9 @@ export default function MatrizPage() {
                                 : `${t.nome}: ${d.label}${c?.data_validade ? ' até ' + fmtData(c.data_validade) : ''}`
                             }
                             style={{
-                              width: 32, height: 32, borderRadius: '50%',
+                              width: 26, height: 26, borderRadius: '50%',
                               border: 'none', background: d.bg, color: d.fg,
-                              fontSize: 14, cursor: c ? 'pointer' : 'default',
+                              fontSize: 12, cursor: c ? 'pointer' : 'default',
                               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                             }}
                           >
@@ -460,11 +459,11 @@ function headerStyle() {
     background: C.beigeLt, borderBottom: `1px solid ${C.borderLt}`, top: 0, position: 'sticky', zIndex: 1,
   } as any
 }
-function selectStyle() { return { padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, backgroundColor: 'white', minWidth: 140 } as any }
+function selectStyle() { return { padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 12, backgroundColor: 'white', minWidth: 120 } as any }
 
 function chipStyle(active: boolean) {
   return {
-    padding: '6px 12px', borderRadius: 999,
+    padding: '5px 10px', borderRadius: 999,
     border: `1px solid ${active ? C.espresso : C.borderLt}`,
     backgroundColor: active ? C.espresso : 'white',
     color: active ? 'white' : C.espresso,
