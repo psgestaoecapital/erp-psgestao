@@ -1,5 +1,5 @@
 'use client'
-import React, { Suspense, useState, useEffect, type CSSProperties, type DragEvent } from 'react'
+import React, { Suspense, useState, useEffect, useRef, type CSSProperties, type DragEvent } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { labelUsuario } from '@/lib/usuarioLabel'
@@ -28,8 +28,16 @@ type Cliente = {
 type Job = {
   id: string; numero: string; titulo: string; tipo: string; status: string
   prioridade: string; cliente_id: string; responsavel_id: string; responsavel_nome: string | null
-  data_prazo: string; valor_job: number; horas_estimadas: number; horas_realizadas: number
-  percentual_comissao: number | null; created_at: string
+  data_inicio: string | null; data_prazo: string; valor_job: number; horas_estimadas: number; horas_realizadas: number
+  percentual_comissao: number | null; descricao: string | null; created_at: string
+}
+
+// Preview seguro do briefing no card: tira qualquer tag HTML (defensivo p/ dados antigos),
+// normaliza espaços e trunca. NUNCA renderiza HTML — o briefing é texto/markdown puro.
+function previewBriefing(s: string | null | undefined, max = 90): string {
+  if (!s) return ''
+  const limpo = s.replace(/<[^>]*>/g, ' ').replace(/[*_#>`-]/g, ' ').replace(/\s+/g, ' ').trim()
+  return limpo.length > max ? limpo.slice(0, max) + '…' : limpo
 }
 type Timesheet = {
   id: string; job_id: string; user_id: string; data: string
@@ -101,6 +109,7 @@ function ProducaoPageInner() {
   const [etapasLoading, setEtapasLoading] = useState(false)
   const [novaEtapa, setNovaEtapa] = useState<{ titulo: string; responsavel_id: string; data_prazo: string; horas_estimadas: string }>({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
   const [etapaBusy, setEtapaBusy] = useState<string | null>(null)
+  const [maisDetalhesJob, setMaisDetalhesJob] = useState(false)
 
   useEffect(() => { void loadCompanies() }, [])
   useEffect(() => { if (sel) void loadAll() }, [sel]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -378,11 +387,12 @@ function ProducaoPageInner() {
           onEditar={(j) => {
             setForm({
               titulo: j.titulo, tipo: j.tipo, status: j.status, prioridade: j.prioridade,
-              cliente_id: j.cliente_id, responsavel_id: j.responsavel_id,
-              data_prazo: j.data_prazo, valor_job: j.valor_job,
+              cliente_id: j.cliente_id, responsavel_id: j.responsavel_id, responsavel_nome: j.responsavel_nome,
+              data_inicio: j.data_inicio, data_prazo: j.data_prazo, valor_job: j.valor_job,
               horas_estimadas: j.horas_estimadas, percentual_comissao: j.percentual_comissao,
+              descricao: j.descricao,
             })
-            setEditId(j.id); setShowForm('job')
+            setMaisDetalhesJob(false); setEditId(j.id); setShowForm('job')
           }}
           onEtapas={abrirEtapas}
           onExcluir={(j) => excluir('agency_jobs', j.id)}
@@ -452,7 +462,8 @@ function ProducaoPageInner() {
 
       {/* ─── FORM modal: job ─── */}
       {showForm === 'job' && (
-        <Modal titulo={editId ? 'Editar job' : 'Novo job'} onClose={() => { setShowForm(null); setEditId(null); setForm({}) }}>
+        <Modal titulo={editId ? 'Editar job' : 'Novo job'} onClose={() => { setShowForm(null); setEditId(null); setForm({}); setMaisDetalhesJob(false) }}>
+          {/* ESSENCIAL */}
           <div style={grid2}>
             <Field label="Título *" v={form.titulo} on={(v) => setForm({ ...form, titulo: v })} />
             <Select label="Cliente" v={(form.cliente_id as string) ?? ''} on={(v) => setForm({ ...form, cliente_id: v || null })}
@@ -472,23 +483,41 @@ function ProducaoPageInner() {
                 }}
                 opts={[['', '— do catálogo (herda horas/responsável) —'], ...servicos.map((s) => [s.id, s.nome] as [string, string])]} />
             )}
-            <Select label="Tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
-              opts={[['', '— tipo —'], ['site', 'Site'], ['video', 'Vídeo'], ['arte', 'Arte/Design'],
-                ['campanha', 'Campanha'], ['social_media', 'Social Media'], ['assessoria', 'Assessoria'],
-                ['logomarca', 'Logomarca'], ['catalogo', 'Catálogo'], ['lp', 'Landing Page']]} />
-            <Select label="Prioridade" v={(form.prioridade as string) ?? 'normal'} on={(v) => setForm({ ...form, prioridade: v })}
-              opts={Object.entries(PRIORIDADES).map(([k, p]) => [k, p.l])} />
-            <Field label="Prazo" type="date" v={form.data_prazo} on={(v) => setForm({ ...form, data_prazo: v })} />
-            <Field label="Valor (R$)" type="number" v={form.valor_job} on={(v) => setForm({ ...form, valor_job: parseFloat(v) || 0 })} />
-            <Field label="Horas estimadas" type="number" v={form.horas_estimadas} on={(v) => setForm({ ...form, horas_estimadas: parseFloat(v) || 0 })} />
-            <Field label="% Comissão (preview)" type="number" v={form.percentual_comissao} on={(v) => setForm({ ...form, percentual_comissao: v === '' ? null : parseFloat(v) })} />
             <Select label="Estágio" v={(form.status as string) ?? 'nao_iniciada'} on={(v) => setForm({ ...form, status: v })}
               opts={ESTAGIOS.map((e) => [e.v, e.l])} />
+            <Select label="Prioridade" v={(form.prioridade as string) ?? 'normal'} on={(v) => setForm({ ...form, prioridade: v })}
+              opts={Object.entries(PRIORIDADES).map(([k, p]) => [k, p.l])} />
+          </div>
+
+          {/* BRIEFING — em destaque, o campo mais usado */}
+          <BriefingEditor value={(form.descricao as string) ?? ''} onChange={(v) => setForm({ ...form, descricao: v })} />
+
+          {/* PRAZOS & RESPONSÁVEL */}
+          <div style={{ fontSize: 12, fontWeight: 700, color: ESPRESSO, margin: '14px 0 6px' }}>Prazos & responsável</div>
+          <div style={grid2}>
+            <Field label="Início" type="date" v={form.data_inicio} on={(v) => setForm({ ...form, data_inicio: v || null })} />
+            <Field label="Prazo" type="date" v={form.data_prazo} on={(v) => setForm({ ...form, data_prazo: v })} />
             <Select label="Responsável" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
               opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
             <Field label="Responsável (sem login)" v={form.responsavel_nome as string | undefined}
               on={(v) => setForm({ ...form, responsavel_nome: v || null, responsavel_id: v ? null : (form.responsavel_id ?? null) })} />
           </div>
+
+          {/* MAIS DETALHES — colapsado */}
+          <button type="button" onClick={() => setMaisDetalhesJob(!maisDetalhesJob)} style={maisDetalhesBtn}>
+            {maisDetalhesJob ? '▾' : '▸'} Mais detalhes
+          </button>
+          {maisDetalhesJob && (
+            <div style={grid2}>
+              <Select label="Tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
+                opts={[['', '— tipo —'], ['site', 'Site'], ['video', 'Vídeo'], ['arte', 'Arte/Design'],
+                  ['campanha', 'Campanha'], ['social_media', 'Social Media'], ['assessoria', 'Assessoria'],
+                  ['logomarca', 'Logomarca'], ['catalogo', 'Catálogo'], ['lp', 'Landing Page']]} />
+              <Field label="Valor (R$)" type="number" v={form.valor_job} on={(v) => setForm({ ...form, valor_job: parseFloat(v) || 0 })} />
+              <Field label="Horas estimadas" type="number" v={form.horas_estimadas} on={(v) => setForm({ ...form, horas_estimadas: parseFloat(v) || 0 })} />
+              <Field label="% Comissão (preview)" type="number" v={form.percentual_comissao} on={(v) => setForm({ ...form, percentual_comissao: v === '' ? null : parseFloat(v) })} />
+            </div>
+          )}
           {(form.valor_job && form.percentual_comissao) ? (
             <p style={hintBox}>
               💰 Comissão calculada (preview): <b>{brl(Number(form.valor_job) * Number(form.percentual_comissao) / 100)}</b>.
@@ -496,7 +525,7 @@ function ProducaoPageInner() {
             </p>
           ) : null}
           <div style={actions}>
-            <button onClick={() => { setShowForm(null); setEditId(null); setForm({}) }} style={btnGhost}>Cancelar</button>
+            <button onClick={() => { setShowForm(null); setEditId(null); setForm({}); setMaisDetalhesJob(false) }} style={btnGhost}>Cancelar</button>
             <button onClick={saveJob} style={btnPrimary}>{editId ? 'SALVAR' : 'CRIAR'}</button>
           </div>
         </Modal>
@@ -662,6 +691,9 @@ function KanbanBoard({
                         <div style={{ fontWeight: 600, color: ESPRESSO, fontSize: 13 }}>{j.titulo}</div>
                         {j.cliente_id && cliNome(j.cliente_id) && (
                           <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{cliNome(j.cliente_id)}</div>
+                        )}
+                        {previewBriefing(j.descricao) && (
+                          <div style={{ fontSize: 11, color: TEXTD, marginTop: 4, lineHeight: 1.35 }}>{previewBriefing(j.descricao)}</div>
                         )}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6 }}>
                           <span style={{ fontSize: 13, fontWeight: 700, color: DOURADO }}>{brl(j.valor_job ?? 0)}</span>
@@ -862,6 +894,51 @@ function TimesheetTabela({
   )
 }
 
+// ─── Briefing do job (texto/markdown puro — SEM HTML, sem risco de XSS) ─────
+// O SIGA tem editor rico com HTML; como o projeto não tem sanitizador, guardamos
+// TEXTO/Markdown leve em agency_jobs.descricao. Os botões inserem apenas marcadores
+// markdown (operação de string). O editor rico com HTML sanitizado (DOMPurify) fica p/ v1.1.
+function BriefingEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  function envolver(marca: string) {
+    const el = ref.current; if (!el) return
+    const ini = el.selectionStart ?? value.length
+    const fim = el.selectionEnd ?? value.length
+    const sel = value.slice(ini, fim) || 'texto'
+    const novo = value.slice(0, ini) + marca + sel + marca + value.slice(fim)
+    onChange(novo)
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(ini + marca.length, ini + marca.length + sel.length) })
+  }
+  function prefixarLinha(prefixo: string) {
+    const el = ref.current; if (!el) return
+    const ini = el.selectionStart ?? value.length
+    const inicioLinha = value.lastIndexOf('\n', ini - 1) + 1
+    const novo = value.slice(0, inicioLinha) + prefixo + value.slice(inicioLinha)
+    onChange(novo)
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(ini + prefixo.length, ini + prefixo.length) })
+  }
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: ESPRESSO }}>📝 Briefing</span>
+        <span style={{ fontSize: 11, color: TEXTD }}>o que precisa ser feito</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <button type="button" onClick={() => envolver('**')} style={briefBtn} title="Negrito"><b>B</b></button>
+          <button type="button" onClick={() => prefixarLinha('- ')} style={briefBtn} title="Lista">• lista</button>
+        </div>
+      </div>
+      <textarea
+        ref={ref}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={7}
+        placeholder="Descreva o job para quem vai executar: objetivo, referências, formatos, o que entregar…"
+        style={briefArea}
+      />
+    </div>
+  )
+}
+
 // ─── helpers de UI ───────────────────────────────────────────
 function Kpi({ titulo, valor, destaque }: { titulo: string; valor: string; destaque?: boolean }) {
   return (
@@ -1047,6 +1124,19 @@ const ordBtn: CSSProperties = {
 const etapasBtn: CSSProperties = {
   width: '100%', border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO,
   borderRadius: 6, padding: '6px 8px', fontSize: 12, fontWeight: 600, cursor: 'pointer', minHeight: 36,
+}
+const maisDetalhesBtn: CSSProperties = {
+  border: 'none', background: 'transparent', color: ESPRESSO, fontSize: 13, fontWeight: 600,
+  cursor: 'pointer', padding: '8px 0', margin: '4px 0', minHeight: 40, textAlign: 'left', width: '100%',
+}
+const briefBtn: CSSProperties = {
+  border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO, borderRadius: 6,
+  padding: '4px 8px', fontSize: 12, cursor: 'pointer', minHeight: 30,
+}
+const briefArea: CSSProperties = {
+  width: '100%', border: `1px solid ${BORDA}`, borderRadius: 10, padding: '10px 12px',
+  fontSize: 14, lineHeight: 1.5, minHeight: 140, background: '#fff', color: ESPRESSO,
+  resize: 'vertical', colorScheme: 'light' as CSSProperties['colorScheme'],
 }
 
 export default function ProducaoPage() {
