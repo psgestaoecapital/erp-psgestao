@@ -31,6 +31,8 @@ export interface FiscalService {
       habilita_nfse: boolean; habilita_cte: boolean; habilita_mdfe: boolean;
     }>
   }>
+  // Conferência Focus × local: objeto bruto da empresa no Focus (por CNPJ) ou null.
+  obterEmpresaFocus(cnpj: string): Promise<Record<string, unknown> | null>
   emitirNFSe(req: NFSeRequest): Promise<NFSeResponse>
   consultarNFSe(ref: string): Promise<NFSeResponse>
   cancelarNFSe(ref: string, justificativa: string): Promise<NFSeResponse>
@@ -157,6 +159,7 @@ export async function createFiscalService(
     ambiente,
     testarConexao: () => provider.testarConexao(),
     diagnosticoEmpresas: () => provider.diagnosticoEmpresas(),
+    obterEmpresaFocus: (cnpj) => (provider as FocusNFeProvider).obterEmpresa(cnpj),
     emitirNFSe: (req) => provider.emitirNFSe(req),
     consultarNFSe: (ref) => provider.consultarNFSe(ref),
     cancelarNFSe: (ref, j) => provider.cancelarNFSe(ref, j),

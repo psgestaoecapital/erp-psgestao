@@ -790,6 +790,36 @@ export class FocusNFeProvider implements FiscalProvider {
     }
   }
 
+  // Conferência Focus × local (dívida de visibilidade, 25/09): traz o objeto BRUTO da empresa no
+  // Focus (todos os campos que a Focus expõe: regime, optante Simples, série, IM, habilita_*), para
+  // comparar com a nossa config. NUNCA damos PUT em /v2/empresas — só GET — então o que a Focus tem
+  // cadastrado era caixa-preta e CARIMBA o que enviamos (foi o que injetou o pTotTribSN no E0713 da
+  // FC). Só leitura. Devolve o objeto bruto da empresa (por CNPJ) ou null se não achar.
+  async obterEmpresa(cnpj: string): Promise<Record<string, unknown> | null> {
+    const alvo = String(cnpj ?? '').replace(/\D/g, '')
+    if (!alvo) return null
+    const url = `${this.baseUrl}/v2/empresas`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs)
+    try {
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: this.authHeader, 'Content-Type': 'application/json' },
+        signal: ctrl.signal,
+      })
+      if (!resp.ok) return null
+      const text = await resp.text()
+      let parsed: unknown = null
+      try { parsed = text ? JSON.parse(text) : null } catch { parsed = null }
+      const lista = Array.isArray(parsed) ? (parsed as Record<string, unknown>[]) : []
+      return lista.find((e) => String((e?.cnpj as string | number | undefined) ?? '').replace(/\D/g, '') === alvo) ?? null
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   // GE-F8 implementa MDe
   async mdeListar(_req: MDeListaRequest): Promise<MDeListaResponse> {
     throw new FiscalError('PROVIDER_ERRO_INTERNO', 'mdeListar sera implementado no GE-F8')

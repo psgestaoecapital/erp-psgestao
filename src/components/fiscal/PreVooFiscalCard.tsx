@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
-import { CheckCircle2, XCircle, AlertTriangle, Loader2, PlaneTakeoff, Package, Users, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, XCircle, AlertTriangle, Loader2, PlaneTakeoff, Package, Users, ShieldCheck, GitCompareArrows } from 'lucide-react'
 
 // Pré-voo fiscal · Fase 1 (SPEC aprovada 24/09). Mostra, ANTES de tentar emitir NF-e, o que impede
 // a emissão nesta empresa — E TAMBÉM o que já está certo (pedido do CEO: dar noção de progresso, não
@@ -52,11 +52,17 @@ interface CertLeitura {
   erro?: string | null
 }
 
+// Conferência do cadastro da empresa no FOCUS × config local. Fonte: /api/fiscal/focus-empresas.
+// A Focus CARIMBA no DPS o que está no cadastro dela — divergência = rejeição na emissão (E0713/E0010).
+interface FocusCampo { chave: string; rotulo: string; local: string | null; focus: string | null; diverge: boolean; observacao?: string }
+interface FocusConf { presente: boolean; divergencias?: number; campos?: FocusCampo[]; erro?: string }
+
 export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [dados, setDados] = useState<PreVoo | null>(null)
   const [cert, setCert] = useState<CertLeitura | null>(null)
+  const [focusConf, setFocusConf] = useState<FocusConf | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -73,6 +79,14 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
         const j = (await r.json().catch(() => null)) as CertLeitura | null
         setCert(j)
       } catch { setCert(null) }
+      // Conferência Focus × local (o RPC não enxerga o cadastro da Focus; divergência bloqueia a emissão).
+      try {
+        const rf = await authFetch('/api/fiscal/focus-empresas', {
+          method: 'POST', body: JSON.stringify({ companyId }),
+        })
+        const jf = (await rf.json().catch(() => null)) as FocusConf | null
+        setFocusConf(jf)
+      } catch { setFocusConf(null) }
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Falha ao carregar o pré-voo')
     } finally {
@@ -168,6 +182,52 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
                   ) : (
                     <div className="text-[#791F1F]">{cert.erro ?? 'Não foi possível abrir o certificado com a senha guardada.'}</div>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Conferência Focus × local — divergência aqui BLOQUEIA a emissão (a Focus carimba o cadastro dela no DPS). */}
+          {focusConf && (
+            <div className="px-5 py-3" data-testid="previo-focus-conferencia">
+              <div className="flex items-center gap-2 mb-1">
+                <GitCompareArrows
+                  className={!focusConf.presente ? 'text-[#BA7517]' : (focusConf.divergencias ?? 0) > 0 ? 'text-[#C94544]' : 'text-[#3F7012]'}
+                  size={15}
+                />
+                <div className={`text-[12.5px] font-medium ${(focusConf.divergencias ?? 0) > 0 ? 'text-[#791F1F]' : 'text-[#3D2314]'}`}>
+                  {!focusConf.presente
+                    ? 'Cadastro da empresa no Focus não encontrado'
+                    : (focusConf.divergencias ?? 0) > 0
+                      ? `Config da Focus DIVERGE da local em ${focusConf.divergencias} campo(s) — impede a emissão`
+                      : 'Config da Focus confere com a local'}
+                </div>
+              </div>
+              {!focusConf.presente && focusConf.erro && (
+                <div className="text-[11px] text-[#3D2314]/65 ml-[23px]">{focusConf.erro}</div>
+              )}
+              {focusConf.presente && focusConf.campos && focusConf.campos.length > 0 && (
+                <ul className="ml-[23px] space-y-1 mt-0.5">
+                  {focusConf.campos.map((c) => (
+                    <li key={c.chave} className="text-[11.5px] flex flex-wrap items-baseline gap-x-1.5">
+                      {c.diverge
+                        ? <XCircle className="text-[#C94544] flex-shrink-0 self-center" size={13} />
+                        : <CheckCircle2 className="text-[#3F7012] flex-shrink-0 self-center" size={13} />}
+                      <span className={`font-medium ${c.diverge ? 'text-[#791F1F]' : 'text-[#3D2314]/80'}`}>{c.rotulo}:</span>
+                      {c.diverge ? (
+                        <span className="text-[#791F1F]">local <b>{c.local ?? '—'}</b> ≠ Focus <b>{c.focus ?? '—'}</b></span>
+                      ) : (
+                        <span className="text-[#3D2314]/60">
+                          {c.observacao ? c.observacao : `local ${c.local ?? '—'} = Focus ${c.focus ?? '—'}`}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {(focusConf.divergencias ?? 0) > 0 && (
+                <div className="text-[11px] text-[#3D2314]/65 ml-[23px] mt-1">
+                  Ajuste o cadastro da empresa no painel do Focus (app-v2.focusnfe.com.br) para bater com a config local — ou corrija a config local, o que estiver errado.
                 </div>
               )}
             </div>
