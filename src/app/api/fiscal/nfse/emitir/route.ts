@@ -432,6 +432,46 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           if ((nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3) && nfseReq.percentualTribSN == null) {
             return NextResponse.json({ ok: false, mensagem: 'Informe o percentual TOTAL de tributos do Simples (Lei 12.741) na Configuração Fiscal — é diferente da alíquota de ISS do Simples. Sem ele a nota não pode ser emitida.' }, { status: 400 })
           }
+          // ISS POR MUNICÍPIO + TRAVA (decisão CEO 25/09, "opção i"). A tabela fiscal_iss_municipio estava
+          // ÓRFÃ da emissão: Lages 3% cadastrada e nunca lida; o serviço tinha aliquota_iss=0, e o modal
+          // mostrava 0. Para NÃO OPTANTE (regime normal, opc=1) o ISS é devido e precisa de alíquota > 0:
+          // resolve a vigente da tabela (por município da PRESTAÇÃO + LC116) e, se não houver, TRAVA a
+          // emissão (cadastro que funciona). Optante (Simples) NÃO entra aqui — ISS vai no DAS, alíquota 0 é
+          // correta (E0625). retido_na_fonte NÃO é sugerido (CEO): a retenção fica com o operador (modal).
+          if (nfseReq.opcaoSimplesNacional === 1) {
+            const muniPrest = String(nfseReq.obra?.codigoMunicipio || nfseReq.prestador.codigoMunicipio || '').replace(/\D/g, '')
+            let lc116: string | null = null
+            if (body.servicoId) {
+              const { data: sv } = await supabaseAdmin.from('erp_servicos').select('codigo_lc116').eq('id', body.servicoId).maybeSingle()
+              lc116 = (sv?.codigo_lc116 as string | null) ?? null
+            }
+            if (!lc116) {
+              const cs = String(nfseReq.codigoServico ?? '').replace(/\D/g, '')
+              if (cs.length >= 4) lc116 = cs.slice(0, 2) + '.' + cs.slice(2, 4) // 070501 -> 07.05
+            }
+            let aliqMunic: number | null = null
+            if (muniPrest.length === 7 && lc116) {
+              const hoje = new Date().toISOString().slice(0, 10)
+              const { data: issRows } = await supabaseAdmin
+                .from('fiscal_iss_municipio')
+                .select('aliquota, vigencia_inicio, vigencia_fim')
+                .eq('company_id', body.companyId).eq('codigo_ibge', muniPrest).eq('codigo_lc116', lc116)
+                .lte('vigencia_inicio', hoje)
+                .order('vigencia_inicio', { ascending: false })
+                .limit(10)
+              const vig = ((issRows ?? []) as Array<{ aliquota: number | string; vigencia_fim: string | null }>)
+                .find((r) => !r.vigencia_fim || String(r.vigencia_fim) >= hoje)
+              if (vig?.aliquota != null) aliqMunic = Number(vig.aliquota)
+            }
+            if (aliqMunic != null && aliqMunic > 0) nfseReq.aliquotaIss = aliqMunic
+            if (!(Number(nfseReq.aliquotaIss ?? 0) > 0)) {
+              return NextResponse.json({
+                ok: false,
+                iss_municipio_pendente: true,
+                mensagem: `Alíquota de ISS não configurada para o município da prestação${muniPrest ? ` (IBGE ${muniPrest})` : ''}${lc116 ? ` / LC ${lc116}` : ''}. Empresa de REGIME NORMAL não pode emitir NFS-e com ISS zerado. Cadastre a alíquota em Configurações › Fiscal › ISS por município e emita de novo.`,
+              }, { status: 400 })
+            }
+          }
           // #90 / Focus #242149 · campos da Reforma (IBS/CBS) por empresa — OPCIONAIS e desligados por
           // padrão. Só entram no JSON quando a empresa preencheu na config (o builder ignora null/vazio).
           const rf = {

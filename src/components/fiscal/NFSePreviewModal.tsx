@@ -116,6 +116,32 @@ export default function NFSePreviewModal(props: Props) {
     return () => { alive = false }
   }, [props.open, props.companyId, servicoId, servicos])
 
+  // ISS POR MUNICÍPIO (bug FC 25/09): quando o serviço e o município da prestação (obra) estão definidos,
+  // mostra a alíquota VIGENTE cadastrada em fiscal_iss_municipio (Config › Fiscal › ISS por município) em
+  // vez do aliquota_iss do serviço — que pode ser 0 e enganava o operador. Não força retenção (fica com o
+  // operador). O servidor ainda TRAVA a emissão de regime normal com alíquota 0 (opção i).
+  useEffect(() => {
+    let alive = true
+    const sel = servicos.find((s) => s.id === servicoId) ?? null
+    const muni = (obra.municipio ?? '').replace(/\D/g, '')
+    ;(async () => {
+      if (!props.open || !props.companyId || !sel?.codigo_lc116 || muni.length !== 7) return
+      const hoje = new Date().toISOString().slice(0, 10)
+      const { data } = await supabase
+        .from('fiscal_iss_municipio')
+        .select('aliquota, vigencia_inicio, vigencia_fim')
+        .eq('company_id', props.companyId).eq('codigo_ibge', muni).eq('codigo_lc116', sel.codigo_lc116)
+        .lte('vigencia_inicio', hoje)
+        .order('vigencia_inicio', { ascending: false })
+        .limit(10)
+      if (!alive) return
+      const vig = (data as Array<{ aliquota: number | string; vigencia_fim: string | null }> | null ?? [])
+        .find((r) => !r.vigencia_fim || String(r.vigencia_fim) >= hoje)
+      if (vig?.aliquota != null) setAliquota(String(Number(vig.aliquota)))
+    })()
+    return () => { alive = false }
+  }, [props.open, props.companyId, servicoId, servicos, obra.municipio])
+
   // #82① · carrega as obras da empresa para o seletor (só quando o serviço exige obra)
   useEffect(() => {
     let alive = true
