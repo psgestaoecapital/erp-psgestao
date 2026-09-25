@@ -60,13 +60,19 @@ export function compararFocusLocal(
   if (!focus) return { campos, divergencias: 0 }
 
   // (1) OPTANTE DO SIMPLES — o campo do E0713. Focus pode expor booleano ou string de regime.
+  // ANTI-FALSO-POSITIVO (CEO 25/09): só marca divergência com SINAL INEQUÍVOCO. Um regime numérico
+  // ou desconhecido NÃO vira "não optante" por suposição (isso daria falso positivo numa empresa do
+  // Simples cujo regime a Focus devolvesse como código). Boolean → usa; string clara (simples / normal/
+  // presumido/lucro/real) → usa; qualquer outra coisa → null (não expõe de forma confiável, não bloqueia).
   {
     const localOpt = localEhOptante(local)
     const focusRaw = pega(focus, ['optante_simples_nacional', 'simples_nacional', 'optante_simples', 'optante_pelo_simples'])
     let focusOpt = boolish(focusRaw)
     if (focusOpt === null) {
-      const reg = pega(focus, ['regime_tributario', 'codigo_regime_tributario'])
-      if (reg !== undefined) focusOpt = /simples/i.test(String(reg))
+      const reg = String(pega(focus, ['regime_tributario', 'codigo_regime_tributario']) ?? '')
+      if (/simples/i.test(reg)) focusOpt = true
+      else if (/normal|presumid|lucro|real/i.test(reg)) focusOpt = false
+      // regime numérico/vazio/desconhecido → focusOpt permanece null (não sinaliza)
     }
     campos.push({
       chave: 'optante_simples',
@@ -74,7 +80,7 @@ export function compararFocusLocal(
       local: localOpt ? 'Optante' : 'Não optante',
       focus: focusOpt === null ? null : (focusOpt ? 'Optante' : 'Não optante'),
       diverge: focusOpt !== null && focusOpt !== localOpt,
-      observacao: focusOpt === null ? 'Focus não expõe o regime/optante nesta resposta — confira no painel' : undefined,
+      observacao: focusOpt === null ? 'Focus não expõe o regime de forma legível nesta resposta — confira no painel' : undefined,
     })
   }
 
@@ -93,18 +99,19 @@ export function compararFocusLocal(
     })
   }
 
-  // (3) SÉRIE NFS-e (E0010) — compara só dígitos.
+  // (3) SÉRIE NFS-e — INFORMATIVO por ora (nunca bloqueia). ANTI-FALSO-POSITIVO: sem o leiaute (Dívida 1)
+  // não sabemos se a chave que a Focus expõe é a série da NFS-e ou de outro documento (NF-e), então
+  // comparar poderia acusar divergência onde não há. Mostra os dois lados para o humano conferir; quando
+  // a Dívida 1 confirmar o campo exato, isto volta a bloquear.
   {
-    const localSerie = soDigitos(local.serie_nfse_padrao)
     const focusRaw = pega(focus, ['serie_nfse', 'serie_rps_nfse', 'serie_dps', 'serie_rps'])
-    const focusSerie = focusRaw === undefined ? '' : soDigitos(focusRaw)
     campos.push({
       chave: 'serie_nfse',
-      rotulo: 'Série da NFS-e',
+      rotulo: 'Série da NFS-e (informativo)',
       local: local.serie_nfse_padrao ?? null,
       focus: focusRaw === undefined ? null : String(focusRaw),
-      diverge: !!localSerie && !!focusSerie && localSerie !== focusSerie,
-      observacao: focusRaw === undefined ? 'Focus não expõe a série nesta resposta' : undefined,
+      diverge: false,
+      observacao: 'Comparação informativa até o leiaute confirmar o campo de série no Focus',
     })
   }
 
