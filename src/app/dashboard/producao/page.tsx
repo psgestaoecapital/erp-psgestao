@@ -37,6 +37,20 @@ type Timesheet = {
 }
 type ContratoOpt = { id: string; numero: string | null; nome: string | null; valor_mensal: number | null; status: string | null }
 type ServicoOpt = { id: string; nome: string; area: string | null; valor_base: number | null; horas_estimadas: number | null; responsavel_padrao_id: string | null }
+type Tarefa = {
+  id: string; job_id: string; titulo: string; descricao: string | null
+  responsavel_id: string | null; status: string; prioridade: string; ordem: number
+  data_prazo: string | null; data_conclusao: string | null
+  horas_estimadas: number | null; horas_realizadas: number | null
+}
+
+// Status das ETAPAS do job (agency_tarefas). Sem trava — a equipe começa a usar agora.
+const ETAPA_STATUS: { v: string; l: string; bg: string; fg: string }[] = [
+  { v: 'pendente',     l: 'A fazer',     bg: '#F0E9DE', fg: TEXTM },
+  { v: 'em_andamento', l: 'Fazendo',     bg: '#FFF3D6', fg: YELLOW },
+  { v: 'concluida',    l: 'Concluída',   bg: '#DCEFD7', fg: GREEN },
+]
+const etapaStatusCfg = (v: string) => ETAPA_STATUS.find((e) => e.v === v) ?? { v, l: v, bg: OFFWHITE, fg: ESPRESSO }
 
 // 5 estagios oficiais (spec). Ordem: esquerda -> direita.
 const ESTAGIOS: { v: string; l: string; bg: string; fg: string }[] = [
@@ -80,6 +94,13 @@ function ProducaoPageInner() {
   const [hoverCol, setHoverCol] = useState<string | null>(null)
 
   const [metrics, setMetrics] = useState({ clientes: 0, jobs_ativos: 0, horas_mes: 0, receita_mes: 0 })
+
+  // Etapas do job (agency_tarefas)
+  const [jobEtapas, setJobEtapas] = useState<Job | null>(null)
+  const [etapas, setEtapas] = useState<Tarefa[]>([])
+  const [etapasLoading, setEtapasLoading] = useState(false)
+  const [novaEtapa, setNovaEtapa] = useState<{ titulo: string; responsavel_id: string; data_prazo: string; horas_estimadas: string }>({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
+  const [etapaBusy, setEtapaBusy] = useState<string | null>(null)
 
   useEffect(() => { void loadCompanies() }, [])
   useEffect(() => { if (sel) void loadAll() }, [sel]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -168,6 +189,86 @@ function ProducaoPageInner() {
     if (error) { setToast(`Erro: ${error.message}`); return }
     setToast('Registro EXCLUIDO.')
     loadAll()
+  }
+
+  // ─── Etapas do job (agency_tarefas) ────────────────────────
+  async function abrirEtapas(job: Job) {
+    setJobEtapas(job)
+    setNovaEtapa({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
+    await carregarEtapas(job.id)
+  }
+  async function carregarEtapas(jobId: string) {
+    setEtapasLoading(true)
+    const { data } = await supabase
+      .from('agency_tarefas')
+      .select('id, job_id, titulo, descricao, responsavel_id, status, prioridade, ordem, data_prazo, data_conclusao, horas_estimadas, horas_realizadas')
+      .eq('company_id', sel).eq('job_id', jobId)
+      .order('ordem', { ascending: true }).order('created_at', { ascending: true })
+    setEtapas((data ?? []) as Tarefa[])
+    setEtapasLoading(false)
+  }
+  async function addEtapa() {
+    if (!jobEtapas || !novaEtapa.titulo.trim()) { setToast('Dê um título à etapa.'); return }
+    const proxOrdem = etapas.length ? Math.max(...etapas.map((e) => e.ordem ?? 0)) + 1 : 0
+    setEtapaBusy('nova')
+    const { error } = await supabase.from('agency_tarefas').insert({
+      company_id: sel, job_id: jobEtapas.id, titulo: novaEtapa.titulo.trim(),
+      responsavel_id: novaEtapa.responsavel_id || null,
+      data_prazo: novaEtapa.data_prazo || null,
+      horas_estimadas: novaEtapa.horas_estimadas ? parseFloat(novaEtapa.horas_estimadas) : 0,
+      ordem: proxOrdem, status: 'pendente',
+    })
+    setEtapaBusy(null)
+    if (error) { setToast(`Erro: ${error.message}`); return }
+    setNovaEtapa({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
+    await carregarEtapas(jobEtapas.id)
+  }
+  async function mudarStatusEtapa(t: Tarefa, novo: string) {
+    if (!jobEtapas) return
+    setEtapaBusy(t.id)
+    const patch: Record<string, unknown> = { status: novo, updated_at: new Date().toISOString() }
+    patch.data_conclusao = novo === 'concluida' ? new Date().toISOString().slice(0, 10) : null
+    const { error } = await supabase.from('agency_tarefas').update(patch).eq('id', t.id)
+    if (error) { setEtapaBusy(null); setToast(`Erro: ${error.message}`); return }
+    const atualizadas = etapas.map((e) => e.id === t.id ? { ...e, status: novo } : e)
+    setEtapas(atualizadas)
+    // Concluir a ÚLTIMA etapa move o job (todas concluídas → avança um estágio).
+    if (novo === 'concluida' && atualizadas.length > 0 && atualizadas.every((e) => e.status === 'concluida')) {
+      const idx = ESTAGIOS.findIndex((s) => s.v === jobEtapas.status)
+      const prox = idx >= 0 && idx < ESTAGIOS.length - 1 ? ESTAGIOS[idx + 1].v : null
+      if (prox) {
+        const { error: e2 } = await supabase.rpc('fn_pm_job_mover_status', { p_job_id: jobEtapas.id, p_status: prox })
+        if (!e2) {
+          setJobEtapas({ ...jobEtapas, status: prox })
+          setToast(`Todas as etapas concluídas — job movido para ${estagioCfg(prox).l}.`)
+          void loadAll()
+        } else { setToast('Etapa concluída.') }
+      } else { setToast('Etapa concluída — job já no último estágio.') }
+    } else {
+      setToast(novo === 'concluida' ? 'Etapa concluída.' : 'Etapa atualizada.')
+    }
+    setEtapaBusy(null)
+  }
+  async function moverEtapaOrdem(t: Tarefa, dir: -1 | 1) {
+    if (!jobEtapas) return
+    const idx = etapas.findIndex((e) => e.id === t.id)
+    const alvo = idx + dir
+    if (alvo < 0 || alvo >= etapas.length) return
+    const outra = etapas[alvo]
+    setEtapaBusy(t.id)
+    await Promise.all([
+      supabase.from('agency_tarefas').update({ ordem: outra.ordem }).eq('id', t.id),
+      supabase.from('agency_tarefas').update({ ordem: t.ordem }).eq('id', outra.id),
+    ])
+    setEtapaBusy(null)
+    await carregarEtapas(jobEtapas.id)
+  }
+  async function excluirEtapa(t: Tarefa) {
+    if (!jobEtapas) return
+    if (!confirm('Excluir esta etapa?')) return
+    const { error } = await supabase.from('agency_tarefas').delete().eq('id', t.id)
+    if (error) { setToast(`Erro: ${error.message}`); return }
+    await carregarEtapas(jobEtapas.id)
   }
 
   // ─── Kanban: drag-and-drop + move ──────────────────────────
@@ -262,6 +363,7 @@ function ProducaoPageInner() {
           onDragLeave={(c) => { if (hoverCol === c) setHoverCol(null) }}
           onDrop={onDrop}
           onMover={moverEstagio}
+          onEtapas={abrirEtapas}
           onAdd={() => { setForm({ status: 'nao_iniciada', prioridade: 'normal' }); setEditId(null); setShowForm('job') }}
         />
       )}
@@ -282,6 +384,7 @@ function ProducaoPageInner() {
             })
             setEditId(j.id); setShowForm('job')
           }}
+          onEtapas={abrirEtapas}
           onExcluir={(j) => excluir('agency_jobs', j.id)}
         />
       )}
@@ -422,6 +525,71 @@ function ProducaoPageInner() {
         </Modal>
       )}
 
+      {/* ─── Painel: ETAPAS do job ─── */}
+      {jobEtapas && (
+        <Modal titulo={`Etapas · ${jobEtapas.titulo}`} onClose={() => { setJobEtapas(null); setEtapas([]) }}>
+          <div style={{ marginBottom: 8, fontSize: 12, color: TEXTM }}>
+            Estágio do job: <span style={{ ...etapaChip, background: estagioCfg(jobEtapas.status).bg, color: estagioCfg(jobEtapas.status).fg }}>{estagioCfg(jobEtapas.status).l}</span>
+            {etapas.length > 0 && <span style={{ marginLeft: 8 }}>· {etapas.filter((e) => e.status === 'concluida').length}/{etapas.length} concluídas</span>}
+          </div>
+
+          {etapasLoading ? (
+            <div style={{ padding: 20, textAlign: 'center', color: TEXTM }}>Carregando etapas…</div>
+          ) : etapas.length === 0 ? (
+            <div style={{ ...hintBox, textAlign: 'center' }}>Nenhuma etapa ainda. Adicione a primeira abaixo.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {etapas.map((t, i) => {
+                const cfg = etapaStatusCfg(t.status)
+                const resp = responsaveis.find((u) => u.id === t.responsavel_id)
+                const prazoDias = t.data_prazo ? Math.ceil((new Date(t.data_prazo).getTime() - Date.now()) / 86400000) : null
+                const busy = etapaBusy === t.id
+                return (
+                  <div key={t.id} style={etapaRow}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <button onClick={() => moverEtapaOrdem(t, -1)} disabled={i === 0 || busy} style={{ ...ordBtn, opacity: i === 0 ? 0.3 : 1 }} aria-label="Subir">▲</button>
+                      <button onClick={() => moverEtapaOrdem(t, 1)} disabled={i === etapas.length - 1 || busy} style={{ ...ordBtn, opacity: i === etapas.length - 1 ? 0.3 : 1 }} aria-label="Descer">▼</button>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: ESPRESSO, fontSize: 14, textDecoration: t.status === 'concluida' ? 'line-through' : 'none' }}>{i + 1}. {t.titulo}</div>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3, fontSize: 12, color: TEXTM }}>
+                        <span>{resp ? labelUsuario(resp, responsaveis) : '— sem responsável'}</span>
+                        {t.data_prazo && <span style={{ color: prazoDias !== null && prazoDias < 0 && t.status !== 'concluida' ? RED : prazoDias !== null && prazoDias <= 3 && t.status !== 'concluida' ? YELLOW : TEXTM }}>
+                          {t.status === 'concluida' ? `prazo ${t.data_prazo}` : prazoDias! < 0 ? `${Math.abs(prazoDias!)}d atrasada` : prazoDias === 0 ? 'vence hoje' : `${prazoDias}d`}
+                        </span>}
+                        {(t.horas_estimadas ?? 0) > 0 && <span>{t.horas_estimadas}h est.</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                      <select value={t.status} onChange={(e) => mudarStatusEtapa(t, e.target.value)} disabled={busy}
+                        aria-label="Status da etapa" style={{ ...moverSel, width: 120, background: cfg.bg, color: cfg.fg, fontWeight: 600 }}>
+                        {ETAPA_STATUS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
+                      </select>
+                      <button onClick={() => excluirEtapa(t)} disabled={busy} style={{ ...btnDanger, minHeight: 28, padding: '2px 8px' }}>excluir</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Adicionar etapa */}
+          <div style={{ marginTop: 14, borderTop: `1px solid ${BORDA}`, paddingTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: ESPRESSO, marginBottom: 6 }}>+ Adicionar etapa</div>
+            <div style={grid2}>
+              <Field label="Título da etapa *" v={novaEtapa.titulo} on={(v) => setNovaEtapa({ ...novaEtapa, titulo: v })} />
+              <Select label="Responsável" v={novaEtapa.responsavel_id} on={(v) => setNovaEtapa({ ...novaEtapa, responsavel_id: v })}
+                opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
+              <Field label="Prazo" type="date" v={novaEtapa.data_prazo} on={(v) => setNovaEtapa({ ...novaEtapa, data_prazo: v })} />
+              <Field label="Horas estimadas" type="number" v={novaEtapa.horas_estimadas} on={(v) => setNovaEtapa({ ...novaEtapa, horas_estimadas: v })} />
+            </div>
+            <div style={actions}>
+              <button onClick={addEtapa} disabled={etapaBusy === 'nova'} style={btnPrimary}>{etapaBusy === 'nova' ? 'Adicionando…' : 'Adicionar etapa'}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {toast && <div style={toastStyle}>{toast}</div>}
     </div>
   )
@@ -430,7 +598,7 @@ function ProducaoPageInner() {
 // ─────────────────────────────────────────────────────────────
 function KanbanBoard({
   jobs, clientes, dragId, hoverCol, movendoId,
-  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onAdd,
+  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onEtapas, onAdd,
 }: {
   jobs: Job[]; clientes: Cliente[]; dragId: string | null; hoverCol: string | null; movendoId: string | null
   onDragStart: (e: DragEvent<HTMLDivElement>, id: string) => void
@@ -438,6 +606,7 @@ function KanbanBoard({
   onDragLeave: (etapa: string) => void
   onDrop: (e: DragEvent<HTMLDivElement>, etapa: string) => void
   onMover: (id: string, novo: string, atual: string | null) => void
+  onEtapas: (job: Job) => void
   onAdd: () => void
 }) {
   const cliNome = (id: string) => {
@@ -511,7 +680,7 @@ function KanbanBoard({
                           </div>
                         )}
                         {/* Fallback touch */}
-                        <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 6 }}>
+                        <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
                           <select
                             value={et.v}
                             onChange={(e) => onMover(j.id, e.target.value, et.v)}
@@ -525,6 +694,7 @@ function KanbanBoard({
                               </option>
                             ))}
                           </select>
+                          <button onClick={() => onEtapas(j)} style={etapasBtn}>📋 Etapas</button>
                         </div>
                       </div>
                     )
@@ -540,10 +710,10 @@ function KanbanBoard({
 }
 
 function JobsTabela({
-  jobs, clientes, responsaveis, onNovo, onEditar, onExcluir,
+  jobs, clientes, responsaveis, onNovo, onEditar, onEtapas, onExcluir,
 }: {
   jobs: Job[]; clientes: Cliente[]; responsaveis: Array<{ id: string; email: string | null; full_name?: string | null }>
-  onNovo: () => void; onEditar: (j: Job) => void; onExcluir: (j: Job) => void
+  onNovo: () => void; onEditar: (j: Job) => void; onEtapas: (j: Job) => void; onExcluir: (j: Job) => void
 }) {
   return (
     <div>
@@ -578,7 +748,8 @@ function JobsTabela({
                     <Td>{resp ? labelUsuario(resp, responsaveis) : (j.responsavel_nome ?? '—')}</Td>
                     <Td>{j.data_prazo ?? '—'}</Td>
                     <Td align="center">
-                      <button onClick={() => onEditar(j)} style={btnSec}>Editar</button>
+                      <button onClick={() => onEtapas(j)} style={btnSec}>Etapas</button>
+                      <button onClick={() => onEditar(j)} style={{ ...btnSec, marginLeft: 4 }}>Editar</button>
                       <button onClick={() => onExcluir(j)} style={{ ...btnDanger, marginLeft: 4 }}>X</button>
                     </Td>
                   </tr>
@@ -864,6 +1035,18 @@ const contratoChip: CSSProperties = {
 const hintBox: CSSProperties = {
   background: OFFWHITE, border: `1px solid ${BORDA}`, borderRadius: 10,
   padding: 10, fontSize: 12, color: ESPRESSO, marginTop: 10,
+}
+const etapaRow: CSSProperties = {
+  display: 'flex', gap: 10, alignItems: 'flex-start',
+  background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 10, padding: 10,
+}
+const ordBtn: CSSProperties = {
+  border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO,
+  borderRadius: 6, width: 26, height: 22, fontSize: 10, cursor: 'pointer', lineHeight: 1,
+}
+const etapasBtn: CSSProperties = {
+  width: '100%', border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO,
+  borderRadius: 6, padding: '6px 8px', fontSize: 12, fontWeight: 600, cursor: 'pointer', minHeight: 36,
 }
 
 export default function ProducaoPage() {
