@@ -98,13 +98,19 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
   if (opc === 2 || opc === 3) {
     p.regime_tributario_simples_nacional = req.regimeApuracaoSN ?? 1
   }
-  // totTrib (grupo trib exige tribFed OU totTrib):
-  //  - ME/EPP (opção 3): usa percentual_total_tributos_simples_nacional (E0712 proíbe indicador_total_tributacao).
-  //  - demais: usa indicador_total_tributacao.
-  // (doc Focus · exemplo Blumenau/SC usa percentual_total_tributos_simples_nacional p/ SN.)
+  // totTrib por regime (opSimpNac): 1=NÃO optante · 2=MEI · 3=ME/EPP.
+  //  - ME/EPP (3): percentual_total_tributos_simples_nacional (E0712 proíbe indicador_total_tributacao).
+  //  - MEI (2): indicador_total_tributacao (optante, comportamento anterior preservado).
+  //  - NÃO optante (1): NÃO envia NENHUM dos dois. E0713 (FC Pisos, regime_normal, 25/09): "Para Não
+  //    Optante do SN os campos indicador de informação de valor total de tributos e percentual aproximado
+  //    do total dos tributos da alíquota do Simples Nacional não podem ser informado". Mesmo padrão do
+  //    E0162 (campo exclusivo do SN indo para regime normal) — OMITE a chave, não manda 0/vazio.
+  //    (Se o grupo trib ficar vazio e a NFS-e Nacional exigir tribFed/vTotTrib p/ não optante, será E0712
+  //    na reemissão — agora logada pelo #1790; mas a própria existência do E0713 indica que o não optante
+  //    emite sem esses campos.)
   if (opc === 3) {
     if (req.percentualTribSN != null) p.percentual_total_tributos_simples_nacional = req.percentualTribSN
-  } else {
+  } else if (opc === 2) {
     p.indicador_total_tributacao = '0'
   }
   // pAliq (percentual_aliquota_relativa_municipio) — E0625 (tabela de validações da NFS-e Nacional):
