@@ -75,6 +75,9 @@ export interface NFSeRequest {
   regimeTributario?: string | null // regime tributário da empresa (fonte para derivar a opção quando nula)
   regimeApuracaoSN?: number       // regime_tributario_simples_nacional (1/2/3)
   percentualTribSN?: number       // percentual_total_tributos_simples_nacional (totTrib p/ ME/EPP)
+  // E0713 (Focus #243166, 25/09): NÃO optante (opSimpNac=1) PRECISA do grupo de tributos aproximados.
+  // Percentuais da tabela IBPT (LC116 × UF do prestador) — pTotTribFed / pTotTribEst / pTotTribMun.
+  tributosAproxPct?: { federal: number; estadual: number; municipal: number; fonte?: string }
   // #90 paridade OMIE · alíquota efetiva do Simples do MÊS (pAliq / percentual_aliquota_relativa_municipio).
   // Só no regime SN com regApTribSN=1; vem da config por competência (nunca chutada). Regime 2 usa a municipal.
   aliquotaISSSN?: number | null

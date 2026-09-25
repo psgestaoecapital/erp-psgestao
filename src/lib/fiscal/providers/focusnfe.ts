@@ -101,17 +101,30 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
   // totTrib por regime (opSimpNac): 1=NÃO optante · 2=MEI · 3=ME/EPP.
   //  - ME/EPP (3): percentual_total_tributos_simples_nacional (E0712 proíbe indicador_total_tributacao).
   //  - MEI (2): indicador_total_tributacao (optante, comportamento anterior preservado).
-  //  - NÃO optante (1): NÃO envia NENHUM dos dois. E0713 (FC Pisos, regime_normal, 25/09): "Para Não
-  //    Optante do SN os campos indicador de informação de valor total de tributos e percentual aproximado
-  //    do total dos tributos da alíquota do Simples Nacional não podem ser informado". Mesmo padrão do
-  //    E0162 (campo exclusivo do SN indo para regime normal) — OMITE a chave, não manda 0/vazio.
-  //    (Se o grupo trib ficar vazio e a NFS-e Nacional exigir tribFed/vTotTrib p/ não optante, será E0712
-  //    na reemissão — agora logada pelo #1790; mas a própria existência do E0713 indica que o não optante
-  //    emite sem esses campos.)
+  //  - NÃO optante (1): envia o GRUPO percentual da Lei 12.741 —
+  //    percentual_total_tributos_{federais,estaduais,municipais} (pTotTribFed/Est/Mun via IBPT LC116 × UF).
+  //    Continua SEM indicador_total_tributacao e SEM percentual_total_tributos_simples_nacional (esses são
+  //    exclusivos do SN — E0713 da FC Pisos veio justamente disso). Resposta oficial da Focus no ticket
+  //    #243166 (25/09): o Ambiente Nacional passou a exigir um dos dois grupos (vTotTrib* ou pTotTrib*)
+  //    do não optante; a mensagem do E0713 é enganosa porque cita os campos do SN, mas o que faltava era
+  //    ADICIONAR o grupo pTotTrib*, não remover. Os percentuais vêm resolvidos do route (nunca chuta).
   if (opc === 3) {
     if (req.percentualTribSN != null) p.percentual_total_tributos_simples_nacional = req.percentualTribSN
   } else if (opc === 2) {
     p.indicador_total_tributacao = '0'
+  } else {
+    // opc === 1 · NÃO optante. E0713 (FC Pisos · Focus #243166, 25/09): o Ambiente Nacional passou a EXIGIR
+    // os tributos aproximados do não optante — um dos grupos vTotTrib* ou pTotTrib*. Enviamos o PERCENTUAL
+    // (IBPT LC116 × UF), resolvido no route; aqui é só o último anteparo (nunca chuta um número).
+    // Nomes: guia Focus "Campos do Provedor" → percentual_total_tributos_{federais,estaduais,municipais}.
+    const t = req.tributosAproxPct
+    if (!t) {
+      throw new FiscalError('PAYLOAD_INVALIDO', 'Regime normal: faltam os tributos aproximados (Lei 12.741 · IBPT) para a NFS-e Nacional. Atualize a tabela IBPT e emita de novo.')
+    }
+    const pct2 = (n: number) => Number(Number(n).toFixed(2))
+    p.percentual_total_tributos_federais = pct2(t.federal)
+    p.percentual_total_tributos_estaduais = pct2(t.estadual)
+    p.percentual_total_tributos_municipais = pct2(t.municipal)
   }
   // pAliq (percentual_aliquota_relativa_municipio) — E0625 (tabela de validações da NFS-e Nacional):
   // "não é permitido informar alíquota quando não há indicação de retenção do ISSQN (tpRetISSQN=1), para
