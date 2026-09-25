@@ -186,16 +186,32 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }
     const { data: cli } = await supabaseAdmin
       .from('erp_clientes')
-      .select('razao_social, cnpj_cpf, cpf_cnpj, email, logradouro, numero, bairro, cidade, uf, cep')
+      // #131 (KGF): o caminho do FINANCEIRO precisa ler ie + contribuinte_icms igual ao do PEDIDO
+      // (#125/#1739). Sem isso o destinatário saía sem IE/indicador → provider derivava "9"/NULL →
+      // Sefaz 232 mesmo com o cadastro correto (contribuinte com IE).
+      .select('razao_social, cnpj_cpf, cpf_cnpj, email, logradouro, numero, bairro, cidade, uf, cep, ie, contribuinte_icms')
       .eq('id', rec.cliente_id)
       .maybeSingle()
     if (!cli) throw new FiscalError('PAYLOAD_INVALIDO', 'Cliente nao encontrado')
 
     const docLimpo = (cli.cnpj_cpf ?? cli.cpf_cnpj ?? '').replace(/\D/g, '')
+    // Mesmo mapeamento de fn_pedido_nfe_dados: contribuinte→1, isento→2, nao_contribuinte→9, senão indefinido.
+    const ieLimpa = (cli.ie ?? '').replace(/\D/g, '')
+    const indIE = ((): 1 | 2 | 9 | undefined => {
+      switch ((cli.contribuinte_icms ?? '').toLowerCase()) {
+        case 'contribuinte': return 1
+        case 'isento': return 2
+        case 'nao_contribuinte': return 9
+        default: return undefined
+      }
+    })()
     destinatario = {
       cnpj: docLimpo.length === 14 ? docLimpo : undefined,
       cpf: docLimpo.length === 11 ? docLimpo : undefined,
       razaoSocial: cli.razao_social,
+      // #131: sem estes campos a Sefaz rejeita 232 "IE do destinatário não informada".
+      inscricaoEstadual: ieLimpa || undefined,
+      indicadorIE: indIE,
       email: cli.email ?? undefined,
       endereco: cli.logradouro
         ? {
