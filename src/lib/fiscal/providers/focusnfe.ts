@@ -296,11 +296,22 @@ export class FocusNFeProvider implements FiscalProvider {
     // codigo_municipio_emissora, data_competencia, opção/regime Simples Nacional.
     if (req.padraoNacional) {
       const nacional = buildNacionalNFSePayload(req)
-      const data = await this.request<FocusNFeNFSeResponse>(
-        'POST',
-        `/v2/nfsen?ref=${encodeURIComponent(referencia)}`,
-        nacional
-      )
+      let data: FocusNFeNFSeResponse
+      try {
+        data = await this.request<FocusNFeNFSeResponse>(
+          'POST',
+          `/v2/nfsen?ref=${encodeURIComponent(referencia)}`,
+          nacional
+        )
+      } catch (err) {
+        // Rejeição de schema/validação (ex.: "Element 'valores': not expected") chega como throw ANTES
+        // de virar nota. Sem anexar o payload aqui, a rota não teria o que persistir e ficaríamos cegos
+        // (o mesmo ponto cego do Sicredi/#1786, agora na NFS-e). Anexa o payload enviado + a referência.
+        if (err instanceof FiscalError) {
+          throw new FiscalError(err.code, err.message, { ...(err.details ?? {}), payloadEnviado: nacional, providerReference: referencia }, err.retryable)
+        }
+        throw err
+      }
       // #90/#64: devolve o payload ENVIADO (só o corpo da NFSe — cert/token ficam no header, não aqui)
       // para persistir e parar de emitir no escuro.
       return { ...this.mapFocusNFSeResponse(referencia, data), payloadEnviado: nacional }
@@ -349,11 +360,19 @@ export class FocusNFeProvider implements FiscalProvider {
       if (outras) payload.outras_informacoes = outras
     }
 
-    const data = await this.request<FocusNFeNFSeResponse>(
-      'POST',
-      `/v2/nfse?ref=${encodeURIComponent(referencia)}`,
-      payload
-    )
+    let data: FocusNFeNFSeResponse
+    try {
+      data = await this.request<FocusNFeNFSeResponse>(
+        'POST',
+        `/v2/nfse?ref=${encodeURIComponent(referencia)}`,
+        payload
+      )
+    } catch (err) {
+      if (err instanceof FiscalError) {
+        throw new FiscalError(err.code, err.message, { ...(err.details ?? {}), payloadEnviado: payload, providerReference: referencia }, err.retryable)
+      }
+      throw err
+    }
 
     return { ...this.mapFocusNFSeResponse(referencia, data), payloadEnviado: payload }
   }
