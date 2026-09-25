@@ -33,15 +33,15 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
   const [previa, setPrevia] = useState<Previa | null>(null)
   const [parseErro, setParseErro] = useState<string | null>(null)
   const [soErros, setSoErros] = useState(false)
-  const [modo, setModo] = useState<'so_novos' | 'criar_e_atualizar'>('criar_e_atualizar')
+  const [modo, setModo] = useState<'so_novos' | 'criar_e_atualizar' | 'completar_por_nome'>('criar_e_atualizar')
   const [carregando, setCarregando] = useState(false)
   const [completando, setCompletando] = useState<{ feito: number; total: number } | null>(null)
   const [resultado, setResultado] = useState<Resultado | null>(null)
   const [avisos, setAvisos] = useState<{ colunasFaltando: string[]; semDoc: number; total: number } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const rodarPrevia = useCallback(async (ls: Linha[]) => {
-    const { data, error } = await supabase.rpc('fn_cadastro_importar_previa', { p_company: companyId, p_linhas: ls })
+  const rodarPrevia = useCallback(async (ls: Linha[], modoAtual: 'so_novos' | 'criar_e_atualizar' | 'completar_por_nome' = 'criar_e_atualizar') => {
+    const { data, error } = await supabase.rpc('fn_cadastro_importar_previa', { p_company: companyId, p_linhas: ls, p_modo: modoAtual })
     if (error) { setParseErro(error.message); return }
     const d = data as Record<string, unknown>
     if (!d?.ok) { setParseErro((d?.erro as string) ?? 'Falha na prévia'); return }
@@ -95,7 +95,7 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
       setAvisos({ colunasFaltando, semDoc, total: parsed.length })
 
       setLinhas(parsed); setNomeArquivo(file.name)
-      await rodarPrevia(parsed)
+      await rodarPrevia(parsed, modo)
     } catch (e) {
       setParseErro((e as Error)?.message ?? 'Falha ao ler o arquivo')
     }
@@ -120,11 +120,22 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
       await new Promise((r) => setTimeout(r, 350))   // limite de ritmo (BrasilAPI gratuita)
     }
     setLinhas(novas); setCompletando(null)
-    await rodarPrevia(novas)
+    await rodarPrevia(novas, modo)
   }
 
   async function aplicar() {
     if (!previa) return
+    if (modo === 'completar_por_nome') {
+      const ok = window.confirm(
+        'Modo CORRIGIR — completar vazios casando por nome\n\n'
+        + `• Vou preencher APENAS campos vazios de ${previa.atualizar} cadastro(s) que casaram por nome (CNPJ, IE, endereço…).\n`
+        + '• NUNCA sobrescrevo dado já preenchido.\n'
+        + '• Não crio cadastros novos neste modo.\n'
+        + (previa.erro_ > 0 ? `• ${previa.erro_} cadastro(s) com nome repetido na base ficam DE FORA (marque "Só erros" para revisá-los).\n` : '')
+        + '\nConfirmar?'
+      )
+      if (!ok) return
+    }
     setCarregando(true); setResultado(null)
     const { data, error } = await supabase.rpc('fn_cadastro_importar_aplicar', { p_company: companyId, p_linhas: linhas, p_modo: modo })
     setCarregando(false)
@@ -135,7 +146,7 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
       criados: Number(d.criados), atualizados: Number(d.atualizados), ignorados: Number(d.ignorados),
       erros: Number(d.erros), criados_cliente: Number(d.criados_cliente), criados_fornecedor: Number(d.criados_fornecedor),
     })
-    await rodarPrevia(linhas)   // reflete o novo estado (agora "atualizar")
+    await rodarPrevia(linhas, modo)   // reflete o novo estado (agora "atualizar")
   }
 
   const linhasView = useMemo(() => {
@@ -215,13 +226,23 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
                   </label>
                 )}
                 <label className="flex items-center gap-1.5 text-[12px] text-[#3D2314]/75">
-                  <select value={modo} onChange={(e) => setModo(e.target.value as 'so_novos' | 'criar_e_atualizar')} className="border border-[#3D2314]/20 rounded px-2 py-1 text-[12px] bg-white">
+                  <select value={modo}
+                    onChange={(e) => { const m = e.target.value as 'so_novos' | 'criar_e_atualizar' | 'completar_por_nome'; setModo(m); void rodarPrevia(linhas, m) }}
+                    className="border border-[#3D2314]/20 rounded px-2 py-1 text-[12px] bg-white">
                     <option value="criar_e_atualizar">Criar e atualizar</option>
                     <option value="so_novos">Só novos</option>
+                    <option value="completar_por_nome">Corrigir: completar vazios (casar por nome)</option>
                   </select>
                 </label>
               </div>
             </div>
+            {modo === 'completar_por_nome' && (
+              <div className="px-4 py-2.5 border-b border-[#3D2314]/10 bg-[#FFF6E5] text-[12.5px] text-[#7A5A0F]">
+                <span className="inline-flex items-center gap-1.5 font-medium"><AlertTriangle size={14} /> Modo correção</span>
+                {' '}preenche <b>só campos vazios</b> casando por nome (não sobrescreve nada, não cria cadastros).
+                Cadastros com <b>nome repetido</b> na base ficam de fora, marcados como erro para revisão manual.
+              </div>
+            )}
             <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
               <table className="w-full text-[12px]">
                 <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 sticky top-0"><tr>
