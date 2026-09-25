@@ -3,6 +3,7 @@
 import https from 'node:https'
 import { Buffer } from 'node:buffer'
 import { tipoPessoaPorDocumento } from '@/lib/banco/documento'
+import { pfxParaMtls } from '@/lib/banco/pfxMtls'
 
 export type BradescoAmbiente = 'producao' | 'sandbox'
 
@@ -33,7 +34,8 @@ function request<T = unknown>(opts: {
     const req = https.request({
       host: opts.host, port: 443, path: opts.path, method: opts.method,
       headers: { 'accept': 'application/json', ...(opts.headers ?? {}) },
-      pfx: opts.pfx, passphrase: opts.passphrase,
+      // Lê PKCS#12 legado via node-forge (OpenSSL 3 recusa o A1 legado com "Unsupported PKCS12 PFX data").
+      ...pfxParaMtls(opts.pfx, opts.passphrase),
     }, (res) => {
       const chunks: Buffer[] = []
       res.on('data', (c: Buffer) => chunks.push(c))

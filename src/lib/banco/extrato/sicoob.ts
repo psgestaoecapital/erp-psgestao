@@ -16,6 +16,7 @@
 import https from 'node:https'
 import { createHash } from 'node:crypto'
 import { obterToken } from '@/lib/banco/sicoob'
+import { pfxParaMtls } from '@/lib/banco/pfxMtls'
 import type { ExtratoAdapter, ExtratoAdapterOpts, ExtratoCredencial, ExtratoJanela, MovimentoExtrato } from './types'
 
 const SICOOB_SCOPE_CONSULTA = 'cco_consulta'
@@ -31,7 +32,8 @@ function request(opts: {
     const req = https.request({
       host: opts.host, port: 443, path: opts.path, method: opts.method,
       headers: { accept: 'application/json', ...opts.headers },
-      pfx: opts.pfx, passphrase: opts.passphrase,
+      // Lê PKCS#12 legado via node-forge (OpenSSL 3 recusa o A1 legado com "Unsupported PKCS12 PFX data").
+      ...pfxParaMtls(opts.pfx, opts.passphrase),
     }, (res) => {
       const chunks: Buffer[] = []
       res.on('data', (c: Buffer) => chunks.push(c))
