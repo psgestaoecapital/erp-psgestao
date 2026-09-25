@@ -529,7 +529,65 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     }
 
     const svc = await createFiscalService(body.companyId)
-    const resposta = await svc.emitirNFSe(nfseReq)
+    let resposta
+    try {
+      resposta = await svc.emitirNFSe(nfseReq)
+    } catch (err) {
+      // PONTO CEGO CORRIGIDO: rejeição de schema/validação do Focus chega como THROW (ex.: 422
+      // "Element 'valores': not expected"), antes de virar nota. Antes disso NADA era gravado — nem
+      // a tentativa, nem o payload — e ficávamos investigando às cegas. Aqui, para uma REJEIÇÃO de
+      // conteúdo (não erro de infra como timeout), persistimos o payload enviado + o motivo como uma
+      // NFS-e 'rejeitada' (aparece na lista, com o payload para depurar) e registramos a tentativa.
+      if (isFiscalError(err)) {
+        const ehRejeicao = err.code === 'PAYLOAD_INVALIDO' || err.code === 'NFSE_REJEITADA'
+          || [400, 422].includes(Number((err.details as { status?: number } | undefined)?.status))
+        const payloadEnviado = (err.details as { payloadEnviado?: unknown } | undefined)?.payloadEnviado ?? null
+        const providerRef = (err.details as { providerReference?: string } | undefined)?.providerReference ?? `nfse-rej-${Date.now()}`
+        try {
+          if (ehRejeicao) {
+            await supabaseAdmin.rpc('fn_registrar_nfse_emitida', {
+              p_company_id: body.companyId,
+              p_erp_receber_id: body.erpReceberId ?? null,
+              p_provider_reference: providerRef,
+              p_ambiente: svc.ambiente,
+              p_dados: {
+                valor_servicos: nfseReq.valorServicos,
+                aliquota_iss: nfseReq.aliquotaIss,
+                retem_iss: nfseReq.retemIss,
+                cnae: nfseReq.cnaeServico,
+                codigo_servico: nfseReq.codigoServico,
+                descricao_servico: nfseReq.descricaoServico,
+                prestador_cnpj: nfseReq.prestador.cnpj,
+                prestador_razao_social: nfseReq.prestador.razaoSocial,
+                prestador_im: nfseReq.prestador.inscricaoMunicipal,
+                tomador_cnpj: nfseReq.tomador.cnpj,
+                tomador_cpf: nfseReq.tomador.cpf,
+                tomador_razao_social: nfseReq.tomador.razaoSocial,
+                tomador_email: nfseReq.tomador.email,
+                tomador_endereco: nfseReq.tomador.endereco,
+                status: 'rejeitada',
+                serie: nfseReq.serie,
+                motivo_rejeicao: err.message,
+                payload_enviado: payloadEnviado,
+              },
+              p_provider_raw: (err.details as { body?: unknown } | undefined)?.body ?? null,
+            })
+          }
+        } catch { /* nunca deixar a persistência do log derrubar a resposta de erro */ }
+        await registrarTentativaFiscal({
+          companyId: body.companyId,
+          notaTipo: 'nfse',
+          operacao: 'emissao',
+          provider: 'focusnfe',
+          endpoint: 'nfse/emitir',
+          referencia: providerRef,
+          providerMensagem: err.message,
+          resultado: ehRejeicao ? 'rejeitada' : 'erro',
+          usuarioId: userId,
+        })
+      }
+      throw err
+    }
 
     const dadosRegistro = {
       valor_servicos: nfseReq.valorServicos,
