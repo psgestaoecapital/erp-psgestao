@@ -471,6 +471,37 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
                 mensagem: `Alíquota de ISS não configurada para o município da prestação${muniPrest ? ` (IBGE ${muniPrest})` : ''}${lc116 ? ` / LC ${lc116}` : ''}. Empresa de REGIME NORMAL não pode emitir NFS-e com ISS zerado. Cadastre a alíquota em Configurações › Fiscal › ISS por município e emita de novo.`,
               }, { status: 400 })
             }
+            // E0713 (FC Pisos · Focus #243166): o Ambiente Nacional exige tributos aproximados (Lei 12.741)
+            // do NÃO optante. Grupo percentual pela IBPT (LC116 × UF do prestador). Sem linha vigente → TRAVA
+            // antes de enviar (RD-74: cadastro que funciona), nunca chuta. Optante (2/3) não passa aqui.
+            {
+              const { data: empUf } = await supabaseAdmin
+                .from('companies').select('uf_fiscal').eq('id', body.companyId).maybeSingle()
+              const ufPrest = String((empUf as { uf_fiscal?: string | null } | null)?.uf_fiscal ?? '').trim().toUpperCase()
+              const lc116Digits = (lc116 ?? '').replace(/\D/g, '')   // '07.05' -> '0705'
+              type IbptRow = { federal?: unknown; estadual?: unknown; municipal?: unknown; versao?: unknown }
+              let ibpt: IbptRow | null = null
+              if (lc116Digits.length === 4 && ufPrest.length === 2) {
+                const { data: al } = await supabaseAdmin.rpc('fn_ibpt_aliquota_vigente', {
+                  p_ncm: lc116Digits, p_ex: '0', p_uf: ufPrest, p_origem: '0',
+                })
+                const row = (Array.isArray(al) ? al[0] : al) as IbptRow | null
+                if (row && row.federal != null) ibpt = row
+              }
+              if (!ibpt) {
+                return NextResponse.json({
+                  ok: false,
+                  ibpt_pendente: true,
+                  mensagem: `Tributos aproximados (Lei 12.741) não encontrados na tabela IBPT para o serviço LC ${lc116 ?? '?'} na UF ${ufPrest || '?'}. Empresa de REGIME NORMAL precisa deles na NFS-e Nacional (rejeição E0713). Atualize a tabela IBPT (Configurações › Fiscal › IBPT) ou confira a UF fiscal da empresa e emita de novo.`,
+                }, { status: 400 })
+              }
+              nfseReq.tributosAproxPct = {
+                federal: Number(ibpt.federal ?? 0),
+                estadual: Number(ibpt.estadual ?? 0),
+                municipal: Number(ibpt.municipal ?? 0),
+                fonte: `IBPT ${String(ibpt.versao ?? '')}`.trim(),
+              }
+            }
           }
           // #90 / Focus #242149 · campos da Reforma (IBS/CBS) por empresa — OPCIONAIS e desligados por
           // padrão. Só entram no JSON quando a empresa preencheu na config (o builder ignora null/vazio).
