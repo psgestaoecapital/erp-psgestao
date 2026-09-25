@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Download, Upload, Loader2, CheckCircle2, XCircle, AlertTriangle, Search } from 'lucide-react'
-import { CHAVES_CADASTROS, NOME_EXEMPLO } from '@/lib/cadastros/colunasImportacao'
+import { CHAVES_CADASTROS, NOME_EXEMPLO, casarColunasCadastros } from '@/lib/cadastros/colunasImportacao'
 import { buscarCNPJ } from '@/lib/cadastros/buscarCNPJ'
 
 type Tipo = 'cliente' | 'fornecedor'
@@ -37,6 +37,7 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
   const [carregando, setCarregando] = useState(false)
   const [completando, setCompletando] = useState<{ feito: number; total: number } | null>(null)
   const [resultado, setResultado] = useState<Resultado | null>(null)
+  const [avisos, setAvisos] = useState<{ colunasFaltando: string[]; semDoc: number; total: number } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const rodarPrevia = useCallback(async (ls: Linha[]) => {
@@ -52,21 +53,22 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
   }, [companyId])
 
   async function onArquivo(file: File) {
-    setParseErro(null); setResultado(null); setPrevia(null); setLinhas([])
+    setParseErro(null); setResultado(null); setPrevia(null); setLinhas([]); setAvisos(null)
     try {
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf, { type: 'array' })
       const wsName = wb.SheetNames.find((n) => n.toLowerCase().startsWith('cadastro')) ?? wb.SheetNames[0]
       const matriz = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[wsName], { header: 1, raw: false, defval: '' })
-      // cabeçalho = linha com as chaves técnicas (contém 'tipo' e 'nome_fantasia')
-      const idxHeader = matriz.findIndex((row) => {
-        const low = row.map((c) => String(c).trim().toLowerCase())
-        return low.includes('tipo') && low.includes('nome_fantasia')
-      })
-      if (idxHeader < 0) { setParseErro('Não achei o cabeçalho (linha com as chaves técnicas). Use a planilha padrão.'); return }
-      const header = matriz[idxHeader].map((c) => String(c).trim().toLowerCase())
-      const colIndex: Record<string, number> = {}
-      for (const k of CHAVES_CADASTROS) colIndex[k] = header.indexOf(k)
+      // Cabeçalho = a linha que, casada por ALIAS, reconhece o nome + pelo menos mais 2 colunas.
+      // Tolerante a cabeçalhos humanos (MasterKey/Omie/Conta Azul), não só às chaves técnicas do modelo.
+      let idxHeader = -1
+      let colIndex: Record<string, number> = {}
+      for (let r = 0; r < Math.min(matriz.length, 15); r++) {
+        const cand = casarColunasCadastros((matriz[r] ?? []).map((c) => String(c ?? '')))
+        const reconhecidas = CHAVES_CADASTROS.filter((k) => cand[k] >= 0).length
+        if (cand['nome_fantasia'] >= 0 && reconhecidas >= 3) { idxHeader = r; colIndex = cand; break }
+      }
+      if (idxHeader < 0) { setParseErro('Não reconheci o cabeçalho da planilha. Garanta uma linha de cabeçalho com ao menos Nome e mais duas colunas (ex.: CNPJ, E-mail).'); return }
 
       const parsed: Linha[] = []
       for (let i = idxHeader + 1; i < matriz.length; i++) {
@@ -80,6 +82,18 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
         parsed.push(l)
       }
       if (parsed.length === 0) { setParseErro('Nenhuma linha de dados (fora a de exemplo).'); return }
+
+      // AVISO na entrada (não bloqueia): coluna importante não reconhecida + registros sem documento.
+      // Um campo importante 100% ausente é o sinal de cabeçalho não reconhecido — o que teria evitado
+      // a importação de milhares de cadastros sem CNPJ no onboarding da Triches.
+      const IMPORTANTES: [string, string][] = [
+        ['cpf_cnpj', 'CPF/CNPJ'], ['ie', 'Inscrição estadual'], ['logradouro', 'Endereço'],
+        ['cidade', 'Cidade'], ['uf', 'UF'],
+      ]
+      const colunasFaltando = IMPORTANTES.filter(([k]) => colIndex[k] < 0).map(([, label]) => label)
+      const semDoc = parsed.filter((l) => soDig(l.cpf_cnpj).length < 11).length
+      setAvisos({ colunasFaltando, semDoc, total: parsed.length })
+
       setLinhas(parsed); setNomeArquivo(file.name)
       await rodarPrevia(parsed)
     } catch (e) {
@@ -160,6 +174,21 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
       </div>
 
       {parseErro && <div className="mb-4 rounded-lg bg-[#FCEBEB] border border-[#E8A6A5] px-4 py-3 text-[13px] text-[#791F1F]">{parseErro}</div>}
+
+      {avisos && (avisos.colunasFaltando.length > 0 || avisos.semDoc > 0) && (
+        <div className="mb-4 rounded-lg bg-[#FFF6E5] border border-[#E7C878] px-4 py-3 text-[13px] text-[#7A5A0F]">
+          <div className="flex items-center gap-2 font-medium mb-1"><AlertTriangle size={15} /> Confira antes de importar</div>
+          <ul className="list-disc pl-5 space-y-0.5">
+            {avisos.colunasFaltando.map((c) => (
+              <li key={c}>A coluna <b>{c}</b> não foi reconhecida no arquivo — verifique o cabeçalho.</li>
+            ))}
+            {avisos.semDoc > 0 && (
+              <li><b>{avisos.semDoc}</b> de <b>{avisos.total}</b> registros sem CPF/CNPJ — esses <b>não poderão emitir nota fiscal</b> enquanto o documento não for preenchido.</li>
+            )}
+          </ul>
+          <div className="text-[12px] text-[#7A5A0F]/80 mt-1.5">A importação continua permitida — isto é só um aviso.</div>
+        </div>
+      )}
 
       {previa && (
         <>

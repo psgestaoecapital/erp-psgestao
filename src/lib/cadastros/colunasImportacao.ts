@@ -57,6 +57,83 @@ export const COLUNAS_CADASTROS: ColunaCadastro[] = [
 
 export const CHAVES_CADASTROS: string[] = COLUNAS_CADASTROS.map((c) => c.key)
 
+// ── Casamento TOLERANTE de cabeçalho (Triches 25/09: import MasterKey perdeu documento/IE/endereço
+// porque o casamento era por chave técnica exata). Aceita variações humanas de cabeçalho, normalizando
+// (minúsculas, sem acento, só alfanumérico) antes de comparar. Fonte do fix do importador de cadastros.
+export function normHeaderCadastro(s: string): string {
+  return String(s ?? '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // tira acento
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')                        // tira espaço, barra, ponto, parênteses…
+}
+
+// Apelidos por chave (além da própria chave técnica e do label humano, que entram automático).
+export const ALIASES_CADASTROS: Record<string, string[]> = {
+  tipo: ['tipocadastro', 'tipodecadastro'],
+  tipo_pessoa: ['tipopessoa', 'pfpj', 'pessoa', 'tipodepessoa'],
+  nome_fantasia: ['nome', 'fantasia', 'nomecliente', 'nomefornecedor', 'nomerazao', 'razaonome', 'cliente', 'fornecedor'],
+  razao_social: ['razao', 'razaosocial'],
+  cpf_cnpj: ['cnpj', 'cpf', 'cnpjcpf', 'cpfcnpj', 'documento', 'doc', 'inscricao', 'inscr', 'nrdocumento', 'numerodocumento'],
+  codigo_sistema_anterior: ['codigo', 'codigoanterior', 'codigosistemaanterior', 'idexterno', 'codigoexterno', 'refexterna', 'codcliente', 'codigocliente'],
+  sistema_origem: ['sistemaorigem', 'sistemadeorigem', 'origem', 'sistema'],
+  ie: ['ie', 'inscricaoestadual', 'inscestadual', 'inscestad'],
+  im: ['im', 'inscricaomunicipal', 'inscmunicipal'],
+  contribuinte_icms: ['contribuinte', 'contribuinteicms', 'indicadorie', 'indie', 'icms'],
+  rg: ['rg'],
+  data_nasc_abertura: ['datanascimento', 'nascimento', 'dataabertura', 'abertura', 'datanasc', 'datanascabertura'],
+  email: ['email', 'emailprincipal'],
+  telefone: ['telefone', 'fone', 'tel', 'telefonefixo', 'telfixo'],
+  celular: ['celular', 'whatsapp', 'whats', 'cel', 'celularwhatsapp'],
+  site: ['site', 'website', 'url'],
+  cep: ['cep'],
+  logradouro: ['logradouro', 'endereco', 'rua', 'ruaav', 'avenida', 'end'],
+  numero: ['numero', 'num', 'nro'],
+  complemento: ['complemento', 'compl'],
+  bairro: ['bairro'],
+  cidade: ['cidade', 'municipio'],
+  uf: ['uf', 'estado', 'siglauf'],
+  pais: ['pais'],
+  codigo_ibge: ['codigoibge', 'ibge'],
+  limite_credito: ['limitecredito', 'limitedecredito', 'limite'],
+  condicao_pagamento: ['condicaopagamento', 'condicaodepagamento', 'condpagamento'],
+  vendedor: ['vendedor'],
+  segmento: ['segmento', 'ramo'],
+  categoria: ['categoria', 'grupo'],
+  tags: ['tags', 'etiquetas'],
+  banco: ['banco'],
+  agencia: ['agencia'],
+  conta: ['conta'],
+  pix: ['pix', 'chavepix'],
+  prazo_entrega_dias: ['prazoentrega', 'prazodeentrega', 'prazoentregadias'],
+  ativo: ['ativo', 'situacao', 'status'],
+  observacoes: ['observacoes', 'obs', 'anotacoes'],
+}
+
+// Conjunto de tokens aceitos por chave (chave + label + apelidos, tudo normalizado).
+const TOKENS_POR_CHAVE: Record<string, Set<string>> = Object.fromEntries(
+  COLUNAS_CADASTROS.map((c) => {
+    const set = new Set<string>([normHeaderCadastro(c.key), normHeaderCadastro(c.label), ...(ALIASES_CADASTROS[c.key] ?? [])])
+    set.delete('')
+    return [c.key, set]
+  }),
+)
+
+// Casa cada coluna do cabeçalho a uma chave. Retorna { chave: índice } (índice -1 = não reconhecida).
+// Primeira coluna que casa vence; cada chave recebe no máximo uma coluna.
+export function casarColunasCadastros(header: string[]): Record<string, number> {
+  const idx: Record<string, number> = {}
+  for (const k of CHAVES_CADASTROS) idx[k] = -1
+  header.forEach((h, j) => {
+    const nh = normHeaderCadastro(h)
+    if (!nh) return
+    for (const c of COLUNAS_CADASTROS) {
+      if (idx[c.key] >= 0) continue
+      if (TOKENS_POR_CHAVE[c.key].has(nh)) { idx[c.key] = j; break }
+    }
+  })
+  return idx
+}
+
 export const TIPOS_CADASTRO = ['Cliente', 'Fornecedor', 'Ambos'] as const
 export const TIPOS_PESSOA = ['PF', 'PJ'] as const
 export const CONTRIBUINTE_ICMS = ['1', '2', '9'] as const // 1 contribuinte · 2 isento · 9 não contribuinte
