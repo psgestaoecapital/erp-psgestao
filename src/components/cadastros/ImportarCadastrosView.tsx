@@ -17,7 +17,7 @@ type Tipo = 'cliente' | 'fornecedor'
 type Linha = Record<string, string>
 interface PreviaLinha { indice: number; acao: 'criar' | 'atualizar' | 'erro' | 'ignorar'; motivo: string | null; tipo: string }
 interface Previa { ok: boolean; erro?: string; total: number; criar: number; atualizar: number; erro_: number; ignorar: number; ambos: number; linhas: PreviaLinha[] }
-interface Resultado { criados: number; atualizados: number; ignorados: number; erros: number; criados_cliente: number; criados_fornecedor: number }
+interface Resultado { criados: number; atualizados: number; ignorados: number; erros: number; criados_cliente: number; criados_fornecedor: number; estrategias?: Record<string, number>; campos_preenchidos?: Record<string, number> }
 
 const soDig = (s: string) => (s || '').replace(/\D/g, '')
 
@@ -137,7 +137,7 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
       if (!ok) return
     }
     setCarregando(true); setResultado(null)
-    const { data, error } = await supabase.rpc('fn_cadastro_importar_aplicar', { p_company: companyId, p_linhas: linhas, p_modo: modo })
+    const { data, error } = await supabase.rpc('fn_cadastro_importar_aplicar', { p_company: companyId, p_linhas: linhas, p_modo: modo, p_arquivo: nomeArquivo })
     setCarregando(false)
     if (error) { setParseErro(error.message); return }
     const d = data as Record<string, unknown>
@@ -145,6 +145,8 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
     setResultado({
       criados: Number(d.criados), atualizados: Number(d.atualizados), ignorados: Number(d.ignorados),
       erros: Number(d.erros), criados_cliente: Number(d.criados_cliente), criados_fornecedor: Number(d.criados_fornecedor),
+      estrategias: (d.estrategias as Record<string, number>) ?? undefined,
+      campos_preenchidos: (d.campos_preenchidos as Record<string, number>) ?? undefined,
     })
     await rodarPrevia(linhas, modo)   // reflete o novo estado (agora "atualizar")
   }
@@ -289,6 +291,12 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
             <b>{resultado.criados}</b> criado(s) · <b>{resultado.atualizados}</b> atualizado(s) · <b>{resultado.ignorados}</b> ignorado(s)
             {resultado.erros > 0 && <> · <b className="text-[#A32D2D]">{resultado.erros}</b> com erro</>}
             <br /><span className="text-[12px] text-[#3D2314]/60">clientes gravados: {resultado.criados_cliente} · fornecedores gravados: {resultado.criados_fornecedor}</span>
+            {resultado.estrategias && Object.keys(resultado.estrategias).length > 0 && (
+              <><br /><span className="text-[12px] text-[#3D2314]/60">casaram por: {Object.entries(resultado.estrategias).map(([k, v]) => `${v} por ${k === 'ref_externa' ? 'código' : k === 'documento' ? 'documento' : 'nome'}`).join(' · ')}</span></>
+            )}
+            {resultado.campos_preenchidos && Object.keys(resultado.campos_preenchidos).length > 0 && (
+              <><br /><span className="text-[12px] text-[#3D2314]/60">campos completados: {Object.entries(resultado.campos_preenchidos).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} (${v})`).join(' · ')}</span></>
+            )}
           </div>
         </div>
       )}
