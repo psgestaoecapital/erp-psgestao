@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { CheckCircle2, XCircle, AlertTriangle, Loader2, PlaneTakeoff, Package, Users } from 'lucide-react'
+import { authFetch } from '@/lib/authFetch'
+import { CheckCircle2, XCircle, AlertTriangle, Loader2, PlaneTakeoff, Package, Users, ShieldCheck } from 'lucide-react'
 
 // Pré-voo fiscal · Fase 1 (SPEC aprovada 24/09). Mostra, ANTES de tentar emitir NF-e, o que impede
 // a emissão nesta empresa — E TAMBÉM o que já está certo (pedido do CEO: dar noção de progresso, não
@@ -38,10 +39,24 @@ interface PreVoo {
   }
 }
 
+// Leitura REAL do certificado A1 (não só validade). Fonte: /api/fiscal/certificado/verificar-leitura.
+interface CertLeitura {
+  presente: boolean
+  legivel?: boolean
+  openssl_nativo?: boolean
+  formato?: 'moderno' | 'legado' | 'ilegivel'
+  tamanho_bytes?: number | null
+  validade_fim?: string | null
+  dias_para_vencer?: number | null
+  status_validade?: string
+  erro?: string | null
+}
+
 export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [dados, setDados] = useState<PreVoo | null>(null)
+  const [cert, setCert] = useState<CertLeitura | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -50,6 +65,14 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
       const { data, error } = await supabase.rpc('fn_fiscal_previo', { p_company_id: companyId })
       if (error) throw new Error(error.message)
       setDados(data as unknown as PreVoo)
+      // Teste de LEITURA do certificado (o RPC só olha a validade; aqui abrimos o arquivo de verdade).
+      try {
+        const r = await authFetch('/api/fiscal/certificado/verificar-leitura', {
+          method: 'POST', body: JSON.stringify({ companyId }),
+        })
+        const j = (await r.json().catch(() => null)) as CertLeitura | null
+        setCert(j)
+      } catch { setCert(null) }
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Falha ao carregar o pré-voo')
     } finally {
@@ -107,6 +130,48 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
               </div>
             )}
           </div>
+
+          {/* Leitura REAL do certificado A1 — não só a validade (um cert válido mas ilegível reprova aqui). */}
+          {cert && (
+            <div className="px-5 py-3" data-testid="previo-cert-leitura">
+              <div className="flex items-center gap-2 mb-1">
+                <ShieldCheck
+                  className={!cert.presente ? 'text-[#BA7517]' : cert.legivel ? 'text-[#3F7012]' : 'text-[#C94544]'}
+                  size={15}
+                />
+                <div className="text-[12.5px] font-medium text-[#3D2314]">
+                  {!cert.presente
+                    ? 'Nenhum certificado A1 ativo cadastrado'
+                    : cert.legivel
+                      ? 'Certificado A1 legível pelo sistema'
+                      : 'Certificado A1 NÃO é legível — a emissão e o boleto vão falhar'}
+                </div>
+              </div>
+              {cert.presente && (
+                <div className="text-[11px] text-[#3D2314]/65 ml-[23px] space-y-0.5">
+                  {cert.legivel ? (
+                    <>
+                      <div>
+                        {cert.formato === 'legado'
+                          ? 'Formato legado (PKCS#12 antigo) — lido pelo sistema; o mTLS bancário usa o leitor tolerante.'
+                          : 'Formato moderno.'}
+                        {typeof cert.tamanho_bytes === 'number' ? ` · ${cert.tamanho_bytes} bytes` : ''}
+                      </div>
+                      {cert.status_validade === 'vencido' ? (
+                        <div className="text-[#791F1F]">Atenção: certificado VENCIDO.</div>
+                      ) : cert.status_validade === 'expirando' ? (
+                        <div className="text-[#633806]">Expira em {cert.dias_para_vencer} dia(s){cert.validade_fim ? ` (${cert.validade_fim.slice(0, 10)})` : ''}.</div>
+                      ) : cert.validade_fim ? (
+                        <div>Válido até {cert.validade_fim.slice(0, 10)}.</div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="text-[#791F1F]">{cert.erro ?? 'Não foi possível abrir o certificado com a senha guardada.'}</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Config — mostra o CERTO (✓) e o que falta (✗/aviso) */}
           <ul className="divide-y divide-[#3D2314]/8">
