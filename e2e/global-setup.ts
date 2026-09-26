@@ -33,7 +33,7 @@ async function diagnosticarHost(origem: string, base: LocalStorageItem[]): Promi
     for (const caso of casos) {
       const ctx = await browser.newContext({
         ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 },
-        storageState: { cookies: [], origins: [{ origin, localStorage: caso.itens }] },
+        storageState: { cookies: [], origins: [{ origin: origem, localStorage: caso.itens }] },
       })
       const page = await ctx.newPage()
       const alvo = `${origem}/dashboard`
