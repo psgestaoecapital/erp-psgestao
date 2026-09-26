@@ -39,7 +39,10 @@ jobs:
           # Só necessário se o preview tiver Deployment Protection (401 da Vercel): Settings › Deployment
           # Protection › "Protection Bypass for Automation" gera o segredo; o CEO cadastra no GitHub.
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-        run: npx playwright test e2e/jornadas/aceitacao --project=celular
+        # --pass-with-no-tests: PR sem .spec.ts em aceitacao/ (hotfix, infra, docs) passa; PR com spec e julgada pelo spec.
+        # A obrigacao de trazer o spec e do processo (RD-78), nao de um check que quebra por ausencia. Sem isto, a propria PR-I
+        # (que nao traz spec) ficaria vermelha para sempre e o check nunca poderia ser obrigatorio.
+        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
       - name: Upload relatório (em caso de falha)
         if: failure()
         uses: actions/upload-artifact@v4
