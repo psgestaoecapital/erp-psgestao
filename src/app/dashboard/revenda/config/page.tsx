@@ -36,7 +36,7 @@ type Cfg = {
   semaforo_amarelo_ate_dias?: number | null; vistoria_modo_padrao?: string | null
   logo_storage_path?: string | null; marca_dagua_ativa?: boolean | null
 }
-type Obter = { ok?: boolean; existe?: boolean; falta?: string[]; config?: Cfg; carrego?: Carrego; erro?: string }
+type Obter = { ok?: boolean; existe?: boolean; falta?: string[]; opcionais_vazios?: string[]; config?: Cfg; carrego?: Carrego; erro?: string }
 type Previa = {
   ok?: boolean; erro?: string; total_veiculos?: number; mudam_preco_minimo?: number
   exemplos?: { modelo: string | null; placa: string | null; antes: number | null; depois: number | null }[]
@@ -46,9 +46,21 @@ type Previa = {
 // Rótulos do array "falta" devolvido por fn_veic_config_obter.
 const FALTA_LABEL: Record<string, string> = {
   estrutura: 'Estrutura (vagas)', custo_fixo: 'Custo fixo mensal', capital: 'Custo do capital',
-  margem: 'Margem alvo', impostos: 'Impostos / comissão / garantia', depreciacao: 'Depreciação',
-  garantia: 'Prazo de garantia', comissao: 'Base da comissão', meta: 'Meta de vendas',
+  margem: 'Margem alvo', impostos: 'Impostos sobre a venda (%)', comissao_pct: 'Comissão (%)', garantia_pct: 'Provisão de garantia (%)',
+  depreciacao: 'Depreciação', garantia: 'Prazo de garantia', comissao: 'Base da comissão', meta: 'Meta de vendas',
 }
+// #114 · rótulo do campo quando o banco recusa um valor (ok:false valor_invalido + campo)
+const CAMPO_LABEL: Record<string, string> = {
+  impostos_venda_pct: 'impostos (%)', comissao_venda_pct: 'comissão (%)', provisao_garantia_pct: 'provisão de garantia (%)',
+  margem_alvo_pct: 'margem alvo (%)', semaforo_verde_ate_dias: 'semáforo verde (dias)', semaforo_amarelo_ate_dias: 'semáforo amarelo (dias)',
+  vagas_operacionais: 'vagas', area_patio_m2: 'área do pátio', custo_fixo_mensal_manual: 'custo fixo mensal',
+  taxa_capital_aa: 'custo do capital (% a.a.)', floor_plan_taxa_aa: 'taxa do floor plan', garantia_prazo_meses: 'prazo de garantia (meses)',
+  meta_veiculos_mes: 'meta de vendas', margem_minima_pct: 'margem mínima (%)',
+}
+const msgErroCfg = (r: { erro?: string; campo?: string; valor?: string } | null, padrao: string) =>
+  r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.'
+    : r?.erro === 'valor_invalido' ? `Valor inválido em "${CAMPO_LABEL[r.campo ?? ''] ?? r.campo}"${r.valor ? ` ("${r.valor}")` : ''} — use só números, ex.: 4,5 ou 40.000,00. Nada foi gravado.`
+    : (r?.erro || padrao)
 
 type Form = {
   vagas: string; area: string; endereco: string
@@ -321,8 +333,8 @@ export default function ConfigGaragemPage() {
     setSalvando(true); setErro(null)
     const { data } = await supabase.rpc('fn_veic_config_previa_efeito', { p_company_id: companyId, p_config_nova: dadosDe(f) })
     setSalvando(false)
-    const r = data as Previa | null
-    if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao calcular a prévia.')); return }
+    const r = data as (Previa & { campo?: string; valor?: string }) | null
+    if (!r?.ok) { setErro(msgErroCfg(r, 'Falha ao calcular a prévia.')); return }
     setPrevia(r)
   }
 
@@ -332,8 +344,8 @@ export default function ConfigGaragemPage() {
     const { data: { session } } = await supabase.auth.getSession()
     const { data } = await supabase.rpc('fn_veic_config_salvar', { p_company_id: companyId, p_dados: dadosDe(f), p_user: session?.user?.id ?? null })
     setSalvando(false); setPrevia(null)
-    const r = data as { ok?: boolean; erro?: string } | null
-    if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao salvar.')); return }
+    const r = data as { ok?: boolean; erro?: string; campo?: string; valor?: string } | null
+    if (!r?.ok) { setErro(msgErroCfg(r, 'Falha ao salvar.')); return }
     setMsg('Configuração salva.'); void carregar()
   }
 
@@ -341,6 +353,7 @@ export default function ConfigGaragemPage() {
   if (carregando) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando configuração…</div>
 
   const falta = obter?.falta ?? []
+  const opcionais = obter?.opcionais_vazios ?? []
   const fipeTravado = f.deprecFonte === 'fipe'
 
   return (
@@ -372,9 +385,15 @@ export default function ConfigGaragemPage() {
       </div>
 
       {/* O QUE FALTA */}
+      {/* #114 · só vagas e margem são obrigatórias (sem elas o preço mínimo não calcula); o resto é opcional */}
       {falta.length > 0 && (
-        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}66`, borderRadius: 12, padding: '11px 14px', marginBottom: 14, fontSize: 12.5, color: '#8A4B08' }}>
-          <b>Falta configurar:</b> {falta.map((k) => FALTA_LABEL[k] ?? k).join(' · ')}
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}66`, borderRadius: 12, padding: '11px 14px', marginBottom: 8, fontSize: 12.5, color: '#8A4B08' }}>
+          <b>Para o preço mínimo calcular, falta:</b> {falta.map((k) => FALTA_LABEL[k] ?? k).join(' · ')}
+        </div>
+      )}
+      {opcionais.length > 0 && (
+        <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 14, padding: '0 2px' }}>
+          Opcionais, preencha quando quiser: {opcionais.map((k) => FALTA_LABEL[k] ?? k).join(' · ')}
         </div>
       )}
 
