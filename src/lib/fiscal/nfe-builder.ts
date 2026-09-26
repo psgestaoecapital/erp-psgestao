@@ -235,6 +235,35 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     finalidade = input.overrides?.finalidade ?? 'normal'
   } else if (input.manual) {
     destinatario = input.manual.destinatario
+    // #131 (KGF) · 3º caminho: o modo manual (botão da OS, NFeCard, devolução, devolução-venda, remessa)
+    // chegava só com nome + CNPJ/CPF. Sem IE/indicador o builder derivava indIEDest = 9 e a Sefaz rejeitava
+    // "IE do destinatário não informada" mesmo com o cadastro certo. #1739 (pedido) e #1800 (financeiro)
+    // não cobriam este ramo. Enriquece pelo cadastro do cliente da EMPRESA, com o mesmo mapeamento do
+    // ramo financeiro / fn_pedido_nfe_dados (contribuinte→1, isento→2, nao_contribuinte→9).
+    if (!destinatario.inscricaoEstadual && destinatario.indicadorIE == null) {
+      const doc = (destinatario.cnpj ?? destinatario.cpf ?? '').replace(/\D/g, '')
+      if (doc.length === 11 || doc.length === 14) {
+        const { data: cli } = await supabaseAdmin
+          .from('erp_clientes')
+          .select('ie, contribuinte_icms')
+          .eq('company_id', input.companyId)
+          .eq('cnpj_cpf', doc)          // cnpj_cpf é a coluna em dígitos; cpf_cnpj é a formatada
+          .limit(1)
+          .maybeSingle()
+        if (cli) {
+          const ieLimpa = (cli.ie ?? '').replace(/\D/g, '')
+          const indIE = ((): 1 | 2 | 9 | undefined => {
+            switch ((cli.contribuinte_icms ?? '').toLowerCase()) {
+              case 'contribuinte': return 1
+              case 'isento': return 2
+              case 'nao_contribuinte': return 9
+              default: return undefined
+            }
+          })()
+          destinatario = { ...destinatario, inscricaoEstadual: ieLimpa || undefined, indicadorIE: indIE }
+        }
+      }
+    }
     itensInput = input.manual.itens
     naturezaOp = input.manual.naturezaOperacao ?? 'Venda de mercadoria'
     finalidade = input.manual.finalidade ?? 'normal'

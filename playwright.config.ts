@@ -23,6 +23,11 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // RD-78: preview da Vercel com Deployment Protection responde 401 ao robô; o bypass oficial é este header.
+    // (o global-setup não abre navegador — loga na Supabase e grava o storageState —, então só o `use` precisa disto.)
+    ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+      ? { extraHTTPHeaders: { 'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET, 'x-vercel-set-bypass-cookie': 'true' } }
+      : {}),
   },
   projects: [
     { name: 'celular', use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 } } },
