@@ -6,6 +6,7 @@ import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-buil
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
+import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
 
 // NFC-e (modelo 65 · consumidor final / balcão). Opção A: sai de um PEDIDO (reusa a
 // fn_faturar que baixa estoque + gera financeiro). Régua fiscal: NASCE EM HOMOLOGAÇÃO
@@ -61,11 +62,28 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const totalNota = nfceReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
     nfceReq.pagamento = { formaPagamento: body.formaPagamento ?? 'dinheiro', valor: totalNota }
 
-    validateNFeRequest(nfceReq)
+    // OS-0179 (RD-71, mesmo caminho da nfe/emitir): toda falha da emissão deixa rastro — tentativa; recusa
+    // síncrona da Focus → nota 'rejeitada' com payload_enviado.
+    const ctxEmissao: ContextoEmissaoNFe = {
+      companyId: body.companyId, userId, notaTipo: 'nfce', operacao: 'emissao', endpoint: 'nfce/emitir', nfeReq: nfceReq,
+      vinculos: { modelo: '65' },
+    }
+    try {
+      validateNFeRequest(nfceReq)
+    } catch (e) {
+      await registrarFalhaEmissaoNFe(ctxEmissao, e)
+      throw e
+    }
 
     // Régua: NFC-e nasce em homologação (só produção se explicitamente pedido)
     const svc = await createFiscalService(body.companyId, { ambienteOverride: body.ambiente ?? 'homologacao' })
-    const resposta = await svc.emitirNFCe(nfceReq)
+    let resposta
+    try {
+      resposta = await svc.emitirNFCe(nfceReq)
+    } catch (e) {
+      await registrarFalhaEmissaoNFe(ctxEmissao, e, svc.ambiente)
+      throw e
+    }
 
     const dadosRegistro = {
       chave: resposta.chave,
@@ -96,6 +114,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       p_itens: nfceReq.itens,
       p_provider_raw: resposta.providerRaw ?? null,
     })
+
+    await registrarTentativaEmissaoNFe(ctxEmissao, resposta, (registroId as string | null) ?? null)
 
     if (rpcErr) {
       return NextResponse.json(

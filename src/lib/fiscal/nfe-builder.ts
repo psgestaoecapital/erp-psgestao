@@ -397,6 +397,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       cnpj: String(emp.cnpj ?? '').replace(/\D/g, ''),
       razaoSocial: emp.razao_social,
       inscricaoEstadual: emp.inscricao_estadual,
+      simplesNacional: ehSimples,
     },
     destinatario,
     itens: itensNFe,
