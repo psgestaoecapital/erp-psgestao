@@ -78,13 +78,43 @@ export async function resetarDemo(): Promise<void> {
   await rpc('fn_demo_reset', { p_company_id: DEMO_REVENDA })
 }
 
+// RD-78 · ONDE a jornada rodou. Só o host canônico é 'producao'; qualquer outro *.vercel.app é 'preview'
+// (fail-safe: host desconhecido nunca vira produção). JORNADA_HOST_PRODUCAO permite trocar o canônico.
+export type Ambiente = 'producao' | 'preview' | 'local'
+export function ambienteDaBase(base: string = BASE_URL): Ambiente {
+  const host = new URL(base).host
+  const canonico = process.env.JORNADA_HOST_PRODUCAO || 'erp-psgestao.vercel.app'
+  if (host === canonico) return 'producao'
+  if (/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) return 'local'
+  return 'preview'
+}
+
+// RD-78 · QUAL build está no ar: /sw.js é gerado com o cache "ps-shell-<VERCEL_GIT_COMMIT_SHA>" (src/app/sw.js).
+// Público, sem sessão. Falhou → null (desconhecido), nunca um SHA inventado.
+export async function shaServido(origem: string = new URL(BASE_URL).origin): Promise<string | null> {
+  try {
+    const r = await fetch(`${origem}/sw.js`, { cache: 'no-store' })
+    if (!r.ok) return null
+    const m = (await r.text()).match(/ps-shell-([0-9a-f]{7,40})/)
+    return m ? m[1] : null
+  } catch { return null }
+}
+
+function runUrl(): string | null {
+  const { GITHUB_SERVER_URL: s, GITHUB_REPOSITORY: r, GITHUB_RUN_ID: id } = process.env
+  return s && r && id ? `${s}/${r}/actions/runs/${id}` : null
+}
+
 // R1 item 1c · grava o resultado da jornada (verde/vermelho) em gold_jornada_resultado. A jornada VERDE
-// prova o requisito mapeado (jornada_requisito) e prevalece sobre a foto do juiz (fn_blueprint_cobertura).
+// prova o requisito mapeado (jornada_requisito) e prevalece sobre a foto do juiz (fn_blueprint_cobertura) —
+// desde o RD-78, SÓ quando ambiente = 'producao'. Grava também o build servido, a URL e o link do run.
 // Nunca lança: o registro é observabilidade, não pode derrubar a suíte.
 export async function registrarJornada(jornada: string, status: 'verde' | 'vermelho', detalhe?: string): Promise<void> {
   try {
     await rpc('fn_jornada_registrar_resultado', {
       p_jornada: jornada, p_status: status, p_detalhe: detalhe ?? null, p_vertical: 'revenda_veiculos',
+      p_ambiente: ambienteDaBase(), p_commit_sha: process.env.JORNADA_APP_SHA ?? null,
+      p_base_url: BASE_URL, p_run_url: runUrl(),
     })
   } catch (e) {
     console.error(`[jornada ${jornada}] não gravou resultado (${status}):`, e instanceof Error ? e.message : String(e))
