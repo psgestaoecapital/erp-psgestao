@@ -2,6 +2,8 @@ name: Jornadas Revenda (Playwright)
 
 # Jornadas e2e da Revenda ("clicar, salvar, conferir no banco"), só na Demonstração Revenda (is_demo).
 # Roda sob demanda e semanalmente. O gatilho pós-merge que toca src/app/dashboard/revenda/** entra no R1e.
+# RD-78: e2e/jornadas/aceitacao/** (a jornada de aceitação de cada PR, que roda no preview via aceitacao-pr.yml)
+# também entra nesta varredura — o testDir é ./e2e/jornadas, então a pasta vira banco de regressão automaticamente.
 on:
   workflow_dispatch:
   schedule:
