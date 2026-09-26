@@ -56,6 +56,15 @@ export async function dbPatch(tabela: string, query: string, body: Record<string
   if (!resp.ok) throw new Error(`patch ${tabela} falhou: ${resp.status} ${await resp.text()}`)
 }
 
+export async function dbInsert<T = Record<string, unknown>>(tabela: string, body: Record<string, unknown>): Promise<T> {
+  const { url, headers } = rest()
+  const resp = await fetch(`${url}/rest/v1/${tabela}`, {
+    method: 'POST', headers: { ...headers, Prefer: 'return=representation' }, body: JSON.stringify(body),
+  })
+  if (!resp.ok) throw new Error(`insert ${tabela} falhou: ${resp.status} ${await resp.text()}`)
+  return ((await resp.json()) as T[])[0]
+}
+
 export async function dbDelete(tabela: string, query: string): Promise<void> {
   const { url, headers } = rest()
   const resp = await fetch(`${url}/rest/v1/${tabela}?${query}`, {
