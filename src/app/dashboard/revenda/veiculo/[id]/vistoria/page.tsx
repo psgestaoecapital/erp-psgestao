@@ -546,7 +546,9 @@ function Resumo({ totais, onVoltar, vistoriaId, userId, onConcluida, onErro, reg
       {pend && (pend.fotos.length > 0 || pend.gastos.length > 0) && (
         <div style={{ background: C.redBg, border: `1px solid ${C.red}44`, borderRadius: 12, padding: 12, marginTop: 12, fontSize: 13, color: C.red }}>
           <b>Falta para concluir:</b>
-          {pend.fotos.length > 0 && <div style={{ marginTop: 6 }}>📷 Foto obrigatória: {pend.fotos.map((nome) => {
+          {/* rótulo em elemento próprio: os links (região/item) vêm DEPOIS dele, não dentro — "o próximo botão
+              após 'Foto obrigatória'" é o link do item, e não "continuar avaliando" */}
+          {pend.fotos.length > 0 && <div style={{ marginTop: 6 }}><span>📷 Foto obrigatória:</span>{' '}{pend.fotos.map((nome) => {
             // o nome pode ser da região (modelo completo) ou do item em reparo/troca (modelo rápido)
             const idx = regioes.findIndex((r) => r.nome === nome || r.itens.some((i) => i.nome === nome))
             return <button key={nome} onClick={() => idx >= 0 && onIrRegiao(idx)} style={{ background: 'none', border: 'none', color: C.red, textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0, marginRight: 8 }}>{nome}</button>
