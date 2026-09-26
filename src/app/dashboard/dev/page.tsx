@@ -133,7 +133,11 @@ const NOME_VERTICAL:Record<string,string>={
   agro:'Agro / Pecuária', bpo:'BPO', compliance:'Compliance', custeio_a:'Custeio A', custeio_b:'Custeio B',
   gestao_empresarial:'Gestão Empresarial', hub:'Hub (Construção)', industrial:'Industrial', medica:'Médica',
   odonto:'Odonto', oficina:'Oficina', pm:'P&M (Agência)', revenda_veiculos:'Revenda de Veículos', wealth:'Wealth',
+  estrela_polar:'Estrela Polar',
 };
+// 26/09 (CEO): a Estrela Polar vive em erp_documento_vertical (vertical='estrela_polar'), como as verticais.
+// Não é vertical de produto (não entra em dev_vertical nem nas barras/auditoria): aparece fixa no seletor.
+const ESTRELA_POLAR='estrela_polar';
 function fmtDia(iso:string|null):string{ if(!iso) return 'nunca'; const p=iso.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:iso; }
 
 // Renderizador de markdown LEVE (sem dependência) — o público (CEO, André, Jordana, Rodrigo) não é dev:
@@ -292,7 +296,7 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
     const lista=((data||[]) as {id:string;slug:string;nome:string;ativo:boolean;ordem:number}[]);
     setVerticais(lista);
     const ativos=lista.filter(v=>v.ativo);
-    if(ativos.length && !ativos.some(v=>v.slug===vertical)) setVertical(ativos[0].slug);
+    if(ativos.length && vertical!==ESTRELA_POLAR && !ativos.some(v=>v.slug===vertical)) setVertical(ativos[0].slug);
   }
   useEffect(()=>{ void carregarVerticais(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },[]);
   async function incluirVertical(){
@@ -337,6 +341,8 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
   useEffect(()=>{(async()=>{
     setDisparo(null);setOrc(null);setVerVersao(null);
     await carregarDoc();
+    // documento-mestre: sem orçamento de auditoria, barras nem telas — só o documento e o histórico
+    if(vertical===ESTRELA_POLAR){ setBarra(null); setAudit(null); return; }
     const{data:o}=await supabase.rpc('fn_dev_vertical_orcamento',{p_vertical:vertical});
     if(o)setOrc(o as Orc);
     // A2 — as 3 barras desta vertical (mesma RPC da aba Leitura), pra não precisar trocar de aba.
@@ -387,9 +393,10 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
         <span style={{fontSize:13,color:GOL,fontWeight:600}}>📄 Documento vivo da vertical</span>
         <select value={vertical} onChange={e=>setVertical(e.target.value)}
           style={{background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit'}}>
+          <option value={ESTRELA_POLAR}>⭐ Estrela Polar (documento-mestre)</option>
           {(verticais.filter(v=>v.ativo).length
             ? verticais.filter(v=>v.ativo).map(v=>({k:v.slug,n:v.nome}))
-            : Object.entries(NOME_VERTICAL).map(([k,n])=>({k,n}))
+            : Object.entries(NOME_VERTICAL).filter(([k])=>k!==ESTRELA_POLAR).map(([k,n])=>({k,n}))
           ).map(o=><option key={o.k} value={o.k}>{o.n}</option>)}
         </select>
         {isAdmin && <button onClick={()=>setGerVert(v=>!v)} style={{background:'transparent',color:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:11.5,cursor:'pointer'}}>{gerVert?'Fechar':'⚙ Gerenciar verticais'}</button>}
