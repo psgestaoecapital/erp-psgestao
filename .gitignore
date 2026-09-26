@@ -4,3 +4,6 @@ node_modules/
 .env
 *.tsbuildinfo
 .cnab-real/
+
+# RD-78 · screenshots do diagnóstico de host (só CI)
+e2e/diagnostico-host/
