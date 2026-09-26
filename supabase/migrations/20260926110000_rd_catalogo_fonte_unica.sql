@@ -30,6 +30,8 @@ CREATE OR REPLACE FUNCTION public.fn_rd_registrar(p_titulo text, p_texto text, p
 RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
 DECLARE v_num int;
 BEGIN
+  -- so admin (D1=B, PR #1810). auth.uid() IS NOT NULL: sem sessao (migration 120000, MCP) is_admin() e false — provado — e a REVOKE abaixo ja fecha anon.
+  IF auth.uid() IS NOT NULL AND NOT is_admin() THEN RAISE EXCEPTION 'só admin'; END IF;
   IF p_tier NOT IN ('lei','protocolo','licao') THEN RAISE EXCEPTION 'tier invalido: %', p_tier; END IF;
   IF p_gate_tipo <> 'nenhum' AND nullif(btrim(coalesce(p_gate,'')),'') IS NULL THEN RAISE EXCEPTION 'gate_tipo % exige o nome do gate', p_gate_tipo; END IF;
   SELECT greatest(coalesce(max(numero),0), 78) + 1 INTO v_num FROM erp_rd_catalogo;
@@ -37,14 +39,20 @@ BEGIN
   VALUES (v_num, p_titulo, p_texto, p_tier, p_gate_tipo, p_gate, p_origem, p_contexto_id);
   RETURN v_num;
 END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_rd_registrar(text, text, text, text, text, text, uuid) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_rd_registrar(text, text, text, text, text, text, uuid) TO authenticated, service_role;
 
--- substituir/retirar com rastro (nunca DELETE)
+-- substituir/retirar com rastro (nunca DELETE) · plpgsql para poder RAISE 'só admin' (D1=B)
 CREATE OR REPLACE FUNCTION public.fn_rd_substituir(p_numero int, p_por int, p_motivo text, p_sufixo text DEFAULT '')
-RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path TO 'public' AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
+BEGIN
+  IF auth.uid() IS NOT NULL AND NOT is_admin() THEN RAISE EXCEPTION 'só admin'; END IF;
   UPDATE erp_rd_catalogo SET status = CASE WHEN p_por IS NULL THEN 'retirada' ELSE 'substituida' END,
          substituida_por = p_por, motivo_retirada = p_motivo, atualizado_em = now()
-  WHERE numero = p_numero AND sufixo = p_sufixo
-$$;
+  WHERE numero = p_numero AND sufixo = p_sufixo;
+END $$;
+REVOKE EXECUTE ON FUNCTION public.fn_rd_substituir(integer, integer, text, text) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_rd_substituir(integer, integer, text, text) TO authenticated, service_role;
 
 -- bloco para o briefing
 CREATE OR REPLACE FUNCTION public.fn_rd_briefing() RETURNS jsonb LANGUAGE sql STABLE AS $$

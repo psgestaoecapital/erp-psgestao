@@ -86,3 +86,6 @@ CREATE OR REPLACE FUNCTION public.fn_seguranca_rls_auditar() RETURNS jsonb LANGU
         JOIN t ON t.relname=g.table_name WHERE g.table_schema='public' AND g.grantee='anon' AND g.privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE') AND t.tem_company AND NOT t.rls)
   )
 $$;
+-- D1=B (PR #1810): SECURITY DEFINER nunca aberta ao anon (o scanner nao pegou esta por casar "REVOKE" do comentario da linha 6 — ponto cego, PR separada).
+REVOKE EXECUTE ON FUNCTION public.fn_seguranca_rls_auditar() FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_seguranca_rls_auditar() TO authenticated, service_role;
