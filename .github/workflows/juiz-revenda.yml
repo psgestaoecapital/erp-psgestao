@@ -19,7 +19,7 @@ concurrency:
 jobs:
   auditar:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       PROD_BASE_URL: https://erp-psgestao.vercel.app
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -31,6 +31,26 @@ jobs:
       JUIZ_ORIGEM: ${{ github.event_name == 'schedule' && 'semanal' || 'gatilho' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # RD-78 · o juiz pós-merge disparava junto com o merge e julgava o build ANTERIOR: run 36243983120 (#1822,
+      # 26/09 13:06) gravou commit_sha 7a97a0d2 (#1823) — a ficha nova ainda não estava no ar e E1 caiu "vermelho"
+      # em produção sem ser regressão. Mesmo passo do aceitacao-pos-migration.yml (#1823): espera /sw.js servir
+      # o commit do push (ou um posterior); fail-closed em ~20 min. Semanal/manual julgam o que está no ar.
+      - name: Esperar a produção servir o commit (só no push)
+        if: github.event_name == 'push'
+        env:
+          COMMIT: ${{ github.sha }}
+        run: |
+          for i in $(seq 1 60); do
+            servido=$(curl -fsS "$PROD_BASE_URL/sw.js" 2>/dev/null | grep -oE 'ps-shell-[0-9a-f]{7,40}' | head -1 | sed 's/^ps-shell-//')
+            [ -n "$servido" ] && ! git cat-file -e "$servido^{commit}" 2>/dev/null && git fetch -q origin main
+            if [ -n "$servido" ] && git merge-base --is-ancestor "$COMMIT" "$servido" 2>/dev/null; then
+              echo "produção serve $servido (contém $COMMIT)"; exit 0
+            fi
+            echo "tentativa $i: produção serve '${servido:-?}', esperando $COMMIT…"; sleep 20
+          done
+          echo "::error::produção não passou a servir $COMMIT em ~20 min — o juiz não julga build errado"; exit 1
       - uses: actions/setup-node@v4
         with:
           node-version: 20
