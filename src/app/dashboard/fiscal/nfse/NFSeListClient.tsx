@@ -710,12 +710,12 @@ function DocumentoLinhas(props: {
         <td className="px-3 py-2.5">{aberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</td>
         <td className="px-3 py-2.5">
           <div className="font-mono text-[12px] text-[#3D2314]">{doc.numero ?? (doc.nao_emitida ? 'sem número' : '—')}</div>
-          {doc.origem_rotulo && <div className="text-[10.5px] text-[#3D2314]/55">{doc.origem_rotulo}</div>}
+          {doc.origem_rotulo && <div className="text-[11.5px] text-[#3D2314]/80 normal-case line-clamp-2" title={doc.origem_rotulo}>{doc.origem_rotulo}</div>}
         </td>
         <td className="px-3 py-2.5 text-[12.5px]">{fmtData(doc.data)}</td>
         <td className="px-3 py-2.5">
           <div className="text-[12.5px] text-[#3D2314]">{doc.contraparte_nome ?? '—'}</div>
-          <div className="text-[10.5px] text-[#3D2314]/60 font-mono">{fmtDoc(doc.contraparte_doc, null)}</div>
+          <div className="text-[10.5px] text-[#3D2314]/75 font-mono">{fmtDoc(doc.contraparte_doc, null)}</div>
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums font-medium">{fmtBRL(doc.valor)}</td>
         <td className="px-3 py-2.5">
@@ -896,12 +896,12 @@ function TimelineItem({ ev, onBaixar, baixando }: {
       <span className="absolute -left-[6.5px] mt-0.5 flex h-3 w-3 items-center justify-center rounded-full" style={{ background: meta.cor }} />
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
         <span style={{ color: meta.cor }} className="inline-flex items-center gap-1 text-[12px] font-semibold">{meta.icon} {meta.titulo}</span>
-        <span className="text-[10.5px] text-[#3D2314]/50 font-mono">{fmtDataHora(ev.quando)}</span>
-        {ev.http_status != null && <span className="text-[10.5px] text-[#3D2314]/45 font-mono">HTTP {ev.http_status}</span>}
-        {ev.provider_codigo && <span className="text-[10.5px] text-[#3D2314]/60 font-mono">{ev.provider_codigo}</span>}
+        <span className="text-[10.5px] text-[#3D2314]/70 font-mono">{fmtDataHora(ev.quando)}</span>
+        {ev.http_status != null && <span className="text-[10.5px] text-[#3D2314]/65 font-mono">HTTP {ev.http_status}</span>}
+        {ev.provider_codigo && <span className="text-[10.5px] text-[#3D2314]/75 font-mono">{ev.provider_codigo}</span>}
       </div>
       {ev.detalhe && <div className="text-[11.5px] text-[#3D2314]/75 mt-0.5">{ev.detalhe}</div>}
-      {ev.chave && <div className="text-[10.5px] text-[#3D2314]/50 font-mono mt-0.5 break-all">chave: {ev.chave}</div>}
+      {ev.chave && <div className="text-[10.5px] text-[#3D2314]/70 font-mono mt-0.5 break-all">chave: {ev.chave}</div>}
       {temArquivo && ev.nota_id && (
         <div className="flex gap-2 mt-1">
           <button type="button" onClick={() => onBaixar(ev.nota_id!, 'xml', ev.xml_url)} disabled={baixando === `${ev.nota_id}-xml`}
