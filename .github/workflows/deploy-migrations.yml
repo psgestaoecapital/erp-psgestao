@@ -14,6 +14,22 @@ jobs:
       SUPABASE_PROJECT_ID: horsymhsinqcimflrtjo
     steps:
       - uses: actions/checkout@v4
+
+      # Última linha de defesa (RD-52): antes do push, falha se alguma migration do repo tiver versão já aplicada
+      # no ledger com OUTRO nome (o db push a pularia em silêncio — colisão 20260926140000 de 26/09) ou se duas
+      # migrations compartilharem versão. O gate de PR (check-migrations.yml) pega antes do merge; este pega o
+      # que passou. Se a RPC fn_migrations_ledger ainda não existir (1º deploy após 20260926160000) o script só avisa.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - name: Régua de migrations (versão única + ledger)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run check:migrations
+
       - uses: supabase/setup-cli@v1
         with:
           version: latest
