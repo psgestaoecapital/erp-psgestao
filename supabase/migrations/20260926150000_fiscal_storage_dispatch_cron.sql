@@ -1,6 +1,6 @@
 -- GE-F7 · arquivamento XML/PDF (11 anos, SINIEF): worker existia desde 02/06 e NUNCA foi chamado (contexto 278db003).
 -- Dispatch nos moldes de fn_dfe_baixar_xml_pendentes_dispatch (jobid 41) + cron a cada 15 min.
--- (timestamp 140000: 130000 ja e a invites_e_audit_log_hardening do PR #1810 — RD-52, sem colisao no ledger)
+-- (timestamp 150000: 130000 e a invites_e_audit_log_hardening do PR 1810 e 140000 e a revenda_veiculo_desativado do PR 1811 - RD-52, sem colisao no ledger)
 
 CREATE OR REPLACE FUNCTION public.fn_fiscal_storage_dispatch()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'extensions' AS $$
