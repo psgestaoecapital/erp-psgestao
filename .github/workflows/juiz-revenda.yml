@@ -8,6 +8,9 @@ on:
     branches: [main]
     paths:
       - 'src/app/dashboard/revenda/**'
+      # 26/09: corrigir a própria jornada também precisa de veredito em produção — sem isto, um spec consertado
+      # (ex.: vistoria.spec.ts, insp_item.modelo_id) ficava vermelho até a varredura de segunda.
+      - 'e2e/jornadas/revenda/**'
   schedule:
     - cron: '0 8 * * 1' # segunda 05h BRT — varredura completa semanal
   workflow_dispatch:
