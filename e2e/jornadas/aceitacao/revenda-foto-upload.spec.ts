@@ -67,7 +67,8 @@ test.describe('Aceitação #1806 — foto sobe · salvar BR · custo atualiza', 
     await expect(input).toHaveCount(1)
     await input.setInputFiles(arquivo('foto-aceitacao-1.png'))
 
-    await expect(page.getByText(/^Foto enviada\./)).toBeVisible({ timeout: 20000 })
+    // a mensagem sai no banner da página E ao lado do botão (#1806) → 2 nós; basta um visível (a prova forte é o banco/Storage abaixo)
+    await expect(page.getByText(/^Foto enviada\./).first()).toBeVisible({ timeout: 20000 })
     await expect.poll(async () => (await fotosDo(veh)).length, { timeout: 15000 }).toBe(1)
     const [f1] = await fotosDo(veh)
     expect(f1.storage_path.startsWith(`${DEMO_REVENDA}/${veh}/`)).toBe(true)
@@ -80,7 +81,7 @@ test.describe('Aceitação #1806 — foto sobe · salvar BR · custo atualiza', 
 
     // duas de uma vez
     await input.setInputFiles([arquivo('foto-aceitacao-2.png'), arquivo('foto-aceitacao-3.png')])
-    await expect(page.getByText(/^2 fotos enviadas\./)).toBeVisible({ timeout: 20000 })
+    await expect(page.getByText(/^2 fotos enviadas\./).first()).toBeVisible({ timeout: 20000 })
     await expect.poll(async () => (await fotosDo(veh)).length, { timeout: 15000 }).toBe(3)
   })
 
@@ -99,7 +100,8 @@ test.describe('Aceitação #1806 — foto sobe · salvar BR · custo atualiza', 
 
     await fipe.fill('abc')
     await page.getByRole('button', { name: /^Salvar dados$/i }).click()
-    await expect(page.getByText(/Valor inválido em "valor FIPE"/)).toBeVisible({ timeout: 15000 })
+    // banner + erro no campo (#1806) → 2 nós; basta um visível; o banco (abaixo) prova que nada foi apagado
+    await expect(page.getByText(/Valor inválido em "valor FIPE"/).first()).toBeVisible({ timeout: 15000 })
     // continua 72956 no banco (o erro não apagou nada) — e a resposta veio como ok:false, não como 400
     expect(Number((await dbSelect<{ valor_fipe: number | null }>('veic_veiculo', `id=eq.${veh}&select=valor_fipe`))[0]?.valor_fipe)).toBe(72956)
   })
