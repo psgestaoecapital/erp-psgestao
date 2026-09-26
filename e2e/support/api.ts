@@ -73,6 +73,35 @@ export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>
   return (await resp.json()) as T
 }
 
+// RD-78 · trava da demo (fn_e2e_trava_pegar/soltar, lease com validade). Suítes diferentes (aceitação do
+// preview, juiz pós-merge, pós-migration) usam a MESMA empresa demo; sem exclusão mútua uma limpa a galeria /
+// reseta a demo no meio da outra (26/09 13:12: runs 36244034978 × 36244291934, teste A caiu nos dois).
+const TRAVA_DEMO = 'demo-revenda'
+export function donoTrava(): string {
+  return runUrl() ?? `local-${process.pid}-${Date.now()}`
+}
+export async function pegarTravaDemo(dono: string, esperaMaxMs = 20 * 60_000): Promise<'pega' | 'sem-rpc'> {
+  const inicio = Date.now()
+  for (let i = 1; ; i++) {
+    try {
+      const r = await rpc<{ ok: boolean; dono: string; expira_em: string }>('fn_e2e_trava_pegar', { p_nome: TRAVA_DEMO, p_dono: dono, p_ttl_s: 1500 })
+      if (r.ok) return 'pega'
+      console.log(`[trava-demo] tentativa ${i}: em uso por ${r.dono} (até ${r.expira_em}) — esperando…`)
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e)
+      // migration ainda não aplicada (PR que a introduz): não trava a suíte — segue sem exclusão, com aviso
+      if (/PGRST202|Could not find the function/i.test(m)) { console.warn('[trava-demo] fn_e2e_trava_pegar não existe ainda — seguindo SEM trava'); return 'sem-rpc' }
+      throw e
+    }
+    if (Date.now() - inicio > esperaMaxMs) throw new Error(`[trava-demo] demo ocupada há mais de ${Math.round(esperaMaxMs / 60000)} min — não rodo em cima de outra suíte`)
+    await new Promise((res) => setTimeout(res, 10_000))
+  }
+}
+export async function soltarTravaDemo(dono: string): Promise<void> {
+  try { await rpc('fn_e2e_trava_soltar', { p_nome: TRAVA_DEMO, p_dono: dono }) }
+  catch (e) { console.warn('[trava-demo] não soltou (expira sozinha):', e instanceof Error ? e.message : String(e)) }
+}
+
 // Reset da demo ao FIM da suíte (a demo pode ser mexida à vontade e volta ao seed).
 export async function resetarDemo(): Promise<void> {
   await rpc('fn_demo_reset', { p_company_id: DEMO_REVENDA })
