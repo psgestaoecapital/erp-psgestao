@@ -162,6 +162,8 @@ function Inner() {
   }
 
   if (!v) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>{erro ?? 'Carregando veículo…'}</div>
+  // #115 (Fábio/Alliance): consignado não tem custo de aquisição nem preço mínimo — só valor de venda.
+  const consignado = v.origem === 'consignacao'
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 980, margin: '0 auto', color: C.esp }}>
@@ -173,6 +175,7 @@ function Inner() {
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{v.marca || ''} {v.modelo || 'Veículo'} {v.ano_modelo ? `· ${v.ano_modelo}` : ''}</h1>
           <div style={{ fontSize: 13, color: C.espM, fontFamily: 'monospace' }}>{v.placa || 'sem placa'} · chassi {v.chassi}</div>
+          {consignado && <span data-testid="chip-consignado" title="Carro consignado: sem custo de aquisição, só valor de venda" style={{ display: 'inline-block', marginTop: 4, fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>consignado</span>}
         </div>
         <label style={{ fontSize: 12, color: C.espM }}>Situação&nbsp;
           <select value={v.situacao} onChange={(e) => void mudarSituacao(e.target.value)} style={inp}>{SIT.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}</select>
@@ -180,23 +183,34 @@ function Inner() {
       </div>
 
       {/* R3d · A CONTA DESTE CARRO — faixa em linguagem de dono, fonte única fn_veic_conta_do_carro. */}
-      <ContaDoCarroFaixa veiculoId={id} situacao={v.situacao} refreshKey={contaKey} />
+      <ContaDoCarroFaixa veiculoId={id} situacao={v.situacao} refreshKey={contaKey} consignado={consignado} />
 
       {/* R3-fix T4 · Trilha de estado (entrada→…→garantia) com o motivo da trava atual. */}
       <TrilhaEstado situacao={v.situacao} temReserva={!!reserva} venda={venda} temCusto={custos.length > 0} temPreco={precoHist.length > 0} />
 
       {/* Alliance · veículo sem custo de aquisição não pode passar como completo (margem/preço mínimo
-          não calculam). Não bloqueia a entrada rápida no pátio — só não finge que está pronto. */}
-      {!(v.valor_aquisicao && v.valor_aquisicao > 0) && (
+          não calculam). Não bloqueia a entrada rápida no pátio — só não finge que está pronto.
+          #115: consignado não tem aquisição por natureza — não é pendência, não avisa. */}
+      {!consignado && !(v.valor_aquisicao && v.valor_aquisicao > 0) && (
         <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 10, padding: '10px 12px', margin: '14px 0 0', fontSize: 12.5, color: '#8A4B08', lineHeight: 1.5 }}>
           ⚠️ <b>Sem custo de aquisição</b> — sem ele a <b>margem e o preço mínimo não calculam</b>{v.ano_modelo ? '' : ', e o ano não está informado (a base fiscal de PIS/COFINS depende dele)'}. Informe na entrada do veículo. A entrada rápida no pátio é ok — só ainda não está completa.
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, margin: '14px 0' }}>
         <Card l="Entrada" v={brDate(v.data_entrada)} />
-        <Card l="Aquisição" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(v.valor_aquisicao) : 'sem custo'} />
-        <Card l="Custo acumulado" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(custoAcumulado) : '—'} destaque />
-        <Card l={`Preço mínimo (margem ${margemPm}%)`} v={pm?.preco_minimo != null ? brl(pm.preco_minimo) : 'não calcula'} sub={pm?.preco_minimo != null ? `cobre custo + encargos + margem · piso sem margem ${brl(pm.piso_sem_margem ?? 0)}` : 'informe a aquisição primeiro'} />
+        {consignado ? (
+          <>
+            {/* #115: consignado = só valor de venda (sem aquisição, sem preço mínimo/piso) */}
+            <Card l="Aquisição" v="consignado" />
+            <Card l="Valor de venda" v={v.preco_venda != null ? brl(v.preco_venda) : 'sem preço'} destaque />
+          </>
+        ) : (
+          <>
+            <Card l="Aquisição" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(v.valor_aquisicao) : 'sem custo'} />
+            <Card l="Custo acumulado" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(custoAcumulado) : '—'} destaque />
+            <Card l={`Preço mínimo (margem ${margemPm}%)`} v={pm?.preco_minimo != null ? brl(pm.preco_minimo) : 'não calcula'} sub={pm?.preco_minimo != null ? `cobre custo + encargos + margem · piso sem margem ${brl(pm.piso_sem_margem ?? 0)}` : 'informe a aquisição primeiro'} />
+          </>
+        )}
       </div>
 
       <CompletudeFiscalBloco veiculoId={id} refreshKey={fiscalKey} />
@@ -269,7 +283,7 @@ function Inner() {
 
       <PreparacaoBloco veiculoId={id} companyId={v.company_id} onMsg={setMsg} onErro={setErro} onChange={() => void carregar()} />
 
-      <PrecificacaoBloco veiculoId={id} />
+      <PrecificacaoBloco veiculoId={id} consignado={consignado} />
 
       <Bloco titulo="Custos no chassi">
         <a href={`/dashboard/revenda/veiculo/${id}/custos`} style={{ display: 'inline-block', fontSize: 12, color: C.gold, textDecoration: 'underline', marginBottom: 8 }}>→ abrir a tela de custos (previsto × realizado, carrego, fora da curva)</a>
@@ -313,7 +327,7 @@ function Inner() {
         ) : precoHist.map((h, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, borderTop: i ? `1px solid ${C.cream}` : 'none', padding: '6px 0' }}>
             <span style={{ color: C.espM }}>{brDate(h.criado_em)}</span>
-            <span style={{ fontFamily: 'monospace' }}>piso {h.preco_minimo != null ? brl(h.preco_minimo) : '—'} · anunciado <b>{h.preco_venda != null ? brl(h.preco_venda) : '—'}</b></span>
+            <span style={{ fontFamily: 'monospace' }}>{consignado ? '' : `piso ${h.preco_minimo != null ? brl(h.preco_minimo) : '—'} · `}anunciado <b>{h.preco_venda != null ? brl(h.preco_venda) : '—'}</b></span>
           </div>
         ))}
       </Bloco>
@@ -615,7 +629,7 @@ type Conta = {
   lucro_real_projetado: number | null; roi_anualizado_pct: number | null; sangria_dia: number | null
   data_vira_prejuizo: string | null; dias_parado: number | null
 }
-function ContaDoCarroFaixa({ veiculoId, situacao, refreshKey }: { veiculoId: string; situacao: string; refreshKey: number }) {
+function ContaDoCarroFaixa({ veiculoId, situacao, refreshKey, consignado }: { veiculoId: string; situacao: string; refreshKey: number; consignado?: boolean }) {
   const [c, setC] = useState<Conta | null>(null)
   useEffect(() => {
     let vivo = true
@@ -634,25 +648,29 @@ function ContaDoCarroFaixa({ veiculoId, situacao, refreshKey }: { veiculoId: str
     : x.status === 'nao_calcular' ? <span style={{ color: C.espL, fontSize: 11.5 }}>não calcula</span>
     : <span style={{ color: C.amber, fontSize: 11.5 }}>não configurado · {cfgLink}</span>
 
-  const vira = c.data_vira_prejuizo ? new Date(c.data_vira_prejuizo + 'T00:00:00') : null
+  // #115: no consignado o valor de venda não é lucro da loja — sem lucro/ROI/vira-prejuízo (o banco já manda
+  // null após a migration 20260926240000; a tela não depende disso para não mostrar a conta errada)
+  const vira = !consignado && c.data_vira_prejuizo ? new Date(c.data_vira_prejuizo + 'T00:00:00') : null
   const diasAteVira = vira ? Math.round((vira.getTime() - Date.now()) / 86400000) : null
   const viraUrgente = diasAteVira != null && diasAteVira <= 15
-  const lucro = c.lucro_real_projetado
+  const lucro = consignado ? null : c.lucro_real_projetado
+  const roi = consignado ? null : c.roi_anualizado_pct
   const vendido = ['vendido', 'entregue'].includes(situacao)
 
   return (
     <div style={{ background: C.esp, color: '#fff', borderRadius: 14, padding: '16px 18px', margin: '16px 0 0' }}>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: '#E9C77A', fontWeight: 700, marginBottom: 10 }}>A conta deste carro</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px 18px' }}>
-        <Item l="Comprei por" v={c.comprei != null ? brl(c.comprei) : '—'} />
+        {/* #115: consignado não foi comprado — sem "comprei por" nem "posso vender no mínimo" */}
+        <Item l="Comprei por" v={consignado ? <span style={{ color: '#C9B79F', fontSize: 12 }}>consignado</span> : c.comprei != null ? brl(c.comprei) : '—'} />
         <Item l="Gastei (custos)" v={brl(c.custos_lancados ?? 0)} />
         <Item l="Previsão da vistoria" v={c.previsao_vistoria != null ? brl(c.previsao_vistoria) : '—'} />
         <Item l={`Carrego (${c.dias_parado ?? '—'} dias parado)`} v={c.carrego.total_status === 'ok' ? brl(c.carrego.total ?? 0) : <span>{brl(c.carrego.total ?? 0)} <span style={{ color: C.amber, fontSize: 10.5 }}>parcial</span></span>} />
         <Item l="Custo real" v={c.custo_real_total != null ? brl(c.custo_real_total) : '—'} forte />
-        <Item l="Posso vender no mínimo" v={c.preco_minimo != null ? brl(c.preco_minimo) : <span style={{ color: C.amber, fontSize: 12 }}>informe a aquisição</span>} />
+        {!consignado && <Item l="Posso vender no mínimo" v={c.preco_minimo != null ? brl(c.preco_minimo) : <span style={{ color: C.amber, fontSize: 12 }}>informe a aquisição</span>} />}
         <Item l="Anunciei por" v={c.anunciado != null ? brl(c.anunciado) : <span style={{ color: '#C9B79F', fontSize: 12 }}>sem preço</span>} />
         <Item l={vendido ? 'Lucro real' : 'Lucro real hoje'} v={lucro != null ? <span style={{ color: lucro >= 0 ? '#7ED4A0' : '#F0A0A0', fontWeight: 800 }}>{brl(lucro)}</span> : '—'} forte />
-        <Item l="ROI anualizado" v={c.roi_anualizado_pct != null ? `${c.roi_anualizado_pct}%` : '—'} />
+        <Item l="ROI anualizado" v={roi != null ? `${roi}%` : '—'} />
       </div>
 
       {/* carrego aberto em 3 componentes (RD-51: badge honesto quando faltar) */}
@@ -797,7 +815,7 @@ function VistoriaBloco({ veiculoId }: { veiculoId: string }) {
 }
 
 // Onda 6A · seção Precificação na ficha. Sem preço → "não precificado" que ensina; com preço → mostra.
-function PrecificacaoBloco({ veiculoId }: { veiculoId: string }) {
+function PrecificacaoBloco({ veiculoId, consignado }: { veiculoId: string; consignado?: boolean }) {
   const [st, setSt] = useState<{ loading: boolean; preco_venda?: number | null; preco_minimo?: number | null; precificado_em?: string | null }>({ loading: true })
   useEffect(() => {
     let vivo = true
@@ -821,8 +839,9 @@ function PrecificacaoBloco({ veiculoId }: { veiculoId: string }) {
       ) : (
         <div>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
-            <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Preço de venda</div><div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{brl(st.preco_venda)}</div></div>
-            {st.preco_minimo != null && <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Piso</div><div style={{ fontSize: 15, fontWeight: 700 }}>{brl(st.preco_minimo)}</div></div>}
+            <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>{consignado ? 'Valor de venda' : 'Preço de venda'}</div><div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{brl(st.preco_venda)}</div></div>
+            {/* #115: consignado não tem piso (o R$ 0,00 gravado antes da migration não aparece) */}
+            {!consignado && st.preco_minimo != null && <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Piso</div><div style={{ fontSize: 15, fontWeight: 700 }}>{brl(st.preco_minimo)}</div></div>}
           </div>
           <a href={rota} style={{ display: 'inline-block', marginTop: 10, color: C.gold, fontSize: 13, textDecoration: 'none' }}>ver / reprecificar →</a>
         </div>

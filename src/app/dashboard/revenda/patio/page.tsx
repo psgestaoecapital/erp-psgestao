@@ -42,7 +42,12 @@ const nomeVeic = (modelo: string | null, d?: Detalhe) => [d?.marca, modelo, d?.v
 const km = (v: number | null) => v != null ? `${v.toLocaleString('pt-BR')} km` : null
 const semColor = (s: string) => s === 'verde' ? { c: C.green, bg: C.greenBg } : s === 'amarelo' ? { c: C.amber, bg: C.amberBg } : { c: C.red, bg: C.redBg }
 
-type Veic = { id: string; chassi: string; placa: string | null; modelo: string | null; ano_modelo: number | null; situacao: string; dias_patio: number; custo_acumulado: number; semaforo: string; foto_url: string | null; tem_custo: boolean; fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
+type Veic = { id: string; chassi: string; placa: string | null; modelo: string | null; ano_modelo: number | null; situacao: string; origem: string | null; dias_patio: number; custo_acumulado: number; semaforo: string; foto_url: string | null; tem_custo: boolean; fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
+// #115 (Fábio/Alliance): consignado não tem custo de aquisição nem piso — só valor de venda. "Sem custo"
+// deixa de ser pendência para ele (não entra no aviso, no filtro nem no contador de completude).
+const consignado = (r: Veic) => r.origem === 'consignacao'
+const semCusto = (r: Veic) => !r.tem_custo && !consignado(r)
+const chipConsignado = <span title="Carro consignado: sem custo de aquisição, só valor de venda" style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700, whiteSpace: 'nowrap' }}>consignado</span>
 
 export default function PatioPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -153,17 +158,17 @@ function Inner() {
     // R7a · filtro PS por sinal (sobre a fonte única: conta do pátio + piso/anunciado por veículo).
     const passaPS = (r: Veic) => {
       if (filtroPS === 'todos') return true
-      if (filtroPS === 'sem_custo') return !r.tem_custo
+      if (filtroPS === 'sem_custo') return semCusto(r)
       if (filtroPS === 'sem_nota') return (r.fiscais_faltantes?.length ?? 0) > 0
       const d = detalhe.get(r.id); const it = conta.get(r.id)
-      if (filtroPS === 'abaixo_piso') return d?.preco_venda != null && d?.preco_minimo != null && d.preco_venda < d.preco_minimo
+      if (filtroPS === 'abaixo_piso') return !consignado(r) && d?.preco_venda != null && d?.preco_minimo != null && d.preco_venda < d.preco_minimo
       if (filtroPS === 'vira_prejuizo') return !!it?.data_vira_prejuizo
       if (filtroPS === 'roi_negativo') return it?.roi_anualizado_pct != null && it.roi_anualizado_pct < 0
       return true
     }
     const filtrados = base.filter((r) =>
       (compl === 'todos'
-        || (compl === 'sem_custo' && !r.tem_custo)
+        || (compl === 'sem_custo' && semCusto(r))
         || (compl === 'sem_dados' && (r.fiscais_faltantes?.length ?? 0) > 0)
         || (compl === 'sem_vistoria' && !comVistoria.has(r.id))
         || (compl === 'sem_foto' && !r.foto_url)
@@ -198,7 +203,7 @@ function Inner() {
     return { ...f, count: na.length, dinheiro: na.reduce((s, r) => s + (r.custo_acumulado || 0), 0) }
   }), [base])
   const maxDinheiro = useMemo(() => Math.max(1, ...heat.map((h) => h.dinheiro)), [heat])
-  const nSemCusto = useMemo(() => base.filter((r) => !r.tem_custo).length, [base])
+  const nSemCusto = useMemo(() => base.filter(semCusto).length, [base])
   const nSemDados = useMemo(() => base.filter((r) => (r.fiscais_faltantes?.length ?? 0) > 0).length, [base])
   const nSemVistoria = useMemo(() => base.filter((r) => !comVistoria.has(r.id)).length, [base, comVistoria])
   const nSemFoto = useMemo(() => base.filter((r) => !r.foto_url).length, [base])
@@ -359,7 +364,8 @@ function Inner() {
             const sc = semColor(v.semaforo)
             const d = detalhe.get(v.id); const it = conta.get(v.id)
             const kmv = km(d?.km_atual ?? d?.km_entrada ?? null)
-            const abaixo = d?.preco_venda != null && d?.preco_minimo != null && d.preco_venda < d.preco_minimo
+            const cons = consignado(v)
+            const abaixo = !cons && d?.preco_venda != null && d?.preco_minimo != null && d.preco_venda < d.preco_minimo
             return (
               <div key={v.id} onClick={() => router.push(`/dashboard/revenda/veiculo/${v.id}`)}
                 style={{ background: selVeic.has(v.id) ? '#FDF7E8' : C.white, border: `1px solid ${selVeic.has(v.id) ? C.gold : C.border}`, borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -369,10 +375,14 @@ function Inner() {
                   <div style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nomeVeic(v.modelo, d)}{v.ano_modelo ? ` · ${v.ano_modelo}` : ''}</div>
                   <div style={{ fontSize: 11, color: C.espM, fontFamily: 'monospace' }}>{v.placa || 'sem placa'}{kmv ? ` · ${kmv}` : ''}</div>
                 </div>
-                <span style={{ fontSize: 11.5, color: C.espM, whiteSpace: 'nowrap' }}>piso <b style={{ color: C.esp }}>{d?.preco_minimo != null ? brl(d.preco_minimo) : '—'}</b></span>
-                <span style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: abaixo ? C.red : C.espM }}>anunc. <b style={{ color: abaixo ? C.red : (d?.preco_venda != null ? C.gold : C.espL) }}>{d?.preco_venda != null ? brl(d.preco_venda) : 'sem preço'}</b></span>
-                {it?.data_vira_prejuizo && <span style={{ fontSize: 11, color: C.amber, fontWeight: 700, whiteSpace: 'nowrap' }}>🟡 vira {brDate(it.data_vira_prejuizo)}</span>}
-                {!v.tem_custo && <span style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 999, background: '#FAEEDA', color: '#8A4B08', fontWeight: 600 }}>sem custo</span>}
+                {cons
+                  ? <>{chipConsignado}<span style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: C.espM }}>valor de venda <b style={{ color: d?.preco_venda != null ? C.gold : C.espL }}>{d?.preco_venda != null ? brl(d.preco_venda) : 'sem preço'}</b></span></>
+                  : <>
+                    <span style={{ fontSize: 11.5, color: C.espM, whiteSpace: 'nowrap' }}>piso <b style={{ color: C.esp }}>{d?.preco_minimo != null ? brl(d.preco_minimo) : '—'}</b></span>
+                    <span style={{ fontSize: 11.5, whiteSpace: 'nowrap', color: abaixo ? C.red : C.espM }}>anunc. <b style={{ color: abaixo ? C.red : (d?.preco_venda != null ? C.gold : C.espL) }}>{d?.preco_venda != null ? brl(d.preco_venda) : 'sem preço'}</b></span>
+                  </>}
+                {!cons && it?.data_vira_prejuizo && <span style={{ fontSize: 11, color: C.amber, fontWeight: 700, whiteSpace: 'nowrap' }}>🟡 vira {brDate(it.data_vira_prejuizo)}</span>}
+                {semCusto(v) && <span style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 999, background: '#FAEEDA', color: '#8A4B08', fontWeight: 600 }}>sem custo</span>}
                 {(v.fiscais_faltantes?.length ?? 0) > 0 && <span style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>faltam {v.fiscais_faltantes!.length}</span>}
                 <span title={v.situacao === 'devolvido' ? 'Venda devolvida — voltou ao pátio (estoque)' : undefined} style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: v.situacao === 'devolvido' ? C.amberBg : C.cream, color: v.situacao === 'devolvido' ? C.amber : C.espM, fontWeight: v.situacao === 'devolvido' ? 700 : 400, whiteSpace: 'nowrap' }}>{v.situacao === 'devolvido' ? '↩ devolvido' : (SIT_LABEL[v.situacao] ?? v.situacao.replace('_', ' '))}</span>
               </div>
@@ -418,12 +428,18 @@ function Inner() {
                   </div>
                   {/* Selo 1 · custo (margem). Selo 2 · dados do veículo — nomeia o que falta,
                       NUNCA afirma "não emite" (veicProd é do 0km; usado é decisão do contador). */}
-                  {v.tem_custo
+                  {/* #115: consignado não tem aquisição nem piso — chip neutro e só o valor de venda */}
+                  {consignado(v)
+                    ? <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11.5 }}>
+                        {chipConsignado}
+                        <span style={{ color: C.espM }}>valor de venda <b style={{ color: detalhe.get(v.id)?.preco_venda != null ? C.gold : C.espL }}>{detalhe.get(v.id)?.preco_venda != null ? brl(detalhe.get(v.id)!.preco_venda!) : 'sem preço'}</b></span>
+                      </div>
+                    : v.tem_custo
                     ? <div style={{ marginTop: 8, fontSize: 12, color: C.espM }}>custo acumulado <b style={{ color: C.esp }}>{brl(v.custo_acumulado)}</b></div>
                     : <div style={{ marginTop: 8, fontSize: 11, color: '#8A4B08', background: '#FAEEDA', borderRadius: 6, padding: '4px 8px', fontWeight: 600 }}>⚠️ sem custo de aquisição — margem não calcula</div>}
                   {/* R3-fix T3: piso hoje (preço mínimo) e anunciado no card */}
                   {(() => {
-                    const d = detalhe.get(v.id); if (!d) return null
+                    const d = detalhe.get(v.id); if (!d || consignado(v)) return null
                     return (
                       <div style={{ marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11.5 }}>
                         <span style={{ color: C.espM }}>piso hoje <b style={{ color: C.esp }}>{d.preco_minimo != null ? brl(d.preco_minimo) : '—'}</b></span>
@@ -434,7 +450,8 @@ function Inner() {
                   {/* R3c · sangria/dia e vira-prejuízo (semáforo real: vermelho só quando ≤ 15 dias) */}
                   {(() => {
                     const it = conta.get(v.id); if (!it) return null
-                    const dv = it.data_vira_prejuizo ? new Date(it.data_vira_prejuizo + 'T00:00:00') : null
+                    // #115: consignado não "vira prejuízo" (o valor de venda não é lucro da loja)
+                    const dv = !consignado(v) && it.data_vira_prejuizo ? new Date(it.data_vira_prejuizo + 'T00:00:00') : null
                     const dias = dv ? Math.round((dv.getTime() - Date.now()) / 86400000) : null
                     const urgente = dias != null && dias <= 15
                     return (

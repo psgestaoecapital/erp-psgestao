@@ -63,13 +63,16 @@ function Inner() {
   const [cen, setCen] = useState<Cenarios | null>(null)
   const [itens, setItens] = useState<Itens | null>(null)
   const [busyItem, setBusyItem] = useState(false)
+  // #115 (Fábio/Alliance): consignado não tem precificação (custo/piso/margem) — só valor de venda.
+  const [consignado, setConsignado] = useState(false)
 
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
   const carregar = useCallback(async () => {
     if (!veiculoId) return
-    const { data: veic } = await supabase.from('veic_veiculo').select('company_id, marca, modelo').eq('id', veiculoId).maybeSingle()
+    const { data: veic } = await supabase.from('veic_veiculo').select('company_id, marca, modelo, origem').eq('id', veiculoId).maybeSingle()
     const comp = (veic as { company_id?: string; marca?: string; modelo?: string } | null)?.company_id ?? null
+    setConsignado((veic as { origem?: string | null } | null)?.origem === 'consignacao')
     const { data: pr } = await supabase.rpc('fn_veic_precificacao_obter', { p_veiculo_id: veiculoId })
     const r = pr as Precif | null
     if (r?.ok) {
@@ -120,7 +123,7 @@ function Inner() {
     const pv = numOrNull(precoVenda)
     if (pv == null || pv <= 0) { setErro('Informe o preço de venda (maior que zero).'); return }
     setSalvando(true); setErro(null)
-    const { data } = await supabase.rpc('fn_veic_precificacao_salvar', { p_veiculo_id: veiculoId, p_dados: { preco_venda: String(pv), margem_alvo_pct: margem || null, observacao: obs || null }, p_user: await userId() })
+    const { data } = await supabase.rpc('fn_veic_precificacao_salvar', { p_veiculo_id: veiculoId, p_dados: { preco_venda: String(pv), margem_alvo_pct: consignado ? null : (margem || null), observacao: obs || null }, p_user: await userId() })
     setSalvando(false)
     const r = data as { ok?: boolean; erro?: string } | null
     if (!r?.ok) { setErro(r?.erro === 'preco_venda_invalido' ? 'Preço de venda inválido.' : (r?.erro || 'Falha ao salvar.')); return }
@@ -144,6 +147,43 @@ function Inner() {
 
   const v = p.veiculo
   const semVistoria = !!p.incerteza?.sem_previsao_de_gastos
+
+  // #115: consignado = só o valor de venda. Sem custo, encargos, piso, margem, teto de compra ou cenários
+  // de lucro (o valor de venda não é lucro da loja). Grava pela mesma função (fn_veic_precificacao_salvar).
+  if (consignado) return (
+    <div style={{ background: C.bg, minHeight: '100vh', color: C.esp, maxWidth: 620, margin: '0 auto', padding: '18px 16px 48px' }}>
+      <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ fontSize: 12, color: C.gold, textDecoration: 'none' }}>← voltar à ficha</a>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700, marginTop: 8 }}>Valor de venda</div>
+      <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 6px' }}>{v?.marca} {v?.modelo} {v?.placa ? `· ${v.placa}` : ''}</h1>
+      <span data-testid="chip-consignado" style={{ display: 'inline-block', fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700, marginBottom: 12 }}>consignado</span>
+
+      {msg && <div style={{ background: C.greenBg, color: C.green, padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 10 }} onClick={() => setMsg(null)}>{msg}</div>}
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 10 }} onClick={() => setErro(null)}>{erro}</div>}
+
+      <Bloco titulo="Valor de venda">
+        <div style={{ fontSize: 12, color: C.espM, marginBottom: 8 }}>Carro consignado: não tem custo de aquisição nem preço mínimo — defina só por quanto ele sai.</div>
+        <label style={{ display: 'block', fontSize: 12, color: C.espM }}>Valor de venda
+          <input value={precoVenda} onChange={(e) => setPrecoVenda(e.target.value)} inputMode="decimal" placeholder="R$ 0,00"
+            style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 12, fontSize: 18, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
+        </label>
+        <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="observação (opcional)" style={{ width: '100%', boxSizing: 'border-box', marginTop: 12, padding: 10, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp }} />
+        <button disabled={salvando} onClick={() => void salvar()} style={{ marginTop: 12, background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '12px 22px', fontSize: 15, fontWeight: 700, cursor: salvando ? 'wait' : 'pointer' }}>{salvando ? 'Salvando…' : 'SALVAR VALOR DE VENDA'}</button>
+        {p.precificado_em && <span style={{ fontSize: 11.5, color: C.espL, marginLeft: 10 }}>definido em {brDate(p.precificado_em)}</span>}
+      </Bloco>
+
+      {(p.historico?.length ?? 0) > 0 && (
+        <Bloco titulo="Histórico do valor de venda">
+          {p.historico!.map((h, i) => (
+            <div key={i} style={{ borderTop: i ? `1px solid ${C.cream}` : 'none', padding: '7px 0', fontSize: 12.5 }}>
+              <b>{brl(h.preco_venda)}</b> <span style={{ color: C.espM }}>· {brDate(h.criado_em)}</span>
+              {h.observacao && <div style={{ color: C.espL, fontSize: 11.5 }}>{h.observacao}</div>}
+            </div>
+          ))}
+        </Bloco>
+      )}
+    </div>
+  )
+
   return (
     <div style={{ background: C.bg, minHeight: '100vh', color: C.esp, maxWidth: 620, margin: '0 auto', padding: '18px 16px 48px' }}>
       <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ fontSize: 12, color: C.gold, textDecoration: 'none' }}>← voltar à ficha</a>
