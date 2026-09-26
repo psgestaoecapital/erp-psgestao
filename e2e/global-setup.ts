@@ -10,7 +10,7 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { chromium, devices } from '@playwright/test'
-import { BASE_URL, DEMO_REVENDA, exigirEnv, obterSessionPayload, storageKey } from './support/api'
+import { BASE_URL, DEMO_REVENDA, ambienteDaBase, exigirEnv, obterSessionPayload, shaServido, storageKey } from './support/api'
 
 export const STORAGE_STATE = 'e2e/.auth/state.json'
 const DIAG_DIR = 'e2e/diagnostico-host'   // fora de test-results/ (o Playwright limpa) e não oculta (o upload-artifact ignora pastas com ponto)
@@ -77,4 +77,10 @@ export default async function globalSetup(): Promise<void> {
 
   try { await diagnosticarHost(origem, localStorage) }
   catch (e) { console.log(`[diagnostico-host] não rodou: ${e instanceof Error ? e.message : String(e)}`) }
+
+  // RD-78 · qual build está NO AR (não o commit do push: o juiz pós-merge pode rodar antes do deploy terminar).
+  // Os workers herdam process.env do processo principal → registrarJornada grava este SHA em cada resultado.
+  const sha = await shaServido(origem)
+  if (sha) process.env.JORNADA_APP_SHA = sha
+  console.log(`[jornadas-revenda] ambiente = ${ambienteDaBase()} · build servido = ${sha ?? 'desconhecido'}`)
 }
