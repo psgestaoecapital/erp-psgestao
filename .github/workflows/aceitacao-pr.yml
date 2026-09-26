@@ -28,6 +28,17 @@ jobs:
         run: npm ci
       - name: Install Playwright browser (chromium)
         run: npx playwright install --with-deps chromium
+      # Prova no log (RD-38): de onde veio a URL que o robô abre. environment_url = URL do deployment
+      # (*.vercel.app); target_url = página de inspeção na vercel.com (não serve como base do app).
+      - name: URL do preview (diagnóstico)
+        env:
+          ENVIRONMENT_URL: ${{ github.event.deployment_status.environment_url }}
+          TARGET_URL: ${{ github.event.deployment_status.target_url }}
+          PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+        run: |
+          echo "environment_url = ${ENVIRONMENT_URL:-<vazio>}"
+          echo "target_url      = ${TARGET_URL:-<vazio>}"
+          echo "PROD_BASE_URL   = ${PROD_BASE_URL:-<vazio>}"
       - name: Jornadas de aceitação contra o preview
         env:
           PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
@@ -43,6 +54,14 @@ jobs:
         # A obrigacao de trazer o spec e do processo (RD-78), nao de um check que quebra por ausencia. Sem isto, a propria PR-I
         # (que nao traz spec) ficaria vermelha para sempre e o check nunca poderia ser obrigatorio.
         run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
+      # Sempre sobe o diagnóstico do global-setup (screenshots com/sem ps_allow_preview); relatório completo só na falha.
+      - name: Upload diagnóstico do host (sempre)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aceitacao-diagnostico-host
+          path: e2e/.diagnostico/
+          if-no-files-found: ignore
       - name: Upload relatório (em caso de falha)
         if: failure()
         uses: actions/upload-artifact@v4
