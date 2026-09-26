@@ -9,6 +9,8 @@
       "Grep",
 
       "mcp__github__*",
+      "mcp__github__merge_pull_request",
+      "mcp__github__get_job_logs",
 
       "mcp__Supabase_PS_Gest_o__list_tables",
       "mcp__Supabase_PS_Gest_o__list_migrations",
@@ -49,7 +51,6 @@
       "Bash(npm run lint:*)"
     ],
     "ask": [
-      "mcp__github__merge_pull_request",
       "mcp__github__enable_pr_auto_merge"
     ]
   },
