@@ -10,7 +10,7 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { chromium, devices } from '@playwright/test'
-import { BASE_URL, DEMO_REVENDA, ambienteDaBase, exigirEnv, obterSessionPayload, shaServido, storageKey } from './support/api'
+import { BASE_URL, DEMO_REVENDA, ambienteDaBase, donoTrava, exigirEnv, obterSessionPayload, pegarTravaDemo, shaServido, storageKey } from './support/api'
 
 export const STORAGE_STATE = 'e2e/.auth/state.json'
 const DIAG_DIR = 'e2e/diagnostico-host'   // fora de test-results/ (o Playwright limpa) e não oculta (o upload-artifact ignora pastas com ponto)
@@ -62,6 +62,11 @@ async function diagnosticarHost(origem: string, base: LocalStorageItem[]): Promi
 
 export default async function globalSetup(): Promise<void> {
   exigirEnv()
+  // RD-78 · uma suíte por vez na demo (ver e2e/support/api.ts › pegarTravaDemo). O teardown devolve.
+  const dono = donoTrava()
+  const trava = await pegarTravaDemo(dono)
+  process.env.JORNADA_TRAVA_DONO = trava === 'pega' ? dono : ''
+  console.log(`[trava-demo] ${trava === 'pega' ? `pega por ${dono}` : 'sem trava (rpc ausente)'}`)
   const session = await obterSessionPayload()
   const origem = new URL(BASE_URL).origin
   console.log(`[jornadas-revenda] BASE_URL = ${BASE_URL}`)
