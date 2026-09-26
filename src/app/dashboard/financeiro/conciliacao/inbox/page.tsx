@@ -15,7 +15,9 @@ import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
 import TransferenciaContaModal from '@/components/conciliacao/TransferenciaContaModal'
 import PickerTituloExistenteModal from '@/components/conciliacao/PickerTituloExistenteModal'
-import EditarLancamentoModal from '@/components/financeiro/EditarLancamentoModal'
+// #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
+import NovaDespesaModal from '@/components/financeiro/NovaDespesaModal'
+import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'
 
 interface Item {
   movimento_id: string
@@ -1495,16 +1497,23 @@ export default function InboxPage() {
         descricao={arquivando ? `${arquivando.descricao ?? '(sem descrição)'} · R$ ${Math.abs(arquivando.valor).toFixed(2)}` : undefined}
       />
 
-      {editando && empresaUnica && (
-        <EditarLancamentoModal
-          open
-          tipo={editando.tipo}
-          itemId={editando.itemId}
+      {editando && empresaUnica && (editando.tipo === 'pagar' ? (
+        <NovaDespesaModal
+          aberto
+          editarId={editando.itemId}
           companyId={empresaUnica}
-          onClose={() => setEditando(null)}
-          onSucesso={() => { setEditando(null); void carregarPendenciasSistema() }}
+          onFechar={() => setEditando(null)}
+          onSucesso={() => { void carregarPendenciasSistema() }}
         />
-      )}
+      ) : (
+        <NovaReceitaModal
+          aberto
+          editarId={editando.itemId}
+          companyId={empresaUnica}
+          onFechar={() => setEditando(null)}
+          onSucesso={() => { void carregarPendenciasSistema() }}
+        />
+      ))}
 
       {transferindo && empresaUnica && (
         <TransferenciaContaModal

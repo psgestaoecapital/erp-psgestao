@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import NovaDespesaForm from '@/components/financeiro/NovaDespesaForm'
 
@@ -12,6 +13,8 @@ export const dynamic = 'force-dynamic'
 
 function NovaDespesaPageInner() {
   const { companyIds, selInfo } = useCompanyIds()
+  // #71 · ?editar=<id> abre o lançamento existente nesta MESMA tela (modo edição)
+  const editarId = useSearchParams()?.get('editar') ?? undefined
   const empresaUnica =
     selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
@@ -43,7 +46,7 @@ function NovaDespesaPageInner() {
     )
   }
 
-  return <NovaDespesaForm companyId={empresaUnica} />
+  return <NovaDespesaForm companyId={empresaUnica} editarId={editarId} />
 }
 
 export default function Page() {
