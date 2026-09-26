@@ -20,15 +20,27 @@ import { createClient } from '@supabase/supabase-js'
 const MIG_DIR = join(process.cwd(), 'supabase', 'migrations')
 const RE = /^(\d{14})_(.+)\.sql$/
 
-type Local = { arquivo: string; version: string; name: string }
+export type Local = { arquivo: string; version: string; name: string }
+export type LedgerRow = { version: string; name: string | null }
 
-// Hotfix 26/09 (deploy-migrations vermelho no merge do #1814, run 36236563404): 95 linhas ANTIGAS do ledger
-// guardam name = a própria versão (ex.: "20260618190200"), gravadas antes de o CLI registrar o nome ou em
-// reconciliação à mão. O `db push` compara só a VERSÃO — para ele essas linhas SÃO o próprio arquivo, nada é
-// pulado. Colisão real (#1811 × #1813) é o ledger com OUTRO nome de verdade: essa continua falhando.
-export function nomeConflita(nomeLedger: string, l: Local): boolean {
-  const legado = nomeLedger === '' || nomeLedger === l.version
-  return !legado && nomeLedger !== l.name
+// Regra 2 isolada (pura, testável). Só acusa quando o ledger tem um NOME REAL diferente do arquivo.
+// 95 linhas legadas (07/05–19/06) gravaram a própria versão como name, ou nenhum name: aí o ledger não diz
+// qual migration rodou, e comparar gera falso positivo (1ª execução real, PR #1818). Essas versões seguem
+// protegidas pela regra 1: reusar uma versão legada num arquivo novo deixa DOIS arquivos com a mesma versão.
+export function colisoesComLedger(locaisArr: Local[], ledgerRows: LedgerRow[]): { problemas: string[]; semNomeReal: number } {
+  const ledger = new Map<string, string>()
+  for (const r of ledgerRows) ledger.set(String(r.version), String(r.name ?? '').trim())
+  const problemas: string[] = []
+  let semNomeReal = 0
+  for (const l of locaisArr) {
+    const nomeLedger = ledger.get(l.version)
+    if (nomeLedger === undefined) continue
+    if (nomeLedger === '' || nomeLedger === l.version) { semNomeReal++; continue }
+    if (nomeLedger !== l.name) {
+      problemas.push(`versão ${l.version} já aplicada no ledger como "${nomeLedger}" — o arquivo ${l.arquivo} seria PULADO pelo db push; renomeie para uma versão livre`)
+    }
+  }
+  return { problemas, semNomeReal }
 }
 
 function locais(): Local[] {
@@ -79,15 +91,11 @@ async function main() {
       }
     } else {
       ledgerLido = true
-      const ledger = new Map<string, string>()
-      for (const r of (data ?? []) as Array<{ version: string; name: string | null }>) ledger.set(String(r.version), String(r.name ?? ''))
-      for (const l of all) {
-        const nomeLedger = ledger.get(l.version)
-        if (nomeLedger !== undefined && nomeConflita(nomeLedger, l)) {
-          problemas.push(`versão ${l.version} já aplicada no ledger como "${nomeLedger}" — o arquivo ${l.arquivo} seria PULADO pelo db push; renomeie para uma versão livre`)
-        }
-      }
-      const orfaos = [...ledger.keys()].filter((v) => !porVersao.has(v)).length
+      const rows = (data ?? []) as LedgerRow[]
+      const r2 = colisoesComLedger(all, rows)
+      problemas.push(...r2.problemas)
+      if (r2.semNomeReal) console.log(`ℹ️  ${r2.semNomeReal} versão(ões) do ledger sem nome real (legado: name = versão) — não comparadas por nome; protegidas pela regra de duplicata.`)
+      const orfaos = rows.filter((r) => !porVersao.has(String(r.version))).length
       if (orfaos) console.log(`ℹ️  ${orfaos} versão(ões) no ledger sem arquivo no repo (órfãs — ver CLAUDE.md "reconciliação"; não falha aqui).`)
     }
   }
@@ -102,5 +110,6 @@ async function main() {
   process.exit(0)
 }
 
-// CHECK_MIGRATIONS_LIB=1: só importa (teste da regra) sem rodar o gate.
-if (!process.env.CHECK_MIGRATIONS_LIB) void main()
+// só executa quando chamado direto (npm run check:migrations) — não ao ser importado num teste
+import { fileURLToPath } from 'node:url'
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) void main()
