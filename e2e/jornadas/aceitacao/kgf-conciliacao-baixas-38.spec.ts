@@ -19,6 +19,9 @@ type Baixa = { valor: number; origem: string; movimento_banco_id: string | null 
 type Sugestao = { lancamento_id: string; match_score: number; status_lancamento: string }
 
 const hoje = new Date().toISOString().slice(0, 10)
+// sufixo por execução: a trava anti-duplicidade (fn_titulo_antidup) compara descrição+valor+vencimento
+// inclusive com títulos já excluídos (soft) — o preview da PR e a produção rodam no mesmo dia/demo.
+const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 const diasAtras = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10)
 
 test.describe('Aceitação #38 — conciliar receber não apaga a baixa já feita', () => {
@@ -61,7 +64,7 @@ test.describe('Aceitação #38 — conciliar receber não apaga a baixa já feit
 
   async function novoTitulo(valor: number, nome: string): Promise<string> {
     const { id } = await dbInsert<{ id: string }>('erp_receber', {
-      company_id: DEMO_COMERCIO, cliente_nome: nome, descricao: `Aceitação #38 · ${nome}`, valor,
+      company_id: DEMO_COMERCIO, cliente_nome: nome, descricao: `Aceitação #38 · ${nome} · ${RUN}`, valor,
       data_emissao: diasAtras(5), data_vencimento: diasAtras(1), status: 'aberto', forma_pagamento: 'pix',
     })
     titulos.push(id)
