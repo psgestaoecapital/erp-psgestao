@@ -22,6 +22,15 @@ const RE = /^(\d{14})_(.+)\.sql$/
 
 type Local = { arquivo: string; version: string; name: string }
 
+// Hotfix 26/09 (deploy-migrations vermelho no merge do #1814, run 36236563404): 95 linhas ANTIGAS do ledger
+// guardam name = a própria versão (ex.: "20260618190200"), gravadas antes de o CLI registrar o nome ou em
+// reconciliação à mão. O `db push` compara só a VERSÃO — para ele essas linhas SÃO o próprio arquivo, nada é
+// pulado. Colisão real (#1811 × #1813) é o ledger com OUTRO nome de verdade: essa continua falhando.
+export function nomeConflita(nomeLedger: string, l: Local): boolean {
+  const legado = nomeLedger === '' || nomeLedger === l.version
+  return !legado && nomeLedger !== l.name
+}
+
 function locais(): Local[] {
   let files: string[]
   try { files = readdirSync(MIG_DIR) } catch { return [] }
@@ -74,7 +83,7 @@ async function main() {
       for (const r of (data ?? []) as Array<{ version: string; name: string | null }>) ledger.set(String(r.version), String(r.name ?? ''))
       for (const l of all) {
         const nomeLedger = ledger.get(l.version)
-        if (nomeLedger !== undefined && nomeLedger !== l.name) {
+        if (nomeLedger !== undefined && nomeConflita(nomeLedger, l)) {
           problemas.push(`versão ${l.version} já aplicada no ledger como "${nomeLedger}" — o arquivo ${l.arquivo} seria PULADO pelo db push; renomeie para uma versão livre`)
         }
       }
@@ -93,4 +102,5 @@ async function main() {
   process.exit(0)
 }
 
-void main()
+// CHECK_MIGRATIONS_LIB=1: só importa (teste da regra) sem rodar o gate.
+if (!process.env.CHECK_MIGRATIONS_LIB) void main()
