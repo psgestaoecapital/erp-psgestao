@@ -620,11 +620,21 @@ export class FocusNFeProvider implements FiscalProvider {
       })),
     }
 
-    const data = await this.request<FocusNFeNFeResponse>(
-      'POST',
-      `/v2/nfe?ref=${encodeURIComponent(referencia)}`,
-      payload
-    )
+    // Recusa síncrona (400/422 por schema — OS-0179): o erro leva o payload e a referência, para a rota
+    // gravar a nota como 'rejeitada' com o que foi enviado (RD-67). Espelho do que a NFS-e já faz.
+    let data: FocusNFeNFeResponse
+    try {
+      data = await this.request<FocusNFeNFeResponse>(
+        'POST',
+        `/v2/nfe?ref=${encodeURIComponent(referencia)}`,
+        payload
+      )
+    } catch (err) {
+      if (err instanceof FiscalError) {
+        throw new FiscalError(err.code, err.message, { ...(err.details ?? {}), payloadEnviado: payload, providerReference: referencia }, err.retryable)
+      }
+      throw err
+    }
     // Devolve o payload ENVIADO (só o corpo — cert/token ficam no header) para persistir e parar de
     // depurar rejeição no escuro (espelho do que a NFS-e já faz). Ver erp_nfe_emitidas.payload_enviado.
     return { ...this.mapFocusNFeResponse(referencia, data), payloadEnviado: payload }
@@ -688,11 +698,19 @@ export class FocusNFeProvider implements FiscalProvider {
       formas_pagamento: [{ forma_pagamento: formaPag, valor_pagamento: req.pagamento?.valor ?? totalNota }],
     }
 
-    const data = await this.request<FocusNFeNFeResponse>(
-      'POST',
-      `/v2/nfce?ref=${encodeURIComponent(referencia)}`,
-      payload
-    )
+    let data: FocusNFeNFeResponse
+    try {
+      data = await this.request<FocusNFeNFeResponse>(
+        'POST',
+        `/v2/nfce?ref=${encodeURIComponent(referencia)}`,
+        payload
+      )
+    } catch (err) {
+      if (err instanceof FiscalError) {
+        throw new FiscalError(err.code, err.message, { ...(err.details ?? {}), payloadEnviado: payload, providerReference: referencia }, err.retryable)
+      }
+      throw err
+    }
     return { ...this.mapFocusNFeResponse(referencia, data), payloadEnviado: payload }
   }
 

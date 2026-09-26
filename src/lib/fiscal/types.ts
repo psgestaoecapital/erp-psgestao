@@ -155,6 +155,9 @@ export interface NFeRequest {
     cnpj: string
     razaoSocial: string
     inscricaoEstadual: string
+    // Emitente do Simples Nacional (companies.regime_tributario contém 'simples' — mesmo teste do builder).
+    // O validador usa para barrar item em CST de regime normal (Simples usa CSOSN · OS-0179).
+    simplesNacional?: boolean
   }
   destinatario: {
     cnpj?: string

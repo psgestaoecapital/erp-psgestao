@@ -27,6 +27,8 @@ interface PreVoo {
     cst_st_incompleto: number
     ncm2710_sem_anp: number
     sem_tipo_item_sped: number
+    // OS-0179 · empresa do Simples com produto em CST (regime normal) — ausente até a migration 20260926190000
+    simples_cst_regime_normal?: number
     amostra: ProdAmostra[]
   }
   destinatarios: { contribuinte_sem_ie: number; amostra: DestAmostra[] }
@@ -277,6 +279,7 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
                   {dados.produtos.cst_st_incompleto > 0 && <span>CST ST sem retido: {dados.produtos.cst_st_incompleto}</span>}
                   {dados.produtos.ncm2710_sem_anp > 0 && <span>NCM 2710 sem ANP: {dados.produtos.ncm2710_sem_anp}</span>}
                   {dados.produtos.sem_tipo_item_sped > 0 && <span>Sem tipo do item (SPED): {dados.produtos.sem_tipo_item_sped}</span>}
+                  {(dados.produtos.simples_cst_regime_normal ?? 0) > 0 && <span>CST de regime normal (Simples usa CSOSN): {dados.produtos.simples_cst_regime_normal}</span>}
                 </div>
                 <ul className="space-y-1">
                   {dados.produtos.amostra.map((p, i) => (

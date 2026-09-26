@@ -68,6 +68,15 @@ export function validateNFeRequest(req: NFeRequest): void {
           erros.push(`${prefixo}: CST ${item.icms.cst} exige os campos de ST retido no cadastro do produto (bloco Fiscal) · faltando: ${faltando.join(', ')}`)
         }
       }
+      // Guarda CST×CSOSN (OS-0179 · KGF): emitente do Simples com item em CST de regime normal (2 dígitos:
+      // 00, 10, 20… 90) em vez de CSOSN (3 dígitos: 101…900). A Focus recusa na hora por schema (o CST não
+      // cabe no grupo ICMSSN) com uma mensagem que o operador não entende. Barra aqui dizendo o produto e o
+      // que usar. Mesmo predicado do pré-voo (fn_fiscal_previo · simples_cst_regime_normal).
+      const cstItem = String(item.icms?.cst ?? '').trim()
+      if (req.emitente.simplesNacional && /^\d{2}$/.test(cstItem)) {
+        const nomeProduto = item.codigo ? `${item.descricao} (cód. ${item.codigo})` : item.descricao
+        erros.push(`${prefixo}: O produto ${nomeProduto} está com tributação de regime normal (CST). Para empresa do Simples use CSOSN (ex.: 500 para produto com ST já retido). CST no cadastro: ${cstItem}`)
+      }
       // Guarda comb (padrão do 232/938): item com NCM de combustível/lubrificante (começa com 2710) exige
       // o grupo comb (NT 2016/002) — cProdANP e descANP no cadastro do produto (a UFCons vem do
       // destinatário). Sem eles a SEFAZ rejeita. Barra ANTES de emitir, dizendo o que falta, pra a Jordana

@@ -7,6 +7,7 @@ import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
+import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -69,7 +70,26 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       consumidorFinal: body.consumidorFinal,
     })
 
-    validateNFeRequest(nfeReq)
+    // OS-0179: toda falha da emissão deixa rastro (tentativa; recusa da Focus → nota 'rejeitada' + payload).
+    // Vínculos da origem vão também na nota rejeitada, para ela aparecer na OS/pedido/título certo.
+    const ctxEmissao: ContextoEmissaoNFe = {
+      companyId: body.companyId, userId, notaTipo: 'nfe', operacao: 'emissao', endpoint: 'nfe/emitir', nfeReq,
+      vinculos: {
+        ...(body.erpReceberId ? { erp_receber_id: body.erpReceberId } : {}),
+        ...(body.pedidoId ? { pedido_id: body.pedidoId } : {}),
+        ...(body.osId ? {
+          os_id: body.osId,
+          justificativa_divergencia: body.justificativaDivergencia?.trim() || null,
+          valor_esperado_os: body.valorEsperadoOs ?? null,
+        } : {}),
+      },
+    }
+    try {
+      validateNFeRequest(nfeReq)
+    } catch (e) {
+      await registrarFalhaEmissaoNFe(ctxEmissao, e)
+      throw e
+    }
 
     const valorProdutos = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
 
@@ -144,7 +164,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     }
 
     const svc = await createFiscalService(body.companyId, { ambienteOverride: body.ambiente })
-    const resposta = await svc.emitirNFe(nfeReq)
+    let resposta
+    try {
+      resposta = await svc.emitirNFe(nfeReq)
+    } catch (e) {
+      await registrarFalhaEmissaoNFe(ctxEmissao, e, svc.ambiente)
+      throw e
+    }
     // ICMS/IPI totais = soma do que cada item traz. Sem isso, a tela de NF-e emitidas mostrava
     // "ICMS: —" nas notas NORMAIS (mesma lacuna que o #1361 fechou só na devolução). A RPC
     // fn_registrar_nfe_emitida já lê valor_icms/valor_ipi do p_dados.
@@ -188,6 +214,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         p_provider_raw: resposta.providerRaw ?? null,
       }
     )
+
+    await registrarTentativaEmissaoNFe(ctxEmissao, resposta, (registroId as string | null) ?? null)
 
     if (rpcErr) {
       return NextResponse.json(

@@ -6,6 +6,7 @@ import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-buil
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
+import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -177,10 +178,27 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       },
     })
 
-    validateNFeRequest(nfeReq)
+    // OS-0179 (RD-71, mesmo caminho da nfe/emitir): toda falha da emissão deixa rastro — tentativa; recusa
+    // síncrona da Focus → nota 'rejeitada' com payload_enviado.
+    const ctxEmissao: ContextoEmissaoNFe = {
+      companyId: nfeVenda.company_id, userId, notaTipo: 'nfe', operacao: 'devolucao_venda', endpoint: 'nfe/devolucao-venda', nfeReq: nfeReq,
+      vinculos: { chave_referenciada: chaveVenda },
+    }
+    try {
+      validateNFeRequest(nfeReq)
+    } catch (e) {
+      await registrarFalhaEmissaoNFe(ctxEmissao, e)
+      throw e
+    }
 
     const svc = await createFiscalService(nfeVenda.company_id, { ambienteOverride: body.ambiente })
-    const resposta = await svc.emitirNFe(nfeReq)
+    let resposta
+    try {
+      resposta = await svc.emitirNFe(nfeReq)
+    } catch (e) {
+      await registrarFalhaEmissaoNFe(ctxEmissao, e, svc.ambiente)
+      throw e
+    }
 
     const valorProdutos = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
     const dadosRegistro = {
@@ -218,6 +236,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         p_provider_raw: resposta.providerRaw ?? null,
       }
     )
+
+    await registrarTentativaEmissaoNFe(ctxEmissao, resposta, (registroId as string | null) ?? null)
 
     if (rpcErr) {
       return NextResponse.json(
