@@ -13,7 +13,7 @@ import { chromium, devices } from '@playwright/test'
 import { BASE_URL, DEMO_REVENDA, exigirEnv, obterSessionPayload, storageKey } from './support/api'
 
 export const STORAGE_STATE = 'e2e/.auth/state.json'
-const DIAG_DIR = 'e2e/.diagnostico'   // fora de test-results/ (o Playwright limpa essa pasta ao iniciar)
+const DIAG_DIR = 'e2e/diagnostico-host'   // fora de test-results/ (o Playwright limpa) e não oculta (o upload-artifact ignora pastas com ponto)
 const HOST_CANONICO = 'erp-psgestao.vercel.app'
 
 type LocalStorageItem = { name: string; value: string }

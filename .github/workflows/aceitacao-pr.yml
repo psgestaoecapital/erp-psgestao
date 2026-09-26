@@ -60,7 +60,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aceitacao-diagnostico-host
-          path: e2e/.diagnostico/
+          path: e2e/diagnostico-host/
           if-no-files-found: ignore
       - name: Upload relatório (em caso de falha)
         if: failure()
