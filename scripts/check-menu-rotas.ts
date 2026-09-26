@@ -7,7 +7,8 @@
  *
  * O que faz: cruza os itens ATIVOS do module_catalog com as páginas REAIS de src/app e
  * aponta (1) itens ativos sem rota e (2) itens cuja rota não tem página. Sai com código 1
- * se achar problema — pra travar em CI/pre-deploy. Sem credenciais, faz SKIP (exit 0).
+ * se achar problema — pra travar em CI/pre-deploy. Sem credenciais: LOCAL faz SKIP (exit 0);
+ * em CI (GITHUB_ACTIONS/CI) é FAIL-CLOSED (exit 1) — sem olhar o banco a régua não pode dizer "OK".
  *
  * Uso: npm run check:menu   (precisa de NEXT_PUBLIC_SUPABASE_URL/ANON_KEY no ambiente)
  */
@@ -72,7 +73,15 @@ async function main() {
   // aceita o esquema local (NEXT_PUBLIC_*) e o de CI (SUPABASE_URL + SERVICE_ROLE_KEY)
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+  // Em CI a regua NAO pode passar sem ter olhado o banco. Em 26/09 (PR #1810) o secret
+  // SUPABASE_SERVICE_ROLE_KEY veio vazio no runner: SKIP + exit 0 = verde oco, e o link morto
+  // revenda_veiculo (02/09) so apareceu no run seguinte. Local (sem CI) segue SKIP para nao travar dev.
+  const emCI = process.env.GITHUB_ACTIONS === 'true' || process.env.CI === 'true'
   if (!url || !key) {
+    if (emCI) {
+      console.error('🔴 check:menu — sem credenciais no CI (SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY vazios). Gate fail-closed: nao posso afirmar que o menu nao tem 404.')
+      process.exit(1)
+    }
     console.warn('⚠️  check:menu — SKIP (defina NEXT_PUBLIC_SUPABASE_URL/ANON_KEY ou SUPABASE_URL/SERVICE_ROLE_KEY).')
     process.exit(0)
   }
@@ -81,7 +90,10 @@ async function main() {
   const { data, error } = await sb
     .from('module_catalog')
     .select('id, nome, grupo, rota, ativo')
-  if (error) { console.error('check:menu — erro ao ler module_catalog:', error.message); process.exit(0) }
+  if (error) {
+    console.error('check:menu — erro ao ler module_catalog:', error.message)
+    process.exit(emCI ? 1 : 0)   // CI: erro de leitura nao e "OK" (RD-51)
+  }
 
   const reais = coletarRotasReais()
   const baseline = carregarBaseline()

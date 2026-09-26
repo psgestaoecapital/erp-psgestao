@@ -39,6 +39,9 @@ function versaoDoArquivo(nome: string): string | null {
 function analisar(arquivo: string, sql: string): Violacao[] {
   const v: Violacao[] = []
   const permiteAnon = /--\s*ci-allow-anon:/i.test(sql)
+  // Regra 1 testa SEM comentarios: em 26/09 a palavra "REVOKE" de um comentario (linha 6 do 20260926120000)
+  // casou o regex antigo e "cobriu" fn_seguranca_rls_auditar, que nao tinha REVOKE nenhum (PR #1810).
+  const sqlSemComentarios = sql.replace(/--[^\n]*/g, '')
   let m: RegExpExecArray | null
   fnHeaderRe.lastIndex = 0
   while ((m = fnHeaderRe.exec(sql)) !== null) {
@@ -52,11 +55,13 @@ function analisar(arquivo: string, sql: string): Violacao[] {
     const fim = sql.indexOf(tag, inicioCorpo)
     const corpo = fim === -1 ? sql.slice(inicioCorpo) : sql.slice(inicioCorpo, fim)
 
-    // Regra 1 · REVOKE anon (ou escape consciente)
+    // Regra 1 · REVOKE anon (ou escape consciente) — ANCORADO NA MESMA INSTRUCAO:
+    // "REVOKE ALL|EXECUTE ON FUNCTION <fn>(<args>) FROM ... anon" sem atravessar ";" nem outras instrucoes.
     const revogaAnon = new RegExp(
-      String.raw`REVOKE[\s\S]*?FUNCTION\s+(?:public\.)?` + nome + String.raw`\s*\([\s\S]*?\bFROM\b[\s\S]*?\banon\b`,
+      String.raw`\bREVOKE\s+(?:ALL(?:\s+PRIVILEGES)?|EXECUTE)\s+ON\s+FUNCTION\s+(?:public\.)?` + nome +
+        String.raw`\s*\([^)]*\)\s+FROM\s+[^;]*\banon\b`,
       'i',
-    ).test(sql)
+    ).test(sqlSemComentarios)
     if (!revogaAnon && !permiteAnon) {
       v.push({ arquivo, fn: nome, regra: 'revoke_anon',
         detalhe: `função SECURITY DEFINER sem "REVOKE ALL ON FUNCTION public.${nome}(...) FROM anon" (nem "-- ci-allow-anon: <motivo>")` })
