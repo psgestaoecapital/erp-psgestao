@@ -274,7 +274,9 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     )
   }
 
-  const produtoIds = itensInput.map((i) => i.produtoId)
+  // #jordana 26/09 · OS-2026-0179: o mesmo produto pode aparecer em 2+ itens (2 linhas de OLEO 80). A busca por id
+  // devolve distintos; comparar com a lista COM repetição recusava a nota ("encontrei 10 · esperado 11").
+  const produtoIds = Array.from(new Set(itensInput.map((i) => i.produtoId)))
   const { data: produtos } = await supabaseAdmin
     .from('erp_produtos')
     .select(
