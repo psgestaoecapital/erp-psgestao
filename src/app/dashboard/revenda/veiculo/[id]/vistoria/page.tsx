@@ -342,8 +342,11 @@ function Inner() {
           <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 10 }}>{regiao.nome}</div>
 
           {/* Foto da região (§2.4) */}
-          {(regiao.foto_obrigatoria || (regiao.foto_rotulo ?? '') !== '') && (
-            <FotoRegiao rg={regiao} urls={urls} onUpload={(f) => void uploadFoto(regiao, f)} onRemover={(f) => void removerFoto(f)} />
+          {/* Vistoria RÁPIDA: nenhuma região tem foto obrigatória, mas item em reparo/troca exige foto para concluir
+              (fn_insp_vistoria_concluir, guard 1b). Sem este campo não havia onde anexá-la e a vistoria nunca concluía. */}
+          {(regiao.foto_obrigatoria || (regiao.foto_rotulo ?? '') !== '' || regiao.itens.some((i) => i.estado === 'reparo' || i.estado === 'troca')) && (
+            <FotoRegiao rg={regiao} urls={urls} onUpload={(f) => void uploadFoto(regiao, f)} onRemover={(f) => void removerFoto(f)}
+              exigida={regiao.foto_obrigatoria || regiao.itens.some((i) => i.estado === 'reparo' || i.estado === 'troca')} />
           )}
 
           {/* KM (só interior) */}
@@ -392,11 +395,11 @@ function AvancarRegiao({ regiao, onAvancar }: { regiao: Regiao; onAvancar: () =>
   )
 }
 
-function FotoRegiao({ rg, urls, onUpload, onRemover }: { rg: Regiao; urls: Record<string, string>; onUpload: (f: File) => void; onRemover: (f: FotoR) => void }) {
+function FotoRegiao({ rg, urls, onUpload, onRemover, exigida }: { rg: Regiao; urls: Record<string, string>; onUpload: (f: File) => void; onRemover: (f: FotoR) => void; exigida: boolean }) {
   const [busy, setBusy] = useState(false)
   return (
-    <div style={{ background: C.white, border: `1px solid ${rg.foto_obrigatoria && !rg.tem_foto ? C.amber : C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.esp }}>📷 {rg.foto_rotulo || 'Foto da região'}{rg.foto_obrigatoria && <span style={{ color: C.amber }}> · obrigatória</span>}</div>
+    <div style={{ background: C.white, border: `1px solid ${exigida && !rg.tem_foto ? C.amber : C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.esp }}>📷 {rg.foto_rotulo || (rg.foto_obrigatoria ? 'Foto da região' : 'Foto do reparo/troca')}{exigida && <span style={{ color: C.amber }}> · obrigatória</span>}</div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
         {rg.fotos.map((f) => (
           <div key={f.foto_id} style={{ position: 'relative', width: 84, height: 84, borderRadius: 8, overflow: 'hidden', background: C.cream, border: `1px solid ${C.border}` }}>
@@ -513,9 +516,16 @@ function Resumo({ totais, onVoltar, vistoriaId, userId, onConcluida, onErro, reg
     setBusy(true); setPend(null)
     const { data: j } = await supabase.rpc('fn_insp_vistoria_concluir', { p_vistoria_id: vistoriaId, p_user: await userId() })
     setBusy(false)
-    const r = j as { ok?: boolean; erro?: string; fotos_faltando?: string[]; gastos_faltando?: string[] } | null
+    const r = j as { ok?: boolean; erro?: string; fotos_faltando?: string[]; fotos_reparo_troca_faltando?: string[]; gastos_faltando?: string[] } | null
     if (r?.ok) { onConcluida(); return }
-    if (r?.erro === 'pendencias') { setPend({ fotos: r.fotos_faltando ?? [], gastos: r.gastos_faltando ?? [] }); return }
+    if (r?.erro === 'pendencias') {
+      // Vistoria RÁPIDA: a foto que falta é a do item em reparo/troca (fotos_reparo_troca_faltando), não a da
+      // região — antes a tela só lia fotos_faltando e o bloqueio acontecia em silêncio (botão "não fazia nada").
+      const fotos = [...(r.fotos_faltando ?? []), ...(r.fotos_reparo_troca_faltando ?? [])]
+      const gastos = r.gastos_faltando ?? []
+      if (fotos.length === 0 && gastos.length === 0) { onErro('A vistoria ainda tem pendências para concluir.'); return }
+      setPend({ fotos, gastos }); return
+    }
     onErro(r?.erro || 'Não foi possível concluir a vistoria.')
   }
 
@@ -537,7 +547,8 @@ function Resumo({ totais, onVoltar, vistoriaId, userId, onConcluida, onErro, reg
         <div style={{ background: C.redBg, border: `1px solid ${C.red}44`, borderRadius: 12, padding: 12, marginTop: 12, fontSize: 13, color: C.red }}>
           <b>Falta para concluir:</b>
           {pend.fotos.length > 0 && <div style={{ marginTop: 6 }}>📷 Foto obrigatória: {pend.fotos.map((nome) => {
-            const idx = regioes.findIndex((r) => r.nome === nome)
+            // o nome pode ser da região (modelo completo) ou do item em reparo/troca (modelo rápido)
+            const idx = regioes.findIndex((r) => r.nome === nome || r.itens.some((i) => i.nome === nome))
             return <button key={nome} onClick={() => idx >= 0 && onIrRegiao(idx)} style={{ background: 'none', border: 'none', color: C.red, textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0, marginRight: 8 }}>{nome}</button>
           })}</div>}
           {pend.gastos.length > 0 && <div style={{ marginTop: 6 }}>💰 Valor faltando em: {pend.gastos.join(', ')}</div>}
