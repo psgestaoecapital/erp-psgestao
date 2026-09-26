@@ -67,6 +67,7 @@ function Inner() {
   const [msg, setMsg] = useState<string | null>(null)
   const [modal, setModal] = useState<'reserva' | 'venda' | null>(null)
   const [lancarPagar, setLancarPagar] = useState<Custo | null>(null) // Onda 9: lançar conta a pagar de um custo já existente
+  const [contaKey, setContaKey] = useState(0) // #138 (Fábio): a faixa "A conta deste carro" recarrega a cada carregar()
 
   const carregar = useCallback(async () => {
     if (!id) return
@@ -97,6 +98,7 @@ function Inner() {
     const { data: pmData } = await supabase.rpc('fn_veic_preco_minimo', { p_veiculo_id: id })
     const pmr = pmData as { ok?: boolean; preco_minimo?: number | null; piso_sem_margem?: number | null; margem_pct?: number | null } | null
     setPm(pmr?.ok ? { preco_minimo: pmr.preco_minimo ?? null, piso_sem_margem: pmr.piso_sem_margem ?? null, margem_pct: pmr.margem_pct ?? null } : null)
+    setContaKey((k) => k + 1)
   }, [id])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -178,7 +180,7 @@ function Inner() {
       </div>
 
       {/* R3d · A CONTA DESTE CARRO — faixa em linguagem de dono, fonte única fn_veic_conta_do_carro. */}
-      <ContaDoCarroFaixa veiculoId={id} situacao={v.situacao} />
+      <ContaDoCarroFaixa veiculoId={id} situacao={v.situacao} refreshKey={contaKey} />
 
       {/* R3-fix T4 · Trilha de estado (entrada→…→garantia) com o motivo da trava atual. */}
       <TrilhaEstado situacao={v.situacao} temReserva={!!reserva} venda={venda} temCusto={custos.length > 0} temPreco={precoHist.length > 0} />
@@ -613,7 +615,7 @@ type Conta = {
   lucro_real_projetado: number | null; roi_anualizado_pct: number | null; sangria_dia: number | null
   data_vira_prejuizo: string | null; dias_parado: number | null
 }
-function ContaDoCarroFaixa({ veiculoId, situacao }: { veiculoId: string; situacao: string }) {
+function ContaDoCarroFaixa({ veiculoId, situacao, refreshKey }: { veiculoId: string; situacao: string; refreshKey: number }) {
   const [c, setC] = useState<Conta | null>(null)
   useEffect(() => {
     let vivo = true
@@ -623,7 +625,7 @@ function ContaDoCarroFaixa({ veiculoId, situacao }: { veiculoId: string; situaca
       if (vivo) setC(r?.ok ? r : null)
     })()
     return () => { vivo = false }
-  }, [veiculoId])
+  }, [veiculoId, refreshKey])
   if (!c) return null
 
   const cfgLink = <a href="/dashboard/revenda/config" style={{ color: C.gold, fontSize: 11, textDecoration: 'underline' }}>configurar</a>
@@ -1234,6 +1236,10 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
   })
   const [busy, setBusy] = useState(false)
   const [ncmMsg, setNcmMsg] = useState<string | null>(null)
+  // #140/#141 (Fábio): o salvar falhava em silêncio (HTTP 400 com "72.956,00") e o aviso ia pro topo da ficha.
+  // Agora o erro aparece AQUI, ao lado do botão, com o campo marcado.
+  const [erroLocal, setErroLocal] = useState<string | null>(null)
+  const [campo, setCampo] = useState<string | null>(null)
   async function sugerirNcm() {
     // a tabela de NCM sugere por carro/moto; caminhão/máquina caem no padrão da empresa (contador confirma)
     const tp = f.tipo === 'moto' ? 'moto' : 'carro'
@@ -1244,17 +1250,26 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     else setNcmMsg('Sem sugestão para este veículo — informe o NCM com o seu contador.')
   }
   const anoSugerido = sugestaoAno != null && (!f.ano_modelo || !f.ano_fabricacao)
+  const ROT: Record<string, string> = { potencia_cv: 'potência (cv)', cilindradas: 'cilindradas', portas: 'portas', ano_fabricacao: 'ano fab.', ano_modelo: 'ano mod.', valor_fipe: 'valor FIPE', lugares: 'lugares', km_entrada: 'km', valor_aquisicao: 'aquisição', ncm: 'NCM', tipo: 'tipo' }
   async function salvar() {
-    setBusy(true)
+    setBusy(true); setErroLocal(null); setCampo(null)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: v.id, p_dados: f, p_user: user?.id ?? null })
     setBusy(false)
-    const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { onErro(error?.message || (r?.erro === 'ncm_invalido' ? 'NCM inválido — use 8 dígitos (ou deixe em branco).' : r?.erro) || 'Falha ao salvar'); return }
+    const r = data as { ok?: boolean; erro?: string; campo?: string; valor?: string } | null
+    if (error || !r?.ok) {
+      const rotulo = ROT[r?.campo ?? ''] ?? r?.campo ?? 'campo'
+      const m = r?.erro === 'valor_invalido' ? `Valor inválido em "${rotulo}"${r?.valor ? ` ("${r.valor}")` : ''}: use só números — ex.: 72956 ou 72.956,00.`
+        : r?.erro === 'ncm_invalido' ? 'NCM inválido — use 8 dígitos (ou deixe em branco).'
+        : r?.erro === 'tipo_invalido' ? 'Tipo inválido — escolha carro, moto, caminhão ou máquina.'
+        : r?.erro ? mensagemDeResultado(r)
+        : 'Não foi possível salvar agora. Tente de novo em instantes.'
+      setErroLocal(m); setCampo(r?.campo ?? null); onErro(m); return
+    }
     onSaved()
   }
   const F = (k: keyof typeof f, ph: string, w?: number) => (
-    <input id={`campo-${String(k)}`} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w }} />
+    <input id={`campo-${String(k)}`} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w, ...estiloBordaInput(campo === String(k) ? 'x' : null) }} />
   )
   return (
     <div>
@@ -1283,12 +1298,13 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
         <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
       </div>
+      {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{erroLocal}</div>}
       {/* item 2c-c: Fiscal do veículo — FIPE (comissão/frescor) e NCM (nota; 8 dígitos) */}
       <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Fiscal do veículo <span style={{ fontWeight: 400, color: C.espL }}>· FIPE e NCM</span></div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130 }} />
-          <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace' }} />
+          <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
+          <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace', ...estiloBordaInput(campo === 'ncm' ? 'x' : null) }} />
           {F('lugares', 'lugares', 80)}
           <button type="button" onClick={() => void sugerirNcm()} title={f.tipo ? `sugere pelo tipo: ${f.tipo}` : 'defina o tipo acima para uma sugestão melhor'} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>sugerir NCM</button>
         </div>
@@ -1309,6 +1325,8 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
   // #48 (Fábio): fotos da VISTORIA (insp_foto) — fallback read-only quando a galeria do veículo está vazia.
   const [fotosVist, setFotosVist] = useState<{ path: string; legenda: string | null; url: string }[]>([])
   const [busy, setBusy] = useState(false)
+  // #21/#22/#48/#139 (Fábio): resultado do envio mostrado AQUI, embaixo do botão (o aviso do topo passava despercebido)
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null)
   // R8a · marca d'água da loja (logo + toggle na Configuração da garagem) — overlay na prévia das fotos.
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [marcaAtiva, setMarcaAtiva] = useState(false)
@@ -1362,35 +1380,45 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
 
   async function uid() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
-  async function subir(files: FileList | null) {
-    if (!files || !files.length) return
+  // CAUSA RAIZ dos 4 chamados de foto (contexto 8304b8a3): o onChange passava o FileList VIVO e logo limpava o input
+  // (`e.currentTarget.value = ''`). Depois do 1º await o FileList já estava com length 0 → o loop rodava 0 vezes →
+  // ZERO requisições ao Storage (provado nos edge_logs: Chrome do Fábio subiu CRLV no mesmo bucket e nunca uma foto).
+  // A PR #1580 corrigiu só a mensagem e a #1773 só a exibição. Agora recebe File[] já copiado (Array.from) antes do reset.
+  async function subir(files: File[]) {
+    if (!files.length) { const t = 'Nenhum arquivo selecionado.'; setAviso({ ok: false, texto: t }); return }
     // R0 (23752d5a): sem company_id o path vira "undefined/…" e a RLS do bucket (split_part(name,'/',1)
     // IN get_user_company_ids) NEGA o upload — a foto "aparecia enviada" mas não subia. Guarda como a vistoria.
-    if (!companyId) { onErro('Empresa do veículo ainda não carregou — recarregue a página e tente de novo.'); return }
-    setBusy(true)
+    if (!companyId) { const t = 'Empresa do veículo ainda não carregou — recarregue a página e tente de novo.'; onErro(t); setAviso({ ok: false, texto: t }); return }
+    setBusy(true); setAviso(null)
     try {
       const user = await uid()
-      let ok = 0, falhas = 0
+      let ok = 0, falhas = 0, ultimoErro = ''
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         const ext = ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'jpg'
         const path = `${companyId}/${veiculoId}/${Date.now()}-${i}.${ext}`
         const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
-        if (upErr) { falhas++; onErro('Falha no upload: ' + upErr.message); continue }
+        if (upErr) { falhas++; ultimoErro = 'Falha no upload: ' + upErr.message; onErro(ultimoErro); continue }
         const { data, error } = await supabase.rpc('fn_veic_foto_registrar', { p_veiculo_id: veiculoId, p_storage_path: path, p_user: user })
         const r = data as { ok?: boolean; erro?: string } | null
         if (error || !r?.ok) {
           // upload subiu mas o registro falhou → remove o objeto órfão (mesmo padrão provado na vistoria)
           falhas++
-          onErro(r?.erro || error?.message || 'Falha ao registrar foto')
+          ultimoErro = r?.erro || error?.message || 'Falha ao registrar foto'
+          onErro(ultimoErro)
           await supabase.storage.from('revenda-veiculos').remove([path])
           continue
         }
         ok++
       }
-      // R0: só diz "enviada" se ALGUMA foto realmente persistiu (antes dizia sempre — a mentira do "aparece enviada mas não vai").
-      if (ok > 0) onMsg(ok === 1 ? 'Foto enviada.' : `${ok} fotos enviadas.`)
-      else if (falhas > 0) onErro('Não foi possível salvar a(s) foto(s). Tente de novo.')
+      // R0: só diz "enviada" se ALGUMA foto realmente persistiu.
+      if (ok > 0) {
+        const t = ok === 1 ? 'Foto enviada.' : `${ok} fotos enviadas.`
+        onMsg(t); setAviso({ ok: true, texto: falhas > 0 ? `${t} ${falhas} falharam: ${ultimoErro}` : t })
+      } else {
+        const t = falhas > 0 ? `Não foi possível salvar a(s) foto(s). ${ultimoErro}` : 'Não foi possível salvar a(s) foto(s). Tente de novo.'
+        onErro(t); setAviso({ ok: false, texto: t })
+      }
       await load()
     } finally { setBusy(false) }
   }
@@ -1427,9 +1455,10 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
     <div>
       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 14px', border: `1px dashed ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 13 }}>
         {busy ? 'Enviando…' : '📷 Adicionar fotos'}
-        <input type="file" accept="image/*" capture="environment" multiple disabled={busy} onChange={(e) => { void subir(e.target.files); e.currentTarget.value = '' }} style={{ display: 'none' }} />
+        <input type="file" accept="image/*" capture="environment" multiple disabled={busy} onChange={(e) => { const arr = Array.from(e.target.files ?? []); e.currentTarget.value = ''; void subir(arr) }} style={{ display: 'none' }} />
       </label>
       <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>Tire pelo celular no pátio. Arraste (⠿) para ordenar — a 1ª some no anúncio; a ⭐ principal aparece no cartão do Pátio.{marcaAtiva ? ' A marca d’água da loja aparece na prévia.' : ''}</div>
+      {aviso && <div style={{ background: aviso.ok ? C.greenBg : C.redBg, color: aviso.ok ? C.green : C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{aviso.texto}</div>}
       {fotos.length === 0 ? (
         fotosVist.length > 0 ? (
           <div style={{ marginTop: 12 }}>
@@ -1590,8 +1619,8 @@ function CrlvVeiculo({ veiculoId, companyId, crlvPath, onErro, onMsg, onChange }
 
   async function uid() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
-  async function enviar(files: FileList | null) {
-    if (!files || !files.length) return
+  async function enviar(files: File[]) {
+    if (!files.length) return
     // mesma guarda das fotos: sem company_id o path vira "undefined/…" e a RLS do bucket NEGA o upload.
     if (!companyId) { onErro('Empresa do veículo ainda não carregou — recarregue a página e tente de novo.'); return }
     setBusy(true)
@@ -1632,7 +1661,7 @@ function CrlvVeiculo({ veiculoId, companyId, crlvPath, onErro, onMsg, onChange }
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 14px', border: `1px dashed ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 13 }}>
           {busy ? 'Enviando…' : (crlvPath ? '📄 Trocar CRLV' : '📄 Anexar CRLV')}
-          <input type="file" accept="application/pdf,image/*" disabled={busy} onChange={(e) => { void enviar(e.target.files); e.currentTarget.value = '' }} style={{ display: 'none' }} />
+          <input type="file" accept="application/pdf,image/*" disabled={busy} onChange={(e) => { const arr = Array.from(e.target.files ?? []); e.currentTarget.value = ''; void enviar(arr) }} style={{ display: 'none' }} />
         </label>
         {crlvPath && url && <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5, color: C.gold, fontWeight: 700, textDecoration: 'underline' }}>abrir em nova aba</a>}
         {crlvPath && <button onClick={() => void remover()} disabled={busy} style={{ border: 'none', background: 'none', color: C.red, cursor: busy ? 'wait' : 'pointer', fontSize: 12.5 }}>remover</button>}
