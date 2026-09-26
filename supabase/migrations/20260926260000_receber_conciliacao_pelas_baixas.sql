@@ -228,6 +228,8 @@ BEGIN
     forma_pagamento = CASE WHEN v_soma > 0 THEN COALESCE(NULLIF(forma_pagamento,''),'conciliacao_bancaria') ELSE NULL END,
     updated_at = now() WHERE id = p_id;
 END $function$;
+REVOKE ALL ON FUNCTION public.fn_recompute_baixa_titulo(text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_recompute_baixa_titulo(text, uuid) TO authenticated, service_role;
 
 -- 3) Conciliação AGRUPADA (um crédito → vários títulos): receber pelas baixas.
 CREATE OR REPLACE FUNCTION public.fn_conciliacao_fechar_agrupado(p_movimento_id uuid, p_operador_id uuid DEFAULT NULL::uuid, p_tolerancia numeric DEFAULT 0.05, p_juros numeric DEFAULT 0, p_multa numeric DEFAULT 0, p_desconto numeric DEFAULT 0, p_ajuste_lancamento_id uuid DEFAULT NULL::uuid, p_observacao text DEFAULT NULL::text)
@@ -309,7 +311,7 @@ begin
   end loop;
 
   update conciliacao_movimento set status='conciliado', match_origem='agrupado',
-    match_aplicado_em=now(), match_aplicado_por=p_operador_id where id = p_movimento_id;
+    match_aplicado_em=now(), match_aplicado_por=COALESCE(auth.uid(), p_operador_id) where id = p_movimento_id;
 
   perform public.fn_receber_conciliacao_sync(x) from unnest(v_receber) x;
 
@@ -317,6 +319,8 @@ begin
     'valor', v_mov.valor, 'acrescimo', v_acr, 'desconto', v_desc, 'ajuste_lancamento', v_anchor);
 end;
 $function$;
+REVOKE ALL ON FUNCTION public.fn_conciliacao_fechar_agrupado(uuid, uuid, numeric, numeric, numeric, numeric, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_conciliacao_fechar_agrupado(uuid, uuid, numeric, numeric, numeric, numeric, uuid, text) TO authenticated, service_role;
 
 -- 4) Desvincular crédito AGRUPADO: receber pelas baixas (a manual volta a ficar "pago aguardando conciliação").
 CREATE OR REPLACE FUNCTION public.fn_conciliacao_desvincular_movimento(p_movimento_id uuid, p_operador_id uuid DEFAULT NULL::uuid)
@@ -414,6 +418,8 @@ BEGIN
   );
 END;
 $function$;
+REVOKE ALL ON FUNCTION public.fn_conciliacao_desvincular_movimento(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_conciliacao_desvincular_movimento(uuid, uuid) TO authenticated, service_role;
 
 -- 5) Aplicar match: RECEBER pontua o valor pelo valor de referência (cheio, saldo ou baixa sem vínculo).
 --    Resto do corpo inalterado.
