@@ -1,0 +1,54 @@
+name: Aceitação (preview)
+
+# RD-78 (CEO 25/09): toda PR roda a sua jornada de aceitação contra o PREVIEW da Vercel antes do merge.
+# Dispara quando a Vercel marca o deployment de preview como success (deployment_status); roda no commit
+# do deployment (github.sha = commit da PR), na Demonstração Revenda (is_demo). Nunca toca empresa real.
+# Contexto: erp_contexto_projeto 56bd2058 (regra, diagnóstico, 4 encaixes). Piloto: PR #1806.
+on:
+  deployment_status:
+
+jobs:
+  aceitacao:
+    # só preview com sucesso (ignora Production e estados pending/failure)
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      !contains(github.event.deployment.environment, 'Production') &&
+      !contains(github.event.deployment.environment, 'production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.deployment.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+      - name: Jornadas de aceitação contra o preview
+        env:
+          PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+          PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+          # Só necessário se o preview tiver Deployment Protection (401 da Vercel): Settings › Deployment
+          # Protection › "Protection Bypass for Automation" gera o segredo; o CEO cadastra no GitHub.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        # --pass-with-no-tests: PR sem .spec.ts em aceitacao/ (hotfix, infra, docs) passa; PR com spec e julgada pelo spec.
+        # A obrigacao de trazer o spec e do processo (RD-78), nao de um check que quebra por ausencia. Sem isto, a propria PR-I
+        # (que nao traz spec) ficaria vermelha para sempre e o check nunca poderia ser obrigatorio.
+        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
+      - name: Upload relatório (em caso de falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aceitacao-preview-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
