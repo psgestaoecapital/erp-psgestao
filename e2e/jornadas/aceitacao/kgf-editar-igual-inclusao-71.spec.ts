@@ -54,10 +54,11 @@ test.describe('Aceitação #71 — editar abre a mesma tela da inclusão', () =>
     for (const c of criados) await dbPatch(c.tabela, `id=eq.${c.id}`, { deleted_at: new Date().toISOString() })
   })
 
-  test('✏️ na lista de despesas abre a tela de inclusão preenchida e salva a alteração', async ({ page }) => {
-    await abrirComoGE(page, '/dashboard/financeiro/pagar')
-    await page.getByPlaceholder('Buscar por nome, CPF/CNPJ, descrição, documento ou valor').fill(RUN)
-    await page.getByRole('button', { name: 'Editar' }).first().click({ timeout: 20000 })
+  // A listagem de pagar/receber exige o plano v15_gestao_empresarial_pro (fn_ge_listagem_v2 → sem_plano) e nenhuma
+  // demo o tem — ligar plano em demo é decisão do CEO. O ✏️ da lista e do inbox abrem este MESMO formulário
+  // (NovaDespesaModal/NovaReceitaModal com editarId); aqui a tela é aberta pelo mesmo componente via ?editar=.
+  test('editar despesa abre a tela "Nova despesa" preenchida e salva a alteração', async ({ page }) => {
+    await abrirComoGE(page, `/dashboard/financeiro/nova-despesa?editar=${despesa}`)
 
     // a MESMA tela da inclusão: título + os rótulos e listas da "Nova despesa"
     await expect(page.getByRole('heading', { name: 'Editar despesa' })).toBeVisible({ timeout: 20000 })
