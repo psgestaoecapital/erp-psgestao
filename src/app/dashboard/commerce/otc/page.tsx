@@ -875,7 +875,8 @@ function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter
 }) {
   const canEnviar = orc.status === 'rascunho'
   const canAprovar = ['enviado', 'visualizado'].includes(orc.status)
-  const canConverter = ['aprovado', 'enviado', 'visualizado'].includes(orc.status) && !orc.pedido_id
+  // #122 (R.R): converte de qualquer etapa aberta — "enviado" é opcional (mesma regra do banco)
+  const canConverter = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
