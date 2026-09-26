@@ -4,7 +4,7 @@
 // Componente reusável pra baixar pagamento em erp_pagar/erp_receber
 // via RPCs prontas fn_pagar_baixar_pagamento / fn_receber_baixar_pagamento.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 interface ContaBancaria {
@@ -43,6 +43,9 @@ export default function MarcarPagoModal({
   const [valorPago, setValorPago] = useState(valorTotal.toFixed(2))
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // o saldo chega do banco de forma assíncrona; se o usuário já digitou o valor, ele NÃO é sobrescrito
+  // (antes: digitar 300 antes da busca voltar virava o saldo cheio e o título era baixado inteiro)
+  const editouValor = useRef(false)
 
   useEffect(() => {
     if (!open || !companyId) return
@@ -67,13 +70,14 @@ export default function MarcarPagoModal({
     if (!open) return
     setDataPag(hoje())
     setErro(null)
+    editouValor.current = false
     // FIX baixa parcial: o campo default vira o SALDO restante (valor − valor_pago),
     // não o valor total — senão confirmar re-baixaria o total inteiro (acumula → overpay).
     let ignore = false
     ;(async () => {
       const tabela = tipo === 'pagar' ? 'erp_pagar' : 'erp_receber'
       const { data } = await supabase.from(tabela).select('valor_pago').eq('id', itemId).maybeSingle()
-      if (ignore) return
+      if (ignore || editouValor.current) return
       const jaPago = Number((data as { valor_pago?: number } | null)?.valor_pago ?? 0)
       const saldo = Math.max(valorTotal - jaPago, 0)
       setValorPago((saldo > 0 ? saldo : valorTotal).toFixed(2))
@@ -146,7 +150,7 @@ export default function MarcarPagoModal({
             <input
               type="number" step="0.01" min="0"
               value={valorPago}
-              onChange={(e) => setValorPago(e.target.value)}
+              onChange={(e) => { editouValor.current = true; setValorPago(e.target.value) }}
               style={inputStyle}
             />
             <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.5)', marginTop: 4 }}>
