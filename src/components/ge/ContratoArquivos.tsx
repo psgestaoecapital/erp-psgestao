@@ -22,6 +22,10 @@ interface ArquivoRow {
 interface Props {
   companyId: string
   contratoId: string
+  // #59 · na SOLICITAÇÃO o comercial anexa modelos/prints de referência como 'outro' — só 'contrato'/'contrato_assinado'
+  // conta para ativar (fn_contrato_mudar_status), então o anexo da solicitação nunca libera a ativação.
+  tipo?: 'contrato_assinado' | 'outro'
+  titulo?: string
 }
 
 const BUCKET = 'contratos-assinados'
@@ -44,7 +48,7 @@ function sanitizar(nome: string): string {
   return nome.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120)
 }
 
-export default function ContratoArquivos({ companyId, contratoId }: Props) {
+export default function ContratoArquivos({ companyId, contratoId, tipo = 'contrato_assinado', titulo }: Props) {
   const [lista, setLista] = useState<ArquivoRow[]>([])
   const [carregando, setCarregando] = useState(true)
   const [enviando, setEnviando] = useState(false)
@@ -93,7 +97,7 @@ export default function ContratoArquivos({ companyId, contratoId }: Props) {
     const ins = await supabase.from('erp_contratos_arquivos').insert({
       contrato_id: contratoId,
       company_id: companyId,
-      tipo: 'contrato_assinado',
+      tipo,
       nome_arquivo: file.name,
       storage_path: path,
       tamanho_bytes: file.size,
@@ -145,7 +149,7 @@ export default function ContratoArquivos({ companyId, contratoId }: Props) {
   return (
     <div style={{ marginTop: 8 }}>
       <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
-        Contrato assinado
+        {titulo ?? 'Contrato assinado'}
       </label>
 
       <div
@@ -168,7 +172,7 @@ export default function ContratoArquivos({ companyId, contratoId }: Props) {
         }}
       >
         <div style={{ fontSize: 13, color: '#3D2314', fontWeight: 500 }}>
-          {enviando ? (progresso ?? 'Anexando…') : 'Arraste o contrato aqui ou clique para escolher'}
+          {enviando ? (progresso ?? 'Anexando…') : tipo === 'outro' ? 'Arraste o arquivo aqui ou clique para escolher' : 'Arraste o contrato aqui ou clique para escolher'}
         </div>
         <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 4 }}>
           PDF, JPG, PNG ou WebP — até 10 MB
@@ -197,7 +201,7 @@ export default function ContratoArquivos({ companyId, contratoId }: Props) {
           <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', padding: '8px 0' }}>Carregando anexos…</div>
         ) : lista.length === 0 ? (
           <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', padding: '10px 0', fontStyle: 'italic' }}>
-            Nenhum contrato anexado ainda.
+            {tipo === 'outro' ? 'Nenhum arquivo anexado ainda.' : 'Nenhum contrato anexado ainda.'}
           </div>
         ) : (
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -220,7 +224,7 @@ export default function ContratoArquivos({ companyId, contratoId }: Props) {
                     {row.nome_arquivo}
                   </div>
                   <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
-                    {fmtTamanho(row.tamanho_bytes)} · ANEXOU em {fmtData(row.enviado_em)}
+                    {row.tipo !== 'contrato_assinado' ? 'Referência / modelo · ' : ''}{fmtTamanho(row.tamanho_bytes)} · ANEXOU em {fmtData(row.enviado_em)}
                   </div>
                 </div>
                 <button

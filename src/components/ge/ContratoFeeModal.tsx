@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import ContratoArquivos from './ContratoArquivos'
 import ClientePickerInline from './ClientePickerInline'
 import ParcelasContratoEditor from './ParcelasContratoEditor'
+import { FORMAS_PAGAMENTO, PERIODICIDADES_CONTRATO, TIPOS_REAJUSTE_CONTRATO, gradeContrato } from './contratoOpcoes'
 
 const C = { espresso: '#3D2314', espressoM: '#6B5D4F', cream: '#FAF7F2', border: '#E0D8CC', gold: '#C8941A', white: '#FFFFFF', red: '#A32D2D', redBg: '#FCEBEB', green: '#1E7A46', greenBg: '#EAF6EE', cream2: '#F0ECE3' }
 const inp: React.CSSProperties = { width: '100%', minHeight: 38, padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.espresso, outline: 'none', boxSizing: 'border-box' }
@@ -34,6 +35,11 @@ interface ContratoRow {
   id: string; numero: string | null; nome: string | null; cliente_id: string | null; cliente_nome: string | null
   codigo_identificador: string | null; data_inicio: string | null; data_fim: string | null
   valor_mensal: number | null; observacoes: string | null; texto_legal: string | null; status: string | null
+  // #59 · o que o comercial combinou na solicitação
+  cliente_cnpj: string | null; responsavel: string | null; objeto: string | null; escopo: string | null
+  forma_pagamento: string | null; condicao_pagamento: string | null; numero_parcelas: number | null; periodicidade: string | null
+  dia_vencimento: number | null; data_primeiro_vencimento: string | null; tipo_reajuste: string | null; reajuste_percentual: number | null
+  condicoes_especificas: string | null; prazo_desejado: string | null
 }
 
 function mesesEntre(de: string, ate: string): number {
@@ -64,12 +70,27 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
   const [valorMensal, setValorMensal] = useState('')
   const [obs, setObs] = useState('')
   const [textoLegal, setTextoLegal] = useState('')
+  // #59 · pagamento e condições combinadas
+  const [doc, setDoc] = useState('')
+  const [responsavel, setResponsavel] = useState('')
+  const [objeto, setObjeto] = useState('')
+  const [escopo, setEscopo] = useState('')
+  const [forma, setForma] = useState('boleto')
+  const [condicao, setCondicao] = useState('')
+  const [periodicidade, setPeriodicidade] = useState('mensal')
+  const [diaVenc, setDiaVenc] = useState('')
+  const [primeiroVenc, setPrimeiroVenc] = useState('')
+  const [reajuste, setReajuste] = useState('nenhum')
+  const [reajustePct, setReajustePct] = useState('')
+  const [especificas, setEspecificas] = useState('')
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro(null)
     const { data, error } = await supabase
       .from('erp_contratos')
-      .select('id,numero,nome,cliente_id,cliente_nome,codigo_identificador,data_inicio,data_fim,valor_mensal,observacoes,texto_legal,status')
+      .select('id,numero,nome,cliente_id,cliente_nome,codigo_identificador,data_inicio,data_fim,valor_mensal,observacoes,texto_legal,status,' +
+        'cliente_cnpj,responsavel,objeto,escopo,forma_pagamento,condicao_pagamento,numero_parcelas,periodicidade,dia_vencimento,' +
+        'data_primeiro_vencimento,tipo_reajuste,reajuste_percentual,condicoes_especificas,prazo_desejado')
       .eq('id', contratoId).maybeSingle()
     if (error) { setErro(error.message); setLoading(false); return }
     const r = data as ContratoRow | null
@@ -79,7 +100,12 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
     setDe(r.data_inicio ?? ''); setAte(r.data_fim ?? '')
     setValorMensal(r.valor_mensal != null ? String(r.valor_mensal) : '')
     setObs(r.observacoes ?? ''); setTextoLegal(r.texto_legal ?? '')
-    setNParcelas(r.data_inicio && r.data_fim ? String(mesesEntre(r.data_inicio, r.data_fim)) : '')
+    setNParcelas(r.data_inicio && r.data_fim ? String(mesesEntre(r.data_inicio, r.data_fim)) : r.numero_parcelas ? String(r.numero_parcelas) : '')
+    setDoc(r.cliente_cnpj ?? ''); setResponsavel(r.responsavel ?? ''); setObjeto(r.objeto ?? ''); setEscopo(r.escopo ?? '')
+    setForma(r.forma_pagamento ?? 'boleto'); setCondicao(r.condicao_pagamento ?? ''); setPeriodicidade(r.periodicidade ?? 'mensal')
+    setDiaVenc(r.dia_vencimento != null ? String(r.dia_vencimento) : ''); setPrimeiroVenc(r.data_primeiro_vencimento ?? '')
+    setReajuste(r.tipo_reajuste ?? 'nenhum'); setReajustePct(r.reajuste_percentual ? String(r.reajuste_percentual) : '')
+    setEspecificas(r.condicoes_especificas ?? '')
     setLoading(false)
   }, [contratoId])
 
@@ -94,7 +120,10 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
   const ativo = row?.status === 'ativo'
 
   async function salvarCabecalho() {
-    setErro(null); setToast(null); setSalvandoCab(true)
+    setErro(null); setToast(null)
+    const dia = diaVenc ? Number(diaVenc) : null
+    if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 28)) { setErro('Dia de vencimento: de 1 a 28.'); return }
+    setSalvandoCab(true)
     const clienteSel = cli
       ? await supabase.from('erp_clientes').select('nome_fantasia,razao_social').eq('id', cli).maybeSingle()
       : { data: null }
@@ -110,6 +139,19 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
       valor_mensal: v, valor_atual: v,
       observacoes: obs.trim() || null,
       texto_legal: textoLegal.trim() || null,
+      cliente_cnpj: doc.trim() || null,
+      responsavel: responsavel.trim() || null,
+      objeto: objeto.trim() || null,
+      escopo: escopo.trim() || null,
+      forma_pagamento: forma || null,
+      condicao_pagamento: condicao.trim() || null,
+      numero_parcelas: nParcelas ? Number(nParcelas) : null,
+      periodicidade: periodicidade || 'mensal',
+      dia_vencimento: dia ?? 10,
+      data_primeiro_vencimento: primeiroVenc || null,
+      tipo_reajuste: reajuste || 'nenhum',
+      reajuste_percentual: reajuste !== 'nenhum' && reajustePct ? Number(String(reajustePct).replace(',', '.')) : 0,
+      condicoes_especificas: especificas.trim() || null,
       updated_at: new Date().toISOString(),
     }).eq('id', contratoId)
     setSalvandoCab(false)
@@ -175,6 +217,42 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
                 <Campo label="Valor mensal"><input inputMode="decimal" style={inp} value={valorMensal} onChange={(e) => setValorMensal(e.target.value)} placeholder="0,00" /></Campo>
               </div>
 
+              {/* #59 · o que o comercial combinou com o cliente (vem da solicitação; editável aqui) */}
+              <Secao titulo="Pagamento e condições combinadas">
+                {row?.prazo_desejado && (
+                  <div style={{ fontSize: 12, color: C.espressoM, marginBottom: 10 }}>
+                    Prazo desejado pelo comercial: <strong>{row.prazo_desejado.split('-').reverse().join('/')}</strong>
+                  </div>
+                )}
+                <div style={gradeContrato}>
+                  <Campo label="CPF/CNPJ do cliente"><input style={inp} value={doc} onChange={(e) => setDoc(e.target.value)} /></Campo>
+                  <Campo label="Responsável pelo contrato"><input style={inp} value={responsavel} onChange={(e) => setResponsavel(e.target.value)} /></Campo>
+                  <Campo label="Forma de pagamento">
+                    <select style={inp} value={forma} onChange={(e) => setForma(e.target.value)}>
+                      {forma && !FORMAS_PAGAMENTO.some((f) => f.v === forma) && <option value={forma}>{forma}</option>}
+                      {FORMAS_PAGAMENTO.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
+                    </select>
+                  </Campo>
+                  <Campo label="Condição de pagamento"><input style={inp} value={condicao} onChange={(e) => setCondicao(e.target.value)} placeholder="Ex.: entrada + 5x" /></Campo>
+                  <Campo label="Periodicidade">
+                    <select style={inp} value={periodicidade} onChange={(e) => setPeriodicidade(e.target.value)}>
+                      {PERIODICIDADES_CONTRATO.map((p) => <option key={p.v} value={p.v}>{p.l}</option>)}
+                    </select>
+                  </Campo>
+                  <Campo label="Dia do vencimento"><input style={inp} type="number" min={1} max={28} value={diaVenc} onChange={(e) => setDiaVenc(e.target.value)} /></Campo>
+                  <Campo label="1º vencimento"><input style={inp} type="date" value={primeiroVenc} onChange={(e) => setPrimeiroVenc(e.target.value)} /></Campo>
+                  <Campo label="Reajuste">
+                    <select style={inp} value={reajuste} onChange={(e) => setReajuste(e.target.value)}>
+                      {TIPOS_REAJUSTE_CONTRATO.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+                    </select>
+                  </Campo>
+                  <Campo label="% de reajuste"><input style={inp} inputMode="decimal" value={reajustePct} onChange={(e) => setReajustePct(e.target.value)} disabled={reajuste === 'nenhum'} /></Campo>
+                </div>
+                <Campo label="Objeto do contrato"><textarea style={{ ...inp, minHeight: 50, fontFamily: 'inherit' }} value={objeto} onChange={(e) => setObjeto(e.target.value)} /></Campo>
+                <Campo label="Serviços / produtos"><textarea style={{ ...inp, minHeight: 50, fontFamily: 'inherit' }} value={escopo} onChange={(e) => setEscopo(e.target.value)} /></Campo>
+                <Campo label="Condições específicas"><textarea style={{ ...inp, minHeight: 50, fontFamily: 'inherit' }} value={especificas} onChange={(e) => setEspecificas(e.target.value)} /></Campo>
+              </Secao>
+
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -4, marginBottom: 8 }}>
                 <button type="button" onClick={() => void salvarCabecalho()} disabled={salvandoCab} style={{ background: C.gold, color: C.white, border: 'none', padding: '8px 18px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: salvandoCab ? 'wait' : 'pointer' }}>
                   {salvandoCab ? 'Salvando…' : 'Salvar dados do contrato'}
@@ -187,7 +265,7 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
                   contratoId={contratoId} companyId={companyId}
                   valorMensal={valorMensal ? Number(String(valorMensal).replace(',', '.')) : 0}
                   readOnly={ativo}
-                  defaultPrimeiro={de || null}
+                  defaultPrimeiro={primeiroVenc || de || null}
                   defaultN={nParcelas ? Number(nParcelas) : null}
                   onSaved={() => onSaved?.()}
                 />
@@ -212,7 +290,7 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
               </Secao>
 
               {/* Anexo do contrato assinado */}
-              <Secao titulo="Contrato assinado (anexo)">
+              <Secao titulo="Contrato assinado e referências (anexos)">
                 <ContratoArquivos companyId={companyId} contratoId={contratoId} />
               </Secao>
 
