@@ -13,6 +13,8 @@ import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
 import { Campo } from '@/components/ui/feedback/Campo'
 import { useSalvar } from '@/components/ui/feedback/useSalvar'
 import { estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
+// #71 · modo edição: a mesma tela da inclusão abre o lançamento existente
+import { useEdicaoLancamento, ReplicaParcelasDialog, SituacaoEdicao, type Campos } from './edicaoLancamento'
 
 type Fornecedor = {
   id: string
@@ -77,6 +79,8 @@ interface NovaDespesaFormProps {
   companyId: string
   onSucesso?: (despesaId: string) => void
   onCancelar?: () => void
+  // #71 · id de erp_pagar → a tela abre em modo EDIÇÃO (mesmos campos/listas da inclusão)
+  editarId?: string
 }
 
 const exibirNomeFornecedor = (f: Fornecedor) =>
@@ -99,9 +103,12 @@ function calcularVencimentoFatura(dataCompraISO: string, diaFechamento: number, 
   return `${vy}-${String(vm + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
 }
 
-export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: NovaDespesaFormProps) {
+export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, editarId }: NovaDespesaFormProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const editando = !!editarId
+  const ed = useEdicaoLancamento('pagar', editarId, companyId)
+  const [erroReplica, setErroReplica] = useState<string | null>(null)
   // Conciliacao: se vier ?origem_conciliacao=<mov_id>, esta despesa nasce
   // vinculada a um movimento do extrato. Fluxo atomico: cria com status=aberto
   // + fn_conciliacao_aplicar_match -> trigger trg_baixa_por_conciliacao faz a baixa.
@@ -135,6 +142,10 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
   const [chavePix, setChavePix] = useState('')
   const [contaBancaria, setContaBancaria] = useState('')
   const [observacao, setObservacao] = useState('')
+  // #71 · só na edição (ajustes do título): juros / multa / desconto
+  const [juros, setJuros] = useState('')
+  const [multa, setMulta] = useState('')
+  const [desconto, setDesconto] = useState('')
   const [jaPago, setJaPago] = useState(false)
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
   // [→GE] Cartão de crédito: data da compra → vencimento da fatura calculado automaticamente.
@@ -168,14 +179,14 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     setChecandoDup(true)
     try {
       const { data } = await supabase.rpc('fn_pagar_checar_duplicidade', {
-        p_company_id: companyId, p_codigo_barras: cbConsulta, p_excluir_id: null,
+        p_company_id: companyId, p_codigo_barras: cbConsulta, p_excluir_id: editarId ?? null,
       })
       setDupContas((data as DupConta[]) ?? [])
       setDupIgnorado(false)
     } finally {
       setChecandoDup(false)
     }
-  }, [companyId])
+  }, [companyId, editarId])
 
   const onCodigoBarrasChange = (v: string) => {
     setCodigoBarras(v); setDupContas([]); setDupIgnorado(false)
@@ -236,7 +247,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
     const t = setTimeout(async () => {
       const { data } = await supabase.rpc('fn_pagar_checar_duplicidade_logica', {
         p_company_id: companyId, p_fornecedor_id: fornecedorId, p_valor: v,
-        p_vencimento: dataVencimento, p_codigo_barras: codigoBarrasParaConsulta(codigoBarras), p_excluir_id: null,
+        p_vencimento: dataVencimento, p_codigo_barras: codigoBarrasParaConsulta(codigoBarras), p_excluir_id: editarId ?? null,
       })
       if (!alive) return
       setDupLogica((data as DupLogica[]) ?? []); setDupLogicaIgnorado(false)
@@ -346,11 +357,90 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
 
   useEffect(() => {
     // Só cartão de parcela única: preenche o vencimento com o da fatura (o usuário pode editar depois).
-    if (vencimentoFatura && parcelas <= 1) {
+    if (vencimentoFatura && parcelas <= 1 && !editando) {
       setDataVencimento(vencimentoFatura)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vencimentoFatura, parcelas])
+
+  // #71 · EDIÇÃO: preenche a tela com o título existente (mesmos campos da inclusão).
+  const valoresDaLinha = (l: Record<string, unknown>) => ({
+    fornecedorId: String(l.fornecedor_id ?? ''), fornecedorNome: String(l.fornecedor_nome ?? ''),
+    descricao: String(l.descricao ?? ''), valor: l.valor == null ? '' : String(l.valor),
+    dataVencimento: String(l.data_vencimento ?? ''), dataCompetencia: String(l.data_competencia ?? ''),
+    categoriaCodigo: String(l.categoria ?? ''), numeroDocumento: String(l.numero_documento ?? ''),
+    formaPagamento: String(l.forma_pagamento ?? ''), tipoChavePix: String(l.tipo_chave_pix ?? 'cpf_cnpj'),
+    chavePix: String(l.chave_pix ?? ''), contaBancaria: String(l.conta_bancaria ?? ''),
+    observacao: String(l.observacoes ?? ''), codigoBarras: String(l.codigo_barras ?? ''),
+    juros: l.juros == null ? '' : String(l.juros), multa: l.multa == null ? '' : String(l.multa),
+    desconto: l.desconto == null ? '' : String(l.desconto),
+  })
+  type ValoresDespesa = ReturnType<typeof valoresDaLinha>
+  // Mesma função monta a BASE (linha carregada) e o ATUAL (tela) → o diff só pega o que a pessoa mudou.
+  const camposEdicao = (v: ValoresDespesa): Campos => {
+    const pix = ehPix(v.formaPagamento) && v.chavePix.trim()
+    return {
+      fornecedor_id: v.fornecedorId || null, fornecedor_nome: v.fornecedorNome || null,
+      descricao: v.descricao, valor: v.valor, data_vencimento: v.dataVencimento,
+      data_competencia: v.dataCompetencia || null, categoria: v.categoriaCodigo || null,
+      numero_documento: v.numeroDocumento || null, forma_pagamento: v.formaPagamento || null,
+      tipo_chave_pix: pix ? v.tipoChavePix : null, chave_pix: pix ? normalizarChavePix(v.tipoChavePix, v.chavePix) : null,
+      conta_bancaria: v.contaBancaria || null, observacoes: v.observacao || null, codigo_barras: v.codigoBarras.trim() || null,
+      juros: v.juros || null, multa: v.multa || null, desconto: v.desconto || null,
+    }
+  }
+  useEffect(() => {
+    if (!ed.linha) return
+    const v = valoresDaLinha(ed.linha)
+    setFornecedorId(v.fornecedorId); setFornecedorNome(v.fornecedorNome); setDescricao(v.descricao)
+    setValor(v.valor); setDataVencimento(v.dataVencimento); setDataCompetencia(v.dataCompetencia)
+    setCategoriaCodigo(v.categoriaCodigo); setNumeroDocumento(v.numeroDocumento); setFormaPagamento(v.formaPagamento)
+    setTipoChavePix(v.tipoChavePix); setChavePix(v.chavePix); setContaBancaria(v.contaBancaria)
+    setObservacao(v.observacao); setCodigoBarras(v.codigoBarras); setJuros(v.juros); setMulta(v.multa); setDesconto(v.desconto)
+    setVencimentoManual(true)   // código de barras não sobrescreve o vencimento do título
+  }, [ed.linha])
+
+  async function salvarEdicao() {
+    if (!ed.linha || !editarId) return
+    setToast(null); limparFeedback()
+    if (!valor || parseFloat(valor) <= 0) { setErroCampo('valor'); setFeedback({ tipo: 'erro', texto: 'Faltou preencher: Valor' }); return }
+    if (!dataVencimento) { setErroCampo('dataVencimento'); setFeedback({ tipo: 'erro', texto: 'Faltou preencher: Vencimento' }); return }
+    const cbInput = codigoBarras.trim()
+    if (cbInput && cbInput !== String(ed.linha.codigo_barras ?? '').trim()) {
+      const vb = validarCodigoBarrasEntrada(cbInput)
+      if (!vb.ok) { setErroCampo('codigoBarras'); setFeedback({ tipo: 'erro', texto: vb.motivo! }); return }
+      if (vb.tipo === 'boleto' && vb.valorBoleto != null && Math.abs(vb.valorBoleto - (parseFloat(valor) || 0)) > 0.005) {
+        setErroCampo('codigoBarras')
+        setFeedback({ tipo: 'erro', texto: `O valor do boleto (${fmtBRL(vb.valorBoleto)}) diverge do valor informado (${fmtBRL(parseFloat(valor) || 0)}). Confira o código de barras.` })
+        return
+      }
+    }
+    if (ehPix(formaPagamento) && chavePix.trim()) {
+      const eChave = validarChavePix(tipoChavePix, chavePix)
+      if (eChave) { setErroCampo('chavePix'); setFeedback({ tipo: 'erro', texto: `Chave PIX: ${eChave}` }); return }
+    }
+    const atual: ValoresDespesa = {
+      fornecedorId, fornecedorNome, descricao: descricao.trim() || montarDescricao(), valor, dataVencimento, dataCompetencia,
+      categoriaCodigo, numeroDocumento, formaPagamento, tipoChavePix, chavePix, contaBancaria, observacao, codigoBarras,
+      juros, multa, desconto,
+    }
+    setSalvandoEdicao(true)
+    const r = await ed.salvarEdicao(camposEdicao(valoresDaLinha(ed.linha)), camposEdicao(atual))
+    setSalvandoEdicao(false)
+    if (!r.ok) { setFeedback({ tipo: 'erro', texto: r.erro }); return }
+    setEdicaoSalva(true)
+  }
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false)
+  const [edicaoSalva, setEdicaoSalva] = useState(false)
+  // Fecha a edição quando salvou e não há (mais) pergunta de réplica pendente.
+  useEffect(() => {
+    if (!edicaoSalva || ed.replica) return
+    setEdicaoSalva(false)
+    if (onSucesso && editarId) { onSucesso(editarId); return }
+    setToast('ALTEROU a despesa')
+    router.push('/dashboard/financeiro/pagar?area=gestao_empresarial')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edicaoSalva, ed.replica])
 
   // Descrição OPCIONAL (pedido Jordana/BPO): se vazia, geramos a partir de
   // fornecedor + categoria do DRE — a descrição identifica a conta na lista, nos
@@ -548,11 +638,12 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
         >
           Financeiro · Despesas a pagar
         </div>
-        <h1 style={{ fontSize: 24, color: '#3D2314', margin: 0, fontWeight: 500 }}>Nova despesa</h1>
+        <h1 style={{ fontSize: 24, color: '#3D2314', margin: 0, fontWeight: 500 }}>{editando ? 'Editar despesa' : 'Nova despesa'}</h1>
         <div style={{ fontSize: 13, color: 'rgba(61,35,20,0.65)', marginTop: 4 }}>
-          Cadastre uma despesa nova · simples como uma nota fiscal
+          {editando ? 'Mesma tela da inclusão · as alterações ficam no histórico do lançamento' : 'Cadastre uma despesa nova · simples como uma nota fiscal'}
         </div>
 
+        {!editando && (
         <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
           <span style={{ ...atalhoBtn(true), pointerEvents: 'none' }}>🆕 Despesa nova</span>
           <button type="button" onClick={() => setCopiarAberto(true)} style={atalhoBtn(false)}>
@@ -562,7 +653,14 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             📌 Usar modelo
           </span>
         </div>
+        )}
       </div>
+
+      {editando && (ed.carregando || ed.erroCarga) ? (
+        <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '24px 28px', maxWidth: 720, fontSize: 13, color: ed.erroCarga ? PSGC_COLORS.alta : 'rgba(61,35,20,0.65)' }}>
+          {ed.erroCarga ?? 'Carregando a despesa…'}
+        </div>
+      ) : (
 
       <div
         style={{
@@ -599,7 +697,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               value={valor}
               onChange={(e) => { setValor(e.target.value); if (erroCampo === 'valor') limparFeedback() }}
               placeholder="0,00"
-              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'valor' ? 'x' : null) }}
+              disabled={editando && ed.baixado}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'valor' ? 'x' : null), ...(editando && ed.baixado ? travadoStyle : {}) }}
             />
             <small style={helperStyle}>Em reais (R$)</small>
           </Campo>
@@ -609,7 +708,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               type="date"
               value={dataVencimento}
               onChange={(e) => { setDataVencimento(e.target.value); setVencimentoManual(true); if (erroCampo === 'dataVencimento') limparFeedback() }}
-              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'dataVencimento' ? 'x' : null) }}
+              disabled={editando && ed.baixado}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'dataVencimento' ? 'x' : null), ...(editando && ed.baixado ? travadoStyle : {}) }}
             />
           </Campo>
 
@@ -686,6 +786,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             />
           </Campo>
 
+          {!editando && (
           <Campo label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
             <input
               type="number"
@@ -697,6 +798,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             />
             <small style={helperStyle}>1 = pagamento à vista</small>
           </Campo>
+          )}
 
           {parcelas > 1 && (
             <Campo label="Intervalo entre parcelas">
@@ -786,6 +888,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               onChange={(e) => setFormaPagamento(e.target.value)}
               style={inputStyle}
             >
+              {editando && formaPagamento && !FORMAS_PAGAMENTO.some((f) => f.v === formaPagamento) && (
+                <option value={formaPagamento}>{formaPagamento} (atual)</option>
+              )}
               {FORMAS_PAGAMENTO.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
             </select>
           </Campo>
@@ -798,9 +903,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             <select
               value={contaBancaria}
               onChange={(e) => setContaBancaria(e.target.value)}
-              style={inputStyle}
+              disabled={editando && ed.baixado}
+              style={{ ...inputStyle, ...(editando && ed.baixado ? travadoStyle : {}) }}
             >
               <option value="">— escolher depois —</option>
+              {editando && contaBancaria && !contas.some((c) => c.nome === contaBancaria) && (
+                <option value={contaBancaria}>{contaBancaria} (atual)</option>
+              )}
               {contas.map((c) => {
                 const auto = contasAuto.has(c.id)
                 return (
@@ -819,7 +928,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             ) : null}
           </Campo>
 
-          {ehCartaoComFatura && parcelas <= 1 && (
+          {ehCartaoComFatura && parcelas <= 1 && !editando && (
             <Campo label="Data da compra (cartão)">
               <input
                 type="date"
@@ -932,8 +1041,24 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
             />
           </Campo>
 
+          {editando && (
+            <>
+              <Campo label="Juros (R$)">
+                <input type="number" step="0.01" min="0" value={juros} onChange={(e) => setJuros(e.target.value)} placeholder="0,00" style={inputStyle} />
+              </Campo>
+              <Campo label="Multa (R$)">
+                <input type="number" step="0.01" min="0" value={multa} onChange={(e) => setMulta(e.target.value)} placeholder="0,00" style={inputStyle} />
+              </Campo>
+              <Campo label="Desconto (R$)">
+                <input type="number" step="0.01" min="0" value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" style={inputStyle} />
+              </Campo>
+            </>
+          )}
+
           <div style={{ gridColumn: '1 / -1', borderTop: '0.5px solid rgba(61,35,20,0.12)', paddingTop: 12, marginTop: 4 }}>
-            {origemConciliacao ? (
+            {editando && ed.linha ? (
+              <SituacaoEdicao tipo="pagar" linha={ed.linha} baixado={ed.baixado} />
+            ) : origemConciliacao ? (
               <div style={{ background: '#DCFCE7', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: '0.5px solid rgba(22,163,74,0.35)' }}>
                 🔗 Esta despesa CRIOU a partir de um movimento do extrato bancário.
                 Ao salvar, ela CONCILIA automaticamente com o movimento — a baixa é feita
@@ -951,7 +1076,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
                 </label>
               </>
             )}
-            {jaPago && !origemConciliacao && (
+            {jaPago && !origemConciliacao && !editando && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
                 <Campo label="Data do pagamento" obrigatorio>
                   <input
@@ -1001,7 +1126,22 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
           >
             Cancelar
           </button>
-          {/* Fatia 3: dropdown Salvar (Salvar / Salvar e nova / Salvar e duplicar) */}
+          {editando ? (
+            <button
+              type="button"
+              data-testid="salvar-edicao"
+              onClick={() => void salvarEdicao()}
+              disabled={salvandoEdicao || !ed.linha}
+              style={{
+                background: PSGC_COLORS.dourado, color: '#3D2314', border: 'none',
+                padding: '10px 24px', borderRadius: 6, fontSize: 13, fontWeight: 600,
+                cursor: salvandoEdicao ? 'wait' : 'pointer', opacity: salvandoEdicao ? 0.6 : 1,
+              }}
+            >
+              {salvandoEdicao ? 'Salvando...' : 'Salvar alterações'}
+            </button>
+          ) : (
+          /* Fatia 3: dropdown Salvar (Salvar / Salvar e nova / Salvar e duplicar) */
           <div style={{ position: 'relative', display: 'inline-flex' }}>
             <button
               onClick={() => void salvar('fechar')}
@@ -1034,8 +1174,20 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar }: No
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
+      )}
+
+      {ed.replica && (
+        <ReplicaParcelasDialog
+          replica={ed.replica}
+          replicando={ed.replicando}
+          erro={erroReplica}
+          onEscolher={async (escopo) => { setErroReplica(await ed.aplicarReplica(escopo)) }}
+          onSoEsta={() => { setErroReplica(null); ed.descartarReplica() }}
+        />
+      )}
 
       <CopiarDespesaModal
         open={copiarAberto}
@@ -1219,6 +1371,8 @@ function atalhoBtn(ativo: boolean): React.CSSProperties {
   }
 }
 
+// #71 · campo travado na edição de título já baixado (valor/vencimento/conta)
+const travadoStyle: React.CSSProperties = { background: '#F3ECE0', color: 'rgba(61,35,20,0.6)', cursor: 'not-allowed' }
 const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '10px 12px',

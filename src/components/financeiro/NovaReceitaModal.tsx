@@ -8,6 +8,8 @@ interface NovaReceitaModalProps {
   onFechar: () => void
   onSucesso?: (receitaId: string) => void
   initial?: { clienteId?: string; clienteNome?: string; valor?: string; descricao?: string }
+  // #71 · editar = a MESMA tela da inclusão, preenchida com o lançamento
+  editarId?: string
 }
 
 export default function NovaReceitaModal({
@@ -16,12 +18,13 @@ export default function NovaReceitaModal({
   onFechar,
   onSucesso,
   initial,
+  editarId,
 }: NovaReceitaModalProps) {
   if (!aberto) return null
 
   return (
     <div
-      onClick={onFechar}
+      onClick={editarId ? undefined : onFechar}
       style={{
         position: 'fixed',
         inset: 0,
@@ -47,6 +50,7 @@ export default function NovaReceitaModal({
       >
         <NovaReceitaForm
           companyId={companyId}
+          editarId={editarId}
           initial={initial}
           onSucesso={(id) => {
             onSucesso?.(id)

@@ -12,7 +12,9 @@ import BoletoActions, { type ClienteContato, type BoletoEstado } from './BoletoA
 
 const SEM_CONTA = '— sem conta informada —' // 3b: chip de filtro p/ lançamentos sem conta bancária
 import ConciliarTituloModal from './ConciliarTituloModal'
-import EditarLancamentoModal from './EditarLancamentoModal'
+// #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
+import NovaDespesaModal from './NovaDespesaModal'
+import NovaReceitaModal from './NovaReceitaModal'
 import CartaoRecebimentoModal from './CartaoRecebimentoModal'
 import HistoricoLancamentoModal from './HistoricoLancamentoModal'
 import HistoricoGlobalModal from './HistoricoGlobalModal'
@@ -1523,14 +1525,23 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         tituloVencimento={conciliandoItem?.data_vencimento ?? ''}
       />
 
-      <EditarLancamentoModal
-        open={!!editandoItem}
-        onClose={() => setEditandoItem(null)}
-        onSucesso={() => { setEditandoItem(null); setReloadKey((k) => k + 1) }}
-        tipo={tipo}
-        itemId={editandoItem?.id ?? ''}
-        companyId={companyId}
-      />
+      {tipo === 'pagar' ? (
+        <NovaDespesaModal
+          aberto={!!editandoItem}
+          editarId={editandoItem?.id}
+          companyId={companyId}
+          onFechar={() => setEditandoItem(null)}
+          onSucesso={() => setReloadKey((k) => k + 1)}
+        />
+      ) : (
+        <NovaReceitaModal
+          aberto={!!editandoItem}
+          editarId={editandoItem?.id}
+          companyId={companyId}
+          onFechar={() => setEditandoItem(null)}
+          onSucesso={() => setReloadKey((k) => k + 1)}
+        />
+      )}
 
       {cartaoItem && (
         <CartaoRecebimentoModal

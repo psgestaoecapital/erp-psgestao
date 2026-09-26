@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import NovaReceitaForm from '@/components/financeiro/NovaReceitaForm'
 
@@ -12,6 +13,8 @@ export const dynamic = 'force-dynamic'
 
 function NovaReceitaPageInner() {
   const { companyIds, selInfo } = useCompanyIds()
+  // #71 · ?editar=<id> abre o lançamento existente nesta MESMA tela (modo edição)
+  const editarId = useSearchParams()?.get('editar') ?? undefined
   // FIX-VAZAMENTO-JORDANA (07/07 · seguindo padrao das outras telas
   // operacionais): so opera com empresa unica selecionada. Antes usava
   // apenas companyIds.length === 1 que aceitava grupo/consolidado se
@@ -47,7 +50,7 @@ function NovaReceitaPageInner() {
     )
   }
 
-  return <NovaReceitaForm companyId={empresaUnica} />
+  return <NovaReceitaForm companyId={empresaUnica} editarId={editarId} />
 }
 
 export default function Page() {

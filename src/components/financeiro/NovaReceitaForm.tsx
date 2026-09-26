@@ -15,6 +15,8 @@ import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
 import { Campo } from '@/components/ui/feedback/Campo'
 import { useSalvar } from '@/components/ui/feedback/useSalvar'
 import { estiloBordaInput, mensagemDeResultado, VERBO_SUCESSO, type ResultadoSalvar } from '@/components/ui/feedback/contratoSalvar'
+// #71 · modo edição: a mesma tela da inclusão abre o lançamento existente
+import { useEdicaoLancamento, ReplicaParcelasDialog, SituacaoEdicao, type Campos } from './edicaoLancamento'
 
 type Cliente = {
   id: string
@@ -46,6 +48,8 @@ interface NovaReceitaFormProps {
   onCancelar?: () => void
   // Pré-preenchimento (ex.: "Gerar financeiro" a partir da OS, chamado #20 §2.4). Opcional.
   initial?: { clienteId?: string; clienteNome?: string; valor?: string; descricao?: string }
+  // #71 · id de erp_receber → a tela abre em modo EDIÇÃO (mesmos campos/listas da inclusão)
+  editarId?: string
 }
 
 const exibirNomeCliente = (c: Cliente) =>
@@ -54,9 +58,12 @@ const exibirNomeCliente = (c: Cliente) =>
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const cidadeUf = (c: Cliente) => [c.cidade, c.uf].filter(Boolean).join('/')
 
-export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, initial }: NovaReceitaFormProps) {
+export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, initial, editarId }: NovaReceitaFormProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const editando = !!editarId
+  const ed = useEdicaoLancamento('receber', editarId, companyId)
+  const [erroReplica, setErroReplica] = useState<string | null>(null)
   // Conciliacao: quando vem ?origem_conciliacao=<mov_id>, esta receita nasce
   // vinculada a um movimento do extrato. Fluxo atomico via
   // fn_conciliacao_aplicar_match -> trigger trg_baixa_por_conciliacao faz a baixa.
@@ -105,6 +112,10 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
   const [contaBancaria, setContaBancaria] = useState('') // agora guarda o ID da conta (erp_banco_contas.id)
   const [centroCustoId, setCentroCustoId] = useState('')
   const [observacao, setObservacao] = useState('')
+  // #71 · só na edição (ajustes do título): juros / multa / desconto
+  const [juros, setJuros] = useState('')
+  const [multa, setMulta] = useState('')
+  const [desconto, setDesconto] = useState('')
   const [jaRecebido, setJaRecebido] = useState(false)
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
 
@@ -325,6 +336,82 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
   }, [taxasCartao, bandeira])
   const rotuloModalidade = (m: string) => m === 'credito' ? 'Crédito' : m === 'debito' ? 'Débito' : m
 
+  // #71 · EDIÇÃO: preenche a tela com o título existente (mesmos campos da inclusão).
+  const valoresDaLinha = (l: Record<string, unknown>) => ({
+    clienteId: String(l.cliente_id ?? ''), clienteNome: String(l.cliente_nome ?? ''),
+    descricao: String(l.descricao ?? ''), valor: l.valor == null ? '' : String(l.valor),
+    dataRecebimento: String(l.data_vencimento ?? ''), dataCompetencia: String(l.data_competencia ?? ''),
+    categoriaCodigo: String(l.categoria ?? ''), numeroDocumento: String(l.numero_documento ?? ''),
+    formaRecebimento: String(l.forma_pagamento ?? ''), tipoChavePix: String(l.tipo_chave_pix ?? 'cpf_cnpj'),
+    chavePix: String(l.chave_pix ?? ''), contaBancaria: String(l.conta_bancaria_id ?? ''),
+    centroCustoId: String(l.centro_custo_id ?? ''), observacao: String(l.observacoes ?? ''),
+    juros: l.juros == null ? '' : String(l.juros), multa: l.multa == null ? '' : String(l.multa),
+    desconto: l.desconto == null ? '' : String(l.desconto),
+  })
+  type ValoresReceita = ReturnType<typeof valoresDaLinha>
+  // Mesma função monta a BASE (linha carregada) e o ATUAL (tela) → o diff só pega o que a pessoa mudou.
+  // Conta: grava o vínculo (conta_bancaria_id) e o nome no texto legado, como a inclusão.
+  const camposEdicao = (v: ValoresReceita, nomeConta: string | null): Campos => {
+    const pix = ehPix(v.formaRecebimento) && v.chavePix.trim()
+    const c: Campos = {
+      cliente_id: v.clienteId || null, cliente_nome: v.clienteNome || null,
+      descricao: v.descricao, valor: v.valor, data_vencimento: v.dataRecebimento,
+      data_competencia: v.dataCompetencia || null, categoria: v.categoriaCodigo || null,
+      numero_documento: v.numeroDocumento || null, forma_pagamento: v.formaRecebimento || null,
+      tipo_chave_pix: pix ? v.tipoChavePix : null, chave_pix: pix ? normalizarChavePix(v.tipoChavePix, v.chavePix) : null,
+      conta_bancaria_id: v.contaBancaria || null, centro_custo_id: v.centroCustoId || null,
+      observacoes: v.observacao || null,
+      juros: v.juros || null, multa: v.multa || null, desconto: v.desconto || null,
+    }
+    c.conta_bancaria = v.contaBancaria ? nomeConta : null
+    return c
+  }
+  useEffect(() => {
+    if (!ed.linha) return
+    const v = valoresDaLinha(ed.linha)
+    setClienteId(v.clienteId); setClienteNome(v.clienteNome); setDescricao(v.descricao); setValor(v.valor)
+    setDataRecebimento(v.dataRecebimento); setDataCompetencia(v.dataCompetencia); setCategoriaCodigo(v.categoriaCodigo)
+    setNumeroDocumento(v.numeroDocumento); setFormaRecebimento(v.formaRecebimento); setTipoChavePix(v.tipoChavePix)
+    setChavePix(v.chavePix); setContaBancaria(v.contaBancaria); setCentroCustoId(v.centroCustoId); setObservacao(v.observacao)
+    setJuros(v.juros); setMulta(v.multa); setDesconto(v.desconto)
+  }, [ed.linha])
+
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false)
+  const [edicaoSalva, setEdicaoSalva] = useState(false)
+  async function salvarEdicao() {
+    if (!ed.linha || !editarId) return
+    setToast(null); limparFeedback()
+    if (!valor || parseFloat(valor) <= 0) { setErroCampo('valor'); setFeedback({ tipo: 'erro', texto: 'Faltou preencher: Valor' }); return }
+    if (!dataRecebimento) { setErroCampo('dataRecebimento'); setFeedback({ tipo: 'erro', texto: 'Faltou preencher: Quando entra na conta' }); return }
+    if (ehPix(formaRecebimento) && chavePix.trim()) {
+      const eChave = validarChavePix(tipoChavePix, chavePix)
+      if (eChave) { setErroCampo('chavePix'); setFeedback({ tipo: 'erro', texto: `Chave PIX: ${eChave}` }); return }
+    }
+    const compRef = (dataCompetencia || dataRecebimento || '').slice(0, 7)
+    const atual: ValoresReceita = {
+      clienteId, clienteNome, descricao: descricao.trim() || `${clienteNome || 'Receita'}${compRef ? ' · ' + compRef : ''}`,
+      valor, dataRecebimento, dataCompetencia, categoriaCodigo, numeroDocumento, formaRecebimento, tipoChavePix, chavePix,
+      contaBancaria, centroCustoId, observacao, juros, multa, desconto,
+    }
+    const base = valoresDaLinha(ed.linha)
+    const nomeBase = String(ed.linha.conta_bancaria ?? '') || null
+    const nomeAtual = contaBancaria === base.contaBancaria ? nomeBase : (contas.find((c) => c.id === contaBancaria)?.nome ?? null)
+    setSalvandoEdicao(true)
+    const r = await ed.salvarEdicao(camposEdicao(base, nomeBase), camposEdicao(atual, nomeAtual))
+    setSalvandoEdicao(false)
+    if (!r.ok) { setFeedback({ tipo: 'erro', texto: r.erro }); return }
+    setEdicaoSalva(true)
+  }
+  // Fecha a edição quando salvou e não há (mais) pergunta de réplica pendente.
+  useEffect(() => {
+    if (!edicaoSalva || ed.replica) return
+    setEdicaoSalva(false)
+    if (onSucesso && editarId) { onSucesso(editarId); return }
+    setToast('ALTEROU a receita')
+    router.push('/dashboard/financeiro/receber?area=gestao_empresarial')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edicaoSalva, ed.replica])
+
   // Validação client-side no padrão RD-41: banner "Faltou preencher: X" + destaque no campo.
   function validarCampos(): { campo: string; banner: string } | null {
     if (!valor || parseFloat(valor) <= 0) return { campo: 'valor', banner: 'Faltou preencher: Valor' }
@@ -529,11 +616,17 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
         >
           Financeiro · Receitas a receber
         </div>
-        <h1 style={{ fontSize: 24, color: '#3D2314', margin: 0, fontWeight: 500 }}>Nova receita</h1>
+        <h1 style={{ fontSize: 24, color: '#3D2314', margin: 0, fontWeight: 500 }}>{editando ? 'Editar receita' : 'Nova receita'}</h1>
         <div style={{ fontSize: 13, color: 'rgba(61,35,20,0.65)', marginTop: 4 }}>
-          Cadastre uma entrada nova · venda · serviço · mensalidade
+          {editando ? 'Mesma tela da inclusão · as alterações ficam no histórico do lançamento' : 'Cadastre uma entrada nova · venda · serviço · mensalidade'}
         </div>
       </div>
+
+      {editando && (ed.carregando || ed.erroCarga) ? (
+        <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '24px 28px', maxWidth: 720, fontSize: 13, color: ed.erroCarga ? PSGC_COLORS.alta : 'rgba(61,35,20,0.65)' }}>
+          {ed.erroCarga ?? 'Carregando a receita…'}
+        </div>
+      ) : (
 
       <div
         style={{
@@ -569,7 +662,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               value={valor}
               onChange={(e) => { setValor(e.target.value); if (erroCampo === 'valor') limparFeedback() }}
               placeholder="0,00"
-              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'valor' ? 'x' : null) }}
+              disabled={editando && ed.baixado}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'valor' ? 'x' : null), ...(editando && ed.baixado ? travadoStyle : {}) }}
             />
             <small style={helperStyle}>Em reais (R$)</small>
           </Campo>
@@ -579,7 +673,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               type="date"
               value={dataRecebimento}
               onChange={(e) => { setDataRecebimento(e.target.value); if (erroCampo === 'dataRecebimento') limparFeedback() }}
-              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'dataRecebimento' ? 'x' : null) }}
+              disabled={editando && ed.baixado}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'dataRecebimento' ? 'x' : null), ...(editando && ed.baixado ? travadoStyle : {}) }}
             />
           </Campo>
 
@@ -662,6 +757,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             />
           </Campo>
 
+          {!editando && (
           <Campo label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
             <input
               type="number"
@@ -673,6 +769,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             />
             <small style={helperStyle}>1 = recebimento à vista</small>
           </Campo>
+          )}
 
           {parcelas > 1 && (
             <Campo label="Intervalo entre parcelas">
@@ -762,6 +859,9 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               onChange={(e) => setFormaRecebimento(e.target.value)}
               style={inputStyle}
             >
+              {editando && formaRecebimento && !FORMAS_PAGAMENTO.some((f) => f.v === formaRecebimento) && (
+                <option value={formaRecebimento}>{formaRecebimento} (atual)</option>
+              )}
               {FORMAS_PAGAMENTO.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
             </select>
           </Campo>
@@ -771,7 +871,12 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           )}
 
           {/* CART-1 · cartão: bandeira/modalidade → mostra o líquido que entra e a data do repasse. */}
-          {ehCartao && (
+          {ehCartao && editando && (
+            <small style={{ ...helperStyle, gridColumn: '1 / -1' }}>
+              Dados da maquininha (adquirente, bandeira, taxa) ficam como foram lançados · para mudar, lance o recebimento de novo.
+            </small>
+          )}
+          {ehCartao && !editando && (
             <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, padding: '14px 16px', background: '#FBF6EC', border: '0.5px solid rgba(200,148,26,0.35)', borderRadius: 10 }}>
               <Campo label="Adquirente (maquininha)">
                 <select value={adquirenteId} onChange={(e) => { setAdquirenteId(e.target.value); setBandeira(''); setModalidadeCartao('') }} style={inputStyle}>
@@ -823,7 +928,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             <select
               value={contaBancaria}
               onChange={(e) => setContaBancaria(e.target.value)}
-              style={inputStyle}
+              disabled={editando && ed.baixado}
+              style={{ ...inputStyle, ...(editando && ed.baixado ? travadoStyle : {}) }}
             >
               <option value="">— escolher depois —</option>
               {contas.map((c) => (
@@ -877,8 +983,24 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             />
           </Campo>
 
+          {editando && (
+            <>
+              <Campo label="Juros (R$)">
+                <input type="number" step="0.01" min="0" value={juros} onChange={(e) => setJuros(e.target.value)} placeholder="0,00" style={inputStyle} />
+              </Campo>
+              <Campo label="Multa (R$)">
+                <input type="number" step="0.01" min="0" value={multa} onChange={(e) => setMulta(e.target.value)} placeholder="0,00" style={inputStyle} />
+              </Campo>
+              <Campo label="Desconto (R$)">
+                <input type="number" step="0.01" min="0" value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" style={inputStyle} />
+              </Campo>
+            </>
+          )}
+
           <div style={{ gridColumn: '1 / -1', borderTop: '0.5px solid rgba(61,35,20,0.12)', paddingTop: 12, marginTop: 4 }}>
-            {origemConciliacao ? (
+            {editando && ed.linha ? (
+              <SituacaoEdicao tipo="receber" linha={ed.linha} baixado={ed.baixado} />
+            ) : origemConciliacao ? (
               <div style={{ background: '#DCFCE7', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: '0.5px solid rgba(22,163,74,0.35)' }}>
                 🔗 Esta receita CRIOU a partir de um movimento do extrato bancário.
                 Ao salvar, ela CONCILIA automaticamente com o movimento — a baixa é feita
@@ -894,7 +1016,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                 {parcelas > 1 ? 'Já recebi a 1ª parcela' : 'Já recebi essa receita'}
               </label>
             )}
-            {jaRecebido && !origemConciliacao && (
+            {jaRecebido && !origemConciliacao && !editando && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
                 <Campo label="Data do recebimento" obrigatorio>
                   <input
@@ -945,8 +1067,9 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             Cancelar
           </button>
           <button
-            onClick={() => salvar()}
-            disabled={loading}
+            data-testid={editando ? 'salvar-edicao' : undefined}
+            onClick={() => (editando ? void salvarEdicao() : salvar())}
+            disabled={loading || salvandoEdicao || (editando && !ed.linha)}
             style={{
               background: PSGC_COLORS.dourado,
               color: '#3D2314',
@@ -955,14 +1078,25 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               borderRadius: 6,
               fontSize: 13,
               fontWeight: 500,
-              cursor: loading ? 'wait' : 'pointer',
-              opacity: loading ? 0.6 : 1,
+              cursor: (loading || salvandoEdicao) ? 'wait' : 'pointer',
+              opacity: (loading || salvandoEdicao) ? 0.6 : 1,
             }}
           >
-            {loading ? 'Salvando...' : 'Salvar receita'}
+            {(loading || salvandoEdicao) ? 'Salvando...' : editando ? 'Salvar alterações' : 'Salvar receita'}
           </button>
         </div>
       </div>
+      )}
+
+      {ed.replica && (
+        <ReplicaParcelasDialog
+          replica={ed.replica}
+          replicando={ed.replicando}
+          erro={erroReplica}
+          onEscolher={async (escopo) => { setErroReplica(await ed.aplicarReplica(escopo)) }}
+          onSoEsta={() => { setErroReplica(null); ed.descartarReplica() }}
+        />
+      )}
 
       {dupWarn && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }}>
@@ -1029,6 +1163,8 @@ const clienteBtnStyle: React.CSSProperties = {
   cursor: 'pointer',
 }
 
+// #71 · campo travado na edição de título já baixado (valor/vencimento/conta)
+const travadoStyle: React.CSSProperties = { background: '#F3ECE0', color: 'rgba(61,35,20,0.6)', cursor: 'not-allowed' }
 const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '10px 12px',
