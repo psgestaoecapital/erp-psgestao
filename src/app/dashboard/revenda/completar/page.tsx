@@ -26,6 +26,7 @@ type Row = {
   ncm: string | null; lugares: number | null
   // #26 #49 #143 (Fábio · Alliance): KM, manual e chave reserva na linha principal
   km_atual: number | null; km_entrada: number | null; tem_manual: boolean | null; tem_chave_reserva: boolean | null
+  versao: string | null
   fiscais_faltantes: string[]; sugestao_ano_chassi: number | null
 }
 const TIPOS: Array<{ v: string; lbl: string }> = [
@@ -64,7 +65,7 @@ function Inner() {
     if (!companyId) { setRows([]); setModelos([]); return }
     // dados editáveis de veic_veiculo + completude (fiscais_faltantes/sugestão) da mesma regra do pátio
     const [vv, pat, ml] = await Promise.all([
-      supabase.from('veic_veiculo').select('id,marca,modelo,chassi,cor,combustivel,potencia_cv,cilindradas,ano_fabricacao,ano_modelo,valor_aquisicao,tipo,placa,renavam,portas,crlv_storage_path,ncm,lugares,km_atual,km_entrada,tem_manual,tem_chave_reserva').eq('company_id', companyId).is('deleted_at', null),
+      supabase.from('veic_veiculo').select('id,marca,modelo,chassi,cor,combustivel,potencia_cv,cilindradas,ano_fabricacao,ano_modelo,valor_aquisicao,tipo,placa,renavam,portas,crlv_storage_path,ncm,lugares,km_atual,km_entrada,tem_manual,tem_chave_reserva,versao').eq('company_id', companyId).is('deleted_at', null),
       supabase.from('v_veic_patio').select('id,fiscais_faltantes,sugestao_ano_chassi').eq('company_id', companyId),
       supabase.rpc('fn_veic_modelo_listar', { p_company_id: companyId }),
     ])
@@ -307,7 +308,14 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
     <div style={{ borderTop: `1px solid ${C.cream}`, padding: '10px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
       {/* cabeçalho da linha: veículo + o que falta + CRLV */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <b style={{ fontSize: 12.5 }}>{r.marca || '—'} {r.modelo || ''}</b>
+        <b style={{ fontSize: 12.5 }}>{[r.marca, r.modelo, r.versao].filter(Boolean).join(' ') || '—'}</b>
+        {/* #101 (RD-71, caminho irmão do Pátio): o ano digitado no campo modelo ("2009") — avisa, não corrige sozinho */}
+        {/^(19|20)\d{2}$/.test((r.modelo || '').trim()) && (
+          <a href={`/dashboard/revenda/veiculo/${r.id}`} title="O modelo está com um ano. Corrija na ficha: Modelo = nome (ex.: Onix); o ano vai em Ano modelo."
+            style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: `1px solid ${C.amber}`, color: C.amber, background: C.amberBg, textDecoration: 'none' }}>
+            modelo parece ano — corrigir na ficha →
+          </a>
+        )}
         <span style={{ fontSize: 10, color: C.espL, fontFamily: 'monospace' }}>chassi …{(r.chassi || '').slice(-6)}</span>
         <span title={temCrlv ? 'CRLV anexado' : 'CRLV não anexado — anexe na ficha'}
           style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: `1px solid ${temCrlv ? C.green : C.amber}`, color: temCrlv ? C.green : C.amber, background: temCrlv ? C.greenBg : C.amberBg }}>
