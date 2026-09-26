@@ -69,6 +69,15 @@ quebrou em 31/08–01/09/2026 (10 órfãos de SIC-F1/DEMO-F1/NF-e/estoque).
 3. **Nada é marcado como aplicado sem ter rodado de verdade.** Um ledger que mente sobre o
    que foi aplicado é pior que um desalinhado.
 
+## Aceitação que depende de migration → tag `@pos-migration` (CEO 26/09)
+
+O preview da PR roda o código novo contra o banco ATUAL: a migration só entra no merge. Teste de aceitação que só
+passa com a migration aplicada leva `{ tag: '@pos-migration' }`. No preview ele roda **informativo** (não bloqueia,
+`aceitacao-pr.yml`); o **veredito** é o `aceitacao-pos-migration.yml`, em produção, logo após o `deploy-migrations`.
+O merge fica condicionado a esse verde: vermelho lá = **reverter a PR** (código + migration que devolve o estado
+anterior — reverter o arquivo não desfaz o que já rodou no banco) e avisar o CEO. Nunca afrouxe o teste para passar
+no preview.
+
 ## Se o pipeline já estiver vermelho (reconciliação dos órfãos)
 
 Confira antes e depois (o que o `db push` compara), tocando **só** os órfãos recentes —
