@@ -10,7 +10,8 @@ import { dbSelect, dbInsert, dbPatch, registrarJornada, obterSessionPayload } fr
 const DEMO_COMERCIO = 'b0700000-0000-4000-a000-000000000004'
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
-const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
+// erp_orcamentos.numero e erp_pedidos.numero são varchar(20) e o pedido herda 'PED-' || numero → número curto e único
+const NUM = `A122-${Date.now().toString(36)}`
 
 test.describe('Aceitação #122 — orçamento vira pedido a partir do rascunho', () => {
   let token = ''
@@ -26,7 +27,7 @@ test.describe('Aceitação #122 — orçamento vira pedido a partir do rascunho'
     expect(emp?.is_demo, 'a aceitação só roda na empresa de demonstração').toBe(true)
     token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
     orc = (await dbInsert<{ id: string }>('erp_orcamentos', {
-      company_id: DEMO_COMERCIO, numero: `ACEITE-122-${RUN}`, cliente_nome: 'Cliente Aceitação 122', status: 'rascunho',
+      company_id: DEMO_COMERCIO, numero: NUM, cliente_nome: 'Cliente Aceitação 122', status: 'rascunho',
       subtotal: 150, total: 150,
     })).id
     await dbInsert('erp_orcamentos_itens', {
