@@ -31,6 +31,8 @@
     "/dashboard/wealth/ofx",
     "/dashboard/wealth/recomendacoes",
     "/dashboard/wealth/relatorios",
-    "/dashboard/wealth/suitability"
-  ]
+    "/dashboard/wealth/suitability",
+    "/dashboard/revenda/veiculo"
+  ],
+  "_nota_revenda_veiculo": "revenda_veiculo (module_catalog, ativo=true, legacy=true, criado 02/09/2026) aponta /dashboard/revenda/veiculo, mas a tela real é /dashboard/revenda/veiculo/[id] (ficha por veículo — não existe página raiz). A RPC fn_modulos_sidebar_por_area já filtra legacy=true, então o item nunca aparece no menu. Entrou no baseline em 26/09/2026 porque a régua só passou a rodar de verdade nesse dia (antes SKIPava sem SUPABASE_SERVICE_ROLE_KEY no CI). Para zerar: desativar o módulo ou repontar a rota — decisão do CEO (RD-53: não mexer no catálogo em hotfix)."
 }
