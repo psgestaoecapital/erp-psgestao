@@ -55,7 +55,10 @@ test.describe.serial('Vistoria — rápida, foto obrigatória bloqueia, previsã
     expect(vs[0].situacao).toBe('em_andamento')
     const modelo = await dbSelect<{ modo: string }>('insp_modelo', `id=eq.${vs[0].modelo_id}&select=modo`)
     expect(modelo[0]?.modo).toBe('rapida')
-    const itens = await dbSelect('insp_item', `modelo_id=eq.${vs[0].modelo_id}&select=id`)
+    // insp_item não tem modelo_id (nunca teve: 20260906210000_inspecao_motor.sql) — o item pertence à
+    // REGIÃO, e a região ao modelo. A consulta antiga dava 400 "column insp_item.modelo_id does not exist".
+    const regioes = await dbSelect<{ id: string }>('insp_regiao', `modelo_id=eq.${vs[0].modelo_id}&select=id`)
+    const itens = await dbSelect('insp_item', `regiao_id=in.(${regioes.map((r) => r.id).join(',')})&select=id`)
     expect(itens.length, 'a rápida tem 9 itens').toBe(9)
     const vistId = vs[0].id
 
