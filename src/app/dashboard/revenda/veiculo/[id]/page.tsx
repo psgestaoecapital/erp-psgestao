@@ -23,7 +23,7 @@ const SIT = ['em_preparacao', 'disponivel', 'reservado', 'vendido', 'entregue', 
 const TIPOS: { v: string; l: string }[] = [{ v: 'carro', l: 'carro' }, { v: 'moto', l: 'moto' }, { v: 'caminhao', l: 'caminhão' }, { v: 'maquina', l: 'máquina' }]
 const CATS = ['aquisicao', 'documentacao', 'despachante', 'preparacao', 'peca', 'mao_de_obra', 'debito_assumido', 'frete', 'comissao', 'outro']
 
-type Veic = { id: string; company_id: string; chassi: string; placa: string | null; marca: string | null; modelo: string | null; versao: string | null; ano_fabricacao: number | null; ano_modelo: number | null; cor: string | null; combustivel: string | null; potencia_cv: number | null; cilindradas: number | null; portas: number | null; cambio: string | null; renavam: string | null; km_entrada: number | null; km_atual: number | null; situacao: string; origem: string | null; data_entrada: string; valor_aquisicao: number | null; tipo: string | null; crlv_storage_path: string | null; preco_venda: number | null; observacao: string | null; anuncio_texto: string | null }
+type Veic = { id: string; company_id: string; chassi: string; placa: string | null; marca: string | null; modelo: string | null; versao: string | null; ano_fabricacao: number | null; ano_modelo: number | null; cor: string | null; combustivel: string | null; potencia_cv: number | null; cilindradas: number | null; portas: number | null; cambio: string | null; renavam: string | null; km_entrada: number | null; km_atual: number | null; situacao: string; origem: string | null; data_entrada: string; valor_aquisicao: number | null; tipo: string | null; crlv_storage_path: string | null; preco_venda: number | null; observacao: string | null; anuncio_texto: string | null; tem_manual?: boolean | null; tem_chave_reserva?: boolean | null }
 type Compl = { fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
 type Custo = { id: string; categoria: string; descricao: string | null; valor: number; fornecedor_nome: string | null; data_custo: string; entra_base_fiscal: boolean | null; pagar_id: string | null }
 type Evento = { id: string; tipo: string; descricao: string | null; data_evento: string }
@@ -1221,6 +1221,19 @@ function ComposicaoBloco({ comp, margemAlvo }: { comp: Composicao; margemAlvo: n
 // "não emite" (veicProd é do 0km; usado é decisão do contador — Opção 1 do CEO, RD-58). A sugestão
 // de ano vem do chassi (VIN pos.10) e é SEMPRE confirmada pelo usuário — nada é gravado sozinho (§6.4).
 const COMBS = ['gasolina', 'etanol', 'flex', 'diesel', 'gnv', 'elétrico', 'híbrido']
+const simNao = (b: boolean | null | undefined) => (b == null ? '' : b ? 'sim' : 'nao')
+// #101 (Fábio): 3 veículos da Alliance com modelo = "2009"/"2021"/"2025" — o ano foi digitado no modelo.
+const pareceAno = (m: string) => /^(19|20)\d{2}$/.test(m.trim())
+function SimNao({ id, rotulo, valor, onC }: { id: string; rotulo: string; valor: string; onC: (v: string) => void }) {
+  return (
+    <label htmlFor={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.espM }}>
+      {rotulo}
+      <select id={id} value={valor} onChange={(e) => onC(e.target.value)} style={{ ...inp, width: 72 }}>
+        <option value="">—</option><option value="sim">sim</option><option value="nao">não</option>
+      </select>
+    </label>
+  )
+}
 function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic; faltantes: string[] | null; sugestaoAno: number | null; onSaved: () => void; onErro: (m: string) => void }) {
   const num = (n: number | null) => (n == null ? '' : String(n))
   const vf = v as unknown as { valor_fipe?: number | null; ncm?: string | null; lugares?: number | null }
@@ -1229,6 +1242,9 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     combustivel: v.combustivel ?? '', potencia_cv: num(v.potencia_cv), cilindradas: num(v.cilindradas),
     portas: num(v.portas), cambio: v.cambio ?? '', ano_fabricacao: num(v.ano_fabricacao),
     ano_modelo: num(v.ano_modelo), renavam: v.renavam ?? '',
+    // #26 #49 #143 (Fábio · Alliance): KM, manual, chave reserva e especificação no lugar de potência/cilindrada
+    km_atual: num(v.km_atual), tem_manual: simNao(v.tem_manual), tem_chave_reserva: simNao(v.tem_chave_reserva),
+    observacao: v.observacao ?? '',
     // R7b (Tela 5): tipo do veículo — também alimenta a sugestão de NCM
     tipo: v.tipo ?? '',
     // item 2c-c: fiscal do veículo
@@ -1250,7 +1266,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     else setNcmMsg('Sem sugestão para este veículo — informe o NCM com o seu contador.')
   }
   const anoSugerido = sugestaoAno != null && (!f.ano_modelo || !f.ano_fabricacao)
-  const ROT: Record<string, string> = { potencia_cv: 'potência (cv)', cilindradas: 'cilindradas', portas: 'portas', ano_fabricacao: 'ano fab.', ano_modelo: 'ano mod.', valor_fipe: 'valor FIPE', lugares: 'lugares', km_entrada: 'km', valor_aquisicao: 'aquisição', ncm: 'NCM', tipo: 'tipo' }
+  const ROT: Record<string, string> = { km_atual: 'KM', tem_manual: 'manual', tem_chave_reserva: 'chave reserva', potencia_cv: 'potência (cv)', cilindradas: 'cilindradas', portas: 'portas', ano_fabricacao: 'ano fab.', ano_modelo: 'ano mod.', valor_fipe: 'valor FIPE', lugares: 'lugares', km_entrada: 'km', valor_aquisicao: 'aquisição', ncm: 'NCM', tipo: 'tipo' }
   async function salvar() {
     setBusy(true); setErroLocal(null); setCampo(null)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
@@ -1290,19 +1306,33 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         <select id="campo-tipo" value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} style={inp} title="tipo do veículo — usado na sugestão de NCM">
           <option value="">tipo…</option>{TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
         </select>
-        {F('marca', 'marca', 130)}{F('modelo', 'modelo', 150)}{F('versao', 'versão', 130)}{F('cor', 'cor', 100)}
+        {F('marca', 'marca', 130)}{F('modelo', 'modelo (ex.: Onix)', 150)}{F('versao', 'versão', 130)}{F('cor', 'cor', 100)}
         <select id="campo-combustivel" value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
           <option value="">combustível…</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        {F('potencia_cv', 'potência (cv)', 100)}{F('cilindradas', 'cilindradas', 100)}{F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}
+        <input id="campo-km_atual" value={f.km_atual} onChange={(e) => setF({ ...f, km_atual: e.target.value })} inputMode="numeric"
+          placeholder={v.km_entrada != null ? `KM (entrada ${Number(v.km_entrada).toLocaleString('pt-BR')})` : 'KM'} title="quilometragem atual"
+          style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'km_atual' ? 'x' : null) }} />
+        <SimNao id="campo-tem_manual" rotulo="manual" valor={f.tem_manual} onC={(x) => setF({ ...f, tem_manual: x })} />
+        <SimNao id="campo-tem_chave_reserva" rotulo="chave reserva" valor={f.tem_chave_reserva} onC={(x) => setF({ ...f, tem_chave_reserva: x })} />
+        {F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}
         {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
         <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
       </div>
+      {pareceAno(f.modelo) && (
+        <div style={{ background: C.amberBg, color: '#8A4B08', padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>
+          O modelo está como <b>{f.modelo}</b>, que parece o ano. Escreva o nome do modelo (ex.: Onix, L200, CB 500) e o ano nos campos de ano.
+        </div>
+      )}
+      <textarea id="campo-observacao" value={f.observacao} onChange={(e) => setF({ ...f, observacao: e.target.value })} rows={2} maxLength={2000}
+        placeholder="especificação (opcionais, estado, detalhes — entra no texto do anúncio)"
+        style={{ ...inp, width: '100%', marginTop: 8, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
       {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{erroLocal}</div>}
       {/* item 2c-c: Fiscal do veículo — FIPE (comissão/frescor) e NCM (nota; 8 dígitos) */}
       <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Fiscal do veículo <span style={{ fontWeight: 400, color: C.espL }}>· FIPE e NCM</span></div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Fiscal do veículo <span style={{ fontWeight: 400, color: C.espL }}>· FIPE, NCM, potência e cilindradas (dados da nota)</span></div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {F('potencia_cv', 'potência (cv)', 110)}{F('cilindradas', f.tipo === 'moto' ? 'cilindradas (moto: define o NCM)' : 'cilindradas', f.tipo === 'moto' ? 210 : 110)}
           <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
           <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace', ...estiloBordaInput(campo === 'ncm' ? 'x' : null) }} />
           {F('lugares', 'lugares', 80)}
@@ -1310,7 +1340,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         </div>
         {ncmMsg && <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>{ncmMsg}</div>}
       </div>
-      <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Campos vazios não apagam o que já existe — só completam. Combustível, potência, cilindradas e ano podem vir do catálogo de modelos (tela Completar). O NCM sugerido vem da tabela TIPI por faixa (item 2c) — confirme com o seu contador.</div>
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Campos vazios não apagam o que já existe — só completam. Manual e chave reserva: &ldquo;—&rdquo; é não informado. Combustível, potência, cilindradas e ano podem vir do catálogo de modelos (tela Completar). O NCM sugerido vem da tabela TIPI por faixa (item 2c) — confirme com o seu contador.</div>
     </div>
   )
 }
@@ -1544,7 +1574,8 @@ function AnuncioVeiculo({ v, onErro, onMsg, onSaved }: { v: Veic; onErro: (m: st
     const km = v.km_atual ?? v.km_entrada
     const det = [ano ? `Ano ${ano}` : '', km != null ? `${Number(km).toLocaleString('pt-BR')} km` : '', v.cor ? `Cor ${v.cor}` : '',
       v.combustivel, v.cambio ? `Câmbio ${v.cambio}` : '', v.portas ? `${v.portas} portas` : ''].filter(Boolean).join(' · ')
-    const linhas = [titulo, det]
+    const itens = [v.tem_manual ? 'manual' : '', v.tem_chave_reserva ? 'chave reserva' : ''].filter(Boolean)
+    const linhas = [titulo, det, itens.length ? `Com ${itens.join(' e ')}.` : '']
     if (v.observacao) linhas.push(String(v.observacao).trim())
     if (v.preco_venda != null) linhas.push(`Valor: ${brl(Number(v.preco_venda))}`)
     linhas.push('Aceita troca e financiamento. Agende sua visita.')
