@@ -61,7 +61,9 @@ function Inner() {
   const [comp, setComp] = useState<Composicao | null>(null)
   const [margem, setMargem] = useState(20)
   // R0.1 (RD-65): preço mínimo vem da FONTE ÚNICA no banco (fn_veic_preco_minimo) — a ficha NÃO calcula.
-  const [pm, setPm] = useState<{ preco_minimo: number | null; piso_sem_margem: number | null; margem_pct: number | null } | null>(null)
+  // undefined = ainda calculando (a margem da config chega antes do RPC: sem isso a ficha dizia "não calcula ·
+  // informe a aquisição primeiro" enquanto carregava); null = RPC recusou.
+  const [pm, setPm] = useState<{ preco_minimo: number | null; piso_sem_margem: number | null; margem_pct: number | null } | null | undefined>(undefined)
   const [fiscalKey, setFiscalKey] = useState(0) // Onda 0: força recarregar a barra de completude após salvar dados
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -208,7 +210,9 @@ function Inner() {
           <>
             <Card l="Aquisição" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(v.valor_aquisicao) : 'sem custo'} />
             <Card l="Custo acumulado" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(custoAcumulado) : '—'} destaque />
-            <Card l={`Preço mínimo (margem ${margemPm}%)`} v={pm?.preco_minimo != null ? brl(pm.preco_minimo) : 'não calcula'} sub={pm?.preco_minimo != null ? `cobre custo + encargos + margem · piso sem margem ${brl(pm.piso_sem_margem ?? 0)}` : 'informe a aquisição primeiro'} />
+            {pm === undefined
+              ? <Card l="Preço mínimo" v="calculando…" />
+              : <Card l={`Preço mínimo (margem ${margemPm}%)`} v={pm?.preco_minimo != null ? brl(pm.preco_minimo) : 'não calcula'} sub={pm?.preco_minimo != null ? `cobre custo + encargos + margem · piso sem margem ${brl(pm.piso_sem_margem ?? 0)}` : 'informe a aquisição primeiro'} />}
           </>
         )}
       </div>
@@ -752,7 +756,9 @@ function Bloco({ titulo, children }: { titulo: string; children: React.ReactNode
 function Card({ l, v, sub, destaque }: { l: string; v: string; sub?: string; destaque?: boolean }) {
   return (
     <div style={{ background: destaque ? '#FDF7E8' : C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM }}>{l}</div>
+      {/* sem textTransform uppercase: o CSS mudava o texto que a tela expõe ("PREÇO MÍNIMO (MARGEM 25%)") —
+          a ficha passa a dizer o preço mínimo com as mesmas palavras da precificação (jornada precificacao) */}
+      <div style={{ fontSize: 10.5, letterSpacing: 0.4, color: C.espM }}>{l}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: destaque ? C.gold : C.esp, marginTop: 2 }}>{v}</div>
       {sub && <div style={{ fontSize: 10.5, color: C.amber, marginTop: 2 }}>{sub}</div>}
     </div>
