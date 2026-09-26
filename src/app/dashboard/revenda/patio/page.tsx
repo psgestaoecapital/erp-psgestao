@@ -36,7 +36,9 @@ const FAIXAS_DIAS: { label: string; min: number; max: number | null; sev: string
 // R3c · conta por veículo (fn_veic_patio_conta.itens): sangria/dia e vira-prejuízo por card.
 type ItemPatio = { veiculo_id: string; sangria_dia: number | null; data_vira_prejuizo: string | null; roi_anualizado_pct: number | null }
 // R3-fix T3 · piso hoje, anunciado e KM por veículo (colunas de veic_veiculo — v_veic_patio não expõe).
-type Detalhe = { preco_minimo: number | null; preco_venda: number | null; km_atual: number | null; km_entrada: number | null }
+type Detalhe = { preco_minimo: number | null; preco_venda: number | null; km_atual: number | null; km_entrada: number | null; marca: string | null; versao: string | null }
+// #101 (Fábio): o cartão mostrava só `modelo` — com o ano digitado no modelo, o carro ficava "2009 · 2009". Marca + modelo + versão.
+const nomeVeic = (modelo: string | null, d?: Detalhe) => [d?.marca, modelo, d?.versao].filter(Boolean).join(' ') || '—'
 const km = (v: number | null) => v != null ? `${v.toLocaleString('pt-BR')} km` : null
 const semColor = (s: string) => s === 'verde' ? { c: C.green, bg: C.greenBg } : s === 'amarelo' ? { c: C.amber, bg: C.amberBg } : { c: C.red, bg: C.redBg }
 
@@ -129,9 +131,9 @@ function Inner() {
     ;(pcr?.ok ? (pcr.itens ?? []) : []).forEach((it) => { if (it.veiculo_id) cm.set(it.veiculo_id, it) })
     setConta(cm)
     // R3-fix T3: piso hoje (preco_minimo), anunciado (preco_venda) e KM — colunas de veic_veiculo
-    const { data: det } = await supabase.from('veic_veiculo').select('id, preco_minimo, preco_venda, km_atual, km_entrada').eq('company_id', companyId).is('deleted_at', null)
+    const { data: det } = await supabase.from('veic_veiculo').select('id, preco_minimo, preco_venda, km_atual, km_entrada, marca, versao').eq('company_id', companyId).is('deleted_at', null)
     const dm = new Map<string, Detalhe>()
-    ;((det as ({ id: string } & Detalhe)[]) ?? []).forEach((d) => dm.set(d.id, { preco_minimo: d.preco_minimo, preco_venda: d.preco_venda, km_atual: d.km_atual, km_entrada: d.km_entrada }))
+    ;((det as ({ id: string } & Detalhe)[]) ?? []).forEach((d) => dm.set(d.id, { preco_minimo: d.preco_minimo, preco_venda: d.preco_venda, km_atual: d.km_atual, km_entrada: d.km_entrada, marca: d.marca, versao: d.versao }))
     setDetalhe(dm)
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -364,7 +366,7 @@ function Inner() {
                 <input type="checkbox" checked={selVeic.has(v.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(v.id)} title="selecionar para ações em massa" style={{ width: 16, height: 16, accentColor: C.gold, cursor: 'pointer', flexShrink: 0 }} />
                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: sc.bg, color: sc.c, fontWeight: 700, whiteSpace: 'nowrap' }}>● {v.dias_patio}d</span>
                 <div style={{ minWidth: 0, flex: '1 1 160px' }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.modelo || '—'}{v.ano_modelo ? ` · ${v.ano_modelo}` : ''}</div>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nomeVeic(v.modelo, d)}{v.ano_modelo ? ` · ${v.ano_modelo}` : ''}</div>
                   <div style={{ fontSize: 11, color: C.espM, fontFamily: 'monospace' }}>{v.placa || 'sem placa'}{kmv ? ` · ${kmv}` : ''}</div>
                 </div>
                 <span style={{ fontSize: 11.5, color: C.espM, whiteSpace: 'nowrap' }}>piso <b style={{ color: C.esp }}>{d?.preco_minimo != null ? brl(d.preco_minimo) : '—'}</b></span>
@@ -396,7 +398,7 @@ function Inner() {
                   })()}
                 </div>
                 <div style={{ padding: 12 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{v.modelo || '—'} {v.ano_modelo ? `· ${v.ano_modelo}` : ''}</div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{nomeVeic(v.modelo, detalhe.get(v.id))} {v.ano_modelo ? `· ${v.ano_modelo}` : ''}</div>
                   <div style={{ fontSize: 12, color: C.espM, fontFamily: 'monospace' }}>{v.placa || 'sem placa'} · {v.chassi.slice(-6)}{(() => { const k = km(detalhe.get(v.id)?.km_atual ?? detalhe.get(v.id)?.km_entrada ?? null); return k ? ` · ${k}` : '' })()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
                     <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: sc.bg, color: sc.c, fontWeight: 700 }}>● {v.dias_patio} dia(s)</span>
@@ -406,7 +408,8 @@ function Inner() {
                     {emPreparacao.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }} title="Veículo com OS de preparação aberta — não deve ir ao anúncio até concluir">🔧 em preparação</span>}
                     {/* Alliance 23/09: avisos de preparação/venda não fazem sentido para carro vendido/entregue/devolvido */}
                     {!SIT_SEM_AVISO_PREP.includes(v.situacao) && !comVistoria.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>sem vistoria</span>}
-                    {!SIT_SEM_AVISO_PREP.includes(v.situacao) && !precificados.has(v.id) && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>não precificado</span>}
+                    {/* #101: o chip leva direto à precificação do carro (o bloco na ficha ficou lá embaixo) */}
+                    {!SIT_SEM_AVISO_PREP.includes(v.situacao) && !precificados.has(v.id) && <a href={`/dashboard/revenda/veiculo/${v.id}/precificacao`} onClick={(e) => e.stopPropagation()} title="Abrir a precificação deste carro" style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700, textDecoration: 'none' }}>não precificado →</a>}
                     {(interessados.get(v.id) ?? 0) > 0 && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: '#FDF7E8', color: C.gold, fontWeight: 700 }} title="Oportunidades abertas com este carro. Muitos interessados + parado há tempo = sinal de preço.">❤ {interessados.get(v.id)} interessado{(interessados.get(v.id) ?? 0) > 1 ? 's' : ''}</span>}
                     {/* Onda 0: badge fiscal — pronto para nota (verde) ou faltam N campos (âmbar) */}
                     {(v.fiscais_faltantes?.length ?? 0) === 0
@@ -558,20 +561,33 @@ function LoteModal({ companyId, ids, onClose, onAplicado, onErro }: { companyId:
   )
 }
 
+const inpW: React.CSSProperties = { ...inp, width: '100%', boxSizing: 'border-box' }
+function Rot({ t, children, full }: { t: string; children: React.ReactNode; full?: boolean }) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11.5, color: C.espM, gridColumn: full ? '1 / -1' : undefined }}>
+      {t}{children}
+    </label>
+  )
+}
+
 function NovoVeiculo({ companyId, onClose, onSaved, onErro }: { companyId: string; onClose: () => void; onSaved: (id?: string) => void; onErro: (m: string) => void }) {
-  const [f, setF] = useState({ chassi: '', placa: '', marca: '', modelo: '', ano_modelo: '', cor: '', origem: 'compra_pf', valor_aquisicao: '' })
+  const [f, setF] = useState({ chassi: '', placa: '', marca: '', modelo: '', ano_modelo: '', cor: '', origem: 'compra_pf', valor_aquisicao: '', km_entrada: '', tem_manual: '', tem_chave_reserva: '' })
+  // #101 (Fábio): o ano ia parar no campo modelo ("2009") — o campo só tinha placeholder, sem rótulo
+  const modeloPareceAno = /^(19|20)\d{2}$/.test(f.modelo.trim())
   const [busy, setBusy] = useState(false)
   async function salvar() {
     setBusy(true)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_criar', {
       p_company_id: companyId,
-      p_veiculo: { chassi: f.chassi.trim(), placa: f.placa.trim() || null, marca: f.marca.trim() || null, modelo: f.modelo.trim() || null, ano_modelo: f.ano_modelo ? Number(f.ano_modelo) : null, cor: f.cor.trim() || null, origem: f.origem, valor_aquisicao: f.valor_aquisicao ? Number(f.valor_aquisicao) : null },
+      // números vão como TEXTO: o banco aceita formato BR ("72.956,00") — Number() dava NaN e o valor sumia
+      p_veiculo: { chassi: f.chassi.trim(), placa: f.placa.trim() || null, marca: f.marca.trim() || null, modelo: f.modelo.trim() || null, ano_modelo: f.ano_modelo.trim() || null, cor: f.cor.trim() || null, origem: f.origem, valor_aquisicao: f.valor_aquisicao.trim() || null, km_entrada: f.km_entrada.trim() || null, km_atual: f.km_entrada.trim() || null, tem_manual: f.tem_manual || null, tem_chave_reserva: f.tem_chave_reserva || null },
       p_user: user?.id ?? null,
     })
     setBusy(false)
-    const r = data as { ok?: boolean; erro?: string; id?: string } | null
-    if (error || !r?.ok) { onErro(r?.erro === 'chassi_ja_cadastrado' ? 'Chassi já cadastrado nesta empresa.' : r?.erro === 'chassi_obrigatorio' ? 'Chassi é obrigatório.' : (error?.message || 'Falha ao salvar')); return }
+    const r = data as { ok?: boolean; erro?: string; id?: string; campo?: string; valor?: string } | null
+    const ROT: Record<string, string> = { ano_modelo: 'ano modelo', valor_aquisicao: 'valor de aquisição', km_entrada: 'KM', km_atual: 'KM' }
+    if (error || !r?.ok) { onErro(r?.erro === 'chassi_ja_cadastrado' ? 'Chassi já cadastrado nesta empresa.' : r?.erro === 'chassi_obrigatorio' ? 'Chassi é obrigatório.' : r?.erro === 'valor_invalido' ? `Valor inválido em "${ROT[r.campo ?? ''] ?? r.campo}"${r.valor ? ` ("${r.valor}")` : ''} — use só números, ex.: 72956 ou 72.956,00.` : (error?.message || 'Falha ao salvar')); return }
     onSaved(r.id)
   }
   return (
@@ -579,16 +595,30 @@ function NovoVeiculo({ companyId, onClose, onSaved, onErro }: { companyId: strin
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 12, padding: 18, width: 'min(520px,100%)' }}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Novo veículo</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <input value={f.chassi} onChange={(e) => setF({ ...f, chassi: e.target.value })} placeholder="chassi (obrigatório)" style={{ ...inp, gridColumn: '1 / -1' }} />
-          <input value={f.placa} onChange={(e) => setF({ ...f, placa: e.target.value })} placeholder="placa (opcional — carro sem placa existe)" style={inp} />
-          <input value={f.marca} onChange={(e) => setF({ ...f, marca: e.target.value })} placeholder="marca" style={inp} />
-          <input value={f.modelo} onChange={(e) => setF({ ...f, modelo: e.target.value })} placeholder="modelo" style={inp} />
-          <input value={f.ano_modelo} onChange={(e) => setF({ ...f, ano_modelo: e.target.value })} placeholder="ano modelo" style={inp} />
-          <input value={f.cor} onChange={(e) => setF({ ...f, cor: e.target.value })} placeholder="cor" style={inp} />
-          <select value={f.origem} onChange={(e) => setF({ ...f, origem: e.target.value })} style={inp}>
-            <option value="compra_pf">compra PF</option><option value="compra_pj">compra PJ</option><option value="consignacao">consignação</option><option value="troca">troca</option>
-          </select>
-          <input value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} placeholder="valor de aquisição" style={{ ...inp, gridColumn: '1 / -1' }} />
+          <Rot t="Chassi (obrigatório)" full><input value={f.chassi} onChange={(e) => setF({ ...f, chassi: e.target.value })} placeholder="9BW…" style={inpW} /></Rot>
+          <Rot t="Placa"><input value={f.placa} onChange={(e) => setF({ ...f, placa: e.target.value })} placeholder="opcional — carro sem placa existe" style={inpW} /></Rot>
+          <Rot t="Marca"><input value={f.marca} onChange={(e) => setF({ ...f, marca: e.target.value })} placeholder="ex.: Chevrolet" style={inpW} /></Rot>
+          <Rot t="Modelo"><input value={f.modelo} onChange={(e) => setF({ ...f, modelo: e.target.value })} placeholder="ex.: Onix, L200, CB 500" style={inpW} /></Rot>
+          <Rot t="Ano modelo"><input value={f.ano_modelo} onChange={(e) => setF({ ...f, ano_modelo: e.target.value })} inputMode="numeric" placeholder="ex.: 2021" style={inpW} /></Rot>
+          {modeloPareceAno && (
+            <div style={{ gridColumn: '1 / -1', background: C.amberBg, color: '#8A4B08', borderRadius: 7, padding: '6px 10px', fontSize: 12 }}>
+              &ldquo;{f.modelo}&rdquo; parece o ano. Em <b>Modelo</b> vai o nome (ex.: Onix); o ano vai em <b>Ano modelo</b>.
+            </div>
+          )}
+          <Rot t="Cor"><input value={f.cor} onChange={(e) => setF({ ...f, cor: e.target.value })} placeholder="ex.: prata" style={inpW} /></Rot>
+          <Rot t="KM"><input value={f.km_entrada} onChange={(e) => setF({ ...f, km_entrada: e.target.value })} inputMode="numeric" placeholder="ex.: 85.000" style={inpW} /></Rot>
+          <Rot t="Manual">
+            <select value={f.tem_manual} onChange={(e) => setF({ ...f, tem_manual: e.target.value })} style={inpW}><option value="">não informado</option><option value="sim">sim</option><option value="nao">não</option></select>
+          </Rot>
+          <Rot t="Chave reserva">
+            <select value={f.tem_chave_reserva} onChange={(e) => setF({ ...f, tem_chave_reserva: e.target.value })} style={inpW}><option value="">não informado</option><option value="sim">sim</option><option value="nao">não</option></select>
+          </Rot>
+          <Rot t="Origem">
+            <select value={f.origem} onChange={(e) => setF({ ...f, origem: e.target.value })} style={inpW}>
+              <option value="compra_pf">compra PF</option><option value="compra_pj">compra PJ</option><option value="consignacao">consignação</option><option value="troca">troca</option>
+            </select>
+          </Rot>
+          <Rot t="Valor de aquisição"><input value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} inputMode="decimal" placeholder="ex.: 72.956,00" style={inpW} /></Rot>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>

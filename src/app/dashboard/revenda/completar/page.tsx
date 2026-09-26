@@ -24,12 +24,17 @@ type Row = {
   // R7b-2: identificação/documento editáveis em lista + indicador de CRLV
   tipo: string | null; placa: string | null; renavam: string | null; portas: number | null; crlv_storage_path: string | null
   ncm: string | null; lugares: number | null
+  // #26 #49 #143 (Fábio · Alliance): KM, manual e chave reserva na linha principal
+  km_atual: number | null; km_entrada: number | null; tem_manual: boolean | null; tem_chave_reserva: boolean | null
+  versao: string | null
   fiscais_faltantes: string[]; sugestao_ano_chassi: number | null
 }
 const TIPOS: Array<{ v: string; lbl: string }> = [
   { v: 'carro', lbl: 'Carro' }, { v: 'moto', lbl: 'Moto' }, { v: 'caminhao', lbl: 'Caminhão' }, { v: 'maquina', lbl: 'Máquina' },
 ]
 // campos de identificação/documento que o R7b-2 ajuda a completar (além dos fiscais do pátio)
+const simNao = (b: boolean | null) => (b == null ? '' : b ? 'sim' : 'nao')
+const ROTULO: Record<string, string> = { km_atual: 'KM', potencia_cv: 'potência', cilindradas: 'cilindradas', portas: 'portas', ano_fabricacao: 'ano fab', ano_modelo: 'ano mod', valor_aquisicao: 'aquisição', tem_manual: 'manual', tem_chave_reserva: 'chave reserva' }
 function faltamDadosVeiculo(r: Pick<Row, 'tipo' | 'placa' | 'renavam' | 'cor' | 'portas' | 'crlv_storage_path'>): string[] {
   const f: string[] = []
   if (!r.tipo) f.push('tipo')
@@ -60,7 +65,7 @@ function Inner() {
     if (!companyId) { setRows([]); setModelos([]); return }
     // dados editáveis de veic_veiculo + completude (fiscais_faltantes/sugestão) da mesma regra do pátio
     const [vv, pat, ml] = await Promise.all([
-      supabase.from('veic_veiculo').select('id,marca,modelo,chassi,cor,combustivel,potencia_cv,cilindradas,ano_fabricacao,ano_modelo,valor_aquisicao,tipo,placa,renavam,portas,crlv_storage_path,ncm,lugares').eq('company_id', companyId).is('deleted_at', null),
+      supabase.from('veic_veiculo').select('id,marca,modelo,chassi,cor,combustivel,potencia_cv,cilindradas,ano_fabricacao,ano_modelo,valor_aquisicao,tipo,placa,renavam,portas,crlv_storage_path,ncm,lugares,km_atual,km_entrada,tem_manual,tem_chave_reserva,versao').eq('company_id', companyId).is('deleted_at', null),
       supabase.from('v_veic_patio').select('id,fiscais_faltantes,sugestao_ano_chassi').eq('company_id', companyId),
       supabase.rpc('fn_veic_modelo_listar', { p_company_id: companyId }),
     ])
@@ -215,7 +220,11 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
     combustivel: r.combustivel ?? '', potencia_cv: num(r.potencia_cv), cilindradas: num(r.cilindradas), ano_fabricacao: num(r.ano_fabricacao), ano_modelo: num(r.ano_modelo), valor_aquisicao: num(r.valor_aquisicao),
     // B2 · NCM (classificação fiscal) — sugerido pela fn_veic_ncm_sugerido, editável
     ncm: r.ncm ?? '',
+    km_atual: num(r.km_atual), tem_manual: simNao(r.tem_manual), tem_chave_reserva: simNao(r.tem_chave_reserva),
   })
+  // potência/cilindradas são dado da NOTA: só aparecem quando faltam para a nota (ou moto, que define o NCM)
+  const mostraPot = r.fiscais_faltantes.includes('potência')
+  const mostraCil = r.fiscais_faltantes.includes('cilindradas') || f.tipo === 'moto'
   const [busy, setBusy] = useState(false)
   // R7b-2 parte b · leitura ASSISTIDA do CRLV — a IA sugere, a pessoa confere e aplica; nada grava sozinho.
   const [lendo, setLendo] = useState(false)
@@ -280,10 +289,13 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: r.id, p_dados: f, p_user: user?.id ?? null })
     setBusy(false)
-    const rr = data as { ok?: boolean; erro?: string } | null
+    const rr = data as { ok?: boolean; erro?: string; campo?: string; valor?: string } | null
     if (error || !rr?.ok) {
       const e = rr?.erro
-      onErro(e === 'tipo_invalido' ? 'Tipo inválido.' : e === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (error?.message || e || 'Falha'))
+      onErro(e === 'tipo_invalido' ? 'Tipo inválido.' : e === 'sem_acesso' ? 'Sem acesso a esta empresa.'
+        : e === 'valor_invalido' ? `Valor inválido em "${ROTULO[rr?.campo ?? ''] ?? rr?.campo ?? 'campo'}"${rr?.valor ? ` ("${rr.valor}")` : ''} — use só números, ex.: 72956 ou 72.956,00.`
+        : e === 'ncm_invalido' ? 'NCM inválido — use 8 dígitos.'
+        : (error?.message || e || 'Falha'))
       return
     }
     setIaFields(new Set()) // salvou → o destaque "confira e salve" sai
@@ -296,7 +308,14 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
     <div style={{ borderTop: `1px solid ${C.cream}`, padding: '10px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
       {/* cabeçalho da linha: veículo + o que falta + CRLV */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <b style={{ fontSize: 12.5 }}>{r.marca || '—'} {r.modelo || ''}</b>
+        <b style={{ fontSize: 12.5 }}>{[r.marca, r.modelo, r.versao].filter(Boolean).join(' ') || '—'}</b>
+        {/* #101 (RD-71, caminho irmão do Pátio): o ano digitado no campo modelo ("2009") — avisa, não corrige sozinho */}
+        {/^(19|20)\d{2}$/.test((r.modelo || '').trim()) && (
+          <a href={`/dashboard/revenda/veiculo/${r.id}`} title="O modelo está com um ano. Corrija na ficha: Modelo = nome (ex.: Onix); o ano vai em Ano modelo."
+            style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: `1px solid ${C.amber}`, color: C.amber, background: C.amberBg, textDecoration: 'none' }}>
+            modelo parece ano — corrigir na ficha →
+          </a>
+        )}
         <span style={{ fontSize: 10, color: C.espL, fontFamily: 'monospace' }}>chassi …{(r.chassi || '').slice(-6)}</span>
         <span title={temCrlv ? 'CRLV anexado' : 'CRLV não anexado — anexe na ficha'}
           style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: `1px solid ${temCrlv ? C.green : C.amber}`, color: temCrlv ? C.green : C.amber, background: temCrlv ? C.greenBg : C.amberBg }}>
@@ -394,8 +413,15 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
             <option value="">—</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </Campo>
-        <Campo label="potência" w={80}><input value={f.potencia_cv} onChange={(e) => setF({ ...f, potencia_cv: e.target.value })} placeholder="cv" style={inp} /></Campo>
-        <Campo label="cilindr." w={80}><input value={f.cilindradas} onChange={(e) => setF({ ...f, cilindradas: e.target.value })} placeholder="cc" style={inp} /></Campo>
+        <Campo label="KM" w={100}><input value={f.km_atual} onChange={(e) => setF({ ...f, km_atual: e.target.value })} inputMode="numeric" placeholder={r.km_entrada != null ? String(r.km_entrada) : 'km'} style={inp} /></Campo>
+        <Campo label="manual" w={72}>
+          <select value={f.tem_manual} onChange={(e) => setF({ ...f, tem_manual: e.target.value })} style={inp}><option value="">—</option><option value="sim">sim</option><option value="nao">não</option></select>
+        </Campo>
+        <Campo label="chave reserva" w={90}>
+          <select value={f.tem_chave_reserva} onChange={(e) => setF({ ...f, tem_chave_reserva: e.target.value })} style={inp}><option value="">—</option><option value="sim">sim</option><option value="nao">não</option></select>
+        </Campo>
+        {mostraPot && <Campo label="potência (nota)" w={95}><input value={f.potencia_cv} onChange={(e) => setF({ ...f, potencia_cv: e.target.value })} placeholder="cv" style={inp} /></Campo>}
+        {mostraCil && <Campo label="cilindr. (nota)" w={95}><input value={f.cilindradas} onChange={(e) => setF({ ...f, cilindradas: e.target.value })} placeholder="cc" style={inp} /></Campo>}
         <Campo label="ano fab" w={80}><input value={f.ano_fabricacao} onChange={(e) => setF({ ...f, ano_fabricacao: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={{ ...inp, ...hi('ano_fabricacao') }} /></Campo>
         <Campo label="ano mod" w={80}><input value={f.ano_modelo} onChange={(e) => setF({ ...f, ano_modelo: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={{ ...inp, ...hi('ano_modelo') }} /></Campo>
         <Campo label="aquisição" w={110}><input value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} placeholder="R$" style={inp} /></Campo>
