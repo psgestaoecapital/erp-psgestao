@@ -103,18 +103,15 @@ test.describe('Aceitação OS-0179 — Simples com CST trava antes do envio e de
     }
   })
 
-  test('pré-voo (fn_fiscal_previo) aponta o mesmo produto com a mesma régua', async ({ request }) => {
+  // @pos-migration: depende da migration 20260926190000/195000, que só chega ao banco no merge. No preview da PR
+  // roda em modo informativo; o veredito é o job aceitacao-pos-migration, em produção, logo após o deploy.
+  test('pré-voo (fn_fiscal_previo) aponta o mesmo produto com a mesma régua', { tag: '@pos-migration' }, async ({ request }) => {
     const resp = await request.post(`${SUPABASE_URL}/rest/v1/rpc/fn_fiscal_previo`, {
       headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       data: { p_company_id: DEMO_COMERCIO },
     })
     expect(resp.ok(), await resp.text()).toBe(true)
     const previo = await resp.json() as { produtos: { simples_cst_regime_normal?: number; amostra: Array<{ codigo: string; motivos: string[] }> } }
-    if (previo.produtos.simples_cst_regime_normal === undefined) {
-      // migration 20260926190000 entra no merge (deploy-migrations); no preview da PR a função ainda é a anterior
-      test.info().annotations.push({ type: 'pendente', description: 'fn_fiscal_previo sem simples_cst_regime_normal — migration 20260926190000 ainda não aplicada' })
-      return
-    }
     expect(previo.produtos.simples_cst_regime_normal).toBeGreaterThanOrEqual(1)
     const item = previo.produtos.amostra.find((p) => p.codigo === PRODUTO)
     expect(item?.motivos.join(' ')).toMatch(/CST 00 \(regime normal\) — Simples usa CSOSN/)

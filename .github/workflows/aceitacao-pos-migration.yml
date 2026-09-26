@@ -1,0 +1,86 @@
+name: Aceitação @pos-migration (produção)
+
+# CEO 26/09 (caso #1821): teste de aceitação que depende de migration só pode ser verde DEPOIS do merge — o
+# deploy-migrations aplica no push da main e o preview da PR roda contra o banco ATUAL. Esses testes levam a tag
+# @pos-migration: no preview rodam em modo informativo (aceitacao-pr.yml, não bloqueia) e o VEREDITO é este job,
+# em produção, logo após o deploy. O merge fica condicionado a ele: vermelho aqui = reverter a PR (código + uma
+# migration que devolve o estado anterior — reverter o arquivo NÃO desfaz o que já rodou no banco) e avisar o CEO.
+# Só empresa de demonstração (is_demo), como toda aceitação.
+on:
+  workflow_run:
+    workflows: ['Deploy Migrations (Production)']
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: aceitacao-pos-migration
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  producao:
+    # só depois de um deploy de migrations VERDE (vermelho lá já é o alarme do próprio deploy-migrations)
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PROD_BASE_URL: https://erp-psgestao.vercel.app
+      COMMIT: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      # A migration já está no banco (este job só roda após o deploy-migrations verde); falta a Vercel servir o
+      # código do MESMO commit (ou um posterior). /sw.js traz "ps-shell-<VERCEL_GIT_COMMIT_SHA>" (RD-78, #1819).
+      # Fail-closed (RD-51): sem confirmar o build em até ~20 min, o job falha em vez de julgar o build errado.
+      - name: Esperar a produção servir o commit
+        run: |
+          for i in $(seq 1 60); do
+            servido=$(curl -fsS "$PROD_BASE_URL/sw.js" 2>/dev/null | grep -oE 'ps-shell-[0-9a-f]{7,40}' | head -1 | sed 's/^ps-shell-//')
+            # commit mais novo que o checkout (outro merge no meio) → busca a main antes de comparar
+            [ -n "$servido" ] && ! git cat-file -e "$servido^{commit}" 2>/dev/null && git fetch -q origin main
+            if [ -n "$servido" ] && git merge-base --is-ancestor "$COMMIT" "$servido" 2>/dev/null; then
+              echo "produção serve $servido (contém $COMMIT)"; exit 0
+            fi
+            echo "tentativa $i: produção serve '${servido:-?}', esperando $COMMIT…"; sleep 20
+          done
+          echo "::error::produção não passou a servir $COMMIT em ~20 min — não dá para julgar os @pos-migration"; exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Aceitação @pos-migration contra produção
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+          PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+        # sem teste @pos-migration no repo → nada a julgar (verde)
+        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration
+      - name: Avisar na PR do commit (vermelho = reverter)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          pr=$(gh api "repos/${{ github.repository }}/commits/$COMMIT/pulls" --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$pr" ]; then
+            gh pr comment "$pr" --repo "${{ github.repository }}" --body "🔴 **Aceitação @pos-migration vermelha em PRODUÇÃO** após o merge ($COMMIT): $RUN_URL
+          Regra do CEO: o merge era condicionado a este verde → **reverter a PR** (código + migration que devolve o estado anterior; reverter o arquivo não desfaz o que rodou no banco) e avisar o CEO."
+          else
+            echo "::warning::commit $COMMIT sem PR associada — avise o CEO manualmente"
+          fi
+      - name: Upload relatório (em caso de falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aceitacao-pos-migration-report
+          path: test-results/
+          if-no-files-found: ignore
