@@ -8,7 +8,8 @@ import { obterSessionPayload, registrarJornada } from '../../support/api'
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 const TABELAS = ['lgpd_consentimentos', 'business_line_custos', 'business_line_receitas', 'business_line_keywords',
-  'rateio_distribuicao', 'company_groups', 'exchange_rates', 'taxas_cambio', 'plans', 'dominio_bi']
+  'rateio_distribuicao', 'company_groups', 'exchange_rates', 'taxas_cambio', 'plans', 'dominio_bi', 'fiscal_codigo_catalogo',
+  'fiscal_correlacao_servico', 'fiscal_reforma_parametro']
 
 async function sessao(): Promise<{ token: string; id: string }> {
   const s = JSON.parse(await obterSessionPayload()) as { access_token: string; user: { id: string } }
@@ -28,6 +29,10 @@ test.describe('Segurança PR 4 · policies abertas fechadas', () => {
     const c = await fetch(`${SUPABASE_URL}/rest/v1/erp_gov_nfse_municipios?select=codigo_ibge&limit=1`, { headers: h })
     expect(c.status, 'catálogo de municípios').toBe(200)
     expect(((await c.json()) as unknown[]).length).toBe(1)
+    // catálogo fiscal (NBS/cClassTrib) segue lido pelo cadastro de serviço — policy passou de PUBLIC para logado
+    const f = await fetch(`${SUPABASE_URL}/rest/v1/fiscal_correlacao_servico?select=*&limit=1`, { headers: h })
+    expect(f.status, 'catálogo fiscal').toBe(200)
+    expect(((await f.json()) as unknown[]).length).toBe(1)
   })
 
   test('anon não lê nem grava; o logado só vê o próprio consentimento', { tag: '@pos-migration' }, async () => {
