@@ -12,6 +12,7 @@ import AnotarModal from '@/components/oficina/AnotarModal'
 import AnotacaoOverlay from '@/components/oficina/AnotacaoOverlay'
 import { temAnotacao } from '@/components/oficina/anotacao'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { decimalBanco } from '@/lib/decimalBanco'
 
 const BUCKET = 'oficina-recepcao'   // RD-26 · mesmo bucket/mecanismo da recepção (#831)
 // comprime a foto no celular/tablet antes de subir (mesmo padrão da recepção)
@@ -288,7 +289,8 @@ export default function DiagnosticoPage() {
       p_dados: { diagnostico, km, itens: itens.filter((i) => i.descricao.trim().length > 0).map((i) => ({
         id: i.id ?? null,    // RD-55 · item existente atualiza SÓ o laudo (preco/aprovado intocados); sem id = novo
         tipo: i.tipo, servico_id: i.servico_id ?? null, produto_id: i.produto_id ?? null,
-        descricao: i.descricao, quantidade: i.quantidade, tempo_estimado_h: i.tempo_estimado_h,
+        // #102: "1,5" (vírgula, como o brasileiro digita) quebrava o ::numeric do banco e a tela parecia só aceitar inteiro.
+        descricao: i.descricao, quantidade: decimalBanco(i.quantidade), tempo_estimado_h: decimalBanco(i.tempo_estimado_h),
         severidade: i.severidade, observacao: i.observacao ?? null,
       })) },
     })
@@ -501,9 +503,9 @@ export default function DiagnosticoPage() {
               <input value={it.descricao} onChange={(e) => setItem(i, { descricao: e.target.value })} placeholder={it.tipo === 'peca' ? 'Qual peça?' : 'Qual serviço?'} style={{ ...inp, marginBottom: 8 }} />
               <div style={{ display: 'grid', gridTemplateColumns: it.tipo === 'peca' ? '1fr' : '1fr 1fr', gap: 8, marginBottom: 8 }}>
                 {it.tipo === 'peca'
-                  ? <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>
+                  ? <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>
                   : <Campo l="Tempo estimado (h)"><input value={it.tempo_estimado_h} onChange={(e) => setItem(i, { tempo_estimado_h: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>}
-                {it.tipo === 'servico' && <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>}
+                {it.tipo === 'servico' && <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {SEVERIDADES.map((s) => (

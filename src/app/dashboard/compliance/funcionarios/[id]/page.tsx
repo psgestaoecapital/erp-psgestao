@@ -72,6 +72,10 @@ export default function FuncionarioDetalhePage() {
 
   useEffect(() => { carregar() }, [carregar])
 
+  // #47 · a lista de documentos mostra só o que se aplica à pessoa: o marcado "não se aplica" sai da lista
+  // (continua visível — e reversível — em "Quais documentos esta pessoa precisa").
+  const matrizAplicavel = matriz.filter((m) => m.status_final !== 'nao_se_aplica')
+
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
@@ -96,7 +100,7 @@ export default function FuncionarioDetalhePage() {
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}` }}>
           {([
             { k: 'dados', label: 'Dados' },
-            { k: 'documentos', label: `Documentos (${matriz.length})` },
+            { k: 'documentos', label: `Documentos (${matrizAplicavel.length})` },
             { k: 'historico', label: `Histórico (${historico.length})` },
           ] as const).map((t) => (
             <button
@@ -128,7 +132,7 @@ export default function FuncionarioDetalhePage() {
         {tab === 'documentos' && (
           <AbaDocumentos
             loading={loading}
-            matriz={matriz}
+            matriz={matrizAplicavel}
             onUpload={(m, modo) => {
               if (!funcionario) return
               setUploadCtx({
@@ -281,7 +285,7 @@ function AbaDocumentos({
             {matriz.map((m, i) => {
               const temDoc = !!m.documento_id
               return (
-                <tr key={m.tipo_documento_id ?? m.exigido_id ?? m.tipo_slug} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
+                <tr key={m.tipo_documento_id ?? m.exigido_id ?? m.tipo_slug} data-testid="doc-linha" data-doc={m.tipo_nome} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
                   <Td>
                     <div style={{ fontWeight: 600 }}>{m.tipo_nome}</div>
                     {m.obrigatorio && <div style={{ fontSize: 10, color: C.red, marginTop: 2, fontWeight: 600 }}>OBRIGATÓRIO</div>}
