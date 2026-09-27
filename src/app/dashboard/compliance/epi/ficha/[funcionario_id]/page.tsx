@@ -112,7 +112,7 @@ export default function FichaIndividualPage() {
       let prestadorNome: string | null = null
       if (func.prestador_id) {
         const { data: prest } = await supabase
-          .from('prestadores_servico')
+          .from('compliance_prestadores')
           .select('nome_fantasia, razao_social')
           .eq('id', func.prestador_id)
           .maybeSingle()
@@ -123,7 +123,8 @@ export default function FichaIndividualPage() {
 
       const { data: fichaRows, error: fcErr } = await supabase
         .from('epi_ficha')
-        .select('id, catalogo_id, status, data_entrega, proxima_troca_em, quantidade, catalogo:epi_catalogo(id, nome, modelo, ca_numero, ca_validade, fabricante_nome)')
+        // colunas reais de epi_ficha, com alias para os nomes que a tela usa (antes: colunas inexistentes → a ficha não abria)
+        .select('id, catalogo_id, status, data_entrega:data_ultima_movimentacao, proxima_troca_em:data_proxima_troca_prevista, quantidade:qtd_atual, catalogo:epi_catalogo(id, nome, modelo, ca_numero, ca_validade, fabricante_nome)')
         .eq('funcionario_id', funcionarioId)
         .eq('status', 'em_uso')
       if (fcErr) throw fcErr
@@ -131,7 +132,7 @@ export default function FichaIndividualPage() {
 
       const { data: movs, error: mErr } = await supabase
         .from('epi_movimentacao')
-        .select('id, tipo_movimento, quantidade, motivo, observacoes, data_movimento, registrado_por_nome, catalogo:epi_catalogo(nome, modelo, ca_numero)')
+        .select('id, tipo_movimento, quantidade, motivo, observacoes, data_movimento, registrado_por_nome:operador_nome, catalogo:epi_catalogo(nome, modelo, ca_numero)')
         .eq('funcionario_id', funcionarioId)
         .order('data_movimento', { ascending: false })
         .limit(200)
