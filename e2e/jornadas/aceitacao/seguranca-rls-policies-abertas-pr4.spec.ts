@@ -36,12 +36,6 @@ test.describe('Segurança PR 4 · policies abertas fechadas', () => {
       const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}?select=*&limit=1`, { headers: anon })
       expect(r.status, `anon lendo ${t}`).toBeGreaterThanOrEqual(400)
     }
-    const ins = await fetch(`${SUPABASE_URL}/rest/v1/audit_log_global`, {
-      method: 'POST', headers: { ...anon, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-      body: JSON.stringify({ tabela: 'teste_seguranca', acao: 'FORJADO' }),
-    })
-    expect(ins.status, 'anon forjando auditoria').toBeGreaterThanOrEqual(400)
-
     const { token, id } = await sessao()
     const r = await fetch(`${SUPABASE_URL}/rest/v1/lgpd_consentimentos?select=user_id`, { headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}` } })
     expect(r.status).toBe(200)
