@@ -37,6 +37,11 @@ test.describe('Menu com itens nas 6 demonstrações (celular e computador)', () 
       await expect(menu).toBeVisible({ timeout: 10000 })
 
       const itens = menu.locator('nav').locator('a[href], button')
+      await expect.poll(async () => itens.count(), { timeout: 20000, message: 'menu carregou' }).toBeGreaterThan(0)
+      // Os módulos vêm agrupados em seções (sanfona). No celular a gaveta abre com as seções fechadas (Revenda: 1
+      // seção com 11 telas) — abre a primeira como o usuário faria e conta seções + telas visíveis.
+      const fechada = menu.locator('nav button[aria-expanded="false"]').first()
+      if (await fechada.count()) await fechada.click()
       await expect.poll(async () => itens.count(), { timeout: 20000, message: `itens no menu (${celular ? 'celular' : 'computador'})` })
         .toBeGreaterThanOrEqual(3)
       await expect(menu.getByText('Sem plano ativo nesta área')).toHaveCount(0)
