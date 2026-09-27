@@ -27,12 +27,12 @@ test.describe('Conferência de pausas — pausa com saída no relatório não é
     ids.push((await dbInsert<{ id: string }>('ind_ponto_pausa', {
       company_id: DEMO_SST, cpf: c.cpf, data: DIA, tipo: 'termica_253',
       inicio: `${DIA}T09:07:00-03:00`, fim: `${DIA}T09:29:00-03:00`, duracao_seg: 1320,
-      em_aberto: false, classe_evento: 'pausa_normal', raw: { origem: 'e2e-107' },
+      classe_evento: 'pausa_normal', raw: { origem: 'e2e-107' },
     })).id)
     // pausa realmente sem saída: esta TEM de aparecer na Conferência
     ids.push((await dbInsert<{ id: string }>('ind_ponto_pausa', {
       company_id: DEMO_SST, cpf: c.cpf, data: DIA, tipo: 'termica_253',
-      inicio: `${DIA}T14:13:00-03:00`, fim: null, em_aberto: true, classe_evento: 'pausa_aberta', raw: { origem: 'e2e-107' },
+      inicio: `${DIA}T14:13:00-03:00`, fim: null, classe_evento: 'pausa_aberta', raw: { origem: 'e2e-107' },
     })).id)
   })
 
