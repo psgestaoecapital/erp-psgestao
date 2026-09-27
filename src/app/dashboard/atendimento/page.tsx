@@ -16,7 +16,7 @@ const C = {
 }
 const inp: React.CSSProperties = { padding: '7px 9px', fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
 const PRIO_ORD: Record<string, number> = { critica: 0, alta: 1, media: 2, baixa: 3 }
-const STATUSES = ['nova', 'em_analise', 'aceita', 'em_desenvolvimento', 'concluida', 'recusada', 'duplicada', 'arquivada']
+const STATUSES = ['nova', 'em_analise', 'aceita', 'em_desenvolvimento', 'aguardando_confirmacao', 'concluida', 'recusada', 'duplicada', 'arquivada']
 const brDate = (d: string) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
 type Marca = { tipo: string; x: number; y: number; texto?: string }
 type Item = {
@@ -218,7 +218,7 @@ function Inner() {
                   {est === 'precisa_mim' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.amberBg, color: C.amber, border: '1px solid #F0DDB0', fontWeight: 800 }}>⏳ Precisa de mim</span>}
                   {est === 'sem_confirmacao' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: '#EAF0FA', color: C.blue, border: '1px solid #D2DEF2', fontWeight: 800 }}>📤 Sem confirmação</span>}
                   {est === 'em_curso' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 800 }}>🔵 Em curso</span>}
-                  <span title="status interno" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: it.status === 'concluida' ? C.greenBg : it.status === 'recusada' ? C.redBg : '#EFEBE4', color: it.status === 'concluida' ? C.green : it.status === 'recusada' ? C.red : C.espL, fontWeight: 600 }}>{it.status.replace('_', ' ')}</span>
+                  <span title="status interno" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: it.status === 'concluida' ? C.greenBg : it.status === 'recusada' ? C.redBg : '#EFEBE4', color: it.status === 'concluida' ? C.green : it.status === 'recusada' ? C.red : C.espL, fontWeight: 600 }}>{it.status.replaceAll('_', ' ')}</span>
                 </div>
               </div>
 
@@ -366,7 +366,7 @@ function Inner() {
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                     {!it.atendente_id && <button onClick={() => void acao(it.id, 'fn_sugestao_assumir', { p_id: it.id, p_user: userId }).then((ok) => { if (ok) setMsg('Você assumiu.') })} style={btn(C.esp)}>assumir</button>}
                     <select value="" onChange={(e) => { if (e.target.value) void mudarStatus(it, e.target.value) }} style={{ ...inp, fontWeight: 700 }}>
-                      <option value="">mudar status…</option>{STATUSES.filter((s) => s !== it.status).map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                      <option value="">mudar status…</option>{STATUSES.filter((s) => s !== it.status).map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
                     </select>
                     {/* "responder" saiu daqui: agora mora na seção "Resposta ao autor" acima, que é sempre
                         visível e mostra o estado (sem resposta / rascunho / aprovada) — um único caminho claro. */}

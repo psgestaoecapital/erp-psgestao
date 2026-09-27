@@ -356,11 +356,11 @@ function Inner() {
               <Linha k="Recebido" v={acerto.realizado.recebido} />
               <Linha k="Em aberto — cliente" v={acerto.realizado.em_aberto_cliente} />
               <Linha k="Em aberto — banco" v={acerto.realizado.em_aberto_banco} />
-              <Linha k="Custos após a venda" v={acerto.realizado.custos_pos_venda} />
-              <Linha k="Lucro real" v={acerto.realizado.lucro_real} destaque />
+              <Linha k="Custos após a venda (já no custo real)" v={acerto.realizado.custos_pos_venda} />
+              <Linha k="Lucro real" v={acerto.realizado.lucro_real} destaque testid="acerto-lucro-real" />
             </div>
           </div>
-          <p style={{ fontSize: 12, color: C.espM, marginTop: 10 }}>A diferença entre previsto e realizado é o que ainda está em aberto (títulos a receber do cliente e do banco) mais os custos lançados depois da venda.</p>
+          <p style={{ fontSize: 12, color: C.espM, marginTop: 10 }}>O lucro real conta só o que já entrou: o que ainda está em aberto (cliente e banco, inclusive o retorno do banco) entra quando for pago. Os custos lançados depois da venda já estão dentro do custo real — aparecem à parte só para conferência.</p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}><button onClick={() => { setAcertoVenda(null); setAcerto(null) }} style={btnGhost}>fechar</button></div>
         </Modal>
       )}
@@ -389,9 +389,9 @@ function Passos({ v }: { v: Venda }) {
   )
 }
 
-function Linha({ k, v, destaque }: { k: string; v: number | null; destaque?: boolean }) {
+function Linha({ k, v, destaque, testid }: { k: string; v: number | null; destaque?: boolean; testid?: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0', borderTop: destaque ? `1px solid ${C.border}` : 'none', marginTop: destaque ? 4 : 0, fontWeight: destaque ? 700 : 400 }}>
+    <div data-testid={testid} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0', borderTop: destaque ? `1px solid ${C.border}` : 'none', marginTop: destaque ? 4 : 0, fontWeight: destaque ? 700 : 400 }}>
       <span style={{ color: C.espM }}>{k}</span>
       <span style={{ color: v == null ? C.espL : (destaque && (v ?? 0) < 0 ? C.red : C.esp) }}>{v == null ? 'não configurado' : brl(v)}</span>
     </div>

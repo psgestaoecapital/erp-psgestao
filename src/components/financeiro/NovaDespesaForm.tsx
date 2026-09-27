@@ -494,6 +494,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     const faltou = validarCampos()
     if (faltou) { setErroCampo(faltou.campo); setFeedback({ tipo: 'erro', texto: faltou.banner }); return }
 
+    // #123: "Já paguei" sem conta saía salvo EM ABERTO, em silêncio. Agora trava antes de criar.
+    if (jaPago && !origemConciliacao && !editando && !contaSelecionada) {
+      setErroCampo('contaBancaria')
+      setFeedback({ tipo: 'erro', texto: 'Você marcou "já paguei": escolha em qual conta saiu o dinheiro.' })
+      return
+    }
+
     // SAFEGUARD do código de barras (RD-57 · RD-55): antes de criar, confere o DV do boleto informado
     // e, p/ boleto bancário de parcela única, se o valor embutido bate com o informado. Barras torto =
     // pagar errado (dinheiro de terceiro), então BLOQUEIA aqui — vira aviso imediato, não erro silencioso.
@@ -585,17 +592,27 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo
     // trigger trg_baixa_por_conciliacao — NUNCA chamar fn_pagar_baixar_pagamento
     // aqui, mesmo se o usuario tiver marcado "ja pago". Fonte unica da baixa.
-    if (!origemConciliacao && jaPago && ids.length > 0 && contaBancaria) {
+    if (!origemConciliacao && jaPago && ids.length > 0 && contaSelecionada) {
       // Baixa apenas a 1a parcela · as demais ficam 'aberto'.
       // ids[0] eh a parcela 1/N (fn_pagar_criar_com_parcelas retorna na ordem).
+      // #123: o select guarda o NOME da conta; a RPC quer o ID (uuid). Mandar o nome falhava
+      // o cast em silêncio e a despesa ficava em aberto. Agora manda o id e confere o retorno.
       const primeiroId = ids[0]
-      await supabase.rpc('fn_pagar_baixar_pagamento', {
+      const { data: baixa, error: baixaErr } = await supabase.rpc('fn_pagar_baixar_pagamento', {
         p_pagar_id: primeiroId,
         p_data_pagamento: dataPagamento,
-        p_conta_bancaria_id: contaBancaria,
+        p_conta_bancaria_id: contaSelecionada.id,
         p_forma_pagamento: (formaPagamento || 'PIX').toUpperCase(),
         p_valor_pago: null,
       })
+      const baixaRet = baixa as { sucesso?: boolean; erro?: string } | null
+      if (baixaErr || baixaRet?.sucesso === false) {
+        setFeedback({
+          tipo: 'erro',
+          texto: `Despesa CRIOU, mas o pagamento NÃO foi registrado: ${baixaErr?.message || baixaRet?.erro || 'erro desconhecido'}. Marque como paga na lista.`,
+        })
+        return
+      }
     }
 
     // Vincula ao movimento do extrato -> trigger dispara a baixa canonica.
@@ -919,12 +936,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             <CamposPix tipoChave={tipoChavePix} chave={chavePix} setTipoChave={setTipoChavePix} setChave={setChavePix} inputStyle={inputStyle} />
           )}
 
-          <Campo label="Em qual conta sai o dinheiro?">
+          <Campo label="Em qual conta sai o dinheiro?" erro={erroCampo === 'contaBancaria' ? 'Escolha a conta do pagamento' : null}>
             <select
+              data-testid="despesa-conta"
               value={contaBancaria}
-              onChange={(e) => setContaBancaria(e.target.value)}
+              onChange={(e) => { setContaBancaria(e.target.value); if (erroCampo === 'contaBancaria') limparFeedback() }}
               disabled={editando && ed.baixado}
-              style={{ ...inputStyle, ...(editando && ed.baixado ? travadoStyle : {}) }}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'contaBancaria' ? 'x' : null), ...(editando && ed.baixado ? travadoStyle : {}) }}
             >
               <option value="">— escolher depois —</option>
               {editando && contaBancaria && !contas.some((c) => c.nome === contaBancaria) && (
@@ -1089,6 +1107,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#3D2314', cursor: 'pointer', fontWeight: 600 }}>
                   <input
                     type="checkbox"
+                    data-testid="despesa-ja-paguei"
                     checked={jaPago}
                     onChange={(e) => setJaPago(e.target.checked)}
                   />

@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
+import { textoObsDevolucaoCompra, type NotaOrigem } from '@/lib/fiscal/obsDevolucaoTexto'
 import { ArrowLeft, Loader2, AlertCircle, Trash2, Plus, RotateCcw } from 'lucide-react'
 
 interface Fornecedor {
@@ -98,6 +99,19 @@ export default function DevolucaoCompraClient() {
       .then(({ data }) => { if (alive && (data as { csosn_devolucao?: string } | null)?.csosn_devolucao) setCsosnDevol((data as { csosn_devolucao: string }).csosn_devolucao) })
     return () => { alive = false }
   }, [companyId])
+
+  // #94/#142: prévia da observação que vai na nota ("Devolução referente à NF-e nº X … emitida em …").
+  // Número/série/data vêm da nota recebida (mesma regra da rota que emite); sem ela, saem da própria chave.
+  const [notaOrigem, setNotaOrigem] = useState<NotaOrigem | null>(null)
+  const chaveObs = chaveCompra.replace(/\D/g, '')
+  useEffect(() => {
+    if (!companyId || chaveObs.length !== 44) { setNotaOrigem(null); return }
+    let vivo = true
+    void supabase.from('erp_nfe_recebidas').select('numero, serie, data_emissao')
+      .eq('company_id', companyId).eq('chave_acesso', chaveObs).maybeSingle()
+      .then(({ data }) => { if (vivo) setNotaOrigem((data as NotaOrigem | null) ?? null) })
+    return () => { vivo = false }
+  }, [companyId, chaveObs])
 
   // devolucao-icms-espelho: ao ter a chave (44 digitos), busca os tributos da nota de compra original
   // e monta o mapa por produto (base/aliquota do ICMS) para pre-preencher os itens.
@@ -398,6 +412,7 @@ export default function DevolucaoCompraClient() {
             <label className="block text-[11px] text-[#3D2314]/70 mb-1">Fornecedor (destinatário) *</label>
             <select
               value={fornecedorId}
+              data-testid="nfe-devol-fornecedor"
               onChange={(e) => setFornecedorId(e.target.value)}
               className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]"
             >
@@ -477,6 +492,7 @@ export default function DevolucaoCompraClient() {
               type="text"
               value={chaveCompra}
               onChange={(e) => setChaveCompra(maskChave(e.target.value))}
+              data-testid="nfe-devol-chave"
               placeholder="00000000000000000000000000000000000000000000"
               className="w-full px-3 py-2 text-[13px] font-mono border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]"
             />
@@ -485,6 +501,12 @@ export default function DevolucaoCompraClient() {
                 {chaveLimpa.length}/44
               </span>
             </div>
+            {chaveLimpa.length === 44 && (
+              <div className="mt-2 text-[11.5px] text-[#3D2314]/80 bg-[#FAF7F2] border border-[#3D2314]/10 rounded-lg px-3 py-2">
+                <span className="font-semibold text-[#3D2314]">Vai nas observações da nota: </span>
+                <span data-testid="nfe-devol-obs">{textoObsDevolucaoCompra(chaveLimpa, notaOrigem)}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

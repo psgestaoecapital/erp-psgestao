@@ -25,7 +25,8 @@ jobs:
     # só depois de um deploy de migrations VERDE (vermelho lá já é o alarme do próprio deploy-migrations)
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 100: o veredito de produção NÃO pode desistir na fila da demo (espera até 60 min pela trava)
+    timeout-minutes: 100
     env:
       PROD_BASE_URL: https://erp-psgestao.vercel.app
       COMMIT: ${{ github.event.workflow_run.head_sha }}
@@ -62,6 +63,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+          TRAVA_DEMO_ESPERA_MIN: '60'
         # sem teste @pos-migration no repo → nada a julgar (verde)
         run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration
       - name: Avisar na PR do commit (vermelho = reverter)
