@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
 
 type Provider = 'sicoob' | 'sicredi' | 'bradesco'
 type EstadoItem = { id: string; status: 'pendente' | 'gerando' | 'ok' | 'erro'; msg?: string }
@@ -28,6 +29,7 @@ export default function GerarBoletosReceita({
   onConcluir: () => void
 }) {
   const [provider, setProvider] = useState<Provider | null>(null)
+  const [providers, setProviders] = useState<BoletoProvider[]>([])
   const [faltantes, setFaltantes] = useState<string[]>([])
   const [carregando, setCarregando] = useState(true)
   const [itens, setItens] = useState<EstadoItem[]>(() => ids.map((id) => ({ id, status: 'pendente' })))
@@ -44,23 +46,30 @@ export default function GerarBoletosReceita({
   useEffect(() => {
     let vivo = true
     ;(async () => {
-      const { data } = await supabase.from('erp_banco_provider_config')
-        .select('provider').eq('company_id', companyId).eq('ativo', true).eq('cap_boleto', true).limit(1)
-      const prov = ((data?.[0]?.provider ?? '') as string).toLowerCase() as Provider | ''
+      // #88: com mais de um banco de boleto, o padrão é o configurado por último (ou o escolhido antes).
+      const lista = await listarProvidersBoleto(companyId)
+      const prov = escolherProviderBoleto(companyId, lista)
       if (!vivo) return
-      if (prov !== 'sicoob' && prov !== 'sicredi' && prov !== 'bradesco') {
-        setProvider(null); setCarregando(false); return
-      }
+      setProviders(lista)
+      if (!prov) { setProvider(null); setCarregando(false); return }
       setProvider(prov)
-      const { data: falt } = await supabase.rpc('fn_banco_campos_faltantes', {
-        p_company_id: companyId, p_provider: prov, p_ambiente: 'producao',
-      })
-      if (!vivo) return
-      setFaltantes((falt as string[] | null) ?? [])
-      setCarregando(false)
     })()
     return () => { vivo = false }
   }, [companyId])
+
+  // o que falta no cadastro do banco ESCOLHIDO (recalcula ao trocar de banco)
+  useEffect(() => {
+    if (!provider) return
+    let vivo = true
+    setCarregando(true)
+    void supabase.rpc('fn_banco_campos_faltantes', { p_company_id: companyId, p_provider: provider, p_ambiente: 'producao' })
+      .then(({ data: falt }) => {
+        if (!vivo) return
+        setFaltantes((falt as string[] | null) ?? [])
+        setCarregando(false)
+      })
+    return () => { vivo = false }
+  }, [companyId, provider])
 
   async function gerarUm(id: string): Promise<boolean> {
     if (!provider) return false
@@ -135,6 +144,16 @@ export default function GerarBoletosReceita({
         Receita criada. Gere {ids.length > 1 ? 'os boletos das parcelas aqui mesmo e baixe todos juntos' : 'o boleto aqui mesmo'} — sem voltar à consulta.
       </div>
 
+      {providers.length > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: C.esp }}>
+          <label htmlFor="boleto-banco-receita" style={{ fontWeight: 600 }}>Emitir pelo banco:</label>
+          <select id="boleto-banco-receita" data-testid="boleto-banco-receita" value={provider ?? ''}
+            onChange={(e) => { const p = e.target.value as BoletoProvider; setProvider(p); lembrarProviderBoleto(companyId, p) }}
+            style={{ padding: '5px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: C.white }}>
+            {providers.map((p) => <option key={p} value={p}>{NOME_BANCO[p]}</option>)}
+          </select>
+        </div>
+      )}
       {carregando ? (
         <div style={{ fontSize: 12, color: C.espM }}>Verificando o cadastro do banco…</div>
       ) : !provider ? (
