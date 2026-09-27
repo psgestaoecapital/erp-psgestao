@@ -55,6 +55,9 @@ interface EmitirNFSeBody {
   observacoes?: string
   // #90 · retenção do ISS escolhida no modal: 1=Não retido · 2=Retido pelo tomador · 3=Retido pelo intermediário.
   tipoRetencaoIss?: number
+  // #35 · MEDIÇÃO: parcelas do pedido que esta nota fatura (a nota sai pela SOMA delas). gerarFinanceiro=false →
+  // as parcelas seguem 'previsto' até o "Gerar financeiro desta nota"; true → viram título na autorização.
+  medicao?: { pedidoId: string; parcelaIds: string[]; gerarFinanceiro?: boolean }
 }
 
 interface DadosNFSeRPC {
@@ -254,6 +257,23 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 
     validateNFSeRequest(nfseReq)
 
+    // #35 · MEDIÇÃO: antes de falar com a prefeitura, confere no banco que as parcelas são do pedido, estão
+    // previstas, não têm outra nota ativa e somam o valor da nota. Nota que não fecha com as parcelas não sai.
+    const medicao = body.medicao && Array.isArray(body.medicao.parcelaIds) && body.medicao.parcelaIds.length > 0
+      ? body.medicao : null
+    if (medicao) {
+      const { data: val, error: valErr } = await supabaseAdmin.rpc('fn_nfse_medicao_validar', {
+        p_company_id: body.companyId,
+        p_pedido_id: medicao.pedidoId,
+        p_parcela_ids: medicao.parcelaIds,
+        p_valor: nfseReq.valorServicos,
+      })
+      const v = val as { ok?: boolean; erro?: string } | null
+      if (valErr || !v?.ok) {
+        return NextResponse.json({ ok: false, mensagem: valErr?.message ?? v?.erro ?? 'Medição inválida.' }, { status: 400 })
+      }
+    }
+
     // (a) IDEMPOTÊNCIA FISCAL — nunca emitir 2ª nota p/ o MESMO tomador+valor+competência
     // enquanto já houver uma AUTORIZADA ou EM PROCESSAMENTO. Foi assim que 1 serviço da PS
     // (Cleiton · R$1.923,99) virou 4 NFS-e autorizadas em 35min: a emissão é assíncrona e cada
@@ -261,7 +281,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // reenvio — só autorizada/processando. (RD-51: o desconhecido não vira nem sucesso nem falha.)
     {
       const tomDoc = String(nfseReq.tomador.cnpj || nfseReq.tomador.cpf || '').replace(/\D/g, '')
-      if (tomDoc) {
+      // #35 · medição: duas medições do mesmo valor no mês são notas DIFERENTES (parcelas diferentes) —
+      // a duplicidade já foi barrada por parcela em fn_nfse_medicao_validar.
+      if (tomDoc && !medicao) {
         const compIni = new Date()
         compIni.setDate(1)
         compIni.setHours(0, 0, 0, 0)
@@ -712,6 +734,24 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       )
     }
 
+    // #35 · MEDIÇÃO: grava pedido + parcelas + se gera o financeiro. Nota que já voltou autorizada efetiva
+    // aqui; a que ficou em processamento efetiva no gatilho quando a prefeitura autorizar.
+    let medicaoAviso: string | null = null
+    if (registroId && medicao) {
+      const { data: vinc, error: vincErr } = await supabaseAdmin.rpc('fn_nfse_medicao_vincular', {
+        p_nfse_id: registroId,
+        p_pedido_id: medicao.pedidoId,
+        p_parcela_ids: medicao.parcelaIds,
+        p_gerar_financeiro: medicao.gerarFinanceiro !== false,
+      })
+      const vj = vinc as { ok?: boolean; erro?: string } | null
+      if (vincErr || !vj?.ok) {
+        console.error('[nfse/emitir] medição não vinculada', registroId, vincErr?.message ?? vj?.erro)
+        medicaoAviso = 'A nota saiu, mas não foi ligada às parcelas do pedido — avise o suporte antes de faturar de novo. ' +
+          (vincErr?.message ?? vj?.erro ?? '')
+      }
+    }
+
     // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)
     if (registroId && obraIdFinal) {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ obra_id: obraIdFinal }).eq('id', registroId)
@@ -744,6 +784,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       motivoRejeicao: humanizarErroFiscal(resposta.motivoRejeicao),
       providerReference: resposta.providerReference,
       ambiente: svc.ambiente,
+      medicaoAviso,
     })
   } catch (err) {
     if (isFiscalError(err)) {

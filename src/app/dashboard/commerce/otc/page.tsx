@@ -26,6 +26,7 @@ import {
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
 import ParcelasEditor from '@/components/comum/ParcelasEditor'
+import MedicoesNFSeCard, { type MedicaoEscolhida } from '@/components/comum/MedicoesNFSeCard'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
@@ -977,6 +978,9 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · dados pra emitir NFS-e do pedido faturado
   const [nfseDados, setNfseDados] = useState<NfsePedidoDados | null>(null)
   const [nfseModalAberto, setNfseModalAberto] = useState(false)
+  // #35 · medição escolhida (parcelas) para a próxima emissão; null = nota do pedido inteiro
+  const [medicaoSel, setMedicaoSel] = useState<MedicaoEscolhida | null>(null)
+  const [medicoesVersao, setMedicoesVersao] = useState(0)
   const [nfseProducaoDisponivel, setNfseProducaoDisponivel] = useState(false)
   // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · ultima NFS-e do pedido (inclui rejeitada)
   const [nfseUltima, setNfseUltima] = useState<{ id: string; numero: string | null; status: string; pdf_url: string | null; motivo_rejeicao: string | null } | null>(null)
@@ -1129,8 +1133,19 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
           </Card>
 
           <Card titulo="Parcelas">
-            <ParcelasEditor pedidoId={ped.id} total={Number(ped.total ?? 0)} />
+            <ParcelasEditor pedidoId={ped.id} total={Number(ped.total ?? 0)} onSaved={() => setMedicoesVersao((v) => v + 1)} />
           </Card>
+
+          {/* #35 · faturar por MEDIÇÃO: parcelas marcadas → uma NFS-e pela soma (aparece com 2+ parcelas) */}
+          {statusLocal !== 'cancelado' && nfseDados && nfseDados.tem_servico && (
+            <Card titulo="Medições (NFS-e por parcela)">
+              <MedicoesNFSeCard
+                pedidoId={ped.id}
+                versao={medicoesVersao}
+                onEmitir={(m) => { setMedicaoSel(m); setNfseModalAberto(true) }}
+              />
+            </Card>
+          )}
 
           {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · NFS-e do serviço · 4 estados
               NFS-e PRIMEIRO (CEO 23/09): "Emitir NFS-e" passa a valer em pedido NÃO faturado (com serviço
@@ -1209,7 +1224,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     )}
                     <button
                       type="button"
-                      onClick={() => setNfseModalAberto(true)}
+                      onClick={() => { setMedicaoSel(null); setNfseModalAberto(true) }}
                       data-testid="nfse-reemitir"
                       style={{
                         minHeight: 44, padding: '10px 16px', borderRadius: 8,
@@ -1235,7 +1250,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     </p>
                     <button
                       type="button"
-                      onClick={() => setNfseModalAberto(true)}
+                      onClick={() => { setMedicaoSel(null); setNfseModalAberto(true) }}
                       data-testid="nfse-emitir-abrir"
                       style={{
                         minHeight: 44, padding: '10px 16px', borderRadius: 8,
@@ -1350,9 +1365,12 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
         aliquotaIss={nfseSeed?.aliquotaIss}
         valorServicos={nfseSeed?.valorServicos}
         servicoId={nfseSeed?.servicoId}
-        onFechar={() => setNfseModalAberto(false)}
+        medicao={medicaoSel ?? undefined}
+        onFechar={() => { setNfseModalAberto(false); setMedicaoSel(null) }}
         onEmitida={async (providerReference?: string) => {
           setNfseModalAberto(false)
+          setMedicaoSel(null)
+          setMedicoesVersao((v) => v + 1)
           if (providerReference) {
             await supabase.rpc('fn_pedido_nfse_marcar_emitida', {
               p_pedido_id: ped.id,
