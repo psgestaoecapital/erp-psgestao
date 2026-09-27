@@ -103,7 +103,10 @@ export async function pegarTravaDemo(dono: string, esperaMaxMs = ESPERA_TRAVA_MS
       const m = e instanceof Error ? e.message : String(e)
       // migration ainda não aplicada (PR que a introduz): não trava a suíte — segue sem exclusão, com aviso
       if (/PGRST202|Could not find the function/i.test(m)) { console.warn('[trava-demo] fn_e2e_trava_pegar não existe ainda — seguindo SEM trava'); return 'sem-rpc' }
-      throw e
+      // falha transitória do Supabase (520/502/503/504, PGRST002 "schema cache" logo após um deploy de migration):
+      // não é motivo para derrubar a suíte — espera e tenta de novo dentro do mesmo prazo da trava.
+      if (!/falhou: 5\d\d\b|PGRST002/.test(m)) throw e
+      console.warn(`[trava-demo] tentativa ${i}: erro transitório do banco (${m.slice(0, 120)}) — tentando de novo…`)
     }
     if (Date.now() - inicio > esperaMaxMs) throw new Error(`[trava-demo] demo ocupada há mais de ${Math.round(esperaMaxMs / 60000)} min — não rodo em cima de outra suíte`)
     await new Promise((res) => setTimeout(res, 10_000))
