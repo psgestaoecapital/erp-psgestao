@@ -5,13 +5,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { withAuth } from '@/lib/withAuth';
+import { exigirLogin, exigirEmpresas, type ContextoGuarda } from '@/lib/auth/guardaApi';
+import { somenteEmpresasDoUsuario } from '@/lib/auth/empresasDashboard';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-async function handler(req: NextRequest, user: any) {
+async function handler(req: NextRequest, user: ContextoGuarda) {
   try {
     const { searchParams } = new URL(req.url);
     const plano = searchParams.get('plano') || 'comercio';
@@ -43,9 +44,13 @@ async function handler(req: NextRequest, user: any) {
       nomeContexto = grupo?.nome || 'Grupo';
     } else if (companyIdsParam) {
       companyIds = companyIdsParam.split(',').map(s => s.trim()).filter(Boolean);
+      const negado = await exigirEmpresas(user, companyIds);
+      if (negado) return negado;
       nomeContexto = `${companyIds.length} empresas`;
     } else if (companyIdParam) {
       companyIds = [companyIdParam];
+      const negado = await exigirEmpresas(user, companyIds);
+      if (negado) return negado;
       const { data: c } = await supabase
         .from('companies').select('nome_fantasia').eq('id', companyIdParam).maybeSingle();
       nomeContexto = c?.nome_fantasia || '';
@@ -63,6 +68,12 @@ async function handler(req: NextRequest, user: any) {
       }
     }
     
+    // Grupo (informado ou padrão): só a interseção com as empresas do usuário — grupo salvo pode ter
+    // empresa da qual ele saiu (a tela não quebra; a empresa some). Ids explícitos já foram exigidos acima.
+    if (grupoId || (!companyIdsParam && !companyIdParam)) {
+      companyIds = await somenteEmpresasDoUsuario(user, companyIds);
+    }
+
     if (companyIds.length === 0) {
       return NextResponse.json({ 
         erro: 'Nenhuma empresa selecionada',
@@ -306,4 +317,4 @@ function calcularSaldo(fluxo: any[]) {
   return fluxo.reduce((sum, d) => sum + Number(d.saldo_dia || 0), 0);
 }
 
-export const GET = withAuth(handler);
+export const GET = exigirLogin(handler);

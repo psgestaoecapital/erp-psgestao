@@ -3,7 +3,7 @@
 // POST /api/compliance/prestadores  { company_id, razao_social, cnpj, ... }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -25,19 +25,20 @@ function fail(status: number, mensagem_humana: string) {
   return NextResponse.json({ ok: false, error: mensagem_humana, mensagem_humana }, { status })
 }
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const url = new URL(req.url)
   const idsParam = url.searchParams.get('company_ids')
   const idParam = url.searchParams.get('company_id')
   const ids = idsParam ? idsParam.split(',').map((s) => s.trim()).filter(Boolean) : (idParam ? [idParam] : [])
+  // Lista vazia NÃO é mais "todas as empresas": exige ≥1 e todas do usuário (400/403).
+  const negado = await exigirEmpresas(u, ids)
+  if (negado) return negado
   const q = (url.searchParams.get('q') || '').trim()
   const ativo = url.searchParams.get('ativo')
 
   let query = supabaseAdmin.from('compliance_prestadores').select('*').order('razao_social')
-  if (ids.length > 0) {
-    const csv = ids.join(',')
-    query = query.or(`company_id.in.(${csv}),empresa_tomadora_id.in.(${csv})`)
-  }
+  const csv = ids.join(',')
+  query = query.or(`company_id.in.(${csv}),empresa_tomadora_id.in.(${csv})`)
   if (ativo === 'true') query = query.eq('ativo', true)
   if (ativo === 'false') query = query.eq('ativo', false)
   if (q) {
@@ -75,12 +76,14 @@ export const GET = withAuth(async (req: NextRequest) => {
   return NextResponse.json({ ok: true, prestadores })
 })
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
   const body = await req.json().catch(() => null)
   if (!body) return fail(400, 'Corpo da requisição inválido.')
   if (!body.company_id || !body.razao_social || !body.cnpj) {
     return fail(400, 'company_id, razao_social e cnpj são obrigatórios.')
   }
+  const negado = await exigirEmpresas(u, [body.company_id])
+  if (negado) return negado
   const payload: Record<string, any> = {}
   for (const k of CAMPOS) if (k in body) payload[k] = body[k]
 

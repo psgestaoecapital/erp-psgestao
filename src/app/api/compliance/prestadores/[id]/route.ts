@@ -4,7 +4,7 @@
 // DELETE /api/compliance/prestadores/[id]  (soft delete: ativo=false)
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -31,7 +31,13 @@ async function getId(routeCtx: any): Promise<string> {
   return params.id as string
 }
 
-export const GET = withAuth(async (_req: NextRequest, _ctx, routeCtx) => {
+// Empresas REAIS do prestador: contratante e (terceirização) tomadora.
+async function empresasDoPrestador(id: string) {
+  const { data } = await supabaseAdmin.from('compliance_prestadores').select('company_id, empresa_tomadora_id').eq('id', id).maybeSingle()
+  return data as { company_id: string; empresa_tomadora_id: string | null } | null
+}
+
+export const GET = exigirLogin(async (_req: NextRequest, u, routeCtx) => {
   const id = await getId(routeCtx)
   const { data, error } = await supabaseAdmin
     .from('compliance_prestadores')
@@ -40,6 +46,12 @@ export const GET = withAuth(async (_req: NextRequest, _ctx, routeCtx) => {
     .maybeSingle()
   if (error) return fail(500, `Falha ao consultar prestador: ${error.message}`)
   if (!data) return fail(404, 'Prestador não encontrado.')
+  // Leitura: contratante OU tomadora (a lista de prestadores já mostra os dois).
+  const permitidas = await u.empresas()
+  const p = data as { company_id: string; empresa_tomadora_id?: string | null }
+  if (!permitidas.has(p.company_id) && !(p.empresa_tomadora_id && permitidas.has(p.empresa_tomadora_id))) {
+    return fail(403, 'Sem acesso a esta empresa.')
+  }
 
   // Matriz de documentos do prestador
   const { data: matriz, error: errMat } = await supabaseAdmin
@@ -63,8 +75,13 @@ export const GET = withAuth(async (_req: NextRequest, _ctx, routeCtx) => {
   })
 })
 
-export const PATCH = withAuth(async (req: NextRequest, _ctx, routeCtx) => {
+export const PATCH = exigirLogin(async (req: NextRequest, u, routeCtx) => {
   const id = await getId(routeCtx)
+  // Escrita: só quem tem acesso à contratante (empresa REAL do registro).
+  const atual = await empresasDoPrestador(id)
+  if (!atual) return fail(404, 'Prestador não encontrado.')
+  const negado = await exigirEmpresas(u, [atual.company_id])
+  if (negado) return negado
   const body = await req.json().catch(() => null)
   if (!body) return fail(400, 'Corpo da requisição inválido.')
   const payload: Record<string, any> = {}
@@ -81,8 +98,12 @@ export const PATCH = withAuth(async (req: NextRequest, _ctx, routeCtx) => {
   return NextResponse.json({ ok: true, prestador: data })
 })
 
-export const DELETE = withAuth(async (_req: NextRequest, _ctx, routeCtx) => {
+export const DELETE = exigirLogin(async (_req: NextRequest, u, routeCtx) => {
   const id = await getId(routeCtx)
+  const atual = await empresasDoPrestador(id)
+  if (!atual) return fail(404, 'Prestador não encontrado.')
+  const negado = await exigirEmpresas(u, [atual.company_id])
+  if (negado) return negado
   const { error } = await supabaseAdmin
     .from('compliance_prestadores')
     .update({ ativo: false })

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { exigirLogin, exigirEmpresas, type UsuarioApi } from "@/lib/auth/guardaApi";
 import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
@@ -9,14 +9,19 @@ export const maxDuration = 60;
 
 const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+async function handler(req: NextRequest, user: UsuarioApi) {
   try {
     const { pergunta, company_ids, historico } = await req.json();
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "API key não configurada" }, { status: 500 });
 
     const supabase = supabaseAdmin;
-    const compIds = company_ids || [];
+    // Toda empresa pedida precisa ser do usuário; lista vazia segue sem dados de empresa (como antes).
+    const compIds: string[] = Array.isArray(company_ids) ? company_ids : [];
+    if (compIds.length) {
+      const negado = await exigirEmpresas(user, compIds);
+      if (negado) return negado;
+    }
 
     // ══════════════════════════════════════
     // COLETA DE CONTEXTO — DADOS DA EMPRESA
@@ -194,4 +199,4 @@ LINHAS DE NEGÓCIO: ${blSummary}`,
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

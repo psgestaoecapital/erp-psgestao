@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { exigirLogin, exigirEmpresas, type UsuarioApi } from "@/lib/auth/guardaApi";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -159,9 +159,11 @@ const FICHAS: {cod:string;nome:string;cat:string;mo:number;ind:number;imp:number
     {cod:"PL-ST-1250",qtd:1.05},{cod:"CN-F530",qtd:4.33},{cod:"PE-REG",qtd:1.50},{cod:"AR-G18",qtd:2.00},{cod:"PA-TA-2525",qtd:12},{cod:"FI-PAP-50",qtd:2.50},{cod:"MA-JUN-PO",qtd:0.40},{cod:"CT-2419",qtd:0.80},{cod:"PR-ACO",qtd:1.50}]},
 ];
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+async function handler(req: NextRequest, user: UsuarioApi) {
   try {
     const { company_id } = await req.json();
+    const negado = await exigirEmpresas(user, [company_id]);
+    if (negado) return negado;
     const supabase = supabaseAdmin;
 
     // Build material lookup
@@ -206,4 +208,4 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

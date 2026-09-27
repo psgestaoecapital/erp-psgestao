@@ -2,7 +2,7 @@
 // GET /api/compliance/nr-certificado/:presencaId — signed URL (1h) do certificado
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 
 const BUCKET = 'compliance'
@@ -14,12 +14,16 @@ function admin() {
 
 type Ctx = { params: Promise<{ presencaId: string }> }
 
-export const GET = withAuth(async (_req: NextRequest, _authCtx: unknown, ctx?: Ctx) => {
+export const GET = exigirLogin(async (_req: NextRequest, u, ctx?: unknown) => {
   const { presencaId } = await (ctx as Ctx).params
   const sb = admin()
-  const { data: pres, error } = await sb.from('nr_turma_presenca').select('certificado_url').eq('id', presencaId).maybeSingle()
+  const { data: pres, error } = await sb.from('nr_turma_presenca').select('certificado_url, company_id').eq('id', presencaId).maybeSingle()
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
-  if (!pres || !(pres as { certificado_url?: string | null }).certificado_url) {
+  if (!pres) return NextResponse.json({ ok: false, error: 'sem certificado' }, { status: 404 })
+  // Empresa REAL da presença.
+  const negado = await exigirEmpresas(u, [(pres as { company_id?: string }).company_id])
+  if (negado) return negado
+  if (!(pres as { certificado_url?: string | null }).certificado_url) {
     return NextResponse.json({ ok: false, error: 'sem certificado' }, { status: 404 })
   }
   const path = (pres as { certificado_url: string }).certificado_url

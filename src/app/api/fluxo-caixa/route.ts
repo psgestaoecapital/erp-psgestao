@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 import { applyStandardFilters } from '@/lib/dataFilters'
 
-export const GET = withAuth(async (req: NextRequest, { userId }) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const { searchParams } = new URL(req.url)
   const empresaId = searchParams.get('empresa_id')
   const dataInicio = searchParams.get('data_inicio')
   const dataFim = searchParams.get('data_fim')
   if (!empresaId) return NextResponse.json({ error: 'empresa_id obrigatório' }, { status: 400 })
+  const negado = await exigirEmpresas(u, [empresaId])
+  if (negado) return negado
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

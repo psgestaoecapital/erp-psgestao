@@ -6,7 +6,7 @@
 // pra renderizar em grid.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 
 function admin() {
@@ -16,7 +16,7 @@ function admin() {
   )
 }
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const url = new URL(req.url)
   const companyIdsParam = url.searchParams.get('company_ids')
   const companyIdParam = url.searchParams.get('company_id')
@@ -37,6 +37,8 @@ export const GET = withAuth(async (req: NextRequest) => {
       { status: 400 }
     )
   }
+  const negado = await exigirEmpresas(u, companyIds)
+  if (negado) return negado
 
   const sb = admin()
 

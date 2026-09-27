@@ -1,36 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { withAuth } from '@/lib/withAuth';
+import { exigirLogin, type ContextoGuarda } from '@/lib/auth/guardaApi';
+import { resolverEmpresasDashboard } from '@/lib/auth/empresasDashboard';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-async function handler(req: NextRequest, user: any) {
+async function handler(req: NextRequest, user: ContextoGuarda) {
   try {
     const supabase = supabaseAdmin;
     const searchParams = req.nextUrl.searchParams;
-
-    const grupoId = searchParams.get('grupo_id');
-    const companyIdsParam = searchParams.get('company_ids');
-    const companyIdParam = searchParams.get('company_id');
     const ano = searchParams.get('ano') ? parseInt(searchParams.get('ano')!) : null;
     const mes = searchParams.get('mes') ? parseInt(searchParams.get('mes')!) : null;
     const regime = (searchParams.get('regime') || 'competencia') as 'competencia' | 'caixa';
-
-    // Resolve company_ids (mesma logica do /universal)
-    let companyIds: string[] = [];
-    if (grupoId) {
-      const { data: grupoEmps } = await supabase
-        .from('dashboard_grupos_empresas')
-        .select('company_id')
-        .eq('grupo_id', grupoId);
-      companyIds = (grupoEmps || []).map((g: any) => g.company_id);
-    } else if (companyIdsParam) {
-      companyIds = companyIdsParam.split(',').filter(Boolean);
-    } else if (companyIdParam) {
-      companyIds = [companyIdParam];
-    }
+    // Empresas conferidas: ids explícitos todos do usuário (403); grupo → interseção com as do usuário.
+    const resolvidas = await resolverEmpresasDashboard(user, searchParams);
+    if (resolvidas instanceof NextResponse) return resolvidas;
+    const companyIds = resolvidas;
 
     if (companyIds.length === 0) {
       return NextResponse.json({ erro: 'sem_empresas', requer_config: true });
@@ -63,4 +50,4 @@ async function handler(req: NextRequest, user: any) {
   }
 }
 
-export const GET = withAuth(handler);
+export const GET = exigirLogin(handler);
