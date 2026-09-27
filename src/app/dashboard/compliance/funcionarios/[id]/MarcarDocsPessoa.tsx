@@ -53,9 +53,8 @@ export default function MarcarDocsPessoa({ companyId, funcionarioId, onChanged }
         if (!d.tipo_documento_id) { // custom (sem tipo) não tem dispensa por tipo — remove a marcação manual
           await supabase.rpc('fn_compliance_pessoa_exigir', { p_company_id: companyId, p_funcionario_id: funcionarioId, p_exigido_id: d.exigido_id, p_on: false, p_user: uid })
         } else {
-          const motivo = window.prompt('Por que este documento NÃO se aplica a esta pessoa? (fica registrado)') || ''
-          if (!motivo.trim()) { setSalvando(null); return }
-          await supabase.rpc('fn_compliance_pessoa_dispensar', { p_company_id: companyId, p_funcionario_id: funcionarioId, p_tipo_documento_id: d.tipo_documento_id, p_on: true, p_motivo: motivo, p_user: uid })
+          // #47 · sem justificativa obrigatória (pedido da cliente, 11/09): um clique. Quem e quando continuam registrados.
+          await supabase.rpc('fn_compliance_pessoa_dispensar', { p_company_id: companyId, p_funcionario_id: funcionarioId, p_tipo_documento_id: d.tipo_documento_id, p_on: true, p_motivo: null, p_user: uid })
         }
       } else if (acao === 'reexigir') {
         await supabase.rpc('fn_compliance_pessoa_dispensar', { p_company_id: companyId, p_funcionario_id: funcionarioId, p_tipo_documento_id: d.tipo_documento_id, p_on: false, p_user: uid })
@@ -81,7 +80,7 @@ export default function MarcarDocsPessoa({ companyId, funcionarioId, onChanged }
           {loading ? <div style={{ color: C.gray, fontSize: 13, padding: 10 }}>Carregando…</div> : (
             <div style={{ display: 'grid', gap: 6 }}>
               {docs.map(d => (
-                <div key={d.exigido_id} style={{ display: 'flex', gap: 10, alignItems: 'center', border: `1px solid ${C.borderLt}`, borderRadius: 8, padding: '8px 10px' }}>
+                <div key={d.exigido_id} data-testid="doc-config-linha" data-doc={d.tipo_nome} style={{ display: 'flex', gap: 10, alignItems: 'center', border: `1px solid ${C.borderLt}`, borderRadius: 8, padding: '8px 10px' }}>
                   <span title={d.aplica ? 'aplica' : 'não aplica'} style={{ width: 10, height: 10, borderRadius: 999, flexShrink: 0, background: d.aplica ? C.green : '#ccc' }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: C.espresso }}>{d.tipo_nome}</div>
@@ -93,7 +92,7 @@ export default function MarcarDocsPessoa({ companyId, funcionarioId, onChanged }
                     ) : d.aplica ? (
                       <>
                         {d.incluido && <MiniBtn onClick={() => agir(d, 'remover_marcacao')} busy={salvando === d.exigido_id} cor={C.gray}>remover marcação</MiniBtn>}
-                        <MiniBtn onClick={() => agir(d, 'dispensar')} busy={salvando === d.exigido_id} cor={C.red}>Não se aplica</MiniBtn>
+                        <MiniBtn onClick={() => agir(d, 'dispensar')} busy={salvando === d.exigido_id} cor={C.red} testid="doc-nao-se-aplica">Não se aplica</MiniBtn>
                       </>
                     ) : (
                       <MiniBtn onClick={() => agir(d, 'exigir')} busy={salvando === d.exigido_id} cor={C.gold}>Exigir p/ esta pessoa</MiniBtn>
@@ -110,9 +109,9 @@ export default function MarcarDocsPessoa({ companyId, funcionarioId, onChanged }
   )
 }
 
-function MiniBtn({ children, onClick, busy, cor }: { children: React.ReactNode; onClick: () => void; busy?: boolean; cor: string }) {
+function MiniBtn({ children, onClick, busy, cor, testid }: { children: React.ReactNode; onClick: () => void; busy?: boolean; cor: string; testid?: string }) {
   return (
-    <button type="button" onClick={onClick} disabled={busy}
+    <button type="button" onClick={onClick} disabled={busy} data-testid={testid}
       style={{ border: `1px solid ${cor}`, background: '#fff', color: cor, borderRadius: 6, padding: '4px 8px', fontSize: 11.5, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.5 : 1, whiteSpace: 'nowrap' }}>
       {children}
     </button>
