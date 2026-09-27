@@ -25,8 +25,11 @@ test.describe('Vender e Faturar — NFS-e por medição (#35)', () => {
       company_id: DEMO_GE, numero: `MED-${RUN}`, cliente_nome: CLIENTE, cliente_cnpj: '11222333000181',
       status: 'aberto', subtotal: 1000, total: 1000,
     })).id
+    // item de serviço exige servico_id (chk_ped_item_ref_compativel) — usa um serviço do catálogo da demo
+    const [serv] = await dbSelect<{ id: string }>('erp_servicos', `company_id=eq.${DEMO_GE}&select=id&limit=1`)
+    expect(serv, 'a demo tem serviço no catálogo').toBeTruthy()
     await dbInsert('erp_pedidos_itens', {
-      company_id: DEMO_GE, pedido_id: pedidoId, tipo_item: 'servico', servico_descricao: 'Assentamento de piso (medição)',
+      company_id: DEMO_GE, pedido_id: pedidoId, tipo_item: 'servico', servico_id: serv.id, servico_descricao: 'Assentamento de piso (medição)',
       quantidade: 1, preco_unitario: 1000, subtotal: 1000,
     })
     for (const [n, valor, dias] of [[1, 400, 10], [2, 600, 40]] as const) {
@@ -57,6 +60,9 @@ test.describe('Vender e Faturar — NFS-e por medição (#35)', () => {
     // a demo não tem emissor fiscal (e não emite de verdade): simula o emissor ativo e intercepta a emissão
     await page.route(/\/rest\/v1\/erp_fiscal_provider_config\?.*ativo=eq\.true/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/vnd.pgrst.object+json', body: JSON.stringify({ provider: 'focusnfe', opcao_simples_nacional: 1 }) }))
+    // porta única fiscal (fn_nfse_validar_emissao) da demo sem config fiscal barraria a emissão — libera
+    await page.route(/\/rest\/v1\/rpc\/fn_nfse_validar_emissao/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pode_emitir: true, bloqueios: [] }) }))
     let corpo: Record<string, unknown> | null = null
     await page.route('**/api/fiscal/nfse/emitir', async (route) => {
       corpo = route.request().postDataJSON() as Record<string, unknown>
