@@ -17,9 +17,10 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import { selecionarTodas } from '@/lib/selecionarTodas'
+import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
-  X, Info, Trash2, Pencil, Download, Upload,
+  X, Info, Trash2, Pencil, Download, Upload, Car,
 } from 'lucide-react'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -51,7 +52,7 @@ const C = {
   gray: '#94A3B8',
 }
 
-type Tab = 'saldo' | 'locais' | 'produtos' | 'movimentacoes' | 'inventario' | 'abc'
+type Tab = 'saldo' | 'locais' | 'produtos' | 'movimentacoes' | 'inventario' | 'abc' | 'veiculos'
 
 // F2.2 · Inventarios
 type Inventario = {
@@ -194,7 +195,7 @@ function EstoqueInner() {
   const pathname = usePathname()
   const sp = useSearchParams()
   const tabUrl = sp?.get('tab') ?? null
-  const TAB_KEYS: Tab[] = ['saldo', 'movimentacoes', 'inventario', 'produtos', 'locais', 'abc']
+  const TAB_KEYS: Tab[] = ['saldo', 'movimentacoes', 'inventario', 'produtos', 'locais', 'abc', 'veiculos']
   const initialTab: Tab = (TAB_KEYS as string[]).includes(tabUrl ?? '') ? (tabUrl as Tab) : 'saldo'
   const [tab, setTabState] = useState<Tab>(initialTab)
 
@@ -261,6 +262,19 @@ function EstoqueInner() {
   const [showNovoInventario, setShowNovoInventario] = useState(false)
   const [inventarios, setInventarios] = useState<Inventario[]>([])
   const [inventarioSel, setInventarioSel] = useState<Inventario | null>(null)
+
+  // #147 · Revenda: o estoque de veículos vem do pátio (fn_veic_estoque_ge). A aba só aparece se a empresa tem veículos.
+  const [veic, setVeic] = useState<(EstoqueVeiculos & { companyId: string }) | null>(null)
+  useEffect(() => {
+    if (!companyIdUnico) return
+    let vivo = true
+    void supabase.rpc('fn_veic_estoque_ge', { p_company_id: companyIdUnico }).then(({ data }) => {
+      const d = data as EstoqueVeiculos | null
+      if (vivo && d?.ok) setVeic({ ...d, companyId: companyIdUnico })
+    })
+    return () => { vivo = false }
+  }, [companyIdUnico])
+  const veicAtual = veic && veic.companyId === companyIdUnico && veic.tem_revenda ? veic : null
 
   // FIX-VAZAMENTO-JORDANA (07/07): tela operacional — nunca consolida
   // multi-empresa. Gate estrito em companyIdUnico + .eq (era .in(companyIds)).
@@ -679,6 +693,7 @@ function EstoqueInner() {
         <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} testid="estoque-tab-produtos-count" />
         <TabBtn ativo={tab === 'locais'} onClick={() => setTab('locais')} icon={<Boxes size={14} />} label="Locais" count={locais.length} />
         <TabBtn ativo={tab === 'abc'} onClick={() => setTab('abc')} icon={<BarChart3 size={14} />} label="Curva ABC" />
+        {veicAtual && <TabBtn ativo={tab === 'veiculos'} onClick={() => setTab('veiculos')} icon={<Car size={14} />} label="Veículos" count={veicAtual.totais.qtd} testid="estoque-tab-veiculos" />}
       </div>
 
       {/* FIX-VAZAMENTO-JORDANA (07/07): NAO consolida multi-empresa */}
@@ -740,6 +755,10 @@ function EstoqueInner() {
         />
       ) : tab === 'inventario' ? (
         <TabInventario rows={inventarios} locaisPorId={locaisPorId} onSelect={setInventarioSel} />
+      ) : tab === 'veiculos' ? (
+        veicAtual
+          ? <TabVeiculosRevenda dados={veicAtual} />
+          : <EmptyState titulo="Sem veículos" texto="Esta empresa não tem veículos no pátio da Revenda." />
       ) : (
         <TabCurvaABC rows={curva} />
       )}
