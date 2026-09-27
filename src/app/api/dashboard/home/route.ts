@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi';
+import { exigirUsuario, empresasPermitidas } from '@/lib/auth/guardaApi';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,12 +30,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const companyIds = companyIdsParam.split(',').filter(Boolean);
+    let companyIds = companyIdsParam.split(',').filter(Boolean);
     if (companyIds.length === 0) {
       return NextResponse.json({ ok: false, error: 'company_ids vazio' }, { status: 400 });
     }
-    const negado = await exigirEmpresas(guarda, companyIds);
-    if (negado) return negado;
+    const permitidas = await empresasPermitidas(guarda, companyIds);
+    if (permitidas instanceof NextResponse) return permitidas;
+    companyIds = permitidas;
 
     const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;

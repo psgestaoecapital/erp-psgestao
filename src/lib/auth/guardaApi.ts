@@ -80,6 +80,22 @@ export async function exigirEmpresas(
   return lista.every((id) => permitidas.has(id)) ? null : negar(403, MSG_403_EMPRESA)
 }
 
+// Lista de empresas (modo "todas" / consolidado): fica só o que o usuário pode ver — mesma regra da RLS, que já
+// esconde a empresa restrita (restrita_ps_admin) do PS_ADMIN mesmo que a tela a liste (achado 28/09: rodrigo e jordana
+// veem 30 na tela e podem 29). 1 empresa pedida: estrita (403). Nenhuma permitida: 403. Vazio: 400.
+export async function empresasPermitidas(
+  quem: string | UsuarioApi,
+  ids: (string | null | undefined)[]
+): Promise<string[] | NextResponse> {
+  const lista = [...new Set((Array.isArray(ids) ? ids : []).filter((x): x is string => typeof x === 'string' && x.trim().length > 0))]
+  if (lista.length === 0) return negar(400, 'Empresa obrigatória.')
+  if (typeof quem !== 'string' && quem.maquina) return lista
+  const permitidas = await empresasDoUsuario(typeof quem === 'string' ? quem : quem.token)
+  const ok = lista.filter((id) => permitidas.has(id))
+  if (ok.length === 0 || (lista.length === 1 && ok.length !== 1)) return negar(403, MSG_403_EMPRESA)
+  return ok
+}
+
 // Uso inline (sem reindentar o handler): `const u = await exigirUsuario(req); if (u instanceof NextResponse) return u`
 export async function exigirUsuario(req: Request, opts: OpcoesGuarda = {}): Promise<UsuarioApi | NextResponse> {
   if (opts.cron && ehChamadaCron(req)) return { userId: 'cron', token: '', maquina: true }

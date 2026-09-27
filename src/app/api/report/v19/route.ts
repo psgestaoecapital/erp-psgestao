@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
-import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
+import { exigirUsuario, empresasPermitidas } from "@/lib/auth/guardaApi";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -19,10 +19,11 @@ export async function POST(req: NextRequest) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada" }, { status: 500 });
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const compIds = company_ids || [];
+    let compIds: string[] = company_ids || [];
     if (compIds.length === 0) return NextResponse.json({ error: "Nenhuma empresa selecionada" }, { status: 400 });
-    const negado = await exigirEmpresas(guarda, compIds);
-    if (negado) return negado;
+    const permitidas = await empresasPermitidas(guarda, compIds);
+    if (permitidas instanceof NextResponse) return permitidas;
+    compIds = permitidas;
 
     // ══════════════════════════════════════════
     // COLETA DE TODAS AS 17 FONTES DE DADOS
