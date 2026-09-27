@@ -59,6 +59,7 @@ function SidebarInner() {
 
   return (
     <aside
+      data-testid="menu-lateral"
       className="hidden md:flex flex-col fixed left-0 top-0 h-screen w-[220px] bg-[#3D2314] text-[#FAF7F2] border-r border-[#4D2E1D] z-30"
     >
       <SidebarHeader />

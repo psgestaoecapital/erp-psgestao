@@ -54,6 +54,7 @@ function MobileDrawerInner() {
       )}
 
       <aside
+        data-testid="menu-gaveta"
         className={`fixed top-0 left-0 h-full w-[85%] max-w-[320px] bg-[#3D2314] text-[#FAF7F2] z-50 md:hidden flex flex-col transform transition-transform duration-300 ease-out shadow-[8px_0_32px_rgba(0,0,0,0.45)] ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
