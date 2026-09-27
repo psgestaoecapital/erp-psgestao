@@ -20,6 +20,7 @@ import HistoricoLancamentoModal from './HistoricoLancamentoModal'
 import HistoricoGlobalModal from './HistoricoGlobalModal'
 import ExportarListaButton from './ExportarListaButton'
 import { FORMAS_PAGAMENTO } from '@/lib/financeiro/formasPagamento'
+import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
 
 // Campos liberados na edição em massa (Jordana #6) — todos na whitelist do fn_*_editar_completo.
 const CAMPOS_MASSA = [
@@ -183,6 +184,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [boletoMap, setBoletoMap] = useState<Record<string, BoletoEstado>>({})
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteContato>>({})
   const [provider, setProvider] = useState<'sicoob' | 'sicredi' | 'bradesco' | null>(null)
+  const [providers, setProviders] = useState<BoletoProvider[]>([])   // #88: mais de um banco emitindo boleto
   const [empresaCnpj, setEmpresaCnpj] = useState<string | null>(null)
   const [capExtrato, setCapExtrato] = useState(false)
   const [conciliandoItem, setConciliandoItem] = useState<Resultado | null>(null)
@@ -265,13 +267,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         .from('erp_receber')
         .select('id, cliente_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_codigo_barras, boleto_qr_code, boleto_url')
         .eq('company_id', companyId),
-      supabase
-        .from('erp_banco_provider_config')
-        .select('provider')
-        .eq('company_id', companyId)
-        .eq('ativo', true)
-        .eq('cap_boleto', true)
-        .limit(1),
+      listarProvidersBoleto(companyId),
       supabase
         .from('companies')
         .select('cnpj')
@@ -330,8 +326,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       }
       setBoletoMap(boletoMapNew)
 
-      const provNorm = ((provRes.data?.[0]?.provider ?? '').toLowerCase()) as string
-      if (alive) setProvider(provNorm === 'sicoob' || provNorm === 'sicredi' || provNorm === 'bradesco' ? (provNorm as 'sicoob' | 'sicredi' | 'bradesco') : null)
+      if (alive) { setProviders(provRes); setProvider(escolherProviderBoleto(companyId, provRes)) }
       if (alive) setEmpresaCnpj((compRes.data as { cnpj?: string | null } | null)?.cnpj ?? null)
 
       if (clienteIds.size > 0) {
@@ -812,6 +807,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </div>
         }
       />
+
+      {/* #88: com mais de um banco configurado para boleto, a operadora escolhe em qual emitir. */}
+      {tipo === 'receber' && providers.length > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12, color: '#3D2314' }}>
+          <label htmlFor="boleto-banco" style={{ fontWeight: 600 }}>Emitir boleto pelo banco:</label>
+          <select id="boleto-banco" data-testid="boleto-banco" value={provider ?? ''}
+            onChange={(e) => { const p = e.target.value as BoletoProvider; setProvider(p); lembrarProviderBoleto(companyId, p) }}
+            style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(61,35,20,0.2)', fontSize: 12, background: '#fff' }}>
+            {providers.map((p) => <option key={p} value={p}>{NOME_BANCO[p]}</option>)}
+          </select>
+        </div>
+      )}
 
       {tipo === 'receber' && provider === 'sicoob' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
