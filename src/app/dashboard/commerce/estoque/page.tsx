@@ -11,7 +11,7 @@
 //   - RPC fn_movimentar_estoque(produto, local, tipo, qtd, custo, ...)
 //   - RPC fn_curva_abc_estoque(company_ids uuid[])
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -1117,6 +1117,24 @@ function TabSaldo({
   filtroSaldoLocal: string; setFiltroSaldoLocal: (v: string) => void;
   filtroSaldoTipo: 'todos' | 'com' | 'zero' | 'neg'; setFiltroSaldoTipo: (v: 'todos' | 'com' | 'zero' | 'neg') => void;
 }) {
+  // #96 (Jordana): clicar num card mostra, na tabela abaixo, o que compõe o número do card.
+  type CardSaldo = 'total' | 'com' | 'zero' | 'neg' | 'qtd' | 'valor'
+  const [cardAtivo, setCardAtivo] = useState<CardSaldo | null>(null)
+  const tabelaRef = useRef<HTMLDivElement | null>(null)
+  const abrirCard = (c: CardSaldo) => {
+    setCardAtivo(c)
+    setFiltroSaldoProduto(''); setFiltroSaldoLocal('')   // o card é da empresa toda: a composição também
+    setFiltroSaldoTipo(c === 'com' || c === 'zero' || c === 'neg' ? c : 'todos')
+    setTimeout(() => tabelaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
+  const ordem = cardAtivo === 'valor' ? 'valor' : cardAtivo === 'qtd' ? 'qtd' : null
+  const linhas = ordem === 'valor' ? [...rows].sort((a, b) => b.valor_total - a.valor_total)
+    : ordem === 'qtd' ? [...rows].sort((a, b) => Math.abs(b.saldo) - Math.abs(a.saldo)) : rows
+  const somaValor = linhas.reduce((acc, r) => acc + r.valor_total, 0)
+  const somaQtd = linhas.reduce((acc, r) => acc + r.saldo, 0)
+  const ROTULO_CARD: Record<CardSaldo, string> = {
+    total: 'Total de itens', com: 'Com saldo', zero: 'Zerados', neg: 'Negativos', qtd: 'Quantidade líquida', valor: 'Valor do estoque líquido',
+  }
   const chips: { k: 'todos' | 'com' | 'zero' | 'neg'; label: string; n: number; cor?: string }[] = [
     { k: 'todos', label: 'Todos', n: kpis.totalSku },
     { k: 'com', label: 'Com saldo', n: kpis.skusComSaldo, cor: C.green },
@@ -1127,12 +1145,12 @@ function TabSaldo({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* KPIs (cf980ce1 · a realidade: total, com saldo, zerados, NEGATIVOS, qtd líquida, valor líquido) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-        <KpiCard label="Total de itens" valor={String(kpis.totalSku)} cor={C.espressoM} />
-        <KpiCard label="Com saldo" valor={String(kpis.skusComSaldo)} cor={C.green} />
-        <KpiCard label="Zerados" valor={String(kpis.skusZerados)} cor={C.amber} />
-        <KpiCard label="Negativos" valor={String(kpis.skusNegativos)} cor={C.red} destaque={kpis.skusNegativos > 0} />
-        <KpiCard label="Quantidade líquida" valor={fmtNum(kpis.qtdLiquida)} cor={kpis.qtdLiquida < 0 ? C.red : C.espresso} />
-        <KpiCard label="Valor do estoque líquido" valor={fmtBRL(kpis.valorLiquido)} cor={C.gold} destaque />
+        <KpiCard label="Total de itens" valor={String(kpis.totalSku)} cor={C.espressoM} onClick={() => abrirCard('total')} ativo={cardAtivo === 'total'} testid="saldo-card-total" />
+        <KpiCard label="Com saldo" valor={String(kpis.skusComSaldo)} cor={C.green} onClick={() => abrirCard('com')} ativo={cardAtivo === 'com'} testid="saldo-card-com" />
+        <KpiCard label="Zerados" valor={String(kpis.skusZerados)} cor={C.amber} onClick={() => abrirCard('zero')} ativo={cardAtivo === 'zero'} testid="saldo-card-zero" />
+        <KpiCard label="Negativos" valor={String(kpis.skusNegativos)} cor={C.red} destaque={kpis.skusNegativos > 0} onClick={() => abrirCard('neg')} ativo={cardAtivo === 'neg'} testid="saldo-card-neg" />
+        <KpiCard label="Quantidade líquida" valor={fmtNum(kpis.qtdLiquida)} cor={kpis.qtdLiquida < 0 ? C.red : C.espresso} onClick={() => abrirCard('qtd')} ativo={cardAtivo === 'qtd'} testid="saldo-card-qtd" />
+        <KpiCard label="Valor do estoque líquido" valor={fmtBRL(kpis.valorLiquido)} cor={C.gold} destaque onClick={() => abrirCard('valor')} ativo={cardAtivo === 'valor'} testid="saldo-card-valor" />
       </div>
 
       {/* Filtros */}
@@ -1174,7 +1192,19 @@ function TabSaldo({
         </div>
       </div>
 
-      <div style={{ fontSize: 11, color: C.espressoM, paddingLeft: 4 }}>{rows.length} de {total} linha(s)</div>
+      <div ref={tabelaRef} style={{ fontSize: 11, color: C.espressoM, paddingLeft: 4 }}>{rows.length} de {total} linha(s)</div>
+      {cardAtivo && (
+        <div data-testid="saldo-composicao" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap',
+          background: '#FDF7E8', border: `1px solid ${C.gold}55`, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: C.espresso }}>
+          <span>
+            Composição de <b>{ROTULO_CARD[cardAtivo]}</b>: {linhas.length} linha(s)
+            {ordem === 'valor' && <> · do maior para o menor valor · soma <b data-testid="saldo-composicao-soma">{fmtBRL(somaValor)}</b></>}
+            {ordem === 'qtd' && <> · da maior para a menor quantidade · soma <b data-testid="saldo-composicao-soma">{fmtNum(somaQtd)}</b></>}
+          </span>
+          <button type="button" onClick={() => { setCardAtivo(null); setFiltroSaldoTipo('todos') }}
+            style={{ border: 'none', background: 'transparent', color: C.goldD, fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>limpar</button>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         total === 0
@@ -1197,7 +1227,7 @@ function TabSaldo({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {linhas.map((r) => {
                   const corClasse = r.classe_abc === 'A' ? C.gold : r.classe_abc === 'B' ? C.blue : C.espressoM
                   // Bloco D · disponível = físico − reservado. Só o disponível pode ser vendido.
                   // Negativo = prometeu mais do que tem (o furo, agora visível) → vermelho.
@@ -1231,14 +1261,19 @@ function TabSaldo({
   )
 }
 
-function KpiCard({ label, valor, cor, destaque }: { label: string; valor: string; cor: string; destaque?: boolean }) {
+function KpiCard({ label, valor, cor, destaque, onClick, ativo, testid }: { label: string; valor: string; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean; testid?: string }) {
   return (
-    <div style={{
+    <div role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined} onClick={onClick} data-testid={testid}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
+      title={onClick ? 'Clique para ver o que compõe este número' : undefined}
+      style={{
       background: destaque ? '#FDF7E8' : C.white,
-      border: `1px solid ${C.border}`,
+      border: `1px solid ${ativo ? cor : C.border}`,
       borderLeft: `3px solid ${cor}`,
       borderRadius: 10,
       padding: '12px 14px',
+      cursor: onClick ? 'pointer' : undefined,
+      boxShadow: ativo ? `0 0 0 2px ${cor}33` : undefined,
     }}>
       <div style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: cor, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
