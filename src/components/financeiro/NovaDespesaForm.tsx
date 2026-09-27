@@ -419,8 +419,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
       const eChave = validarChavePix(tipoChavePix, chavePix)
       if (eChave) { setErroCampo('chavePix'); setFeedback({ tipo: 'erro', texto: `Chave PIX: ${eChave}` }); return }
     }
+    const fornecedorIdFinal = await garantirFornecedorId()
     const atual: ValoresDespesa = {
-      fornecedorId, fornecedorNome, descricao: descricao.trim() || montarDescricao(), valor, dataVencimento, dataCompetencia,
+      fornecedorId: fornecedorIdFinal, fornecedorNome, descricao: descricao.trim() || montarDescricao(), valor, dataVencimento, dataCompetencia,
       categoriaCodigo, numeroDocumento, formaPagamento, tipoChavePix, chavePix, contaBancaria, observacao, codigoBarras,
       juros, multa, desconto,
     }
@@ -441,6 +442,20 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     router.push('/dashboard/financeiro/pagar?area=gestao_empresarial')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [edicaoSalva, ed.replica])
+
+  // #43 · fornecedor DIGITADO ("Outro") vira cadastro de verdade: acha (CNPJ/nome) ou cria e devolve o id,
+  // para aparecer na lista no próximo lançamento. Se o cadastro falhar, a despesa segue só com o nome (como antes).
+  async function garantirFornecedorId(): Promise<string> {
+    const nome = fornecedorNome.trim()
+    if (fornecedorId || !nome) return fornecedorId
+    const { data, error } = await supabase.rpc('fn_fornecedor_criar_inline', { p_company_id: companyId, p_nome: nome, p_cpf_cnpj: null })
+    if (error || typeof data !== 'string') return ''
+    setFornecedorId(data)
+    setFornecedores((lista) => lista.some((f) => f.id === data) ? lista
+      : [...lista, { id: data, nome_fantasia: nome, razao_social: nome, cpf_cnpj: null }]
+        .sort((x, y) => exibirNomeFornecedor(x).localeCompare(exibirNomeFornecedor(y), 'pt-BR')))
+    return data
+  }
 
   // Descrição OPCIONAL (pedido Jordana/BPO): se vazia, geramos a partir de
   // fornecedor + categoria do DRE — a descrição identifica a conta na lista, nos
@@ -503,6 +518,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     const descricaoFinal = descricao.trim() || montarDescricao()
     const hoje = new Date().toISOString().split('T')[0]
     const labelSucesso = parcelas >= 2 ? `${parcelas} parcelas · ${fmtBRL(somaParcelas)}` : fmtBRL(parseFloat(valor) || 0)
+    const fornecedorIdFinal = await garantirFornecedorId()
 
     // useSalvar faz o cast do contrato, mapeia erro→mensagem+campo (banner + input
     // vermelho) e devolve o texto pronto de sucesso pro toast (CRIOU …).
@@ -510,7 +526,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
       async () => parcelas >= 2
         ? supabase.rpc('fn_pagar_criar_com_parcelas_v2', {
             p_company_id: companyId,
-            p_fornecedor_id: fornecedorId || null,
+            p_fornecedor_id: fornecedorIdFinal || null,
             p_fornecedor_nome: fornecedorNome || null,
             p_descricao: descricaoFinal,
             p_data_emissao: hoje,
@@ -525,7 +541,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
           })
         : supabase.rpc('fn_pagar_criar_com_parcelas', {
             p_company_id: companyId,
-            p_fornecedor_id: fornecedorId || null,
+            p_fornecedor_id: fornecedorIdFinal || null,
             p_fornecedor_nome: fornecedorNome || null,
             p_descricao: descricaoFinal,
             p_valor_total: parseFloat(valor),
@@ -697,6 +713,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               value={valor}
               onChange={(e) => { setValor(e.target.value); if (erroCampo === 'valor') limparFeedback() }}
               placeholder="0,00"
+              data-testid="despesa-valor"
               disabled={editando && ed.baixado}
               style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'valor' ? 'x' : null), ...(editando && ed.baixado ? travadoStyle : {}) }}
             />
@@ -731,6 +748,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               <>
                 <select
                   value={fornecedorId}
+                  data-testid="despesa-fornecedor-select"
                   onChange={(e) => {
                     setFornecedorId(e.target.value)
                     const f = fornecedores.find((x) => x.id === e.target.value)
@@ -750,12 +768,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
                     value={fornecedorNome}
                     onChange={(e) => setFornecedorNome(e.target.value)}
                     placeholder="Digite o nome do fornecedor"
+                    data-testid="despesa-fornecedor-nome"
                     style={{ ...inputStyle, marginTop: 6 }}
                   />
                 )}
                 {!fornecedorId && fornecedorNome && (
                   <small style={helperStyle}>
-                    Vamos cadastrar esse fornecedor pra você automaticamente.
+                    Ao salvar, esse fornecedor fica cadastrado e aparece na lista nos próximos lançamentos.
                   </small>
                 )}
               </>
@@ -765,10 +784,11 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
                   value={fornecedorNome}
                   onChange={(e) => { setFornecedorNome(e.target.value); setFornecedorId('') }}
                   placeholder="Digite o nome do fornecedor"
+                  data-testid="despesa-fornecedor-nome"
                   style={inputStyle}
                 />
                 <small style={helperStyle}>
-                  Não está na lista? Digite o nome e a gente cadastra depois.
+                  Não está na lista? Digite o nome: ao salvar, o fornecedor fica cadastrado para os próximos lançamentos.
                 </small>
               </>
             )}
