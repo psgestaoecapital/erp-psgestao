@@ -1,7 +1,7 @@
 # SPEC · Revenda: modelo de ganho do carro consignado (repasse fixo ou comissão %)
 
 > **Origem:** decisão do CEO de 26/09 (contexto 31dac1f3, chamado #115). Todo carro consignado tem **dois modelos** de ganho, escolhidos **por veículo**; nenhum é o padrão.
-> **Status:** SPEC para o CEO aprovar. **Nada é construído antes da aprovação.**
+> **Status:** APROVADA pelo CEO em 27/09, com as 3 respostas da §7. Implementação entra na fila.
 > **Regra-mãe (RD-51):** carro consignado **nunca** tem "lucro = venda − custo". Enquanto o modelo não for informado, a tela mostra **"ganho a definir"**, nunca zero nem venda − custo.
 
 ---
@@ -59,7 +59,7 @@ O custo de aquisição continua **nulo**, porque a loja não comprou o carro. To
   - modelo A: o valor do repasse;
   - modelo B: preço de venda − comissão.
 - **Rastreio.** O título usa `erp_pagar` com `ref_externa_sistema = 'revenda_consignado'` e `ref_externa_id = veic_venda.id`, uma chave própria que não colide com os títulos de custo.
-- **Vencimento.** Padrão configurável em `veic_config` (proposta: 5 dias após o recebimento).
+- **Vencimento.** 5 dias após a loja receber (padrão em `veic_config`), editável na hora.
 - **Cancelamento.** Cancelar a venda cancela o título, se ainda não foi pago. Se já foi pago, o cancelamento é bloqueado com aviso.
 - **Tributação sobre a diferença.** No modelo B, a base fiscal é a comissão, não o preço cheio. Isso segue o perfil fiscal (`veic_perfil_fiscal.consignacao_*`) e fica marcado para o contador validar. **Sem mudança fiscal nesta entrega.**
 
@@ -78,8 +78,8 @@ O custo de aquisição continua **nulo**, porque a loja não comprou o carro. To
 
 Cada PR vai com o teste da regra e o teste do caminho principal da tela (RD-83), na demo Revenda.
 
-## 7. Perguntas para o CEO aprovar
+## 7. Decisões do CEO (27/09)
 
-1. **Vencimento padrão do repasse** ao dono: 5 dias após o recebimento?
-2. **Venda sem modelo:** bloquear (proposta) ou permitir com alerta?
-3. **Comissão do vendedor** no consignado: calcula sobre o **ganho da loja** (proposta) ou sobre o **preço de venda**?
+1. **Vencimento do repasse ao dono:** 5 dias depois de a loja receber, **editável na hora** da venda/acerto.
+2. **Venda sem modelo de ganho:** **BLOQUEAR** no servidor, com mensagem clara.
+3. **Comissão do vendedor no consignado:** sobre o **GANHO DA LOJA**, não sobre o preço de venda.
