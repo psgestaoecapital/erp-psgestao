@@ -72,7 +72,8 @@ export function rotaTemPagina(rota: string, reais: string[]): boolean {
 async function main() {
   // aceita o esquema local (NEXT_PUBLIC_*) e o de CI (SUPABASE_URL + SERVICE_ROLE_KEY)
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+  // segurança PR1 (28/09): module_catalog não é mais legível pelo anon — a chave de serviço vem primeiro
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   // Em CI a regua NAO pode passar sem ter olhado o banco. Em 26/09 (PR #1810) o secret
   // SUPABASE_SERVICE_ROLE_KEY veio vazio no runner: SKIP + exit 0 = verde oco, e o link morto
   // revenda_veiculo (02/09) so apareceu no run seguinte. Local (sem CI) segue SKIP para nao travar dev.
