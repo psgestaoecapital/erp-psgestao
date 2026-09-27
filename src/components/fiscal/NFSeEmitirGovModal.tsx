@@ -74,6 +74,9 @@ interface Props {
   // o provedor ativo é Focus (emissão pela rota REST /api/fiscal/nfse/emitir, que emite POR parcela).
   pedidoId?: string
   pedidoNumero?: string
+  // #35 · MEDIÇÃO: parcelas do pedido que esta nota fatura. O valor da nota é a SOMA delas (travado) e o
+  // financeiro dessas parcelas nasce na autorização — ou fica previsto, se a pessoa desmarcar.
+  medicao?: { parcelaIds: string[]; valor: number; rotulo: string }
 }
 
 type Municipio = { codigo_ibge: string; nome_municipio: string; uf: string }
@@ -130,7 +133,7 @@ export default function NFSeEmitirGovModal({
   tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail,
   descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
   servicoId, issNoLocalPrestacao = false, obraId, municipioPrestacaoIbge, municipioPrestacaoLabel,
-  permitirObra = false, pedidoId, pedidoNumero,
+  permitirObra = false, pedidoId, pedidoNumero, medicao,
 }: Props) {
   // FIX-NFSE-AMBIENTE-SEM-ESCOLHA-v1 (chamado #16, sugestão do Rodrigo): o ambiente NÃO é escolha na
   // emissão — vem da configuração da empresa. "Pensando como leigo, essa opção de alterar de homologação
@@ -144,9 +147,12 @@ export default function NFSeEmitirGovModal({
   // guardar o subitem oficial ("07.02"), ele deixou de servir como codTrib — a emissão lê o do município.
   const codTribSeed = (codigoServicoMunicipio ?? '140101').trim() || '140101'
   const aliquotaSeed = aliquotaIss != null ? String(aliquotaIss).replace('.', ',') : '0'
-  const valorSeed = valorServicos != null
-    ? Number(valorServicos).toFixed(2).replace('.', ',')
+  const valorBase = medicao ? medicao.valor : valorServicos
+  const valorSeed = valorBase != null
+    ? Number(valorBase).toFixed(2).replace('.', ',')
     : ''
+  // #35 · medição: gerar o financeiro das parcelas na autorização (padrão) ou deixar previsto
+  const [gerarFinMedicao, setGerarFinMedicao] = useState(true)
   const [tomTipo, setTomTipo] = useState<TomadorTipo>(tomTipoSeed)
   const [tomDoc, setTomDoc] = useState(tomDocSeed)
   const [tomNome, setTomNome] = useState(tomadorNome ?? '')
@@ -221,6 +227,7 @@ export default function NFSeEmitirGovModal({
     setValor(valorSeed)
     setCodigoTrib(codTribSeed)
     setAliquota(aliquotaSeed)
+    setGerarFinMedicao(true)
     setFase('form')
     setResultado(null)
     setErroLocal(null)
@@ -363,7 +370,7 @@ export default function NFSeEmitirGovModal({
     const s = servicos.find((x) => x.id === id)
     if (!s) { setServicoIssLocal(false); return }
     if (s.descricao_detalhada || s.descricao_resumida) setDescricao(s.descricao_detalhada || s.descricao_resumida || '')
-    if (s.valor_unitario != null && Number(s.valor_unitario) > 0) setValor(Number(s.valor_unitario).toFixed(2).replace('.', ','))
+    if (!medicao && s.valor_unitario != null && Number(s.valor_unitario) > 0) setValor(Number(s.valor_unitario).toFixed(2).replace('.', ','))
     if ((s.codigo_servico_municipio ?? '').trim()) setCodigoTrib((s.codigo_servico_municipio as string).trim())
     if (s.aliquota_iss != null) setAliquota(String(s.aliquota_iss).replace('.', ','))
     setServicoIssLocal(!!s.iss_no_local_prestacao)
@@ -514,7 +521,7 @@ export default function NFSeEmitirGovModal({
     // emite por erp_receber e vincula sem duplicar. Sem tomador não emite (CEO: nem sem tomador nem sem serviço).
     let erpReceberIdFocus: string | undefined
     if (emitirViaFocus) {
-      erpReceberIdFocus = await resolverReceberDoPedido()
+      erpReceberIdFocus = medicao ? undefined : await resolverReceberDoPedido()
       if (!erpReceberIdFocus && !soDigitos(tomDoc)) {
         setErroLocal('Informe o tomador (CNPJ/CPF) para emitir a NFS-e antes de faturar.')
         return
@@ -534,6 +541,9 @@ export default function NFSeEmitirGovModal({
           codigoServicoTributacao: codigoTrib.trim() || undefined,
           obraId: obraIdFinal || undefined,
           tipoRetencaoIss: 1,
+        }
+        if (medicao && pedidoId) {
+          bodyFocus.medicao = { pedidoId, parcelaIds: medicao.parcelaIds, gerarFinanceiro: gerarFinMedicao }
         }
         if (erpReceberIdFocus) {
           bodyFocus.erpReceberId = erpReceberIdFocus
@@ -718,7 +728,7 @@ export default function NFSeEmitirGovModal({
     >
       <div className="w-full sm:max-w-lg bg-[#FAF7F2] sm:rounded-xl shadow-xl max-h-full overflow-y-auto">
         <div className="sticky top-0 bg-[#FAF7F2] border-b border-[#3D2314]/10 px-5 py-4 flex items-center justify-between">
-          <h2 className="text-[18px] font-medium text-[#3D2314]">Emitir NFS-e</h2>
+          <h2 className="text-[18px] font-medium text-[#3D2314]">{medicao ? 'Emitir NFS-e da medição' : 'Emitir NFS-e'}</h2>
           <button
             type="button"
             onClick={fechar}
@@ -839,6 +849,23 @@ export default function NFSeEmitirGovModal({
                     </select>
                   </label>
                 )}
+                {medicao && (
+                  <div data-testid="nfse-medicao-box" className="rounded-md border border-[#C8941A]/40 bg-[#C8941A]/10 px-3 py-2 text-[12px] text-[#3D2314]">
+                    <p className="m-0"><b>Medição:</b> {medicao.rotulo} — a nota sai pela soma das parcelas marcadas.</p>
+                    <label className="mt-2 flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={gerarFinMedicao}
+                        onChange={(e) => setGerarFinMedicao(e.target.checked)}
+                        data-testid="nfse-medicao-gerar-financeiro"
+                        className="mt-0.5"
+                      />
+                      <span>Gerar o financeiro destas parcelas quando a prefeitura autorizar a nota.
+                        <span className="block text-[11px] text-[#3D2314]/60">Desmarcado: as parcelas seguem previstas; você gera depois pela nota.</span>
+                      </span>
+                    </label>
+                  </div>
+                )}
                 <textarea
                   value={descricao}
                   onChange={(e) => setDescricao(e.target.value)}
@@ -854,6 +881,9 @@ export default function NFSeEmitirGovModal({
                       inputMode="decimal"
                       value={valor}
                       onChange={(e) => setValor(e.target.value)}
+                      readOnly={!!medicao}
+                      data-testid="nfse-valor"
+                      title={medicao ? 'Valor da medição = soma das parcelas marcadas' : undefined}
                       placeholder="0,00"
                       className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
                     />
