@@ -20,12 +20,11 @@ import { supabase } from "./supabase";
 export function useCompanyIds() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
-  const [sel, setSel] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("ps_empresa_sel") || "consolidado";
-    }
-    return "consolidado";
-  });
+  // Hidratação (React #418): o 1º render do cliente PRECISA ser igual ao do servidor, que não tem
+  // localStorage. Ler aqui no inicializador fazia o servidor pintar "Selecione uma empresa…" e o cliente
+  // pintar a tela da empresa → HTML diferente → erro #418 (visto na tela de Conexões bancárias, celular).
+  // Começa "consolidado" (igual ao servidor) e lê a escolha logo após montar (efeito abaixo).
+  const [sel, setSel] = useState<string>("consolidado");
   const [loading, setLoading] = useState(true);
 
   // Carrega empresas e grupos
@@ -58,7 +57,11 @@ export function useCompanyIds() {
   // Escuta mudanças no localStorage (quando usuário muda empresa no seletor do layout)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    
+
+    // leitura imediata após montar (o estado inicial é "consolidado" para casar com o servidor)
+    const atual = localStorage.getItem("ps_empresa_sel") || "consolidado";
+    if (atual !== sel) setSel(atual);
+
     // Polling a cada 500ms (evento storage só dispara em outras abas)
     const interval = setInterval(() => {
       const saved = localStorage.getItem("ps_empresa_sel") || "consolidado";

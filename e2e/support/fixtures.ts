@@ -7,7 +7,9 @@ import { test as base, expect, type Page } from '@playwright/test'
 import { DEMO_REVENDA, storageKey } from './api'
 
 // Provedores externos + endpoints de ação real do próprio app. Conservador: só o que É ação externa.
-const BLOQUEIO = /(focusnfe|sefaz\.|api\.resend\.com|graph\.facebook\.com|api\.twilio\.com|z-api\.io)|\/api\/(fiscal\/nfe|fiscal\/nfse|boleto|cnab|remessa|whatsapp|email)(\/|$|\?)/i
+// focusnfe = o HOST do provedor (api./homologacao.focusnfe.com.br) — não o texto "focusnfe" numa consulta ao próprio
+// banco (ex.: erp_fiscal_provider_config?provider=eq.focusnfe, lida pela tela de devolução), que não é ação externa.
+const BLOQUEIO = /(focusnfe\.com|sefaz\.|api\.resend\.com|graph\.facebook\.com|api\.twilio\.com|z-api\.io)|\/api\/(fiscal\/nfe|fiscal\/nfse|boleto|cnab|remessa|whatsapp|email)(\/|$|\?)/i
 
 type Fixtures = { guardaAcoesReais: void }
 

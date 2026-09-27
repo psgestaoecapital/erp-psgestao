@@ -6,6 +6,7 @@ import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-buil
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
+import { montarObsDevolucaoCompra } from '@/lib/fiscal/obsDevolucao'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
 
 export const dynamic = 'force-dynamic'
@@ -131,6 +132,11 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         : it,
     )
 
+    // #94/#142: a NF de compra de origem tem que aparecer nas OBSERVAÇÕES da DANFE (dados adicionais), não
+    // só no grupo NFref estrutural — "Referente à NF X emitida em DD/MM/AAAA". Número/série/data vêm da nota
+    // recebida; sem ela, número e série saem da própria chave (posições fixas do leiaute da NF-e).
+    const obsDevolucao = await montarObsDevolucaoCompra(body.companyId, chaveCompra)
+
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,
       manual: {
@@ -157,6 +163,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         naturezaOperacao: body.naturezaOperacao ?? 'Devolução de compra',
         finalidade: 'devolucao',
         chaveReferenciada: chaveCompra,
+        observacoes: obsDevolucao,
         totais: {
           frete: body.frete, seguro: body.seguro, outrasDespesas: body.outrasDespesas,
           desconto: body.desconto, modalidadeFrete: body.modalidadeFrete,
