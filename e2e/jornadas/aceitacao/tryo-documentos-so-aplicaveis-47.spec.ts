@@ -4,7 +4,7 @@
 // Só frontend (sem migration): roda no preview da PR. Demonstração Indústria (SST); reset da demo no fim.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
-import { dbSelect, rpc, registrarJornada } from '../../support/api'
+import { dbSelect, dbInsert, rpc, registrarJornada } from '../../support/api'
 
 const DEMO_SST = 'b0700000-0000-4000-a000-000000000005'
 
@@ -20,6 +20,11 @@ test.describe('Ficha do funcionário — documentos só os aplicáveis (#47)', (
     const [func] = await dbSelect<{ id: string }>('compliance_funcionarios',
       `company_id=eq.${DEMO_SST}&nome_completo=eq.${encodeURIComponent('Rafael Gomes Demo')}&select=id`)
     expect(func, 'a demo tem o Rafael, com a Audiometria dispensada').toBeTruthy()
+
+    // A demo só traz exigências de TERCEIRO; a configuração por pessoa lista as do próprio funcionário. Cria uma
+    // exigência "para todos" (RG e CPF) só para esta jornada — o reset da demo no fim a remove.
+    const [rg] = await dbSelect<{ id: string }>('compliance_tipos_documento', `nome=eq.${encodeURIComponent('RG e CPF')}&select=id&limit=1`)
+    await dbInsert('compliance_documento_exigido', { company_id: DEMO_SST, tipo_documento_id: rg.id, aplica_a: 'funcionario', obrigatorio: true, ativo: true })
 
     let pediuJustificativa = false
     page.on('dialog', async (d) => { pediuJustificativa = true; await d.dismiss() })
