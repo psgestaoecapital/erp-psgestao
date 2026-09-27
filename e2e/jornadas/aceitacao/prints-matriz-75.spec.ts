@@ -1,5 +1,5 @@
 // #75 · PRINTS da Matriz de Conformidade na Demonstração Indústria (SST), celular (390) e computador (1440).
-// PR descartável: roda no preview (login do robô), imprime as imagens em base64 no log para o CEO avaliar o layout.
+// PR descartável: roda no preview (login do robô), salva os PNG no artefato aceitacao-diagnostico-host para o CEO avaliar o layout.
 // Não é mergeada. Só leitura; só a demonstração.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
@@ -15,10 +15,8 @@ test('prints da Matriz de Conformidade (demo SST) — celular e computador', asy
     await aguardarConteudo(page)
     await expect(page.getByText('Ana Paula Demo').first()).toBeVisible({ timeout: 30000 })
     await page.waitForTimeout(1500)
-    const buf = await page.screenshot({ type: 'jpeg', quality: 55 })
-    const b64 = buf.toString('base64')
-    const partes = Math.ceil(b64.length / 3000)
-    for (let i = 0; i < partes; i++) console.log(`PRINT75|${nome}|${i + 1}/${partes}|${b64.slice(i * 3000, (i + 1) * 3000)}`)
-    console.log(`PRINT75|${nome}|fim|${buf.length} bytes`)
+    // pasta que o aceitacao-pr.yml SEMPRE sobe como artefato (aceitacao-diagnostico-host)
+    await page.screenshot({ path: `e2e/diagnostico-host/prints-75-matriz-${nome}.png`, fullPage: false })
+    console.log(`PRINT75|${nome}|salvo em e2e/diagnostico-host/prints-75-matriz-${nome}.png`)
   }
 })
