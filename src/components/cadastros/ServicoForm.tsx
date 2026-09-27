@@ -64,6 +64,10 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [regime, setRegime] = useState<string | null>(null)
+  // #146 (Alliance) · o regime é editado em DOIS lugares: Configurações → Empresa (companies, fonte desta tela) e
+  // Configurações → Fiscal (erp_fiscal_provider_config, usado na emissão). Quando divergem, a tela avisa com o link
+  // de onde corrigir — antes travava o IBS/CBS em silêncio ("empresa no presumido, mas continua bloqueado").
+  const [regimeFiscal, setRegimeFiscal] = useState<string | null>(null)
 
   // Aba Servico
   const [codigo, setCodigo] = useState(servico?.codigo ?? '')
@@ -107,12 +111,12 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
   useEffect(() => {
     let alive = true
     void (async () => {
-      const { data } = await supabase
-        .from('companies')
-        .select('regime_tributario')
-        .eq('id', companyId)
-        .maybeSingle()
+      const [{ data }, { data: fisc }] = await Promise.all([
+        supabase.from('companies').select('regime_tributario').eq('id', companyId).maybeSingle(),
+        supabase.from('erp_fiscal_provider_config').select('regime_tributario').eq('company_id', companyId).eq('ativo', true).limit(1).maybeSingle(),
+      ])
       if (!alive) return
+      setRegimeFiscal(((fisc?.regime_tributario as string | null) ?? null)?.trim().toLowerCase() ?? null)
       const raw = (data?.regime_tributario as string | null)?.trim().toLowerCase() ?? null
       const norm = raw === 'simples' ? 'simples_nacional'
         : raw === 'presumido' ? 'lucro_presumido'
@@ -124,6 +128,9 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
   }, [companyId])
 
   const isSimples = regime === 'simples_nacional'
+  // divergência: um lado diz Simples e o outro não (ex.: empresa "simples_nacional" × fiscal "regime_normal")
+  const fiscalSimples = regimeFiscal ? regimeFiscal.startsWith('simples') : null
+  const regimeDivergente = regime != null && fiscalSimples != null && isSimples !== fiscalSimples
 
   // RT · auto-preenche cClassTrib + indOpRT da correlação ao escolher o NBS (fonte: fiscal_correlacao_servico).
   // Não passa o LC116 (o campo está em formato incompatível com a correlação); NBS ambíguo → não chuta.
@@ -383,6 +390,17 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
 
           {aba === 'reforma_trib' && (
             <div className="space-y-3">
+              {regimeDivergente && (
+                <div data-testid="rt-regime-divergente" className="flex items-start gap-2 p-3 rounded-lg bg-[#FFF4DC] text-[#6B4A00] text-[12px] border border-[#C8941A]/40">
+                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                  <span>
+                    O regime da empresa está diferente em dois lugares: <b>Configurações → Empresa</b> diz{' '}
+                    <b>{isSimples ? 'Simples Nacional' : 'fora do Simples'}</b>, e a <b>Configuração Fiscal</b> (usada na emissão) diz{' '}
+                    <b>{fiscalSimples ? 'Simples Nacional' : 'Regime Normal (Presumido/Real)'}</b>. Esta tela segue a Empresa.{' '}
+                    <a href="/dashboard/configuracoes/empresa" className="underline font-semibold">Corrigir em Configurações → Empresa</a>.
+                  </span>
+                </div>
+              )}
               {isSimples && (
                 <div className="flex items-start gap-2 p-3 rounded-lg bg-[#FCEBEB] text-[#791F1F] text-[12px]">
                   <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
