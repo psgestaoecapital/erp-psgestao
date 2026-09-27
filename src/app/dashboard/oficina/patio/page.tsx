@@ -26,6 +26,7 @@ const C = {
 const COLUNAS: { status: string; label: string; icone: string }[] = [
   { status: 'aberta', label: 'Recebido', icone: '🅿️' },
   { status: 'aguardando_aprovacao', label: 'Aguardando aprovação', icone: '⏳' },
+  { status: 'aprovada', label: 'Aprovado', icone: '👍' },   // #134 · cliente aprovou; entra em serviço quando a oficina começar
   { status: 'em_execucao', label: 'Em serviço', icone: '🔧' },
   { status: 'aguardando_peca', label: 'Aguardando peça', icone: '📦' },
   { status: 'pronta', label: 'Pronto', icone: '✅' },
@@ -59,6 +60,7 @@ const SELECT_OS = 'id, company_id, numero, cliente_nome, equipamento, placa, mod
 const COL_COR: Record<string, string> = {
   aberta: '#3D6FA8',              // azul
   aguardando_aprovacao: '#7C3AED', // roxo
+  aprovada: '#BE185D',             // magenta
   em_execucao: '#0F766E',        // teal
   aguardando_peca: '#0891B2',    // ciano
   pronta: '#4F46E5',             // indigo

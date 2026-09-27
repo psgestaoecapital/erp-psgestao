@@ -94,6 +94,7 @@ const STATUS: Array<{ value: string; label: string; cor: string; bg: string }> =
   { value: 'em_execucao',            label: 'Em execução',             cor: C.goldD,    bg: C.goldBg },
   { value: 'aguardando_peca',        label: 'Aguardando peça/material', cor: C.amber,    bg: C.amberBg },
   { value: 'aguardando_aprovacao',   label: 'Aguardando aprovação',     cor: C.amber,    bg: C.amberBg },
+  { value: 'aprovada',               label: 'Aprovada',                 cor: C.greenD,   bg: C.goldBg },   // #134
   { value: 'pronta',                 label: 'Pronta',                  cor: C.green,    bg: C.greenBg },
   { value: 'entregue',               label: 'Entregue',                cor: C.greenD,   bg: C.greenBg },
   { value: 'cancelada',              label: 'Cancelada',               cor: C.red,      bg: C.redBg },
@@ -347,6 +348,22 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
 
   useEffect(() => { void carregar() }, [carregar])
 
+  // #134 · OS aprovada pelo cliente com parte dos itens recusada: o status vira "Aprovada" (há o que executar),
+  // mas a oficina precisa ver que nem tudo foi aprovado.
+  const [recusadosDe, setRecusadosDe] = useState<{ osId: string; n: number } | null>(null)
+  useEffect(() => {
+    const oid = os?.id
+    if (!oid || os?.status !== 'aprovada') return
+    let alive = true
+    void (async () => {
+      const { count } = await supabase.from('erp_os_diagnostico_item')
+        .select('id', { count: 'exact', head: true }).eq('os_id', oid).eq('aprovado', false)
+      if (alive) setRecusadosDe({ osId: oid, n: count ?? 0 })
+    })()
+    return () => { alive = false }
+  }, [os?.id, os?.status])
+  const recusados = os?.status === 'aprovada' && recusadosDe?.osId === os.id ? recusadosDe.n : 0
+
   // RD-41 · papel do usuário na empresa da OS (Master = CLIENT_OWNER) + selo "editada após entrega".
   useEffect(() => {
     const cid = os?.company_id; const oid = os?.id
@@ -525,6 +542,11 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         <StatusBadge status={os.status} />
       </div>
 
+      {recusados > 0 && (
+        <div data-testid="os-aviso-recusados" style={{ fontSize: 12, color: C.espresso, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '8px 10px' }}>
+          ⚠️ Aprovada com {recusados === 1 ? '1 item recusado' : `${recusados} itens recusados`} pelo cliente — execute só os itens aprovados.
+        </div>
+      )}
       {/* RD-41 · selo de auditoria: OS ajustada após a entrega (controle pedido pela Jordana) */}
       {selo && (
         <div data-testid="os-selo-pos-entrega" style={{ fontSize: 11.5, color: C.espresso, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px' }}>

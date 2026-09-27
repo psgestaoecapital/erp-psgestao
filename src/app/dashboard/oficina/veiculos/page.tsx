@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase'
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'
 const brl = (n: number | null) => n == null ? null : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(n) || 0)
-const STATUS_LABEL: Record<string, string> = { aberta: 'Recebido', aguardando_aprovacao: 'Aguardando aprovação', em_execucao: 'Em serviço', aguardando_peca: 'Aguardando peça', pronta: 'Pronto', entregue: 'Entregue', cancelada: 'Cancelada' }
+const STATUS_LABEL: Record<string, string> = { aberta: 'Recebido', aguardando_aprovacao: 'Aguardando aprovação', aprovada: 'Aprovado', em_execucao: 'Em serviço', aguardando_peca: 'Aguardando peça', pronta: 'Pronto', entregue: 'Entregue', cancelada: 'Cancelada' }
 const fmtData = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
 const fmtKm = (k: number | null) => k == null ? '—' : `${new Intl.NumberFormat('pt-BR').format(k)} km`
 
