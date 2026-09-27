@@ -19,10 +19,9 @@
 --  · invites: NÃO entra aqui — a página pública /convite lê o convite como anon e o marca como usado; precisa de
 --    RPC própria com verificação de quem aceita (PR separada), senão o cadastro por convite quebra.
 
--- Ordem de trava (prova 28/09: deadlock com login gravando auditoria). Qualquer DDL aqui segura auth.users até o fim
--- da transação; o login grava audit_log_global e depois toca auth.users. Pegar audit_log_global/lgpd_consentimentos
--- PRIMEIRO segue a mesma ordem do login — sem ciclo; no pior caso o login espera alguns ms.
-LOCK TABLE public.audit_log_global, public.lgpd_consentimentos IN ACCESS EXCLUSIVE MODE;
+-- (Sem LOCK TABLE: o `supabase db push` roda cada comando fora de bloco de transação — LOCK derrubou o deploy de
+-- 28/09 com 25P01. Cada comando confirma sozinho e segura auth.users só por milissegundos; todo comando aqui é
+-- idempotente — DROP ... IF EXISTS antes de cada CREATE — então um reenvio após falha parcial é seguro.)
 
 DO $$
 DECLARE t text;
