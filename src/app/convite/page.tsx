@@ -24,14 +24,11 @@ function ConviteForm() {
   useEffect(() => {
     if (!code) { setInvalid(true); setLoading(false); return; }
     
-    supabase.from("invites")
-      .select("*, companies(razao_social, nome_fantasia), organizations(name)")
-      .eq("invite_code", code)
-      .eq("is_used", false)
-      .single()
+    // Segurança PR 5: o convite é lido SÓ pelo código, via RPC (a tabela invites não é mais legível sem login).
+    // A RPC já filtra usado/expirado.
+    supabase.rpc("fn_convite_ler", { p_code: code })
       .then(({ data, error }) => {
-        if (error || !data) { setInvalid(true); setLoading(false); return; }
-        if (data.expires_at && new Date(data.expires_at) < new Date()) { setInvalid(true); setLoading(false); return; }
+        if (error || !data?.ok) { setInvalid(true); setLoading(false); return; }
         setInvite(data);
         if (data.email) setEmail(data.email);
         setLoading(false);
@@ -47,7 +44,7 @@ function ConviteForm() {
 
     // Tenta criar conta - se ja existe, faz login
     let authData: any = null;
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password, options: { data: { full_name: nome } } });
     if (signUpError) {
       // Se usuario ja existe no Auth, tenta fazer login
       if (signUpError.message.includes("already") || signUpError.message.includes("exists") || signUpError.message.includes("registered")) {
@@ -67,39 +64,27 @@ function ConviteForm() {
       authData = signUpData;
     }
 
+    if (authData.user && !authData.session) {
+      // Cadastro que exige confirmação de e-mail: sem sessão não há como aceitar agora (a RPC exige login).
+      setError("Confirme seu e-mail pelo link que enviamos e abra o convite de novo para concluir.");
+      setLoading(false);
+      return;
+    }
+
     if (authData.user) {
-      // Mark invite as used
-      await supabase.from("invites").update({ 
-        is_used: true, 
-        used_by: authData.user.id, 
-        used_at: new Date().toISOString() 
-      }).eq("invite_code", code);
-
-      // Create user profile
-      await supabase.from("users").insert({
-        id: authData.user.id,
-        org_id: invite.org_id,
-        full_name: nome,
-        email: email,
-        role: invite.role || "visualizador",
-      });
-
-      // Link user to company/companies
-      if (invite.group_id) {
-        // Group invite: link to ALL companies in the group
-        const { data: groupComps } = await supabase.from("companies").select("id").eq("group_id", invite.group_id);
-        if (groupComps) {
-          for (const comp of groupComps) {
-            await supabase.from("user_companies").insert({
-              user_id: authData.user.id, company_id: comp.id, role: invite.role || "visualizador"
-            });
-          }
-        }
-      } else if (invite.company_id) {
-        // Single company invite
-        await supabase.from("user_companies").insert({
-          user_id: authData.user.id, company_id: invite.company_id, role: invite.role || "visualizador"
-        });
+      // Aceite pela RPC: confere convite aberto, no prazo e para o e-mail do login; o banco provisiona perfil,
+      // empresa(s), papel e áreas (gatilho fn_invite_consumido_criar_vinculo). A tela não grava users/user_companies.
+      const { data: aceite, error: aceiteErro } = await supabase.rpc("fn_convite_aceitar", { p_code: code });
+      if (aceiteErro || !aceite?.ok) {
+        const motivo = aceite?.erro === "email_diferente"
+          ? "Este convite foi enviado para outro e-mail. Use o e-mail do convite."
+          : aceite?.erro === "convite_ja_usado" ? "Este convite já foi utilizado."
+          : aceite?.erro === "convite_expirado" ? "Este convite expirou. Peça um novo convite."
+          : aceite?.erro === "sem_login" ? "Confirme seu e-mail pelo link que enviamos e abra o convite de novo."
+          : "Não foi possível aceitar o convite. Tente novamente ou peça um novo convite."
+        setError(motivo);
+        setLoading(false);
+        return;
       }
     }
 
@@ -167,7 +152,7 @@ function ConviteForm() {
             <div style={{ background: "#2A2822", borderRadius: 8, padding: 12, marginBottom: 20, textAlign: "center", border: "0.5px solid #3D3A30" }}>
               <div style={{ fontSize: 10, color: "#918C82", textTransform: "uppercase", letterSpacing: 0.5 }}>Empresa</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#E8C872", marginTop: 4 }}>
-                {invite.companies.nome_fantasia || invite.companies.razao_social}
+                {invite.empresa}
               </div>
               <div style={{ fontSize: 10, color: "#A8A498", marginTop: 2 }}>
                 Perfil: {invite.role === "adm" ? "Administrador" : invite.role === "financeiro" ? "Financeiro" : invite.role ? invite.role.charAt(0).toUpperCase() + invite.role.slice(1).replace('_', ' ') : "Visualização"}
