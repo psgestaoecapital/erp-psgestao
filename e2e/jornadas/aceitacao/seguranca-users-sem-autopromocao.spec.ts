@@ -1,6 +1,7 @@
 // 🚨 Segurança HOTFIX (28/09) · o usuário logado podia se promover a administrador trocando o próprio users.role
 // (ou system_role) — abria todas as empresas. Migration 20260928140000: gatilho barra a troca de papel/acesso
 // vinda da API por quem não é administrador PS. O usuário segue editando o próprio nome.
+// Migration 20260928141000: user_scope só leitura pela API (o usuário se dava outro papel dentro da empresa).
 
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, obterSessionPayload, registrarJornada } from '../../support/api'
@@ -44,5 +45,13 @@ test.describe('Segurança · usuário não se promove a administrador', () => {
     const [depois] = await dbSelect<{ role: string; system_role: string | null }>('users', `id=eq.${id}&select=role,system_role`)
     expect(depois?.role).toBe(antes?.role)
     expect(depois?.system_role).toBe(antes?.system_role)
+
+    // migration 20260928141000: user_scope (papel/nível/alçada dentro da empresa) não se grava direto pela API
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/user_scope?user_id=eq.${id}`, {
+      method: 'PATCH',
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ nivel: 'editar' }),
+    })
+    expect(r.status, 'user_scope só leitura pela API').toBeGreaterThanOrEqual(400)
   })
 })
