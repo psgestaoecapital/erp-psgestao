@@ -928,8 +928,9 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             <select
               value={contaBancaria}
               onChange={(e) => setContaBancaria(e.target.value)}
-              disabled={editando && ed.baixado}
-              style={{ ...inputStyle, ...(editando && ed.baixado ? travadoStyle : {}) }}
+              data-testid="receita-conta"
+              disabled={editando && ed.comExtrato}
+              style={{ ...inputStyle, ...(editando && ed.comExtrato ? travadoStyle : {}) }}
             >
               <option value="">— escolher depois —</option>
               {contas.map((c) => (

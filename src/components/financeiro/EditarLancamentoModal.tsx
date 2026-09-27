@@ -260,10 +260,15 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
     // VENCIMENTO ou CONTA — mexeria numa baixa com crédito bancário conciliado por trás. O resto (categoria,
     // centro de custo, observações, etc.) pode. Para corrigir a baixa, o caminho é Desvincular no inbox.
     if (pagoOuConciliado) {
-      const bloqueados = ['valor', 'data_vencimento', 'conta_bancaria', 'conta_bancaria_id']
+      // #137 · a conta só trava com EXTRATO por trás (conciliado/movimento do banco). Baixa manual sem
+      // conciliação: a conta pode ser informada/corrigida; valor e vencimento seguem travados.
+      const comExtrato = conciliadoOrig || movimentoBanco
+      const bloqueados = comExtrato ? ['valor', 'data_vencimento', 'conta_bancaria', 'conta_bancaria_id'] : ['valor', 'data_vencimento']
       const mexeu = bloqueados.some((c) => (form[c] ?? '') !== (orig[c] ?? ''))
       if (mexeu) {
-        setErro(`Este lançamento está ${statusOrig === 'pago' ? 'PAGO' : 'CONCILIADO'} — não dá para alterar valor, vencimento ou conta (isso mexeria numa baixa já conciliada). Os demais campos podem ser editados. Para corrigir a baixa, use Desvincular no inbox de conciliação.`)
+        setErro(comExtrato
+          ? 'Este lançamento está CONCILIADO com o extrato — não dá para alterar valor, vencimento ou conta (isso mexeria numa baixa já conciliada). Os demais campos podem ser editados. Para corrigir a baixa, use Desvincular no inbox de conciliação.'
+          : 'Este lançamento está PAGO — não dá para alterar valor nem vencimento (a baixa depende deles). A conta e os demais campos podem ser editados.')
         return
       }
     }
