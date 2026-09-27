@@ -1,5 +1,5 @@
 // src/app/dashboard/compliance/sst/page.tsx
-// SST · LTCAT — passo 1: importar os setores do ponto para prod_setor (base da cadeia
+// SST · LTCAT — passo 1: importar os setores do ponto para prod_setor. Passo 2 (#77/#53): LtcatFuncoes (base da cadeia
 // setor → posto/função → risco/EPI). Genérico por tenant. Prévia antes de importar (não em
 // silêncio): mostra os setores do ponto, marca os que já existem, deixa desmarcar o que não for
 // setor de verdade. Dedup normalizado no backend. RD-61: os existentes ficam como estão.
@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { Layers, RefreshCw, Download, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import LtcatFuncoes from '@/components/compliance/LtcatFuncoes'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -28,6 +29,7 @@ export default function ComplianceSstPage() {
   const [importando, setImportando] = useState(false)
   const [erro, setErro] = useState('')
   const [okMsg, setOkMsg] = useState('')
+  const [importados, setImportados] = useState(0)   // recarrega o passo 2 depois de importar setores
 
   const carregar = useCallback(async () => {
     if (!companyId) return
@@ -55,6 +57,7 @@ export default function ComplianceSstPage() {
       const r = data as { ok: boolean; erro?: string; antes?: number; criados?: number; depois?: number }
       if (!r?.ok) throw new Error(r?.erro === 'sem_planta' ? 'Empresa sem planta industrial configurada — configure a planta antes de importar setores.' : (r?.erro || 'falha na importação'))
       setOkMsg(`Importado: ${r.criados} setor(es) criado(s). Total agora: ${r.depois} (antes ${r.antes}).`)
+      setImportados((n) => n + 1)
       await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setImportando(false) }
   }
@@ -122,8 +125,10 @@ export default function ComplianceSstPage() {
         </div>
       )}
 
+      <LtcatFuncoes companyId={companyId} recarregarChave={importados} />
+
       <div style={{ marginTop: 20, fontSize: 12, color: C.gray, lineHeight: 1.5 }}>
-        Depois dos setores, o próximo passo do LTCAT é definir, por setor e por função, os <b>riscos</b>, os <b>EPIs obrigatórios</b> e os <b>treinamentos</b>. O sistema organiza a informação — <b>o laudo é assinado por engenheiro ou médico do trabalho</b>.
+        O sistema organiza a informação do LTCAT por setor e função — <b>o laudo é assinado por engenheiro ou médico do trabalho</b>.
       </div>
     </Wrap>
   )
