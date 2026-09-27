@@ -2,6 +2,8 @@
 // OFICINA · DIAGNÓSTICO TÉCNICO (laudo do mecânico). Mobile-first (o mecânico usa celular).
 // Escolhe a OS do pátio → registra causa provável + itens (serviços do tempário + peças) + severidade.
 // 🚫 SEM preço, SEM financeiro, SEM mudar status — só o laudo técnico (RD: financeiro é da GE).
+// #135 · exceção: empresa em "atendimento centralizado" (sem tablet no box) — quem pode lançar valor já informa o
+// preço unitário aqui, e a Aprovação do Cliente só registra a decisão.
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check, Camera, X, MessageCircle, Copy, ExternalLink, Pencil } from 'lucide-react'
@@ -12,6 +14,7 @@ import AnotarModal from '@/components/oficina/AnotarModal'
 import AnotacaoOverlay from '@/components/oficina/AnotacaoOverlay'
 import { temAnotacao } from '@/components/oficina/anotacao'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { useOficinaModelo } from '@/lib/oficina/modelo'
 import { decimalBanco } from '@/lib/decimalBanco'
 
 const BUCKET = 'oficina-recepcao'   // RD-26 · mesmo bucket/mecanismo da recepção (#831)
@@ -46,6 +49,7 @@ type ItemLaudo = {
   _estoque?: number | null; _codigo?: string | null    // só p/ exibição (peça do catálogo)
   // RD-41 · orçamento operacional (vem da RPC pós-aprovação; SEMPRE presente no dado)
   preco?: number | null; subtotal?: number | null; status_item?: string; aprovado?: boolean | null
+  _preco?: string   // #135 · preço unitário digitado (só no atendimento centralizado)
 }
 type Resumo = { total_aprovado: number; total_geral: number; qtd_aprovados: number; qtd_pendentes: number; qtd_recusados: number }
 const brl = (v: number | null | undefined) => v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -79,6 +83,7 @@ function useCompanyId(): string | null {
 export default function DiagnosticoPage() {
   const companyId = useCompanyId()
   const { config: ramo } = useOficinaRamo(companyId)   // RD-41 · texto coerente por ramo
+  const { podePreco } = useOficinaModelo(companyId)     // #135 · atendimento centralizado: preço já no Diagnóstico
   const router = useRouter()
   const [lista, setLista] = useState<OSLinha[]>([])
   const [osSel, setOsSel] = useState<OSLinha | null>(null)
@@ -155,6 +160,7 @@ export default function DiagnosticoPage() {
       tempo_estimado_h: i.tempo_estimado_h != null ? String(i.tempo_estimado_h) : '',
       severidade: i.severidade ?? 'recomendado', observacao: i.observacao ?? '',
       preco: i.preco ?? null, subtotal: i.subtotal ?? null, status_item: i.status_item, aprovado: i.aprovado ?? null,
+      _preco: i.preco != null ? String(i.preco).replace('.', ',') : '',
     })))
   }
 
@@ -207,7 +213,8 @@ export default function DiagnosticoPage() {
   }, [buscaPeca, companyId])
 
   const addPecaCatalogo = (p: Peca) => {
-    setItens((prev) => [...prev, { tipo: 'peca', produto_id: p.id, descricao: p.nome, quantidade: '1', severidade: 'recomendado', _estoque: p.estoque_atual, _codigo: p.codigo }])
+    setItens((prev) => [...prev, { tipo: 'peca', produto_id: p.id, descricao: p.nome, quantidade: '1', severidade: 'recomendado', _estoque: p.estoque_atual, _codigo: p.codigo,
+      _preco: p.preco_venda != null ? String(p.preco_venda).replace('.', ',') : '' }])   // #135 · sugere o preço de venda do catálogo
     setBuscaPeca(''); setSugestoesPeca([])
   }
   const addLinha = (tipo: 'servico' | 'peca') => setItens((p) => [...p, { tipo, descricao: '', quantidade: '1', tempo_estimado_h: '', severidade: 'recomendado' }])
@@ -292,6 +299,8 @@ export default function DiagnosticoPage() {
         // #102: "1,5" (vírgula, como o brasileiro digita) quebrava o ::numeric do banco e a tela parecia só aceitar inteiro.
         descricao: i.descricao, quantidade: decimalBanco(i.quantidade), tempo_estimado_h: decimalBanco(i.tempo_estimado_h),
         severidade: i.severidade, observacao: i.observacao ?? null,
+        // #135 · só no atendimento centralizado; o banco ignora para quem não pode e não mexe em item já aprovado
+        ...(podePreco ? { preco: decimalBanco(i._preco) } : {}),
       })) },
     })
     setSalvando(false)
@@ -507,6 +516,15 @@ export default function DiagnosticoPage() {
                   : <Campo l="Tempo estimado (h)"><input value={it.tempo_estimado_h} onChange={(e) => setItem(i, { tempo_estimado_h: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>}
                 {it.tipo === 'servico' && <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>}
               </div>
+              {/* #135 · atendimento centralizado: preço unitário já no Diagnóstico (item aprovado/recusado não muda aqui) */}
+              {podePreco && it.status_item !== 'aprovado' && it.status_item !== 'recusado' && (
+                <div style={{ marginBottom: 8 }}>
+                  <Campo l="Preço unitário (R$)">
+                    <input value={it._preco ?? ''} onChange={(e) => setItem(i, { _preco: e.target.value.replace(/[^\d.,]/g, '') })}
+                      inputMode="decimal" placeholder="0,00" data-testid="diag-item-preco" style={inp} />
+                  </Campo>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {SEVERIDADES.map((s) => (
                   <button key={s.v} onClick={() => setItem(i, { severidade: s.v })} style={{ ...chip, borderColor: it.severidade === s.v ? s.c : LINE, background: it.severidade === s.v ? s.c : '#fff', color: it.severidade === s.v ? '#fff' : s.c }}>{s.l}</button>
