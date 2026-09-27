@@ -124,7 +124,10 @@ export default function AprovacaoPage() {
     setSalvando(false)
     const j = data as { ok?: boolean; erro?: string; decisao?: string; itens_aprovados?: number; itens_total?: number; valor_total?: number } | null
     if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
-    setMsg(`✅ Orçamento registrado (${j?.decisao}) — ${j?.itens_aprovados}/${j?.itens_total} itens · ${brl(Number(j?.valor_total) || 0)}.`)
+    // #134 · aprovado/parcial passa a OS para "Aprovada" (gatilho no banco, só se ela ainda não entrou em execução)
+    const recus = (Number(j?.itens_total) || 0) - (Number(j?.itens_aprovados) || 0)
+    setMsg(`✅ Orçamento registrado (${j?.decisao}) — ${j?.itens_aprovados}/${j?.itens_total} itens · ${brl(Number(j?.valor_total) || 0)}.`
+      + (j?.decisao === 'parcial' ? ` ⚠️ ${recus} ${recus === 1 ? 'item recusado' : 'itens recusados'} pelo cliente.` : ''))
     setTimeout(() => setOsSel(null), 1800)
   }
 

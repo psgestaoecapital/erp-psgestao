@@ -31,11 +31,12 @@ const STATUS_CFG: Record<string, { label: string; cor: string; bg: string }> = {
   em_execucao:           { label: 'Em execução',             cor: C.gold,     bg: C.goldBg },
   aguardando_peca:       { label: 'Aguardando peça',         cor: C.amber,    bg: C.amberBg },
   aguardando_aprovacao:  { label: 'Aguardando aprovação',    cor: C.amber,    bg: C.amberBg },
+  aprovada:              { label: 'Aprovada',                cor: C.greenD,   bg: C.goldBg },   // #134 · cliente aprovou, ainda não entrou em execução
   pronta:                { label: 'Pronta',                  cor: C.green,    bg: C.greenBg },
   entregue:              { label: 'Entregue',                cor: C.greenD,   bg: C.greenBg },
   cancelada:             { label: 'Cancelada',               cor: C.red,      bg: C.redBg },
 }
-const STATUS_ORDER = ['aberta','em_execucao','aguardando_peca','aguardando_aprovacao','pronta','entregue','cancelada'] as const
+const STATUS_ORDER = ['aberta','aguardando_aprovacao','aprovada','em_execucao','aguardando_peca','pronta','entregue','cancelada'] as const
 
 interface OSRow {
   id: string
