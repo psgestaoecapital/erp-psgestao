@@ -55,8 +55,6 @@ END $$;
 REVOKE ALL ON FUNCTION public.fn_convite_aceitar(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_convite_aceitar(text) TO authenticated, service_role;
 
--- ordem de trava (ver PR 4): DDL de policy segura auth.users até o fim; o login grava audit_log_global antes
-LOCK TABLE public.audit_log_global IN ACCESS EXCLUSIVE MODE;
 DROP POLICY IF EXISTS "Anyone can read invite" ON public.invites;
 REVOKE ALL ON TABLE public.invites FROM anon;
 REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE public.invites FROM authenticated;
