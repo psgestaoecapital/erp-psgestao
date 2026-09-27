@@ -941,8 +941,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               data-testid="despesa-conta"
               value={contaBancaria}
               onChange={(e) => { setContaBancaria(e.target.value); if (erroCampo === 'contaBancaria') limparFeedback() }}
-              disabled={editando && ed.baixado}
-              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'contaBancaria' ? 'x' : null), ...(editando && ed.baixado ? travadoStyle : {}) }}
+              disabled={editando && ed.comExtrato}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'contaBancaria' ? 'x' : null), ...(editando && ed.comExtrato ? travadoStyle : {}) }}
             >
               <option value="">— escolher depois —</option>
               {editando && contaBancaria && !contas.some((c) => c.nome === contaBancaria) && (

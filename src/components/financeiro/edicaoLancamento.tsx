@@ -61,6 +61,10 @@ export function useEdicaoLancamento(tipo: TipoLancamento, id: string | undefined
 
   const status = String(linha?.status ?? '')
   const baixado = !!linha && (status === 'pago' || !!linha.conciliado || linha.movimento_banco_id != null)
+  // #137 (André) · "baixei sem conciliar e não deixa incluir a conta de débito". A conta só é intocável quando há
+  // EXTRATO por trás (conciliado ou com movimento do banco). Baixa manual sem conciliação: a conta pode ser
+  // informada/corrigida — é ela que a conciliação vai procurar depois. Valor e vencimento seguem travados.
+  const comExtrato = !!linha && (!!linha.conciliado || linha.movimento_banco_id != null)
 
   // Salva o que mudou. Devolve erro (texto) ou ok; se houver outras parcelas não pagas e campos replicáveis,
   // deixa `replica` preenchido para a tela perguntar "aplicar às demais?".
@@ -68,8 +72,11 @@ export function useEdicaoLancamento(tipo: TipoLancamento, id: string | undefined
     if (!id) return { ok: false, erro: 'Lançamento não informado.' }
     const payload = diffCampos(base, atual)
     if (Object.keys(payload).length === 0) return { ok: false, erro: 'Nada foi alterado — nenhuma mudança para salvar.' }
-    if (baixado && TRAVADOS_SE_BAIXADO.some((k) => k in payload)) {
-      return { ok: false, erro: `Este lançamento está ${status === 'pago' ? 'PAGO' : 'CONCILIADO'} — não dá para alterar valor, vencimento ou conta (isso mexeria numa baixa já feita). Os demais campos podem ser editados. Para corrigir a baixa, use Desvincular no inbox de conciliação.` }
+    const travados = comExtrato ? TRAVADOS_SE_BAIXADO : TRAVADOS_SE_BAIXADO.filter((k) => !k.startsWith('conta_bancaria'))
+    if (baixado && travados.some((k) => k in payload)) {
+      return { ok: false, erro: comExtrato
+        ? `Este lançamento está CONCILIADO com o extrato — não dá para alterar valor, vencimento ou conta (isso mexeria numa baixa já conciliada). Os demais campos podem ser editados. Para corrigir a baixa, use Desvincular no inbox de conciliação.`
+        : `Este lançamento está PAGO — não dá para alterar valor nem vencimento (a baixa depende deles). A conta e os demais campos podem ser editados.` }
     }
     const rpc = tipo === 'pagar' ? 'fn_pagar_editar_completo' : 'fn_receber_editar_completo'
     const { data, error } = await supabase.rpc(rpc, { p_id: id, p_campos: payload })
@@ -88,7 +95,7 @@ export function useEdicaoLancamento(tipo: TipoLancamento, id: string | undefined
       if (outras.length > 0) setReplica({ campos: replicaveis, outras, currentNum: rows.find((r) => r.atual)?.parcela_num ?? null })
     }
     return { ok: true, alterados: Object.keys(payload).length }
-  }, [id, tipo, baixado, status])
+  }, [id, tipo, baixado, comExtrato])
 
   const aplicarReplica = useCallback(async (escopo: 'proximas' | 'todas'): Promise<string | null> => {
     if (!replica) return null
@@ -108,7 +115,7 @@ export function useEdicaoLancamento(tipo: TipoLancamento, id: string | undefined
     } finally { setReplicando(false) }
   }, [replica, tipo])
 
-  return { linha, carregando, erroCarga, baixado, status, salvarEdicao, replica, replicando, aplicarReplica, descartarReplica: () => setReplica(null) }
+  return { linha, carregando, erroCarga, baixado, comExtrato, status, salvarEdicao, replica, replicando, aplicarReplica, descartarReplica: () => setReplica(null) }
 }
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.55)'
@@ -159,8 +166,9 @@ export function SituacaoEdicao({ tipo, linha, baixado }: { tipo: TipoLancamento;
       </div>
       {baixado && (
         <div style={{ background: '#FEF3C7', color: '#7A5A0F', padding: '8px 10px', borderRadius: 6, fontSize: 12, border: '0.5px solid rgba(200,148,26,0.35)' }}>
-          Este lançamento já tem baixa. <b>Valor, vencimento e conta</b> ficam travados (a baixa depende deles); os demais campos podem ser alterados.
-          Para corrigir a baixa, use <b>Desvincular</b> no inbox de conciliação.
+          {linha.conciliado || linha.movimento_banco_id != null
+            ? <>Este lançamento está conciliado com o extrato. <b>Valor, vencimento e conta</b> ficam travados; os demais campos podem ser alterados. Para corrigir a baixa, use <b>Desvincular</b> no inbox de conciliação.</>
+            : <>Este lançamento já tem baixa (sem conciliação). <b>Valor e vencimento</b> ficam travados; a <b>conta</b> e os demais campos podem ser alterados.</>}
         </div>
       )}
     </div>
