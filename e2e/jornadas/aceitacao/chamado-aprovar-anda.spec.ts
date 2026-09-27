@@ -1,6 +1,9 @@
 // Chamados · APROVAR = O CLIENTE RECEBE E O CHAMADO ANDA (CEO 27/09). Antes, aprovar a resposta gravava a mensagem e
 // avisava o cliente, mas o status ficava "nova"/"em desenvolvimento" — para o cliente, parado. Agora: aprovar leva
-// a "aguardando_confirmacao"; o cliente respondendo no chamado devolve para "em_desenvolvimento".
+// a "aguardando_confirmacao"; o cliente respondendo no chamado devolve para a fila da PS.
+// Fila da PS = "nova" ou "em_desenvolvimento": o gatilho trg_sugestao_guard_pr_numero (já existente) só deixa
+// "em_desenvolvimento" em chamado com PR vinculado; sem PR, o status fica "nova". O teste de 27/09 exigia
+// "em_desenvolvimento" num chamado sem PR e caiu em produção (run 36320952508) — a regra do produto estava certa.
 // Migration 20260927170000 · @pos-migration. RPCs chamadas COMO O ROBÔ (PS_ADMIN e autor do chamado de teste).
 // Chamado de teste na Demonstração Comércio (GE), arquivado no fim.
 
@@ -34,9 +37,11 @@ test.describe('Chamado — aprovar a resposta muda o status', () => {
       return (await r.json()) as { ok: boolean; status?: string }
     }
     const status = async () => (await dbSelect<{ status: string }>('sugestoes', `id=eq.${id}&select=status`))[0]?.status
+    // chamado de teste sem PR vinculado → a fila da PS aparece como "nova" (gatilho do pr_numero)
+    const FILA_PS = ['nova', 'em_desenvolvimento']
 
     expect((await chamar('fn_sugestao_responder', { p_id: id, p_texto: 'Resolvido — teste de aceitação.', p_user: ROBO, p_redigida_por: null, p_origem: 'assistente' })).ok).toBe(true)
-    expect(await status(), 'rascunho não muda para o cliente').toBe('em_desenvolvimento')
+    expect(FILA_PS, 'rascunho não muda para o cliente (continua na fila da PS)').toContain(await status())
 
     const ap = await chamar('fn_sugestao_aprovar_resposta', { p_id: id, p_user: ROBO })
     expect(ap.ok).toBe(true)
@@ -45,6 +50,8 @@ test.describe('Chamado — aprovar a resposta muda o status', () => {
     expect(msgs.length, 'a resposta entrou na conversa').toBeGreaterThan(0)
 
     expect((await chamar('fn_sugestao_mensagem_enviar', { p_sugestao_id: id, p_user: ROBO, p_texto: 'ainda não funcionou', p_anexos: [] })).ok).toBe(true)
-    expect(await status(), 'o cliente respondeu → volta para a PS').toBe('em_desenvolvimento')
+    const depois = await status()
+    expect(depois, 'o cliente respondeu → sai de "aguardando confirmação"').not.toBe('aguardando_confirmacao')
+    expect(FILA_PS, 'o cliente respondeu → volta para a fila da PS').toContain(depois)
   })
 })
