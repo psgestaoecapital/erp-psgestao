@@ -1,5 +1,6 @@
-// SST · LTCAT — passo 2 (#77 / #53): por SETOR → FUNÇÃO, a descrição das atividades, os RISCOS, os EPIs
-// obrigatórios e os TREINAMENTOS. Uma função é salva inteira numa chamada (fn_ltcat_funcao_salvar, atômica);
+// SST · LTCAT — passo 2 (#77 / #53): os RISCOS são do SETOR (valem para todas as funções — resposta da responsável de
+// SST: "os riscos são iguais para todo o setor, porém com EPIs diferentes para as funções"); por FUNÇÃO, a descrição
+// das atividades, os EPIs obrigatórios e os TREINAMENTOS. Uma função é salva inteira numa chamada (fn_ltcat_funcao_salvar, atômica);
 // a leitura vem toda de fn_ltcat_painel. O sistema organiza a informação — o laudo é assinado pelo profissional.
 'use client'
 
@@ -18,7 +19,7 @@ type Funcao = {
   epis: { catalogo_id: string; nome: string; ca: string }[]
   treinamentos: { tipo_id: string; nome: string; nr: string | null }[]
 }
-type Setor = { id: string; nome: string; funcoes: Funcao[] }
+type Setor = { id: string; nome: string; riscos: Risco[]; funcoes: Funcao[] }
 type Listas = { epis: { id: string; nome: string; ca: string; global: boolean }[]; treinamentos: { id: string; nome: string; nr: string | null }[] }
 type Edicao = { id?: string; nome: string; descricao: string; riscos: Risco[]; epis: Set<string>; treinamentos: Set<string> }
 
@@ -42,6 +43,7 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
   const [listas, setListas] = useState<Listas>({ epis: [], treinamentos: [] })
   const [setorId, setSetorId] = useState<string>('')
   const [edit, setEdit] = useState<Edicao | null>(null)
+  const [riscosSetor, setRiscosSetor] = useState<Risco[] | null>(null)   // editor dos riscos do setor
   const [carregando, setCarregando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
@@ -87,6 +89,21 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
     } catch (e) { setErro((e as Error).message) } finally { setSalvando(false) }
   }
 
+  const salvarRiscosSetor = async () => {
+    if (!riscosSetor || !setor) return
+    setSalvando(true); setErro(''); setOk('')
+    try {
+      const { data, error } = await supabase.rpc('fn_ltcat_setor_riscos_salvar', {
+        p_setor_id: setor.id, p_riscos: riscosSetor.map((r) => ({ tipo: r.tipo, descricao: r.descricao, grau: r.grau || null })),
+      })
+      if (error) throw error
+      const r = data as { ok: boolean; erro?: string }
+      if (!r?.ok) throw new Error(ERROS[r?.erro || ''] || r?.erro || 'falha ao salvar')
+      setOk(`Riscos do setor ${setor.nome} salvos.`); setRiscosSetor(null)
+      await carregar()
+    } catch (e) { setErro((e as Error).message) } finally { setSalvando(false) }
+  }
+
   const remover = async (f: Funcao) => {
     if (!window.confirm(`Remover a função "${f.nome}" do LTCAT deste setor?`)) return
     setErro(''); setOk('')
@@ -99,7 +116,7 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
   return (
     <section data-testid="ltcat-passo2" style={{ marginTop: 28 }}>
       <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, color: C.espresso }}>Passo 2 · Funções, riscos, EPIs e treinamentos</div>
-      <div style={{ fontSize: 13, color: C.gray, margin: '4px 0 12px' }}>Escolha o setor e cadastre cada função: o que ela faz, a que riscos está exposta, os EPIs obrigatórios e os treinamentos exigidos.</div>
+      <div style={{ fontSize: 13, color: C.gray, margin: '4px 0 12px' }}>Escolha o setor: cadastre os riscos do setor (valem para todas as funções) e, em cada função, o que ela faz, os EPIs obrigatórios e os treinamentos exigidos.</div>
 
       {erro && <div style={box(C.redBg, C.red)}>{erro}</div>}
       {ok && <div style={box(C.greenBg, C.green)}>{ok}</div>}
@@ -110,7 +127,7 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
         <>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {setores.map((s) => (
-              <button key={s.id} onClick={() => { setSetorId(s.id); setEdit(null) }} data-testid="ltcat-setor"
+              <button key={s.id} onClick={() => { setSetorId(s.id); setEdit(null); setRiscosSetor(null) }} data-testid="ltcat-setor"
                 style={{ borderRadius: 999, padding: '6px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
                   border: `1px solid ${s.id === setorId ? C.gold : C.borderLt}`, background: s.id === setorId ? C.gold : '#fff',
                   color: s.id === setorId ? '#fff' : C.espresso }}>
@@ -121,6 +138,44 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
 
           {setor && !edit && (
             <>
+              <div data-testid="ltcat-riscos-setor" style={{ background: '#fff', border: `1px solid ${riscosSetor ? C.gold : C.borderLt}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 700, color: C.espresso }}><ShieldAlert size={14} style={ic} />Riscos do setor {setor.nome}</div>
+                  {!riscosSetor && <button onClick={() => { setOk(''); setErro(''); setRiscosSetor(setor.riscos.map((r) => ({ ...r }))) }} style={btnSec}><Pencil size={13} /> Editar riscos do setor</button>}
+                </div>
+                <div style={{ fontSize: 12, color: C.gray, margin: '4px 0 8px' }}>Valem para todas as funções deste setor.</div>
+                {!riscosSetor ? (
+                  setor.riscos.length === 0 ? <div style={{ fontSize: 12.5, color: C.gray }}>Nenhum risco cadastrado ainda.</div> : (
+                    <div style={{ display: 'grid', gap: 4 }}>
+                      {setor.riscos.map((r, i) => (
+                        <div key={i} style={{ fontSize: 13, color: C.espresso }}>
+                          <b>{TIPOS_RISCO.find((t) => t.value === r.tipo)?.label || r.tipo}:</b> {r.descricao}{r.grau ? ` · grau ${r.grau}%` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <>
+                    {riscosSetor.map((r, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                        <select aria-label={`Tipo do risco ${i + 1}`} value={r.tipo} onChange={(e) => setRiscosSetor(riscosSetor.map((x, j) => j === i ? { ...x, tipo: e.target.value } : x))} style={{ ...inp, width: 140 }}>
+                          {TIPOS_RISCO.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                        <input aria-label={`Descrição do risco ${i + 1}`} value={r.descricao} onChange={(e) => setRiscosSetor(riscosSetor.map((x, j) => j === i ? { ...x, descricao: e.target.value } : x))} placeholder="Ex.: ruído acima de 85 dB" style={{ ...inp, flex: '1 1 180px', width: 'auto' }} />
+                        <input aria-label={`Grau do risco ${i + 1}`} value={r.grau || ''} onChange={(e) => setRiscosSetor(riscosSetor.map((x, j) => j === i ? { ...x, grau: e.target.value } : x))} placeholder="Grau % (opcional)" style={{ ...inp, width: 130 }} />
+                        <IconBtn onClick={() => setRiscosSetor(riscosSetor.filter((_, j) => j !== i))} label={`Tirar risco ${i + 1}`}><X size={14} /></IconBtn>
+                      </div>
+                    ))}
+                    <button onClick={() => setRiscosSetor([...riscosSetor, { tipo: 'fisico', descricao: '', grau: null }])} style={btnSec}><Plus size={13} /> Adicionar risco</button>
+                    <div style={{ fontSize: 11, color: C.gray, marginTop: 4 }}>Grau de insalubridade/periculosidade é definido pelo engenheiro de segurança; em branco = não classificado.</div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 8 }}>
+                      <button onClick={() => setRiscosSetor(null)} disabled={salvando} style={btnSec}>Cancelar</button>
+                      <button onClick={salvarRiscosSetor} disabled={salvando} data-testid="ltcat-salvar-riscos-setor" style={{ ...btnPri, opacity: salvando ? 0.6 : 1 }}>{salvando ? 'Salvando…' : 'Salvar riscos do setor'}</button>
+                    </div>
+                  </>
+                )}
+              </div>
+
               {setor.funcoes.length === 0 && <div style={vazioBox}>Nenhuma função em {setor.nome} ainda.</div>}
               <div style={{ display: 'grid', gap: 10 }}>
                 {setor.funcoes.map((f) => (
@@ -136,7 +191,6 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, fontSize: 12, color: C.espresso }}>
-                      <span><ShieldAlert size={13} style={ic} />{f.riscos.length} risco(s){f.riscos.length > 0 && `: ${f.riscos.map((r) => r.descricao).join(', ')}`}</span>
                       <span><HardHat size={13} style={ic} />{f.epis.length} EPI(s){f.epis.length > 0 && `: ${f.epis.map((e) => e.nome).join(', ')}`}</span>
                       <span><GraduationCap size={13} style={ic} />{f.treinamentos.length} treinamento(s){f.treinamentos.length > 0 && `: ${f.treinamentos.map((t) => t.nr || t.nome).join(', ')}`}</span>
                     </div>
@@ -156,21 +210,6 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
               </Rotulo>
               <Rotulo texto="Descrição das atividades">
                 <textarea aria-label="Descrição das atividades" value={edit.descricao} onChange={(e) => setEdit({ ...edit, descricao: e.target.value })} rows={3} placeholder="O que a pessoa faz, onde e com o quê" style={{ ...inp, resize: 'vertical' }} />
-              </Rotulo>
-
-              <Rotulo texto="Riscos">
-                {edit.riscos.map((r, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-                    <select aria-label={`Tipo do risco ${i + 1}`} value={r.tipo} onChange={(e) => setEdit({ ...edit, riscos: edit.riscos.map((x, j) => j === i ? { ...x, tipo: e.target.value } : x) })} style={{ ...inp, width: 140 }}>
-                      {TIPOS_RISCO.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                    </select>
-                    <input aria-label={`Descrição do risco ${i + 1}`} value={r.descricao} onChange={(e) => setEdit({ ...edit, riscos: edit.riscos.map((x, j) => j === i ? { ...x, descricao: e.target.value } : x) })} placeholder="Ex.: ruído acima de 85 dB" style={{ ...inp, flex: '1 1 180px', width: 'auto' }} />
-                    <input aria-label={`Grau do risco ${i + 1}`} value={r.grau || ''} onChange={(e) => setEdit({ ...edit, riscos: edit.riscos.map((x, j) => j === i ? { ...x, grau: e.target.value } : x) })} placeholder="Grau % (opcional)" style={{ ...inp, width: 130 }} />
-                    <IconBtn onClick={() => setEdit({ ...edit, riscos: edit.riscos.filter((_, j) => j !== i) })} label={`Tirar risco ${i + 1}`}><X size={14} /></IconBtn>
-                  </div>
-                ))}
-                <button onClick={() => setEdit({ ...edit, riscos: [...edit.riscos, { tipo: 'fisico', descricao: '', grau: null }] })} style={btnSec}><Plus size={13} /> Adicionar risco</button>
-                <div style={{ fontSize: 11, color: C.gray, marginTop: 4 }}>Grau de insalubridade/periculosidade é definido pelo engenheiro de segurança; em branco = não classificado.</div>
               </Rotulo>
 
               <Rotulo texto="EPIs obrigatórios">
