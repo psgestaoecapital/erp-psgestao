@@ -11,11 +11,12 @@
 //   - RPC fn_movimentar_estoque(produto, local, tipo, qtd, custo, ...)
 //   - RPC fn_curva_abc_estoque(company_ids uuid[])
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
+import { selecionarTodas } from '@/lib/selecionarTodas'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
   X, Info, Trash2, Pencil, Download, Upload,
@@ -275,8 +276,9 @@ function EstoqueInner() {
     try {
       const [loc, prod, mov, abc, inv, rsv] = await Promise.all([
         supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
-        supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
-          .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').limit(5000),
+        // #126: .limit(5000) voltava só 1000 (teto do PostgREST) → 1485 importados, 1000 na tela. Busca em páginas.
+        selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
+          .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').order('id').range(de, ate)),
         // §6 · lê da view (produto e autor resolvidos na leitura; RD-52 — sem cópia denormalizada)
         supabase.from('v_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
         supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
@@ -671,10 +673,10 @@ function EstoqueInner() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}`, overflowX: 'auto' }}>
-        <TabBtn ativo={tab === 'saldo'} onClick={() => setTab('saldo')} icon={<Boxes size={14} />} label="Saldo" count={saldoRows.length} />
+        <TabBtn ativo={tab === 'saldo'} onClick={() => setTab('saldo')} icon={<Boxes size={14} />} label="Saldo" count={saldoRows.length} testid="estoque-tab-saldo-count" />
         <TabBtn ativo={tab === 'movimentacoes'} onClick={() => setTab('movimentacoes')} icon={<ArrowRightLeft size={14} />} label="Movimentações" count={movimentacoes.length} />
         <TabBtn ativo={tab === 'inventario'} onClick={() => setTab('inventario')} icon={<Package size={14} />} label="Inventário" count={inventarios.length} />
-        <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} />
+        <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} testid="estoque-tab-produtos-count" />
         <TabBtn ativo={tab === 'locais'} onClick={() => setTab('locais')} icon={<Boxes size={14} />} label="Locais" count={locais.length} />
         <TabBtn ativo={tab === 'abc'} onClick={() => setTab('abc')} icon={<BarChart3 size={14} />} label="Curva ABC" />
       </div>
@@ -1117,6 +1119,24 @@ function TabSaldo({
   filtroSaldoLocal: string; setFiltroSaldoLocal: (v: string) => void;
   filtroSaldoTipo: 'todos' | 'com' | 'zero' | 'neg'; setFiltroSaldoTipo: (v: 'todos' | 'com' | 'zero' | 'neg') => void;
 }) {
+  // #96 (Jordana): clicar num card mostra, na tabela abaixo, o que compõe o número do card.
+  type CardSaldo = 'total' | 'com' | 'zero' | 'neg' | 'qtd' | 'valor'
+  const [cardAtivo, setCardAtivo] = useState<CardSaldo | null>(null)
+  const tabelaRef = useRef<HTMLDivElement | null>(null)
+  const abrirCard = (c: CardSaldo) => {
+    setCardAtivo(c)
+    setFiltroSaldoProduto(''); setFiltroSaldoLocal('')   // o card é da empresa toda: a composição também
+    setFiltroSaldoTipo(c === 'com' || c === 'zero' || c === 'neg' ? c : 'todos')
+    setTimeout(() => tabelaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
+  const ordem = cardAtivo === 'valor' ? 'valor' : cardAtivo === 'qtd' ? 'qtd' : null
+  const linhas = ordem === 'valor' ? [...rows].sort((a, b) => b.valor_total - a.valor_total)
+    : ordem === 'qtd' ? [...rows].sort((a, b) => Math.abs(b.saldo) - Math.abs(a.saldo)) : rows
+  const somaValor = linhas.reduce((acc, r) => acc + r.valor_total, 0)
+  const somaQtd = linhas.reduce((acc, r) => acc + r.saldo, 0)
+  const ROTULO_CARD: Record<CardSaldo, string> = {
+    total: 'Total de itens', com: 'Com saldo', zero: 'Zerados', neg: 'Negativos', qtd: 'Quantidade líquida', valor: 'Valor do estoque líquido',
+  }
   const chips: { k: 'todos' | 'com' | 'zero' | 'neg'; label: string; n: number; cor?: string }[] = [
     { k: 'todos', label: 'Todos', n: kpis.totalSku },
     { k: 'com', label: 'Com saldo', n: kpis.skusComSaldo, cor: C.green },
@@ -1127,12 +1147,12 @@ function TabSaldo({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* KPIs (cf980ce1 · a realidade: total, com saldo, zerados, NEGATIVOS, qtd líquida, valor líquido) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-        <KpiCard label="Total de itens" valor={String(kpis.totalSku)} cor={C.espressoM} />
-        <KpiCard label="Com saldo" valor={String(kpis.skusComSaldo)} cor={C.green} />
-        <KpiCard label="Zerados" valor={String(kpis.skusZerados)} cor={C.amber} />
-        <KpiCard label="Negativos" valor={String(kpis.skusNegativos)} cor={C.red} destaque={kpis.skusNegativos > 0} />
-        <KpiCard label="Quantidade líquida" valor={fmtNum(kpis.qtdLiquida)} cor={kpis.qtdLiquida < 0 ? C.red : C.espresso} />
-        <KpiCard label="Valor do estoque líquido" valor={fmtBRL(kpis.valorLiquido)} cor={C.gold} destaque />
+        <KpiCard label="Total de itens" valor={String(kpis.totalSku)} cor={C.espressoM} onClick={() => abrirCard('total')} ativo={cardAtivo === 'total'} testid="saldo-card-total" />
+        <KpiCard label="Com saldo" valor={String(kpis.skusComSaldo)} cor={C.green} onClick={() => abrirCard('com')} ativo={cardAtivo === 'com'} testid="saldo-card-com" />
+        <KpiCard label="Zerados" valor={String(kpis.skusZerados)} cor={C.amber} onClick={() => abrirCard('zero')} ativo={cardAtivo === 'zero'} testid="saldo-card-zero" />
+        <KpiCard label="Negativos" valor={String(kpis.skusNegativos)} cor={C.red} destaque={kpis.skusNegativos > 0} onClick={() => abrirCard('neg')} ativo={cardAtivo === 'neg'} testid="saldo-card-neg" />
+        <KpiCard label="Quantidade líquida" valor={fmtNum(kpis.qtdLiquida)} cor={kpis.qtdLiquida < 0 ? C.red : C.espresso} onClick={() => abrirCard('qtd')} ativo={cardAtivo === 'qtd'} testid="saldo-card-qtd" />
+        <KpiCard label="Valor do estoque líquido" valor={fmtBRL(kpis.valorLiquido)} cor={C.gold} destaque onClick={() => abrirCard('valor')} ativo={cardAtivo === 'valor'} testid="saldo-card-valor" />
       </div>
 
       {/* Filtros */}
@@ -1174,7 +1194,19 @@ function TabSaldo({
         </div>
       </div>
 
-      <div style={{ fontSize: 11, color: C.espressoM, paddingLeft: 4 }}>{rows.length} de {total} linha(s)</div>
+      <div ref={tabelaRef} style={{ fontSize: 11, color: C.espressoM, paddingLeft: 4 }}>{rows.length} de {total} linha(s)</div>
+      {cardAtivo && (
+        <div data-testid="saldo-composicao" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap',
+          background: '#FDF7E8', border: `1px solid ${C.gold}55`, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: C.espresso }}>
+          <span>
+            Composição de <b>{ROTULO_CARD[cardAtivo]}</b>: {linhas.length} linha(s)
+            {ordem === 'valor' && <> · do maior para o menor valor · soma <b data-testid="saldo-composicao-soma">{fmtBRL(somaValor)}</b></>}
+            {ordem === 'qtd' && <> · da maior para a menor quantidade · soma <b data-testid="saldo-composicao-soma">{fmtNum(somaQtd)}</b></>}
+          </span>
+          <button type="button" onClick={() => { setCardAtivo(null); setFiltroSaldoTipo('todos') }}
+            style={{ border: 'none', background: 'transparent', color: C.goldD, fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>limpar</button>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         total === 0
@@ -1197,7 +1229,7 @@ function TabSaldo({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {linhas.map((r) => {
                   const corClasse = r.classe_abc === 'A' ? C.gold : r.classe_abc === 'B' ? C.blue : C.espressoM
                   // Bloco D · disponível = físico − reservado. Só o disponível pode ser vendido.
                   // Negativo = prometeu mais do que tem (o furo, agora visível) → vermelho.
@@ -1231,14 +1263,19 @@ function TabSaldo({
   )
 }
 
-function KpiCard({ label, valor, cor, destaque }: { label: string; valor: string; cor: string; destaque?: boolean }) {
+function KpiCard({ label, valor, cor, destaque, onClick, ativo, testid }: { label: string; valor: string; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean; testid?: string }) {
   return (
-    <div style={{
+    <div role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined} onClick={onClick} data-testid={testid}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
+      title={onClick ? 'Clique para ver o que compõe este número' : undefined}
+      style={{
       background: destaque ? '#FDF7E8' : C.white,
-      border: `1px solid ${C.border}`,
+      border: `1px solid ${ativo ? cor : C.border}`,
       borderLeft: `3px solid ${cor}`,
       borderRadius: 10,
       padding: '12px 14px',
+      cursor: onClick ? 'pointer' : undefined,
+      boxShadow: ativo ? `0 0 0 2px ${cor}33` : undefined,
     }}>
       <div style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: cor, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
@@ -1578,11 +1615,11 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
 // Helpers visuais
 // ════════════════════════════════════════════════════════════
 
-function TabBtn({ ativo, onClick, icon, label, count }: { ativo: boolean; onClick: () => void; icon: React.ReactNode; label: string; count?: number }) {
+function TabBtn({ ativo, onClick, icon, label, count, testid }: { ativo: boolean; onClick: () => void; icon: React.ReactNode; label: string; count?: number; testid?: string }) {
   return (
     <button onClick={onClick} style={{ padding: '10px 16px', background: 'transparent', border: 'none', borderBottom: ativo ? `2px solid ${C.gold}` : '2px solid transparent', color: ativo ? C.goldD : C.espressoM, fontWeight: ativo ? 700 : 500, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
       {icon} {label}
-      {typeof count === 'number' && <span style={{ fontSize: 10, padding: '1px 8px', borderRadius: 999, background: ativo ? C.goldBg : C.cream, color: ativo ? C.goldD : C.espressoM, fontWeight: 700 }}>{count}</span>}
+      {typeof count === 'number' && <span data-testid={testid} style={{ fontSize: 10, padding: '1px 8px', borderRadius: 999, background: ativo ? C.goldBg : C.cream, color: ativo ? C.goldD : C.espressoM, fontWeight: 700 }}>{count}</span>}
     </button>
   )
 }
@@ -1925,9 +1962,10 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
     let cancelado = false
     void (async () => {
       const cols = 'id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo'
-      const { data } = await supabase.from('erp_produtos').select(cols)
+      // #126: mesmo teto de 1000 do PostgREST — o inventário também precisa do universo inteiro.
+      const { data } = await selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select(cols)
         .eq('company_id', companyId).eq('ativo', true).gt('estoque_atual', 0)
-        .order('nome').limit(10000)
+        .order('nome').order('id').range(de, ate))
       if (cancelado) return
       setUniverso((data ?? []) as Produto[])
       setCarregandoUniv(false)

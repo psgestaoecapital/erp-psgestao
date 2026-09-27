@@ -65,6 +65,14 @@ export async function dbInsert<T = Record<string, unknown>>(tabela: string, body
   return ((await resp.json()) as T[])[0]
 }
 
+export async function dbInsertMany(tabela: string, linhas: Record<string, unknown>[]): Promise<void> {
+  const { url, headers } = rest()
+  const resp = await fetch(`${url}/rest/v1/${tabela}`, {
+    method: 'POST', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify(linhas),
+  })
+  if (!resp.ok) throw new Error(`insert em lote ${tabela} falhou: ${resp.status} ${await resp.text()}`)
+}
+
 export async function dbDelete(tabela: string, query: string): Promise<void> {
   const { url, headers } = rest()
   const resp = await fetch(`${url}/rest/v1/${tabela}?${query}`, {
