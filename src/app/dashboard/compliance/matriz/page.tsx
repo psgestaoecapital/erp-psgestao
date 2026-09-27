@@ -63,6 +63,16 @@ export default function MatrizPage() {
   const [celulaSelecionada, setCelulaSelecionada] = useState<{ linha: Linha; celula: Celula } | null>(null)
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  // #75 (celular): filtros numa gaveta, siglas no cabeçalho e a tabela na primeira tela. Computador: igual.
+  const [isCelular, setIsCelular] = useState(false)
+  const [gavetaAberta, setGavetaAberta] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(max-width: 640px)')
+    const on = () => setIsCelular(mq.matches)
+    on(); mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
 
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok })
@@ -139,6 +149,13 @@ export default function MatrizPage() {
   const opcoesSetor = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.setor).filter(Boolean) as string[])).sort(), [linhas])
   const opcoesCargo = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.cargo).filter(Boolean) as string[])).sort(), [linhas])
 
+  const filtrosAtivos = useMemo(() => [
+    fTomadora && { rotulo: fTomadora, limpar: () => setFTomadora('') },
+    fObra && { rotulo: fObra, limpar: () => setFObra('') },
+    fSetor && { rotulo: fSetor, limpar: () => setFSetor('') },
+    fCargo && { rotulo: fCargo, limpar: () => setFCargo('') },
+  ].filter(Boolean) as { rotulo: string; limpar: () => void }[], [fTomadora, fObra, fSetor, fCargo])
+
   // Grupos de documentos vindos da API. Default mostra apenas obrigatórios;
   // toggle "Mostrar opcionais" expande para todos. Filtro de grupo opera
   // independente do toggle (ambos compõem).
@@ -178,12 +195,21 @@ export default function MatrizPage() {
 
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
-      <div style={{ maxWidth: '100%', margin: '0 auto', padding: '24px' }}>
+      <div style={{ maxWidth: '100%', margin: '0 auto', padding: isCelular ? '10px' : '24px' }}>
+        {isCelular ? (
+          <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, margin: 0 }}>Matriz de Conformidade</h1>
+              <p data-testid="matriz-contagem" style={{ margin: 0, fontSize: 12, color: C.muted }}>{linhas.length} funcionários × {tiposFiltrados.length} documentos</p>
+            </div>
+            <Link href="/dashboard/compliance" style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, textDecoration: 'none', flexShrink: 0 }}>← Voltar</Link>
+          </header>
+        ) : (
         <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
           <div>
             <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>Compliance</p>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>Matriz de Conformidade</h1>
-            <p style={{ margin: 0, fontSize: 14, color: C.muted }}>
+            <p data-testid="matriz-contagem" style={{ margin: 0, fontSize: 14, color: C.muted }}>
               {linhas.length} funcionários × {tiposFiltrados.length} documentos
               {!mostrarOpcionais && tiposFiltrados.length < tipos.length && ` (${tipos.length - tiposFiltrados.length} opcionais ocultos)`}
               . Clique numa célula para ver/editar.
@@ -196,11 +222,37 @@ export default function MatrizPage() {
             </button>
           </div>
         </header>
+        )}
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
 
-        {/* #75 (SST): filtros compactados numa única barra — grupo, selects e toggle
-            na mesma linha, reduzindo a altura ocupada antes da matriz. */}
+        {isCelular ? (
+          <section style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button data-testid="matriz-filtros" onClick={() => setGavetaAberta(true)} style={{ ...chipStyle(filtrosAtivos.length > 0), flexShrink: 0 }}>
+                Filtros{filtrosAtivos.length > 0 ? ` (${filtrosAtivos.length})` : ''}
+              </button>
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', whiteSpace: 'nowrap', flex: 1 }}>
+                <button onClick={() => setFGrupo('')} style={{ ...chipStyle(fGrupo === ''), flexShrink: 0 }}>Todos</button>
+                {gruposDisponiveis.map((g: string) => (
+                  <button key={g} onClick={() => setFGrupo(g)} style={{ ...chipStyle(fGrupo === g), flexShrink: 0 }}>{labelGrupo(g)}</button>
+                ))}
+              </div>
+            </div>
+            {filtrosAtivos.length > 0 && (
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                {filtrosAtivos.map((f) => (
+                  <button key={f.rotulo} data-testid="matriz-filtro-ativo" onClick={f.limpar} aria-label={`Tirar filtro ${f.rotulo}`}
+                    style={{ padding: '2px 8px', borderRadius: 999, border: `1px solid ${C.borderLt}`, background: C.beigeLt, color: C.espresso, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                    {f.rotulo} ✕
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : (
+        /* #75 (SST): filtros compactados numa única barra — grupo, selects e toggle
+            na mesma linha, reduzindo a altura ocupada antes da matriz. */
         <section style={{ backgroundColor: 'white', borderRadius: 12, padding: '10px 12px', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
           <button onClick={() => setFGrupo('')} style={chipStyle(fGrupo === '')}>Todos</button>
           {gruposDisponiveis.map((g: string) => (
@@ -233,14 +285,23 @@ export default function MatrizPage() {
             Mostrar opcionais
           </label>
         </section>
+        )}
 
         <section style={{ backgroundColor: 'white', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
-          <div style={{ overflowX: 'auto', maxHeight: '70vh', overflowY: 'auto' }}>
+          <div style={{ overflowX: 'auto', maxHeight: isCelular ? 'calc(100vh - 130px)' : '70vh', overflowY: 'auto' }}>
             <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, width: '100%' }}>
               <thead>
                 <tr>
-                  <th style={{ ...headerStyle(), left: 0, position: 'sticky', zIndex: 3, background: C.beigeLt, minWidth: 200 }}>Funcionário</th>
-                  {tiposFiltrados.map((t: Tipo) => (
+                  <th style={{ ...headerStyle(), left: 0, position: 'sticky', zIndex: 3, background: C.beigeLt, minWidth: isCelular ? 130 : 200, padding: isCelular ? '6px 8px' : '8px 12px' }}>Funcionário</th>
+                  {tiposFiltrados.map((t: Tipo) => isCelular ? (
+                    <th key={t.id} style={{ ...headerStyle(), padding: '6px 2px', minWidth: 38, textAlign: 'center', opacity: t.obrigatorio ? 1 : 0.6 }}>
+                      <button onClick={() => showToast(`${siglaDoc(t)} — ${t.nome}${t.obrigatorio ? ' (obrigatório)' : ' (opcional)'}`)}
+                        title={t.nome} data-testid="matriz-sigla"
+                        style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 10, fontWeight: 700, color: 'rgba(61, 35, 20, 0.75)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        {siglaDoc(t)}
+                      </button>
+                    </th>
+                  ) : (
                     <th
                       key={t.id}
                       style={{ ...headerStyle(), padding: '6px 2px', minWidth: 30, opacity: t.obrigatorio ? 1 : 0.6 }}
@@ -258,7 +319,7 @@ export default function MatrizPage() {
                 {!loading && linhas.length === 0 && (<tr><td colSpan={tiposFiltrados.length + 1} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Sem funcionários</td></tr>)}
                 {linhas.map((l: Linha, i: number) => (
                   <tr key={l.funcionario_id} style={{ background: i % 2 === 0 ? 'white' : C.offwhite }}>
-                    <td style={{ padding: '5px 12px', borderBottom: `1px solid ${C.borderLt}`, left: 0, position: 'sticky', zIndex: 2, background: i % 2 === 0 ? 'white' : C.offwhite, minWidth: 200 }}>
+                    <td style={{ padding: isCelular ? '4px 8px' : '5px 12px', borderBottom: `1px solid ${C.borderLt}`, left: 0, position: 'sticky', zIndex: 2, background: i % 2 === 0 ? 'white' : C.offwhite, minWidth: isCelular ? 130 : 200, fontSize: isCelular ? 11.5 : undefined }}>
                       <Link href={`/dashboard/compliance/funcionarios/${l.funcionario_id}`} style={{ color: C.espresso, textDecoration: 'none', fontWeight: 600 }}>{l.nome_completo}</Link>
                       <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{l.cargo || '—'} · {l.empresa_tomadora_nome || 'sem tomadora'}</div>
                     </td>
@@ -296,6 +357,37 @@ export default function MatrizPage() {
           </div>
         </section>
       </div>
+
+      {isCelular && gavetaAberta && (
+        <div onClick={() => setGavetaAberta(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 150, display: 'flex', alignItems: 'flex-end' }}>
+          <div data-testid="matriz-gaveta" onClick={(e) => e.stopPropagation()} style={{ background: 'white', width: '100%', borderRadius: '14px 14px 0 0', padding: 16, display: 'grid', gap: 10, boxSizing: 'border-box' }}>
+            <div style={{ fontWeight: 700, color: C.espresso }}>Filtros</div>
+            <select aria-label="Tomadora" value={fTomadora} onChange={(e) => setFTomadora(e.target.value)} style={{ ...selectStyle(), width: '100%', padding: '9px 10px', fontSize: 14 }}>
+              <option value="">Todas as tomadoras</option>
+              {opcoesTomadora.map((x: string) => (<option key={x} value={x}>{x}</option>))}
+            </select>
+            <select aria-label="Obra" value={fObra} onChange={(e) => setFObra(e.target.value)} style={{ ...selectStyle(), width: '100%', padding: '9px 10px', fontSize: 14 }}>
+              <option value="">Todas as obras</option>
+              {opcoesObra.map((x: string) => (<option key={x} value={x}>{x}</option>))}
+            </select>
+            <select aria-label="Setor" value={fSetor} onChange={(e) => setFSetor(e.target.value)} style={{ ...selectStyle(), width: '100%', padding: '9px 10px', fontSize: 14 }}>
+              <option value="">Todos os setores</option>
+              {opcoesSetor.map((x: string) => (<option key={x} value={x}>{x}</option>))}
+            </select>
+            <select aria-label="Cargo" value={fCargo} onChange={(e) => setFCargo(e.target.value)} style={{ ...selectStyle(), width: '100%', padding: '9px 10px', fontSize: 14 }}>
+              <option value="">Todos os cargos</option>
+              {opcoesCargo.map((x: string) => (<option key={x} value={x}>{x}</option>))}
+            </select>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: C.espresso }}>
+              <input type="checkbox" checked={mostrarOpcionais} onChange={(e) => setMostrarOpcionais(e.target.checked)} /> Mostrar documentos opcionais
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setFTomadora(''); setFObra(''); setFSetor(''); setFCargo('') }} style={btnSecModal()}>Limpar</button>
+              <button data-testid="matriz-gaveta-fechar" onClick={() => setGavetaAberta(false)} style={btnPrimModal()}>Ver resultado</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {celulaSelecionada && (
         <CelulaModal
@@ -484,4 +576,21 @@ const GRUPO_LABEL: Record<string, string> = {
 
 function labelGrupo(g: string): string {
   return GRUPO_LABEL[g] || g.charAt(0).toUpperCase() + g.slice(1)
+}
+
+// #75 (celular): sigla curta no cabeçalho, na horizontal; o nome completo aparece ao tocar.
+const SIGLAS: Record<string, string> = {
+  aso: 'ASO', os_funcionario: 'OS', ficha_registro: 'REG', ficha_epi: 'F.EPI', folha_pagamento: 'FOLHA',
+  espelho_ponto: 'PONTO', treinamento_psicossocial: 'PSIC', rg_cpf: 'RG/CPF', ficha_treinamento_nr06: 'T.NR06',
+  cnh: 'CNH', ctps_digital: 'CTPS', comprovante_residencia: 'RESID', certificado_militar: 'MILIT',
+  titulo_eleitor: 'TÍTULO', foto_3x4: 'FOTO', contrato_trabalho: 'CONTR', termo_confidencialidade: 'NDA',
+  termo_uso_epi: 'T.EPI', termo_uso_veiculo_ferramentas: 'T.VEÍC', adesao_plano_saude: 'PLANO',
+  vacina_hepatite_tetano: 'VACINA', audiometria_nr7: 'AUDIO', certificado_cipa: 'CIPA', certificado_primeiros_socorros: '1ºSOC',
+}
+function siglaDoc(t: { slug: string; nome: string }): string {
+  if (SIGLAS[t.slug]) return SIGLAS[t.slug]
+  const nr = t.slug.match(/^nr0*(\d+)$/i)
+  if (nr) return `NR-${nr[1].padStart(2, '0')}`
+  const base = t.nome.split(/\s+[-–]\s+/)[0].trim()
+  return base.length <= 6 ? base.toUpperCase() : base.slice(0, 5).toUpperCase() + '.'
 }
