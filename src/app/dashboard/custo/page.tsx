@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 
 const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', yellow: '#FFC107', blue: '#42A5F5', teal: '#009688', espresso: '#3D2314', orange: '#FF9800' }
 
@@ -71,7 +72,7 @@ export default function CustoPage() {
 
     // Tentar buscar do modulo industrial
     try {
-      const resp = await fetch('/api/industrial/custos?empresa_id=' + empresaSel + '&periodo=' + periodo)
+      const resp = await authFetch('/api/industrial/custos?empresa_id=' + empresaSel + '&periodo=' + periodo)
       const data = await resp.json()
       if (data.custos && data.custos.length > 0) {
         const row = data.custos[0]
@@ -143,7 +144,7 @@ export default function CustoPage() {
       orcamento[g.campo] = 0
     })
     try {
-      await fetch('/api/industrial/custos', {
+      await authFetch('/api/industrial/custos', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ empresa_id: empresaSel, periodo, grupos, orcamento, fonte: 'manual', volume_ton: volumeTon }),
       })

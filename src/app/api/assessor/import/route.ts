@@ -1,5 +1,6 @@
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { NextRequest, NextResponse } from 'next/server';
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 
 async function getAssessoriaId() {
@@ -41,6 +42,8 @@ function generateABC(items: { nome: string; valor: number }[]) {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const assessoriaId = await getAssessoriaId();
   if (!assessoriaId) return NextResponse.json({ error: 'Assessoria nao encontrada' }, { status: 404 });
   

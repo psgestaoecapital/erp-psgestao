@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from '@/lib/authFetch';
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -94,7 +95,7 @@ export default function PrevisaoPage(){
     setAnalisando(true);
     setParecer("");
     try{
-      const r=await fetch("/api/previsao-fluxo-ia",{
+      const r=await authFetch("/api/previsao-fluxo-ia",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({

@@ -3,15 +3,20 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 
 export const maxDuration = 600 // 10 min
 
 export async function POST(req: Request) {
+  const guarda = await exigirUsuario(req, { cron: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { company_id } = await req.json()
     if (!company_id) {
       return NextResponse.json({ error: 'company_id obrigatório' }, { status: 400 })
     }
+    const negado = await exigirEmpresas(guarda, [company_id])
+    if (negado) return negado
 
     const inicio = Date.now()
     const origin = req.headers.get('host') || 'localhost'
@@ -34,7 +39,8 @@ export async function POST(req: Request) {
       try {
         const r = await fetch(`${baseUrl}/api/sync/omie/${tipo}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          // Repassa o Authorization recebido (usuário ou CRON_SECRET) — as rotas filhas exigem login.
+          headers: { 'Content-Type': 'application/json', Authorization: req.headers.get('authorization') || '' },
           body: JSON.stringify({ company_id }),
         })
         const data = await r.json()

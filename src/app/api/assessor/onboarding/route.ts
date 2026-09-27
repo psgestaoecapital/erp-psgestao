@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { data, error } = await supabase.from('assessorias').select('*').order('created_at', { ascending: false }).limit(10)
     if (error) return NextResponse.json({ error: 'GET: ' + error.message + ' | code: ' + error.code + ' | details: ' + error.details }, { status: 500 })
@@ -12,6 +15,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const body = await req.json()
     const id = body.id as string | undefined

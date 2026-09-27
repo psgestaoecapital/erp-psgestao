@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -340,6 +341,8 @@ async function readFile(file: File): Promise<{ headers: string[]; rows: any[][] 
 // POST handler
 // ==================================================================
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
@@ -438,6 +441,8 @@ export async function POST(req: NextRequest) {
     // IMPORT MODE
     // =========================================================
     if (!companyId) return NextResponse.json({ error: "company_id obrigatório" }, { status: 400 });
+    const negado = await exigirEmpresas(guarda, [companyId]);
+    if (negado) return negado;
     
     const sb = createClient(SUPA_URL, KEY());
     
@@ -596,8 +601,8 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // user_id opcional (futuro · cliente pode mandar pra audit trail)
-      const userIdParam = (formData.get("user_id") as string) || null;
+      // user_id do token (audit trail não aceita user_id vindo do form)
+      const userIdParam = guarda.userId;
 
       const { data: dispatchResult, error: dispatchErr } = await sb.rpc(
         "fn_import_universal_dispatch",

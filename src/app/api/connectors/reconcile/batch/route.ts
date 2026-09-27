@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { reconcileCompany } from '@/lib/connectors/reconciler'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 // Side-effect: registra os adapters.
 import '@/lib/connectors/registry'
 
@@ -22,6 +23,8 @@ function baseUrlFromRequest(req: Request): string {
 }
 
 export async function POST(req: Request) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   const inicio = Date.now()
   try {
     const body = await req.json().catch(() => ({}))
@@ -43,12 +46,17 @@ export async function POST(req: Request) {
       )
     }
 
+    // TODAS as empresas do lote precisam ser do usuário.
+    const negado = await exigirEmpresas(guarda, company_ids)
+    if (negado) return negado
+
     const baseUrl = baseUrlFromRequest(req)
+    const authorization = req.headers.get('authorization') ?? undefined
     const results: any[] = []
 
     for (const companyId of company_ids) {
       try {
-        const r = await reconcileCompany(companyId, source_slug ?? null, supabase, baseUrl)
+        const r = await reconcileCompany(companyId, source_slug ?? null, supabase, baseUrl, authorization)
         results.push(r)
       } catch (e: any) {
         results.push({

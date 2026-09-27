@@ -1,5 +1,6 @@
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { NextRequest, NextResponse } from 'next/server';
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 
 async function getAssessoriaId() {
@@ -8,6 +9,8 @@ async function getAssessoriaId() {
 }
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const assessoriaId = await getAssessoriaId();
   if (!assessoriaId) return NextResponse.json({ error: 'Assessoria nao encontrada' }, { status: 404 });
   const { searchParams } = new URL(req.url);
@@ -22,6 +25,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const assessoriaId = await getAssessoriaId();
   if (!assessoriaId) return NextResponse.json({ error: 'Assessoria nao encontrada' }, { status: 404 });
   const body = await req.json();
@@ -35,6 +40,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const body = await req.json();
   const { id, ...updates } = body;
   const { data, error } = await supabase.from('diagnosticos')

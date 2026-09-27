@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verificarEstado, usuarioTemAcessoEmpresa } from "@/lib/auth/contaazulState";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -12,15 +13,14 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.redirect(new URL(`/dashboard/conectores?ca_error=${encodeURIComponent(error)}`, req.url));
   if (!code) return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=no_code", req.url));
 
-  let clientId = "", clientSecret = "", companyId = "";
-  if (state) {
-    try {
-      const d = JSON.parse(atob(decodeURIComponent(state)));
-      clientId = d.ci || ""; clientSecret = d.cs || ""; companyId = d.cid || "";
-    } catch {}
+  // Redirect do navegador (sem Bearer): a prova de quem iniciou é o state ASSINADO (HMAC + validade 10 min),
+  // gerado em /api/contaazul/state. State forjado/expirado ou usuário sem acesso à empresa = nada é gravado.
+  const est = verificarEstado(state);
+  if (!est) return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=invalid_state", req.url));
+  if (!(await usuarioTemAcessoEmpresa(est.uid, est.cid))) {
+    return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=forbidden", req.url));
   }
-
-  if (!clientId || !clientSecret) return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=missing_credentials", req.url));
+  const clientId = est.ci, clientSecret = est.cs, companyId = est.cid;
 
   try {
     const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");

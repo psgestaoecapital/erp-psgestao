@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 export const dynamic = 'force-dynamic';
 
@@ -7,8 +8,10 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   try {
-    const { user_id, user_email, action, detail, module } = await req.json();
+    const { user_email, action, detail, module } = await req.json();
     if (!action) return NextResponse.json({ error: "action obrigatorio" }, { status: 400 });
 
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
@@ -17,7 +20,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const { error } = await supabase.from("audit_log").insert({
-      user_id: user_id || null,
+      user_id: guarda.userId, // do token, não do body (evita log forjado)
       user_email: user_email || null,
       action,
       detail: detail || null,
@@ -35,6 +38,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const url = new URL(req.url);
     const limit = parseInt(url.searchParams.get("limit") || "50");

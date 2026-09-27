@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -34,9 +35,13 @@ async function caFetchAll(token: string, endpoint: string, maxPages = 30) {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   try {
     const { company_id, token, sync_types } = await req.json();
     if (!company_id || !token) return NextResponse.json({ error: "company_id e token obrigatorios" }, { status: 400 });
+    const negado = await exigirEmpresas(guarda, [company_id]);
+    if (negado) return negado;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const results: any = {};

@@ -5,6 +5,7 @@ import { APP_URL } from "@/lib/appUrl";
 import AreasContratadasModal from "@/components/admin/AreasContratadasModal";
 import ScreenshotAssinado from "@/components/admin/ScreenshotAssinado";
 import { PLANO_MODULOS, PLANOS, ROLES_POR_PLANO, ROLE_NAMES, ROLE_TABS, isAdminRole, type Plano } from "@/lib/planos";
+import { authFetch } from '@/lib/authFetch';
 
 // ═══ CORES COM CSS VARIABLES (adapta ao tema claro/escuro) ═══
 const GO="var(--ps-gold,#C8941A)",GOL="var(--ps-gold,#C8941A)",BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)",
@@ -176,7 +177,7 @@ export default function AdminPage(){
     if(grps)setGrupos(grps);
     const{data:ac}=await supabase.from("access_config").select("*").order("role");
     if(ac)setAccessConfigs(ac);
-    try{const res=await fetch("/api/audit?limit=100");const d=await res.json();if(d.success){setAuditLogs(d.logs||[]);setSessions(d.sessions||[]);}}catch{}
+    try{const res=await authFetch("/api/audit?limit=100");const d=await res.json();if(d.success){setAuditLogs(d.logs||[]);setSessions(d.sessions||[]);}}catch{}
     // saneamento-verticais · planos vivos pro dropdown de empresas
     const{data:pc}=await supabase.from("plan_catalog").select("id,nome,vertical,prioridade_comercial,preco_min,preco_max").eq("ativo",true).eq("legacy",false).order("vertical",{ascending:true}).order("prioridade_comercial",{ascending:true,nullsFirst:false});
     if(pc)setPlanCat(pc as any);

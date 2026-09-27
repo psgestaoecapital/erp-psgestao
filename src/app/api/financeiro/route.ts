@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
 
 export const dynamic = "force-dynamic";
 const SUPA_URL = "https://horsymhsinqcimflrtjo.supabase.co";
@@ -12,8 +13,16 @@ function validarTabela(tipo: string): string | null {
   return TABELAS_VALIDAS.includes(tabela) ? tabela : null;
 }
 
+// Empresa REAL do registro (service_role) — a checagem de acesso usa ela, não o body.
+async function empresaDoRegistro(tabela: string, id: string): Promise<string | null> {
+  const { data } = await createClient(SUPA_URL, KEY()).from(tabela).select("company_id").eq("id", id).maybeSingle();
+  return (data as { company_id?: string } | null)?.company_id ?? null;
+}
+
 // GET — lista registros
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   const { searchParams } = new (globalThis as any).URL(req.url);
   const companyId = searchParams.get("company_id");
   const tipo = searchParams.get("tipo");
@@ -24,6 +33,8 @@ export async function GET(req: NextRequest) {
   if (!companyId || !tipo) return NextResponse.json({ error: "company_id e tipo obrigatórios" }, { status: 400 });
   const tabela = validarTabela(tipo);
   if (!tabela) return NextResponse.json({ error: `Tipo inválido: ${tipo}` }, { status: 400 });
+  const negado = await exigirEmpresas(guarda, [companyId]);
+  if (negado) return negado;
 
   const sb = createClient(SUPA_URL, KEY());
   let query = sb.from(tabela).select("*").eq("company_id", companyId).order("created_at", { ascending: false }).limit(limite);
@@ -161,11 +172,15 @@ export async function GET(req: NextRequest) {
 
 // POST — criar
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   const body = await req.json();
   const { tipo, ...dados } = body;
   if (!tipo || !dados.company_id) return NextResponse.json({ error: "tipo e company_id obrigatórios" }, { status: 400 });
   const tabela = validarTabela(tipo);
   if (!tabela) return NextResponse.json({ error: `Tipo inválido: ${tipo}` }, { status: 400 });
+  const negado = await exigirEmpresas(guarda, [dados.company_id]);
+  if (negado) return negado;
 
   const sb = createClient(SUPA_URL, KEY());
   const { data, error } = await sb.from(tabela).insert(dados).select().single();
@@ -175,11 +190,18 @@ export async function POST(req: NextRequest) {
 
 // PUT — atualizar
 export async function PUT(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   const body = await req.json();
   const { tipo, id, ...dados } = body;
   if (!tipo || !id) return NextResponse.json({ error: "tipo e id obrigatórios" }, { status: 400 });
   const tabela = validarTabela(tipo);
   if (!tabela) return NextResponse.json({ error: `Tipo inválido: ${tipo}` }, { status: 400 });
+  const empresaAtual = await empresaDoRegistro(tabela, id);
+  if (!empresaAtual) return NextResponse.json({ error: "Registro não encontrado" }, { status: 404 });
+  // Também a empresa de destino, se o body tentar mover o registro.
+  const negado = await exigirEmpresas(guarda, [empresaAtual, dados.company_id]);
+  if (negado) return negado;
 
   dados.updated_at = new Date().toISOString();
   const sb = createClient(SUPA_URL, KEY());
@@ -190,12 +212,18 @@ export async function PUT(req: NextRequest) {
 
 // DELETE — excluir
 export async function DELETE(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   const { searchParams } = new URL(req.url);
   const tipo = searchParams.get("tipo");
   const id = searchParams.get("id");
   if (!tipo || !id) return NextResponse.json({ error: "tipo e id obrigatórios" }, { status: 400 });
   const tabela = validarTabela(tipo);
   if (!tabela) return NextResponse.json({ error: `Tipo inválido: ${tipo}` }, { status: 400 });
+  const empresaAtual = await empresaDoRegistro(tabela, id);
+  if (!empresaAtual) return NextResponse.json({ error: "Registro não encontrado" }, { status: 404 });
+  const negado = await exigirEmpresas(guarda, [empresaAtual]);
+  if (negado) return negado;
 
   const sb = createClient(SUPA_URL, KEY());
   // Soft-delete em pagar/receber (RD-30/57: nunca DELETE físico — o dado não some, dá pra restaurar).

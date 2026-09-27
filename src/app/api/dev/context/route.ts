@@ -1,8 +1,11 @@
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { NextRequest, NextResponse } from 'next/server';
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const context: any = { timestamp: new Date().toISOString(), sections: {} };
 

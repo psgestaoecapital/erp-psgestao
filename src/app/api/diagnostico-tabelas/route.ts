@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
-export async function GET() {
+export async function GET(req: Request) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const results: Record<string, any> = {}
   const tables = [
     'empresas', 'clientes_assessoria', 'assessorias', 'lancamentos',
