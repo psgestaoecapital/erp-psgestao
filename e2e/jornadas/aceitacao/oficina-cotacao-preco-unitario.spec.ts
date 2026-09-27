@@ -41,7 +41,7 @@ test.describe('Cotação aprovada grava o preço UNITÁRIO na OS', () => {
       company_id: DEMO_OFICINA, os_id: osId, descricao: PECA, tipo: 'peca', quantidade: QTD, aprovado: true, severidade: 'media',
     })).id
     cotacaoId = (await dbInsert<{ id: string }>('erp_cotacoes', {
-      company_id: DEMO_OFICINA, numero: `COT-E2E-${RUN}`, os_id: osId, status: 'rascunho', descricao: 'Cotação de teste (aceitação)', solicitante: 'Oficina',
+      company_id: DEMO_OFICINA, numero: `CE${Date.now().toString(36)}`, // ≤ 15: erp_cotacoes.numero é varchar(20) e a compra vira "COMP-" + número os_id: osId, status: 'rascunho', descricao: 'Cotação de teste (aceitação)', solicitante: 'Oficina',
     })).id
     const item = await dbInsert<{ id: string }>('erp_cotacoes_itens', {
       company_id: DEMO_OFICINA, cotacao_id: cotacaoId, ordem: 1, produto_nome: PECA, quantidade: QTD, unidade: 'UN', origem_diag_item_id: diagId,
