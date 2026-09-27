@@ -50,6 +50,7 @@ interface Parametros {
   margem_alvo_mao_obra_pct: number
   margem_alvo_peca_pct: number
   custo_hora_manual: number | null
+  modelo_atendimento?: 'tablet' | 'centralizado'   // #135
 }
 
 interface DetalheCusto { categoria: string; rotulo: string; valor: number; pct?: number }
@@ -120,14 +121,14 @@ export default function TemparioPage() {
         .eq('company_id', companyIdAtiva).eq('excluida', false)
         .order('categoria', { ascending: true }).order('nome', { ascending: true }).limit(500),
       supabase.from('erp_oficina_parametros')
-        .select('company_id, horas_produtivas_mes, margem_alvo_mao_obra_pct, margem_alvo_peca_pct, custo_hora_manual')
+        .select('company_id, horas_produtivas_mes, margem_alvo_mao_obra_pct, margem_alvo_peca_pct, custo_hora_manual, modelo_atendimento')
         .eq('company_id', companyIdAtiva).maybeSingle(),
     ])
     if (e1) setErro(e1.message)
     setServicos(((srv ?? []) as Servico[]).filter((s) => s.company_id === companyIdAtiva))
     setParams((par as Parametros) ?? {
       company_id: companyIdAtiva, horas_produtivas_mes: 160,
-      margem_alvo_mao_obra_pct: 30, margem_alvo_peca_pct: 40, custo_hora_manual: null,
+      margem_alvo_mao_obra_pct: 30, margem_alvo_peca_pct: 40, custo_hora_manual: null, modelo_atendimento: 'tablet',
     })
     // PASSO 2 · custo homem-hora automático dos custos reais de GE
     const { data: ch } = await supabase.rpc('fn_oficina_custo_hora', { p_company_id: companyIdAtiva })
@@ -518,6 +519,7 @@ function ModalParametros({
   const [mMo, setMMo] = useState(String(params.margem_alvo_mao_obra_pct))
   const [mPeca, setMPeca] = useState(String(params.margem_alvo_peca_pct))
   const [custoManual, setCustoManual] = useState(params.custo_hora_manual != null ? String(params.custo_hora_manual) : '')
+  const [modelo, setModelo] = useState<'tablet' | 'centralizado'>(params.modelo_atendimento === 'centralizado' ? 'centralizado' : 'tablet')
   const [salvando, setSalvando] = useState(false)
 
   async function salvar() {
@@ -529,6 +531,7 @@ function ModalParametros({
       margem_alvo_mao_obra_pct: num(mMo) ?? 30,
       margem_alvo_peca_pct: num(mPeca) ?? 40,
       custo_hora_manual: custoManual.trim() ? num(custoManual) : null,
+      modelo_atendimento: modelo,
       alterado_em: new Date().toISOString(),
     }, { onConflict: 'company_id' })
     setSalvando(false)
@@ -550,6 +553,20 @@ function ModalParametros({
           <div><label style={lbl}>Margem peça (%)</label><input value={mPeca} onChange={(e) => setMPeca(e.target.value)} inputMode="decimal" style={inp} /></div>
         </div>
         <div><label style={lbl}>Horas produtivas / mês</label><input value={horas} onChange={(e) => setHoras(e.target.value)} inputMode="decimal" style={inp} /></div>
+        {/* #135 · como a oficina atende: com tablet no box (2 etapas) ou centralizado na atendente (1 etapa) */}
+        <div>
+          <label style={lbl}>Modelo de atendimento</label>
+          <select value={modelo} onChange={(e) => setModelo(e.target.value === 'centralizado' ? 'centralizado' : 'tablet')}
+            data-testid="param-modelo-atendimento" style={inp}>
+            <option value="tablet">Campo com tablet — valores na Aprovação do Cliente</option>
+            <option value="centralizado">Atendimento centralizado (sem tablet) — valores já no Diagnóstico</option>
+          </select>
+          <div style={{ fontSize: 11, color: C.espressoL, marginTop: 4 }}>
+            {modelo === 'centralizado'
+              ? 'A atendente lança itens, quantidades e valores no Diagnóstico; a Aprovação só registra a decisão do cliente.'
+              : 'O mecânico lança itens e quantidades no Diagnóstico; os valores entram na Aprovação do Cliente.'}
+          </div>
+        </div>
         <button onClick={salvar} disabled={salvando} style={{
           minHeight: 48, padding: '12px 18px', borderRadius: 10, background: salvando ? C.cream : C.gold,
           color: salvando ? C.espressoL : C.white, border: 'none', fontSize: 14, fontWeight: 700, cursor: salvando ? 'not-allowed' : 'pointer',

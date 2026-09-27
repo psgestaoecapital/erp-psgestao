@@ -9,6 +9,7 @@ import { ClipboardCheck, ChevronLeft, Check, X, Share2, Eraser } from 'lucide-re
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { useOficinaModelo } from '@/lib/oficina/modelo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -42,6 +43,10 @@ type Linha = ItemOrc & { _preco: string; _custo: string }
 export default function AprovacaoPage() {
   const companyId = useCompanyId()
   const { config: ramo } = useOficinaRamo(companyId)   // RD-41 · texto coerente por ramo
+  // #135 · atendimento centralizado: o preço já veio do Diagnóstico — aqui só aparece (somente leitura) e o cliente decide.
+  // Item sem preço continua editável, para a OS não travar sem valor.
+  const { modelo } = useOficinaModelo(companyId)
+  const precoFixo = (l: ItemOrc) => modelo === 'centralizado' && l.preco != null
   const router = useRouter()
   const [lista, setLista] = useState<OSLinha[]>([])
   const [osSel, setOsSel] = useState<OSInfo | null>(null)
@@ -119,7 +124,7 @@ export default function AprovacaoPage() {
       p_company_id: companyId, p_os_id: osSel.id,
       p_dados: { aprovador_nome: aprovadorNome, canal, observacao,
         assinatura: canal === 'presencial' ? assinatura : null,   // Onda 3 · só presencial; RPC faz nullif
-        itens: itens.map((i) => ({ item_id: i.item_id, aprovado: !!i.aprovado, preco: precoRaw(i), custo: custoRaw(i) })) },
+        itens: itens.map((i) => ({ item_id: i.item_id, aprovado: !!i.aprovado, preco: precoFixo(i) ? null : precoRaw(i), custo: custoRaw(i) })) },
     })
     setSalvando(false)
     const j = data as { ok?: boolean; erro?: string; decisao?: string; itens_aprovados?: number; itens_total?: number; valor_total?: number } | null
@@ -197,9 +202,11 @@ export default function AprovacaoPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
                 <span style={{ fontSize: 12, color: ESP60 }}>{qtdNum(i) !== 1 ? 'R$ unit.' : 'R$'}</span>
                 <input value={i._preco} onChange={(e) => setPreco(i.item_id, e.target.value)} inputMode="decimal" placeholder="0,00"
-                  data-testid="aprov-item-preco"
-                  style={{ ...inp, maxWidth: 140, padding: '8px 10px', opacity: i.aprovado ? 1 : 0.5 }} />
-                {i.preco_sugerido != null && i._preco !== String(i.preco_sugerido) && (
+                  data-testid="aprov-item-preco" readOnly={precoFixo(i)}
+                  title={precoFixo(i) ? 'Valor definido no Diagnóstico (atendimento centralizado)' : undefined}
+                  style={{ ...inp, maxWidth: 140, padding: '8px 10px', opacity: i.aprovado ? 1 : 0.5, background: precoFixo(i) ? '#F5F2EB' : inp.background }} />
+                {precoFixo(i) && <span data-testid="aprov-item-preco-fixo" style={{ fontSize: 11, color: ESP60 }}>definido no Diagnóstico</span>}
+                {!precoFixo(i) && i.preco_sugerido != null && i._preco !== String(i.preco_sugerido) && (
                   <button onClick={() => setPreco(i.item_id, String(i.preco_sugerido))} style={{ ...chipMini }}>usar sugerido</button>
                 )}
               </div>
