@@ -193,7 +193,8 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
         .pp-assinatura-vazia { margin-top: 32px; border-top: 1px dashed #6B5D4F; padding-top: 4px; text-align: center; color: #6B5D4F; font-size: 11px; }
         .pp-fotos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
         .pp-foto { border: 1px solid #E0D8CC; border-radius: 6px; overflow: hidden; background: #fff; }
-        .pp-foto img { display: block; width: 100%; height: 120px; object-fit: cover; }
+        /* #80: a foto sai INTEIRA, do jeito que foi tirada (antes: altura fixa + cover recortava). */
+        .pp-foto img { display: block; width: 100%; height: auto; max-height: 260px; object-fit: contain; background: #fff; }
         .pp-foto .cap { font-size: 9.5px; color: #6B5D4F; padding: 4px 6px; }
         .pp-footer { margin-top: 24px; font-size: 10px; color: #9C8E80; text-align: center; }
         .pp-btn { padding: 10px 18px; border-radius: 8px; border: none; background: #C8941A; color: #fff; font-weight: 700; font-size: 13px; cursor: pointer; min-height: 44px; }
@@ -280,7 +281,7 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
             <div className="pp-section-title">{auto ? 'Cliente & veículo' : 'Cliente & peça/serviço'}</div>
             <div className="pp-grid-3">
               <div><span className="pp-lbl">Proprietário / cliente</span><div className="pp-val">{cab.cliente_nome || '—'}</div></div>
-              {cab.cliente_cnpj && <div><span className="pp-lbl">CPF/CNPJ</span><div className="pp-val">{cab.cliente_cnpj}</div></div>}
+              {cab.cliente_cnpj && <div><span className="pp-lbl">CPF/CNPJ</span><div className="pp-val" data-testid="os-print-cliente-doc">{fmtCNPJ(cab.cliente_cnpj)}</div></div>}
               {auto && <div><span className="pp-lbl">Placa</span><div className="pp-val" style={{ fontFamily: 'monospace', fontWeight: 700 }}>{cab.placa || '—'}</div></div>}
               {auto && cab.veiculo && <div><span className="pp-lbl">Veículo</span><div className="pp-val">{cab.veiculo}{cab.ano ? ` ${cab.ano}` : ''}</div></div>}
               {auto && cab.km != null && <div><span className="pp-lbl">KM</span><div className="pp-val">{Number(cab.km).toLocaleString('pt-BR')}</div></div>}
@@ -381,7 +382,7 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
                           <div className="pp-foto" key={i}>
                             {f._url
                               /* eslint-disable-next-line @next/next/no-img-element */
-                              ? <img src={f._url} alt={f.descricao ?? 'foto'} />
+                              ? <img src={f._url} alt={f.descricao ?? 'foto'} data-testid="os-print-foto" />
                               : <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#9C8E80' }}>indisponível</div>}
                             {(f.descricao || f.autor) && <div className="cap">{[f.descricao, f.autor].filter(Boolean).join(' · ')}</div>}
                           </div>
@@ -427,7 +428,7 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
                 </div>
                 <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
                   <div><span className="pp-lbl">Emitente</span><div className="pp-val">{cab.cliente_nome ?? '—'}</div></div>
-                  <div><span className="pp-lbl">CPF/CNPJ</span><div className="pp-val">{cab.cliente_cnpj ?? '—'}</div></div>
+                  <div><span className="pp-lbl">CPF/CNPJ</span><div className="pp-val">{cab.cliente_cnpj ? fmtCNPJ(cab.cliente_cnpj) : '—'}</div></div>
                 </div>
                 <div className="pp-assinatura-vazia" style={{ marginTop: 40 }}>_____________________________________________<br />Assinatura do emitente</div>
               </div>
