@@ -104,6 +104,7 @@ BEGIN
   RETURN v_id;
 END; $function$;
 
+-- ci-allow-anon: portal do cliente e telemetria de login caído são exceções aprovadas pelo CEO 28/09 (lista de 22); o GRANT a anon é feito no bloco (c), nominalmente.
 -- (b) portal do cliente: leitura pelo token do link (a tela lia a tabela direto como anon e a RLS barrava tudo)
 CREATE OR REPLACE FUNCTION public.fn_portal_cliente_obter(p_company_id uuid, p_token text) RETURNS jsonb
  LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_temp AS $$
