@@ -21,7 +21,10 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        # O auditor importa o pacote `playwright` (1.60) — o `npx playwright` resolve o CLI do @playwright/test (1.59),
+        # que baixa outro build do Chromium (1217 vs 1223) e o launch falha antes de auditar qualquer rota
+        # (vermelho em todo agendamento desde 26/09). Instala com o CLI do MESMO pacote que o script usa.
+        run: node node_modules/playwright/cli.js install --with-deps chromium
 
       - name: Executar auditor DOM
         env:
