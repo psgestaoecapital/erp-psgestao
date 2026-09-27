@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { empresasDoUsuario, exigirEmpresas, type UsuarioApi } from '@/lib/auth/guardaApi'
+import { empresasDoUsuario, empresasPermitidas, type UsuarioApi } from '@/lib/auth/guardaApi'
 
 // Empresas pedidas aos dashboards (grupo_id | company_ids | company_id), já conferidas com a guardaApi.
-// - ids explícitos → TODOS precisam ser do usuário (403 se algum não for);
+// - ids explícitos → 1 empresa: estrita (403); lista: fica o que o usuário pode ver (empresasPermitidas);
 // - grupo_id → fica só a interseção com as empresas do usuário (grupo salvo pode ter empresa da qual
 //   o usuário saiu: a tela não quebra, a empresa só some). Grupo de outro usuário vira lista vazia.
 // Lista vazia = nada pedido/permitido; a rota mantém a resposta "sem_empresas" que já tinha.
@@ -25,6 +25,5 @@ export async function resolverEmpresasDashboard(u: UsuarioApi, sp: URLSearchPara
   const lista = sp.get('company_ids')
   const ids = lista ? lista.split(',').map((s) => s.trim()).filter(Boolean) : sp.get('company_id') ? [sp.get('company_id')!] : []
   if (ids.length === 0) return []
-  const negado = await exigirEmpresas(u, ids)
-  return negado ?? ids
+  return empresasPermitidas(u, ids)
 }

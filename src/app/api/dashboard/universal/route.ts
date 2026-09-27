@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { exigirLogin, exigirEmpresas, type ContextoGuarda } from '@/lib/auth/guardaApi';
+import { exigirLogin, exigirEmpresas, empresasPermitidas, type ContextoGuarda } from '@/lib/auth/guardaApi';
 import { somenteEmpresasDoUsuario } from '@/lib/auth/empresasDashboard';
 
 export const dynamic = 'force-dynamic';
@@ -43,9 +43,9 @@ async function handler(req: NextRequest, user: ContextoGuarda) {
         .maybeSingle();
       nomeContexto = grupo?.nome || 'Grupo';
     } else if (companyIdsParam) {
-      companyIds = companyIdsParam.split(',').map(s => s.trim()).filter(Boolean);
-      const negado = await exigirEmpresas(user, companyIds);
-      if (negado) return negado;
+      const permitidas = await empresasPermitidas(user, companyIdsParam.split(',').map(s => s.trim()).filter(Boolean));
+      if (permitidas instanceof NextResponse) return permitidas;
+      companyIds = permitidas;
       nomeContexto = `${companyIds.length} empresas`;
     } else if (companyIdParam) {
       companyIds = [companyIdParam];

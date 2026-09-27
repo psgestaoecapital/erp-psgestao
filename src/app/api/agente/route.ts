@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exigirLogin, exigirEmpresas, type UsuarioApi } from "@/lib/auth/guardaApi";
+import { exigirLogin, empresasPermitidas, type UsuarioApi } from "@/lib/auth/guardaApi";
 import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
@@ -17,10 +17,11 @@ async function handler(req: NextRequest, user: UsuarioApi) {
 
     const supabase = supabaseAdmin;
     // Toda empresa pedida precisa ser do usuário; lista vazia segue sem dados de empresa (como antes).
-    const compIds: string[] = Array.isArray(company_ids) ? company_ids : [];
+    let compIds: string[] = Array.isArray(company_ids) ? company_ids : [];
     if (compIds.length) {
-      const negado = await exigirEmpresas(user, compIds);
-      if (negado) return negado;
+      const permitidas = await empresasPermitidas(user, compIds);
+      if (permitidas instanceof NextResponse) return permitidas;
+      compIds = permitidas;
     }
 
     // ══════════════════════════════════════
