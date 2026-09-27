@@ -1008,7 +1008,9 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · tambem busca a ultima NFS-e (qualquer status)
   // direto da tabela pra cobrir rejeitada · ordena por criado_em DESC.
   const carregarNfseDados = useCallback(async () => {
-    if (statusLocal !== 'faturado') return
+    // NFS-e PRIMEIRO (CEO 23/09) + #35 medição: a nota vale para pedido NÃO faturado (aberto / faturamento
+    // parcial). O gate antigo ('faturado') escondia o card da NFS-e e o de Medições justamente nesses pedidos.
+    if (statusLocal === 'cancelado') return
     setNfseAtualizando(true)
     const [dadosRes, ultimaRes] = await Promise.all([
       supabase.rpc('fn_pedido_nfse_dados', { p_pedido_id: ped.id }),
