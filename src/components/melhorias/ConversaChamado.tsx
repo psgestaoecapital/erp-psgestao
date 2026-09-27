@@ -28,11 +28,13 @@ type Msg = {
   anexos: Anexo[]
 }
 
-export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfterSend }: {
+export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfterSend, somenteLeitura = false }: {
   sugestaoId: string
   userId: string
   ehSuporte: boolean
   onAfterSend?: () => void
+  // chamado de um colega da mesma empresa: acompanha a conversa, mas quem responde é o autor (e o suporte PS)
+  somenteLeitura?: boolean
 }) {
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [carregando, setCarregando] = useState(true)
@@ -190,6 +192,11 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
 
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '7px 10px', borderRadius: 8, fontSize: 12, marginBottom: 6 }} onClick={() => setErro(null)}>{erro}</div>}
 
+      {somenteLeitura ? (
+        <div data-testid="conversa-somente-leitura" style={{ fontSize: 12, color: C.espM, fontStyle: 'italic', padding: '4px 2px' }}>
+          Chamado aberto por um colega da sua empresa — você acompanha a conversa; quem responde é o autor.
+        </div>
+      ) : (
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 10 }}>
         <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={ehSuporte ? 'Responder ao autor…' : 'Escreva ou mande uma foto de um novo erro — o chamado volta pra equipe sem encerrar.'} rows={2}
           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', resize: 'vertical' }} />
@@ -205,6 +212,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
           </button>
         </div>
       </div>
+      )}
     </div>
   )
 }

@@ -39,13 +39,14 @@ const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'dup
 // #63 · abas da Central pela ótica do AUTOR (a Jordana): separar o que ESPERA a equipe do que
 // PRECISA DELA (resposta chegou, falta ela dizer se resolveu) do que já ACABOU. Antes era lista plana.
 type BucketMelhoria = 'precisa_voce' | 'aguardando' | 'concluidas'
-const bucketMelhoria = (m: { status: string; resposta: string | null; confirmado_pelo_autor: boolean }): BucketMelhoria => {
+const bucketMelhoria = (m: { status: string; resposta: string | null; confirmado_pelo_autor: boolean }, souAutor = true): BucketMelhoria => {
   if (STATUS_TERMINAL.includes(m.status)) return 'concluidas'
-  if (m.resposta && m.resposta.trim() && !m.confirmado_pelo_autor) return 'precisa_voce' // resposta aprovada chegou, falta confirmar
+  // resposta aprovada chegou, falta confirmar — só "precisa de VOCÊ" se você é o autor (o colega acompanha)
+  if (souAutor && m.resposta && m.resposta.trim() && !m.confirmado_pelo_autor) return 'precisa_voce'
   return 'aguardando'
 }
 
-type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null }
+type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null; user_id: string; user_name: string | null }
 
 export default function MelhoriasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -91,11 +92,12 @@ function Inner() {
         .not('resposta', 'is', null).eq('resposta_aprovada', false).not('status', 'in', '(arquivada,concluida)')
       setPendentesFila(count ?? 0)
     }
-    // "Minhas sugestões" é por AUTOR (user_id), sem filtro de empresa — a RLS já permite ver as próprias
-    // (user_id = auth.uid()), então papel de plataforma vê tudo que abriu nas 10 empresas. Mostramos de
-    // QUAL empresa é cada uma (embed companies) — inclusive as antigas sem empresa (viram "Sem empresa").
-    // Arquivadas saem da lista por padrão (viram consulta via filtro), como o CEO pediu.
-    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at,company_id,companies(nome_fantasia,razao_social)').eq('user_id', user.id)
+    // Lista = os que EU abri (em qualquer empresa, inclusive os antigos "Sem empresa") + os DA EMPRESA
+    // selecionada, abertos por colegas (CEO 28/09: quem abre em nome da empresa e quem acompanha veem o mesmo
+    // chamado — evita chamado repetido). A RLS de sugestoes libera a leitura pela empresa (get_user_company_ids).
+    // Mostramos de QUAL empresa é cada um (embed companies). Arquivadas saem da lista por padrão (CEO).
+    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at,company_id,user_id,user_name,companies(nome_fantasia,razao_social)')
+    q = companyId && !sup ? q.or(`user_id.eq.${user.id},company_id.eq.${companyId}`) : q.eq('user_id', user.id)
     q = verArquivadas ? q.eq('status', 'arquivada') : q.neq('status', 'arquivada')
     const { data } = await q.order('created_at', { ascending: false }).limit(50)
     type Row = Minha & { companies?: { nome_fantasia: string | null; razao_social: string | null } | { nome_fantasia: string | null; razao_social: string | null }[] | null }
@@ -103,7 +105,7 @@ function Inner() {
       const co = Array.isArray(companies) ? companies[0] : companies
       return { ...m, empresa: co?.nome_fantasia || co?.razao_social || null, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null }
     }))
-  }, [verArquivadas])
+  }, [verArquivadas, companyId])
   useEffect(() => { void carregar() }, [carregar])
 
   // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
@@ -283,7 +285,7 @@ function Inner() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, margin: '4px 0 10px' }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{verArquivadas ? 'Sugestões arquivadas' : 'Minhas sugestões'}</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{verArquivadas ? 'Sugestões arquivadas' : (companyId && !ehSuporte ? 'Chamados — meus e da empresa' : 'Minhas sugestões')}</h2>
         <button type="button" onClick={() => setVerArquivadas((v) => !v)} style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
           {verArquivadas ? '← voltar às ativas' : 'ver arquivadas'}
         </button>
@@ -291,7 +293,7 @@ function Inner() {
       {/* #63 · abas por status (só nas ativas) — a Jordana vê o que PRECISA dela separado do que espera a equipe */}
       {!verArquivadas && minhas.length > 0 && (() => {
         const cont = { precisa_voce: 0, aguardando: 0, concluidas: 0 }
-        for (const m of minhas) cont[bucketMelhoria(m)]++
+        for (const m of minhas) cont[bucketMelhoria(m, m.user_id === userId)]++
         return (
           <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap', borderBottom: `1px solid ${C.border}` }}>
             {([
@@ -308,7 +310,7 @@ function Inner() {
         )
       })()}
       {(() => {
-        const lista = verArquivadas ? minhas : minhas.filter((m) => bucketMelhoria(m) === abaMelhoria)
+        const lista = verArquivadas ? minhas : minhas.filter((m) => bucketMelhoria(m, m.user_id === userId) === abaMelhoria)
         if (minhas.length === 0) return <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>{verArquivadas ? 'Nenhuma sugestão arquivada.' : 'Você ainda não abriu nenhuma.'}</div>
         if (lista.length === 0) return <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>Nada nesta aba.</div>
         return (
@@ -320,14 +322,18 @@ function Inner() {
                 <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{STAT_LABEL[m.status] || m.status}</span>
               </div>
               {/* de qual empresa é o chamado (útil pra papel de plataforma, que abre nas 10 empresas) */}
-              <div style={{ fontSize: 10.5, color: m.empresa ? C.espL : C.amber, marginTop: 2 }}>🏢 {m.empresa || 'Sem empresa (chamado antigo)'}</div>
+              <div style={{ fontSize: 10.5, color: m.empresa ? C.espL : C.amber, marginTop: 2 }}>🏢 {m.empresa || 'Sem empresa (chamado antigo)'}
+                {m.user_id !== userId && <span data-testid="chamado-de-colega" style={{ color: C.espM }}> · aberto por {m.user_name || 'um colega'}</span>}</div>
               <div style={{ fontSize: 12.5, color: C.espM, marginTop: 4 }}>{m.descricao}</div>
               {/* A resposta só aparece ao autor DEPOIS de aprovada (§2.1) — em carregar já vem null se não aprovada. */}
               {m.resposta && (
                 <div style={{ marginTop: 6, background: C.cream, padding: '8px 10px', borderRadius: 8 }}>
                   <div style={{ fontSize: 10.5, fontWeight: 700, color: C.esp, textTransform: 'uppercase', letterSpacing: 0.4 }}>Resposta da equipe PS</div>
                   <div style={{ fontSize: 12.5, color: C.esp, marginTop: 3, whiteSpace: 'pre-wrap' }}>{m.resposta}</div>
-                  {m.status !== 'concluida' && !m.confirmado_pelo_autor && (
+                  {m.status !== 'concluida' && !m.confirmado_pelo_autor && m.user_id !== userId && (
+                    <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6, fontStyle: 'italic' }}>Aguardando {m.user_name || 'o autor'} confirmar se resolveu.</div>
+                  )}
+                  {m.status !== 'concluida' && !m.confirmado_pelo_autor && m.user_id === userId && (
                     <>
                       <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                         <button onClick={() => void confirmar(m.id, true)} style={{ background: C.green, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Funcionou ✓</button>
@@ -354,7 +360,7 @@ function Inner() {
               )}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
                 <button type="button" onClick={() => setConversaAberta((c) => (c === m.id ? null : m.id))} style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: 0 }}>
-                  {conversaAberta === m.id ? '▲ fechar conversa' : '💬 conversar / mandar foto nova'}
+                  {conversaAberta === m.id ? '▲ fechar conversa' : (m.user_id === userId || ehSuporte ? '💬 conversar / mandar foto nova' : '💬 ver conversa')}
                 </button>
                 <span style={{ fontSize: 10.5 }}>
                   {m.tem_ia
@@ -363,7 +369,7 @@ function Inner() {
                 </span>
               </div>
               {conversaAberta === m.id && userId && (
-                <ConversaChamado sugestaoId={m.id} userId={userId} ehSuporte={ehSuporte} onAfterSend={carregar} />
+                <ConversaChamado sugestaoId={m.id} userId={userId} ehSuporte={ehSuporte} onAfterSend={carregar} somenteLeitura={!ehSuporte && m.user_id !== userId} />
               )}
             </div>
           ))}
