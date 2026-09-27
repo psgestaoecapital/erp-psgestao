@@ -100,7 +100,11 @@ export default function AprovacaoPage() {
   const precoRaw = (l: Linha): string | null => { const s = (l._preco ?? '').trim(); return s === '' ? null : s.replace(',', '.') }
   // #1447 · item aprovado SEM preço não entra no total (não vira R$ 0,00 calado — decisão errada). É declarado.
   const aprovSemPreco = itens.filter((i) => i.aprovado && precoNum(i) <= 0)
-  const totalAprov = itens.filter((i) => i.aprovado && precoNum(i) > 0).reduce((s, i) => s + precoNum(i), 0)
+  // #132 · o preço digitado é UNITÁRIO (contrato do banco: diag.preco × quantidade = linha). Antes o total somava
+  // só o unitário: 28 × R$ 28,00 virava R$ 28,00 e o total aprovado saía R$ 118,00 em vez de R$ 874,00.
+  const qtdNum = (l: Linha) => { const q = Number(l.quantidade); return q > 0 ? q : 1 }
+  const linhaNum = (l: Linha) => Math.round(precoNum(l) * qtdNum(l) * 100) / 100
+  const totalAprov = itens.filter((i) => i.aprovado && precoNum(i) > 0).reduce((s, i) => s + linhaNum(i), 0)
   // Onda 4B (#1434) · custo por peça (a margem vira verdade). Mudar custo NÃO mexe na assinatura (não muda o
   // valor autorizado pelo cliente) — por isso setCusto não chama invalidarAssinatura.
   const setCusto = (id: string, v: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _custo: v.replace(/[^\d.,]/g, '') } : i)))
@@ -126,7 +130,9 @@ export default function AprovacaoPage() {
 
   const compartilharWhatsApp = () => {
     if (!osSel) return
-    const linhas = itens.filter((i) => i.aprovado).map((i) => `✅ ${i.descricao} — ${brl(precoNum(i))}`)
+    const linhas = itens.filter((i) => i.aprovado).map((i) => qtdNum(i) !== 1
+      ? `✅ ${i.descricao} — ${qtdNum(i)} × ${brl(precoNum(i))} = ${brl(linhaNum(i))}`
+      : `✅ ${i.descricao} — ${brl(precoNum(i))}`)
     const texto = [
       `*Orçamento ${osSel.numero}* — ${osSel.placa ?? ''} ${osSel.marca ?? ''} ${osSel.modelo ?? ''}`.trim(),
       '', ...linhas, '',
@@ -181,7 +187,7 @@ export default function AprovacaoPage() {
                   </div>
                   <div style={{ fontSize: 11, color: ESP60, marginTop: 2 }}>
                     {i.tipo === 'peca' ? 'Peça' : 'Serviço'}{i.tempo_estimado_h ? ` · ${i.tempo_estimado_h}h` : ''}{i.quantidade && i.quantidade !== 1 ? ` · qtd ${i.quantidade}` : ''}
-                    {i.preco_sugerido != null && <> · sugerido {brl(Number(i.preco_sugerido))}</>}
+                    {i.preco_sugerido != null && <> · sugerido {brl(Number(i.preco_sugerido))}{qtdNum(i) !== 1 ? '/un' : ''}</>}
                   </div>
                 </div>
                 <button onClick={() => toggle(i.item_id)} style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4, color: i.aprovado ? OK : RED, background: 'none', border: 'none', cursor: 'pointer' }}>
@@ -189,13 +195,19 @@ export default function AprovacaoPage() {
                 </button>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                <span style={{ fontSize: 12, color: ESP60 }}>R$</span>
+                <span style={{ fontSize: 12, color: ESP60 }}>{qtdNum(i) !== 1 ? 'R$ unit.' : 'R$'}</span>
                 <input value={i._preco} onChange={(e) => setPreco(i.item_id, e.target.value)} inputMode="decimal" placeholder="0,00"
+                  data-testid="aprov-item-preco"
                   style={{ ...inp, maxWidth: 140, padding: '8px 10px', opacity: i.aprovado ? 1 : 0.5 }} />
                 {i.preco_sugerido != null && i._preco !== String(i.preco_sugerido) && (
                   <button onClick={() => setPreco(i.item_id, String(i.preco_sugerido))} style={{ ...chipMini }}>usar sugerido</button>
                 )}
               </div>
+              {qtdNum(i) !== 1 && precoNum(i) > 0 && (
+                <div data-testid="aprov-item-linha" style={{ fontSize: 12, color: ESP, marginTop: 4 }}>
+                  {qtdNum(i)} × {brl(precoNum(i))} = <b>{brl(linhaNum(i))}</b>
+                </div>
+              )}
               {/* #1447 · aprovado sem preço: avisa e fica fora do total (não some calado). */}
               {i.aprovado && precoNum(i) <= 0 && (
                 <div style={{ fontSize: 11, color: AMBER, marginTop: 6 }}>
@@ -253,7 +265,7 @@ export default function AprovacaoPage() {
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
             <span style={{ fontSize: 13, color: ESP60 }}>Total aprovado</span>
-            <span style={{ fontSize: 20, fontWeight: 800, color: ESP }}>{brl(totalAprov)}</span>
+            <span data-testid="aprov-total" style={{ fontSize: 20, fontWeight: 800, color: ESP }}>{brl(totalAprov)}</span>
           </div>
           <button onClick={salvar} disabled={salvando} style={{ ...btnGold, width: '100%', fontSize: 15, minHeight: 48 }}>
             {salvando ? 'Registrando…' : `Registrar aprovação (${nAprov}/${itens.length})`}
