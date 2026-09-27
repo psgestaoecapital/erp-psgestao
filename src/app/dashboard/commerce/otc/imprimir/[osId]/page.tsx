@@ -79,7 +79,7 @@ function valorExtenso(v: number): string {
 
 const STATUS_LABEL: Record<string, string> = {
   aberta: 'Aberta', em_execucao: 'Em execução', aguardando_peca: 'Aguardando peça/material',
-  aguardando_aprovacao: 'Aguardando aprovação', pronta: 'Pronta', entregue: 'Entregue', cancelada: 'Cancelada',
+  aguardando_aprovacao: 'Aguardando aprovação', aprovada: 'Aprovada', pronta: 'Pronta', entregue: 'Entregue', cancelada: 'Cancelada',
 }
 const EXECUTADA = new Set(['pronta', 'entregue'])
 
