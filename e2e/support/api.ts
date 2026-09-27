@@ -89,7 +89,10 @@ const TRAVA_DEMO = 'demo-revenda'
 export function donoTrava(): string {
   return runUrl() ?? `local-${process.pid}-${Date.now()}`
 }
-export async function pegarTravaDemo(dono: string, esperaMaxMs = 20 * 60_000): Promise<'pega' | 'sem-rpc'> {
+// Espera máxima pela trava: TRAVA_DEMO_ESPERA_MIN (workflow) ou 20 min. Com várias PRs na fila da mesma demo, 20 min
+// não bastava e a suíte desistia ANTES de rodar qualquer teste (27/09: 4 vermelhos falsos, 1 deles no veredito de produção).
+const ESPERA_TRAVA_MS = (Number(process.env.TRAVA_DEMO_ESPERA_MIN) > 0 ? Number(process.env.TRAVA_DEMO_ESPERA_MIN) : 20) * 60_000
+export async function pegarTravaDemo(dono: string, esperaMaxMs = ESPERA_TRAVA_MS): Promise<'pega' | 'sem-rpc'> {
   const inicio = Date.now()
   for (let i = 1; ; i++) {
     try {
