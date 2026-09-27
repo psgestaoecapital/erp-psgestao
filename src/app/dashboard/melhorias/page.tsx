@@ -31,7 +31,7 @@ const CATS = [['bug', '🐞 Bug'], ['melhoria', '💡 Melhoria'], ['duvida', '�
 const PRIOS = ['baixa', 'media', 'alta', 'critica']
 // data ABSOLUTA (dd/mm hh:mm) ao lado do número — "há N horas" não serve pra achar um chamado.
 const quando = (iso: string | null) => { try { return iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '' } catch { return '' } }
-const STAT_LABEL: Record<string, string> = { nova: 'Nova', em_analise: 'Em análise', aceita: 'Aceita', em_desenvolvimento: 'Em desenvolvimento', concluida: 'Concluída', recusada: 'Recusada', duplicada: 'Duplicada', arquivada: 'Arquivada', implementado: 'Implementado' }
+const STAT_LABEL: Record<string, string> = { nova: 'Nova', em_analise: 'Em análise', aceita: 'Aceita', em_desenvolvimento: 'Em desenvolvimento', aguardando_confirmacao: 'Aguardando sua confirmação', concluida: 'Concluída', recusada: 'Recusada', duplicada: 'Duplicada', arquivada: 'Arquivada', implementado: 'Implementado' }
 // status terminais: o trabalho acabou. Não faz sentido o selo "não analisada pela IA" nesses — eles
 // parecem pendentes de processamento quando estão completos (o que confundia, ex.: a do Rodrigo já
 // implementada aparecendo como "não analisada").
