@@ -16,6 +16,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
+import { selecionarTodas } from '@/lib/selecionarTodas'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
   X, Info, Trash2, Pencil, Download, Upload,
@@ -275,8 +276,9 @@ function EstoqueInner() {
     try {
       const [loc, prod, mov, abc, inv, rsv] = await Promise.all([
         supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
-        supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
-          .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').limit(5000),
+        // #126: .limit(5000) voltava só 1000 (teto do PostgREST) → 1485 importados, 1000 na tela. Busca em páginas.
+        selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
+          .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').order('id').range(de, ate)),
         // §6 · lê da view (produto e autor resolvidos na leitura; RD-52 — sem cópia denormalizada)
         supabase.from('v_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
         supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
@@ -671,10 +673,10 @@ function EstoqueInner() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}`, overflowX: 'auto' }}>
-        <TabBtn ativo={tab === 'saldo'} onClick={() => setTab('saldo')} icon={<Boxes size={14} />} label="Saldo" count={saldoRows.length} />
+        <TabBtn ativo={tab === 'saldo'} onClick={() => setTab('saldo')} icon={<Boxes size={14} />} label="Saldo" count={saldoRows.length} testid="estoque-tab-saldo-count" />
         <TabBtn ativo={tab === 'movimentacoes'} onClick={() => setTab('movimentacoes')} icon={<ArrowRightLeft size={14} />} label="Movimentações" count={movimentacoes.length} />
         <TabBtn ativo={tab === 'inventario'} onClick={() => setTab('inventario')} icon={<Package size={14} />} label="Inventário" count={inventarios.length} />
-        <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} />
+        <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} testid="estoque-tab-produtos-count" />
         <TabBtn ativo={tab === 'locais'} onClick={() => setTab('locais')} icon={<Boxes size={14} />} label="Locais" count={locais.length} />
         <TabBtn ativo={tab === 'abc'} onClick={() => setTab('abc')} icon={<BarChart3 size={14} />} label="Curva ABC" />
       </div>
@@ -1613,11 +1615,11 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
 // Helpers visuais
 // ════════════════════════════════════════════════════════════
 
-function TabBtn({ ativo, onClick, icon, label, count }: { ativo: boolean; onClick: () => void; icon: React.ReactNode; label: string; count?: number }) {
+function TabBtn({ ativo, onClick, icon, label, count, testid }: { ativo: boolean; onClick: () => void; icon: React.ReactNode; label: string; count?: number; testid?: string }) {
   return (
     <button onClick={onClick} style={{ padding: '10px 16px', background: 'transparent', border: 'none', borderBottom: ativo ? `2px solid ${C.gold}` : '2px solid transparent', color: ativo ? C.goldD : C.espressoM, fontWeight: ativo ? 700 : 500, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
       {icon} {label}
-      {typeof count === 'number' && <span style={{ fontSize: 10, padding: '1px 8px', borderRadius: 999, background: ativo ? C.goldBg : C.cream, color: ativo ? C.goldD : C.espressoM, fontWeight: 700 }}>{count}</span>}
+      {typeof count === 'number' && <span data-testid={testid} style={{ fontSize: 10, padding: '1px 8px', borderRadius: 999, background: ativo ? C.goldBg : C.cream, color: ativo ? C.goldD : C.espressoM, fontWeight: 700 }}>{count}</span>}
     </button>
   )
 }
@@ -1960,9 +1962,10 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
     let cancelado = false
     void (async () => {
       const cols = 'id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo'
-      const { data } = await supabase.from('erp_produtos').select(cols)
+      // #126: mesmo teto de 1000 do PostgREST — o inventário também precisa do universo inteiro.
+      const { data } = await selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select(cols)
         .eq('company_id', companyId).eq('ativo', true).gt('estoque_atual', 0)
-        .order('nome').limit(10000)
+        .order('nome').order('id').range(de, ate))
       if (cancelado) return
       setUniverso((data ?? []) as Produto[])
       setCarregandoUniv(false)
