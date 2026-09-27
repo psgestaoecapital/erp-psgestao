@@ -19,12 +19,15 @@ import forge from 'node-forge'
 
 // Material aceito por https.request/https.Agent: OU o par key+cert (PEM), OU o pfx cru + senha.
 export type MtlsMaterial =
-  | { key: string; cert: string; ca?: string[] }
+  | { key: string; cert: string }
   | { pfx: Buffer; passphrase: string }
 
 /**
  * Converte um .pfx (Buffer) + senha em material de mTLS que o OpenSSL 3 aceita.
- * - Sucesso (inclusive PKCS#12 legado): { key, cert, ca? } em PEM (o `cert` é a folha; a cadeia vai em `ca`).
+ * - Sucesso (inclusive PKCS#12 legado): { key, cert } em PEM — `cert` = folha + cadeia intermediária concatenadas.
+ *   #136: NUNCA devolver a cadeia em `ca`: em https.request, `ca` SUBSTITUI a lista de CAs confiáveis do Node, e aí
+ *   o certificado do SERVIDOR do banco deixa de ser verificável ("unable to get local issuer certificate" —
+ *   extrato Sicoob da PS Gestão parado desde 24/09). A cadeia do CLIENTE vai junto do `cert`.
  * - Falha ao parsear com node-forge: { pfx, passphrase } (fallback ao comportamento original — RD-53).
  * Nunca lança: qualquer erro cai no fallback.
  */
@@ -55,9 +58,9 @@ export function pfxParaMtls(pfx: Buffer, passphrase: string): MtlsMaterial {
 
     const keyPem = forge.pki.privateKeyToPem(key as forge.pki.PrivateKey)
     const certPem = forge.pki.certificateToPem(folha)
-    const caPems = cadeia.map((c) => forge.pki.certificateToPem(c))
+    const cadeiaPem = cadeia.map((c) => forge.pki.certificateToPem(c)).join('')
 
-    return caPems.length > 0 ? { key: keyPem, cert: certPem, ca: caPems } : { key: keyPem, cert: certPem }
+    return { key: keyPem, cert: certPem + cadeiaPem }
   } catch {
     // node-forge não conseguiu abrir → mantém o caminho original (OpenSSL tenta o pfx).
     return { pfx, passphrase }
