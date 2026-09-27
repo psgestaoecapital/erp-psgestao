@@ -17,6 +17,7 @@
 --  (3) sai "Anyone can read invite"; anon sem GRANT; UPDATE direto só da empresa do usuário (o gatilho fica).
 --  A tela de admin (convidar/listar/excluir) segue pelas policies invites_*_tenant.
 
+-- ci-allow-anon: a página pública /convite lê o convite pelo código antes do login (exceção aprovada pelo CEO 28/09, PR A).
 CREATE OR REPLACE FUNCTION public.fn_convite_ler(p_code text) RETURNS jsonb
  LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
   SELECT coalesce((
