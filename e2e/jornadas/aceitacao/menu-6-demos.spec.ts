@@ -3,10 +3,11 @@
 // - DEMO nunca tiveram plano → gaveta (celular) e menu lateral (computador) vazios. Migration 20260928145000 dá o plano
 // completo R$ 0 às demos e o reset passa a mantê-lo. Roda nos dois projetos (celular 390px e computador): conta os
 // itens DO MENU (não links da página). As 3 que já tinham plano provam o caminho principal no preview; as 3 corrigidas
-// levam @pos-migration (só passam com a migration aplicada). Nada é gravado.
+// levam @pos-migration (só passam com a migration aplicada). No CI a aceitação roda o projeto celular.
+// O vigia no briefing (fn_menu_vazio_auditar) também tem que sair limpo em produção. Nada é gravado.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
-import { registrarJornada } from '../../support/api'
+import { registrarJornada, rpc } from '../../support/api'
 
 const DEMOS = [
   { nome: 'Revenda', id: 'b0700000-0000-4000-a000-000000000003', rota: '/dashboard/revenda/patio', area: 'revenda_veiculos', posMigration: false },
@@ -42,4 +43,11 @@ test.describe('Menu com itens nas 6 demonstrações (celular e computador)', () 
       await expect(menu.getByText('Carregando menu…')).toHaveCount(0)
     })
   }
+
+  test('vigia do briefing: nenhuma área visível com menu vazio (clientes e demos)', { tag: '@pos-migration' }, async () => {
+    const r = await rpc<{ ok: boolean; total_achados: number; clientes: unknown[]; demos: unknown[] }>('fn_menu_vazio_auditar', {})
+    expect(r.demos, 'demos sem menu').toEqual([])
+    expect(r.clientes, 'clientes sem menu').toEqual([])
+    expect(r.ok).toBe(true)
+  })
 })
