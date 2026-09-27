@@ -22,8 +22,10 @@ test.describe('Segurança PR 1 · permissões e acesso fechados ao anon', () => 
     await page.goto('/dashboard/oficina')
     await aguardarConteudo(page)
     // o menu da área vem de module_catalog/plan_modules (via RPC): tem que listar as telas da Oficina.
-    // No celular (390px) o menu fica recolhido — conta os links no DOM, sem exigir que estejam visíveis.
-    await expect.poll(async () => page.locator('a[href^="/dashboard/oficina/"]').count(), { timeout: 20000 }).toBeGreaterThan(2)
+    // No celular (390px) o menu é a gaveta do topo — abre antes de contar (fechada, os links não vêm pro DOM).
+    const gaveta = page.getByTestId('mobile-drawer-toggle')
+    if (await gaveta.isVisible().catch(() => false)) await gaveta.click()
+    await expect.poll(async () => page.locator('aside a[href^="/dashboard/oficina"]').count(), { timeout: 20000 }).toBeGreaterThan(0)
     await page.goto('/dashboard/oficina/patio')
     await aguardarConteudo(page)
     await expect(page.getByText(/Recebido|Aguardando aprovação/).first()).toBeVisible({ timeout: 20000 })
