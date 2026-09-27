@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 // Revenda PF-b · rota pública do contador (SEM login). O token da URL é a credencial: as RPCs
-// fn_veic_perfil_convite_* são SECURITY DEFINER e validam o token internamente (client anon).
+// fn_veic_perfil_convite_* são SECURITY DEFINER e validam o token internamente. Segurança PR A (CEO 28/09): a rota
+// roda no servidor com o cliente de serviço — anon não executa mais essas funções direto pela API.
 // O IP vem do request (o cliente não sabe/prova o próprio IP) e é registrado no convite (LGPD).
 
 function ipDe(req: NextRequest): string | null {
   return (req.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || req.headers.get('x-real-ip') || null
 }
 function sb() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !anon) return null
-  return createClient(url, anon, { auth: { persistSession: false } })
+  return supabaseAdmin
 }
 
 // GET — valida o token e devolve o mínimo (empresa: nome+CNPJ) + o rascunho para o contador editar.
