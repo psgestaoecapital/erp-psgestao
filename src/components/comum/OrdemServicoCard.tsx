@@ -24,6 +24,7 @@ interface OS {
   cliente_id: string | null
   cliente_nome: string | null
   cliente_cnpj: string | null
+  placa?: string | null
   titulos_gerados: boolean | null
   lancamento_id: string | null
   equipamento: string | null
@@ -273,13 +274,17 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [clienteNome, setClienteNome] = useState('')
   const [clienteCnpj, setClienteCnpj] = useState('')
   const [trocarCli, setTrocarCli] = useState(false)          // abre a busca de re-vínculo
+  // #121 (Gean) · placa editável na ficha: "OKG8B38" lançada no lugar de "OKG8D38" não tinha como corrigir.
+  const [placaEdit, setPlacaEdit] = useState('')
+  const [salvandoPlaca, setSalvandoPlaca] = useState(false)
+  const [msgPlaca, setMsgPlaca] = useState<string | null>(null)
   const [buscaCli, setBuscaCli] = useState('')
   const [cliOpts, setCliOpts] = useState<Array<{ id: string; nome: string; doc: string | null }>>([])
 
   const carregar = useCallback(async () => {
     setLoading(true)
     // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
-    const cols = 'id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const cols = 'id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
     const q = supabase.from('erp_os').select(cols)
     const { data, error } = osId
       ? await q.eq('id', osId).maybeSingle()
@@ -298,6 +303,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
       setHorasExecutadas(row.horas_executadas != null ? String(row.horas_executadas) : '')
       setValorHora(row.valor_hora != null ? String(row.valor_hora) : '')
       setClienteId(row.cliente_id ?? null)
+      setPlacaEdit(row.placa ?? '')
       setClienteNome(row.cliente_nome ?? '')
       setClienteCnpj(row.cliente_cnpj ?? '')
       setTrocarCli(false); setBuscaCli(''); setCliOpts([])
@@ -554,6 +560,44 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           {STATUS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
       </label>
+
+      {/* #121 · placa editável (erro de digitação ao abrir a OS). Mesma RPC do pátio (fn_oficina_os_set_placa):
+          normaliza (maiúsculas, sem traço) e exige ≥ 5 caracteres. Salva na hora, separado do "Salvar" da ficha. */}
+      <div style={{ display: 'block' }}>
+        <span style={lbl}>Placa</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            value={placaEdit}
+            onChange={(e) => { setPlacaEdit(e.target.value.toUpperCase()); setMsgPlaca(null) }}
+            placeholder="ABC1D23"
+            data-testid="os-placa"
+            readOnly={roEntrega}
+            style={{ ...inp, maxWidth: 160, fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 700, letterSpacing: 1 }}
+          />
+          {!roEntrega && placaEdit.replace(/[^A-Za-z0-9]/g, '').toUpperCase() !== (os.placa ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() && (
+            <button
+              type="button"
+              data-testid="os-placa-salvar"
+              disabled={salvandoPlaca}
+              onClick={async () => {
+                if (placaEdit.replace(/[^A-Za-z0-9]/g, '').length < 5) { setMsgPlaca('Placa inválida: informe ao menos 5 letras/números.'); return }
+                setSalvandoPlaca(true)
+                const { data, error } = await supabase.rpc('fn_oficina_os_set_placa', { p_company_id: os.company_id, p_os_id: os.id, p_placa: placaEdit })
+                setSalvandoPlaca(false)
+                const j = data as { ok?: boolean; placa?: string; erro?: string } | null
+                if (error || !j?.ok || !j.placa) { setMsgPlaca(`Não salvou a placa: ${error?.message || j?.erro || 'erro desconhecido'}`); return }
+                setOs({ ...os, placa: j.placa })
+                setPlacaEdit(j.placa)
+                setMsgPlaca(`Placa SALVA: ${j.placa}`)
+              }}
+              style={{ background: C.gold, color: C.espresso, border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 12, fontWeight: 700, cursor: salvandoPlaca ? 'wait' : 'pointer', minHeight: 36 }}
+            >
+              {salvandoPlaca ? 'Salvando…' : 'Salvar placa'}
+            </button>
+          )}
+        </div>
+        {msgPlaca && <div data-testid="os-placa-msg" style={{ fontSize: 12, marginTop: 4, color: msgPlaca.startsWith('Placa SALVA') ? C.green : C.red }}>{msgPlaca}</div>}
+      </div>
 
       {/* FIX 1 · cliente editável em qualquer status + re-vínculo a outro cadastro */}
       <div style={{ display: 'block' }}>
