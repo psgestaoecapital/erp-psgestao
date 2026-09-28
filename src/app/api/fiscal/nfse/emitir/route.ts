@@ -10,6 +10,7 @@ import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
+import { calcularRetencoesFederais, issRetidoNfse, reformaIbsCbsDoServico, type RetencoesFederaisNfse, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -112,25 +113,6 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfse', operacao: 'emissao', endpoint: 'nfse/emitir' } })
     if (negado) return negado
 
-    // TRAVA TEMPORÁRIA #286 (CEO 28/09): a NFS-e ainda não leva as retenções federais (INSS, IR, PIS, COFINS,
-    // CSLL) marcadas no cadastro do serviço — a nota sairia sem elas. Até o #286 entrar no ar, serviço com
-    // retenção marcada NÃO emite. Sai junto com a correção do #286 (e o chamado avisa que pode reemitir).
-    if (body.servicoId) {
-      const { data: svRet } = await supabaseAdmin
-        .from('erp_servicos')
-        .select('retem_inss, retem_ir, retem_pis, retem_cofins, retem_csll')
-        .eq('id', body.servicoId)
-        .eq('company_id', body.companyId)
-        .maybeSingle()
-      if (svRet && (svRet.retem_inss || svRet.retem_ir || svRet.retem_pis || svRet.retem_cofins || svRet.retem_csll)) {
-        return NextResponse.json({
-          ok: false,
-          trava_retencao_286: true,
-          mensagem: 'Este serviço tem retenções federais. A emissão com retenção está sendo corrigida; aguarde a liberação no chamado #286.',
-        }, { status: 400 })
-      }
-    }
-
     // receber-nfse-seletor-servico-v1: quando servicoId vem junto, busca os
     // dados via RPC (servico + tomador) e injeta como overrides confiaveis,
     // alem de devolver mensagens claras (sem "cadastre em /configuracoes/fiscal").
@@ -167,6 +149,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const { data: cfgIbpt } = await supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas')
       .eq('company_id', body.companyId).eq('ativo', true).limit(1).maybeSingle()
     const usarIbptEmpresa = !!(cfgIbpt as { ibpt_empresa_nas_notas?: boolean } | null)?.ibpt_empresa_nas_notas
+    // #286 · retenções federais calculadas do cadastro do serviço (as mesmas da tela) e avisos de grupos não enviados
+    let retencoesCalculadas: RetencoesFederaisNfse | null = null
+    const avisosTributos: string[] = []
     if (body.erpReceberId) {
       nfseReq = await buildNFSeFromReceber({
         companyId: body.companyId,
@@ -606,14 +591,38 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
               nfseReq.aliquotaISSSN = Number(aliq.aliquota)
             }
           }
-          // codigo_nbs do serviço (opcional — só enviado se preenchido)
+          // codigo_nbs do serviço (opcional — só enviado se preenchido) + #286: tributos federais do cadastro
           if (body.servicoId) {
             const { data: sv } = await supabaseAdmin
               .from('erp_servicos')
-              .select('codigo_nbs')
+              .select('*')  // '*' (#286): lê cst_pis_cofins quando a coluna existe, sem quebrar antes da migration
               .eq('id', body.servicoId)
+              .eq('company_id', body.companyId)
               .maybeSingle()
             if (sv?.codigo_nbs) nfseReq.codigoNbs = String(sv.codigo_nbs)
+            if (sv) {
+              // #286 · a MESMA conta que a tela mostrou antes de emitir (retencoesFederaisNfse)
+              const ret = calcularRetencoesFederais(Number(nfseReq.valorServicos), sv as ServicoTributosFederais)
+              if (ret.erros.length > 0) {
+                return NextResponse.json({ ok: false, mensagem: ret.erros.join(' ') }, { status: 400 })
+              }
+              retencoesCalculadas = ret
+              avisosTributos.push(...ret.avisos)
+              if (ret.totalRetido > 0 || ret.apuracaoPropria) {
+                nfseReq.retencoesFederais = {
+                  valorCp: ret.valorCp, valorIrrf: ret.valorIrrf,
+                  valorRetCsllAgrupado: ret.valorRetCsllAgrupado, tipoRetencaoPisCofins: ret.tipoRetencaoPisCofins,
+                }
+              }
+              if (ret.apuracaoPropria) nfseReq.apuracaoPisCofins = ret.apuracaoPropria
+              // IBS/CBS do CADASTRO DO SERVIÇO quando a empresa não configurou: grupo IBSCBS exige CST, cClassTrib
+              // e cIndOp (6 díg., Anexo C — E0901). Sem cIndOp válido o grupo NÃO vai (aviso); nunca adivinhar.
+              {
+                const ib = reformaIbsCbsDoServico(nfseReq.reforma, sv as ServicoIbsCbs)
+                nfseReq.reforma = ib.reforma
+                if (ib.aviso) avisosTributos.push(ib.aviso)
+              }
+            }
           }
           // Guard XSD (RD-51): o layout nacional EXIGE cMun (IBGE) e nro do tomador. Sem eles o Focus rejeita
           // no XSD. Bloqueia ANTES de enviar, com mensagem clara — não deixa virar erro fiscal obscuro.
@@ -794,6 +803,30 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ ibpt_fonte: ibptFonte }).eq('id', registroId)
     }
 
+    // #286 · grava na NOTA as retenções federais que foram na DPS — o "Gerar financeiro" usa exatamente estes valores
+    // (nota e título nunca divergem). ISS retido/deduções/desconto seguem no fluxo do financeiro como antes.
+    if (registroId && retencoesCalculadas && retencoesCalculadas.totalRetido > 0) {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({
+        valor_inss_ret: retencoesCalculadas.valorCp,
+        valor_irrf: retencoesCalculadas.valorIrrf,
+        valor_pis_ret: retencoesCalculadas.valorPisRet,
+        valor_cofins_ret: retencoesCalculadas.valorCofinsRet,
+        valor_csll_ret: retencoesCalculadas.valorCsllRet,
+      }).eq('id', registroId)
+    }
+
+    // #286 · ISS retido pelo tomador/intermediário (tpRetISSQN 2/3): valor × alíquota usada na emissão (a municipal
+    // resolvida acima; no Simples, a da competência). O Ambiente Nacional calcula igual (XML da NF 421: pAliqAplic 3,00,
+    // vISSQN = vBC × 3%, vTotalRet = retenções federais + ISS). Grava na nota e a tela pré-preenche o título com ele.
+    const issRetido = issRetidoNfse(
+      Number(nfseReq.valorServicos),
+      nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1),
+      nfseReq.aliquotaISSSN ?? nfseReq.aliquotaIss,
+    )
+    if (registroId && issRetido > 0 && resposta.status !== 'rejeitada') {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_iss_retido: issRetido }).eq('id', registroId)
+    }
+
     // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)
     if (registroId && obraIdFinal) {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ obra_id: obraIdFinal }).eq('id', registroId)
@@ -827,6 +860,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       providerReference: resposta.providerReference,
       ambiente: svc.ambiente,
       medicaoAviso,
+      // #286 · o que foi na nota (a tela usa no "Gerar financeiro", sem redigitar) + grupos não enviados
+      retencoesFederais: retencoesCalculadas ? {
+        inss: retencoesCalculadas.valorCp, irrf: retencoesCalculadas.valorIrrf, pis: retencoesCalculadas.valorPisRet,
+        cofins: retencoesCalculadas.valorCofinsRet, csll: retencoesCalculadas.valorCsllRet, total: retencoesCalculadas.totalRetido,
+      } : null,
+      issRetido: issRetido > 0 ? issRetido : null,
+      avisosTributos: avisosTributos.length ? avisosTributos : undefined,
     })
   } catch (err) {
     if (isFiscalError(err)) {

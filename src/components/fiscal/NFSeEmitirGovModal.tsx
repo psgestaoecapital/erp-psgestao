@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@/components/comum/BlocoObraFiscal'
+import { calcularRetencoesFederais, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 // bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos).
 // obra_sem_cno saiu (CNO virou opcional); obra_endereco_incompleto é o novo — a prefeitura exige endereço.
@@ -42,6 +43,10 @@ interface RespFocus {
   mensagem?: string | null
   providerReference?: string | null
   nfseId?: string | null
+  // #286 · retenções federais que foram na nota (o financeiro usa estas, sem redigitar) + grupos não enviados
+  retencoesFederais?: { inss: number; irrf: number; pis: number; cofins: number; csll: number; total: number } | null
+  issRetido?: number | null
+  avisosTributos?: string[]
 }
 
 interface Props {
@@ -212,6 +217,26 @@ export default function NFSeEmitirGovModal({
   // #32/#35 · servico_id efetivo: o que veio do pedido/OS (prop) OU o escolhido aqui no modal.
   // issNoLocalEff idem — habilita o seletor de município e a busca de alíquota também na emissão avulsa.
   const servicoIdEff = servicoId || servicoSelId || undefined
+  // #286 · retenções federais do CADASTRO DO SERVIÇO, conferidas ANTES de emitir. A mesma conta
+  // (calcularRetencoesFederais) é a que a rota manda para a nota e grava — nota e título nunca divergem.
+  const [svTrib, setSvTrib] = useState<ServicoTributosFederais | null>(null)
+  const [avisosTrib, setAvisosTrib] = useState<string[]>([])
+  useEffect(() => {
+    if (!aberto || !servicoIdEff) { setSvTrib(null); return }
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('erp_servicos').select('*').eq('id', servicoIdEff).maybeSingle()
+      if (vivo) setSvTrib((data as ServicoTributosFederais | null) ?? null)
+    })()
+    return () => { vivo = false }
+  }, [aberto, servicoIdEff])
+  const valorPrevia = (() => { const n = Number(String(valor || '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : 0 })()
+  const retPrevia = svTrib ? calcularRetencoesFederais(valorPrevia, svTrib) : null
+  // #286 · ISS retido pelo tomador vem do CADASTRO do serviço (iss_retido) — antes este modal mandava sempre "não retido"
+  const issRetidoCadastro = !!(svTrib as { iss_retido?: boolean | null } | null)?.iss_retido
+  const retPreviaTem = issRetidoCadastro || !!retPrevia && (retPrevia.totalRetido > 0 || retPrevia.erros.length > 0 || retPrevia.avisos.length > 0 || !!retPrevia.apuracaoPropria)
+  const retPreviaBloqueia = !!retPrevia && retPrevia.erros.length > 0
+  const fmtBRLPrev = (n: number) => 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const issNoLocalEff = issNoLocalPrestacao || servicoIssLocal
 
   // FIX-O3B-NFSE-MODAL-SEED-v1
@@ -462,6 +487,7 @@ export default function NFSeEmitirGovModal({
     // #32 · a trava: não deixa nem tentar enquanto houver bloqueio (o servidor barra de novo). Exceção: só
     // faltava a obra e o usuário vai criá-la agora (informar + cadastrar no Hub) — a criação é no resolve abaixo.
     if (emissaoTravada) { setErroLocal('Resolva os itens acima antes de emitir.'); return }
+    if (retPreviaBloqueia) { setErroLocal('Corrija as retenções federais no cadastro do serviço antes de emitir.'); return }
 
     // A③ · reenvio E0370 sem obra: resolve a obra escolhida (apontar/informar/criar no Hub) → obra_id +
     // município da obra. É o mesmo BlocoObraFiscal/resolver da venda (sem terceira implementação).
@@ -540,14 +566,14 @@ export default function NFSeEmitirGovModal({
           servicoId: servicoIdEff,
           codigoServicoTributacao: codigoTrib.trim() || undefined,
           obraId: obraIdFinal || undefined,
-          tipoRetencaoIss: 1,
+          tipoRetencaoIss: issRetidoCadastro ? 2 : 1,
         }
         if (medicao && pedidoId) {
           bodyFocus.medicao = { pedidoId, parcelaIds: medicao.parcelaIds, gerarFinanceiro: gerarFinMedicao }
         }
         if (erpReceberIdFocus) {
           bodyFocus.erpReceberId = erpReceberIdFocus
-          bodyFocus.overrides = { descricaoServico: descricao.trim(), aliquotaIss: aliquotaNum, retemIss: false }
+          bodyFocus.overrides = { descricaoServico: descricao.trim(), aliquotaIss: aliquotaNum, retemIss: issRetidoCadastro }
         } else {
           // NFS-e PRIMEIRO (pedido não faturado): emite sem título; o financeiro nasce da nota depois.
           const docDig = soDigitos(tomDoc)
@@ -555,7 +581,7 @@ export default function NFSeEmitirGovModal({
             descricaoServico: descricao.trim(),
             valorServicos: valorNum,
             aliquotaIss: aliquotaNum,
-            retemIss: false,
+            retemIss: issRetidoCadastro,
             codigoServico: codigoTrib.trim() || undefined,
             tomador: {
               razaoSocial: tomNome.trim() || (tomTipo === 'CPF' ? 'Pessoa Física' : 'Pessoa Jurídica'),
@@ -587,6 +613,13 @@ export default function NFSeEmitirGovModal({
               mensagem: json.motivoRejeicao ?? json.mensagem ?? null,
             })
             setNfseIdGerado(json.nfseId ?? null)
+            // #286 · o financeiro nasce com as MESMAS retenções federais que foram na nota (campos travados)
+            const rf = json.retencoesFederais
+            const br2 = (n: number) => (n > 0 ? n.toFixed(2).replace('.', ',') : '')
+            // ISS retido pelo tomador: vem calculado da emissão (valor × alíquota da nota); continua editável
+            const issRet = Number(json.issRetido ?? 0)
+            setFinRet((p) => ({ ...p, iss: issRet > 0 ? br2(issRet) : p.iss, inss: br2(rf?.inss ?? 0), irrf: br2(rf?.irrf ?? 0), pis: br2(rf?.pis ?? 0), cofins: br2(rf?.cofins ?? 0), csll: br2(rf?.csll ?? 0) }))
+            setAvisosTrib(json.avisosTributos ?? [])
             if (ref) onEmitida(ref)
           }
         }
@@ -649,24 +682,8 @@ export default function NFSeEmitirGovModal({
   const finLiquido = Math.max(0, finBruto - numBR(finRet.deducoes) - numBR(finRet.desconto) - finRetTotal)
   const fmtBRL = (n: number) => 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-  // Sugestão automática de retenções federais (Lei/serviço) — FACILITA, não decide (CEO 24/09). Percentuais
-  // consagrados: INSS 11% SÓ p/ cessão de mão de obra (detectada na descrição — ex.: FC "serviço de mão de
-  // obra em revestimento"); IRRF 1,5% p/ serviços profissionais; PIS 0,65% + COFINS 3% na retenção federal.
-  // Tudo EDITÁVEL e default ZERO: só preenche quando o operador clica (campo fiscal não se adivinha sozinho).
-  const brNum = (n: number) => (n > 0 ? n.toFixed(2).replace('.', ',') : '')
-  const cent = (n: number) => Math.round(n * 100) / 100
-  const ehCessaoMaoDeObra = /\bm[ãa]o[\s-]*de[\s-]*obra\b|cess[ãa]o\s+de\s+m[ãa]o/i.test(descricao)
-  function aplicarSugestaoRetencoes() {
-    const base = finBruto
-    if (base <= 0) return
-    setFinRet((p) => ({
-      ...p,
-      irrf: brNum(cent(base * 0.015)),
-      pis: brNum(cent(base * 0.0065)),
-      cofins: brNum(cent(base * 0.03)),
-      inss: ehCessaoMaoDeObra ? brNum(cent(base * 0.11)) : p.inss,
-    }))
-  }
+  // #286 · a "sugestão automática de retenções" saiu: as retenções federais vêm do cadastro do serviço, são
+  // conferidas ANTES de emitir e são as mesmas da nota (o servidor também força isso no gerar-financeiro).
 
   async function gerarFinanceiro() {
     if (!nfseIdGerado) return
@@ -792,6 +809,7 @@ export default function NFSeEmitirGovModal({
                     type="text"
                     inputMode="numeric"
                     value={tomDoc}
+                    data-testid="nfse-tomador-doc"
                     onChange={(e) => setTomDoc(mascaraDoc(e.target.value, tomTipo))}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void buscarTomador() } }}
                     placeholder={tomTipo === 'CPF' ? '000.000.000-00' : '00.000.000/0000-00'}
@@ -999,6 +1017,30 @@ export default function NFSeEmitirGovModal({
               )}
               {servicoIdEff && validando && <div className="text-[11px] text-[#3D2314]/50">Verificando obra e alíquota…</div>}
 
+              {retPreviaTem && retPrevia && (
+                <div className="rounded-md border border-[#C8941A]/40 bg-[#FAEEDA]/50 px-3 py-2.5 space-y-1.5 text-[12px] text-[#3D2314]" data-testid="nfse-retencoes-previa">
+                  <div className="font-medium">Retenções desta nota (do cadastro do serviço)</div>
+                  {issRetidoCadastro && <div data-testid="nfse-retencoes-previa-iss">ISS <b>retido pelo tomador</b> (alíquota do município da prestação)</div>}
+                  {retPrevia.totalRetido > 0 && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-0.5" data-testid="nfse-retencoes-previa-valores">
+                      {retPrevia.valorCp > 0 && <span>INSS <b>{fmtBRLPrev(retPrevia.valorCp)}</b></span>}
+                      {retPrevia.valorIrrf > 0 && <span>IR <b>{fmtBRLPrev(retPrevia.valorIrrf)}</b></span>}
+                      {retPrevia.valorPisRet > 0 && <span>PIS <b>{fmtBRLPrev(retPrevia.valorPisRet)}</b></span>}
+                      {retPrevia.valorCofinsRet > 0 && <span>COFINS <b>{fmtBRLPrev(retPrevia.valorCofinsRet)}</b></span>}
+                      {retPrevia.valorCsllRet > 0 && <span>CSLL <b>{fmtBRLPrev(retPrevia.valorCsllRet)}</b></span>}
+                      <span>· total retido <b>{fmtBRLPrev(retPrevia.totalRetido)}</b></span>
+                    </div>
+                  )}
+                  {retPrevia.erros.map((e) => (
+                    <div key={e} className="flex items-start gap-1.5 text-[#791F1F]" data-testid="nfse-retencoes-previa-erro"><AlertCircle size={13} className="mt-0.5 flex-shrink-0" /><span>{e}</span></div>
+                  ))}
+                  {retPrevia.avisos.map((a) => (
+                    <div key={a} className="flex items-start gap-1.5 text-[#8A5A00]" data-testid="nfse-retencoes-previa-aviso"><Info size={13} className="mt-0.5 flex-shrink-0" /><span>{a}</span></div>
+                  ))}
+                  <div className="text-[11px] text-[#3D2314]/60">Os mesmos valores vão para a nota e para o título a receber. Para mudar, ajuste o cadastro do serviço.</div>
+                </div>
+              )}
+
               {erroLocal && (
                 <div className="flex items-start gap-2 bg-[#FCEBEB] border-l-4 border-[#C94544] rounded-md px-3 py-2 text-[12px] text-[#791F1F]">
                   <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
@@ -1018,7 +1060,7 @@ export default function NFSeEmitirGovModal({
                 <button
                   type="button"
                   onClick={emitir}
-                  disabled={fase === 'enviando' || validando || emissaoTravada || providerAtivo === null}
+                  disabled={fase === 'enviando' || validando || emissaoTravada || retPreviaBloqueia || providerAtivo === null}
                   title={providerAtivo === null ? 'Configure o emissor fiscal da empresa' : emissaoTravada ? 'Resolva os itens acima antes de emitir' : undefined}
                   data-testid="nfse-emitir-submit"
                   className="flex-1 px-4 py-2.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center justify-center gap-2"
@@ -1037,6 +1079,12 @@ export default function NFSeEmitirGovModal({
 
           {fase === 'concluido' && resultado && (
             <div className="space-y-4" data-testid="nfse-emitir-result">
+              {avisosTrib.length > 0 && (
+                <div className="flex items-start gap-2 bg-[#FAEEDA] border-l-4 border-[#C8941A] rounded-md px-3 py-2 text-[12px] text-[#5C3B0B]" data-testid="nfse-avisos-tributos">
+                  <Info size={14} className="mt-0.5 flex-shrink-0" />
+                  <div>{avisosTrib.map((a) => <div key={a}>{a}</div>)}</div>
+                </div>
+              )}
               {sucessoFinal && (
                 <div className="flex items-start gap-3 bg-[#EAF3DE] border-l-4 border-[#3B6D11] rounded-md px-4 py-3">
                   <CheckCircle2 className="text-[#3B6D11] mt-0.5 flex-shrink-0" size={18} />
@@ -1057,16 +1105,13 @@ export default function NFSeEmitirGovModal({
                     <>
                       <p className="text-[11px] text-[#5C3B0B]/80">Informe as retenções (quando houver). O título a receber nasce pelo <b>valor líquido</b>.</p>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <button type="button" onClick={aplicarSugestaoRetencoes} disabled={finBruto <= 0} data-testid="nfse-sugerir-retencoes" className="text-[11px] font-medium text-[#8A5A00] underline decoration-dotted underline-offset-2 hover:text-[#5C3B0B] disabled:opacity-40">
-                          Sugerir retenções federais
-                        </button>
-                        <span className="text-[10.5px] text-[#5C3B0B]/60">IRRF 1,5% · PIS 0,65% · COFINS 3%{ehCessaoMaoDeObra ? ' · INSS 11% (mão de obra)' : ''} — editável, confira antes de gerar</span>
+                        <span className="text-[10.5px] text-[#5C3B0B]/70" data-testid="nfse-retencoes-da-nota">INSS, IR, PIS, COFINS e CSLL são os que foram na nota — não se editam aqui (nota e título nunca divergem).</span>
                       </div>
                       <div className="grid grid-cols-3 gap-2">
                         {(['iss', 'irrf', 'pis', 'cofins', 'csll', 'inss'] as const).map((k) => (
                           <label key={k} className="block">
                             <span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">{k === 'iss' ? 'ISS retido' : k.toUpperCase()}</span>
-                            <input type="text" inputMode="decimal" value={finRet[k]} onChange={(e) => setFinRet((p) => ({ ...p, [k]: e.target.value }))} placeholder="0,00" className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" />
+                            <input type="text" inputMode="decimal" value={finRet[k]} readOnly={k !== 'iss'} onChange={(e) => { if (k === 'iss') setFinRet((p) => ({ ...p, [k]: e.target.value })) }} placeholder="0,00" data-testid={`nfse-fin-ret-${k}`} className={`w-full border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314] ${k === 'iss' ? 'bg-white' : 'bg-[#3D2314]/5 cursor-not-allowed'}`} />
                           </label>
                         ))}
                         <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">Deduções</span><input type="text" inputMode="decimal" value={finRet.deducoes} onChange={(e) => setFinRet((p) => ({ ...p, deducoes: e.target.value }))} placeholder="0,00" className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>

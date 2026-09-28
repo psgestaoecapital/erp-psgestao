@@ -33,6 +33,7 @@ interface RespostaEmissao {
 
 interface ServicoOpt {
   id: string
+  iss_retido?: boolean | null
   descricao_resumida: string | null
   codigo_lc116: string | null
   codigo_servico_municipio: string | null
@@ -77,7 +78,7 @@ export default function NFSePreviewModal(props: Props) {
     ;(async () => {
       const { data } = await supabase
         .from('erp_servicos')
-        .select('id,descricao_resumida,codigo_lc116,codigo_servico_municipio,aliquota_iss')
+        .select('id,descricao_resumida,codigo_lc116,codigo_servico_municipio,aliquota_iss,iss_retido')
         .eq('company_id', props.companyId)
         .eq('ativo', true)
         .order('descricao_resumida')
@@ -95,6 +96,14 @@ export default function NFSePreviewModal(props: Props) {
     })()
     return () => { alive = false }
   }, [props.open, props.companyId])
+
+  // #286 · a retenção do ISS começa como está no CADASTRO do serviço (iss_retido → retido pelo tomador, como na
+  // nota autorizada de referência); o operador ainda pode trocar no seletor.
+  useEffect(() => {
+    const sel = servicos.find((s) => s.id === servicoId)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (sel) setTipoRetencao(sel.iss_retido ? '2' : '1')
+  }, [servicoId, servicos])
 
   // #18 · quando o serviço muda, busca os subitens de tributação do grupo LC116 (07.02 → 07.02.01/02).
   // Se houver subitens, o serviço é de construção (E0370) → exige endereço da obra.
