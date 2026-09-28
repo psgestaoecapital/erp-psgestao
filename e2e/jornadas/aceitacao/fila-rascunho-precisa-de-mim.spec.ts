@@ -8,9 +8,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, registrarJornada } from '../../support/api'
-import { carregarFila, contarPendentesAprovacao, contarPrecisaDeMim, estadoFila, chamadoEncerrado, rascunhoNaoEnviado, FILA_LIMITE, type ItemFila } from '../../../src/lib/sugestoes/filaAtendimento'
+import { carregarFila, contarPendentesAprovacao, contarPrecisaDeMim, estadoFila, chamadoEncerrado, rascunhoNaoEnviado, FILA_LIMITE, carregarEmpresasDemo, semDemos, filtrarBusca, type ItemFila } from '../../../src/lib/sugestoes/filaAtendimento'
 
-type Linha = ItemFila & { id: string; numero: number }
+type Linha = ItemFila & { id: string; numero: number; company_id: string | null; titulo: string | null; descricao: string }
 const sb = () => createClient(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   { auth: { autoRefreshToken: false, persistSession: false } })
 
@@ -24,21 +24,36 @@ test.describe('Fila de chamados · cabeçalho "p/ aprovar" = aba "Precisa de mim
     const cabecalho = await contarPendentesAprovacao(cliente)                // o que a Central de Melhorias mostra
     const fila = await carregarFila<Linha>(cliente)                          // o que a fila de atendimento carrega
     expect(fila.error).toBeNull()
-    const aba = contarPrecisaDeMim(fila.data)                                // o número da aba "Precisa de mim"
+    const demos = await carregarEmpresasDemo(cliente)                         // CEO 28/09: demos fora por padrão
+    expect(demos.size, 'as empresas DEMO do robô existem e são lidas').toBeGreaterThan(0)
+    const aba = contarPrecisaDeMim(semDemos(fila.data, demos))               // o número da aba "Precisa de mim" (padrão)
     expect(aba, `cabeçalho ${cabecalho} × aba ${aba}`).toBe(cabecalho)
 
     // a verdade no banco: resposta escrita e não aprovada — "Precisa de mim" só em chamado ABERTO (fora concluído/arquivado)
-    const todos = (await dbSelect<Linha>('sugestoes', 'select=id,numero,status,resposta,resposta_aprovada,confirmado_pelo_autor&resposta_aprovada=eq.false&resposta=not.is.null'))
+    const todos = (await dbSelect<Linha>('sugestoes', 'select=id,numero,company_id,status,resposta,resposta_aprovada,confirmado_pelo_autor&resposta_aprovada=eq.false&resposta=not.is.null'))
       .filter((r) => (r.resposta ?? '').trim())
-    const abertos = todos.filter((r) => !chamadoEncerrado(r))
+    const abertosDemo = todos.filter((r) => !chamadoEncerrado(r) && r.company_id && demos.has(r.company_id))
+    const abertos = semDemos(todos, demos).filter((r) => !chamadoEncerrado(r))
     const encerrados = todos.filter((r) => chamadoEncerrado(r))
     const naFila = new Map(fila.data.map((r) => [r.id, r]))
-    expect(aba, 'aba = cabeçalho = total de rascunhos em chamados abertos').toBe(abertos.length)
+    expect(aba, 'aba = cabeçalho = total de rascunhos em chamados abertos (sem demos)').toBe(abertos.length)
+    // com "mostrar demos" os do robô entram — ninguém some, só sai do padrão
+    expect(contarPrecisaDeMim(fila.data), 'mostrar demos: + os rascunhos das empresas DEMO').toBe(abertos.length + abertosDemo.length)
     expect(abertos.filter((r) => !naFila.has(r.id) || estadoFila(naFila.get(r.id)!) !== 'precisa_mim').map((r) => r.numero),
       'todo rascunho de chamado aberto está na aba "Precisa de mim"').toEqual([])
     // rascunho de chamado encerrado: fora da fila, mas guardado e marcado no histórico (RD-30 — nada é apagado)
     expect(encerrados.filter((r) => !naFila.has(r.id) || estadoFila(naFila.get(r.id)!) === 'precisa_mim' || !rascunhoNaoEnviado(naFila.get(r.id)!)).map((r) => r.numero),
       'rascunho de chamado encerrado: fora da aba e marcado "rascunho não enviado — chamado já encerrado"').toEqual([])
+  })
+
+  test('busca por número é exata: "#N" e "N" trazem só o chamado N', async () => {
+    const fila = await carregarFila<Linha>(sb())
+    // um número que aparece no texto de OUTRO chamado (o caso do #286 × #172/#174/#175/#184)
+    const alvo = fila.data.find((r) => fila.data.some((o) => o.id !== r.id && `${o.titulo ?? ''} ${o.descricao ?? ''}`.includes(String(r.numero))))
+      ?? fila.data[0]
+    for (const termo of [String(alvo.numero), `#${alvo.numero}`]) {
+      expect(filtrarBusca(fila.data, termo).map((r) => r.numero), `busca "${termo}"`).toEqual([alvo.numero])
+    }
   })
 
   test('a carga não corta chamados: com menos de FILA_LIMITE chamados, a fila traz todos', async () => {

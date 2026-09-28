@@ -60,6 +60,30 @@ export async function carregarFila<T extends ItemFila & { id: string }>(sb: Clie
   return { data: error ? [] : juntarFila((rec.data ?? []) as T[], ras.data), error: error ?? null }
 }
 export async function contarPendentesAprovacao(sb: ClienteSupabase): Promise<number> {
-  const { data } = await carregarRascunhos<ItemFila & { id: string }>(sb, 'id,status,resposta,resposta_aprovada,confirmado_pelo_autor')
-  return contarPrecisaDeMim(data)
+  // padrão da fila: sem as empresas DEMO (o cabeçalho mostra o mesmo número da aba no padrão)
+  const [{ data }, demos] = await Promise.all([
+    carregarRascunhos<ItemFila & { id: string; company_id: string | null }>(sb, 'id,company_id,status,resposta,resposta_aprovada,confirmado_pelo_autor'),
+    carregarEmpresasDemo(sb),
+  ])
+  return contarPrecisaDeMim(semDemos(data, demos))
 }
+
+// ── Busca (CEO 28/09): número é EXATO — "#286" ou "286" abre só o chamado 286 (antes vinham também os que tinham
+// "286" no título/descrição: #172, #174, #175, #184). Texto continua buscando título/descrição.
+export const buscaEhNumero = (busca: string) => /^#?\s*\d+$/.test(busca.trim())
+export function filtrarBusca<T extends { numero: number; titulo: string | null; descricao: string }>(rows: T[], busca: string): T[] {
+  const b = busca.trim()
+  if (!b) return rows
+  if (buscaEhNumero(b)) { const n = Number(b.replace(/\D/g, '')); return rows.filter((r) => r.numero === n) }
+  const t = b.toLowerCase()
+  return rows.filter((r) => (r.titulo || '').toLowerCase().includes(t) || (r.descricao || '').toLowerCase().includes(t))
+}
+
+// ── Demos (CEO 28/09): chamados das empresas DEMO (robô de aceitação) ficam FORA da fila do CEO por padrão; só entram
+// com o filtro "mostrar demos". O cabeçalho "N p/ aprovar" segue o padrão (sem demos) — igual à aba no padrão.
+export async function carregarEmpresasDemo(sb: ClienteSupabase): Promise<Set<string>> {
+  const r = await sb.from('companies').select('id').eq('is_demo', true)
+  return new Set(((r.data ?? []) as { id: string }[]).map((c) => c.id))
+}
+export const semDemos = <T extends { company_id: string | null }>(rows: T[], demos: Set<string>) =>
+  rows.filter((r) => !r.company_id || !demos.has(r.company_id))
