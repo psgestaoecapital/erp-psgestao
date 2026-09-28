@@ -147,39 +147,6 @@ export default function ConectoresIndustrialPage() {
   const toggleDom = (d: string) => setDoms((prev) => { const n = new Set(prev); if (n.has(d)) n.delete(d); else n.add(d); return n })
   const copiarToken = () => { if (dados?.conexao?.agente_token) { void navigator.clipboard?.writeText(dados.conexao.agente_token); setMsg({ t: 'Token copiado — cole na instalação do Agente PS.', ok: true }) } }
 
-  // FIX3 · gera o .env desta empresa (config preenchida; a SENHA do SQL fica VAZIA — o TI preenche local).
-  const baixarEnv = () => {
-    const cx = dados?.conexao
-    if (!cx || !empresaUnica) { setMsg({ t: 'Salve a conexão primeiro (gera o token).', ok: false }); return }
-    const SB_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-    const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
-    const env = [
-      '# Agente PS — configuração desta empresa. Gerado no painel. Salve este arquivo como .env em ANSI.',
-      `# ${dados?.nome ?? ''}`,
-      '',
-      '# Nuvem PS (a anon key é PÚBLICA, não é segredo)',
-      `SUPABASE_URL=${SB_URL}`,
-      `SUPABASE_ANON_KEY=${SB_ANON}`,
-      `AGENTE_TOKEN=${cx.agente_token ?? ''}`,
-      `ATAK_COMPANY_ID=${empresaUnica}`,
-      `INGEST_URL=${SB_URL}/functions/v1/atak-ingest`,
-      '',
-      '# SQL Server do frigorífico (na rede do cliente)',
-      `ATAK_HOST=${cx.host ?? ''}`,
-      `ATAK_PORTA=${cx.porta ?? 1433}`,
-      `ATAK_BANCO=${cx.banco ?? ''}`,
-      `ATAK_COD_FILIAL=${cx.cod_filial ?? '100'}`,
-      `ATAK_USUARIO=${cx.usuario ?? ''}`,
-      'ATAK_SENHA=          # <-- O TI PREENCHE a senha do SQL Server aqui (fica só nesta máquina · Pilar 2)',
-      '',
-      '# Domínios a coletar (marcados na tela) e cadência informativa',
-      `DOMINIOS=${(cx.dominios ?? []).join(',')}`,
-      `SYNC_MINUTOS=${cx.sync_minuto ?? 15}`,
-      '',
-    ].join('\r\n')
-    baixarTexto(env, '.env')
-    setMsg({ t: 'Configuração (.env) baixada — preencha a senha do SQL e salve em ANSI.', ok: true })
-  }
 
   const baixarTexto = (conteudo: string, nome: string) => {
     const url = URL.createObjectURL(new Blob([conteudo], { type: 'text/plain;charset=utf-8' }))
@@ -403,18 +370,6 @@ export default function ConectoresIndustrialPage() {
             {' '}<b>config.json</b> (token embutido), <b>instalar.bat</b> e <b>LEIA-ME.md</b>. O TI extrai e dá duplo-clique no <code>instalar.bat</code>.
           </div>
 
-          {/* Avançado — arquivos separados (modelo antigo Node/.env; mantido por compatibilidade) */}
-          <details style={{ marginTop: 14 }}>
-            <summary style={{ fontSize: 11.5, color: C.txm, cursor: 'pointer' }}>Avançado — arquivos separados (Node/.env)</summary>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-              <a href="/downloads/atak/collector.js" download style={dlGhost}>collector.js</a>
-              <a href="/downloads/atak/package.json" download style={dlGhost}>package.json</a>
-              <a href="/downloads/atak/README.md" download style={dlGhost}>README</a>
-              <button onClick={baixarEnv} disabled={!dados?.conexao?.agente_token} style={{ ...dlGhost, opacity: dados?.conexao?.agente_token ? 1 : 0.5, cursor: dados?.conexao?.agente_token ? 'pointer' : 'not-allowed' }}>configuração (.env)</button>
-              <a href="/downloads/atak/INSTALACAO.md" download style={dlGhost}>passo-a-passo</a>
-            </div>
-            <div style={{ fontSize: 10.5, color: C.txd, marginTop: 8 }}>Modelo antigo (Node + <code>.env</code> em <b>ANSI</b>). Use só se precisar rodar sem o <code>.exe</code>.</div>
-          </details>
         </div>
       )}
 
