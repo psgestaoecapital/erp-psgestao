@@ -9,6 +9,7 @@ import { emitirNFSeViaGovServer } from '@/lib/fiscal/gov-nfse-provider'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
+import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -161,6 +162,11 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     }
 
     let nfseReq: NFSeRequest
+    // IBPT por empresa: fonte dos tributos aproximados que foi na nota ('ibpt_empresa' | 'tabela_generica')
+    let ibptFonte: 'ibpt_empresa' | 'tabela_generica' | null = null
+    const { data: cfgIbpt } = await supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas')
+      .eq('company_id', body.companyId).eq('ativo', true).limit(1).maybeSingle()
+    const usarIbptEmpresa = !!(cfgIbpt as { ibpt_empresa_nas_notas?: boolean } | null)?.ibpt_empresa_nas_notas
     if (body.erpReceberId) {
       nfseReq = await buildNFSeFromReceber({
         companyId: body.companyId,
@@ -517,23 +523,35 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             // antes de enviar (RD-74: cadastro que funciona), nunca chuta. Optante (2/3) não passa aqui.
             {
               const { data: empUf } = await supabaseAdmin
-                .from('companies').select('uf_fiscal').eq('id', body.companyId).maybeSingle()
+                .from('companies').select('uf_fiscal, cnpj').eq('id', body.companyId).maybeSingle()
               const ufPrest = String((empUf as { uf_fiscal?: string | null } | null)?.uf_fiscal ?? '').trim().toUpperCase()
               const lc116Digits = (lc116 ?? '').replace(/\D/g, '')   // '07.05' -> '0705'
               type IbptRow = { federal?: unknown; estadual?: unknown; municipal?: unknown; versao?: unknown }
               let ibpt: IbptRow | null = null
-              if (lc116Digits.length === 4 && ufPrest.length === 2) {
+              // IBPT por empresa (CEO 28/09): com o uso liberado, 1º a consulta da PRÓPRIA empresa (cache → API);
+              // sem token/erro/IBPT fora do ar → tabela genérica. A nota nunca trava por causa do IBPT da empresa.
+              if (usarIbptEmpresa && lc116Digits.length === 4 && ufPrest.length === 2) {
+                const emp = await aliquotaIbptEmpresa(body.companyId, String((empUf as { cnpj?: string | null } | null)?.cnpj ?? ''), {
+                  tipo: 'servico', codigo: lc116Digits, uf: ufPrest, descricao: nfseReq.descricaoServico || 'serviço', valor: Number(nfseReq.valorServicos) || 1,
+                })
+                if (emp && emp.nacional != null) {
+                  ibpt = { federal: emp.nacional, estadual: emp.estadual ?? 0, municipal: emp.municipal ?? 0, versao: emp.versao }
+                  ibptFonte = 'ibpt_empresa'
+                }
+              }
+              if (!ibpt && lc116Digits.length === 4 && ufPrest.length === 2) {
                 const { data: al } = await supabaseAdmin.rpc('fn_ibpt_aliquota_vigente', {
                   p_ncm: lc116Digits, p_ex: '0', p_uf: ufPrest, p_origem: '0',
                 })
                 const row = (Array.isArray(al) ? al[0] : al) as IbptRow | null
-                if (row && row.federal != null) ibpt = row
+                if (row && row.federal != null) { ibpt = row; ibptFonte = 'tabela_generica' }
               }
               if (!ibpt) {
+                // trava mantida (decisão do CEO 28/09): sem o código nem na genérica, a NFS-e Nacional rejeitaria (E0713)
                 return NextResponse.json({
                   ok: false,
                   ibpt_pendente: true,
-                  mensagem: `Tributos aproximados (Lei 12.741) não encontrados na tabela IBPT para o serviço LC ${lc116 ?? '?'} na UF ${ufPrest || '?'}. Empresa de REGIME NORMAL precisa deles na NFS-e Nacional (rejeição E0713). Atualize a tabela IBPT (Configurações › Fiscal › IBPT) ou confira a UF fiscal da empresa e emita de novo.`,
+                  mensagem: 'Este serviço não tem os tributos aproximados na tabela do IBPT. Cadastre o token do IBPT da empresa ou fale com a PS.',
                 }, { status: 400 })
               }
               nfseReq.tributosAproxPct = {
@@ -769,6 +787,11 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         medicaoAviso = 'A nota saiu, mas não foi ligada às parcelas do pedido — avise o suporte antes de faturar de novo. ' +
           (vincErr?.message ?? vj?.erro ?? '')
       }
+    }
+
+    // IBPT por empresa · grava a fonte dos tributos aproximados que foi na nota
+    if (registroId && ibptFonte) {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ ibpt_fonte: ibptFonte }).eq('id', registroId)
     }
 
     // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)

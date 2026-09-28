@@ -51,6 +51,10 @@ ALTER TABLE public.erp_fiscal_provider_config
 COMMENT ON COLUMN public.erp_fiscal_provider_config.ibpt_empresa_nas_notas IS
   'Usa a consulta IBPT da própria empresa (token) nas notas antes da tabela genérica. Desligado até o CEO conferir o significado dos campos na 1ª consulta real.';
 
+-- fonte dos tributos aproximados que foi em cada nota: 'ibpt_empresa' | 'tabela_generica' (NF-e pode ter as duas)
+ALTER TABLE public.erp_nfse_emitidas ADD COLUMN IF NOT EXISTS ibpt_fonte text;
+ALTER TABLE public.erp_nfe_emitidas  ADD COLUMN IF NOT EXISTS ibpt_fonte text;
+
 DO $do$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='erp_ibpt_cache') THEN
     RAISE EXCEPTION 'erp_ibpt_cache não criada';
