@@ -6,8 +6,12 @@
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { dbSelect, registrarJornada, obterSessionPayload } from '../../support/api'
+import { escolherProdutoTeste, ncmValidoParaTeste } from '../../../src/lib/fiscal/ibptTeste'
 
 const DEMO_GE = 'b0700000-0000-4000-a000-000000000004'
+// Empresas com o IBPT próprio liberado nas notas — cada uma por autorização expressa do CEO (erp_contexto_projeto).
+const FC_PISOS = 'b202b50f-37cb-462e-accf-126869de49f0'   // CEO 28/09: token testado = NF 418 (13,45/0/3,15)
+const EMPRESAS_AUTORIZADAS_CEO = [FC_PISOS]
 
 async function credenciaisIbpt(): Promise<number> {
   const r = await dbSelect<{ id: string }>('erp_credencial', `provider=eq.ibpt&company_id=eq.${DEMO_GE}&select=id`)
@@ -66,9 +70,23 @@ test.describe('IBPT por empresa · token na Configuração Fiscal', () => {
   test('banco: cache do IBPT, status do token e fonte gravada na nota existem', { tag: '@pos-migration' }, async () => {
     await dbSelect('erp_ibpt_cache', 'select=company_id,tipo,codigo,nacional,importado,estadual,municipal,versao,vigencia_fim,fonte&limit=1')
     await dbSelect('erp_ibpt_empresa_status', 'select=company_id,token_salvo_em,ultima_consulta_ok,ultimo_erro&limit=1')
-    const cfg = await dbSelect<{ ibpt_empresa_nas_notas: boolean }>('erp_fiscal_provider_config', 'select=ibpt_empresa_nas_notas&limit=50')
-    expect(cfg.every((c) => c.ibpt_empresa_nas_notas === false), 'uso nas notas começa desligado em todas as empresas').toBe(true)
+    // uso nas notas: desligado por padrão; ligado SÓ nas empresas que o CEO autorizou uma a uma (28/09: só a FC Pisos)
+    const ligadas = await dbSelect<{ company_id: string }>('erp_fiscal_provider_config', 'select=company_id&ibpt_empresa_nas_notas=eq.true')
+    expect(ligadas.filter((c) => !EMPRESAS_AUTORIZADAS_CEO.includes(c.company_id)).map((c) => c.company_id),
+      'nenhuma empresa usa o IBPT próprio nas notas sem autorização do CEO').toEqual([])
     await dbSelect('erp_nfse_emitidas', 'select=ibpt_fonte&limit=1')
     await dbSelect('erp_nfe_emitidas', 'select=ibpt_fonte&limit=1')
+  })
+
+  test('"Salvar e testar" nunca escolhe produto com NCM inválido (vazio/00000000): pula para o próximo', async () => {
+    // dados reais da FC: o cadastro dela tem (ou tinha) um "produto" NCM 00000000 que é o serviço de mão de obra
+    const prods = await dbSelect<{ ncm: string | null; nome: string }>('erp_produtos', `company_id=eq.${FC_PISOS}&ativo=eq.true&select=ncm,nome&limit=500`)
+    const escolhido = escolherProdutoTeste(prods, '2710')
+    // só leitura (RD-87): o item escolhido sobre o cadastro real tem NCM válido — nunca vazio nem 00000000
+    if (escolhido) expect(ncmValidoParaTeste(escolhido.ncm), `produto escolhido "${escolhido.nome}" (NCM ${escolhido.ncm})`).not.toBeNull()
+    const invalidos = prods.filter((p) => ncmValidoParaTeste(p.ncm) === null)
+    const validos = prods.length - invalidos.length
+    expect(escolhido === null, 'com algum NCM válido no cadastro, há produto de teste').toBe(validos === 0)
+    expect(escolherProdutoTeste(invalidos), 'só inválidos → nenhum produto de teste').toBeNull()
   })
 })
