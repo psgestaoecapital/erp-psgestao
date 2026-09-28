@@ -62,6 +62,12 @@ REVOKE ALL ON FUNCTION public.fn_nr36_pausas_historico_listar(uuid,date,date) FR
 GRANT EXECUTE ON FUNCTION public.fn_nr36_pausas_historico_listar(uuid,date,date) TO authenticated, service_role;
 
 -- ── (A) upload: pendente → processado só com linha aceita; zero → falhou com mensagem ────────────────────────
+-- status novos 'pendente' e 'falhou' entram na CHECK (a 1ª tentativa de deploy, 28/09 13:35, abortou aqui — nada
+-- ficou aplicado: a migration roda numa transação só). Mantém os 4 valores existentes.
+ALTER TABLE public.nr36_upload DROP CONSTRAINT IF EXISTS nr36_upload_status_chk;
+ALTER TABLE public.nr36_upload ADD CONSTRAINT nr36_upload_status_chk
+  CHECK (status = ANY (ARRAY['pendente'::text, 'processado'::text, 'falhou'::text, 'substituido'::text, 'estornado'::text, 'erro'::text]));
+
 CREATE OR REPLACE FUNCTION public.fn_nr36_upload_registrar(p_company_id uuid, p_arquivo_nome text, p_arquivo_path text, p_arquivo_hash text, p_bytes bigint DEFAULT NULL::bigint, p_mime text DEFAULT NULL::text, p_periodo_ini date DEFAULT NULL::date, p_periodo_fim date DEFAULT NULL::date)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'extensions', 'pg_temp'
 AS $function$

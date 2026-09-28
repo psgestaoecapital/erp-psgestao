@@ -740,7 +740,10 @@ function AbaHistorico({ companyId }: { companyId: string }) {
     setLoading(true); setErro('')
     try {
       const r = await rpc<UploadRow[]>('fn_nr36_upload_listar', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim }); setRows(Array.isArray(r) ? r : [])
-      const h = await rpc<PausaHistorico[]>('fn_nr36_pausas_historico_listar', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim }); setArquivadas(Array.isArray(h) ? h : [])
+      // histórico de confirmações é complementar: se falhar, a lista de uploads continua valendo
+      try {
+        const h = await rpc<PausaHistorico[]>('fn_nr36_pausas_historico_listar', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim }); setArquivadas(Array.isArray(h) ? h : [])
+      } catch { setArquivadas([]) }
     }
     catch (e) { setErro((e as Error).message) } finally { setLoading(false) }
   }, [companyId, ini, fim])
