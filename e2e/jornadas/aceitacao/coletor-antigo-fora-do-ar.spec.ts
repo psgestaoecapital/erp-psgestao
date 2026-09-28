@@ -1,12 +1,15 @@
 // CEO 28/09: o coletor antigo (Node + .env) sai do ar. Ele ficava público em /downloads/atak/* e era oferecido na tela
 // Conectores ("Avançado — arquivos separados"). Não tinha chave dentro (conferido), mas chamava fn_atak_mapa_coletor,
 // que está fechada desde a PR A — quem baixasse ficaria com um coletor que não funciona. O caminho oficial é o
-// instalador .zip gerado na tela (link assinado de 10 min).
+// instalador gerado na tela (link assinado de 10 min).
 
-import { test, expect, aguardarConteudo } from '../../support/fixtures'
-import { registrarJornada } from '../../support/api'
+import { test, expect } from '../../support/fixtures'
+import { registrarJornada, obterSessionPayload } from '../../support/api'
 
-const DEMO_SST = 'b0700000-0000-4000-a000-000000000005'
+// A tela Conectores mora em /dashboard/industrial, e nenhuma demonstração tem a área Industrial (o AreaRedirectGuard
+// manda o robô para outra área). Por isso o caminho principal é provado no que a tela chama para instalar o agente:
+// /api/agente/instalador com a Frioeste (única empresa com agente), só leitura — 2 primeiros bytes do .exe ("MZ").
+const FRIOESTE = '975365cc-9e5a-4251-9022-68c6bfde10d8'
 
 test.describe('Coletor antigo fora do ar', () => {
   test.afterEach(async ({}, testInfo) => {
@@ -20,13 +23,15 @@ test.describe('Coletor antigo fora do ar', () => {
     }
   })
 
-  test('caminho principal: tela Conectores abre e não oferece mais o modelo antigo', async ({ page }) => {
-    await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto('/dashboard/industrial/conectores')
-    await aguardarConteudo(page)
-    // o título da página (no celular, o menu fechado também tem um item "Conectores" escondido — não serve de âncora)
-    await expect(page.getByRole('heading', { name: /Conectores \(ERPs\)/ })).toBeVisible({ timeout: 20000 })
-    await expect(page.getByText('Avançado — arquivos separados')).toHaveCount(0)
-    await expect(page.locator('a[href^="/downloads/atak/"]')).toHaveCount(0)
+  test('caminho principal: o instalador oficial continua saindo pelo link assinado', async ({ request }) => {
+    const token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
+    const r = await request.get(`/api/agente/instalador?company_id=${FRIOESTE}`, { headers: { Authorization: `Bearer ${token}` } })
+    const corpo = await r.json() as { exe?: string; error?: string }
+    expect(r.status(), JSON.stringify(corpo)).toBe(200)
+    expect(corpo.exe, 'link do .exe').toMatch(/\/storage\/v1\/object\/sign\/agente\/agente-atak\.exe\?token=/)
+    const exe = await fetch(corpo.exe!, { headers: { Range: 'bytes=0-1' } })
+    expect([200, 206], 'download do .exe pelo link assinado').toContain(exe.status)
+    const mz = new Uint8Array(await exe.arrayBuffer()).slice(0, 2)
+    expect([mz[0], mz[1]], 'executável Windows (MZ)').toEqual([0x4d, 0x5a])
   })
 })
