@@ -3,6 +3,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { omiePaginate, getOmieAuthFromDb } from '@/lib/omieClient'
 
 export const maxDuration = 300
@@ -39,11 +40,16 @@ function mapOmieCliente(omie: any, companyId: string) {
 }
 
 export async function POST(req: Request) {
+  // Usuário da empresa, ou máquina (Bearer CRON_SECRET); /sync/omie/full repassa o Authorization.
+  const guarda = await exigirUsuario(req, { cron: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { company_id } = await req.json()
     if (!company_id) {
       return NextResponse.json({ error: 'company_id obrigatório' }, { status: 400 })
     }
+    const negado = await exigirEmpresas(guarda, [company_id])
+    if (negado) return negado
 
     const auth = await getOmieAuthFromDb(supabase, company_id)
     if (!auth) {

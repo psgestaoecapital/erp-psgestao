@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { modeloPara, registrarFalhaIA } from '@/lib/aiModel'
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { diagnostico, cliente_nome, assessoria_nome } = await req.json()
     const apiKey = process.env.ANTHROPIC_API_KEY

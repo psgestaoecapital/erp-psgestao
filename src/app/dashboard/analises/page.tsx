@@ -895,7 +895,7 @@ export default function AnalisesPage(){
               if(empresaSel==="consolidado") compIds=dbCompanies.map(c=>c.id);
               else if(empresaSel.startsWith("group_")) compIds=dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id);
               else compIds=[empresaSel];
-              const res=await fetch("/api/report/v19",{
+              const res=await authFetch("/api/report/v19",{
                 method:"POST",headers:{"Content-Type":"application/json"},
                 body:JSON.stringify({company_ids:compIds,periodo_inicio:efPeriodoInicio,periodo_fim:efPeriodoFim,empresa_nome:empresaAtiva.nome})
               });

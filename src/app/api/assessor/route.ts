@@ -1,5 +1,6 @@
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { NextRequest, NextResponse } from 'next/server';
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 
 async function getUser(req: NextRequest) {
@@ -12,6 +13,8 @@ async function getUser(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const user = await getUser(req);
   if (!user) {
     // Fallback: try listing all for now (will be filtered by RLS if enabled)
@@ -25,6 +28,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const user = await getUser(req);
   const body = await req.json();
   const { nome, cnpj, nome_fantasia, email_contato, telefone, cor_primaria, cor_secundaria, cor_fundo, logo_url } = body;
@@ -56,6 +61,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const body = await req.json();
   const { id, ...updates } = body;
   if (!id) return NextResponse.json({ error: 'ID obrigatorio' }, { status: 400 });

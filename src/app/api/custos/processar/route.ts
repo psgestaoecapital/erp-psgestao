@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -247,6 +248,8 @@ const STATUS_EXCLUIDOS = new Set([
 // ═══════════════════════════════════════════════════════════
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   const startTime = Date.now();
 
   try {
@@ -258,6 +261,8 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+    const negado = await exigirEmpresas(guarda, company_ids);
+    if (negado) return negado;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 

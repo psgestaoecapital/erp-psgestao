@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,8 @@ const supabaseUrl = "https://horsymhsinqcimflrtjo.supabase.co";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const sb = createClient(supabaseUrl, supabaseKey);
 

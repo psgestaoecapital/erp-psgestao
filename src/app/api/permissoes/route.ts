@@ -1,8 +1,11 @@
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { NextRequest, NextResponse } from 'next/server';
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   const { searchParams } = new URL(req.url);
   const nivel = searchParams.get('nivel');
   const modulo = searchParams.get('modulo');
@@ -77,6 +80,8 @@ export async function GET(req: NextRequest) {
 
 // Update permission
 export async function PUT(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const body = await req.json();
   const { nivel, modulo_id, pode_ver, pode_editar, pode_excluir, pode_exportar } = body;
 

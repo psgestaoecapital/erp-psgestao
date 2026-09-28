@@ -223,7 +223,7 @@ function DashboardUniversalInner() {
       url.searchParams.set('data_inicio', selecaoPeriodo.data_inicio);
       url.searchParams.set('data_fim', selecaoPeriodo.data_fim);
     }
-    fetch(url.toString())
+    authFetch(url.toString())
       .then((r) => r.json())
       .then((j) => {
         if (j && j.ok) setDashboardHomeData(j);

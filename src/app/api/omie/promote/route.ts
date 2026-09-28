@@ -8,6 +8,7 @@
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 
 export const maxDuration = 300
 
@@ -270,6 +271,9 @@ async function promoverTitulos(
 
 // ─── Handler ───────────────────────────────────────────────────────────
 export async function POST(req: Request) {
+  // Usuário da empresa, ou máquina (Bearer CRON_SECRET) — também chamada pelo conector Omie.
+  const guarda = await exigirUsuario(req, { cron: true })
+  if (guarda instanceof NextResponse) return guarda
   const inicio = Date.now()
   try {
     const body = await req.json().catch(() => ({}))
@@ -284,6 +288,8 @@ export async function POST(req: Request) {
         { status: 400 }
       )
     }
+    const negado = await exigirEmpresas(guarda, [company_id])
+    if (negado) return negado
 
     const tipos = (Array.isArray(import_types) && import_types.length > 0
       ? import_types

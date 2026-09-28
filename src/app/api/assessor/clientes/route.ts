@@ -1,5 +1,6 @@
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { NextRequest, NextResponse } from 'next/server';
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 
 async function getAssessoriaId() {
@@ -8,6 +9,8 @@ async function getAssessoriaId() {
 }
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const assessoria = await getAssessoriaId();
   if (!assessoria) return NextResponse.json({ error: 'Assessoria nao encontrada' }, { status: 404 });
   const { data, error } = await supabase.from('clientes_assessoria')
@@ -17,6 +20,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const assessoria = await getAssessoriaId();
   if (!assessoria) return NextResponse.json({ error: 'Assessoria nao encontrada' }, { status: 404 });
   
@@ -34,6 +39,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const body = await req.json();
   const { id, ...updates } = body;
   const { data, error } = await supabase.from('clientes_assessoria')
@@ -44,6 +51,8 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'ID obrigatorio' }, { status: 400 });

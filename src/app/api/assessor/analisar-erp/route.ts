@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario, empresasDoUsuario, negar } from '@/lib/auth/guardaApi'
 
 const STATUS_EXCL = new Set(['CANCELADO','CANCELADA','ESTORNADO','ESTORNADA','DEVOLVIDO','DEVOLVIDA','ANULADO','ANULADA'])
 
@@ -76,15 +77,22 @@ function extractFromOmie(imports: any[]): Row[] {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   try {
     const body = await req.json()
     const empresa_id = body.empresa_id as string
     if (!empresa_id) return NextResponse.json({ error: 'empresa_id obrigatorio' }, { status: 400 })
 
+    // Acesso: empresa_id direto do usuário, ou cliente_assessoria cujo CNPJ casa com empresa dele.
+    const permitidas = await empresasDoUsuario(guarda.token)
+    const acessoDireto = permitidas.has(empresa_id)
+    let acessoOk = acessoDireto
+
     // Try omie_imports first (main data source)
-    const { data: imports } = await supabase
+    const { data: imports } = acessoDireto ? await supabase
       .from('omie_imports').select('import_type, import_data')
-      .eq('company_id', empresa_id)
+      .eq('company_id', empresa_id) : { data: [] }
 
     // Also try with clientes_assessoria ID mapping
     let rows = extractFromOmie(imports || [])
@@ -97,7 +105,9 @@ export async function POST(req: NextRequest) {
       if (cliente?.cnpj) {
         const { data: comp } = await supabase
           .from('companies').select('id').eq('cnpj', cliente.cnpj).single()
+        if (comp?.id && !permitidas.has(comp.id)) return negar(403, 'Sem acesso a esta empresa.')
         if (comp?.id) {
+          acessoOk = true
           const { data: imports2 } = await supabase
             .from('omie_imports').select('import_type, import_data')
             .eq('company_id', comp.id)
@@ -106,6 +116,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (!acessoOk) return negar(403, 'Sem acesso a esta empresa.')
     if (rows.length === 0) return NextResponse.json({ error: 'Nenhum lancamento encontrado. Importe dados via Omie ou CSV.' }, { status: 404 })
 
     // ABC Clientes

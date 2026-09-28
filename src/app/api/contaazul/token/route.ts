@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { code, client_id, client_secret, redirect_uri } = await req.json();
 

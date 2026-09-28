@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { authFetch } from '@/lib/authFetch';
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<any[]>([]);
@@ -11,7 +12,7 @@ export default function ClientesPage() {
 
   useEffect(() => { loadClientes(); }, []);
   async function loadClientes() {
-    const res = await fetch('/api/assessor/clientes', { credentials:'include' });
+    const res = await authFetch('/api/assessor/clientes', { credentials:'include' });
     const data = await res.json();
     if (Array.isArray(data)) setClientes(data);
     setLoading(false);
@@ -20,7 +21,7 @@ export default function ClientesPage() {
   async function handleSave() {
     setSaving(true); setMsg('');
     const body = { ...form, num_colaboradores: form.num_colaboradores?parseInt(form.num_colaboradores):null, faturamento_anual: form.faturamento_anual?parseFloat(form.faturamento_anual.replace(/\./g,'').replace(',','.')):null };
-    const res = await fetch('/api/assessor/clientes', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const res = await authFetch('/api/assessor/clientes', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
     const data = await res.json();
     if (res.ok) { setMsg('Cadastrado!'); setForm({ nome:'', cnpj:'', segmento:'', regime_tributario:'', contato_nome:'', contato_email:'', contato_telefone:'', cidade:'', uf:'SC', num_colaboradores:'', faturamento_anual:'' }); setShowForm(false); loadClientes(); }
     else setMsg('Erro: '+(data.error||'Falha'));

@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   try {
     const url = new URL(req.url)
     const empresa_id = url.searchParams.get('empresa_id')
     const periodo = url.searchParams.get('periodo')
+    // Empresa agora é obrigatória (antes, sem filtro, devolvia os custos de TODAS as empresas).
+    const negado = await exigirEmpresas(guarda, [empresa_id])
+    if (negado) return negado
 
     let query = supabase.from('custos_industriais').select('*').order('periodo', { ascending: false })
-    if (empresa_id) query = query.eq('empresa_id', empresa_id)
+    query = query.eq('empresa_id', empresa_id as string)
     if (periodo) query = query.eq('periodo', periodo)
 
     const { data, error } = await query.limit(100)
@@ -20,6 +26,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   try {
     const body = await req.json()
     const { empresa_id, periodo, especie, planta, grupos, volume_ton, cabecas, fonte, orcamento } = body
@@ -27,6 +35,8 @@ export async function POST(req: NextRequest) {
     if (!empresa_id || !periodo) {
       return NextResponse.json({ error: 'empresa_id e periodo obrigatorios' }, { status: 400 })
     }
+    const negado = await exigirEmpresas(guarda, [empresa_id])
+    if (negado) return negado
 
     const CAMPOS = [
       'materia_prima', 'mao_obra_direta', 'mao_obra_indireta', 'embalagens',

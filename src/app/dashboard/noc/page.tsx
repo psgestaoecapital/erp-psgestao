@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect } from "react";
+import { authFetch } from '@/lib/authFetch';
 const C={bg:"#0C0C0A",bg2:"#161614",bg3:"#1E1E1B",esp:"#3D2314",go:"#C8941A",gol:"#E8C872",ow:"#FAF7F2",g:"#22C55E",r:"#EF4444",y:"#FBBF24",b:"#60A5FA",p:"#A78BFA",cy:"#2DD4BF",or:"#F97316",pk:"#EC4899",bd:"#2A2822",tx:"#E8E5DC",txm:"#A8A498",txd:"#918C82"};
 const fR=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0})}`;
 const fP=(v:number)=>`${v.toFixed(1)}%`;
@@ -29,7 +30,7 @@ export default function NOCDashboard(){
   const fetchData=async()=>{
     setLoading(true);setError("");
     try{
-      const res=await fetch("/api/noc");
+      const res=await authFetch("/api/noc");
       const json=await res.json();
       if(json.success){setData(json);setLastRefresh(new Date().toLocaleTimeString("pt-BR"));}
       else setError(json.error||"Erro ao carregar dados");

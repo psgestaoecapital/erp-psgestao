@@ -12,6 +12,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { reconcileCompany, pegarSlug } from '@/lib/connectors/reconciler'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 // Side-effect: registra os adapters no registry.
 import '@/lib/connectors/registry'
 
@@ -25,6 +26,8 @@ function baseUrlFromRequest(req: Request): string {
 
 // ─── POST — executa reconciliação ─────────────────────────────────────
 export async function POST(req: Request) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   const inicio = Date.now()
   try {
     const body = await req.json().catch(() => ({}))
@@ -38,9 +41,11 @@ export async function POST(req: Request) {
         { status: 400 }
       )
     }
+    const negado = await exigirEmpresas(guarda, [company_id])
+    if (negado) return negado
 
     const baseUrl = baseUrlFromRequest(req)
-    const result = await reconcileCompany(company_id, source_slug ?? null, supabase, baseUrl)
+    const result = await reconcileCompany(company_id, source_slug ?? null, supabase, baseUrl, req.headers.get('authorization') ?? undefined)
 
     return NextResponse.json({
       ok: result.ok,
@@ -59,6 +64,8 @@ export async function POST(req: Request) {
 
 // ─── GET — só leitura do último status conhecido ──────────────────────
 export async function GET(req: Request) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   try {
     const url = new URL(req.url)
     const companyId = url.searchParams.get('company_id')
@@ -69,6 +76,8 @@ export async function GET(req: Request) {
         { status: 400 }
       )
     }
+    const negado = await exigirEmpresas(guarda, [companyId])
+    if (negado) return negado
 
     let q = supabase
       .from('company_data_sources')

@@ -1,6 +1,7 @@
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { NextRequest, NextResponse } from 'next/server';
 import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 
 async function loadContext(): Promise<string> {
@@ -68,6 +69,8 @@ async function loadContext(): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { messages, system, useContext } = await req.json();
     if (!messages || !Array.isArray(messages) || messages.length === 0) {

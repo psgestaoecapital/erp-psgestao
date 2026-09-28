@@ -5,6 +5,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { authFetch } from '@/lib/authFetch';
+import { comPrazo } from '@/lib/comPrazo';
 
 export interface Periodo {
   ano: number;
@@ -57,7 +59,8 @@ export default function PeriodoSelector({
     }
 
     setLoading(true);
-    fetch(`/api/dashboard/periodos?company_ids=${companyIds.join(',')}`)
+    // Rota exige login (Bearer). comPrazo: authFetch pode pendurar na trava de sessão do mobile.
+    comPrazo(() => authFetch(`/api/dashboard/periodos?company_ids=${companyIds.join(',')}`), { ms: 8000, tentativas: 1, label: 'periodo_selector' })
       .then((r) => r.json())
       .then((j) => {
         if (j.ok && Array.isArray(j.periodos)) {

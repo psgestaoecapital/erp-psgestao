@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { authFetch } from '@/lib/authFetch';
 
 // Identidade PS (RD visual): Espresso #3D2314 (estrutura/texto) · Off-white #FAF7F2 (fundos) · Dourado #C8941A (destaques).
 // (Antes a Central estava invertida — fundo escuro. Corrigido para o padrão claro. Verde/amarelo/vermelho ficam só nas 3 barras (performance), em tons com contraste sobre off-white.)
@@ -742,7 +743,7 @@ function ChatDev() {
     setMessages(prev => [...prev, { role: 'user', content: msg }]);
     setLoading(true);
     try {
-      const res = await fetch('/api/dev/chat', {
+      const res = await authFetch('/api/dev/chat', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, history: messages.slice(-10) })
@@ -838,7 +839,7 @@ function SQLEditor() {
   async function runQuery() {
     if (!query.trim()) return; setLoading(true); setResult(null);
     try {
-      const res = await fetch('/api/dev/sql', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query.trim() }) });
+      const res = await authFetch('/api/dev/sql', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query.trim() }) });
       setResult(await res.json());
     } catch (e: any) { setResult({ error: e.message }); }
     setLoading(false);

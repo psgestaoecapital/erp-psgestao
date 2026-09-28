@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi';
 
 function getAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -10,6 +11,8 @@ function getAdmin() {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   try {
     const body = await req.json();
     const { cliente_id } = body;
@@ -27,6 +30,9 @@ export async function POST(req: NextRequest) {
       .eq('id', cliente_id)
       .maybeSingle();
     if (!cliente) return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 });
+    // Empresa REAL do cliente (lida com service_role acima) — antes de ler qualquer outra coisa.
+    const negado = await exigirEmpresas(guarda, [cliente.company_id]);
+    if (negado) return negado;
 
     // Busca histórico de score (últimos 6 registros)
     const { data: historico } = await sb
