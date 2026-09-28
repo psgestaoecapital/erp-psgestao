@@ -178,10 +178,11 @@ BEGIN
   GET DIAGNOSTICS v_arq = ROW_COUNT;
 
   -- 2) pausas reais: intervalo entre registros consecutivos do mesmo dia (fim do registro → início do próximo)
-  INSERT INTO public.ind_ponto_pausa (company_id, plant_id, cpf, data, inicio, fim, duracao_seg, tipo, upload_id, raw, sincronizado_em, em_aberto)
+  -- em_aberto é coluna GERADA (fim IS NULL) — não entra na lista (2ª tentativa de deploy abortou aqui, 13:55)
+  INSERT INTO public.ind_ponto_pausa (company_id, plant_id, cpf, data, inicio, fim, duracao_seg, tipo, upload_id, raw, sincronizado_em)
   SELECT x.company_id, x.plant_id, x.cpf, x.data, x.fim, x.prox_ini, EXTRACT(EPOCH FROM (x.prox_ini - x.fim))::int, 'termica_253', c_upload,
     jsonb_build_object('reparo', '#107', 'origem', 'intervalo entre registros consecutivos do arquivo', 'de', x.id, 'ate', x.prox_id),
-    now(), false
+    now()
   FROM (
     SELECT p.*, lead(p.inicio) OVER w prox_ini, lead(p.id) OVER w prox_id
     FROM public.ind_ponto_pausa p
