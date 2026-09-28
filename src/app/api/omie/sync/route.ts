@@ -244,7 +244,9 @@ async function omieListarPosEstoqueAllPages(app_key: string, app_secret: string,
 }
 
 export async function POST(req: NextRequest) {
-  const guarda = await exigirUsuario(req);
+  // O sync agendado (pg_cron → fn_sync_empresa / fn_sync_produtos_empresa) chama com a service key; o usuário, com a
+  // sessão. Sem { servico: true } o cron tomava 401 desde 28/09 01:00 UTC (4 empresas Omie sem sincronizar).
+  const guarda = await exigirUsuario(req, { cron: true, servico: true });
   if (guarda instanceof NextResponse) { Object.entries(corsHeaders).forEach(([k, v]) => guarda.headers.set(k, v)); return guarda; }
   try {
     const body = await req.json();
