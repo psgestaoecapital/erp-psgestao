@@ -21,7 +21,8 @@ type Regra = { id: string; tipo: string; nome: string; parametros: Record<string
 type Colab = { colaborador_id: string; nome: string; cpf: string; funcao: string | null; departamento: string | null; psico: boolean; termica: boolean }
 type Resumo = { colaborador_id: string; cpf: string; nome: string; funcao: string | null; tipo: string; dias: number; devido_min: number; realizado_min: number | null; dias_desvio: number; dias_conforme: number; dias_aguardando: number; dias_pendente: number; dias_sem_dado: number; status: string }
 type ProvaLinha = { data: string; tipo: string; jornada_seg: number; devido_min: number; realizado_min: number | null; status: string }
-type UploadRow = { id: string; arquivo_nome: string; arquivo_hash: string; periodo_inicio: string | null; periodo_fim: string | null; linhas_lidas: number | null; linhas_aceitas: number | null; linhas_rejeitadas: number | null; status: string; enviado_por_email: string | null; enviado_em: string; arquivo_path: string | null; substituido_por: string | null }
+type UploadRow = { id: string; arquivo_nome: string; arquivo_hash: string; periodo_inicio: string | null; periodo_fim: string | null; linhas_lidas: number | null; linhas_aceitas: number | null; linhas_rejeitadas: number | null; status: string; enviado_por_email: string | null; enviado_em: string; arquivo_path: string | null; substituido_por: string | null; observacao?: string | null }
+type PausaHistorico = { data: string; cpf: string; nome: string | null; inicio: string | null; fim_arquivo: string | null; fim_confirmado: string | null; fim_origem: string | null; arquivado_em: string; motivo: string; referencia: string | null }
 type Rejeitada = { linha: number; cpf: string | null; motivo: string }
 type LinhaImport = { cpf: string; data: string; inicio: string; fim: string | null; duracao_seg: number | null; tipo: string | null; _nome?: string }
 
@@ -625,8 +626,9 @@ function AbaImportar({ companyId }: { companyId: string }) {
         p_bytes: file.size, p_mime: file.type || null, p_periodo_ini: datas[0] || null, p_periodo_fim: datas[datas.length - 1] || null,
       })
       if (!reg.ok || !reg.upload_id) throw new Error(reg.mensagem || reg.erro || 'Falha ao registrar o upload.')
-      const proc = await rpc<{ ok: boolean; lidas: number; aceitas: number; rejeitadas: number; rejeitadas_detalhe: Rejeitada[]; erro?: string }>('fn_nr36_upload_processar', { p_upload_id: reg.upload_id, p_linhas: payload })
-      if (!proc.ok) throw new Error(proc.erro || 'Falha ao processar as linhas.')
+      const proc = await rpc<{ ok: boolean; lidas: number; aceitas: number; rejeitadas: number; rejeitadas_detalhe: Rejeitada[]; erro?: string; mensagem?: string }>('fn_nr36_upload_processar', { p_upload_id: reg.upload_id, p_linhas: payload })
+      // #107: zero linha aceita = importação FALHOU (nunca "processado" calado) — mensagem clara para quem enviou
+      if (!proc.ok) throw new Error(proc.mensagem || proc.erro || 'Falha ao processar as linhas.')
       setResultado({ lidas: proc.lidas, aceitas: proc.aceitas, rejeitadas: proc.rejeitadas, rejeitadas_detalhe: proc.rejeitadas_detalhe || [] })
       setFile(null); setLinhas([])
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
@@ -733,9 +735,13 @@ function AbaHistorico({ companyId }: { companyId: string }) {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
 
+  const [arquivadas, setArquivadas] = useState<PausaHistorico[]>([])
   const carregar = useCallback(async () => {
     setLoading(true); setErro('')
-    try { const r = await rpc<UploadRow[]>('fn_nr36_upload_listar', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim }); setRows(Array.isArray(r) ? r : []) }
+    try {
+      const r = await rpc<UploadRow[]>('fn_nr36_upload_listar', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim }); setRows(Array.isArray(r) ? r : [])
+      const h = await rpc<PausaHistorico[]>('fn_nr36_pausas_historico_listar', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim }); setArquivadas(Array.isArray(h) ? h : [])
+    }
     catch (e) { setErro((e as Error).message) } finally { setLoading(false) }
   }, [companyId, ini, fim])
   useEffect(() => { void carregar() }, [carregar])
@@ -768,7 +774,10 @@ function AbaHistorico({ companyId }: { companyId: string }) {
                   <td style={td()}>{u.linhas_lidas ?? 0} lidas · <span style={{ color: C.green }}>{u.linhas_aceitas ?? 0} ok</span> · <span style={{ color: (u.linhas_rejeitadas ?? 0) > 0 ? C.red : C.gray }}>{u.linhas_rejeitadas ?? 0} rej.</span></td>
                   <td style={td()}>{u.enviado_por_email || '—'}</td>
                   <td style={td()}>{fmtDT(u.enviado_em)}</td>
-                  <td style={td()}>{u.status === 'substituido' ? <span style={{ color: C.gray }}>substituído</span> : <span style={{ color: C.green }}>{u.status}</span>}</td>
+                  <td style={td()}>{u.status === 'substituido' ? <span style={{ color: C.gray }}>substituído</span>
+                    : u.status === 'falhou' ? <span style={{ color: C.red, fontWeight: 600 }} title={u.observacao || ''}>falhou — nada importado, reenvie</span>
+                    : u.status === 'pendente' ? <span style={{ color: C.amber }}>não processado — reenvie</span>
+                    : <span style={{ color: C.green }}>{u.status}</span>}</td>
                   <td style={{ ...td(), fontFamily: 'monospace', fontSize: 10.5, color: C.gray }} title={u.arquivo_hash}>{u.arquivo_hash?.slice(0, 10)}…</td>
                   <td style={td()}>{u.arquivo_path && <BtnGhost onClick={() => void baixar(u)}><Download size={13} /> Baixar</BtnGhost>}</td>
                 </tr>
@@ -776,6 +785,31 @@ function AbaHistorico({ companyId }: { companyId: string }) {
             </tbody>
           </table>
           <div style={{ fontSize: 11, color: C.gray, marginTop: 8 }}>🔒 Uploads nunca são apagados. Para corrigir, importe o novo e use &ldquo;Substituir&rdquo; — o antigo fica marcado, preservando a trilha (RD-30).</div>
+        </div>
+      )}
+      {!loading && arquivadas.length > 0 && (
+        <div data-testid="nr36-historico-confirmacoes" style={{ marginTop: 22 }}>
+          <h3 style={secTitle()}>Confirmações guardadas como histórico</h3>
+          <p style={{ fontSize: 12.5, color: C.gray, margin: '0 0 10px' }}>Registros corrigidos por leitura errada do arquivo. As confirmações feitas nesses registros continuam guardadas aqui, mas não entram mais no cálculo.</p>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
+                <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Registro lido</th><th style={th()}>Fim confirmado</th><th style={th()}>Guardado em</th><th style={th()}>Motivo</th>
+              </tr></thead>
+              <tbody>
+                {arquivadas.map((a, i) => (
+                  <tr key={`${a.cpf}-${a.data}-${a.inicio}-${i}`} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
+                    <td style={td()}>{a.nome || a.cpf}</td>
+                    <td style={td()}>{fmtData(a.data)}</td>
+                    <td style={td()}>{a.inicio ?? '—'}–{a.fim_arquivo ?? 'aberta'}</td>
+                    <td style={td()}>{a.fim_confirmado ?? '—'}</td>
+                    <td style={td()}>{fmtDT(a.arquivado_em)}</td>
+                    <td style={{ ...td(), color: C.gray, maxWidth: 360 }}>{a.motivo}{a.referencia ? ` (${a.referencia})` : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
