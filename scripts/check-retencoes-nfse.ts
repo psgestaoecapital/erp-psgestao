@@ -13,7 +13,7 @@
  *   E0901  cIndOp tem de existir (6 dígitos, Anexo C) — sem ele o grupo IBS/CBS não vai
  *   Linha 314  o grupo piscofins (tpRetPisCofins/vRetCSLL) exige o CST
  */
-import { calcularRetencoesFederais, codigoIndicadorOperacaoValido, reformaIbsCbsDoServico, tipoRetencaoPisCofins } from '../src/lib/fiscal/retencoesFederaisNfse'
+import { calcularRetencoesFederais, codigoIndicadorOperacaoValido, issRetidoNfse, reformaIbsCbsDoServico, tipoRetencaoPisCofins } from '../src/lib/fiscal/retencoesFederaisNfse'
 import { buildNacionalNFSePayload } from '../src/lib/fiscal/providers/focusnfe'
 import type { NFSeRequest } from '../src/lib/fiscal/types'
 
@@ -151,13 +151,20 @@ ok(pIbs.codigo_indicador_operacao === '020201' && pIbs.ibs_cbs_situacao_tributar
 
   // Totais que o Ambiente Nacional calcula (não vão na DPS) — mesma fórmula que se lê no XML da NF 421 (ISS retido:
   // vTotalRet = vISSQN; vLiq = vServ − vTotalRet): ISS = vBC × 3,00 (alíquota parametrizada de Lages).
-  const vIss = c2(V * 3 / 100)
+  const vIss = issRetidoNfse(V, Number(p.tipo_retencao_iss), 3)   // a MESMA função que a rota usa para o título
   const vTotalRet = c2(Number(p.valor_cp ?? 0) + Number(p.valor_irrf ?? 0) + Number(p.valor_csll ?? 0) + (p.tipo_retencao_iss === 2 ? vIss : 0))
   ok(vIss === 2944.97, `gabarito vISSQN 2.944,97 (veio ${vIss})`)
   ok(vTotalRet === 13743.20, `gabarito vTotalRet 13.743,20 = INSS + ISS (veio ${vTotalRet})`)
   ok(c2(V - vTotalRet) === 84422.50, `gabarito vLiq 84.422,50 (veio ${c2(V - vTotalRet)})`)
   ok(c2(V - vIss - Number(p.valor_pis) - Number(p.valor_cofins)) === 91637.68, 'gabarito vBC IBS/CBS 91.637,68 = serviço − ISS − PIS − COFINS')
 }
+
+// ── ISS retido no título (#286): nota e título com o mesmo líquido ──
+ok(issRetidoNfse(98165.70, 2, 3) === 2944.97, 'ISS retido pelo tomador (2): 3% de 98.165,70 = 2.944,97')
+ok(issRetidoNfse(1000, 3, 5) === 50, 'ISS retido pelo intermediário (3) também entra')
+ok(issRetidoNfse(98165.70, 1, 3) === 0, 'ISS não retido (1): nada no título')
+ok(issRetidoNfse(98165.70, null, 3) === 0, 'sem tipo de retenção = não retido')
+ok(issRetidoNfse(98165.70, 2, 0) === 0 && issRetidoNfse(98165.70, 2, null) === 0, 'sem alíquota: não chuta valor')
 
 if (falhas > 0) { console.error(`\n[check-retencoes-nfse] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-retencoes-nfse] todas as regras de retenção da NFS-e conferidas.')

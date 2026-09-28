@@ -131,3 +131,13 @@ export function reformaIbsCbsDoServico(empresa: ReformaNfse | undefined, sv: Ser
     aviso: null,
   }
 }
+
+// ISS retido pelo tomador/intermediário (tpRetISSQN 2/3): valor × alíquota da nota, em centavos. Sem retenção (1) ou
+// sem alíquota → 0. Mesma conta do Ambiente Nacional (XML da NF 421: vISSQN = vBC × pAliqAplic; vTotalRet inclui o ISS).
+// A rota grava em valor_iss_retido e o "Gerar financeiro" nasce com ele (nota e título com o mesmo líquido).
+export function issRetidoNfse(valorServico: number, tipoRetencaoIss: number | null | undefined, aliquotaIss: number | null | undefined): number {
+  const tp = Number(tipoRetencaoIss) || 1
+  const aliq = Number(aliquotaIss)
+  if (!(tp === 2 || tp === 3) || !Number.isFinite(aliq) || aliq <= 0) return 0
+  return cent((Number(valorServico) || 0) * aliq / 100)
+}

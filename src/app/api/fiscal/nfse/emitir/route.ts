@@ -9,7 +9,7 @@ import { emitirNFSeViaGovServer } from '@/lib/fiscal/gov-nfse-provider'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
-import { calcularRetencoesFederais, reformaIbsCbsDoServico, type RetencoesFederaisNfse, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { calcularRetencoesFederais, issRetidoNfse, reformaIbsCbsDoServico, type RetencoesFederaisNfse, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -795,11 +795,11 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // #286 · ISS retido pelo tomador/intermediário (tpRetISSQN 2/3): valor × alíquota usada na emissão (a municipal
     // resolvida acima; no Simples, a da competência). O Ambiente Nacional calcula igual (XML da NF 421: pAliqAplic 3,00,
     // vISSQN = vBC × 3%, vTotalRet = retenções federais + ISS). Grava na nota e a tela pré-preenche o título com ele.
-    const _tpRetIss = nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1)
-    const _aliqIssRet = Number(nfseReq.aliquotaISSSN ?? nfseReq.aliquotaIss ?? 0)
-    const issRetido = (_tpRetIss === 2 || _tpRetIss === 3) && _aliqIssRet > 0
-      ? Math.round(Number(nfseReq.valorServicos) * _aliqIssRet) / 100
-      : 0
+    const issRetido = issRetidoNfse(
+      Number(nfseReq.valorServicos),
+      nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1),
+      nfseReq.aliquotaISSSN ?? nfseReq.aliquotaIss,
+    )
     if (registroId && issRetido > 0 && resposta.status !== 'rejeitada') {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_iss_retido: issRetido }).eq('id', registroId)
     }
