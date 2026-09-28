@@ -54,4 +54,11 @@ test.describe('Segurança PR A · funções sem acesso anônimo', () => {
     })
     expect(r.status, 'logado executando guarda').toBe(200)
   })
+
+  test('portal do cliente abre o relatório pelo link (fechamento de demonstração)', { tag: '@pos-migration' }, async ({ page }) => {
+    await page.goto(`/cliente/${DEMO_GE}/demo-portal-ge-2608`)
+    await expect(page.getByText('Comércio (GE) - DEMO').first()).toBeVisible({ timeout: 20000 })
+    await expect(page.getByText(/Agosto\/2026/).first()).toBeVisible()
+    await expect(page.getByText(/Link inválido/)).toHaveCount(0)
+  })
 })

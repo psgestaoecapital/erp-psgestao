@@ -125,6 +125,23 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'dados', r.dados_consolidados);
 END $$;
 
+-- (b2) prova do portal (CEO 28/09: "prove o portal do cliente funcionando"): fechamento de DEMONSTRAÇÃO na Comércio
+-- (GE) - DEMO com link fixo, números fictícios. Só is_demo — nenhum cliente real é tocado. Idempotente.
+INSERT INTO public.bpo_fechamento_mensal (company_id, mes_referencia, status, link_portal, dados_consolidados, observacoes)
+SELECT c.id, DATE '2026-08-01', 'enviado', 'demo-portal-ge-2608',
+  jsonb_build_object(
+    'empresa', jsonb_build_object('nome', 'Comércio (GE) - DEMO', 'cnpj', '00.000.000/0001-00'),
+    'mes_referencia_label', 'Agosto/2026',
+    'resumo', jsonb_build_object('receita_total', 184500, 'ebitda', 27675, 'lucro_liquido', 19372.5, 'margem_ebitda_pct', 15),
+    'comparativo', jsonb_build_object('mes_anterior_label', 'Julho/2026', 'receita_anterior', 171200,
+                                      'variacao_receita_pct', 7.8, 'variacao_ebitda_pct', 4.1),
+    'insights', jsonb_build_array(jsonb_build_object('titulo', 'Receita em alta', 'descricao',
+                 'Faturamento 7,8% acima de julho (demonstração).', 'tipo', 'positivo'))),
+  'Demonstração · prova do portal do cliente (PR A, CEO 28/09)'
+FROM public.companies c WHERE c.id = 'b0700000-0000-4000-a000-000000000004' AND c.is_demo IS TRUE
+ON CONFLICT (company_id, mes_referencia) DO UPDATE
+  SET link_portal = EXCLUDED.link_portal, dados_consolidados = EXCLUDED.dados_consolidados, status = EXCLUDED.status;
+
 -- (c) EXECUTE: anon só na lista; authenticated/service_role preservados
 DO $$
 DECLARE f record; n_rev int := 0; n_anon int := 0;
