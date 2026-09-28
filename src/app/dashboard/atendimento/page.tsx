@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
+import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, filtrarBusca, carregarEmpresasDemo, semDemos, type EstadoFila } from '@/lib/sugestoes/filaAtendimento'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -33,14 +34,6 @@ type Item = {
 }
 
 // Três estados que importam para o CEO (em vez de misturar tudo em "em desenvolvimento"):
-const TERMINAIS = ['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada']
-type EstadoFila = 'precisa_mim' | 'sem_confirmacao' | 'em_curso' | 'terminal'
-const estadoFila = (it: { status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean }): EstadoFila => {
-  if (TERMINAIS.includes(it.status)) return 'terminal'
-  if (it.resposta && it.resposta.trim() && !it.resposta_aprovada) return 'precisa_mim'          // ⏳ depende do CEO
-  if (it.resposta_aprovada && !it.confirmado_pelo_autor) return 'sem_confirmacao'               // 📤 esperando o autor
-  return 'em_curso'                                                                             // 🔵 sem resposta ainda
-}
 const diasDesde = (iso: string | null) => iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)) : 0
 
 export default function AtendimentoPage() {
@@ -59,6 +52,9 @@ function Inner() {
   const [aba, setAba] = useState<EstadoFila>('precisa_mim')
   const [fCategoria, setFCategoria] = useState('todas')
   const [busca, setBusca] = useState('')   // suporte digita o número (#14) ou parte do título e acha o chamado
+  // Demos (CEO 28/09): chamados do robô de aceitação (empresas DEMO) ficam fora por padrão; só com "mostrar demos".
+  const [demos, setDemos] = useState<Set<string>>(new Set())
+  const [mostrarDemos, setMostrarDemos] = useState(false)
   const [aberto, setAberto] = useState<string | null>(null)
   const [respostaAberta, setRespostaAberta] = useState<string | null>(null) // #61 · qual chamado está com o textarea de resposta
   const [anexosUrl, setAnexosUrl] = useState<Record<string, { url: string; marcacoes: Marca[] }[]>>({})
@@ -76,25 +72,29 @@ function Inner() {
     setEhAdmin(['PS_ADMIN', 'PS_ADMIN_CVM'].includes(role))
     setAutorizado(ok)
     if (!ok) return
-    const { data, error } = await supabase.from('v_sugestao_fila').select('*').limit(300)
+    // Fila: os mais recentes ORDENADOS + TODOS os rascunhos (regra do CEO: rascunho nunca some da "Precisa de mim").
+    const [{ data, error }, demoIds] = await Promise.all([carregarFila<Item>(supabase), carregarEmpresasDemo(supabase)])
     if (error) { setErro(error.message); return }
-    setRows((data as Item[]) ?? [])
+    setDemos(demoIds)
+    setRows(data)
   }, [])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
-  const empresas = useMemo(() => Array.from(new Set(rows.map((r) => r.empresa).filter(Boolean))) as string[], [rows])
-  // busca: número exato (o suporte digita "14" ou "#14") OU trecho do título/descrição.
-  const buscaLimpa = busca.trim().replace(/^#/, '').toLowerCase()
-  const visiveis = useMemo(() => rows
-    .filter((r) => !buscaLimpa || String(r.numero) === buscaLimpa || (r.titulo || '').toLowerCase().includes(buscaLimpa) || r.descricao.toLowerCase().includes(buscaLimpa))
+  // base da tela: sem demos no padrão (o cabeçalho "N p/ aprovar" usa a mesma base — contarPendentesAprovacao).
+  const base = useMemo(() => mostrarDemos ? rows : semDemos(rows, demos), [rows, demos, mostrarDemos])
+  const nDemos = rows.length - semDemos(rows, demos).length
+  const empresas = useMemo(() => Array.from(new Set(base.map((r) => r.empresa).filter(Boolean))) as string[], [base])
+  // busca: número EXATO ("14" ou "#14" → só o #14) OU trecho do título/descrição (filtrarBusca).
+  const buscaLimpa = busca.trim()
+  const visiveis = useMemo(() => filtrarBusca(base, busca)
     .filter((r) => fEmpresa === 'todas' || r.empresa === fEmpresa)
     .filter((r) => fCategoria === 'todas' || r.categoria === fCategoria)
     // aba = estado da fila. Buscando (nº/título) varre TODAS as abas; senão, mostra só a aba atual.
     .filter((r) => buscaLimpa ? true : estadoFila(r) === aba)
     // dentro da aba: prioridade e idade.
     .sort((a, b) => (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta),
-    [rows, fEmpresa, fCategoria, aba, buscaLimpa])
+    [base, busca, fEmpresa, fCategoria, aba, buscaLimpa])
 
   async function abrir(id: string) {
     setAberto(aberto === id ? null : id)
@@ -147,9 +147,10 @@ function Inner() {
   // Contadores dos 3 estados sobre a fila inteira (o que o CEO precisa ver ao abrir a tela).
   const cont = useMemo(() => {
     let precisa = 0, semConf = 0, emCurso = 0, terminal = 0
-    for (const r of rows) { const e = estadoFila(r); if (e === 'precisa_mim') precisa++; else if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++; else terminal++ }
+    for (const r of base) { const e = estadoFila(r); if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++; else if (e === 'terminal') terminal++ }
+    precisa = contarPrecisaDeMim(base)   // a MESMA conta do cabeçalho "N p/ aprovar" (Central de Melhorias), sem demos no padrão
     return { precisa, semConf, emCurso, terminal }
-  }, [rows])
+  }, [base])
 
   // Encerrar sem confirmação (item 4, decisão do CEO): só aprovados há +7 dias sem confirmar.
   async function encerrarSemConfirmacao(it: Item) {
@@ -187,9 +188,12 @@ function Inner() {
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar nº (#14) ou título — varre todas as abas" style={{ ...inp, minWidth: 220 }} />
+        <input data-testid="fila-busca" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar nº (#14) ou título — varre todas as abas" style={{ ...inp, minWidth: 220 }} />
         <select value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} style={inp}><option value="todas">todas empresas</option>{empresas.map((e) => <option key={e} value={e}>{e}</option>)}</select>
         <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inp}><option value="todas">toda categoria</option>{['bug', 'melhoria', 'duvida', 'erro_dado'].map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        <label data-testid="fila-mostrar-demos" style={{ fontSize: 12, color: C.espM, alignSelf: 'center', display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+          <input type="checkbox" checked={mostrarDemos} onChange={(e) => setMostrarDemos(e.target.checked)} /> mostrar demos{nDemos && !mostrarDemos ? ` (${nDemos} ocultos)` : ''}
+        </label>
         <span style={{ fontSize: 12, color: C.espM, alignSelf: 'center' }}>{buscaLimpa ? `${visiveis.length} encontrado(s)` : `${visiveis.length} nesta aba`}</span>
       </div>
 
@@ -329,7 +333,7 @@ function Inner() {
                     return (
                       <div style={{ fontSize: 12.5, marginTop: 10, background: it.resposta_aprovada ? C.greenBg : C.amberBg, border: `1px solid ${it.resposta_aprovada ? '#BFE3C4' : '#F0DDB0'}`, padding: '8px 10px', borderRadius: 8 }}>
                         <div style={{ fontSize: 10.5, fontWeight: 700, color: it.resposta_aprovada ? C.green : C.amber, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
-                          {it.resposta_aprovada ? '✓ Resposta enviada ao autor' : 'Resposta escrita — aguardando aprovação'}
+                          {it.resposta_aprovada ? '✓ Resposta enviada ao autor' : rascunhoNaoEnviado(it) ? RASCUNHO_NAO_ENVIADO : 'Resposta escrita — aguardando aprovação'}
                         </div>
                         <div style={{ color: C.esp }}>{it.resposta}</div>
                         {/* quem REDIGIU × quem APROVOU — o CEO precisa ver o que está aprovando e quem escreveu;
@@ -338,7 +342,12 @@ function Inner() {
                           Rascunho escrito {it.resposta_origem === 'assistente' ? <b>pelo assistente (IA)</b> : it.redator_nome ? <>por <b>{it.redator_nome}</b></> : 'manualmente'}
                           {it.resposta_aprovada && it.aprovador_nome ? <> · aprovado por <b>{it.aprovador_nome}</b></> : ''}
                         </div>
-                        {!it.resposta_aprovada && (
+                        {rascunhoNaoEnviado(it) && (
+                          <div data-testid="rascunho-nao-enviado" style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>
+                            Fica aqui no histórico e fora da fila. Se o chamado for reaberto, o rascunho volta para &quot;Precisa de mim&quot;.
+                          </div>
+                        )}
+                        {!it.resposta_aprovada && !rascunhoNaoEnviado(it) && (
                           <>
                             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                               {ehAdmin
