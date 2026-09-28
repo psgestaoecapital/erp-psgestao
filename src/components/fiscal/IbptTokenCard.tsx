@@ -15,9 +15,10 @@ type Estado = {
   generica: { versao: string | null; vigenciaFim: string | null } | null
 }
 type Teste = {
-  tipo: 'produto' | 'servico'; codigo: string; uf: string; descricao: string
+  tipo: 'produto' | 'servico'; codigo: string; uf: string; descricao: string; ok: boolean; erro: string | null
   nacional: number | null; importado: number | null; estadual: number | null; municipal: number | null
   versao: string | null; vigenciaInicio: string | null; vigenciaFim: string | null; fonte: string | null
+  generica: { federal: number; estadual: number; municipal: number; versao: string | null } | null
 }
 
 const dm = (s: string | null | undefined) => {
@@ -33,7 +34,7 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
   const [trocando, setTrocando] = useState(false)
   const [fase, setFase] = useState<'ocioso' | 'testando' | 'removendo'>('ocioso')
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null)
-  const [teste, setTeste] = useState<{ generico: boolean; teste: Teste } | null>(null)
+  const [teste, setTeste] = useState<{ generico: boolean; testes: Teste[] } | null>(null)
 
   const carregar = useCallback(async () => {
     const r = await authFetch(`/api/fiscal/ibpt-token?companyId=${encodeURIComponent(companyId)}`, { cache: 'no-store' })
@@ -46,9 +47,9 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
     setFase('testando'); setMsg(null); setTeste(null)
     try {
       const r = await authFetch('/api/fiscal/ibpt-token', { method: 'POST', body: JSON.stringify({ companyId, token }) })
-      const j = (await r.json().catch(() => null)) as { ok?: boolean; mensagem?: string; generico?: boolean; teste?: Teste } | null
-      if (r.ok && j?.ok && j.teste) {
-        setTeste({ generico: !!j.generico, teste: j.teste })
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; mensagem?: string; generico?: boolean; testes?: Teste[] } | null
+      if (r.ok && j?.ok && j.testes?.length) {
+        setTeste({ generico: !!j.generico, testes: j.testes })
         setMsg({ ok: true, texto: 'Token salvo. O IBPT respondeu à consulta de teste.' })
         setToken(''); setTrocando(false)
         await carregar()
@@ -128,10 +129,17 @@ export default function IbptTokenCard({ companyId }: { companyId: string }) {
         </div>
       )}
       {teste && (
-        <div className="rounded-md bg-[#EAF3DE] border border-[#3B6D11]/25 px-3 py-2 text-[12px] text-[#234D08]" data-testid="ibpt-teste-resultado">
-          {teste.generico && <div className="text-[#8A5A00] mb-1">Teste genérico: a empresa não tem produto nem serviço cadastrado, então consultamos um código padrão.</div>}
-          IBPT respondeu: {teste.teste.tipo === 'produto' ? 'NCM' : 'serviço'} {teste.teste.codigo} · {teste.teste.uf} · Nacional {pct(teste.teste.nacional)} · Importado {pct(teste.teste.importado)} · Estadual {pct(teste.teste.estadual)} · Municipal {pct(teste.teste.municipal)}
-          {teste.teste.versao ? ` · versão ${teste.teste.versao}` : ''}{teste.teste.vigenciaFim ? ` · até ${dm(teste.teste.vigenciaFim)}` : ''}
+        <div className="rounded-md bg-[#EAF3DE] border border-[#3B6D11]/25 px-3 py-2 text-[12px] text-[#234D08] space-y-1.5" data-testid="ibpt-teste-resultado">
+          {teste.generico && <div className="text-[#8A5A00]">Teste genérico: a empresa não tem produto nem serviço cadastrado, então consultamos um código padrão.</div>}
+          {teste.testes.map((t) => (
+            <div key={`${t.tipo}-${t.codigo}`} data-testid={`ibpt-teste-${t.tipo}`}>
+              <div className="font-medium">{t.tipo === 'produto' ? 'Produto NCM' : 'Serviço LC 116'} {t.codigo} · {t.uf} · {t.descricao}</div>
+              {t.ok ? (
+                <div>IBPT (token da empresa): Nacional {pct(t.nacional)} · Importado {pct(t.importado)} · Estadual {pct(t.estadual)} · Municipal {pct(t.municipal)}{t.versao ? ` · versão ${t.versao}` : ''}{t.vigenciaFim ? ` · até ${dm(t.vigenciaFim)}` : ''}</div>
+              ) : <div className="text-[#791F1F]">IBPT não respondeu para este item: {t.erro}</div>}
+              <div className="text-[#3D2314]/70">Tabela genérica (usada hoje nas notas): {t.generica ? `Federal ${pct(t.generica.federal)} · Estadual ${pct(t.generica.estadual)} · Municipal ${pct(t.generica.municipal)}${t.generica.versao ? ` · versão ${t.generica.versao}` : ''}` : 'sem linha para este código'}</div>
+            </div>
+          ))}
         </div>
       )}
     </div>

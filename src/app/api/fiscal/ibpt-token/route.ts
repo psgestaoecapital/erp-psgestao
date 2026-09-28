@@ -21,8 +21,13 @@ const TESTE_GENERICO: Omit<ConsultaIbpt, 'uf'>[] = [
   { tipo: 'servico', codigo: '1701', descricao: 'Assessoria ou consultoria (teste)', unidadeMedida: 'UN', valor: 1 },
 ]
 
-async function itemDeTeste(companyId: string, uf: string): Promise<{ consulta: ConsultaIbpt; generico: boolean }> {
-  // produto real da empresa com NCM — de preferência óleo (NCM 2710, pedido do CEO para a 1ª prova na KGF)
+// Itens da consulta de teste: UM produto e UM serviço, quando a empresa tem os dois (CEO 28/09):
+//  - produto: NCM 2710 (óleo) primeiro — 1ª prova na KGF —, senão qualquer produto com NCM;
+//  - serviço: o código da ÚLTIMA NFS-e da empresa primeiro (FC: 07.05, para bater com a nota autorizada de
+//    referência), senão qualquer serviço com LC116.
+// Sem nenhum dos dois, um código padrão e o aviso de "teste genérico" (ajuste 2 do CEO).
+async function itensDeTeste(companyId: string, uf: string): Promise<{ itens: ConsultaIbpt[]; generico: boolean }> {
+  const itens: ConsultaIbpt[] = []
   for (const filtro of ['2710%', '%']) {
     const { data: p } = await supabaseAdmin.from('erp_produtos')
       .select('ncm, nome, descricao, unidade, preco_venda, codigo_barras')
@@ -30,20 +35,27 @@ async function itemDeTeste(companyId: string, uf: string): Promise<{ consulta: C
       .limit(1).maybeSingle()
     const ncm = String(p?.ncm ?? '').replace(/\D/g, '')
     if (p && ncm.length === 8) {
-      return { generico: false, consulta: {
+      itens.push({
         tipo: 'produto', codigo: ncm, uf, ex: 0, descricao: String(p.nome || p.descricao || 'produto'),
         unidadeMedida: String(p.unidade || 'UN'), valor: Number(p.preco_venda) || 1, gtin: p.codigo_barras ? String(p.codigo_barras) : null,
-      } }
+      })
+      break
     }
   }
-  const { data: s } = await supabaseAdmin.from('erp_servicos')
+  const { data: ultima } = await supabaseAdmin.from('erp_nfse_emitidas')
+    .select('codigo_servico').eq('company_id', companyId).not('codigo_servico', 'is', null)
+    .order('data_emissao', { ascending: false }).limit(1).maybeSingle()
+  const lcUltima = String(ultima?.codigo_servico ?? '').replace(/\D/g, '').slice(0, 4)   // 070501 -> 0705
+  const { data: servs } = await supabaseAdmin.from('erp_servicos')
     .select('codigo_lc116, descricao_resumida, valor_unitario').eq('company_id', companyId).eq('ativo', true)
-    .not('codigo_lc116', 'is', null).limit(1).maybeSingle()
-  const lc = String(s?.codigo_lc116 ?? '').replace(/\D/g, '')
-  if (s && lc.length === 4) {
-    return { generico: false, consulta: { tipo: 'servico', codigo: lc, uf, descricao: String(s.descricao_resumida || 'serviço'), unidadeMedida: 'UN', valor: Number(s.valor_unitario) || 1 } }
-  }
-  return { generico: true, consulta: { ...TESTE_GENERICO[0], uf } }
+    .not('codigo_lc116', 'is', null).limit(50)
+  const lista = ((servs ?? []) as Array<{ codigo_lc116: string | null; descricao_resumida: string | null; valor_unitario: number | null }>)
+    .map((x) => ({ ...x, lc: String(x.codigo_lc116 ?? '').replace(/\D/g, '') }))
+    .filter((x) => x.lc.length === 4)
+  const s = lista.find((x) => x.lc === lcUltima) ?? lista[0]
+  if (s) itens.push({ tipo: 'servico', codigo: s.lc, uf, descricao: String(s.descricao_resumida || 'serviço'), unidadeMedida: 'UN', valor: Number(s.valor_unitario) || 1 })
+  if (itens.length > 0) return { itens, generico: false }
+  return { itens: [{ ...TESTE_GENERICO[0], uf }], generico: true }
 }
 
 async function dadosEmpresa(companyId: string) {
@@ -87,28 +99,44 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   if (emp.cnpj.length !== 14 || emp.uf.length !== 2) {
     return NextResponse.json({ ok: false, mensagem: 'Complete o CNPJ e a UF fiscal da empresa antes de testar o token do IBPT.' }, { status: 400 })
   }
-  const { consulta, generico } = await itemDeTeste(companyId, emp.uf)
-  const r = await consultarApiIbpt(token, emp.cnpj, consulta)
-  if (!r.ok) {
-    // não grava token que não funcionou; o motivo aparece na tela (o token nunca vai para o log)
-    return NextResponse.json({ ok: false, motivo: r.motivo, mensagem: `${r.mensagem} O token não foi salvo.` }, { status: r.motivo === 'fora_do_ar' ? 503 : 400 })
+  const { itens, generico } = await itensDeTeste(companyId, emp.uf)
+  // Consulta real ao IBPT para cada item. O token vale se o IBPT aceitar ao menos uma; token recusado em qualquer
+  // uma = não salva. O token nunca vai para log nem volta na resposta.
+  const resultados: Array<{ consulta: ConsultaIbpt; r: Awaited<ReturnType<typeof consultarApiIbpt>> }> = []
+  for (const consulta of itens) resultados.push({ consulta, r: await consultarApiIbpt(token, emp.cnpj, consulta) })
+  const recusado = resultados.find((x) => !x.r.ok && x.r.motivo === 'token_invalido')
+  const oks = resultados.filter((x) => x.r.ok)
+  if (recusado || oks.length === 0) {
+    const falha = (recusado ?? resultados[0]).r as { ok: false; motivo: string; mensagem: string }
+    return NextResponse.json({ ok: false, motivo: falha.motivo, mensagem: `${falha.mensagem} O token não foi salvo.` }, { status: falha.motivo === 'fora_do_ar' ? 503 : 400 })
   }
   const salvo = await gravarCredencialEmpresa(companyId, 'ibpt', 'token', token, 'Token IBPT (De Olho no Imposto)')
   if (!salvo) return NextResponse.json({ ok: false, mensagem: 'O IBPT aceitou o token, mas não foi possível guardá-lo. Tente de novo.' }, { status: 500 })
   const agora = new Date().toISOString()
-  await gravarCacheIbpt(companyId, consulta, r.dado, r.cru)
+  for (const x of oks) if (x.r.ok) await gravarCacheIbpt(companyId, x.consulta, x.r.dado, x.r.cru)
+  const ult = oks[oks.length - 1].r
   await registrarStatusIbpt(companyId, {
     token_salvo_em: agora, ultima_consulta_ok: agora, ultimo_erro: null, ultimo_erro_em: null,
-    ultima_versao: r.dado.versao, ultima_vigencia_fim: r.dado.vigenciaFim,
+    ultima_versao: ult.ok ? ult.dado.versao : null, ultima_vigencia_fim: ult.ok ? ult.dado.vigenciaFim : null,
   })
-  return NextResponse.json({
-    ok: true, generico,
-    teste: {
-      tipo: consulta.tipo, codigo: consulta.codigo, uf: consulta.uf, descricao: consulta.descricao,
-      nacional: r.dado.nacional, importado: r.dado.importado, estadual: r.dado.estadual, municipal: r.dado.municipal,
-      versao: r.dado.versao, vigenciaInicio: r.dado.vigenciaInicio, vigenciaFim: r.dado.vigenciaFim, fonte: r.dado.fonte,
-    },
-  })
+  // Lado a lado com a tabela genérica (a mesma que as notas usam hoje), para a conferência da PS antes de ligar.
+  const testes = []
+  for (const x of resultados) {
+    const { data: g } = await supabaseAdmin.rpc('fn_ibpt_aliquota_vigente', {
+      p_ncm: x.consulta.codigo, p_ex: '0', p_uf: x.consulta.uf, p_origem: '0',
+    })
+    const gen = (Array.isArray(g) ? g[0] : g) as { federal?: number; estadual?: number; municipal?: number; versao?: string } | null
+    testes.push({
+      tipo: x.consulta.tipo, codigo: x.consulta.codigo, uf: x.consulta.uf, descricao: x.consulta.descricao,
+      ok: x.r.ok, erro: x.r.ok ? null : x.r.mensagem,
+      nacional: x.r.ok ? x.r.dado.nacional : null, importado: x.r.ok ? x.r.dado.importado : null,
+      estadual: x.r.ok ? x.r.dado.estadual : null, municipal: x.r.ok ? x.r.dado.municipal : null,
+      versao: x.r.ok ? x.r.dado.versao : null, vigenciaInicio: x.r.ok ? x.r.dado.vigenciaInicio : null,
+      vigenciaFim: x.r.ok ? x.r.dado.vigenciaFim : null, fonte: x.r.ok ? x.r.dado.fonte : null,
+      generica: gen && gen.federal != null ? { federal: Number(gen.federal), estadual: Number(gen.estadual ?? 0), municipal: Number(gen.municipal ?? 0), versao: gen.versao ?? null } : null,
+    })
+  }
+  return NextResponse.json({ ok: true, generico, testes })
 })
 
 export const DELETE = withAuth(async (req: NextRequest, { userId }) => {
