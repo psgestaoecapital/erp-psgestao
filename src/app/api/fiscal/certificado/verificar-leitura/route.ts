@@ -35,7 +35,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 
     const { data: cert } = await supabaseAdmin
       .from('erp_certificados_a1')
-      .select('storage_bucket, storage_path, senha_encrypted, validade_fim, arquivo_tamanho_bytes')
+      .select('id, storage_bucket, storage_path, validade_fim, arquivo_tamanho_bytes')
       .eq('company_id', companyId)
       .eq('status', 'ativo')
       .limit(1)
@@ -50,7 +50,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       return NextResponse.json({ ok: false, presente: true, legivel: false, erro: `Falha ao baixar o certificado do storage: ${dl.error?.message ?? 'sem dado'}` }, { status: 502 })
     }
     const bytes = Buffer.from(await dl.data.arrayBuffer())
-    const senha = cert.senha_encrypted ? Buffer.from(cert.senha_encrypted as string, 'base64').toString('utf-8') : ''
+    // PR E (CEO 28/09): a senha vem do Vault (antes lia a coluna base64 — e os já migrados pareciam "ilegíveis")
+    const { data: senhaCofre } = await supabaseAdmin.rpc('fn_certificado_senha_ler_servico', { p_certificado_id: cert.id })
+    const senha = typeof senhaCofre === 'string' ? senhaCofre : ''
 
     // (1) leitura pelo parser que o sistema usa (node-forge)
     const info = validarCertBase64(bytes.toString('base64'), senha)

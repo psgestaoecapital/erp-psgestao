@@ -65,9 +65,6 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       return NextResponse.json({ ok: false, erro: `Erro no storage: ${upErr.message}` }, { status: 500 })
     }
 
-    // TODO: substituir por pgsodium/vault antes de produção (issue de hardening fiscal)
-    const senhaB64 = Buffer.from(senha, 'utf-8').toString('base64')
-
     const { data: cert, error: insErr } = await supabaseAdmin
       .from('erp_certificados_a1')
       .insert({
@@ -78,7 +75,6 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         storage_path: storagePath,
         arquivo_tamanho_bytes: arquivo.size,
         arquivo_hash_sha256: typeof thumbprint === 'string' ? thumbprint : null,
-        senha_encrypted: senhaB64,
         validade_inicio: inicioDate,
         validade_fim: fimDate,
         status: 'ativo',
@@ -91,6 +87,15 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     if (insErr) {
       await supabaseAdmin.storage.from('fiscal-certificados-a1').remove([storagePath])
       return NextResponse.json({ ok: false, erro: insErr.message }, { status: 500 })
+    }
+
+    // PR E (CEO 28/09): a senha vai direto para o Vault (conferida); nunca em coluna (antes: base64 = texto).
+    const { data: cofre, error: cofreErr } = await supabaseAdmin.rpc('fn_certificado_senha_gravar_servico', { p_certificado_id: cert.id, p_senha: senha })
+    if (cofreErr || !(cofre as { ok?: boolean } | null)?.ok) {
+      await supabaseAdmin.from('erp_certificados_a1')
+        .update({ status: 'removido', removido_em: new Date().toISOString(), removido_por: userId }).eq('id', cert.id)
+      await supabaseAdmin.storage.from('fiscal-certificados-a1').remove([storagePath])
+      return NextResponse.json({ ok: false, erro: 'Não consegui guardar a senha do certificado no cofre. Tente de novo.' }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true, certificado: cert, warning: val.warning })

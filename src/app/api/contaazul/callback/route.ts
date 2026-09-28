@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verificarEstado, usuarioTemAcessoEmpresa } from "@/lib/auth/contaazulState";
+import { gravarCredencialEmpresa } from "@/lib/credenciais/servidor";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -35,13 +36,13 @@ export async function GET(req: NextRequest) {
 
     if (tokenData.access_token) {
       if (companyId) {
+        // PR E (CEO 28/09): token, refresh e client_secret vão para o Vault; em companies fica só o client_id.
+        const ok = (await gravarCredencialEmpresa(companyId, "contaazul", "token", tokenData.access_token, "ContaAzul · token"))
+          && (!tokenData.refresh_token || await gravarCredencialEmpresa(companyId, "contaazul", "refresh_token", tokenData.refresh_token, "ContaAzul · refresh"))
+          && (!clientSecret || await gravarCredencialEmpresa(companyId, "contaazul", "client_secret", clientSecret, "ContaAzul · client secret"));
+        if (!ok) return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=cofre", req.url));
         const supabase = createClient(supabaseUrl, supabaseKey);
-        await supabase.from("companies").update({
-          contaazul_token: tokenData.access_token,
-          contaazul_refresh_token: tokenData.refresh_token || "",
-          contaazul_client_id: clientId,
-          contaazul_client_secret: clientSecret,
-        }).eq("id", companyId);
+        await supabase.from("companies").update({ contaazul_client_id: clientId }).eq("id", companyId);
       }
       return NextResponse.redirect(new URL(`/dashboard/conectores?ca_success=true`, req.url));
     }

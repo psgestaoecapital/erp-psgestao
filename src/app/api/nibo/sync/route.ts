@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
+import { credencialEmpresa } from "@/lib/credenciais/servidor";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -42,13 +43,22 @@ export async function POST(req: NextRequest) {
   const guarda = await exigirUsuario(req);
   if (guarda instanceof NextResponse) return guarda;
   try {
-    const { company_id, nibo_api_key, nibo_org_id, nibo_api_secret, sync_types } = await req.json();
-    
-    if (!company_id || !nibo_api_key) {
-      return NextResponse.json({ error: "Campos obrigatorios: company_id, nibo_api_key" }, { status: 400 });
+    const body = await req.json();
+    const { company_id, sync_types } = body;
+    let { nibo_api_key, nibo_org_id, nibo_api_secret } = body;
+
+    if (!company_id) {
+      return NextResponse.json({ error: "Campo obrigatorio: company_id" }, { status: 400 });
     }
     const negado = await exigirEmpresas(guarda, [company_id]);
     if (negado) return negado;
+    // PR E (CEO 28/09): as chaves vêm do Vault no servidor — o navegador não as tem mais.
+    nibo_api_key = nibo_api_key || (await credencialEmpresa(company_id, "nibo", "api_key"));
+    nibo_api_secret = nibo_api_secret || (await credencialEmpresa(company_id, "nibo", "api_secret"));
+    nibo_org_id = nibo_org_id || (await credencialEmpresa(company_id, "nibo", "org_id"));
+    if (!nibo_api_key) {
+      return NextResponse.json({ error: "Credenciais do Nibo não cadastradas para esta empresa (salve em Conectores)." }, { status: 400 });
+    }
 
     const apiToken = nibo_api_key;
     const supabase = createClient(supabaseUrl, supabaseKey);
