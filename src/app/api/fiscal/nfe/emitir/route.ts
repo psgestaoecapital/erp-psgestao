@@ -1,3 +1,4 @@
+import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
@@ -107,6 +108,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // UF/NCM sem linha na versão vigente → a nota SAI sem o valor daquele item + AVISO (nunca trava, nunca
     // inventa). FONTES: Lei 12.741/2012 art.1º; Decreto 8.264/2014; Ajuste SINIEF 20/2012 (origem).
     let avisoIbpt: string | null = null
+    const fontesIbpt = new Set<'ibpt_empresa' | 'tabela_generica'>()
     {
       const { data: cfg12741 } = await supabaseAdmin
         .from('erp_fiscal_provider_config')
@@ -134,11 +136,34 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           const ufDest = (nfeReq.destinatario?.endereco?.uf ?? '').trim()
           let vFed = 0, vEst = 0, vMun = 0, versaoIbpt = ''
           const semLinha: string[] = []
+          // IBPT por empresa (CEO 28/09): com o uso liberado, 1º a consulta da PRÓPRIA empresa (cache → API); sem
+          // token/erro/IBPT fora do ar → tabela genérica. Federal = Nacional (origem 0) ou Importado (demais origens).
+          const { data: cfgIbptNfe } = await supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas')
+            .eq('company_id', body.companyId).eq('ativo', true).limit(1).maybeSingle()
+          const usarIbptEmpresa = !!(cfgIbptNfe as { ibpt_empresa_nas_notas?: boolean } | null)?.ibpt_empresa_nas_notas
+          const { data: empCnpj } = usarIbptEmpresa ? await supabaseAdmin.from('companies').select('cnpj').eq('id', body.companyId).maybeSingle() : { data: null }
           for (const it of nfeReq.itens) {
-            const { data: al } = await supabaseAdmin.rpc('fn_ibpt_aliquota_vigente', {
-              p_ncm: it.ncm, p_ex: it.exTipi ?? '0', p_uf: ufDest || null, p_origem: it.origem ?? null,
-            })
-            const row = Array.isArray(al) ? (al[0] as Record<string, unknown> | undefined) : (al as Record<string, unknown> | null)
+            let row: Record<string, unknown> | null | undefined = null
+            const ncmIt = (it.ncm ?? '').replace(/\D/g, '')
+            if (usarIbptEmpresa && ncmIt.length === 8 && ufDest.length === 2) {
+              const emp = await aliquotaIbptEmpresa(body.companyId, String((empCnpj as { cnpj?: string | null } | null)?.cnpj ?? ''), {
+                tipo: 'produto', codigo: ncmIt, uf: ufDest, ex: Number(it.exTipi || 0) || 0, descricao: it.descricao || 'produto',
+                unidadeMedida: it.unidade || 'UN', valor: Number(it.valorUnitario) || 1, gtin: null,
+              })
+              const origemNac = String(it.origem ?? '0') === '0'
+              const fed = origemNac ? emp?.nacional : emp?.importado
+              if (emp && fed != null) {
+                row = { federal: fed, estadual: emp.estadual ?? 0, municipal: emp.municipal ?? 0, total: fed + (emp.estadual ?? 0) + (emp.municipal ?? 0), versao: emp.versao }
+                fontesIbpt.add('ibpt_empresa')
+              }
+            }
+            if (!row) {
+              const { data: al } = await supabaseAdmin.rpc('fn_ibpt_aliquota_vigente', {
+                p_ncm: it.ncm, p_ex: it.exTipi ?? '0', p_uf: ufDest || null, p_origem: it.origem ?? null,
+              })
+              row = Array.isArray(al) ? (al[0] as Record<string, unknown> | undefined) : (al as Record<string, unknown> | null)
+              if (row && row.total != null) fontesIbpt.add('tabela_generica')
+            }
             if (!row || row.total == null) {
               const n = (it.ncm ?? '').replace(/\D/g, '')
               if (n && !semLinha.includes(n)) semLinha.push(n)
@@ -237,6 +262,11 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         .from('erp_nfe_emitidas')
         .update({ payload_enviado: resposta.payloadEnviado })
         .eq('id', registroId)
+    }
+
+    // IBPT por empresa · grava a(s) fonte(s) dos tributos aproximados usadas na nota
+    if (registroId && fontesIbpt.size > 0) {
+      await supabaseAdmin.from('erp_nfe_emitidas').update({ ibpt_fonte: Array.from(fontesIbpt).sort().join('+') }).eq('id', registroId)
     }
 
     // Guarda o XML autorizado (o RESULTADO) — só quando já autorizada; se 'processando', o XML sai depois

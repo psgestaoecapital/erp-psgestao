@@ -9,6 +9,7 @@ import TestarConexaoButton from '@/components/fiscal/TestarConexaoButton'
 import WebhookConfigCard from '@/components/fiscal/WebhookConfigCard'
 import CardBoundary from '@/components/fiscal/CardBoundary'
 import PreVooFiscalCard from '@/components/fiscal/PreVooFiscalCard'
+import IbptTokenCard from '@/components/fiscal/IbptTokenCard'
 import { ShieldCheck, AlertCircle, Loader2, FileCheck, CheckCircle2, XCircle, Lock } from 'lucide-react'
 
 // FIX-FISCAL-UX-v1 · Saneamento V1 Fase 1
@@ -409,6 +410,13 @@ export default function FiscalConfigClient() {
       {state.companyId && (
         <CardBoundary nome="PreVooFiscalCard">
           <PreVooFiscalCard companyId={state.companyId} />
+        </CardBoundary>
+      )}
+
+      {/* IBPT por empresa (CEO 28/09): token da própria empresa, "Salvar e testar", nunca volta para a tela */}
+      {state.companyId && (
+        <CardBoundary nome="IbptTokenCard">
+          <IbptTokenCard companyId={state.companyId} />
         </CardBoundary>
       )}
 
