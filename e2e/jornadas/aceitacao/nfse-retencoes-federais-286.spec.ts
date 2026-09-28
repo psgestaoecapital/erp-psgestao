@@ -32,6 +32,8 @@ async function abrirModalComServico(page: import('@playwright/test').Page, descr
   const valor = await sel.locator('option', { hasText: descricao }).getAttribute('value')
   expect(valor, 'o serviço de teste aparece na lista').toBeTruthy()
   await sel.selectOption(valor!)
+  // a emissão avulsa exige o tomador (sem ele a tela para em "Informe o tomador" e nada é enviado)
+  await modal.getByTestId('nfse-tomador-doc').fill('11222333000181')
   return { modal, envios }
 }
 
@@ -40,7 +42,7 @@ test.describe('#286 · NFS-e com as retenções federais do cadastro do serviço
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO_GE}&select=is_demo`)
     expect(emp?.is_demo, 'só na demonstração').toBe(true)
     for (const s of [
-      { codigo: `R${RUN}`, descricao_resumida: `E2E 286 com INSS ${RUN}`, retem_inss: true, aliquota_inss: 11 },
+      { codigo: `R${RUN}`, descricao_resumida: `E2E 286 com INSS ${RUN}`, retem_inss: true, aliquota_inss: 11, iss_retido: true },
       { codigo: `S${RUN}`, descricao_resumida: `E2E 286 sem retencao ${RUN}` },
     ]) {
       const r = await dbInsert<{ id: string }>('erp_servicos', {
@@ -63,8 +65,10 @@ test.describe('#286 · NFS-e com as retenções federais do cadastro do serviço
     await expect(previa, 'retenções aparecem ANTES de emitir').toBeVisible({ timeout: 15000 })
     await expect(previa.getByTestId('nfse-retencoes-previa-valores')).toContainText('INSS R$ 110,00')
     await expect(previa.getByTestId('nfse-retencoes-previa-valores')).toContainText('total retido R$ 110,00')
+    await expect(previa.getByTestId('nfse-retencoes-previa-iss'), 'ISS retido do cadastro aparece antes de emitir').toBeVisible()
     await modal.getByTestId('nfse-emitir-submit').click()
     await expect.poll(() => envios.length, { timeout: 15000 }).toBe(1)
+    expect(envios[0].tipoRetencaoIss, 'ISS retido pelo tomador, como no cadastro (tpRetISSQN 2)').toBe(2)
     const inss = modal.getByTestId('nfse-fin-ret-inss')
     await expect(inss, 'o financeiro nasce com o INSS que foi na nota').toHaveValue('110,00', { timeout: 15000 })
     await expect(inss, 'e não se edita (nota e título nunca divergem)').toHaveAttribute('readonly', '')
@@ -81,6 +85,7 @@ test.describe('#286 · NFS-e com as retenções federais do cadastro do serviço
     await expect(modal.getByTestId('nfse-emitir-submit')).toBeEnabled()
     await modal.getByTestId('nfse-emitir-submit').click()
     await expect.poll(() => envios.length, { timeout: 15000 }).toBe(1)
+    expect(envios[0].tipoRetencaoIss, 'sem ISS retido no cadastro → não retido (1)').toBe(1)
     await expect(modal.getByTestId('nfse-fin-ret-inss')).toHaveValue('', { timeout: 15000 })
   })
 })

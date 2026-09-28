@@ -232,7 +232,9 @@ export default function NFSeEmitirGovModal({
   }, [aberto, servicoIdEff])
   const valorPrevia = (() => { const n = Number(String(valor || '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : 0 })()
   const retPrevia = svTrib ? calcularRetencoesFederais(valorPrevia, svTrib) : null
-  const retPreviaTem = !!retPrevia && (retPrevia.totalRetido > 0 || retPrevia.erros.length > 0 || retPrevia.avisos.length > 0 || !!retPrevia.apuracaoPropria)
+  // #286 · ISS retido pelo tomador vem do CADASTRO do serviço (iss_retido) — antes este modal mandava sempre "não retido"
+  const issRetidoCadastro = !!(svTrib as { iss_retido?: boolean | null } | null)?.iss_retido
+  const retPreviaTem = issRetidoCadastro || !!retPrevia && (retPrevia.totalRetido > 0 || retPrevia.erros.length > 0 || retPrevia.avisos.length > 0 || !!retPrevia.apuracaoPropria)
   const retPreviaBloqueia = !!retPrevia && retPrevia.erros.length > 0
   const fmtBRLPrev = (n: number) => 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const issNoLocalEff = issNoLocalPrestacao || servicoIssLocal
@@ -564,14 +566,14 @@ export default function NFSeEmitirGovModal({
           servicoId: servicoIdEff,
           codigoServicoTributacao: codigoTrib.trim() || undefined,
           obraId: obraIdFinal || undefined,
-          tipoRetencaoIss: 1,
+          tipoRetencaoIss: issRetidoCadastro ? 2 : 1,
         }
         if (medicao && pedidoId) {
           bodyFocus.medicao = { pedidoId, parcelaIds: medicao.parcelaIds, gerarFinanceiro: gerarFinMedicao }
         }
         if (erpReceberIdFocus) {
           bodyFocus.erpReceberId = erpReceberIdFocus
-          bodyFocus.overrides = { descricaoServico: descricao.trim(), aliquotaIss: aliquotaNum, retemIss: false }
+          bodyFocus.overrides = { descricaoServico: descricao.trim(), aliquotaIss: aliquotaNum, retemIss: issRetidoCadastro }
         } else {
           // NFS-e PRIMEIRO (pedido não faturado): emite sem título; o financeiro nasce da nota depois.
           const docDig = soDigitos(tomDoc)
@@ -579,7 +581,7 @@ export default function NFSeEmitirGovModal({
             descricaoServico: descricao.trim(),
             valorServicos: valorNum,
             aliquotaIss: aliquotaNum,
-            retemIss: false,
+            retemIss: issRetidoCadastro,
             codigoServico: codigoTrib.trim() || undefined,
             tomador: {
               razaoSocial: tomNome.trim() || (tomTipo === 'CPF' ? 'Pessoa Física' : 'Pessoa Jurídica'),
@@ -807,6 +809,7 @@ export default function NFSeEmitirGovModal({
                     type="text"
                     inputMode="numeric"
                     value={tomDoc}
+                    data-testid="nfse-tomador-doc"
                     onChange={(e) => setTomDoc(mascaraDoc(e.target.value, tomTipo))}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void buscarTomador() } }}
                     placeholder={tomTipo === 'CPF' ? '000.000.000-00' : '00.000.000/0000-00'}
@@ -1016,7 +1019,8 @@ export default function NFSeEmitirGovModal({
 
               {retPreviaTem && retPrevia && (
                 <div className="rounded-md border border-[#C8941A]/40 bg-[#FAEEDA]/50 px-3 py-2.5 space-y-1.5 text-[12px] text-[#3D2314]" data-testid="nfse-retencoes-previa">
-                  <div className="font-medium">Retenções federais desta nota (do cadastro do serviço)</div>
+                  <div className="font-medium">Retenções desta nota (do cadastro do serviço)</div>
+                  {issRetidoCadastro && <div data-testid="nfse-retencoes-previa-iss">ISS <b>retido pelo tomador</b> (alíquota do município da prestação)</div>}
                   {retPrevia.totalRetido > 0 && (
                     <div className="flex flex-wrap gap-x-4 gap-y-0.5" data-testid="nfse-retencoes-previa-valores">
                       {retPrevia.valorCp > 0 && <span>INSS <b>{fmtBRLPrev(retPrevia.valorCp)}</b></span>}
