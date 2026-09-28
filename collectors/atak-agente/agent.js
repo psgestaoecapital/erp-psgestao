@@ -22,14 +22,14 @@ const path = require('path')
 const readline = require('readline')
 const crypto = require('crypto')
 
-const VERSAO_AGENTE = '2.1.3'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
+const VERSAO_AGENTE = '2.1.4'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
 // ↑ FONTE DA VERDADE da versão do binário. O CI (build-agente-atak.yml) valida que a tag agente-vX.Y.Z
 //   e o package.json batem com isto e gera o versao.json a partir DAQUI — nunca anuncia versão sem binário.
 const AGENT_VERSION = `atak-agente-${VERSAO_AGENTE}`
 const SERVICE_NAME = 'PS Agente ATAK'
 
 // Diretório do binário (pkg) ou do script — cred.dat/config.json/agente.log ficam ao lado do .exe.
-const BASE_DIR = process.pkg ? path.dirname(process.execPath) : __dirname
+const BASE_DIR = process.env.PS_AGENTE_BASE_DIR || (process.pkg ? path.dirname(process.execPath) : __dirname)   // override só p/ teste
 const CRED_FILE = path.join(BASE_DIR, 'cred.dat')
 const CONFIG_FILE = path.join(BASE_DIR, 'config.json')
 const LOG_FILE = path.join(BASE_DIR, 'agente.log')
@@ -302,13 +302,43 @@ function lerUpdateState() {
 function salvarUpdateState(s) {
   try { fs.writeFileSync(UPDATE_STATE_FILE, JSON.stringify(s)) } catch (e) { logErr('não gravei update-state.json:', e.message) }
 }
-let _ultimaChecagemUpdate = 0
-async function verificarAtualizacao(C) {
-  if (!process.pkg) return                                     // só faz sentido no .exe instalado (Windows)
-  if (!C.supabaseUrl && !C.updateBase) return                  // sem hosting configurado → auto-update off
-  const agora = Date.now()
-  if (agora - _ultimaChecagemUpdate < Math.max(1, C.updateHoras) * 3600 * 1000) return
-  _ultimaChecagemUpdate = agora
+// ── Auto-update 2.1.4 (CEO 28/09): o download roda em SEGUNDO PLANO, com tempo limite, e NUNCA bloqueia a
+// coleta. Até a 2.1.3 o tick esperava (await) o download do .exe (86 MB, fetch sem timeout) ANTES de coletar:
+// em 28/09 a Frioeste ficou sem coleta enquanto o download corria. Agora:
+//   1. o tick só DISPARA a checagem (sem await) e coleta normalmente;
+//   2. manifesto e download têm tempo limite; o .exe vai para disco em stream, com sha256 e cabeçalho MZ
+//      conferidos antes de ser aceito;
+//   3. download que falha/estoura o tempo → a coleta segue na versão atual e tenta de novo em
+//      UPDATE_RETRY_MIN (não espera as 6h);
+//   4. download pronto → o restart (nssm stop/troca/start, ~20 s) só acontece ENTRE ciclos, depois do heartbeat.
+const UPDATE_MANIFESTO_TIMEOUT_MS = 60 * 1000
+const UPDATE_DOWNLOAD_TIMEOUT_MS = 45 * 60 * 1000       // teto do download em 2º plano (a coleta não espera)
+const UPDATE_RETRY_MIN = 60                              // falhou → nova tentativa em 1 h
+const EXE_NOVO = () => path.join(BASE_DIR, 'agente-atak.new.exe')
+
+const _upd = { ultimaChecagem: 0, proximaApos: 0, emAndamento: null, pronto: null }
+
+// Dispara a checagem/download SEM bloquear. Devolve na hora; a promessa em curso fica em _upd.emAndamento.
+function iniciarAtualizacaoEmSegundoPlano(C, agora = Date.now()) {
+  if (!C.permitirUpdateSemPkg && !process.pkg) return null     // só faz sentido no .exe instalado (Windows)
+  if (!C.supabaseUrl && !C.updateBase) return null             // sem hosting configurado → auto-update off
+  if (_upd.emAndamento || _upd.pronto) return _upd.emAndamento // já baixando, ou já baixado esperando o fim do ciclo
+  if (agora < _upd.proximaApos) return null
+  _upd.ultimaChecagem = agora
+  _upd.proximaApos = agora + Math.max(1, C.updateHoras) * 3600 * 1000
+  _upd.emAndamento = baixarAtualizacao(C)
+    .then((pronto) => { if (pronto) _upd.pronto = pronto })
+    .catch((e) => {
+      logErr(`auto-update: ${e && e.message || e} — sigo coletando na ${VERSAO_AGENTE}; nova tentativa em ${UPDATE_RETRY_MIN} min.`)
+      _upd.proximaApos = Date.now() + (C.updateRetryMin || UPDATE_RETRY_MIN) * 60 * 1000
+    })
+    .finally(() => { _upd.emAndamento = null })
+  return _upd.emAndamento
+}
+
+// Baixa e confere. Devolve { versao, arquivo } quando o .exe novo está pronto em disco; null quando não há
+// o que fazer (sem versão nova, breaker travado). Lança erro em falha — quem chama registra e reagenda.
+async function baixarAtualizacao(C) {
   // Hosting: Supabase Storage (bucket 'agente', PRIVADO desde a 2.1.3 · PR C 28/09). O manifesto vem da edge
   // function agente-download, que valida o token DESTE agente e devolve o versao.json com `url` = URL ASSINADA
   // do .exe (15 min). PS_UPDATE_BASE sobrepõe (compat/dev).
@@ -319,87 +349,132 @@ async function verificarAtualizacao(C) {
   const headersManifesto = C.updateBase ? {} : {
     apikey: C.anonKey, Authorization: `Bearer ${C.anonKey}`, 'x-agente-token': C.token,
   }
+  const res = await fetch(manifestoUrl, {
+    cache: 'no-store', headers: headersManifesto,
+    signal: AbortSignal.timeout(C.updateManifestoTimeoutMs || UPDATE_MANIFESTO_TIMEOUT_MS),
+  })
+  if (!res.ok) throw new Error(`manifesto indisponível (${res.status})`)
+  const man = await res.json()
+  if (!man || !man.versao || !semverGt(man.versao, VERSAO_AGENTE)) return null
+
+  // ── Circuit-breaker (RD-57) ──────────────────────────────────────────────────────────────────
+  let st = lerUpdateState()
+  // Se já rodamos a versão-alvo (ou além), o update anterior "vingou": zera o histórico e segue.
+  if (st.alvo && !semverGt(st.alvo, VERSAO_AGENTE)) { st = { alvo: null, tentativas: 0, alertado: false }; salvarUpdateState(st) }
+  // Mesma versão-alvo já falhou MAX vezes (baixou/reiniciou e o binário NÃO virou man.versao) → PARA.
+  if (st.alvo === man.versao && st.tentativas >= MAX_TENTATIVAS_UPDATE) {
+    if (!st.alertado) {
+      logErr(`circuit-breaker: update ${man.versao} falhou ${st.tentativas}x (binário segue ${VERSAO_AGENTE}). ` +
+             `PARANDO de tentar — fico na versão estável que coleta. Publique um binário que se auto-reporte ${man.versao}.`)
+      try {
+        await rpc(C, 'fn_agente_heartbeat', {
+          p_token: C.token, p_versao: VERSAO_AGENTE, p_hostname: HOSTNAME,
+          p_ultima_carga: null, p_status: `update_travado:${man.versao}`,
+        })
+      } catch (e) { logErr('alerta de update travado não enviado:', e.message) }
+      st.alertado = true; salvarUpdateState(st)
+    }
+    return null
+  }
+
+  log(`nova versão ${man.versao} disponível (rodando ${VERSAO_AGENTE})${man.obrigatorio ? ' [OBRIGATÓRIA]' : ''} — ` +
+      `baixando em segundo plano (a coleta continua)… (tentativa ${(st.alvo === man.versao ? st.tentativas : 0) + 1}/${MAX_TENTATIVAS_UPDATE})`)
+  // o versao.json do CI leva o url ABSOLUTO do Storage; fallback resolve contra a base do manifesto.
+  const relBase = C.updateBase || storageBase.replace(/\/agente$/, '')
+  const exeUrl = String(man.url || '/agente/agente-atak.exe').startsWith('http') ? man.url : `${relBase}${man.url}`
+  const t0 = Date.now()
+  const dl = await fetch(exeUrl, { signal: AbortSignal.timeout(C.updateDownloadTimeoutMs || UPDATE_DOWNLOAD_TIMEOUT_MS) })
+  if (!dl.ok || !dl.body) throw new Error(`download do .exe falhou (${dl.status})`)
+
+  // stream para disco (não segura 86 MB em memória) calculando o sha256 no caminho
+  const { Readable, Transform } = require('stream')
+  const { pipeline } = require('stream/promises')
+  const parcial = EXE_NOVO() + '.part'
+  const hash = crypto.createHash('sha256')
+  let bytes = 0, cabeca = Buffer.alloc(0)
   try {
-    const res = await fetch(manifestoUrl, { cache: 'no-store', headers: headersManifesto })
-    if (!res.ok) return
-    const man = await res.json()
-    if (!man || !man.versao || !semverGt(man.versao, VERSAO_AGENTE)) return
+    await pipeline(
+      Readable.fromWeb(dl.body),
+      new Transform({
+        transform(chunk, _enc, cb) {
+          hash.update(chunk); bytes += chunk.length
+          if (cabeca.length < 2) cabeca = Buffer.concat([cabeca, chunk.subarray(0, 2 - cabeca.length)])
+          cb(null, chunk)
+        },
+      }),
+      fs.createWriteStream(parcial),
+    )
+  } catch (e) {
+    try { fs.unlinkSync(parcial) } catch { /* noop */ }
+    throw new Error(`download interrompido após ${(bytes / 1048576).toFixed(1)} MB: ${e && e.name === 'TimeoutError' ? 'tempo limite' : (e && e.message || e)}`)
+  }
+  const sha = hash.digest('hex')
+  const invalido = man.sha256 && sha.toLowerCase() !== String(man.sha256).toLowerCase()
+    ? 'sha256 NÃO confere (arquivo corrompido/errado)'
+    : (bytes < 100000 || cabeca[0] !== 0x4D || cabeca[1] !== 0x5A) ? 'arquivo baixado não é um .exe válido' : null
+  if (invalido) { try { fs.unlinkSync(parcial) } catch { /* noop */ } throw new Error(invalido) }
+  fs.renameSync(parcial, EXE_NOVO())
+  log(`download da ${man.versao} concluído em ${((Date.now() - t0) / 1000).toFixed(0)}s (${(bytes / 1048576).toFixed(1)} MB, sha256 ok) — ` +
+      'troca no fim do ciclo em curso.')
+  return { versao: man.versao, arquivo: EXE_NOVO() }
+}
 
-    // ── Circuit-breaker (RD-57) ──────────────────────────────────────────────────────────────────
-    let st = lerUpdateState()
-    // Se já rodamos a versão-alvo (ou além), o update anterior "vingou": zera o histórico e segue.
-    if (st.alvo && !semverGt(st.alvo, VERSAO_AGENTE)) { st = { alvo: null, tentativas: 0, alertado: false }; salvarUpdateState(st) }
-    // Mesma versão-alvo já falhou MAX vezes (baixou/reiniciou e o binário NÃO virou man.versao) → PARA.
-    // Fica na versão estável que coleta; alerta uma vez na nuvem. Um update quebrado nunca mais zera a coleta.
-    if (st.alvo === man.versao && st.tentativas >= MAX_TENTATIVAS_UPDATE) {
-      if (!st.alertado) {
-        logErr(`circuit-breaker: update ${man.versao} falhou ${st.tentativas}x (binário segue ${VERSAO_AGENTE}). ` +
-               `PARANDO de tentar — fico na versão estável que coleta. Publique um binário que se auto-reporte ${man.versao}.`)
-        try {
-          await rpc(C, 'fn_agente_heartbeat', {
-            p_token: C.token, p_versao: VERSAO_AGENTE, p_hostname: HOSTNAME,
-            p_ultima_carga: null, p_status: `update_travado:${man.versao}`,
-          })
-        } catch (e) { logErr('alerta de update travado não enviado:', e.message) }
-        st.alertado = true; salvarUpdateState(st)
-      }
-      return                                                    // desiste deste ciclo — a coleta segue normal
-    }
-
-    log(`nova versão ${man.versao} disponível (rodando ${VERSAO_AGENTE})${man.obrigatorio ? ' [OBRIGATÓRIA]' : ''} — baixando… ` +
-        `(tentativa ${(st.alvo === man.versao ? st.tentativas : 0) + 1}/${MAX_TENTATIVAS_UPDATE})`)
-    // o versao.json do CI leva o url ABSOLUTO do Storage; fallback resolve contra a base do manifesto.
-    const relBase = C.updateBase || storageBase.replace(/\/agente$/, '')
-    const exeUrl = String(man.url || '/agente/agente-atak.exe').startsWith('http') ? man.url : `${relBase}${man.url}`
-    const dl = await fetch(exeUrl)
-    if (!dl.ok) { logErr(`download do .exe falhou (${dl.status}) — segue na versão atual.`); return }
-    const buf = Buffer.from(await dl.arrayBuffer())
-    const sha = require('crypto').createHash('sha256').update(buf).digest('hex')
-    if (man.sha256 && sha.toLowerCase() !== String(man.sha256).toLowerCase()) {
-      logErr('sha256 NÃO confere — abortando update (arquivo corrompido/errado). Segue na versão atual.'); return
-    }
-    const mz = buf.subarray(0, 2)
-    if (buf.length < 100000 || mz[0] !== 0x4D || mz[1] !== 0x5A) { logErr('arquivo baixado não é um .exe válido — abortando.'); return }
-    fs.writeFileSync(path.join(BASE_DIR, 'agente-atak.new.exe'), buf)
-    try { fs.copyFileSync(process.execPath, path.join(BASE_DIR, 'agente-atak.bak.exe')) } catch (e) { logErr('backup do .exe falhou:', e.message) }
-    // Updater destacado (um .exe em execução não se sobrescreve) — nssm para/troca/sobe, com rollback.
-    const bat = [
-      '@echo off',
-      `"%~dp0nssm.exe" stop "${SERVICE_NAME}"`,
-      'timeout /t 3 /nobreak >nul',
-      'move /Y "%~dp0agente-atak.new.exe" "%~dp0agente-atak.exe"',
-      `"%~dp0nssm.exe" start "${SERVICE_NAME}"`,
-      'timeout /t 15 /nobreak >nul',
-      `"%~dp0nssm.exe" status "${SERVICE_NAME}" | find "SERVICE_RUNNING" >nul || (move /Y "%~dp0agente-atak.bak.exe" "%~dp0agente-atak.exe" & "%~dp0nssm.exe" start "${SERVICE_NAME}")`,
-      '',
-    ].join('\r\n')
-    fs.writeFileSync(path.join(BASE_DIR, 'atualizar.bat'), bat)
-    // Conta a tentativa ANTES de disparar/encerrar (RD-57): se o binário não virar man.versao, na volta
-    // o contador já subiu; após MAX o breaker trava. Persistido em disco → sobrevive ao restart.
-    salvarUpdateState({
-      alvo: man.versao,
-      tentativas: (st.alvo === man.versao ? st.tentativas : 0) + 1,
-      alertado: st.alvo === man.versao ? st.alertado : false,
-    })
-    const { spawn } = require('child_process')
-    spawn('cmd.exe', ['/c', 'atualizar.bat'], { cwd: BASE_DIR, detached: true, stdio: 'ignore' }).unref()
-    log(`updater disparado — o serviço reinicia na ${man.versao} (rollback automático se não subir em 15s).`)
-    process.exit(0)                                            // encerra: o serviço volta com o novo .exe
-  } catch (e) { logErr('auto-update: falha (segue na versão atual):', e.message) }
+// Troca o binário — chamado SÓ entre ciclos (depois do heartbeat), nunca no meio de uma coleta.
+function aplicarAtualizacaoSePronta() {
+  const pronto = _upd.pronto
+  if (!pronto || !fs.existsSync(pronto.arquivo)) { _upd.pronto = null; return false }
+  const st = lerUpdateState()
+  try { fs.copyFileSync(process.execPath, path.join(BASE_DIR, 'agente-atak.bak.exe')) } catch (e) { logErr('backup do .exe falhou:', e.message) }
+  // Updater destacado (um .exe em execução não se sobrescreve) — nssm para/troca/sobe, com rollback.
+  const bat = [
+    '@echo off',
+    `"%~dp0nssm.exe" stop "${SERVICE_NAME}"`,
+    'timeout /t 3 /nobreak >nul',
+    'move /Y "%~dp0agente-atak.new.exe" "%~dp0agente-atak.exe"',
+    `"%~dp0nssm.exe" start "${SERVICE_NAME}"`,
+    'timeout /t 15 /nobreak >nul',
+    `"%~dp0nssm.exe" status "${SERVICE_NAME}" | find "SERVICE_RUNNING" >nul || (move /Y "%~dp0agente-atak.bak.exe" "%~dp0agente-atak.exe" & "%~dp0nssm.exe" start "${SERVICE_NAME}")`,
+    '',
+  ].join('\r\n')
+  fs.writeFileSync(path.join(BASE_DIR, 'atualizar.bat'), bat)
+  // Conta a tentativa ANTES de disparar/encerrar (RD-57): se o binário não virar pronto.versao, na volta
+  // o contador já subiu; após MAX o breaker trava. Persistido em disco → sobrevive ao restart.
+  salvarUpdateState({
+    alvo: pronto.versao,
+    tentativas: (st.alvo === pronto.versao ? st.tentativas : 0) + 1,
+    alertado: st.alvo === pronto.versao ? st.alertado : false,
+  })
+  const { spawn } = require('child_process')
+  spawn('cmd.exe', ['/c', 'atualizar.bat'], { cwd: BASE_DIR, detached: true, stdio: 'ignore' }).unref()
+  log(`updater disparado — o serviço reinicia na ${pronto.versao} (rollback automático se não subir em 15s).`)
+  process.exit(0)                                            // encerra: o serviço volta com o novo .exe
+  return true
 }
 
 // ── Loop do serviço: o próprio agente agenda (sem Task Scheduler) ──────────────────────────────────
+// Um tick = dispara o update em 2º plano (sem esperar) → coleta → heartbeat → (se o .exe novo ficou
+// pronto) troca entre ciclos. Nenhum passo do update fica no caminho da coleta.
+async function umTick(C, dep = {}) {
+  const coletar = dep.cicloColeta || cicloColeta
+  const heartbeat = dep.enviarHeartbeat || enviarHeartbeat
+  const aplicar = dep.aplicarAtualizacaoSePronta || aplicarAtualizacaoSePronta
+  try { iniciarAtualizacaoEmSegundoPlano(C) } catch (e) { logErr('auto-update:', e.message) }
+  let res
+  try { res = await coletar(C) } catch (e) { logErr('ciclo:', e.message) }
+  await heartbeat(C, res)
+  try { aplicar() } catch (e) { logErr('auto-update (troca):', e.message) }
+  return res
+}
+
 async function rodarLoop(C) {
   exigir(C)
   let minutos = C.syncMinutoPadrao
   const tick = async () => {
-    await verificarAtualizacao(C).catch((e) => logErr('auto-update:', e.message))   // pode encerrar o processo p/ atualizar
-    let res
-    try { res = await cicloColeta(C); if (res && res.minutos) minutos = res.minutos } catch (e) { logErr('ciclo:', e.message) }
-    await enviarHeartbeat(C, res)
+    const res = await umTick(C)
+    if (res && res.minutos) minutos = res.minutos
     setTimeout(tick, Math.max(1, minutos) * 60 * 1000)
   }
-  log(`serviço ${VERSAO_AGENTE} iniciado — coleta a cada ~${minutos} min; auto-update ${(C.supabaseUrl || C.updateBase) ? 'ligado (Storage)' : 'desligado'}.`)
+  log(`serviço ${VERSAO_AGENTE} iniciado — coleta a cada ~${minutos} min; auto-update ${(C.supabaseUrl || C.updateBase) ? 'ligado (2º plano, não bloqueia a coleta)' : 'desligado'}.`)
   tick()
 }
 
@@ -464,4 +539,9 @@ async function principal() {
   }
 }
 
-principal().catch((e) => { logErr(e && e.message || e); process.exit(1) })
+// Testes (node --test) carregam o módulo sem subir o serviço.
+if (process.env.PS_AGENTE_TESTE !== '1') {
+  principal().catch((e) => { logErr(e && e.message || e); process.exit(1) })
+} else {
+  module.exports = { umTick, iniciarAtualizacaoEmSegundoPlano, baixarAtualizacao, _upd, VERSAO_AGENTE, semverGt }
+}

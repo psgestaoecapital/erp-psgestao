@@ -1,0 +1,25 @@
+name: Agente ATAK — testes
+
+# CEO 28/09: atualização do agente NUNCA pode parar a coleta do cliente. Estes testes provam que o
+# download do update roda em 2º plano, com tempo limite, e que a troca só acontece entre ciclos.
+on:
+  pull_request:
+    paths:
+      - 'collectors/atak-agente/**'
+      - '.github/workflows/check-agente.yml'
+  workflow_dispatch:
+
+jobs:
+  check_agente:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: collectors/atak-agente
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18          # mesmo runtime do .exe (pkg node18-win-x64)
+      - run: npm install
+      - run: npm test

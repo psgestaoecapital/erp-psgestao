@@ -29,6 +29,11 @@ jobs:
         run: npm install
 
       # pkg nao esta nas dependencias (so o bloco de config "pkg") -> instala global.
+      # Testes do auto-update (CEO 28/09): download em 2º plano, com tempo limite, nunca bloqueia a coleta.
+      # Sem eles verdes, nenhum .exe é publicado.
+      - name: Testes do agente
+        run: npm test
+
       - name: Instalar pkg
         run: npm i -g pkg
 
