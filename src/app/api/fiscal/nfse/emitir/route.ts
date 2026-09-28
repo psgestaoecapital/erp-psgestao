@@ -9,6 +9,7 @@ import { emitirNFSeViaGovServer } from '@/lib/fiscal/gov-nfse-provider'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
+import { enderecoFiscalDoCliente, filtroDocumentoCliente, type ClienteEndereco } from '@/lib/fiscal/tomadorEndereco'
 import { calcularRetencoesFederais, issRetidoNfse, reformaIbsCbsDoServico, type RetencoesFederaisNfse, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
@@ -187,6 +188,18 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           inscricaoMunicipal: emp.inscricao_municipal ?? undefined,
         },
         tomador: body.manual.tomador,
+      }
+      // NFS-e avulsa: a tela manda só nome + documento; o endereço (exigido no leiaute nacional) vem do cadastro de
+      // clientes DESTA empresa, pelo documento. O e-mail não é copiado — só vai se a tela mandar.
+      if (!nfseReq.tomador.endereco) {
+        const filtro = filtroDocumentoCliente(nfseReq.tomador.cnpj ?? nfseReq.tomador.cpf)
+        if (filtro) {
+          const { data: cli } = await supabaseAdmin.from('erp_clientes')
+            .select('logradouro, endereco, numero, complemento, bairro, cidade, uf, cep, codigo_ibge_municipio')
+            .eq('company_id', body.companyId).or(filtro).limit(1).maybeSingle()
+          const end = enderecoFiscalDoCliente(cli as ClienteEndereco | null)
+          if (end) nfseReq.tomador = { ...nfseReq.tomador, endereco: end }
+        }
       }
     } else {
       return NextResponse.json(
