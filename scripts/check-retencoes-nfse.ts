@@ -159,6 +159,12 @@ ok(pIbs.codigo_indicador_operacao === '020201' && pIbs.ibs_cbs_situacao_tributar
   ok(c2(V - vIss - Number(p.valor_pis) - Number(p.valor_cofins)) === 91637.68, 'gabarito vBC IBS/CBS 91.637,68 = serviço − ISS − PIS − COFINS')
 }
 
+// ── RD-93: alíquota do ISS é do município de incidência — o não optante NUNCA manda pAliq (nem 0 do cadastro) ──
+for (const aliq of [0, 3, 5]) {
+  const pNo = buildNacionalNFSePayload({ ...base, opcaoSimplesNacional: 1, tributosAproxPct: { federal: 13.45, estadual: 0, municipal: 3.15 }, aliquotaIss: aliq, retemIss: true })
+  ok(!('percentual_aliquota_relativa_municipio' in pNo) && !('aliquota' in pNo) && !('aliquota_iss' in pNo), `RD-93: não optante com alíquota ${aliq} no cadastro → nenhuma alíquota de ISS na DPS`)
+}
+
 // ── ISS retido no título (#286): nota e título com o mesmo líquido ──
 ok(issRetidoNfse(98165.70, 2, 3) === 2944.97, 'ISS retido pelo tomador (2): 3% de 98.165,70 = 2.944,97')
 ok(issRetidoNfse(1000, 3, 5) === 50, 'ISS retido pelo intermediário (3) também entra')

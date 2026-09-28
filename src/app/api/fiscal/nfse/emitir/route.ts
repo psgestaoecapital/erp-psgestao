@@ -502,7 +502,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
                 .find((r) => !r.vigencia_fim || String(r.vigencia_fim) >= hoje)
               if (vig?.aliquota != null) aliqMunic = Number(vig.aliquota)
             }
-            if (aliqMunic != null && aliqMunic > 0) nfseReq.aliquotaIss = aliqMunic
+            // RD-93: a alíquota do ISS é a do MUNICÍPIO DE INCIDÊNCIA (tabela por município), nunca a do cadastro do
+            // serviço nem a digitada na tela. Serve só às contas internas (ISS retido no título, trava de ISS zerado);
+            // para o não optante ela NÃO vai na DPS — o Ambiente Nacional aplica a parametrizada (NF 418/421: 3,00).
+            nfseReq.aliquotaIss = aliqMunic != null && aliqMunic > 0 ? aliqMunic : 0
             if (!(Number(nfseReq.aliquotaIss ?? 0) > 0)) {
               return NextResponse.json({
                 ok: false,
