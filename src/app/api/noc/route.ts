@@ -14,7 +14,10 @@ export async function GET(req: NextRequest) {
     const sb = createClient(supabaseUrl, supabaseKey);
 
     // 1. EMPRESAS
-    const { data: companies } = await sb.from("companies").select("id, nome, created_at, omie_app_key");
+    const { data: companies } = await sb.from("companies").select("id, nome, created_at");
+    // PR E (CEO 28/09): segredo do Omie vive no Vault; "tem Omie" = credencial ativa no Cofre
+    const { data: credOmie } = await sb.from("erp_credencial").select("company_id").eq("provider", "omie").eq("chave", "app_secret").eq("ativo", true);
+    const comOmie = new Set((credOmie || []).map((r: any) => r.company_id));
     const totalEmpresas = companies?.length || 0;
 
     // 2. USUÁRIOS
@@ -75,7 +78,7 @@ export async function GET(req: NextRequest) {
         id: c.id,
         nome: c.nome || "Sem nome",
         criadoEm: c.created_at,
-        temOmie: !!c.omie_app_key,
+        temOmie: comOmie.has(c.id),
         tiposImport: imp.tipos,
         registrosImportados: imp.registros,
         ultimaSync: imp.ultimaSync,

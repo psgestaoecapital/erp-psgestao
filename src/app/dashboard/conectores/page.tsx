@@ -287,26 +287,26 @@ export default function ConectoresPage() {
     if (!empresa) return
     setMsg('Testando conexao...')
     if (conId === 'omie') {
+      // PR E: as chaves ficam no Vault; o servidor as lê (digitadas e ainda não salvas também valem para testar)
       const appKey = configs['omie_app_key']; const appSecret = configs['omie_app_secret']
-      if (!appKey || !appSecret) { setMsg('Preencha App Key e App Secret'); return }
+      if (!(appKey && appSecret) && !vaultCreds['omie']) { setMsg('Salve App Key e App Secret primeiro'); return }
       try {
-        const res = await fetch('/api/omie', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ app_key: appKey, app_secret: appSecret, endpoint: 'geral/empresas/', method: 'ListarEmpresas', params: { pagina: 1, registros_por_pagina: 1 } }) })
+        const res = await authFetch('/api/omie', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, app_key: appKey || undefined, app_secret: appSecret || undefined, endpoint: 'geral/empresas/', method: 'ListarEmpresas', params: { pagina: 1, registros_por_pagina: 1 } }) })
         const data = await res.json()
         setMsg(data.error ? 'Erro Omie: ' + data.error : 'Conexao Omie OK!')
       } catch (e: any) { setMsg('Erro: ' + e.message) }
     } else if (conId === 'nibo') {
       const apiKey = configs['nibo_api_key']; const orgId = configs['nibo_org_id']; const apiSecret = configs['nibo_api_secret']
-      if (!apiKey || !orgId) { setMsg('Preencha API Key, API Secret e ID da Empresa'); return }
+      if (!apiKey && !vaultCreds['nibo']) { setMsg('Salve API Key, API Secret e ID da Empresa primeiro'); return }
       try {
-        const res = await authFetch('/api/nibo/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, nibo_api_key: apiKey, nibo_api_secret: apiSecret, nibo_org_id: orgId, sync_types: ['categorias'] }) })
+        const res = await authFetch('/api/nibo/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, nibo_api_key: apiKey || undefined, nibo_api_secret: apiSecret || undefined, nibo_org_id: orgId || undefined, sync_types: ['categorias'] }) })
         const data = await res.json()
         setMsg(data.error ? 'Erro Nibo: ' + data.error : 'Conexao Nibo OK! ' + (data.results?.categorias?.total || 0) + ' categorias encontradas.')
       } catch (e: any) { setMsg('Erro: ' + e.message) }
     } else if (conId === 'contaazul') {
-      const token = empresa.contaazul_token
-      if (!token) { setMsg('Conecte o ContaAzul primeiro (botao Conectar)'); return }
+      if (!vaultCreds['contaazul']) { setMsg('Conecte o ContaAzul primeiro (botao Conectar)'); return }
       try {
-        const res = await authFetch('/api/contaazul/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, token, sync_types: ['categorias'] }) })
+        const res = await authFetch('/api/contaazul/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, sync_types: ['categorias'] }) })
         const data = await res.json()
         setMsg(data.error ? 'Erro ContaAzul: ' + data.error : 'Conexao ContaAzul OK! ' + (data.results?.categorias?.total || 0) + ' categorias.')
       } catch (e: any) { setMsg('Erro: ' + e.message) }
@@ -339,23 +339,20 @@ export default function ConectoresPage() {
     setSyncing(true); setMsg('Sincronizando dados... (pode levar 1-2 min)')
     try {
       if (conId === 'omie') {
-        const appKey = configs['omie_app_key']; const appSecret = configs['omie_app_secret']
-        if (!appKey || !appSecret) { setMsg('Salve as credenciais primeiro'); setSyncing(false); return }
-        const res = await authFetch('/api/omie/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ app_key: appKey, app_secret: appSecret, sync_type: 'full', company_id: empresa.id }) })
+        if (!vaultCreds['omie']) { setMsg('Salve as credenciais primeiro'); setSyncing(false); return }
+        const res = await authFetch('/api/omie/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sync_type: 'full', company_id: empresa.id }) })
         const data = await res.json()
         if (data.error) setMsg('Erro: ' + data.error)
         else { const total = Object.values(data.counts || {}).reduce((s: number, v: any) => s + (Number(v) || 0), 0); setMsg('Omie: ' + total + ' registros importados!'); recarregarSyncInfo() }
       } else if (conId === 'nibo') {
-        const apiKey = configs['nibo_api_key']; const orgId = configs['nibo_org_id']; const apiSecret = configs['nibo_api_secret']
-        if (!apiKey || !orgId) { setMsg('Salve as credenciais primeiro'); setSyncing(false); return }
-        const res = await authFetch('/api/nibo/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, nibo_api_key: apiKey, nibo_api_secret: apiSecret, nibo_org_id: orgId }) })
+        if (!vaultCreds['nibo']) { setMsg('Salve as credenciais primeiro'); setSyncing(false); return }
+        const res = await authFetch('/api/nibo/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id }) })
         const data = await res.json()
         if (data.error) setMsg('Erro: ' + data.error)
         else { setMsg(data.message || 'Nibo sync OK!'); recarregarSyncInfo() }
       } else if (conId === 'contaazul') {
-        const token = empresa.contaazul_token
-        if (!token) { setMsg('Conecte o ContaAzul primeiro'); setSyncing(false); return }
-        const res = await authFetch('/api/contaazul/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, token }) })
+        if (!vaultCreds['contaazul']) { setMsg('Conecte o ContaAzul primeiro'); setSyncing(false); return }
+        const res = await authFetch('/api/contaazul/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id }) })
         const data = await res.json()
         if (data.error) setMsg('Erro: ' + data.error)
         else { setMsg(data.message || 'ContaAzul sync OK!'); recarregarSyncInfo() }

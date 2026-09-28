@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
+import { credencialEmpresa } from "@/lib/credenciais/servidor";
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -38,10 +39,14 @@ export async function POST(req: NextRequest) {
   const guarda = await exigirUsuario(req);
   if (guarda instanceof NextResponse) return guarda;
   try {
-    const { company_id, token, sync_types } = await req.json();
-    if (!company_id || !token) return NextResponse.json({ error: "company_id e token obrigatorios" }, { status: 400 });
+    const body = await req.json();
+    const { company_id, sync_types } = body;
+    if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
     const negado = await exigirEmpresas(guarda, [company_id]);
     if (negado) return negado;
+    // PR E (CEO 28/09): o token vive no Vault (gravado pelo callback OAuth), nunca no navegador.
+    const token = body.token || (await credencialEmpresa(company_id, "contaazul", "token"));
+    if (!token) return NextResponse.json({ error: "Conecte o ContaAzul primeiro (botão Conectar)." }, { status: 400 });
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const results: any = {};

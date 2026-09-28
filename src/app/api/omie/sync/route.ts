@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
+import { credencialEmpresa } from "@/lib/credenciais/servidor";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -246,15 +247,20 @@ export async function POST(req: NextRequest) {
   const guarda = await exigirUsuario(req);
   if (guarda instanceof NextResponse) { Object.entries(corsHeaders).forEach(([k, v]) => guarda.headers.set(k, v)); return guarda; }
   try {
-    const { app_key, app_secret, sync_type, company_id } = await req.json();
+    const body = await req.json();
+    const { sync_type, company_id } = body;
+    let { app_key, app_secret } = body;
 
-    if (!app_key || !app_secret) {
-      return NextResponse.json({ error: "Chaves do Omie nao fornecidas" }, { status: 400, headers: corsHeaders });
-    }
     // company_id é opcional (sem ele não grava nada); se vier, tem de ser do usuário.
     if (company_id) {
       const negado = await exigirEmpresas(guarda, [company_id]);
       if (negado) { Object.entries(corsHeaders).forEach(([k, v]) => negado.headers.set(k, v)); return negado; }
+      // PR E (CEO 28/09): as chaves vêm do Vault no servidor — o navegador não as tem mais.
+      app_key = app_key || (await credencialEmpresa(company_id, "omie", "app_key"));
+      app_secret = app_secret || (await credencialEmpresa(company_id, "omie", "app_secret"));
+    }
+    if (!app_key || !app_secret) {
+      return NextResponse.json({ error: "Credenciais do Omie não cadastradas para esta empresa (salve em Conectores)." }, { status: 400, headers: corsHeaders });
     }
 
     const supabase = company_id ? createClient(supabaseUrl, supabaseKey) : null;
