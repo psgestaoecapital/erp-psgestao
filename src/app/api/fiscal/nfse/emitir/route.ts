@@ -9,7 +9,7 @@ import { emitirNFSeViaGovServer } from '@/lib/fiscal/gov-nfse-provider'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
-import { calcularRetencoesFederais, codigoIndicadorOperacaoValido, type RetencoesFederaisNfse, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { calcularRetencoesFederais, reformaIbsCbsDoServico, type RetencoesFederaisNfse, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -599,18 +599,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
               if (ret.apuracaoPropria) nfseReq.apuracaoPisCofins = ret.apuracaoPropria
               // IBS/CBS do CADASTRO DO SERVIÇO quando a empresa não configurou: grupo IBSCBS exige CST, cClassTrib
               // e cIndOp (6 díg., Anexo C — E0901). Sem cIndOp válido o grupo NÃO vai (aviso); nunca adivinhar.
-              if (!nfseReq.reforma?.ibsCbsCst && sv.rt_cst && sv.rt_classificacao_tributaria) {
-                if (codigoIndicadorOperacaoValido(sv.rt_indicador_operacao as string | null)) {
-                  nfseReq.reforma = {
-                    finalidadeEmissao: nfseReq.reforma?.finalidadeEmissao ?? 0,        // finNFSe: 0 = NFS-e regular (único valor)
-                    consumidorFinal: nfseReq.reforma?.consumidorFinal ?? 0,
-                    indicadorDestinatario: nfseReq.reforma?.indicadorDestinatario ?? 0,
-                    ibsCbsCst: String(sv.rt_cst), ibsCbsClassifTrib: String(sv.rt_classificacao_tributaria),
-                    codigoIndicadorOperacao: String(sv.rt_indicador_operacao).trim(),
-                  }
-                } else {
-                  avisosTributos.push('IBS/CBS não vai nesta nota: falta o código indicador da operação (cIndOp) no cadastro do serviço.')
-                }
+              {
+                const ib = reformaIbsCbsDoServico(nfseReq.reforma, sv as ServicoIbsCbs)
+                nfseReq.reforma = ib.reforma
+                if (ib.aviso) avisosTributos.push(ib.aviso)
               }
             }
           }
@@ -800,6 +792,18 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       }).eq('id', registroId)
     }
 
+    // #286 · ISS retido pelo tomador/intermediário (tpRetISSQN 2/3): valor × alíquota usada na emissão (a municipal
+    // resolvida acima; no Simples, a da competência). O Ambiente Nacional calcula igual (XML da NF 421: pAliqAplic 3,00,
+    // vISSQN = vBC × 3%, vTotalRet = retenções federais + ISS). Grava na nota e a tela pré-preenche o título com ele.
+    const _tpRetIss = nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1)
+    const _aliqIssRet = Number(nfseReq.aliquotaISSSN ?? nfseReq.aliquotaIss ?? 0)
+    const issRetido = (_tpRetIss === 2 || _tpRetIss === 3) && _aliqIssRet > 0
+      ? Math.round(Number(nfseReq.valorServicos) * _aliqIssRet) / 100
+      : 0
+    if (registroId && issRetido > 0 && resposta.status !== 'rejeitada') {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_iss_retido: issRetido }).eq('id', registroId)
+    }
+
     // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)
     if (registroId && obraIdFinal) {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ obra_id: obraIdFinal }).eq('id', registroId)
@@ -838,6 +842,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         inss: retencoesCalculadas.valorCp, irrf: retencoesCalculadas.valorIrrf, pis: retencoesCalculadas.valorPisRet,
         cofins: retencoesCalculadas.valorCofinsRet, csll: retencoesCalculadas.valorCsllRet, total: retencoesCalculadas.totalRetido,
       } : null,
+      issRetido: issRetido > 0 ? issRetido : null,
       avisosTributos: avisosTributos.length ? avisosTributos : undefined,
     })
   } catch (err) {

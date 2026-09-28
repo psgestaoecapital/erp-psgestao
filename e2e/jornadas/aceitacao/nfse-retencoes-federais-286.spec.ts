@@ -57,7 +57,7 @@ test.describe('#286 · NFS-e com as retenções federais do cadastro do serviço
   test('serviço com INSS: tela mostra a retenção antes de emitir e o financeiro usa a mesma, travada', async ({ page }) => {
     const { modal, envios } = await abrirModalComServico(page, `E2E 286 com INSS ${RUN}`, {
       ok: true, status: 'autorizada', numero: '999', nfseId: '00000000-0000-4000-a000-000000000286', providerReference: `e2e-286-${RUN}`,
-      retencoesFederais: { inss: 110, irrf: 0, pis: 0, cofins: 0, csll: 0, total: 110 },
+      retencoesFederais: { inss: 110, irrf: 0, pis: 0, cofins: 0, csll: 0, total: 110 }, issRetido: 30,
     })
     const previa = modal.getByTestId('nfse-retencoes-previa')
     await expect(previa, 'retenções aparecem ANTES de emitir').toBeVisible({ timeout: 15000 })
@@ -68,6 +68,7 @@ test.describe('#286 · NFS-e com as retenções federais do cadastro do serviço
     const inss = modal.getByTestId('nfse-fin-ret-inss')
     await expect(inss, 'o financeiro nasce com o INSS que foi na nota').toHaveValue('110,00', { timeout: 15000 })
     await expect(inss, 'e não se edita (nota e título nunca divergem)').toHaveAttribute('readonly', '')
+    await expect(modal.getByTestId('nfse-fin-ret-iss'), 'o ISS retido da nota também vem preenchido').toHaveValue('30,00')
     await expect(modal.getByTestId('nfse-sugerir-retencoes'), 'a sugestão manual de retenções saiu').toHaveCount(0)
   })
 

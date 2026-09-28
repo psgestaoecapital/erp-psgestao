@@ -39,6 +39,8 @@ export interface RetencoesFederaisNfse {
   avisos: string[]         // a nota sai, mas sem o grupo indicado
 }
 
+import type { NFSeRequest } from './types'
+
 const cent = (n: number) => Math.round(n * 100) / 100
 const pct = (v: number | null | undefined) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 0)
 
@@ -105,4 +107,27 @@ export function calcularRetencoesFederais(valorServico: number, s: ServicoTribut
 // Sem cIndOp válido o grupo NÃO vai (a nota sai, com aviso) — nunca adivinhar o código.
 export function codigoIndicadorOperacaoValido(c: string | null | undefined): boolean {
   return /^\d{6}$/.test(String(c ?? '').trim())
+}
+
+export type ReformaNfse = NonNullable<NFSeRequest['reforma']>
+export interface ServicoIbsCbs { rt_cst?: string | null; rt_classificacao_tributaria?: string | null; rt_indicador_operacao?: string | null }
+
+// IBS/CBS do CADASTRO DO SERVIÇO quando a empresa não configurou (a config da empresa manda). Usada pela rota e pela
+// prova do #286 (gabarito NF 418) — a mesma regra nos dois lugares. finNFSe/indFinal/indDest: 0 quando a empresa não
+// definiu (finNFSe 0 = NFS-e regular, único valor; 0/0 como na NF 418 autorizada).
+export function reformaIbsCbsDoServico(empresa: ReformaNfse | undefined, sv: ServicoIbsCbs | null | undefined): { reforma: ReformaNfse | undefined; aviso: string | null } {
+  if (empresa?.ibsCbsCst || !sv?.rt_cst || !sv.rt_classificacao_tributaria) return { reforma: empresa, aviso: null }
+  if (!codigoIndicadorOperacaoValido(sv.rt_indicador_operacao)) {
+    return { reforma: empresa, aviso: 'IBS/CBS não vai nesta nota: falta o código indicador da operação (cIndOp) no cadastro do serviço.' }
+  }
+  return {
+    reforma: {
+      finalidadeEmissao: empresa?.finalidadeEmissao ?? 0,
+      consumidorFinal: empresa?.consumidorFinal ?? 0,
+      indicadorDestinatario: empresa?.indicadorDestinatario ?? 0,
+      ibsCbsCst: String(sv.rt_cst), ibsCbsClassifTrib: String(sv.rt_classificacao_tributaria),
+      codigoIndicadorOperacao: String(sv.rt_indicador_operacao).trim(),
+    },
+    aviso: null,
+  }
 }

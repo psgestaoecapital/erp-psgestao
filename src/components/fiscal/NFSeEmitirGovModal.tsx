@@ -45,6 +45,7 @@ interface RespFocus {
   nfseId?: string | null
   // #286 · retenções federais que foram na nota (o financeiro usa estas, sem redigitar) + grupos não enviados
   retencoesFederais?: { inss: number; irrf: number; pis: number; cofins: number; csll: number; total: number } | null
+  issRetido?: number | null
   avisosTributos?: string[]
 }
 
@@ -613,7 +614,9 @@ export default function NFSeEmitirGovModal({
             // #286 · o financeiro nasce com as MESMAS retenções federais que foram na nota (campos travados)
             const rf = json.retencoesFederais
             const br2 = (n: number) => (n > 0 ? n.toFixed(2).replace('.', ',') : '')
-            setFinRet((p) => ({ ...p, inss: br2(rf?.inss ?? 0), irrf: br2(rf?.irrf ?? 0), pis: br2(rf?.pis ?? 0), cofins: br2(rf?.cofins ?? 0), csll: br2(rf?.csll ?? 0) }))
+            // ISS retido pelo tomador: vem calculado da emissão (valor × alíquota da nota); continua editável
+            const issRet = Number(json.issRetido ?? 0)
+            setFinRet((p) => ({ ...p, iss: issRet > 0 ? br2(issRet) : p.iss, inss: br2(rf?.inss ?? 0), irrf: br2(rf?.irrf ?? 0), pis: br2(rf?.pis ?? 0), cofins: br2(rf?.cofins ?? 0), csll: br2(rf?.csll ?? 0) }))
             setAvisosTrib(json.avisosTributos ?? [])
             if (ref) onEmitida(ref)
           }
