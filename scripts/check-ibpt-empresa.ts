@@ -5,6 +5,7 @@
  *   tsx scripts/check-ibpt-empresa.ts
  */
 import { normalizarRespostaIbpt, dataIbptIso } from '../src/lib/fiscal/ibptEmpresa'
+import { ncmValidoParaTeste, escolherProdutoTeste } from '../src/lib/fiscal/ibptTeste'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
@@ -18,6 +19,19 @@ ok(normalizarRespostaIbpt(lista[0])?.codigo === '27101932', 'objeto único tamb�
 ok(normalizarRespostaIbpt([]) === null && normalizarRespostaIbpt(null) === null, 'lista vazia/nula → sem dado (usa a genérica)')
 ok(normalizarRespostaIbpt([{ Codigo: '1', UF: 'SC' }]) === null, 'sem nenhum percentual → sem dado (nunca inventa zero)')
 ok(dataIbptIso('2026-10-31T00:00:00') === '2026-10-31' && dataIbptIso('') === null && dataIbptIso('lixo') === null, 'datas ISO e inválidas')
+
+// "Salvar e testar" (CEO 28/09): produto com NCM inválido não é item de teste — pula para o próximo
+ok(ncmValidoParaTeste('00000000') === null && ncmValidoParaTeste('0000.00.00') === null, 'NCM 00000000 (com ou sem pontos) → inválido')
+ok(ncmValidoParaTeste('') === null && ncmValidoParaTeste(null) === null && ncmValidoParaTeste('2710') === null, 'NCM vazio/incompleto → inválido')
+ok(ncmValidoParaTeste('2710.19.32') === '27101932', 'NCM com pontos → 8 dígitos')
+const fc = [
+  { ncm: '00000000', nome: 'SERVIÇO DE MÃO DE OBRA (caso FC)' },
+  { ncm: null, nome: 'sem NCM' },
+  { ncm: '6810.19.00', nome: 'placa' },
+]
+ok(escolherProdutoTeste(fc)?.ncmTeste === '68101900', 'caso FC: pula o 00000000 e o vazio → primeiro NCM válido')
+ok(escolherProdutoTeste([{ ncm: '68101900' }, { ncm: '27101932' }], '2710')?.ncmTeste === '27101932', 'prefere o óleo (2710) quando existe')
+ok(escolherProdutoTeste([{ ncm: '00000000' }, { ncm: '' }]) === null, 'só NCM inválido → nenhum produto (vai para o serviço/teste genérico)')
 
 if (falhas) { console.error(`\n[check-ibpt-empresa] ${falhas} falha(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-ibpt-empresa] leitura da resposta do IBPT conferida.')
