@@ -252,10 +252,14 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     setSubstindo(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_os_diag_item_substituir', { p_diag_item_id: itemId, p_produto_id: produtoId })
     setSubstindo(false)
-    const r = data as { ok?: boolean; erro?: string } | null
+    // #257: com a OS faturada o servidor liga só o produto e dá a saída de estoque; o que não puder ser feito
+    // volta em `erro` (sem saldo, OS cancelada…) e aparece aqui — nunca some em silêncio.
+    const r = data as { ok?: boolean; erro?: string; aviso?: string | null; faturada?: boolean; baixado?: boolean; quantidade?: number } | null
     if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao substituir a peça'); return }
     setSubstItem(null); setSubstTermo(''); setSubstResult([])
-    flash('Peça vinculada ao estoque ✓')
+    if (r?.aviso) flash(`Peça ligada ao estoque ✓ ${r.aviso}`)
+    else if (r?.faturada && r?.baixado) flash(`Peça ligada ao estoque ✓ saída de ${r.quantidade ?? 1} registrada. Valor da OS e título não mudam.`)
+    else flash('Peça vinculada ao estoque ✓')
     void carregar()
   }
 
@@ -830,8 +834,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                     {pecaLigada && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#1B3608', background: '#E8F4DC', borderRadius: 6, padding: '1px 5px', marginLeft: 6 }}>estoque</span>}
                     {pecaLivre && <span style={{ fontSize: 9.5, fontWeight: 700, color: C.espressoL, background: 'rgba(61,35,20,0.06)', borderRadius: 6, padding: '1px 5px', marginLeft: 6 }}>texto livre</span>}
                   </span>
-                  {/* A2 Path 2 · substituir peça digitada por peça do estoque (só antes de faturar) */}
-                  {pecaLivre && !faturada && (
+                  {/* A2 Path 2 · substituir peça digitada por peça do estoque. #257: também com a OS faturada
+                      (liga só o produto + saída de estoque; preço/quantidade travados). Cancelada: não. */}
+                  {pecaLivre && os.status !== 'cancelada' && (
                     <button type="button" data-testid={`os-item-substituir-${i}`}
                       onClick={() => { setSubstItem(substItem === it.id ? null : (it.id ?? null)); setSubstTermo(''); setSubstResult([]) }}
                       style={{ fontSize: 10.5, fontWeight: 700, color: C.gold, background: 'none', border: `1px solid ${C.gold}`, borderRadius: 6, padding: '2px 7px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -860,7 +865,11 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                         ))}
                       </div>
                     )}
-                    <div style={{ fontSize: 10.5, color: C.espressoL, marginTop: 4 }}>Substitui só o vínculo de estoque · o preço não muda.</div>
+                    <div style={{ fontSize: 10.5, color: C.espressoL, marginTop: 4 }} data-testid="os-substituir-ajuda">
+                      {faturada
+                        ? 'OS faturada: liga a peça ao produto e registra a saída dela do estoque agora · quantidade, preço, valor da OS e título não mudam.'
+                        : 'Substitui só o vínculo de estoque · o preço não muda.'}
+                    </div>
                   </div>
                 )}
               </div>
