@@ -37,7 +37,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // a nota tem de ser da empresa informada (evita IDOR entre empresas)
     const { data: nota, error: notaErr } = await supabaseAdmin
       .from('erp_nfse_emitidas')
-      .select('id, company_id, status')
+      .select('id, company_id, status, valor_inss_ret, valor_irrf, valor_pis_ret, valor_cofins_ret, valor_csll_ret')
       .eq('id', body.nfseId)
       .maybeSingle()
     if (notaErr) return NextResponse.json({ ok: false, mensagem: notaErr.message }, { status: 400 })
@@ -51,7 +51,14 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     })
     if (negado) return negado
 
-    const r = body.retencoes ?? {}
+    // #286 · nota e título nunca divergem: as retenções FEDERAIS são as que foram na nota (gravadas na emissão).
+    // O que vier do navegador para INSS/IR/PIS/COFINS/CSLL é ignorado; ISS retido/deduções/desconto seguem do usuário.
+    const n = nota as { valor_inss_ret?: number | null; valor_irrf?: number | null; valor_pis_ret?: number | null; valor_cofins_ret?: number | null; valor_csll_ret?: number | null }
+    const r = {
+      ...(body.retencoes ?? {}),
+      inss: Number(n.valor_inss_ret ?? 0), irrf: Number(n.valor_irrf ?? 0), pis: Number(n.valor_pis_ret ?? 0),
+      cofins: Number(n.valor_cofins_ret ?? 0), csll: Number(n.valor_csll_ret ?? 0),
+    }
     const { data, error } = await supabaseAdmin.rpc('fn_nfse_gerar_financeiro', {
       p_nfse_id: body.nfseId,
       p_deducoes: num(body.deducoes),
