@@ -1,17 +1,15 @@
-# Agente PS ATAK — hosting no Supabase Storage (bucket público `agente`)
+# Agente PS ATAK — hosting no Supabase Storage (bucket `agente`, privado desde a 2.1.3)
 
-> **Atualização:** o hosting do `.exe` + `versao.json` mudou de `public/agente/` (no git) para o
-> **Supabase Storage** (bucket público `agente`). O **CI publica sozinho** na tag `agente-v*` — zero
-> binário no git, zero passo manual. Os arquivos abaixo (`versao.json` deste dir) ficam só como
-> referência/template; a fonte viva é o Storage.
-
-URLs públicas (baixadas por qualquer máquina de cliente, HTTPS):
-- `.../storage/v1/object/public/agente/agente-atak.exe`
-- `.../storage/v1/object/public/agente/versao.json`
-
-O botão **"Gerar instalador"** (Conectores · Industrial) e o **auto-update do agente** buscam desses
-URLs do Storage. Enquanto o `.exe` não estiver publicado, o botão avisa em PT-BR (valida o cabeçalho
-`MZ` — não zipa um HTML de 404).
+> **PR C (28/09):** o bucket `agente` deixa de ser público. O CI continua publicando sozinho na tag
+> `agente-v*` (upload com a chave de serviço). Quem baixa:
+> - **Tela Conectores · "Gerar instalador"** → `/api/agente/instalador?company_id=…` (usuário logado com acesso à
+>   empresa + conexão ATAK cadastrada) devolve URLs **assinadas de 10 min** do `.exe` e do `nssm.exe`.
+> - **Auto-update do agente (≥ 2.1.3)** → edge function `agente-download?arquivo=versao.json` com o header
+>   `x-agente-token`: devolve o manifesto com `url` = URL **assinada de 15 min** do `.exe`.
+> - Agente ≤ 2.1.2 ainda lê o link público: por isso a 2.1.3 é publicada ANTES de fechar o bucket e o bucket só
+>   fecha depois que o heartbeat (`erp_agente_status.versao_agente`) confirma 2.1.3 em todas as máquinas.
+>
+> Os arquivos abaixo (`versao.json` deste dir) ficam só como referência/template; a fonte viva é o Storage.
 
 ## Fluxo de release (automático)
 0. **Antes de taggear, faça o bump da versão em DOIS lugares** (senão o build falha de propósito):

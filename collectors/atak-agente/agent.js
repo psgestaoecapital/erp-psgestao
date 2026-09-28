@@ -22,7 +22,7 @@ const path = require('path')
 const readline = require('readline')
 const crypto = require('crypto')
 
-const VERSAO_AGENTE = '2.1.2'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
+const VERSAO_AGENTE = '2.1.3'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
 // ↑ FONTE DA VERDADE da versão do binário. O CI (build-agente-atak.yml) valida que a tag agente-vX.Y.Z
 //   e o package.json batem com isto e gera o versao.json a partir DAQUI — nunca anuncia versão sem binário.
 const AGENT_VERSION = `atak-agente-${VERSAO_AGENTE}`
@@ -309,11 +309,18 @@ async function verificarAtualizacao(C) {
   const agora = Date.now()
   if (agora - _ultimaChecagemUpdate < Math.max(1, C.updateHoras) * 3600 * 1000) return
   _ultimaChecagemUpdate = agora
-  // Hosting: Supabase Storage (bucket público 'agente'). PS_UPDATE_BASE sobrepõe (compat/dev).
+  // Hosting: Supabase Storage (bucket 'agente', PRIVADO desde a 2.1.3 · PR C 28/09). O manifesto vem da edge
+  // function agente-download, que valida o token DESTE agente e devolve o versao.json com `url` = URL ASSINADA
+  // do .exe (15 min). PS_UPDATE_BASE sobrepõe (compat/dev).
   const storageBase = `${C.supabaseUrl}/storage/v1/object/public/agente`
-  const manifestoUrl = C.updateBase ? `${C.updateBase}/agente/versao.json` : `${storageBase}/versao.json`
+  const manifestoUrl = C.updateBase
+    ? `${C.updateBase}/agente/versao.json`
+    : `${C.supabaseUrl}/functions/v1/agente-download?arquivo=versao.json`
+  const headersManifesto = C.updateBase ? {} : {
+    apikey: C.anonKey, Authorization: `Bearer ${C.anonKey}`, 'x-agente-token': C.token,
+  }
   try {
-    const res = await fetch(manifestoUrl, { cache: 'no-store' })
+    const res = await fetch(manifestoUrl, { cache: 'no-store', headers: headersManifesto })
     if (!res.ok) return
     const man = await res.json()
     if (!man || !man.versao || !semverGt(man.versao, VERSAO_AGENTE)) return

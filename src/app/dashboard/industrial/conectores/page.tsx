@@ -7,6 +7,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { authFetch } from '@/lib/authFetch'
 
 const C = { bg: '#FAF7F2', card: '#FFFFFF', card2: '#F5EFE4', bd: '#E7DECF', go: '#C8941A', gol: '#A57A15', tx: '#3D2314', txm: '#6B5D4F', txd: '#9C8E80', g: '#16A34A', r: '#B91C1C', y: '#B45309', b: '#2563EB' }
 
@@ -190,7 +191,8 @@ export default function ConectoresIndustrialPage() {
   }
 
   // "Gerar instalador": monta o .zip (agente-atak.exe + nssm.exe + config.json c/ token + instalar.bat + LEIA-ME)
-  // no navegador (JSZip). O .exe e o nssm.exe vêm do Supabase Storage (bucket público 'agente', publicado pelo CI).
+  // no navegador (JSZip). O .exe e o nssm.exe vêm do Supabase Storage (bucket 'agente', publicado pelo CI) por URL
+  // ASSINADA de 10 min que /api/agente/instalador entrega a quem tem acesso à empresa (PR C · bucket deixa de ser público).
   // O nssm.exe empacota o coletor como serviço do Windows (RD-41) — o instalar.bat o acha ao lado do binário.
   // Pilar 2: o config.json NÃO leva senha — só URL + token + anon key (pública). A senha o TI digita local no 1º run.
   const gerarInstalador = async () => {
@@ -206,9 +208,11 @@ export default function ConectoresIndustrialPage() {
     const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
     if (!SB_URL || !SB_ANON) { setMsg({ t: 'Configuração da nuvem PS ausente (URL/chave pública). Avise o suporte.', ok: false }); return }
     setBusy('zip'); setMsg(null)
-    const exeUrl = `${SB_URL}/storage/v1/object/public/agente/agente-atak.exe`
     try {
-      const resp = await fetch(exeUrl, { cache: 'no-store' })
+      const lr = await authFetch(`/api/agente/instalador?company_id=${encodeURIComponent(empresaUnica)}`, { cache: 'no-store' })
+      const links = (await lr.json().catch(() => ({}))) as { ok?: boolean; exe?: string; nssm?: string; versao?: string | null; error?: string }
+      if (!lr.ok || !links.exe || !links.nssm) throw new Error(links.error || 'Não consegui o link do instalador. Avise o suporte PS.')
+      const resp = await fetch(links.exe, { cache: 'no-store' })
       if (!resp.ok) throw new Error('O instalador (agente-atak.exe) ainda não foi publicado no Storage — rode o build do agente (tag agente-v*). Avise o suporte PS.')
       const exe = await resp.arrayBuffer()
       const mz = new Uint8Array(exe.slice(0, 2)) // um .exe real começa com "MZ" — não zipa um HTML de 404 por engano
@@ -216,9 +220,8 @@ export default function ConectoresIndustrialPage() {
         throw new Error('O arquivo do instalador no Storage não é um executável válido (publicação pendente).')
       }
       // nssm.exe: envelopa o .exe como serviço do Windows (sc.exe nativo não roda um .exe comum como serviço).
-      // Vem do mesmo bucket público 'agente' (publicado pelo CI). Sem ele, instalar.bat falha (RD-41 · erro do Jian).
-      const nssmUrl = `${SB_URL}/storage/v1/object/public/agente/nssm.exe`
-      const nresp = await fetch(nssmUrl, { cache: 'no-store' })
+      // Vem do mesmo bucket 'agente' (publicado pelo CI), também por URL assinada. Sem ele, instalar.bat falha (RD-41 · erro do Jian).
+      const nresp = await fetch(links.nssm, { cache: 'no-store' })
       if (!nresp.ok) throw new Error('O nssm.exe ainda não foi publicado no Storage (bucket agente) — rode o build do agente (tag agente-v*) ou suba o nssm.exe manualmente. Avise o suporte PS.')
       const nssm = await nresp.arrayBuffer()
       const nmz = new Uint8Array(nssm.slice(0, 2)) // MZ = PE válido — não zipa um HTML de 404 por engano
@@ -235,7 +238,7 @@ export default function ConectoresIndustrialPage() {
       zip.file('LEIA-ME.md', LEIA_ME_TEXTO)
       const blob = await zip.generateAsync({ type: 'blob' })
       baixarBlob(blob, `instalador-${slug(dados?.nome ?? 'empresa')}.zip`)
-      setMsg({ t: `Instalador da ${dados?.nome ?? 'empresa'} gerado — envie o .zip pro TI. A senha do SQL o TI digita 1× na máquina (Pilar 2).`, ok: true })
+      setMsg({ t: `Instalador da ${dados?.nome ?? 'empresa'} gerado${links.versao ? ` (agente ${links.versao})` : ''} — envie o .zip pro TI. A senha do SQL o TI digita 1× na máquina (Pilar 2).`, ok: true })
     } catch (e) {
       setMsg({ t: (e as Error).message, ok: false })
     } finally {
