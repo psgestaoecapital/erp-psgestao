@@ -112,25 +112,6 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfse', operacao: 'emissao', endpoint: 'nfse/emitir' } })
     if (negado) return negado
 
-    // TRAVA TEMPORÁRIA #286 (CEO 28/09): a NFS-e ainda não leva as retenções federais (INSS, IR, PIS, COFINS,
-    // CSLL) marcadas no cadastro do serviço — a nota sairia sem elas. Até o #286 entrar no ar, serviço com
-    // retenção marcada NÃO emite. Sai junto com a correção do #286 (e o chamado avisa que pode reemitir).
-    if (body.servicoId) {
-      const { data: svRet } = await supabaseAdmin
-        .from('erp_servicos')
-        .select('retem_inss, retem_ir, retem_pis, retem_cofins, retem_csll')
-        .eq('id', body.servicoId)
-        .eq('company_id', body.companyId)
-        .maybeSingle()
-      if (svRet && (svRet.retem_inss || svRet.retem_ir || svRet.retem_pis || svRet.retem_cofins || svRet.retem_csll)) {
-        return NextResponse.json({
-          ok: false,
-          trava_retencao_286: true,
-          mensagem: 'Este serviço tem retenções federais. A emissão com retenção está sendo corrigida; aguarde a liberação no chamado #286.',
-        }, { status: 400 })
-      }
-    }
-
     // receber-nfse-seletor-servico-v1: quando servicoId vem junto, busca os
     // dados via RPC (servico + tomador) e injeta como overrides confiaveis,
     // alem de devolver mensagens claras (sem "cadastre em /configuracoes/fiscal").
