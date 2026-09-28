@@ -69,10 +69,14 @@ Caminho recomendado (a validar no servidor da rede 20.x, com o Jian):
 - **`.msi`**: [WiX Toolset](https://wixtoolset.org/) ou
   [`electron-builder`/`msi`] empacotando Node + `agent.js` + `node_modules`. Tela
   única pedindo o token; as constantes de plataforma vão embutidas.
-- **Auto-atualização** (scaffold — ainda não ligado): o agente consulta a versão
-  publicada na nuvem no início do ciclo e, se houver nova, baixa e troca o binário
-  (padrão `squirrel`/`electron-updater`, ou um `updater.ps1` disparado pelo serviço).
-  Assim uma melhoria (ex.: novo domínio) chega aos N clientes sem `git pull` manual.
+- **Auto-atualização** (ligada desde a 2.1.x; regra da 2.1.4, CEO 28/09): atualização
+  **nunca para a coleta**. O agente consulta o `versao.json` a cada `PS_UPDATE_HORAS` e o
+  download do `.exe` roda **em segundo plano**, com tempo limite (45 min), enquanto os ciclos
+  seguem coletando. O `.exe` só é aceito com sha256 e cabeçalho MZ conferidos. Download que
+  falha ou estoura o tempo → segue na versão atual e tenta de novo em 1 h. A troca do binário
+  (nssm stop/troca/start, ~20 s, com rollback) acontece **só entre ciclos**, depois do heartbeat.
+  Circuit-breaker (RD-57): a mesma versão-alvo que não "vinga" 3 vezes para de ser tentada.
+  Testes: `npm test` (roda no PR e no build — sem eles verdes, nenhum `.exe` é publicado).
 
 Enquanto o `.msi` não sai, o agente já roda como script agendado — cadastra-se o
 cliente pela tela e roda-se `node agent.js` no servidor certo. Isso já mata o cliente
