@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { exigirLogin, empresasPermitidas, type UsuarioApi } from "@/lib/auth/guardaApi";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+async function handler(req: NextRequest, user: UsuarioApi) {
   try {
     const { company_ids, categoria, tipo, periodo_inicio, periodo_fim } = await req.json();
+    // Lista vazia NÃO é mais "todas as empresas": exige ≥1 e todas do usuário (400/403).
+    const ids = await empresasPermitidas(user, Array.isArray(company_ids) ? company_ids : []);
+    if (ids instanceof NextResponse) return ids;
     const supabase = supabaseAdmin;
 
-    let query = supabase.from("omie_imports").select("*");
-    if (company_ids?.length > 0) query = query.in("company_id", company_ids);
+    let query = supabase.from("omie_imports").select("*").in("company_id", ids);
     
     const importType = tipo === "receita" ? "contas_receber" : "contas_pagar";
     query = query.eq("import_type", importType);
@@ -27,7 +29,7 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
     
     // Load client/supplier names from clientes import
     const clienteNomes: Record<string, string> = {};
-    const { data: clienteImports } = await supabase.from("omie_imports").select("import_data").in("company_id", company_ids).eq("import_type", "clientes");
+    const { data: clienteImports } = await supabase.from("omie_imports").select("import_data").in("company_id", ids).eq("import_type", "clientes");
     if (clienteImports) {
       for (const ci of clienteImports) {
         const clientes = ci.import_data?.clientes_cadastro || ci.import_data?.clientes || [];
@@ -111,4 +113,4 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

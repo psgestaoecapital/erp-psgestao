@@ -4,7 +4,7 @@
 // DELETE /api/compliance/funcionarios/:id          — soft delete (ativo=false)
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas, negar } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 
 function admin() {
@@ -17,7 +17,13 @@ function admin() {
 // Next.js 15+: params é Promise.
 type Ctx = { params: Promise<{ id: string }> }
 
-export const GET = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) => {
+// Empresas REAIS do funcionário: empregadora e (terceirização) tomadora.
+async function empresasDoFuncionario(sb: ReturnType<typeof admin>, id: string) {
+  const { data } = await sb.from('compliance_funcionarios').select('company_id, empresa_tomadora_id').eq('id', id).maybeSingle()
+  return data as { company_id: string; empresa_tomadora_id: string | null } | null
+}
+
+export const GET = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {
   const { id } = await (ctx as Ctx).params
   const sb = admin()
 
@@ -29,6 +35,12 @@ export const GET = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) =
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   if (!funcionario) {
     return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
+  }
+  // Leitura: empregadora OU tomadora (a lista de funcionários já mostra os terceirizados à tomadora).
+  const permitidas = await u.empresas()
+  const f = funcionario as { company_id: string; empresa_tomadora_id?: string | null }
+  if (!permitidas.has(f.company_id) && !(f.empresa_tomadora_id && permitidas.has(f.empresa_tomadora_id))) {
+    return negar(403, 'Sem acesso a esta empresa.')
   }
 
   // Matriz (status por tipo de documento) e documentos ativos.
@@ -61,8 +73,13 @@ export const GET = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) =
   })
 }) as any
 
-export const PATCH = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) => {
+export const PATCH = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {
   const { id } = await (ctx as Ctx).params
+  // Escrita: só quem tem acesso à empregadora (empresa REAL do registro).
+  const atual = await empresasDoFuncionario(admin(), id)
+  if (!atual) return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
+  const negado = await exigirEmpresas(u, [atual.company_id])
+  if (negado) return negado
   const body = await req.json().catch(() => ({}))
   const CAMPOS = [
     'nome_completo', 'cpf', 'rg', 'data_nascimento', 'email', 'telefone',
@@ -86,9 +103,13 @@ export const PATCH = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx)
   return NextResponse.json({ ok: true, funcionario: data })
 }) as any
 
-export const DELETE = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) => {
+export const DELETE = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {
   const { id } = await (ctx as Ctx).params
   const sb = admin()
+  const atual = await empresasDoFuncionario(sb, id)
+  if (!atual) return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
+  const negado = await exigirEmpresas(u, [atual.company_id])
+  if (negado) return negado
   const { error } = await sb
     .from('compliance_funcionarios')
     .update({ ativo: false, data_demissao: new Date().toISOString().slice(0, 10) })

@@ -8,13 +8,13 @@
 // NUNCA loga, retorna ou expoe o token em nenhuma resposta.
 //
 // Auth: x-ping-secret (mesmo padrao das rotas Sicoob) OU sessao de
-// usuario. Sem auth: 401.
+// usuario COM acesso a empresa pedida. Sem auth: 401; sem acesso: 403.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { Buffer } from 'node:buffer'
 import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,16 +37,6 @@ function temSegredoValido(req: NextRequest): boolean {
   return timingSafeEqual(A, B)
 }
 
-function userSupabase(req: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  const auth = req.headers.get('authorization') || ''
-  return createClient(url, anon, {
-    global: { headers: { Authorization: auth } },
-    auth: { persistSession: false },
-  })
-}
-
 async function handle(req: NextRequest) {
   try {
     const url = new URL(req.url)
@@ -57,9 +47,11 @@ async function handle(req: NextRequest) {
     }
 
     if (!temSegredoValido(req)) {
-      const sb = userSupabase(req)
-      const { data: { user } } = await sb.auth.getUser()
-      if (!user) return NextResponse.json({ ok: false, erro: 'nao autenticado' }, { status: 401 })
+      const u = await exigirUsuario(req)
+      if (u instanceof NextResponse) return u
+      // Usa o token da empresa no Vault: só quem tem acesso a ela (ou admin PS).
+      const negado = await exigirEmpresas(u, [company])
+      if (negado) return negado
     }
 
     // Le o token decodificado do Vault (vault.decrypted_secrets — view

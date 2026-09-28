@@ -6,7 +6,7 @@
 // sucesso < 24h ou pendente, devolve a mesma id.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -23,7 +23,7 @@ function limparDoc(s: string): string {
   return (s || '').replace(/\D+/g, '')
 }
 
-export const POST = withAuth(async (req: NextRequest, { userId }) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
   const body = await req.json().catch(() => null)
   if (!body) return fail(400, 'Corpo da requisição inválido.')
 
@@ -36,6 +36,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   const prioridade = Number.isInteger(body.prioridade) ? body.prioridade : 5
 
   if (!company_id) return fail(400, 'company_id é obrigatório.')
+  const negado = await exigirEmpresas(u, [company_id])
+  if (negado) return negado
   if (!ALVO_TIPOS.has(alvo_tipo)) return fail(400, `alvo_tipo inválido. Aceitos: ${Array.from(ALVO_TIPOS).join(', ')}.`)
   if (!PROVEDORES.has(provedor_codigo)) return fail(400, `provedor_codigo inválido. Aceitos: ${Array.from(PROVEDORES).join(', ')}.`)
 
@@ -51,7 +53,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     p_alvo_documento: alvo_documento,
     p_alvo_nome: alvo_nome,
     p_provedor_codigo: provedor_codigo,
-    p_iniciada_por: userId,
+    p_iniciada_por: u.userId,
     p_iniciada_via: 'manual',
     p_prioridade: prioridade,
   })
@@ -78,7 +80,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   })
 })
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const url = new URL(req.url)
   const company_id = url.searchParams.get('company_id')
   const alvo_tipo = url.searchParams.get('alvo_tipo')
@@ -88,6 +90,8 @@ export const GET = withAuth(async (req: NextRequest) => {
   const limit = Math.min(Number(url.searchParams.get('limit') || '50'), 500)
 
   if (!company_id) return fail(400, 'company_id é obrigatório.')
+  const negado = await exigirEmpresas(u, [company_id])
+  if (negado) return negado
 
   let q = supabaseAdmin
     .from('compliance_consultas')

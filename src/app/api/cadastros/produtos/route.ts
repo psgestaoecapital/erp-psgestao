@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -38,11 +38,13 @@ function basicValidate(p: Partial<ProdutoPayload>): string | null {
   return null
 }
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
   try {
     const body = (await req.json()) as ProdutoPayload
     const erro = basicValidate(body)
     if (erro) return NextResponse.json({ ok: false, mensagem: erro }, { status: 400 })
+    const negado = await exigirEmpresas(u, [body.company_id])
+    if (negado) return negado
 
     const { id: _omitId, ...insertable } = body
     void _omitId
@@ -63,7 +65,7 @@ export const POST = withAuth(async (req: NextRequest) => {
   }
 })
 
-export const PATCH = withAuth(async (req: NextRequest) => {
+export const PATCH = exigirLogin(async (req: NextRequest, u) => {
   try {
     const body = (await req.json()) as ProdutoPayload
     if (!body.id) {
@@ -71,6 +73,9 @@ export const PATCH = withAuth(async (req: NextRequest) => {
     }
     const erro = basicValidate(body)
     if (erro) return NextResponse.json({ ok: false, mensagem: erro }, { status: 400 })
+    // O update já filtra .eq('company_id') — basta o usuário ter acesso a essa empresa.
+    const negado = await exigirEmpresas(u, [body.company_id])
+    if (negado) return negado
 
     const { id, company_id, ...updatable } = body
 

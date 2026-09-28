@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas, negar } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
-export const GET = withAuth(async (req: NextRequest, { userId }) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const url = new URL(req.url)
   const unidadeId = url.searchParams.get('unidade_id')
   const periodo = url.searchParams.get('periodo') || 'today'
 
   if (!unidadeId)
     return NextResponse.json({ error: 'unidade_id obrigatorio' }, { status: 400 })
+  // Empresa REAL da unidade.
+  const { data: unidade } = await supabaseAdmin.from('ind_unidades').select('company_id').eq('id', unidadeId).maybeSingle()
+  if (!unidade) return negar(404, 'Unidade não encontrada.')
+  const negado = await exigirEmpresas(u, [unidade.company_id])
+  if (negado) return negado
 
   const hoje = new Date().toISOString().slice(0, 10)
   let dataInicio = hoje

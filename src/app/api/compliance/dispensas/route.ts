@@ -7,7 +7,7 @@
 // status_final='nao_se_aplica'. Soft delete via flag ativo=false.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -17,7 +17,8 @@ function fail(status: number, mensagem_humana: string) {
   return NextResponse.json({ ok: false, error: mensagem_humana, mensagem_humana }, { status })
 }
 
-export const POST = withAuth(async (req: NextRequest, { userId }) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
+  const { userId } = u
   const body = await req.json().catch(() => null)
   if (!body) return fail(400, 'Corpo da requisição inválido.')
 
@@ -30,6 +31,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   if (!company_id || !tipo_documento_id) {
     return fail(400, 'company_id e tipo_documento_id são obrigatórios.')
   }
+  const negado = await exigirEmpresas(u, [company_id])
+  if (negado) return negado
 
   // Tenta reativar dispensa existente; se não existir, insere nova.
   // Filtros NULL precisam de tratamento explícito porque .eq() com null não casa.
@@ -76,7 +79,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   return NextResponse.json({ ok: true, dispensa: nova })
 })
 
-export const DELETE = withAuth(async (req: NextRequest) => {
+export const DELETE = exigirLogin(async (req: NextRequest, u) => {
   const body = await req.json().catch(() => null)
   if (!body) return fail(400, 'Corpo da requisição inválido.')
 
@@ -89,6 +92,16 @@ export const DELETE = withAuth(async (req: NextRequest) => {
   if (!id && !(company_id && tipo_documento_id)) {
     return fail(400, 'Informe id da dispensa ou (company_id + tipo_documento_id).')
   }
+
+  // Por id: vale a empresa REAL da dispensa, nunca a do body.
+  let empresa = company_id
+  if (id) {
+    const { data: disp } = await supabaseAdmin.from('compliance_dispensas').select('company_id').eq('id', id).maybeSingle()
+    if (!disp) return fail(404, 'Dispensa não encontrada.')
+    empresa = (disp as { company_id: string }).company_id
+  }
+  const negado = await exigirEmpresas(u, [empresa])
+  if (negado) return negado
 
   let q = supabaseAdmin.from('compliance_dispensas').update({ ativo: false })
   if (id) {

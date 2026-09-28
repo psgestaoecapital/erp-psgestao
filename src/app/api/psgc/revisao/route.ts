@@ -1,7 +1,7 @@
 // src/app/api/psgc/revisao/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { withAuth } from '@/lib/withAuth';
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -14,6 +14,8 @@ async function handler(req: NextRequest, user: any) {
   if (!companyId) {
     return NextResponse.json({ error: 'company_id obrigatório' }, { status: 400 });
   }
+  const negado = await exigirEmpresas(user, [companyId]);
+  if (negado) return negado;
   
   const supabase = supabaseAdmin;
   
@@ -59,4 +61,4 @@ async function handler(req: NextRequest, user: any) {
   });
 }
 
-export const GET = withAuth(handler);
+export const GET = exigirLogin(handler);

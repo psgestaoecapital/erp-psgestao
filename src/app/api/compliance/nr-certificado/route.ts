@@ -8,7 +8,7 @@
 // Mesmo padrão de compliance/documentos (service role; guarda o path, signed URL na GET).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 
 const MAX_BYTES = 10 * 1024 * 1024
@@ -26,7 +26,7 @@ function uuid(): string {
   return (globalThis.crypto as { randomUUID?: () => string })?.randomUUID?.() ?? Math.random().toString(36).slice(2)
 }
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
   const form = await req.formData().catch(() => null)
   if (!form) return NextResponse.json({ ok: false, error: 'multipart inválido' }, { status: 400 })
 
@@ -36,6 +36,8 @@ export const POST = withAuth(async (req: NextRequest) => {
 
   if (!file) return NextResponse.json({ ok: false, error: 'file obrigatório' }, { status: 400 })
   if (!companyId || !presencaId) return NextResponse.json({ ok: false, error: 'company_id e presenca_id obrigatórios' }, { status: 400 })
+  const negado = await exigirEmpresas(u, [companyId])
+  if (negado) return negado
   if (file.size > MAX_BYTES) return NextResponse.json({ ok: false, error: `arquivo excede ${MAX_BYTES / 1024 / 1024} MB` }, { status: 400 })
   if (!MIME_PERMITIDOS.has(file.type)) return NextResponse.json({ ok: false, error: `tipo não permitido: ${file.type}` }, { status: 400 })
 

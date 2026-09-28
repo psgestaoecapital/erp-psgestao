@@ -1,7 +1,7 @@
 // src/app/api/psgc/linha-negocio/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { withAuth } from '@/lib/withAuth';
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -14,6 +14,8 @@ async function getHandler(req: NextRequest, user: any) {
   if (!companyId) {
     return NextResponse.json({ error: 'company_id obrigatório' }, { status: 400 });
   }
+  const negado = await exigirEmpresas(user, [companyId]);
+  if (negado) return negado;
   
   const supabase = supabaseAdmin;
   
@@ -46,6 +48,8 @@ async function postHandler(req: NextRequest, user: any) {
     if (!company_id || !nome) {
       return NextResponse.json({ error: 'company_id e nome obrigatórios' }, { status: 400 });
     }
+    const negado = await exigirEmpresas(user, [company_id]);
+    if (negado) return negado;
     
     const supabase = supabaseAdmin;
     const { data, error } = await supabase.rpc('fn_psgc_cadastrar_ln', {
@@ -70,5 +74,5 @@ async function postHandler(req: NextRequest, user: any) {
   }
 }
 
-export const GET = withAuth(getHandler);
-export const POST = withAuth(postHandler);
+export const GET = exigirLogin(getHandler);
+export const POST = exigirLogin(postHandler);

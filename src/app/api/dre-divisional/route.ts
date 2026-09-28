@@ -8,7 +8,7 @@
 //   - 'serie_12m'  => + serie dos últimos 12 meses por LN (para gráfico linha)
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -95,7 +95,7 @@ function agregarPorLn(linhas: Linha[]): Linha[] {
   return out
 }
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const url = new URL(req.url)
   const company_id = url.searchParams.get('company_id') || ''
   const anoStr = url.searchParams.get('ano')
@@ -103,6 +103,8 @@ export const GET = withAuth(async (req: NextRequest) => {
   const view_mode = (url.searchParams.get('view_mode') || 'mes') as 'mes' | 'ytd' | 'serie_12m'
 
   if (!company_id) return fail(400, 'company_id é obrigatório.')
+  const negado = await exigirEmpresas(u, [company_id])
+  if (negado) return negado
   if (!anoStr || !mesStr) return fail(400, 'ano e mes são obrigatórios.')
   const ano = Number(anoStr)
   const mes = Number(mesStr)

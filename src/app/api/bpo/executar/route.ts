@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { exigirLogin, exigirEmpresas, type UsuarioApi } from "@/lib/auth/guardaApi";
 import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
@@ -42,11 +42,13 @@ function extractAll(imports: any[]) {
   return { pagar, receber, nomes };
 }
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+async function handler(req: NextRequest, user: UsuarioApi) {
   const startTime = Date.now();
   try {
     const { company_id, modulos } = await req.json();
     if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
+    const negado = await exigirEmpresas(user, [company_id]);
+    if (negado) return negado;
     const supabase = supabaseAdmin;
     const apiKey = process.env.ANTHROPIC_API_KEY;
 
@@ -279,4 +281,4 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

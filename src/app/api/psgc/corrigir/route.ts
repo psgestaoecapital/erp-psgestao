@@ -1,7 +1,7 @@
 // src/app/api/psgc/corrigir/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { withAuth } from '@/lib/withAuth';
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -16,6 +16,8 @@ async function handler(req: NextRequest, user: any) {
         error: 'company_id, origem_codigo e psgc_codigo_correto são obrigatórios' 
       }, { status: 400 });
     }
+    const negado = await exigirEmpresas(user, [company_id]);
+    if (negado) return negado;
     
     const supabase = supabaseAdmin;
     const { data, error } = await supabase.rpc('fn_psgc_corrigir_mapeamento', {
@@ -39,4 +41,4 @@ async function handler(req: NextRequest, user: any) {
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

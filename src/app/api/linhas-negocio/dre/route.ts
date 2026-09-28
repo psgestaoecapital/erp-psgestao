@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 import { applyStandardFilters } from '@/lib/dataFilters'
 import type { DREPorLinha } from '@/types/linhas-negocio'
 
-export const GET = withAuth(async (req: NextRequest, { userId }) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const { searchParams } = new URL(req.url)
   const empresaId = searchParams.get('empresa_id')
   const periodo = searchParams.get('periodo') // 'YYYY-MM'
   if (!empresaId || !periodo) return NextResponse.json({ error: 'empresa_id e periodo obrigatórios' }, { status: 400 })
+  const negado = await exigirEmpresas(u, [empresaId])
+  if (negado) return negado
 
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
   const [ano, mes] = periodo.split('-')

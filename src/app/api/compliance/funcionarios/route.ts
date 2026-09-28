@@ -3,7 +3,7 @@
 // POST /api/compliance/funcionarios  { company_id, nome_completo, cpf?, ... }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 
 function admin() {
@@ -13,7 +13,7 @@ function admin() {
   )
 }
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const url = new URL(req.url)
   const companyIdsParam = url.searchParams.get('company_ids')
   const companyIdParam = url.searchParams.get('company_id')
@@ -22,6 +22,9 @@ export const GET = withAuth(async (req: NextRequest) => {
     : companyIdParam
       ? [companyIdParam]
       : []
+  // Lista vazia NÃO é mais "todas as empresas": exige ≥1 e todas do usuário (400/403).
+  const negado = await exigirEmpresas(u, companyIds)
+  if (negado) return negado
   const q = (url.searchParams.get('q') || '').trim()
   const cargo = url.searchParams.get('cargo')
   const setor = url.searchParams.get('setor')
@@ -33,11 +36,9 @@ export const GET = withAuth(async (req: NextRequest) => {
 
   const sb = admin()
   let query = sb.from('compliance_funcionarios').select('*').order('nome_completo')
-  if (companyIds.length > 0) {
-    // Empregadora (company_id) OU tomadora (empresa_tomadora_id) — terceirização.
-    const idsCsv = companyIds.join(',')
-    query = query.or(`company_id.in.(${idsCsv}),empresa_tomadora_id.in.(${idsCsv})`)
-  }
+  // Empregadora (company_id) OU tomadora (empresa_tomadora_id) — terceirização.
+  const idsCsv = companyIds.join(',')
+  query = query.or(`company_id.in.(${idsCsv}),empresa_tomadora_id.in.(${idsCsv})`)
   if (cargo) query = query.eq('cargo', cargo)
   if (setor) query = query.eq('setor', setor)
   if (empresaTomadora) query = query.eq('empresa_tomadora_nome', empresaTomadora)
@@ -94,7 +95,7 @@ export const GET = withAuth(async (req: NextRequest) => {
   return NextResponse.json({ ok: true, funcionarios })
 })
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
   const body = await req.json().catch(() => ({}))
   if (!body.company_id || !body.nome_completo) {
     return NextResponse.json(
@@ -102,6 +103,8 @@ export const POST = withAuth(async (req: NextRequest) => {
       { status: 400 }
     )
   }
+  const negado = await exigirEmpresas(u, [body.company_id])
+  if (negado) return negado
 
   // Whitelist dos campos aceitos para evitar injeção de colunas não esperadas.
   const CAMPOS = [

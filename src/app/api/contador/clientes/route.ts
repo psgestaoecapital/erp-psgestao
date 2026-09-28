@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 // POST — vincula empresa ao escritório contábil
-export const POST = withAuth(async (req: NextRequest, { userId }) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
+  const { userId } = u
   const { company_id, permissoes } = await req.json()
+  // Só vincula empresa a que o próprio usuário tem acesso — senão o escritório leria QUALQUER
+  // empresa pela API do contador (withContadorAuth usa contador_clientes como lista de acesso).
+  const negado = await exigirEmpresas(u, [company_id])
+  if (negado) return negado
 
   const { data: contador } = await supabaseAdmin
     .from('contadores')
@@ -30,7 +35,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 })
 
 // GET — lista empresas vinculadas ao escritório
-export const GET = withAuth(async (_req: NextRequest, { userId }) => {
+export const GET = exigirLogin(async (_req: NextRequest, { userId }) => {
   const { data: contador } = await supabaseAdmin
     .from('contadores')
     .select('id, escritorio_id')

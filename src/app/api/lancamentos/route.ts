@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 
 const STATUS_EXCL = new Set(['CANCELADO','CANCELADA','ESTORNADO','ESTORNADA','DEVOLVIDO','DEVOLVIDA','ANULADO','ANULADA'])
@@ -84,10 +84,12 @@ function extractFromOmie(imports: any[]): any[] {
   return rows.sort((a, b) => (b.data_lancamento || '').localeCompare(a.data_lancamento || ''))
 }
 
-export const GET = withAuth(async (req: NextRequest, { userId }) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const { searchParams } = new URL(req.url)
   const empresaId = searchParams.get('empresa_id')
   if (!empresaId) return NextResponse.json({ error: 'empresa_id obrigatorio' }, { status: 400 })
+  const negado = await exigirEmpresas(u, [empresaId])
+  if (negado) return negado
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -114,8 +116,11 @@ export const GET = withAuth(async (req: NextRequest, { userId }) => {
   return NextResponse.json({ data: extracted, source: 'omie_imports' })
 })
 
-export const POST = withAuth(async (req: NextRequest, { userId }) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
   const body = await req.json()
+  // Grava na empresa do body (lancamentos e fallback omie_imports) — só se o usuário tem acesso a ela.
+  const negado = await exigirEmpresas(u, [body?.empresa_id])
+  if (negado) return negado
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -123,7 +128,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 
   // Try to insert into lancamentos table
   const { data, error } = await supabase
-    .from('lancamentos').insert({ ...body, created_by: userId }).select().single()
+    .from('lancamentos').insert({ ...body, created_by: u.userId }).select().single()
 
   if (error) {
     // Fallback: save as omie_imports import_csv

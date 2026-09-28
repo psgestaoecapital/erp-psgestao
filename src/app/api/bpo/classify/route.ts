@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { exigirLogin, exigirEmpresas, type UsuarioApi } from "@/lib/auth/guardaApi";
 import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
@@ -17,11 +17,13 @@ function getCategoriaOmie(r: any): string {
   return "";
 }
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+async function handler(req: NextRequest, user: UsuarioApi) {
   const startTime = Date.now();
   try {
     const { company_id } = await req.json();
     if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
+    const negado = await exigirEmpresas(user, [company_id]);
+    if (negado) return negado;
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada" }, { status: 500 });
 
@@ -214,4 +216,4 @@ Classifique cada um. Responda APENAS com o JSON array.`
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

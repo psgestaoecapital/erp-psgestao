@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { exigirLogin, exigirEmpresas, type UsuarioApi } from "@/lib/auth/guardaApi";
 import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export const maxDuration = 120;
 
 function fmtR(v: number) { return `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`; }
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+async function handler(req: NextRequest, user: UsuarioApi) {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada" }, { status: 500 });
@@ -21,6 +21,8 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
 
     if (!question) return NextResponse.json({ error: "Pergunta obrigatória" }, { status: 400 });
     if (!companyId) return NextResponse.json({ error: "Empresa não selecionada" }, { status: 400 });
+    const negado = await exigirEmpresas(user, [companyId]);
+    if (negado) return negado;
 
     const supabase = supabaseAdmin;
 
@@ -297,4 +299,4 @@ ${fileContent ? `\n📎 DOCUMENTO ANEXADO:\n${fileContent}` : ""}
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

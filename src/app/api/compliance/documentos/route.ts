@@ -22,7 +22,7 @@
 // recalcula status_validade e propaga alerta em bpo_inbox_items.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 
 const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
@@ -51,7 +51,8 @@ function uuid(): string {
   return (globalThis.crypto as any)?.randomUUID?.() ?? Math.random().toString(36).slice(2)
 }
 
-export const POST = withAuth(async (req: NextRequest, { userId }) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
+  const { userId } = u
   const form = await req.formData().catch(() => null)
   if (!form) {
     return NextResponse.json({ ok: false, error: 'multipart inválido' }, { status: 400 })
@@ -78,6 +79,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       { status: 400 }
     )
   }
+  const negado = await exigirEmpresas(u, [companyId])
+  if (negado) return negado
   if (!funcionarioId && !empresaAlvoId && !prestadorId) {
     return NextResponse.json(
       { ok: false, error: 'informe funcionario_id, empresa_alvo_id ou prestador_id' },

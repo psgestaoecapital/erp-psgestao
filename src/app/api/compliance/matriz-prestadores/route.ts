@@ -6,7 +6,7 @@
 // onde cada prestador tem o pivot documentos por tipo_slug.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -16,12 +16,14 @@ function fail(status: number, mensagem_humana: string) {
   return NextResponse.json({ ok: false, error: mensagem_humana, mensagem_humana }, { status })
 }
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const url = new URL(req.url)
   const idsParam = url.searchParams.get('company_ids')
   const idParam = url.searchParams.get('company_id')
   const ids = idsParam ? idsParam.split(',').map((s) => s.trim()).filter(Boolean) : (idParam ? [idParam] : [])
   if (ids.length === 0) return fail(400, 'company_id ou company_ids obrigatório.')
+  const negado = await exigirEmpresas(u, ids)
+  if (negado) return negado
   const apenasAtivos = url.searchParams.get('apenas_ativos') !== 'false'
 
   // Tipos categoria=prestador (colunas do grid)
