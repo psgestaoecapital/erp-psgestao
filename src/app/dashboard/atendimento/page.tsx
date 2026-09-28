@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
-import { estadoFila, juntarFila, FILA_LIMITE, type EstadoFila } from '@/lib/sugestoes/filaAtendimento'
+import { estadoFila, carregarFila, contarPrecisaDeMim, type EstadoFila } from '@/lib/sugestoes/filaAtendimento'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -70,13 +70,9 @@ function Inner() {
     setAutorizado(ok)
     if (!ok) return
     // Fila: os mais recentes ORDENADOS + TODOS os rascunhos (regra do CEO: rascunho nunca some da "Precisa de mim").
-    const [rec, ras] = await Promise.all([
-      supabase.from('v_sugestao_fila').select('*').order('created_at', { ascending: false }).limit(FILA_LIMITE),
-      supabase.from('v_sugestao_fila').select('*').eq('resposta_aprovada', false).not('resposta', 'is', null),
-    ])
-    const error = rec.error ?? ras.error
+    const { data, error } = await carregarFila<Item>(supabase)
     if (error) { setErro(error.message); return }
-    setRows(juntarFila((rec.data as Item[]) ?? [], (ras.data as Item[]) ?? []))
+    setRows(data)
   }, [])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -145,7 +141,8 @@ function Inner() {
   // Contadores dos 3 estados sobre a fila inteira (o que o CEO precisa ver ao abrir a tela).
   const cont = useMemo(() => {
     let precisa = 0, semConf = 0, emCurso = 0, terminal = 0
-    for (const r of rows) { const e = estadoFila(r); if (e === 'precisa_mim') precisa++; else if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++; else terminal++ }
+    for (const r of rows) { const e = estadoFila(r); if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++; else if (e === 'terminal') terminal++ }
+    precisa = contarPrecisaDeMim(rows)   // a MESMA conta do cabeçalho "N p/ aprovar" (Central de Melhorias)
     return { precisa, semConf, emCurso, terminal }
   }, [rows])
 

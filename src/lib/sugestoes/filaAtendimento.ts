@@ -28,3 +28,27 @@ export function juntarFila<T extends { id: string }>(recentes: T[], rascunhos: T
   for (const r of rascunhos) porId.set(r.id, r)
   return Array.from(porId.values())
 }
+
+// UMA contagem para os dois lugares (CEO 28/09: o cabeçalho "N p/ aprovar" da Central de Melhorias e a aba
+// "Precisa de mim" da fila têm de mostrar SEMPRE o mesmo número). Os dois leem os rascunhos pela mesma consulta
+// e contam com a mesma regra (estadoFila).
+export const contarPrecisaDeMim = (rows: ItemFila[]) => rows.filter((r) => estadoFila(r) === 'precisa_mim').length
+
+// Consultas da fila (as mesmas no cabeçalho, na tela e no teste de aceitação).
+type ClienteSupabase = { from: (t: string) => any } // eslint-disable-line @typescript-eslint/no-explicit-any
+export async function carregarRascunhos<T extends ItemFila & { id: string }>(sb: ClienteSupabase, colunas = '*'): Promise<{ data: T[]; error: { message: string } | null }> {
+  const r = await sb.from('v_sugestao_fila').select(colunas).eq('resposta_aprovada', false).not('resposta', 'is', null)
+  return { data: (r.data ?? []) as T[], error: r.error ?? null }
+}
+export async function carregarFila<T extends ItemFila & { id: string }>(sb: ClienteSupabase): Promise<{ data: T[]; error: { message: string } | null }> {
+  const [rec, ras] = await Promise.all([
+    sb.from('v_sugestao_fila').select('*').order('created_at', { ascending: false }).limit(FILA_LIMITE),
+    carregarRascunhos<T>(sb),
+  ])
+  const error = rec.error ?? ras.error
+  return { data: error ? [] : juntarFila((rec.data ?? []) as T[], ras.data), error: error ?? null }
+}
+export async function contarPendentesAprovacao(sb: ClienteSupabase): Promise<number> {
+  const { data } = await carregarRascunhos<ItemFila & { id: string }>(sb, 'id,status,resposta,resposta_aprovada,confirmado_pelo_autor')
+  return contarPrecisaDeMim(data)
+}

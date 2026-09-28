@@ -1,39 +1,45 @@
-// Fila de chamados: todo chamado com resposta em rascunho aparece em "Precisa de mim", seja qual for o status
-// (CEO 28/09). O defeito: a tela carregava v_sugestao_fila com limit(300) SEM ordem (319 chamados) — o #286, com
-// rascunho novo e a linha regravada no fim da tabela, ficou de fora. A prova roda as MESMAS consultas da tela sobre
-// os dados reais (só leitura) e confere que nenhum rascunho fica de fora nem cai fora da aba.
+// Fila de chamados (CEO 28/09): o cabeçalho "N p/ aprovar" (Central de Melhorias) mostrava 2 e a aba "Precisa de
+// mim" (Atendimento) mostrava 0 — os dois rascunhos eram o #286 (aguardando_confirmacao) e o #135 (nova). Causa: a
+// fila carregava v_sugestao_fila com limit(300) SEM ordem (319 chamados) e os dois ficavam de fora; o cabeçalho
+// contava por outra consulta. Agora os dois lugares usam as MESMAS funções (filaAtendimento.ts). A prova roda essas
+// funções sobre os dados reais (só leitura), com o cliente Supabase, e exige: cabeçalho == aba, e nenhum rascunho
+// do banco fora da aba.
 
+import { createClient } from '@supabase/supabase-js'
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, registrarJornada } from '../../support/api'
-import { estadoFila, juntarFila, FILA_LIMITE, type ItemFila } from '../../../src/lib/sugestoes/filaAtendimento'
+import { carregarFila, contarPendentesAprovacao, contarPrecisaDeMim, estadoFila, FILA_LIMITE, type ItemFila } from '../../../src/lib/sugestoes/filaAtendimento'
 
 type Linha = ItemFila & { id: string; numero: number }
-const COLS = 'id,numero,status,resposta,resposta_aprovada,confirmado_pelo_autor'
+const sb = () => createClient(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  { auth: { autoRefreshToken: false, persistSession: false } })
 
-test.describe('Fila de chamados · rascunho sempre em "Precisa de mim"', () => {
+test.describe('Fila de chamados · cabeçalho "p/ aprovar" = aba "Precisa de mim"', () => {
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-fila-rascunho-precisa-de-mim', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
 
-  test('caminho principal: a carga da tela traz TODOS os rascunhos, e todos caem em "Precisa de mim"', async () => {
-    // as duas consultas da tela (page.tsx): recentes ordenados + todos os rascunhos
-    const recentes = await dbSelect<Linha>('v_sugestao_fila', `select=${COLS}&order=created_at.desc&limit=${FILA_LIMITE}`)
-    const rascunhos = await dbSelect<Linha>('v_sugestao_fila', `select=${COLS}&resposta_aprovada=eq.false&resposta=not.is.null`)
-    const tela = juntarFila(recentes, rascunhos)
-    // a verdade no banco
-    const todos = await dbSelect<Linha>('sugestoes', `select=${COLS}&resposta_aprovada=eq.false&resposta=not.is.null`)
-    const esperados = todos.filter((r) => (r.resposta ?? '').trim())
-    const naTela = new Map(tela.map((r) => [r.id, r]))
-    const faltando = esperados.filter((r) => !naTela.has(r.id)).map((r) => r.numero)
-    expect(faltando, 'nenhum rascunho fica fora da carga da tela').toEqual([])
-    const foraDaAba = esperados.filter((r) => estadoFila(naTela.get(r.id)!) !== 'precisa_mim').map((r) => r.numero)
-    expect(foraDaAba, 'todo rascunho está na aba "Precisa de mim"').toEqual([])
+  test('caminho principal: o número do cabeçalho é o da aba, e todo rascunho do banco está na aba', async () => {
+    const cliente = sb()
+    const cabecalho = await contarPendentesAprovacao(cliente)                // o que a Central de Melhorias mostra
+    const fila = await carregarFila<Linha>(cliente)                          // o que a fila de atendimento carrega
+    expect(fila.error).toBeNull()
+    const aba = contarPrecisaDeMim(fila.data)                                // o número da aba "Precisa de mim"
+    expect(aba, `cabeçalho ${cabecalho} × aba ${aba}`).toBe(cabecalho)
+
+    // a verdade no banco: todo chamado com resposta escrita e não aprovada, em QUALQUER status
+    const todos = (await dbSelect<Linha>('sugestoes', 'select=id,numero,status,resposta,resposta_aprovada,confirmado_pelo_autor&resposta_aprovada=eq.false&resposta=not.is.null'))
+      .filter((r) => (r.resposta ?? '').trim())
+    const naFila = new Map(fila.data.map((r) => [r.id, r]))
+    expect(todos.filter((r) => !naFila.has(r.id)).map((r) => r.numero), 'nenhum rascunho fora da carga da fila').toEqual([])
+    expect(todos.filter((r) => estadoFila(naFila.get(r.id)!) !== 'precisa_mim').map((r) => r.numero), 'todo rascunho na aba "Precisa de mim"').toEqual([])
+    expect(aba, 'a aba conta exatamente os rascunhos do banco').toBe(todos.length)
   })
 
-  test('a carga não corta chamados: com menos de FILA_LIMITE chamados, a tela traz todos', async () => {
+  test('a carga não corta chamados: com menos de FILA_LIMITE chamados, a fila traz todos', async () => {
     const total = await dbSelect<{ id: string }>('sugestoes', 'select=id')
-    const recentes = await dbSelect<{ id: string }>('v_sugestao_fila', `select=id&order=created_at.desc&limit=${FILA_LIMITE}`)
-    if (total.length <= FILA_LIMITE) expect(recentes.length, 'nenhum chamado some da fila').toBe(total.length)
-    else expect(recentes.length).toBe(FILA_LIMITE)
+    const fila = await carregarFila<Linha>(sb())
+    if (total.length <= FILA_LIMITE) expect(fila.data.length, 'nenhum chamado some da fila').toBe(total.length)
+    else expect(fila.data.length).toBeGreaterThanOrEqual(FILA_LIMITE)
   })
 })

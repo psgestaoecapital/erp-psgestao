@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { contarPendentesAprovacao } from '@/lib/sugestoes/filaAtendimento'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import { BotaoDitar } from '@/components/melhorias/BotaoDitar'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -88,9 +89,8 @@ function Inner() {
     setEhSuporte(sup)
     if (sup) {
       // quantos rascunhos estão esperando aprovação (para o atalho mostrar o número sem precisar abrir a fila)
-      const { count } = await supabase.from('sugestoes').select('id', { count: 'exact', head: true })
-        .not('resposta', 'is', null).eq('resposta_aprovada', false).not('status', 'in', '(arquivada,concluida)')
-      setPendentesFila(count ?? 0)
+      // a MESMA consulta e a MESMA regra da aba "Precisa de mim" da fila (os dois números são sempre iguais)
+      setPendentesFila(await contarPendentesAprovacao(supabase))
     }
     // Lista = os que EU abri (em qualquer empresa, inclusive os antigos "Sem empresa") + os DA EMPRESA
     // selecionada, abertos por colegas (CEO 28/09: quem abre em nome da empresa e quem acompanha veem o mesmo
