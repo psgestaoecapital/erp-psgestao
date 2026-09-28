@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
+import { estadoFila, juntarFila, FILA_LIMITE, type EstadoFila } from '@/lib/sugestoes/filaAtendimento'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -33,14 +34,6 @@ type Item = {
 }
 
 // Três estados que importam para o CEO (em vez de misturar tudo em "em desenvolvimento"):
-const TERMINAIS = ['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada']
-type EstadoFila = 'precisa_mim' | 'sem_confirmacao' | 'em_curso' | 'terminal'
-const estadoFila = (it: { status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean }): EstadoFila => {
-  if (TERMINAIS.includes(it.status)) return 'terminal'
-  if (it.resposta && it.resposta.trim() && !it.resposta_aprovada) return 'precisa_mim'          // ⏳ depende do CEO
-  if (it.resposta_aprovada && !it.confirmado_pelo_autor) return 'sem_confirmacao'               // 📤 esperando o autor
-  return 'em_curso'                                                                             // 🔵 sem resposta ainda
-}
 const diasDesde = (iso: string | null) => iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)) : 0
 
 export default function AtendimentoPage() {
@@ -76,9 +69,14 @@ function Inner() {
     setEhAdmin(['PS_ADMIN', 'PS_ADMIN_CVM'].includes(role))
     setAutorizado(ok)
     if (!ok) return
-    const { data, error } = await supabase.from('v_sugestao_fila').select('*').limit(300)
+    // Fila: os mais recentes ORDENADOS + TODOS os rascunhos (regra do CEO: rascunho nunca some da "Precisa de mim").
+    const [rec, ras] = await Promise.all([
+      supabase.from('v_sugestao_fila').select('*').order('created_at', { ascending: false }).limit(FILA_LIMITE),
+      supabase.from('v_sugestao_fila').select('*').eq('resposta_aprovada', false).not('resposta', 'is', null),
+    ])
+    const error = rec.error ?? ras.error
     if (error) { setErro(error.message); return }
-    setRows((data as Item[]) ?? [])
+    setRows(juntarFila((rec.data as Item[]) ?? [], (ras.data as Item[]) ?? []))
   }, [])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
