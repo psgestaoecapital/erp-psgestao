@@ -369,9 +369,12 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     })
     setBusy(false)
     if (error) { setErro(error.message); return }
-    const r = data as { ok?: boolean; erro?: string; diag_vinculado?: boolean } | null
+    const r = data as { ok?: boolean; erro?: string; os_numero?: string; diag_vinculado?: boolean; aviso?: string | null; estoque_baixado?: boolean } | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao vincular à OS'); return }
-    if (r.diag_vinculado) setMsg('✅ Peça digitada da OS agora aponta para o produto do estoque — pronta para reserva/baixa.')
+    // #257: todo caso em que a peça da OS NÃO foi ligada volta com `aviso` (antes era pulado em silêncio)
+    if (r.diag_vinculado && r.estoque_baixado) setMsg(`✅ Peça da OS ${r.os_numero ?? ''} ligada ao produto e saída de estoque registrada (OS já faturada — valor e título não mudam).`)
+    else if (r.diag_vinculado) setMsg(r.aviso ? `✅ ${r.aviso}` : '✅ Peça digitada da OS agora aponta para o produto do estoque — pronta para reserva/baixa.')
+    else if (r.aviso) setMsg(`⚠️ Nota vinculada à OS ${r.os_numero ?? ''}, mas a peça da OS não foi ligada: ${r.aviso}`)
     setBuscaOS(null); setQOS(''); setResOS([]); setOsSel(null); setDiagLivres([])
     await carregar()
     onChange?.()
