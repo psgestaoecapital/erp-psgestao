@@ -17,6 +17,94 @@
 --     de upload gravar direto no Vault e para a verificação de leitura ler do Vault.
 
 -- ── (1) leitura do Vault por empresa ─────────────────────────────────────────────────────────────────────────
+-- ── (0) auditoria NUNCA guarda segredo (achado 28/09, antes do merge desta PR) ─────────────────────────────
+-- fn_audit_log_trigger gravava a LINHA INTEIRA (antes/depois) em audit_log_global. Em companies isso copiou o
+-- omie_app_secret em ~7.680 linhas desde maio (e 2 do Nibo); a limpeza das colunas logo abaixo (passo 4) teria
+-- copiado de novo. Daqui em diante, qualquer campo com cara de segredo vira "[protegido]" no log — antes e depois.
+-- Referências ao Vault (*_vault_id, *_hash, nome_secret_vault) continuam (não são segredo). O histórico já gravado
+-- NÃO é alterado aqui (decisão do CEO, à parte).
+CREATE OR REPLACE FUNCTION public.fn_audit_redigir(p jsonb)
+ RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path TO 'public', 'extensions', 'pg_temp'
+AS $function$
+  SELECT CASE WHEN p IS NULL OR jsonb_typeof(p) <> 'object' THEN p ELSE (
+    SELECT COALESCE(jsonb_object_agg(k, CASE
+             WHEN k ~* '(secret|token|senha|password|api_key|app_key|private_key|chave_privada|pfx)'
+              AND k !~* '(_vault_id|_hash)$' AND k <> 'nome_secret_vault'
+              AND v <> 'null'::jsonb THEN '"[protegido]"'::jsonb
+             ELSE v END), '{}'::jsonb)
+    FROM jsonb_each(p) AS e(k, v)) END
+$function$;
+REVOKE ALL ON FUNCTION public.fn_audit_redigir(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_audit_redigir(jsonb) TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.fn_audit_log_trigger()
+ RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'extensions', 'pg_temp'
+AS $function$
+DECLARE
+  v_user_id UUID;
+  v_user_email TEXT;
+  v_company_id UUID;
+  v_registro_id TEXT;
+  v_valor_anterior JSONB;
+  v_valor_novo JSONB;
+  -- ADITIVO: campos de infraestrutura cujo diff ISOLADO nao gera auditoria.
+  v_ignore CONSTANT text[] := ARRAY['ultima_sync'];
+BEGIN
+  -- ADITIVO (fix disco): pular UPDATE cujo unico diff sao campos ignorados.
+  IF TG_OP = 'UPDATE'
+     AND (to_jsonb(NEW) - v_ignore) IS NOT DISTINCT FROM (to_jsonb(OLD) - v_ignore)
+  THEN
+    RETURN NEW;
+  END IF;
+
+  v_user_id := auth.uid();
+  IF v_user_id IS NOT NULL THEN
+    SELECT email INTO v_user_email FROM auth.users WHERE id = v_user_id;
+  END IF;
+
+  BEGIN
+    IF TG_OP = 'DELETE' THEN
+      v_company_id := (to_jsonb(OLD)->>'company_id')::UUID;
+      v_registro_id := (to_jsonb(OLD)->>'id')::TEXT;
+      v_valor_anterior := public.fn_audit_redigir(to_jsonb(OLD));
+      v_valor_novo := NULL;
+    ELSIF TG_OP = 'UPDATE' THEN
+      v_company_id := (to_jsonb(NEW)->>'company_id')::UUID;
+      v_registro_id := (to_jsonb(NEW)->>'id')::TEXT;
+      v_valor_anterior := public.fn_audit_redigir(to_jsonb(OLD));
+      v_valor_novo := public.fn_audit_redigir(to_jsonb(NEW));
+    ELSE
+      v_company_id := (to_jsonb(NEW)->>'company_id')::UUID;
+      v_registro_id := (to_jsonb(NEW)->>'id')::TEXT;
+      v_valor_anterior := NULL;
+      v_valor_novo := public.fn_audit_redigir(to_jsonb(NEW));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    v_company_id := NULL;
+    v_registro_id := NULL;
+  END;
+
+  BEGIN
+    INSERT INTO audit_log_global (
+      company_id, user_id, user_email, tabela, registro_id,
+      acao, valor_anterior, valor_novo, created_at
+    ) VALUES (
+      v_company_id, v_user_id, v_user_email, TG_TABLE_NAME, v_registro_id,
+      TG_OP, v_valor_anterior, v_valor_novo, NOW()
+    );
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'Audit log falhou para % %: %', TG_TABLE_NAME, TG_OP, SQLERRM;
+  END;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.fn_audit_log_trigger() FROM PUBLIC, anon;
+
 CREATE OR REPLACE FUNCTION public.fn_credencial_empresa_ler(p_provider text, p_chave text, p_company_id uuid)
  RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public', 'extensions', 'pg_temp'
 AS $function$
@@ -209,6 +297,10 @@ CREATE TRIGGER trg_certificados_bloquear_senha_texto BEFORE INSERT OR UPDATE ON 
 -- guarda final
 DO $$
 BEGIN
+  IF public.fn_audit_redigir('{"omie_app_secret":"x","api_key_vault_id":"y","valor":1}'::jsonb)
+     <> '{"omie_app_secret":"[protegido]","api_key_vault_id":"y","valor":1}'::jsonb THEN
+    RAISE EXCEPTION 'PR E: auditoria ainda gravaria segredo';
+  END IF;
   IF EXISTS (SELECT 1 FROM public.companies WHERE COALESCE(omie_app_key, omie_app_secret, nibo_api_key, nibo_api_secret,
              contaazul_token, contaazul_refresh_token, contaazul_client_secret, '') <> '') THEN
     RAISE EXCEPTION 'PR E: ainda há segredo em companies';

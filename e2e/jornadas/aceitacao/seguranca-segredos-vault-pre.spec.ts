@@ -3,7 +3,7 @@
 // Nenhum teste lê ou transporta valor de segredo — só contagens e permissões.
 
 import { test, expect } from '../../support/fixtures'
-import { dbSelect, obterSessionPayload, registrarJornada } from '../../support/api'
+import { rpc, dbSelect, obterSessionPayload, registrarJornada } from '../../support/api'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
@@ -41,5 +41,21 @@ test.describe('Segurança PR E · segredos no Vault, nunca em coluna nem no nave
       body: JSON.stringify({ p_provider: 'omie', p_chave: 'app_secret', p_company_id: DEMO_GE }),
     })
     expect(r.status, 'logado não executa a leitura do Vault').toBeGreaterThanOrEqual(400)
+  })
+
+  // Achado antes do merge: a auditoria copiava a linha inteira de companies (com o segredo) para audit_log_global.
+  test('auditoria nunca guarda segredo: campo de segredo vira [protegido], referência ao Vault fica', { tag: '@pos-migration' }, async () => {
+    const r = await rpc<Record<string, unknown>>('fn_audit_redigir', {
+      p: { omie_app_secret: 'teste-nao-e-segredo', contaazul_token: 'x', api_key_vault_id: 'ref', nome: 'Empresa' },
+    })
+    expect(r.omie_app_secret, 'segredo protegido').toBe('[protegido]')
+    expect(r.contaazul_token, 'token protegido').toBe('[protegido]')
+    expect(r.api_key_vault_id, 'referência ao Vault continua').toBe('ref')
+    expect(r.nome, 'campo comum continua').toBe('Empresa')
+    // a própria limpeza das colunas (passo 4 da migration) não pode ter deixado segredo no log
+    const desde = new Date(Date.now() - 6 * 3600 * 1000).toISOString()
+    const vazou = await dbSelect<{ id: number }>('audit_log_global',
+      `select=id&tabela=eq.companies&created_at=gte.${desde}&or=(valor_anterior->>omie_app_secret.not.in.("[protegido]"),valor_novo->>omie_app_secret.not.in.("[protegido]"))&limit=5`)
+    expect(vazou, 'nenhuma linha nova de companies com o segredo do Omie no log').toEqual([])
   })
 })
