@@ -4,11 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "tsx scripts/check-modelo-estoque.ts && tsx scripts/check-modelo-cadastros.ts && next build",
+    "build": "tsx scripts/check-modelo-estoque.ts && tsx scripts/check-modelo-cadastros.ts && tsx scripts/check-retencoes-nfse.ts && next build",
     "start": "next start",
     "lint": "eslint",
     "check:modelo-estoque": "tsx scripts/check-modelo-estoque.ts",
     "check:modelo-cadastros": "tsx scripts/check-modelo-cadastros.ts",
+    "check:retencoes-nfse": "tsx scripts/check-retencoes-nfse.ts",
     "auditor:run": "tsx scripts/auditor-playwright.ts",
     "check:menu": "tsx scripts/check-menu-rotas.ts",
     "check:fn-guards": "tsx scripts/check-fn-guards.ts",

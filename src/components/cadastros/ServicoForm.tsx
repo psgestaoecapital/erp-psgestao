@@ -33,6 +33,7 @@ export interface Servico {
   pct_desconto: number | null
   aliquota_pis: number | null; retem_pis: boolean | null
   aliquota_cofins: number | null; retem_cofins: boolean | null
+  cst_pis_cofins?: string | null
   aliquota_ir: number | null; retem_ir: boolean | null
   aliquota_csll: number | null; retem_csll: boolean | null
   aliquota_inss: number | null; retem_inss: boolean | null
@@ -94,6 +95,7 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
   // Aba Federais
   const [aliqPis, setAliqPis] = useState(String(servico?.aliquota_pis ?? '0'));   const [retemPis, setRetemPis] = useState(!!servico?.retem_pis)
   const [aliqCof, setAliqCof] = useState(String(servico?.aliquota_cofins ?? '0')); const [retemCof, setRetemCof] = useState(!!servico?.retem_cofins)
+  const [cstPisCofins, setCstPisCofins] = useState(servico?.cst_pis_cofins ?? '')
   const [aliqIr, setAliqIr]  = useState(String(servico?.aliquota_ir ?? '0'));     const [retemIr, setRetemIr]   = useState(!!servico?.retem_ir)
   const [aliqCsll, setAliqCsll] = useState(String(servico?.aliquota_csll ?? '0')); const [retemCsll, setRetemCsll] = useState(!!servico?.retem_csll)
   const [aliqInss, setAliqInss] = useState(String(servico?.aliquota_inss ?? '0')); const [retemInss, setRetemInss] = useState(!!servico?.retem_inss)
@@ -216,6 +218,8 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
         pct_desconto: num(pctDesc),
         aliquota_pis: num(aliqPis),   retem_pis: retemPis,
         aliquota_cofins: num(aliqCof), retem_cofins: retemCof,
+        // #286: só envia quando a coluna existe (servico já veio com ela) ou o usuário preencheu
+        ...((servico && 'cst_pis_cofins' in servico) || cstPisCofins.trim() ? { cst_pis_cofins: cstPisCofins.trim() || null } : {}),
         aliquota_ir: num(aliqIr),     retem_ir: retemIr,
         aliquota_csll: num(aliqCsll), retem_csll: retemCsll,
         aliquota_inss: num(aliqInss), retem_inss: retemInss,
@@ -378,8 +382,13 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
               <LinhaFederal label="IR"     aliq={aliqIr}   setAliq={setAliqIr}   retem={retemIr}   setRetem={setRetemIr} />
               <LinhaFederal label="CSLL"   aliq={aliqCsll} setAliq={setAliqCsll} retem={retemCsll} setRetem={setRetemCsll} />
               <LinhaFederal label="INSS"   aliq={aliqInss} setAliq={setAliqInss} retem={retemInss} setRetem={setRetemInss} />
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <Campo label="CST do PIS/COFINS (2 dígitos)" value={cstPisCofins} onChange={setCstPisCofins} placeholder="ex.: 01 — confirme com o contador" mono />
+              </div>
               <p className="text-[11px] text-[#3D2314]/55 pt-1">
-                Tributos federais e retenções na fonte. Aplicáveis quando o tomador ou regime exigir.
+                Tributos federais e retenções na fonte. Aplicáveis quando o tomador ou regime exigir. Na NFS-e Nacional, o
+                PIS/COFINS de apuração própria e as retenções de PIS/COFINS/CSLL só vão para a nota com o CST preenchido;
+                INSS e IR retidos vão sempre que marcados.
               </p>
             </div>
           )}
@@ -421,7 +430,7 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
                 <div className="grid grid-cols-2 gap-3">
                   <Campo label="CST (RT) · manual" value={rtCst} onChange={setRtCst} placeholder="ex: 000" mono />
                   <Campo label="Classificação tributária (cClassTrib · auto)" value={rtClass} onChange={setRtClass} placeholder="do NBS" mono />
-                  <Campo label="Indicador de operação (indOpRT · auto)" value={rtIndOp} onChange={setRtIndOp} placeholder="do NBS" mono />
+                  <Campo label="Indicador de operação (cIndOp · 6 dígitos, Anexo C)" value={rtIndOp} onChange={setRtIndOp} placeholder="do NBS" mono />
                   <span />
                   <Campo label="Alíq. IBS Municipal (%)" value={rtIbsM} onChange={setRtIbsM} placeholder="0" />
                   <Campo label="Alíq. IBS Estadual (%)" value={rtIbsE} onChange={setRtIbsE} placeholder="0" />

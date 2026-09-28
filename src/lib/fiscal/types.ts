@@ -101,7 +101,16 @@ export interface NFSeRequest {
     indicadorDestinatario?: number | null    // indDest (0 = tomador é o destinatário · 1 = outro)
     ibsCbsCst?: string | null                // ibs_cbs_situacao_tributaria (CST · String[3])
     ibsCbsClassifTrib?: string | null        // ibs_cbs_classificacao_tributaria (cClassTrib · String[6])
+    codigoIndicadorOperacao?: string | null  // codigo_indicador_operacao (cIndOp · 6 díg., Anexo C — E0901)
   }
+  // #286 · retenções federais e apuração própria de PIS/COFINS (calcularRetencoesFederais — a mesma conta da tela).
+  retencoesFederais?: {
+    valorCp: number                // valor_cp (vRetCP) — INSS retido
+    valorIrrf: number              // valor_irrf (vRetIRRF)
+    valorRetCsllAgrupado: number   // valor_csll (vRetCSLL) — PIS+COFINS+CSLL retidos
+    tipoRetencaoPisCofins: number  // tipo_retencao_pis_cofins (tpRetPisCofins 0..9)
+  }
+  apuracaoPisCofins?: { cst: string; base: number; aliqPis: number; aliqCofins: number; valorPis: number; valorCofins: number }
 }
 
 export interface NFSeResponse {

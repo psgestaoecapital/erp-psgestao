@@ -195,6 +195,33 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
     if (rt.indicadorDestinatario != null) p.indicador_destinatario = rt.indicadorDestinatario
     if (rt.ibsCbsCst != null && String(rt.ibsCbsCst).trim() !== '') p.ibs_cbs_situacao_tributaria = String(rt.ibsCbsCst).trim()
     if (rt.ibsCbsClassifTrib != null && String(rt.ibsCbsClassifTrib).trim() !== '') p.ibs_cbs_classificacao_tributaria = String(rt.ibsCbsClassifTrib).trim()
+    if (rt.codigoIndicadorOperacao != null && String(rt.codigoIndicadorOperacao).trim() !== '') p.codigo_indicador_operacao = String(rt.codigoIndicadorOperacao).trim()
+  }
+  // #286 · tributos federais (grupo tribFed da DPS). Campos PLANOS na raiz, nomes da Focus conferidos com o
+  // leiaute oficial (Anexo I v1.01, linhas 314–323). Só entram quando há o que informar:
+  //   valor_cp (vRetCP · INSS retido) · valor_irrf (vRetIRRF) · valor_csll (vRetCSLL = PIS+COFINS+CSLL retidos)
+  //   tipo_retencao_pis_cofins (tpRetPisCofins) — com 0 NÃO se informa valor_csll (E0720).
+  const rf = req.retencoesFederais
+  if (rf) {
+    if (rf.valorCp > 0) p.valor_cp = rf.valorCp
+    if (rf.valorIrrf > 0) p.valor_irrf = rf.valorIrrf
+    // tpRetPisCofins/vRetCSLL são do grupo piscofins (exige CST): a rota só chega aqui com tipo>0 se houver CST.
+    if (rf.tipoRetencaoPisCofins > 0 && req.apuracaoPisCofins) {
+      p.tipo_retencao_pis_cofins = rf.tipoRetencaoPisCofins
+      if (rf.valorRetCsllAgrupado > 0) p.valor_csll = rf.valorRetCsllAgrupado
+    }
+  }
+  // Apuração PRÓPRIA de PIS/COFINS (vPis/vCofins = base × alíquota — E0694/E0696). Só com CST (linha 314).
+  const ap = req.apuracaoPisCofins
+  if (ap) {
+    p.situacao_tributaria_pis_cofins = ap.cst
+    p.base_calculo_pis_cofins = ap.base
+    p.aliquota_pis = ap.aliqPis
+    p.aliquota_cofins = ap.aliqCofins
+    p.valor_pis = ap.valorPis
+    p.valor_cofins = ap.valorCofins
+    // o grupo piscofins leva tpRetPisCofins mesmo sem retenção (0 = nenhuma retida)
+    if (p.tipo_retencao_pis_cofins == null) p.tipo_retencao_pis_cofins = 0
   }
   return p
 }
