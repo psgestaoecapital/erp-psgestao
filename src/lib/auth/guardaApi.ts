@@ -11,6 +11,7 @@ export type UsuarioApi = { userId: string; token: string; maquina?: boolean }
 export type OpcoesGuarda = {
   admin?: boolean // exige is_admin() (ferramentas internas PS)
   cron?: boolean  // aceita também Bearer <CRON_SECRET> (chamada máquina-a-máquina)
+  servico?: boolean // aceita também Bearer <service_role> — o pg_cron/pg_net do banco só tem a service key no Vault
 }
 
 export type ContextoGuarda = UsuarioApi & { empresas: () => Promise<Set<string>> }
@@ -39,6 +40,13 @@ function clienteAnon(token?: string): SupabaseClient {
 // Mesmo padrão de /api/cron/*: Vercel Cron / rota interna manda Authorization: Bearer <CRON_SECRET>.
 export function ehChamadaCron(req: Request): boolean {
   const s = process.env.CRON_SECRET
+  return !!s && req.headers.get('authorization') === `Bearer ${s}`
+}
+
+// pg_cron → pg_net chama rotas do app com a service key (Vault SUPABASE_SERVICE_ROLE_KEY_FOR_WORKER): mesmo padrão
+// de /api/cron/ponto-diario. Só vale onde a rota pede { servico: true }.
+export function ehChamadaServico(req: Request): boolean {
+  const s = process.env.SUPABASE_SERVICE_ROLE_KEY
   return !!s && req.headers.get('authorization') === `Bearer ${s}`
 }
 
@@ -99,6 +107,7 @@ export async function empresasPermitidas(
 // Uso inline (sem reindentar o handler): `const u = await exigirUsuario(req); if (u instanceof NextResponse) return u`
 export async function exigirUsuario(req: Request, opts: OpcoesGuarda = {}): Promise<UsuarioApi | NextResponse> {
   if (opts.cron && ehChamadaCron(req)) return { userId: 'cron', token: '', maquina: true }
+  if (opts.servico && ehChamadaServico(req)) return { userId: 'servico', token: '', maquina: true }
   const u = await usuarioDaRequisicao(req)
   if (!u) return negar(401, MSG_401)
   if (opts.admin && !(await ehAdminPS(u.token))) return negar(403, MSG_403_ADMIN)
