@@ -1,10 +1,15 @@
 // Fila de chamados (/dashboard/atendimento) — regras puras, testadas no build (scripts/check-fila-atendimento.ts).
 //
-// Regra do CEO (28/09): chamado com resposta em RASCUNHO (escrita e não aprovada) aparece em "Precisa de mim",
-// SEJA QUAL FOR O STATUS. Antes o status terminal vinha primeiro, e a tela ainda carregava só 300 linhas sem ordem —
-// um rascunho novo no #286 (status 'aguardando_confirmacao', linha regravada no fim da tabela) sumiu da fila.
+// Regra do CEO (28/09, ajustada): "Precisa de mim" = resposta escrita e NÃO aprovada, em chamado ABERTO (qualquer
+// status, menos concluído e arquivado). O cabeçalho "N p/ aprovar" usa exatamente a mesma regra (contarPrecisaDeMim).
+// Rascunho em chamado já encerrado NÃO some (RD-30 — nada é apagado): fica no histórico do chamado marcado
+// "rascunho não enviado — chamado já encerrado" e fora da fila; se o chamado for reaberto, volta sozinho para a aba.
+// Antes: o status terminal vinha primeiro e a tela carregava só 300 linhas sem ordem — o #286 (aguardando) e o #135
+// (nova) sumiram da aba enquanto o cabeçalho, por outra consulta, contava 2.
 
 export const TERMINAIS = ['concluida', 'concluido', 'resolvida', 'implementado', 'recusada', 'duplicada', 'arquivada']
+// encerrado para efeito de rascunho: concluído ou arquivado (CEO) — os demais status contam como aberto
+export const ENCERRADOS = ['concluida', 'concluido', 'arquivada']
 export type EstadoFila = 'precisa_mim' | 'sem_confirmacao' | 'em_curso' | 'terminal'
 
 export interface ItemFila { status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean }
@@ -12,8 +17,14 @@ export interface ItemFila { status: string; resposta: string | null; resposta_ap
 export const temRascunho = (it: Pick<ItemFila, 'resposta' | 'resposta_aprovada'>) =>
   !!(it.resposta && it.resposta.trim()) && !it.resposta_aprovada
 
+export const chamadoEncerrado = (it: Pick<ItemFila, 'status'>) => ENCERRADOS.includes(it.status)
+
+// Rascunho que nunca foi enviado e cujo chamado já encerrou — rótulo no histórico, fora da fila.
+export const RASCUNHO_NAO_ENVIADO = 'Rascunho não enviado — chamado já encerrado'
+export const rascunhoNaoEnviado = (it: ItemFila) => temRascunho(it) && chamadoEncerrado(it)
+
 export function estadoFila(it: ItemFila): EstadoFila {
-  if (temRascunho(it)) return 'precisa_mim'                                     // ⏳ depende do CEO — qualquer status
+  if (temRascunho(it) && !chamadoEncerrado(it)) return 'precisa_mim'           // ⏳ depende do CEO — chamado aberto
   if (TERMINAIS.includes(it.status)) return 'terminal'
   if (it.resposta_aprovada && !it.confirmado_pelo_autor) return 'sem_confirmacao' // 📤 esperando o autor
   return 'em_curso'                                                              // 🔵 sem resposta ainda

@@ -3,7 +3,7 @@
  * seja qual for o status; e a carga da fila nunca deixa um rascunho de fora.
  *   tsx scripts/check-fila-atendimento.ts
  */
-import { estadoFila, juntarFila, carregarFila, contarPendentesAprovacao, contarPrecisaDeMim } from '../src/lib/sugestoes/filaAtendimento'
+import { estadoFila, juntarFila, carregarFila, contarPendentesAprovacao, contarPrecisaDeMim, rascunhoNaoEnviado } from '../src/lib/sugestoes/filaAtendimento'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }
@@ -11,8 +11,10 @@ const base = { resposta: 'texto', resposta_aprovada: false, confirmado_pelo_auto
 
 ok(estadoFila({ ...base, status: 'aguardando_confirmacao' }) === 'precisa_mim', 'caso #286: rascunho novo em chamado "aguardando confirmação" → Precisa de mim')
 ok(estadoFila({ ...base, status: 'nova' }) === 'precisa_mim', 'rascunho em chamado novo → Precisa de mim')
-ok(estadoFila({ ...base, status: 'concluida' }) === 'precisa_mim', 'rascunho em chamado concluído → Precisa de mim (qualquer status)')
-ok(estadoFila({ ...base, status: 'arquivada' }) === 'precisa_mim', 'rascunho em chamado arquivado → Precisa de mim (qualquer status)')
+ok(estadoFila({ ...base, status: 'concluida' }) === 'terminal' && rascunhoNaoEnviado({ ...base, status: 'concluida' }), 'rascunho em chamado concluído → fora da fila, marcado "rascunho não enviado"')
+ok(estadoFila({ ...base, status: 'arquivada' }) === 'terminal' && rascunhoNaoEnviado({ ...base, status: 'arquivada' }), 'rascunho em chamado arquivado → fora da fila, marcado "rascunho não enviado"')
+ok(estadoFila({ ...base, status: 'em_analise' }) === 'precisa_mim' && !rascunhoNaoEnviado({ ...base, status: 'em_analise' }), 'chamado reaberto: o mesmo rascunho volta para Precisa de mim')
+ok(estadoFila({ ...base, status: 'recusada' }) === 'precisa_mim', 'rascunho em chamado recusado (aberto para o CEO: só concluído/arquivado encerram) → Precisa de mim')
 ok(estadoFila({ ...base, resposta: '   ', status: 'nova' }) === 'em_curso', 'resposta em branco não é rascunho')
 ok(estadoFila({ ...base, resposta_aprovada: true, status: 'aguardando_confirmacao' }) === 'sem_confirmacao', 'aprovada e não confirmada → Aguardando o autor')
 ok(estadoFila({ ...base, resposta_aprovada: true, status: 'concluida' }) === 'terminal', 'aprovada e concluída → Concluídas')
@@ -48,7 +50,8 @@ function fake(limite: number) {
   const cab = await contarPendentesAprovacao(sb)
   const fila = await carregarFila<Row>(sb)
   const aba = contarPrecisaDeMim(fila.data)
-  ok(cab === 3 && aba === 3, `cabeçalho (${cab}) = aba "Precisa de mim" (${aba}) = 3 rascunhos (#286 aguardando, #135 nova, #1 concluída)`)
+  ok(cab === 2 && aba === 2, `cabeçalho (${cab}) = aba "Precisa de mim" (${aba}) = 2 rascunhos em chamados abertos (#286 aguardando, #135 nova; #1 concluída fica fora)`)
+  ok(fila.data.some((r) => r.numero === 1 && rascunhoNaoEnviado(r)), '#1 (concluída) continua carregado, marcado "rascunho não enviado"')
   ok(fila.data.some((r) => r.numero === 286) && fila.data.some((r) => r.numero === 135), '#286 e #135 estão na carga da fila mesmo fora dos recentes')
   if (falhas > 0) { console.error(`\n[check-fila-atendimento] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-fila-atendimento] fila de chamados conferida.')

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
-import { estadoFila, carregarFila, contarPrecisaDeMim, type EstadoFila } from '@/lib/sugestoes/filaAtendimento'
+import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, type EstadoFila } from '@/lib/sugestoes/filaAtendimento'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -324,7 +324,7 @@ function Inner() {
                     return (
                       <div style={{ fontSize: 12.5, marginTop: 10, background: it.resposta_aprovada ? C.greenBg : C.amberBg, border: `1px solid ${it.resposta_aprovada ? '#BFE3C4' : '#F0DDB0'}`, padding: '8px 10px', borderRadius: 8 }}>
                         <div style={{ fontSize: 10.5, fontWeight: 700, color: it.resposta_aprovada ? C.green : C.amber, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>
-                          {it.resposta_aprovada ? '✓ Resposta enviada ao autor' : 'Resposta escrita — aguardando aprovação'}
+                          {it.resposta_aprovada ? '✓ Resposta enviada ao autor' : rascunhoNaoEnviado(it) ? RASCUNHO_NAO_ENVIADO : 'Resposta escrita — aguardando aprovação'}
                         </div>
                         <div style={{ color: C.esp }}>{it.resposta}</div>
                         {/* quem REDIGIU × quem APROVOU — o CEO precisa ver o que está aprovando e quem escreveu;
@@ -333,7 +333,12 @@ function Inner() {
                           Rascunho escrito {it.resposta_origem === 'assistente' ? <b>pelo assistente (IA)</b> : it.redator_nome ? <>por <b>{it.redator_nome}</b></> : 'manualmente'}
                           {it.resposta_aprovada && it.aprovador_nome ? <> · aprovado por <b>{it.aprovador_nome}</b></> : ''}
                         </div>
-                        {!it.resposta_aprovada && (
+                        {rascunhoNaoEnviado(it) && (
+                          <div data-testid="rascunho-nao-enviado" style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>
+                            Fica aqui no histórico e fora da fila. Se o chamado for reaberto, o rascunho volta para &quot;Precisa de mim&quot;.
+                          </div>
+                        )}
+                        {!it.resposta_aprovada && !rascunhoNaoEnviado(it) && (
                           <>
                             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                               {ehAdmin
