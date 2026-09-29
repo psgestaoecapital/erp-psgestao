@@ -73,3 +73,17 @@ export function soVinculadas(arvore: NoGerencial[]): NoGerencial[] {
   const comVinculo = arvore.filter((n) => n.contabeis.length > 0).map((n) => n.codigo)
   return arvore.filter((n) => n.contabeis.length > 0 || comVinculo.some((c) => c.startsWith(n.codigo + '.')))
 }
+
+// Cartões do topo (CEO 29/09 · FC): "Contas gerenciais" conta CONTAS, não linhas. fn_plano_contas_relatorio devolve uma
+// linha por vínculo, então a gerencial com 5 contábeis aparecia 5 vezes (FC: 121 em vez de 34).
+export interface KpisRelatorioPlano { gerenciais: number; contabeis: number; vinculadas: number; orfas: number }
+export function contarKpis(linhas: LinhaRelatorioPlano[]): KpisRelatorioPlano {
+  const ger = new Set<string>()
+  let vinculadas = 0, orfas = 0
+  for (const l of linhas) {
+    if (l.origem === 'contabil_sem_vinculo') { orfas++; continue }
+    if (l.ger_codigo) ger.add(l.ger_codigo)
+    if (l.cont_codigo) vinculadas++
+  }
+  return { gerenciais: ger.size, contabeis: vinculadas + orfas, vinculadas, orfas }
+}

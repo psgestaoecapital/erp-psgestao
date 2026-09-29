@@ -5,7 +5,7 @@
  *   tsx scripts/check-relatorio-plano.ts
  */
 import { readFileSync } from 'node:fs'
-import { compararCodigo, montarRelatorioPlano, soVinculadas, type LinhaRelatorioPlano } from '../src/lib/contabil/relatorioPlano'
+import { compararCodigo, contarKpis, montarRelatorioPlano, soVinculadas, type LinhaRelatorioPlano } from '../src/lib/contabil/relatorioPlano'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }
@@ -36,6 +36,11 @@ ok(r.arvore.find((n) => n.codigo === '1.01')!.contabeis.length === 0, 'gerencial
 ok(r.pendentes.map((c) => c.codigo).join(' ') === '5.01.01.03.00008 5.01.01.06.00006', 'pendentes separadas e ordenadas, fora da árvore')
 ok(soVinculadas(r.arvore).map((n) => n.codigo).join(' ') === '2 2.02', '"Só vinculadas" mantém o totalizador do caminho')
 
+// 2b) cartões: "Contas gerenciais" conta contas distintas, não linhas (FC: 121 linhas → 34 contas)
+const k = contarKpis(linhas)
+ok(k.gerenciais === 4 && linhas.filter((x) => x.origem === 'gerencial').length > 4, 'cartão "Contas gerenciais" = contas distintas (4), não o nº de linhas')
+ok(k.vinculadas === 2 && k.orfas === 2 && k.contabeis === 4, 'cartões de contábeis: vinculadas + sem vínculo')
+
 // 3) a tela: árvore primeiro, pendentes no fim, sem a frase por linha, sem cinza-claro/laranja no corpo, preto na impressão
 const pg = readFileSync('src/app/dashboard/cadastros/plano-contas/relatorio/page.tsx', 'utf8')
 const corpo = pg.slice(pg.indexOf('id="relatorio-plano"'))
@@ -45,6 +50,7 @@ ok(!pg.includes('conta contábil sem conta gerencial</span>'), 'a frase não se 
 ok(!/laranjaAlerta/.test(pg), 'nada de laranja no relatório')
 ok(!/rgba\(61,\s*35,\s*20,\s*0\.[0-6]\d*\)'\s*[,}]/.test(corpo.replace(/border[^,}]*/g, '')), 'nenhum texto em espresso translúcido (cinza-claro) no corpo')
 ok(pg.includes('body *{color:#000!important}'), 'na impressão todo texto sai em preto')
+ok(pg.includes('useMemo(() => contarKpis(linhas), [linhas])'), 'a tela usa contarKpis nos cartões')
 
 if (falhas > 0) { console.error(`\n[check-relatorio-plano] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-relatorio-plano] relatório gerencial × contábil conferido.')

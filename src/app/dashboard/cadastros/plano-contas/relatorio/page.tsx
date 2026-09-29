@@ -14,7 +14,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { PSGC_COLORS, PSGC_RADIUS } from '@/lib/psgc-tokens'
-import { montarRelatorioPlano, soVinculadas, type LinhaRelatorioPlano } from '@/lib/contabil/relatorioPlano'
+import { contarKpis, montarRelatorioPlano, soVinculadas, type LinhaRelatorioPlano } from '@/lib/contabil/relatorioPlano'
 
 export const dynamic = 'force-dynamic'
 
@@ -119,12 +119,8 @@ export default function Page() {
     finally { setImpBusy(false); if (fileRef.current) fileRef.current.value = '' }
   }
 
-  const kpis = useMemo(() => {
-    const gerenciais = linhas.filter((l) => l.origem === 'gerencial').length
-    const vinculadas = linhas.filter((l) => l.origem === 'gerencial' && l.cont_codigo).length
-    const orfas = linhas.filter((l) => l.origem === 'contabil_sem_vinculo').length
-    return { gerenciais, vinculadas, orfas, contabeis: vinculadas + orfas }
-  }, [linhas])
+  // contas, não linhas: a gerencial com N contábeis vem em N linhas (FC mostrava 121 em vez de 34)
+  const kpis = useMemo(() => contarKpis(linhas), [linhas])
 
   const rel = useMemo(() => montarRelatorioPlano(linhas), [linhas])
   const linhasFiltradas = useMemo(() => linhas.filter((l) => l.origem === 'contabil_sem_vinculo'), [linhas])
@@ -197,7 +193,7 @@ export default function Page() {
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
-              <PSGCMetric label="Contas gerenciais" valor={kpis.gerenciais} cor={C.espresso} />
+              <div data-testid="kpi-gerenciais"><PSGCMetric label="Contas gerenciais" valor={kpis.gerenciais} cor={C.espresso} /></div>
               <PSGCMetric label="Contas contábeis analíticas" valor={kpis.contabeis} cor={C.espresso} />
               <PSGCMetric label="Vinculadas" valor={kpis.vinculadas} cor={C.baixa} />
               <PSGCMetric label="Sem vínculo" valor={kpis.orfas} cor={kpis.orfas > 0 ? C.alta : C.baixa} destaque={kpis.orfas > 0} />
