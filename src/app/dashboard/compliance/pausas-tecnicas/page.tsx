@@ -7,10 +7,13 @@
 //   CONFIGURAÇÃO  = regras editáveis (base legal) + elegíveis (por função/manual)
 // Realizado agora VEM do upload (ind_ponto_pausa). Dia sem planilha importada NÃO é dia sem pausa (RD-51).
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import { CSS_IMPRESSAO } from '@/lib/ponto/impressaoDocumento'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { frasesPausasCurtas, frasesExcesso, type PausaDia } from '@/lib/ponto/supervisaoFrases'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
+import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, type Marca, type PapelMarca, type LinhaPausaDia } from '@/lib/ponto/pausasMarcas'
 import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
 
 const C = {
@@ -384,10 +387,10 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
     if (p.fim_origem === 'confirmado_manual') return <span><span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span> <b style={{ color: C.espresso }}>(confirmado)</b></span>
     return <span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span>
   }
-  return (
-    <div onClick={onClose} style={modalBg()}>
-      <style>{`@media print { body { visibility: hidden !important } #ciencia-doc-print, #ciencia-doc-print * { visibility: visible !important } #ciencia-doc-print { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important } .no-print { display: none !important } @page { size: A4; margin: 14mm } }`}</style>
-      <div onClick={e => e.stopPropagation()} id="ciencia-doc-print" style={{ ...modalCard(), maxWidth: 720, maxHeight: '86vh', overflowY: 'auto' }}>
+  return createPortal(
+    <div onClick={onClose} style={modalBg()} className="ps-print-portal" data-testid="ciencia-doc-modal">
+      <style>{CSS_IMPRESSAO}</style>
+      <div onClick={e => e.stopPropagation()} id="ciencia-doc-print" className="ps-print-doc" style={{ ...modalCard(), maxWidth: 720, maxHeight: '86vh', overflowY: 'auto' }}>
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: C.gray, textTransform: 'uppercase', letterSpacing: 1 }}>Relatório de ciência mensal</div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -424,7 +427,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                 {nEst} pausa(s) deste período tiveram o horário de término estimado por falta de registro de saída. A estimativa considera a duração padrão de 20 minutos e não substitui o registro.
               </div>
             )}
-            <div style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
+            <div className="ps-print-assinatura" data-testid="ciencia-assinatura" style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
               {doc.status === 'assinado' ? (
                 <div style={{ color: C.green }}><b>✓ Assinado em {doc.assinado_em ? fmtDT(String(doc.assinado_em)) : ''}</b> · método {String(doc.metodo || '')} · hash {String(doc.hash_integridade || '').slice(0, 24)}…</div>
               ) : (
@@ -437,7 +440,8 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -518,12 +522,13 @@ function ModalProva({ companyId, cpf, nome, ini, fim, onClose }: { companyId: st
     try { const r = await rpc<{ linhas: ProvaLinha[]; colaborador: Record<string, unknown> }>('fn_nr36_relatorio_prova', { p_company_id: companyId, p_cpf: cpf, p_dt_ini: ini, p_dt_fim: fim }); setLinhas(r.linhas || []); setColab(r.colaborador) }
     catch { /* */ } finally { setLoading(false) }
   })() }, [companyId, cpf, ini, fim])
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1000 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.offwhite, borderRadius: 14, maxWidth: 720, width: '100%', maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+  return createPortal(
+    <div onClick={onClose} className="ps-print-portal" style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1000 }}>
+      <style>{CSS_IMPRESSAO}</style>
+      <div onClick={e => e.stopPropagation()} className="ps-print-doc" style={{ background: C.offwhite, borderRadius: 14, maxWidth: 720, width: '100%', maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.borderLt}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div><div style={{ fontSize: 11, color: C.gray, textTransform: 'uppercase', letterSpacing: 1 }}>Relatório de prova</div><div style={{ fontSize: 16, fontWeight: 700, color: C.espresso }}>{nome}</div></div>
-          <BtnGhost onClick={() => window.print()}>Imprimir/PDF</BtnGhost>
+          <span className="no-print"><BtnGhost onClick={() => window.print()}>Imprimir/PDF</BtnGhost></span>
         </div>
         <div style={{ padding: 16 }}>
           {colab && <div style={{ fontSize: 12, color: C.gray, marginBottom: 10 }}>{String(colab.funcao || '')} · matrícula {String(colab.matricula || '—')} · CPF {String(colab.cpf || cpf)}</div>}
@@ -547,7 +552,8 @@ function ModalProva({ companyId, cpf, nome, ini, fim, onClose }: { companyId: st
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -1078,12 +1084,14 @@ async function parseArquivo(file: File): Promise<{ linhas: LinhaImport[]; descar
 // SST ③b · Conferência das pausas sem hora de saída (546). O sistema SUGERE, a responsável
 // confirma. Dois níveis VISUALMENTE distintos: batida do ponto (forte) × estimativa (fraca).
 // Lote com prévia + dupla confirmação acima de N; desfazer por período (caminho de volta).
-type PendenteRow = { pausa_id: string; cpf: string; colaborador: string; data: string; classe_evento: string; inicio_local: string; fim_sugerido_local: string; fim_sugerido_tipo: string; batida_local: string | null }
+type PendenteRow = { pausa_id: string; cpf: string; colaborador: string; data: string; classe_evento: string; inicio_local: string; fim_sugerido_local: string; fim_sugerido_tipo: string; batida_local: string | null; sem_saida?: boolean }
 function AbaConferencia({ companyId }: { companyId: string }) {
   const [rows, setRows] = useState<PendenteRow[]>([])
   const [carregando, setCarregando] = useState(false)
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState(''); const [okMsg, setOkMsg] = useState('')
+  // #256 · editor das marcações do dia (Saída / Retorno / Ignorar)
+  const [editor, setEditor] = useState<{ cpf: string; data: string; colaborador: string } | null>(null)
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(''); setOkMsg('')
@@ -1149,6 +1157,8 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       <div style={{ marginBottom: 12 }}>
         <div style={secTitle()}>Conferência — pausas sem hora de saída</div>
         <div style={{ fontSize: 13, color: C.gray }}>O sistema <b>sugere</b> o fim pela batida do ponto; <b>você confirma</b>. Cada horário guarda a origem — o relatório declara o que foi confirmado pelo ponto e o que é estimativa.</div>
+        {/* #256 · quando falta uma batida, os pares do relatório deslizam (retorno lido como saída) */}
+        <div style={{ fontSize: 12.5, color: C.espresso, marginTop: 6 }}>Pausa de 1h ou mais, com intervalos de ~20 min entre elas? Provavelmente faltou uma batida e os horários ficaram trocados. Use <b>Saída/retorno</b> na linha para dizer o que cada horário do dia é.</div>
       </div>
 
       {erro && <div style={{ background: C.redBg, color: C.red, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
@@ -1182,16 +1192,26 @@ function AbaConferencia({ companyId }: { companyId: string }) {
                     <td style={{ padding: '8px', color: C.gray }}>{r.data.split('-').reverse().join('/')}</td>
                     {/* #93 · horário do início estava sem cor e herdava um tom claro do ambiente,
                         ficando ilegível. Fixa no Espresso, igual aos demais dados da linha. */}
-                    <td style={{ padding: '8px', color: C.espresso, fontWeight: 600 }}>{r.inicio_local}</td>
+                    <td style={{ padding: '8px', color: C.espresso, fontWeight: 600 }}>
+                      {r.sem_saida
+                        ? <span data-testid={`conf-sem-saida-${r.pausa_id}`}>retorno {r.inicio_local} <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, padding: '2px 7px', borderRadius: 20 }}>saída não registrada</span></span>
+                        : r.inicio_local}
+                    </td>
                     <td style={{ padding: '8px' }}>
+                      {r.sem_saida ? <span style={{ fontSize: 12, color: C.gray }}>informe a saída em Saída/retorno</span> : <>
                       <span style={{ fontWeight: 700, color: C.espresso }}>{r.fim_sugerido_local}</span>{' '}
                       {forte
                         ? <span style={{ fontSize: 10.5, fontWeight: 700, color: C.green, background: C.greenBg, padding: '2px 7px', borderRadius: 20 }}>batida do ponto {r.batida_local}</span>
                         : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, padding: '2px 7px', borderRadius: 20 }}>estimativa · o ponto não ajuda</span>}
+                      </>}
                     </td>
                     <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
+                      {!r.sem_saida && <>
                       <button style={{ ...btnGhost, color: forte ? C.green : C.amber, borderColor: (forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(r.pausa_id, forte ? 'confirmar_ponto' : 'confirmar_estimativa')}>Confirmar</button>
                       <button style={{ ...btnGhost, marginRight: 4 }} onClick={() => corrigir(r.pausa_id, r.data)}>Corrigir</button>
+                      </>}
+                      <button style={{ ...btnGhost, marginRight: 4 }} data-testid={`conf-marcas-${r.pausa_id}`} title="Dizer se cada horário do dia é saída ou retorno da pausa"
+                        onClick={() => setEditor({ cpf: r.cpf, data: r.data, colaborador: r.colaborador })}>Saída/retorno</button>
                       <button style={btnGhost} onClick={() => confirmarUm(r.pausa_id, 'indeterminado')}>Não sei</button>
                     </td>
                   </tr>
@@ -1201,6 +1221,117 @@ function AbaConferencia({ companyId }: { companyId: string }) {
           </table>
         </div>
       )}
+      {editor && <EditorMarcasDia companyId={companyId} {...editor} onFechar={() => setEditor(null)}
+        onSalvo={async (msg) => { setEditor(null); await carregar(); setOkMsg(msg) }} />}
+    </div>
+  )
+}
+
+// #256 · Editor das marcações de um colaborador num dia. O relatório traz a pausa em pares (início, fim); quando falta
+// uma batida o par desliza. A responsável diz o que cada horário é — Saída, Retorno ou Ignorar (entrada do turno,
+// almoço) — e pode acrescentar o horário que faltou. A prévia mostra as pausas que vão ficar; salvar relê o dia
+// (fn_nr36_reler_dia: a leitura anterior vai para o histórico) e dá para desfazer.
+function EditorMarcasDia({ companyId, cpf, data, colaborador, onFechar, onSalvo }: { companyId: string; cpf: string; data: string; colaborador: string; onFechar: () => void; onSalvo: (msg: string) => void }) {
+  const [marcas, setMarcas] = useState<Marca[]>([])
+  const [podeDesfazer, setPodeDesfazer] = useState(false)
+  const [carregando, setCarregando] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState('')
+  const [novaHora, setNovaHora] = useState(''); const [novoPapel, setNovoPapel] = useState<PapelMarca>('saida')
+
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      try {
+        const r = await rpc<{ ok: boolean; linhas: LinhaPausaDia[]; pode_desfazer: boolean }>('fn_nr36_marcas_dia', { p_company_id: companyId, p_cpf: cpf, p_data: data })
+        if (vivo) { setMarcas(marcasDasPausas(r.linhas || [])); setPodeDesfazer(!!r.pode_desfazer) }
+      } catch (e) { if (vivo) setErro((e as Error).message) } finally { if (vivo) setCarregando(false) }
+    })()
+    return () => { vivo = false }
+  }, [companyId, cpf, data])
+
+  const previa = useMemo(() => parearMarcas(marcas), [marcas])
+  const invalido = useMemo(() => (marcas.length ? validarMarcas(marcas) : 'Nenhuma marcação neste dia.'), [marcas])
+  const setPapel = (hora: string, papel: PapelMarca) => setMarcas(ms => ms.map(m => (m.hora === hora ? { ...m, papel } : m)))
+  const tid = (h: string) => h.replace(':', '')
+
+  function acrescentar() {
+    const h = normalizarHora(novaHora)
+    if (!h) { setErro('Horário inválido — use HH:MM.'); return }
+    if (marcas.some(m => m.hora === h)) { setErro(`O horário ${h} já está no dia.`); return }
+    setErro(''); setMarcas(ms => [...ms, { hora: h, papel: novoPapel, origem: 'manual' as const }].sort((a, b) => a.hora.localeCompare(b.hora))); setNovaHora('')
+  }
+  async function salvar() {
+    if (invalido) { setErro(invalido); return }
+    if (!window.confirm(`Reler as pausas de ${colaborador} em ${data.split('-').reverse().join('/')} com estas marcações? A leitura anterior fica guardada no histórico e dá para desfazer.`)) return
+    setBusy(true); setErro('')
+    try {
+      const r = await rpc<{ ok: boolean; pausas?: number; mensagem?: string; erro?: string }>('fn_nr36_reler_dia', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_marcas: marcas })
+      if (!r.ok) throw new Error(r.mensagem || r.erro || 'falha ao reler o dia')
+      onSalvo(`Dia relido: ${r.pausas} pausa(s) de ${colaborador}. A leitura anterior está no histórico.`)
+    } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
+  }
+  async function desfazer() {
+    if (!window.confirm('Voltar este dia para a leitura anterior?')) return
+    setBusy(true); setErro('')
+    try {
+      const r = await rpc<{ ok: boolean; mensagem?: string; erro?: string }>('fn_nr36_reler_dia_desfazer', { p_company_id: companyId, p_cpf: cpf, p_data: data })
+      if (!r.ok) throw new Error(r.mensagem || r.erro || 'falha ao desfazer')
+      onSalvo(`Releitura desfeita: ${colaborador} voltou à leitura anterior.`)
+    } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
+  }
+
+  const papelBtn = (ativo: boolean, cor: string): React.CSSProperties => ({ border: `1px solid ${ativo ? cor : C.borderLt}`, background: ativo ? cor : '#fff', color: ativo ? '#fff' : C.espresso, borderRadius: 7, padding: '4px 9px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' })
+  const corPapel: Record<PapelMarca, string> = { saida: C.blue, retorno: C.green, ignorar: C.gray }
+
+  return (
+    <div style={modalBg()} onClick={onFechar}>
+      <div style={{ ...modalCard(), maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()} data-testid="marcas-dia-modal">
+        <div style={secTitle()}>Saída e retorno · {colaborador} · {data.split('-').reverse().join('/')}</div>
+        <div style={{ fontSize: 12.5, color: C.gray, marginBottom: 10 }}>Diga o que cada horário é. <b>Saída</b> começa a pausa, o <b>Retorno</b> seguinte fecha. <b>Ignorar</b> tira o horário da conta (ex.: entrada do turno). Se faltou a saída, acrescente o horário abaixo; se não souber, deixe o retorno sem saída — a pausa continua pendente, nada é inventado.</div>
+        {erro && <div style={{ ...erroBox(), marginTop: 0, marginBottom: 10 }} data-testid="marcas-erro">{erro}</div>}
+        {carregando ? <Load /> : (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {marcas.map(m => (
+                <div key={m.hora} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', borderBottom: `1px solid ${C.beigeLt}`, paddingBottom: 6 }}>
+                  <span style={{ fontWeight: 700, color: C.espresso, width: 50 }}>{m.hora}</span>
+                  <span style={{ fontSize: 10.5, color: m.origem === 'manual' ? C.amber : C.gray, width: 70 }}>{m.origem === 'manual' ? 'digitado' : 'do relatório'}</span>
+                  {(['saida', 'retorno', 'ignorar'] as PapelMarca[]).map(p => (
+                    <button key={p} type="button" style={papelBtn(m.papel === p, corPapel[p])} data-testid={`marca-${tid(m.hora)}-${p}`} onClick={() => setPapel(m.hora, p)}>
+                      {p === 'saida' ? 'Saída' : p === 'retorno' ? 'Retorno' : 'Ignorar'}
+                    </button>
+                  ))}
+                  {m.origem === 'manual' && <button type="button" style={{ ...papelBtn(false, C.red), color: C.red }} onClick={() => setMarcas(ms => ms.filter(x => x.hora !== m.hora))}>remover</button>}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+              <span style={{ fontSize: 12, color: C.gray }}>Horário que faltou:</span>
+              <input value={novaHora} onChange={e => setNovaHora(e.target.value)} placeholder="HH:MM" data-testid="marca-nova-hora" style={{ ...inp(), width: 80, padding: '6px 8px' }} />
+              <select value={novoPapel} onChange={e => setNovoPapel(e.target.value as PapelMarca)} data-testid="marca-nova-papel" style={{ ...inp(), padding: '6px 8px' }}>
+                <option value="saida">Saída</option><option value="retorno">Retorno</option>
+              </select>
+              <button type="button" style={papelBtn(false, C.gold)} data-testid="marca-nova-add" onClick={acrescentar}>Acrescentar</button>
+            </div>
+            <div style={{ marginTop: 14, background: C.beigeLt, borderRadius: 10, padding: 10 }} data-testid="marcas-previa">
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, marginBottom: 6 }}>Pausas que vão ficar</div>
+              {previa.length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Nenhuma.</div> : previa.map((p, i) => (
+                <div key={i} style={{ fontSize: 12.5, color: C.espresso }} data-testid={`marcas-previa-${i}`}>
+                  {p.situacao === 'fechada' ? <>{p.inicio} → {p.fim} · <b>{p.minutos} min</b></>
+                    : p.situacao === 'sem_saida' ? <>retorno {p.fim} · <span style={{ color: C.amber }}>saída não registrada (fica pendente)</span></>
+                    : <>saída {p.inicio} · <span style={{ color: C.amber }}>sem retorno (fica pendente)</span></>}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
+          {podeDesfazer && <BtnGhost onClick={desfazer}><span data-testid="marcas-desfazer">Desfazer a última releitura</span></BtnGhost>}
+          <BtnGhost onClick={onFechar}>Fechar</BtnGhost>
+          <button onClick={salvar} disabled={busy || carregando || !!invalido} style={btnStyle(busy || carregando || !!invalido)} data-testid="marcas-salvar">Salvar e reler o dia</button>
+        </div>
+      </div>
     </div>
   )
 }
