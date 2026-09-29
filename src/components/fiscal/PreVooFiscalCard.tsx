@@ -31,6 +31,7 @@ interface PreVoo {
     simples_cst_regime_normal?: number
     // 29/09 · sem CSOSN/CST do ICMS, CST do PIS ou CST da COFINS — ausente até a migration 20260930100000
     sem_tributacao?: number
+    fiscal_provisorio?: number
     amostra: ProdAmostra[]
   }
   destinatarios: { contribuinte_sem_ie: number; amostra: DestAmostra[] }
@@ -279,6 +280,7 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
                 <div className="text-[11px] text-[#3D2314]/65 flex flex-wrap gap-x-3 gap-y-0.5 mb-1.5">
                   {dados.produtos.sem_ncm > 0 && <span>NCM ausente/inválido: {dados.produtos.sem_ncm}</span>}
                   {(dados.produtos.sem_tributacao ?? 0) > 0 && <span data-testid="previo-sem-tributacao">Sem CSOSN/CST, PIS ou COFINS: {dados.produtos.sem_tributacao}</span>}
+                  {(dados.produtos.fiscal_provisorio ?? 0) > 0 && <span data-testid="previo-fiscal-provisorio">Tributação provisória (confirmar com o contador): {dados.produtos.fiscal_provisorio}</span>}
                   {dados.produtos.cst_st_incompleto > 0 && <span>CST ST sem retido: {dados.produtos.cst_st_incompleto}</span>}
                   {dados.produtos.ncm2710_sem_anp > 0 && <span>NCM 2710 sem ANP: {dados.produtos.ncm2710_sem_anp}</span>}
                   {dados.produtos.sem_tipo_item_sped > 0 && <span>Sem tipo do item (SPED): {dados.produtos.sem_tipo_item_sped}</span>}

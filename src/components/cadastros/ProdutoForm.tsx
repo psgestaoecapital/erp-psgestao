@@ -32,6 +32,8 @@ export interface Produto {
   combustivel_codigo_anp?: number | null
   combustivel_descricao_anp?: string | null
   ativo?: boolean | null
+  // marca da edição fiscal em massa (ex.: "regra provisória 30/09 — confirmar com o contador")
+  fiscal_observacao?: string | null
 }
 
 interface Props {
@@ -118,7 +120,15 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
         combustivel_descricao_anp: combAnpDescricao.trim() === '' ? null : combAnpDescricao.trim(),
         ativo: true,
       }
-      const body = produto ? { ...payload, id: produto.id } : payload
+      // Defesa: na edição, campo que NÃO veio carregado no produto e continua vazio não vai no PATCH — senão o salvar
+      // apagaria no banco um valor que a ficha nem chegou a ver (CST, alíquotas, ST retido…).
+      const enviado: Record<string, unknown> = { ...payload }
+      if (produto) {
+        for (const k of Object.keys(enviado)) {
+          if (!(k in produto) && (enviado[k] === null || enviado[k] === '')) delete enviado[k]
+        }
+      }
+      const body = produto ? { ...enviado, id: produto.id } : payload
 
       const r = await authFetch('/api/cadastros/produtos', {
         method: produto ? 'PATCH' : 'POST',
@@ -181,6 +191,11 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
 
           {aba === 'fiscal' && (
             <>
+              {produto?.fiscal_observacao && (
+                <div data-testid="produto-fiscal-observacao" className="rounded-lg border border-[#C8941A]/40 bg-[#FBF4E4] px-3 py-2 text-[12px] text-[#633806]">
+                  ⚠ {produto.fiscal_observacao}
+                </div>
+              )}
               <Campo label="NCM * (8 digitos)" value={ncm} onChange={setNcm} placeholder="ex: 32091010" maxLength={8} mono />
               <Campo label="CEST" value={cest} onChange={setCest} placeholder="opcional (substituicao tributaria)" />
               <Campo label="CFOP venda" value={cfopVenda} onChange={setCfopVenda} placeholder="5102 (dentro estado) · 6102 (fora)" />

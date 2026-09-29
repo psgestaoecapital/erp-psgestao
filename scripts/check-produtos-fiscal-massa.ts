@@ -40,11 +40,13 @@ ok(msg.includes('ARGAMASSA AC3 (cód. 660)') && msg.includes('sem CSOSN do ICMS 
 // 4) a função: prévia não grava; aplicar só preenche o vazio por padrão; registra quem (auth.uid) e o antes/depois
 ok(/IF NOT COALESCE\(p_aplicar, false\) THEN\s+RETURN/.test(mig), 'prévia retorna ANTES de qualquer escrita')
 ok(mig.includes("COALESCE(btrim(c.antes),'') = '' OR (v_sobre AND"), 'só preenche o vazio, a não ser que peça para substituir')
-ok(mig.includes("v_sobre, v_prod_mudam, v_campos, auth.uid(), v_email"), 'lote registra quem alterou por auth.uid()')
+ok(mig.includes("v_sobre, v_obs, v_prod_mudam, v_campos, auth.uid(), v_email"), 'lote registra quem alterou por auth.uid()')
 ok(mig.includes('INSERT INTO public.erp_produto_fiscal_alteracao'), 'antes/depois de cada campo')
 ok(mig.includes("'sem_filtro'") && mig.includes("'regime_indefinido'"), 'sem filtro ou sem regime → recusa')
 ok((mig.match(/UPDATE public\.erp_produtos/g) ?? []).length === 1, 'a migration NÃO altera produto nenhum fora da função')
-ok(/REVOKE ALL ON FUNCTION public\.fn_produtos_fiscal_massa\(uuid, jsonb, jsonb, boolean, boolean\) FROM PUBLIC, anon/.test(mig), 'função fechada ao anon')
+ok(/REVOKE ALL ON FUNCTION public\.fn_produtos_fiscal_massa\(uuid, jsonb, jsonb, boolean, boolean, text\) FROM PUBLIC, anon/.test(mig), 'função fechada ao anon')
+ok(mig.includes('fiscal_observacao = COALESCE(v_obs, p.fiscal_observacao)'), 'marca (ex.: regra provisória) gravada em cada produto alterado')
+ok(mig.includes('regexp_split_to_table(COALESCE(p_filtro->>\'ncm_prefixo\',\'\'), \'[^0-9]+\')'), 'prefixo de NCM aceita vários')
 ok(mig.includes("'sem_tributacao', v_sem_trib"), 'pré-voo conta produto sem tributação')
 
 // 5) a ficha do produto não supõe mais tributação (abria com CST 00 / PIS-COFINS 01 e gravava ao salvar)
@@ -55,6 +57,9 @@ ok(!/aliquota_icms \?\? '18'|aliquota_pis \?\? '1\.65'|aliquota_cofins \?\? '7\.
 // 6) a tela
 const page = readFileSync('src/app/dashboard/cadastros/produtos/page.tsx', 'utf8')
 ok(page.includes('data-testid="fiscal-massa-abrir"') && page.includes('<EdicaoFiscalMassaModal'), 'botão "Edição fiscal em massa" na tela Produtos')
+// a ficha abre com a linha INTEIRA do produto (a lista não traz os campos fiscais; salvar apagava/supunha CST, alíquotas, ST)
+ok(page.includes("async function abrirEdicao(id: string)") && !page.includes('onClick={() => setEditando(p)}') && !page.includes(".select(SELECT_COLS).eq('company_id', companyId).eq('id', editId)"), 'ficha abre com o produto completo (select *)')
+ok(form.includes('!(k in produto) && (enviado[k] === null'), 'ficha não envia campo que não carregou')
 
 if (falhas) { console.error(`\ncheck-produtos-fiscal-massa: ${falhas} falha(s)`); process.exit(1) }
 console.log('\ncheck-produtos-fiscal-massa: ok')
