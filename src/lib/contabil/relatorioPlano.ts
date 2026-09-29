@@ -17,9 +17,10 @@ export interface LinhaRelatorioPlano {
   cont_analitica: boolean | null
   cont_codigo_antigo: string | null
   vinculo_observacao: string | null
+  vinculo_status?: 'proposto' | 'confirmado' | null
 }
 
-export interface ContaContabilRel { codigo: string; descricao: string; antigo: string | null }
+export interface ContaContabilRel { codigo: string; descricao: string; antigo: string | null; proposto?: boolean }
 export interface NoGerencial {
   codigo: string
   descricao: string
@@ -44,6 +45,7 @@ export function compararCodigo(a: string, b: string): number {
 
 const contabil = (l: LinhaRelatorioPlano): ContaContabilRel => ({
   codigo: l.cont_codigo ?? '', descricao: l.cont_descricao ?? '', antigo: l.cont_codigo_antigo ?? null,
+  proposto: l.vinculo_status === 'proposto',
 })
 
 export function montarRelatorioPlano(linhas: LinhaRelatorioPlano[]): RelatorioPlano {

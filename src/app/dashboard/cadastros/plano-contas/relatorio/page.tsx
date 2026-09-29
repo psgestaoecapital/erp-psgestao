@@ -249,7 +249,7 @@ export default function Page() {
                       </div>
                       {no.contabeis.map((c) => (
                         <div key={c.codigo} data-testid={`cont-${c.codigo}`} style={{ fontSize: 12, color: INK, padding: '2px 0 0 18px' }}>
-                          ↳ {c.codigo} · {c.descricao}{c.antigo ? ` (antigo ${c.antigo})` : ''}
+                          ↳ {c.codigo} · {c.descricao}{c.antigo ? ` (antigo ${c.antigo})` : ''}{c.proposto ? ' — proposto, a confirmar' : ''}
                         </div>
                       ))}
                       {!no.totalizador && no.contabeis.length === 0 && (
