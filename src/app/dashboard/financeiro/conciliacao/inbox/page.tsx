@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { parseSaldoFechamento, ehLinhaSaldoOFX } from '@/lib/ofx-parser'
+import { temConectorExtrato } from '@/lib/banco/extratoConector'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
@@ -274,6 +275,8 @@ export default function InboxPage() {
   const [showImport, setShowImport] = useState(false)
   // Sincronizar extrato direto do banco (Sicoob-agnostic) — puxa via API
   const [sincExtratoBusy, setSincExtratoBusy] = useState(false)
+  // #88: o botão só aparece se a empresa tem conexão ativa de um banco COM conector de extrato (hoje só Sicoob)
+  const [temExtratoApi, setTemExtratoApi] = useState(false)
   const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null }[]>([])
   const [contaImportId, setContaImportId] = useState<string>('')
   const [arquivoOFX, setArquivoOFX] = useState<File | null>(null)
@@ -400,6 +403,13 @@ export default function InboxPage() {
       .eq('ativo', true)
       .order('nome')
     setContas(data ?? [])
+    const { data: cfgs } = await supabase
+      .from('erp_banco_provider_config')
+      .select('provider')
+      .eq('company_id', empresaUnica)
+      .eq('ativo', true)
+      .eq('cap_extrato', true)
+    setTemExtratoApi(((cfgs ?? []) as { provider: string }[]).some((c) => temConectorExtrato(c.provider)))
   }
 
   async function sincronizarExtratoAgora() {
@@ -981,20 +991,22 @@ export default function InboxPage() {
             onClick={() => setAba('ignorados')}
             style={aba === 'ignorados' ? tabActive : tabInactive}
           >Ignorados ({ignorados.length})</button>
-          <button
-            onClick={sincronizarExtratoAgora}
-            disabled={sincExtratoBusy || !empresaUnica}
-            style={{
-              marginLeft: 'auto', padding: '6px 12px',
-              background: sincExtratoBusy || !empresaUnica ? 'rgba(200,148,26,0.4)' : '#C8941A',
-              color: '#3D2314', border: 'none', borderRadius: 6,
-              fontSize: 12, fontWeight: 700,
-              cursor: sincExtratoBusy ? 'wait' : !empresaUnica ? 'not-allowed' : 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-            title={empresaUnica ? 'Puxa o extrato direto do banco (Sicoob)' : 'Selecione uma empresa'}
-            data-testid="inbox-sincronizar-extrato"
-          >{sincExtratoBusy ? 'Sincronizando…' : '↻ Sincronizar extrato agora'}</button>
+          {temExtratoApi && (
+            <button
+              onClick={sincronizarExtratoAgora}
+              disabled={sincExtratoBusy || !empresaUnica}
+              style={{
+                marginLeft: 'auto', padding: '6px 12px',
+                background: sincExtratoBusy || !empresaUnica ? 'rgba(200,148,26,0.4)' : '#C8941A',
+                color: '#3D2314', border: 'none', borderRadius: 6,
+                fontSize: 12, fontWeight: 700,
+                cursor: sincExtratoBusy ? 'wait' : !empresaUnica ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+              title={empresaUnica ? 'Puxa o extrato direto do banco (Sicoob)' : 'Selecione uma empresa'}
+              data-testid="inbox-sincronizar-extrato"
+            >{sincExtratoBusy ? 'Sincronizando…' : '↻ Sincronizar extrato agora'}</button>
+          )}
           <button
             onClick={() => setShowImport((v) => !v)}
             style={{ ...tabInactive, borderStyle: 'dashed' }}
