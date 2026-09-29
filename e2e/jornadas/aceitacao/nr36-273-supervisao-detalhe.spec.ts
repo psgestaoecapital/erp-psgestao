@@ -8,7 +8,8 @@ import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { dbSelect, dbInsert, dbDelete, registrarJornada } from '../../support/api'
 
 const DEMO_SST = 'b0700000-0000-4000-a000-000000000005'
-const base = new Date(Date.UTC(1995, 0, 2) + (Math.floor(Date.now() / 60000) % 3650) * 86400000)
+// dia único por execução, SEMPRE em 2023 (sem horário de verão no Brasil desde 2019; um ano por teste de pausas)
+const base = new Date(Date.UTC(2023, 0, 1) + (Math.floor(Date.now() / 60000) % 360) * 86400000)
 const DIA = base.toISOString().slice(0, 10)
 let cpf = ''
 let nome = ''
