@@ -6,6 +6,7 @@
 // rotulado de teste; em PRODUÇÃO paga de verdade — a tarja, o nome do arquivo e a confirmação mudam conforme.
 // Cada remessa fica registrada em erp_remessa_pagamento (ambiente + quem gerou + quando · RD-55).
 // Anti-duplicação garantida pelo trigger no banco; a tela ainda pré-filtra títulos em remessa ativa.
+import { linhaTituloRetorno } from '@/lib/financeiro/retornoTitulo'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -58,7 +59,9 @@ type RetAutoResp = {
   resumo?: { total: number; pagos: number; agendados?: number; rejeitados: number; ja_pagos: number; erros: number; nao_casados: number; nao_reconhecidos?: number }
 }
 // #29: fila de revisão — títulos cujo retorno o banco mandou com código não reconhecido (não baixaram).
-type FilaNaoRec = { id: string; valor: number; descricao: string | null; remessa: number | null; ocorrencia: string | null; motivo: string | null }
+type FilaNaoRec = { id: string; valor: number; descricao: string | null; fornecedor: string | null; vencimento: string | null; remessa: number | null; ocorrencia: string | null; motivo: string | null }
+// #287 · fornecedor e vencimento do título de cada item do retorno (o banco só devolve o código e o valor)
+type TituloDoItem = { fornecedor: string | null; vencimento: string | null; descricao: string | null }
 
 export default function RemessaPagamentoPage() {
   const { selInfo, sel } = useCompanyIds()
@@ -92,6 +95,7 @@ export default function RemessaPagamentoPage() {
   // Gestão da remessa: lista + extrato (ver/imprimir/cancelar/remover item)
   const [remessas, setRemessas] = useState<RemessaLista[]>([])
   const [naoRec, setNaoRec] = useState<FilaNaoRec[]>([])   // #29: fila de itens não reconhecidos (revisão)
+  const [impTitulos, setImpTitulos] = useState<Record<string, TituloDoItem>>({})   // #287
   const [extrato, setExtrato] = useState<ExtratoResp | null>(null)
   const [extratoRem, setExtratoRem] = useState<RemessaLista | null>(null)
   const [gestBusy, setGestBusy] = useState(false)
@@ -181,11 +185,12 @@ export default function RemessaPagamentoPage() {
     // #29 · fila de revisão: itens que o retorno trouxe com código NÃO reconhecido — não baixaram, o título
     // voltou ao status anterior e precisa de olho humano. Fica visível no topo até ser resolvido.
     const { data: nrec } = await supabase.from('erp_remessa_pagamento_item')
-      .select('id, valor, ocorrencia_retorno, remocao_motivo, erp_pagar(descricao), erp_remessa_pagamento!inner(numero_sequencial, company_id)')
+      .select('id, valor, ocorrencia_retorno, remocao_motivo, erp_pagar(descricao, fornecedor_nome, data_vencimento), erp_remessa_pagamento!inner(numero_sequencial, company_id)')
       .eq('status_item', 'nao_reconhecido').eq('erp_remessa_pagamento.company_id', companyId)
       .order('created_at', { ascending: false })
-    setNaoRec(((nrec ?? []) as unknown as Array<{ id: string; valor: number; ocorrencia_retorno: string | null; remocao_motivo: string | null; erp_pagar: { descricao: string | null } | null; erp_remessa_pagamento: { numero_sequencial: number | null } | null }>).map((r) => ({
+    setNaoRec(((nrec ?? []) as unknown as Array<{ id: string; valor: number; ocorrencia_retorno: string | null; remocao_motivo: string | null; erp_pagar: { descricao: string | null; fornecedor_nome: string | null; data_vencimento: string | null } | null; erp_remessa_pagamento: { numero_sequencial: number | null } | null }>).map((r) => ({
       id: r.id, valor: r.valor, descricao: r.erp_pagar?.descricao ?? null,
+      fornecedor: r.erp_pagar?.fornecedor_nome ?? null, vencimento: r.erp_pagar?.data_vencimento ?? null,
       remessa: r.erp_remessa_pagamento?.numero_sequencial ?? null,
       ocorrencia: r.ocorrencia_retorno, motivo: r.remocao_motivo,
     })))
@@ -377,11 +382,24 @@ export default function RemessaPagamentoPage() {
         p_company_id: companyId, p_itens: itensDoRet(ret), p_confirmar: false,
       })
       if (error) throw error
-      setImpResumo(data as RetAutoResp)
+      setImpResumo(data as RetAutoResp); void carregarTitulosDoRetorno(data as RetAutoResp)
     } catch (e) {
       setImpArquivo(file.name)
       setImpResumo({ ok: false, erro: (e as Error).message })
     } finally { setImpBusy(false) }
+  }
+
+  // #287 · o retorno traz só código e valor: busca fornecedor e vencimento dos títulos não confirmados pelo banco
+  async function carregarTitulosDoRetorno(r: RetAutoResp | null) {
+    const ids = [...(r?.nao_reconhecidos ?? []), ...(r?.rejeitados ?? [])].map((d) => d.item_id).filter((x): x is string => !!x)
+    if (!ids.length) { setImpTitulos({}); return }
+    const { data } = await supabase.from('erp_remessa_pagamento_item')
+      .select('id, erp_pagar(descricao, fornecedor_nome, data_vencimento)').in('id', ids)
+    const mapa: Record<string, TituloDoItem> = {}
+    for (const it of ((data ?? []) as unknown as Array<{ id: string; erp_pagar: { descricao: string | null; fornecedor_nome: string | null; data_vencimento: string | null } | null }>)) {
+      mapa[it.id] = { fornecedor: it.erp_pagar?.fornecedor_nome ?? null, vencimento: it.erp_pagar?.data_vencimento ?? null, descricao: it.erp_pagar?.descricao ?? null }
+    }
+    setImpTitulos(mapa)
   }
 
   // Confirma: roda a RPC gravando (baixa os casados via fn_pagar_baixar_pagamento). Idempotente:
@@ -394,7 +412,7 @@ export default function RemessaPagamentoPage() {
         p_company_id: companyId, p_itens: itensDoRet(impRet), p_confirmar: true,
       })
       if (error) throw error
-      setImpResumo(data as RetAutoResp); setImpConfirmado(true)
+      setImpResumo(data as RetAutoResp); setImpConfirmado(true); void carregarTitulosDoRetorno(data as RetAutoResp)
       void carregar()
     } catch (e) {
       setImpResumo({ ok: false, erro: (e as Error).message })
@@ -518,9 +536,8 @@ export default function RemessaPagamentoPage() {
             <div>
               {naoRec.map((n, i) => (
                 <div key={n.id} style={{ padding: '7px 12px', borderTop: `0.5px solid ${VERM}33`, fontSize: 12, background: i % 2 ? '#FBEAEA' : '#FDF2F2' }}>
-                  <span style={{ color: ESP, fontWeight: 700 }}>{n.descricao || '—'}</span>
-                  <span style={{ color: MUT }}> · remessa Nº {n.remessa ?? '—'}{n.ocorrencia ? ` · oc ${n.ocorrencia}` : ''} · </span>
-                  <span style={{ color: ESP, fontWeight: 700 }}>{brl(Math.round((n.valor ?? 0) * 100))}</span>
+                  {/* #287 · qual é o título: fornecedor · valor · vencimento · remessa · código do banco */}
+                  <span style={{ color: ESP, fontWeight: 700 }} data-testid="retorno-naorec-titulo">{linhaTituloRetorno({ fornecedor: n.fornecedor, descricao: n.descricao, valor: n.valor, vencimento: n.vencimento, remessa: n.remessa, ocorrencia: n.ocorrencia })}</span>
                   {n.motivo && <span style={{ color: VERM }}> — {n.motivo}</span>}
                 </div>
               ))}
@@ -829,8 +846,7 @@ export default function RemessaPagamentoPage() {
                     {(impResumo.nao_reconhecidos ?? []).map((d, i) => (
                       <div key={d.item_id ?? i} style={{ padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
                         <span style={{ padding: '1px 6px', borderRadius: 5, background: VERM, color: '#FFF', fontWeight: 800, fontSize: 11 }}>Não reconhecido</span>
-                        <span style={{ color: ESP, fontWeight: 600 }}> {d.descricao || brl(Math.round((d.valor ?? 0) * 100))}</span>
-                        {d.remessa != null && <span style={{ color: MUT }}> · remessa Nº {d.remessa}</span>}
+                        <span style={{ color: ESP, fontWeight: 600 }} data-testid="retorno-imp-naorec-titulo"> {linhaTituloRetorno({ ...(d.item_id ? impTitulos[d.item_id] : {}), descricao: (d.item_id && impTitulos[d.item_id]?.descricao) || d.descricao, valor: d.valor, remessa: d.remessa ?? null, ocorrencia: d.ocorrencia ?? null })}</span>
                         <span style={{ color: VERM }}> — {d.motivo}</span>
                       </div>
                     ))}
@@ -874,7 +890,7 @@ export default function RemessaPagamentoPage() {
                     {(impResumo.rejeitados ?? []).map((d, i) => (
                       <div key={d.item_id ?? i} style={{ padding: '7px 10px', borderTop: i ? `0.5px solid ${BG}` : 'none', fontSize: 12 }}>
                         <span style={{ padding: '1px 6px', borderRadius: 5, background: '#FBEAEA', color: VERM, fontWeight: 700, fontSize: 11 }}>Rejeitado</span>
-                        <span style={{ color: ESP, fontWeight: 600 }}> {d.descricao || brl(Math.round((d.valor ?? 0) * 100))}</span>
+                        <span style={{ color: ESP, fontWeight: 600 }}> {linhaTituloRetorno({ ...(d.item_id ? impTitulos[d.item_id] : {}), descricao: (d.item_id && impTitulos[d.item_id]?.descricao) || d.descricao, valor: d.valor, remessa: d.remessa ?? null, ocorrencia: d.ocorrencia ?? null })}</span>
                         <span style={{ color: VERM }}> — {d.motivo}</span>
                       </div>
                     ))}
