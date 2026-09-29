@@ -8,6 +8,7 @@
 // Realizado agora VEM do upload (ind_ponto_pausa). Dia sem planilha importada NÃO é dia sem pausa (RD-51).
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { frasesPausasCurtas, frasesExcesso, type PausaDia } from '@/lib/ponto/supervisaoFrases'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
 import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
@@ -1413,8 +1414,8 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
 // Terceira saída do MESMO motor: o caso curto para o SUPERVISOR levar ao colaborador. Linguagem
 // de chão, descreve o FATO — nunca julga a pessoa (cuidado de RH: "ficou 4h13 sem pausa", jamais
 // "não cumpriu"; a causa pode ser da operação). Horários em hora local (fuso normalizado na origem).
-type SupDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number; marcacao_interna?: string[] }
-type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; shift: string | null; gatilho_min: string | null; pausa_min: string | null; jornada: { entrada: string | null; saida: string | null } | null; desvios: SupDesvio[] }
+type SupDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number; quantidade?: number; marcacao_interna?: string[] }
+type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; shift: string | null; gatilho_min: string | null; pausa_min: string | null; jornada: { entrada: string | null; saida: string | null } | null; desvios: SupDesvio[]; pausas?: PausaDia[] | null }
 // #92 · dia aguardando confirmação (pausa sem hora de saída). Natureza DIFERENTE do desvio: não
 // está provado — o supervisor pergunta ao colaborador o que houve; a responsável fecha na aba
 // Conferência. NUNCA é desvio no escuro (RD-38).
@@ -1423,7 +1424,16 @@ type SupPendente = { data: string; cpf: string; nome: string; funcao: string | n
 const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
 // FATO, não julgamento (RH). Descreve o que aconteceu; a causa é a conversa.
 function frasesChao(d: SupCaso): string[] {
-  return (d.desvios || []).map((dv) => {
+  const pausaMin = Number(d.pausa_min) || 20
+  // #273 · cada pausa curta com horário e minutos (antes: "pausa de undefined minutos às undefined"); e as pausas acima
+  // do tempo previsto no mesmo dia, como gestão
+  return [...(d.desvios || []).flatMap((dv) => {
+    if (dv.tipo === 'pausa_insuficiente') return frasesPausasCurtas(dv, d.pausas, pausaMin)
+    return [fraseDesvio(dv)]
+  }), ...frasesExcesso(d.pausas)]
+}
+function fraseDesvio(dv: SupDesvio): string {
+  return (() => {
     if (dv.tipo === 'excedeu_limite' && dv.minutos != null) {
       const lim = dv.minutos - (dv.excedeu ?? 0)
       const base = `ficou ${hmm(dv.minutos)} sem pausa, das ${dv.de} às ${dv.ate} — o limite é ${hmm(lim)}`
@@ -1432,10 +1442,9 @@ function frasesChao(d: SupCaso): string[] {
         ? `${base} · ⚠ há batida de ponto dentro deste período (${dv.marcacao_interna.join(', ')}) — confirmar se houve interrupção`
         : base
     }
-    if (dv.tipo === 'pausa_insuficiente') return `pausa de ${dv.duracao_min} minutos às ${dv.inicio} — o mínimo é ${dv.minimo}`
     if (dv.tipo === 'pausa_nao_realizada') return (dv.faltantes ?? 0) === 1 ? 'faltou uma pausa no dia' : `faltaram ${dv.faltantes} pausas no dia`
     return dv.tipo
-  })
+  })()
 }
 function casoTexto(d: SupCaso): string {
   const cab = `${d.nome}${d.funcao ? ` — ${d.funcao}` : ''}${d.setor ? ` — ${d.setor}` : ''}\n${fmtData(d.data)} · jornada ${d.jornada?.entrada ?? '—'}–${d.jornada?.saida ?? '—'}\n`
@@ -1454,6 +1463,8 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
   const [erro, setErro] = useState('')
   const [aberto, setAberto] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<string | null>(null)
+  // #273 · filtrar por colaborador
+  const [colab, setColab] = useState('')
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('')
@@ -1468,6 +1479,10 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
   }, [companyId, ini, fim])
   useEffect(() => { void carregar() }, [carregar])
 
+  const nomes = useMemo(() => Array.from(new Set([...casos.map(c => c.nome), ...pendentes.map(p => p.nome)])).sort(), [casos, pendentes])
+  const casosF = useMemo(() => (colab ? casos.filter(c => c.nome === colab) : casos), [casos, colab])
+  const pendentesF = useMemo(() => (colab ? pendentes.filter(p => p.nome === colab) : pendentes), [pendentes, colab])
+
   const copiar = async (d: SupCaso) => {
     const k = d.cpf + d.data
     try { await navigator.clipboard.writeText(casoTexto(d)); setCopiado(k); setTimeout(() => setCopiado(null), 1800) } catch { /* */ }
@@ -1479,6 +1494,12 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
         <Campo label="De"><input type="date" style={inp()} value={ini} onChange={e => setIni(e.target.value)} /></Campo>
         <Campo label="Até"><input type="date" style={inp()} value={fim} onChange={e => setFim(e.target.value)} /></Campo>
         <Btn onClick={() => carregar()} disabled={carregando}><RefreshCw size={14} /> {carregando ? 'Buscando…' : 'Atualizar'}</Btn>
+        <Campo label="Colaborador">
+          <select style={inp()} value={colab} onChange={e => setColab(e.target.value)} data-testid="sup-filtro-colaborador">
+            <option value="">Todos</option>
+            {nomes.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </Campo>
       </div>
 
       <div style={{ display: 'flex', gap: 10, background: C.beigeLt, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
@@ -1490,29 +1511,29 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
 
       {erro && <div style={erroBox()}>{erro}</div>}
       {!carregado ? <Load /> :
-        (casos.length === 0 && pendentes.length === 0) ? <Vazio titulo="Nada para tratar no período" texto="Não há desvios provados nem dias aguardando confirmação neste período. Se faltam dados, importe o relatório de ponto e reapure no Painel." /> : (
+        (casosF.length === 0 && pendentesF.length === 0) ? <Vazio titulo="Nada para tratar no período" texto="Não há desvios provados nem dias aguardando confirmação neste período. Se faltam dados, importe o relatório de ponto e reapure no Painel." /> : (
         <>
           {/* SEÇÃO 1 · Desvios provados — pausa insuficiente/não realizada, fato registrado */}
           <div style={secTitle()}>Desvios provados</div>
-          {casos.length === 0 ? (
+          {casosF.length === 0 ? (
             <div style={{ fontSize: 13, color: C.gray, marginBottom: 18 }}>Nenhum desvio provado no período.</div>
           ) : (
           <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 13, color: C.espresso, marginBottom: 10 }} data-no-print="true"><b>{casos.length}</b> caso(s) de desvio no período.</div>
-            {casos.map((d) => { const k = d.cpf + d.data; const open = aberto === k; return (
+            <div style={{ fontSize: 13, color: C.espresso, marginBottom: 10 }} data-no-print="true"><b>{casosF.length}</b> caso(s) de desvio no período.</div>
+            {casosF.map((d) => { const k = d.cpf + d.data; const open = aberto === k; return (
               <div key={k} style={{ border: `1px solid ${C.borderLt}`, borderRadius: 10, marginBottom: 8, background: '#fff', breakInside: 'avoid' }}>
                 <button onClick={() => setAberto(open ? null : k)} style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 14px', border: 'none', background: 'transparent', cursor: 'pointer' }}>
                   <span>
                     <span style={{ fontWeight: 700, color: C.espresso, fontSize: 13.5 }}>{d.nome}</span>
                     <span style={{ color: C.gray, fontSize: 12 }}> · {fmtData(d.data)}{d.setor ? ` · ${d.setor}` : ''}</span>
                   </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: C.redBg, color: C.red, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{d.desvios.length} desvio(s)</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: C.redBg, color: C.red, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{d.desvios.reduce((a, dv) => a + (dv.quantidade ?? 1), 0)} desvio(s)</span>
                 </button>
                 {open && (
                   <div style={{ padding: '0 14px 14px' }}>
                     <div style={{ fontSize: 12, color: C.gray, marginBottom: 6 }}>Jornada {d.jornada?.entrada ?? '—'}–{d.jornada?.saida ?? '—'}{d.shift ? ` · escala ${d.shift}` : ''}</div>
                     <ul style={{ margin: '0 0 10px', paddingLeft: 18 }}>
-                      {frasesChao(d).map((f, i) => <li key={i} style={{ fontSize: 13, color: C.espresso, marginBottom: 3 }}>{f}</li>)}
+                      {frasesChao(d).map((f, i) => <li key={i} data-testid="sup-frase" style={{ fontSize: 13, color: C.espresso, marginBottom: 3 }}>{f}</li>)}
                     </ul>
                     <div style={{ display: 'flex', gap: 8 }} data-no-print="true">
                       <BtnGhost onClick={() => copiar(d)}><Copy size={13} /> {copiado === k ? 'Copiado!' : 'Copiar caso'}</BtnGhost>
@@ -1529,14 +1550,14 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
               hora de saída, ainda não provada. O supervisor pergunta ao colaborador o que houve;
               a responsável fecha na aba Conferência. NUNCA é desvio no escuro (RD-38). */}
           <div style={secTitle()}>Dias aguardando confirmação</div>
-          {pendentes.length === 0 ? (
+          {pendentesF.length === 0 ? (
             <div style={{ fontSize: 13, color: C.gray }}>Nenhum dia aguardando confirmação no período.</div>
           ) : (
           <div>
             <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
               <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
-                <b>{pendentes.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Duas naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
+                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Duas naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
@@ -1545,7 +1566,7 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
                   <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Motivo</th><th style={th()}>Setor</th><th style={th()}>Jornada</th>
                 </tr></thead>
                 <tbody>
-                  {pendentes.map((p, i) => {
+                  {pendentesF.map((p, i) => {
                     const semReg = p.sem_registro_pausa === true || p.motivo === 'sem_registro_pausa'
                     return (
                     <tr key={p.cpf + p.data + i} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
