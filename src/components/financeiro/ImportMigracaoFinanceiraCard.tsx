@@ -9,6 +9,7 @@ import { useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { parseNumBR, parseDataBR } from '@/lib/num'
+import { marcarJaExistentes, MSG_JA_EXISTE, type TituloExistente } from '@/lib/financeiro/importDuplicidade'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.65)'
 const GREEN = '#3B6D11', RED = '#A32D2D'
@@ -30,6 +31,7 @@ interface Linha {
   valor_pago: number | null
   nivel: Nivel
   exemplo: boolean       // IMP-1 · linha de exemplo do modelo — não é importada por padrão
+  jaExiste: boolean      // CEO 29/09 · mesmo tipo+pessoa+valor+vencimento já no sistema — não é importada
   msgs: string[]
 }
 interface Resultado {
@@ -49,6 +51,28 @@ const EXEMPLOS = new Set([
 const norm = (s: unknown) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\*/g, '').trim()
 const fmtBRL = (n: number | null) => 'R$ ' + Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+// Títulos do sistema (não excluídos, não cancelados) nos vencimentos da planilha — para marcar "já existe".
+// Devolve null se alguma consulta falhar (a tela então bloqueia a importação).
+async function buscarTitulosExistentes(companyId: string, linhas: Linha[]): Promise<TituloExistente[] | null> {
+  const out: TituloExistente[] = []
+  for (const tipo of ['receber', 'pagar'] as const) {
+    const datas = Array.from(new Set(linhas.filter((l) => l.tipo === tipo && l.vencimento).map((l) => l.vencimento as string)))
+    for (let i = 0; i < datas.length; i += 100) {
+      const lote = datas.slice(i, i + 100)
+      const q = tipo === 'receber'
+        ? supabase.from('erp_receber').select('nome:cliente_nome, valor, data_vencimento, status').eq('company_id', companyId).is('deleted_at', null).in('data_vencimento', lote)
+        : supabase.from('erp_pagar').select('nome:fornecedor_nome, valor, data_vencimento, status').eq('company_id', companyId).is('deleted_at', null).in('data_vencimento', lote)
+      const { data, error } = await q
+      if (error) return null
+      for (const r of (data ?? []) as { nome: string | null; valor: number | string; data_vencimento: string; status: string | null }[]) {
+        if ((r.status ?? '').toLowerCase() === 'cancelado') continue
+        out.push({ tipo, nome: r.nome, valor: Number(r.valor), vencimento: r.data_vencimento })
+      }
+    }
+  }
+  return out
+}
+
 export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }: { companyId: string; empresaNome?: string | null }) {
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [nomeArquivo, setNomeArquivo] = useState<string | null>(null)
@@ -58,16 +82,17 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
   const inputRef = useRef<HTMLInputElement>(null)
 
   const cont = useMemo(() => {
-    let ok = 0, aviso = 0, erro = 0, pagar = 0, receber = 0, total = 0, exemplos = 0, importaveis = 0
+    let ok = 0, aviso = 0, erro = 0, pagar = 0, receber = 0, total = 0, exemplos = 0, importaveis = 0, jaExistem = 0
     for (const l of linhas) {
       if (l.exemplo) { exemplos++; continue }          // exemplos: contados à parte, não importados
+      if (l.jaExiste) { jaExistem++; continue }        // já no sistema: contados à parte, não importados
       if (l.nivel === 'erro') { erro++; continue }
       if (l.nivel === 'aviso') aviso++; else ok++
       importaveis++
       if (l.tipo === 'pagar') pagar++; else if (l.tipo === 'receber') receber++
       total += l.valor ?? 0
     }
-    return { ok, aviso, erro, pagar, receber, total, exemplos, importaveis }
+    return { ok, aviso, erro, pagar, receber, total, exemplos, importaveis, jaExistem }
   }, [linhas])
 
   async function onArquivo(file: File) {
@@ -137,10 +162,21 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
           forma_pagamento: get(row, ci.forma), emissao: parseDataBR(get(row, ci.emissao)),
           pagamento: parseDataBR(get(row, ci.pagamento)), situacao: get(row, ci.situacao),
           valor_pago: parseNumBR(get(row, ci.valorPago)),
-          nivel: erros.length ? 'erro' : avisos.length ? 'aviso' : 'ok', exemplo: ehExemplo, msgs: [...erros, ...avisos],
+          nivel: erros.length ? 'erro' : avisos.length ? 'aviso' : 'ok', exemplo: ehExemplo, jaExiste: false, msgs: [...erros, ...avisos],
         })
       }
       if (parsed.length === 0) { setParseErro('Nenhuma linha de dados (fora as de instrução).'); return }
+
+      // CEO 29/09 · título que já existe no sistema (mesmo tipo + pessoa + valor + vencimento) não entra de novo.
+      // Se a conferência falhar, NÃO libera a importação (melhor parar do que duplicar).
+      const candidatas = parsed.filter((l) => !l.exemplo && l.nivel !== 'erro')
+      const existentes = await buscarTitulosExistentes(companyId, candidatas)
+      if (existentes === null) {
+        setParseErro('Não foi possível conferir os títulos que já existem no sistema. Tente de novo antes de importar.')
+        return
+      }
+      const idx = marcarJaExistentes(candidatas.map((l) => ({ tipo: l.tipo, nome_pessoa: l.nome_pessoa, valor: l.valor, vencimento: l.vencimento })), existentes)
+      candidatas.forEach((l, i) => { if (idx.has(i)) { l.jaExiste = true; l.msgs = [MSG_JA_EXISTE, ...l.msgs] } })
       setLinhas(parsed); setNomeArquivo(file.name)
     } catch (e) {
       setParseErro((e as Error)?.message ?? 'Falha ao ler o arquivo')
@@ -148,7 +184,7 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
   }
 
   async function importar() {
-    const grava = linhas.filter((l) => l.nivel !== 'erro' && !l.exemplo)   // IMP-1 · exemplos não entram
+    const grava = linhas.filter((l) => l.nivel !== 'erro' && !l.exemplo && !l.jaExiste)   // IMP-1 · exemplos e já existentes não entram
     if (grava.length === 0) return
     setImportando(true); setResultado(null)
     try {
@@ -219,7 +255,7 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
       {linhas.length > 0 && (
         <>
           <div className="flex items-center justify-between flex-wrap gap-2 text-xs" style={{ color: ESP60 }}>
-            <span>🟢 {cont.ok} ok · 🟡 {cont.aviso} aviso(s) · 🔴 {cont.erro} erro(s){cont.exemplos > 0 ? ` · ⚪ ${cont.exemplos} exemplo(s) do modelo (não importados)` : ''} · {cont.pagar} a pagar · {cont.receber} a receber · total {fmtBRL(cont.total)}</span>
+            <span data-testid="import-resumo">🟢 {cont.ok} ok · 🟡 {cont.aviso} aviso(s) · 🔴 {cont.erro} erro(s){cont.exemplos > 0 ? ` · ⚪ ${cont.exemplos} exemplo(s) do modelo (não importados)` : ''}{cont.jaExistem > 0 ? ` · 🔁 ${cont.jaExistem} já existe(m) no sistema (não importados)` : ''} · {cont.pagar} a pagar · {cont.receber} a receber · total {fmtBRL(cont.total)}</span>
           </div>
           <div className="rounded-xl overflow-auto max-h-80" style={{ border: `1px solid ${LINE}` }}>
             <table className="w-full text-xs">
@@ -234,9 +270,9 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
               </thead>
               <tbody>
                 {linhas.slice(0, 200).map((l, i) => (
-                  <tr key={i} style={{ borderTop: `1px solid ${LINE}`, background: l.nivel === 'erro' ? 'rgba(252,235,235,0.5)' : 'transparent' }}>
+                  <tr key={i} data-testid="import-linha" data-status={l.exemplo ? 'exemplo' : l.jaExiste ? 'ja_existe' : l.nivel} style={{ borderTop: `1px solid ${LINE}`, background: l.nivel === 'erro' ? 'rgba(252,235,235,0.5)' : 'transparent' }}>
                     <td className="px-2 py-1 opacity-50">{l.n}</td>
-                    <td className="px-2 py-1">{l.exemplo ? '⚪' : l.nivel === 'erro' ? '🔴' : l.nivel === 'aviso' ? '🟡' : '🟢'}</td>
+                    <td className="px-2 py-1">{l.exemplo ? '⚪' : l.jaExiste ? '🔁' : l.nivel === 'erro' ? '🔴' : l.nivel === 'aviso' ? '🟡' : '🟢'}</td>
                     <td className="px-2 py-1">
                       <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold"
                         style={{ background: l.tipo === 'pagar' ? '#FCEBEB' : l.tipo === 'receber' ? '#EAF3DE' : BG, color: l.tipo === 'pagar' ? RED : l.tipo === 'receber' ? GREEN : ESP60 }}>

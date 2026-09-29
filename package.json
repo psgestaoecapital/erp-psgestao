@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "tsx scripts/check-modelo-estoque.ts && tsx scripts/check-modelo-cadastros.ts && tsx scripts/check-retencoes-nfse.ts && tsx scripts/check-baixa-parcial-conciliacao.ts && tsx scripts/check-medicao-escopo-obra.ts && tsx scripts/check-retorno-titulo.ts && tsx scripts/check-nfse-tomador-endereco.ts && tsx scripts/check-fila-atendimento.ts && tsx scripts/check-ibpt-empresa.ts && tsx scripts/check-pausas-marcas.ts && tsx scripts/check-impressao-pausas.ts && tsx scripts/check-duracao-pausa.ts && tsx scripts/check-e2e-datas-sem-dst.ts && tsx scripts/check-nfse-avulsa-emissor.ts && tsx scripts/check-relatorio-plano.ts && tsx scripts/check-regime-empresa-preservado.ts && tsx scripts/check-vinculos-contabil.ts && next build",
+    "build": "tsx scripts/check-modelo-estoque.ts && tsx scripts/check-modelo-cadastros.ts && tsx scripts/check-retencoes-nfse.ts && tsx scripts/check-baixa-parcial-conciliacao.ts && tsx scripts/check-medicao-escopo-obra.ts && tsx scripts/check-retorno-titulo.ts && tsx scripts/check-nfse-tomador-endereco.ts && tsx scripts/check-fila-atendimento.ts && tsx scripts/check-ibpt-empresa.ts && tsx scripts/check-pausas-marcas.ts && tsx scripts/check-impressao-pausas.ts && tsx scripts/check-duracao-pausa.ts && tsx scripts/check-e2e-datas-sem-dst.ts && tsx scripts/check-nfse-avulsa-emissor.ts && tsx scripts/check-relatorio-plano.ts && tsx scripts/check-regime-empresa-preservado.ts && tsx scripts/check-vinculos-contabil.ts && tsx scripts/check-importador-ja-existe.ts && next build",
     "start": "next start",
     "lint": "eslint",
     "check:modelo-estoque": "tsx scripts/check-modelo-estoque.ts",
+    "check:importador-ja-existe": "tsx scripts/check-importador-ja-existe.ts",
     "check:modelo-cadastros": "tsx scripts/check-modelo-cadastros.ts",
     "check:retencoes-nfse": "tsx scripts/check-retencoes-nfse.ts",
     "auditor:run": "tsx scripts/auditor-playwright.ts",
