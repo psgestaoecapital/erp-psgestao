@@ -11,7 +11,7 @@ import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { enderecoFiscalDoCliente, filtroDocumentoCliente, type ClienteEndereco } from '@/lib/fiscal/tomadorEndereco'
-import { calcularRetencoesFederais, issRetidoNfse, reformaIbsCbsDoServico, type RetencoesFederaisNfse, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { calcularRetencoesFederais, issRetidoNfse, reformaIbsCbsDoServico, travaEmissaoNfse, type RetencoesFederaisNfse, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -655,6 +655,21 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           }
         }
       }
+    }
+
+    // #339 · trava de emissão (todas as telas passam aqui): sem serviço do cadastro não há de onde tirar as
+    // retenções; e o padrão municipal não leva as retenções do cadastro — serviço com retenção só pelo nacional.
+    {
+      let svTrava: Record<string, unknown> | null = null
+      if (body.servicoId && !nfseReq.padraoNacional) {
+        const { data } = await supabaseAdmin.from('erp_servicos').select('*').eq('id', body.servicoId).eq('company_id', body.companyId).maybeSingle()
+        svTrava = (data as Record<string, unknown> | null) ?? null
+      }
+      const trava = travaEmissaoNfse({
+        servicoId: body.servicoId ?? null, padraoNacional: !!nfseReq.padraoNacional,
+        servico: svTrava as Parameters<typeof travaEmissaoNfse>[0]['servico'], valor: Number(nfseReq.valorServicos) || 0,
+      })
+      if (trava) return NextResponse.json({ ok: false, mensagem: trava }, { status: 400 })
     }
 
     // Lei 12.741/2012 (Transparência Fiscal) — o valor aproximado dos tributos vai nas INFORMAÇÕES

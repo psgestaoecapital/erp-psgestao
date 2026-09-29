@@ -141,3 +141,24 @@ export function issRetidoNfse(valorServico: number, tipoRetencaoIss: number | nu
   if (!(tp === 2 || tp === 3) || !Number.isFinite(aliq) || aliq <= 0) return 0
   return cent((Number(valorServico) || 0) * aliq / 100)
 }
+
+// #339 (R.R) · trava de emissão, a mesma em TODAS as telas (a rota aplica; o modal mostra antes):
+//  1) toda NFS-e sai de um serviço do cadastro — é dele que vêm as retenções federais e o ISS retido. Sem serviço,
+//     a nota sairia sem nenhuma retenção, calada (o buraco do #286 por outro caminho).
+//  2) o padrão MUNICIPAL ainda não leva as retenções do cadastro para a nota: serviço com retenção só emite pelo
+//     padrão nacional. Hoje todas as empresas emissoras estão em município aderido; a trava cobre o dia em que não.
+export const MSG_EXIGE_SERVICO_NFSE = 'Escolha o serviço cadastrado para emitir: as retenções (INSS, IR, PIS, COFINS, CSLL) e o ISS retido vêm do cadastro do serviço.'
+export const MSG_RETENCAO_SO_NACIONAL = 'Este serviço tem retenção no cadastro, mas o município do prestador emite pelo padrão municipal, que ainda não leva as retenções para a nota. A emissão fica travada para a nota não sair sem elas — fale com o suporte PS.'
+export function travaEmissaoNfse(p: {
+  servicoId?: string | null
+  padraoNacional: boolean
+  servico?: (ServicoTributosFederais & { iss_retido?: boolean | null }) | null
+  valor: number
+}): string | null {
+  if (!p.servicoId) return MSG_EXIGE_SERVICO_NFSE
+  if (!p.padraoNacional && p.servico) {
+    const r = calcularRetencoesFederais(p.valor, p.servico)
+    if (r.totalRetido > 0 || !!p.servico.iss_retido) return MSG_RETENCAO_SO_NACIONAL
+  }
+  return null
+}
