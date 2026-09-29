@@ -10,7 +10,8 @@ import { dbSelect, dbInsert, dbDelete, obterSessionPayload, registrarJornada } f
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 const DEMO_SST = 'b0700000-0000-4000-a000-000000000005'
-const base = new Date(Date.UTC(1985, 0, 7) + (Math.floor(Date.now() / 60000) % 3650) * 86400000)
+// dia único por execução, SEMPRE em 2022 (sem horário de verão no Brasil desde 2019; um ano por teste de pausas)
+const base = new Date(Date.UTC(2022, 0, 1) + (Math.floor(Date.now() / 60000) % 360) * 86400000)
 const DIA = base.toISOString().slice(0, 10)
 const ts = (h: string) => `${DIA}T${h}:00-03:00`
 type Colab = { id: string; cpf: string; nome: string; eraElegivel: boolean }
