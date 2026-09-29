@@ -14,6 +14,8 @@
 // Adapters prontos: Sicoob (756), Bradesco (237). Sicredi (748) = proximo.
 
 import { useCallback, useEffect, useState } from 'react'
+import { acharErroCatalogo, textoErroCatalogo, type ErroCatalogo } from '@/lib/banco/erroCatalogo'
+import { temConectorExtrato, MSG_EXTRATO_SEM_CONECTOR } from '@/lib/banco/extratoConector'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -160,6 +162,8 @@ export default function ConexoesBancariasPage() {
   const [testando, setTestando] = useState<string | null>(null)
   const [testeResultado, setTesteResultado] = useState<Record<string, { ok: boolean; texto: string }>>({})
   const [ultimosTestes, setUltimosTestes] = useState<Record<string, UltimoTeste>>({})   // chamado #14: último teste por config
+  // #88 (FC): catálogo de erros do banco — o teste que falha mostra o que fazer, não o erro cru
+  const [catalogoErros, setCatalogoErros] = useState<ErroCatalogo[]>([])
   const [conectandoBanco, setConectandoBanco] = useState<typeof BANCOS[number] | null>(null)
   // editar-config-existente · reabre o modal pré-preenchido pra um banco JÁ conectado
   const [editando, setEditando] = useState<{ banco: BancoDef; cfg: ProviderConfig } | null>(null)
@@ -168,7 +172,7 @@ export default function ConexoesBancariasPage() {
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
     setLoading(true); setErro(null)
-    const [cfgRes, contasRes, testesRes] = await Promise.all([
+    const [cfgRes, contasRes, testesRes, catRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
         .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, juros_pct, multa_pct, dias_multa, dias_juros, instrucao_linha1, instrucao_linha2, instrucao_linha3, instrucao_linha4, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
         .eq('company_id', empresaUnica)
@@ -181,6 +185,8 @@ export default function ConexoesBancariasPage() {
         .select('provider_config_id, status, cert_status, cert_expira_em, auth_ok, erro, testado_em, testado_por_email')
         .eq('company_id', empresaUnica)
         .order('testado_em', { ascending: false }),
+      supabase.from('erp_banco_erro_catalogo')
+        .select('provider, codigo, titulo, o_que_e, o_que_fazer, quem_contatar, pedir_ao_banco'),
     ])
     if (cfgRes.error) setErro(cfgRes.error.message)
     else setConfigs((cfgRes.data ?? []) as ProviderConfig[])
@@ -192,6 +198,7 @@ export default function ConexoesBancariasPage() {
       }
       setUltimosTestes(mapa)
     }
+    if (!catRes.error) setCatalogoErros((catRes.data ?? []) as ErroCatalogo[])
     setLoading(false)
   }, [empresaUnica])
 
@@ -233,7 +240,10 @@ export default function ConexoesBancariasPage() {
       if (!r.ok && !j.status) {
         setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: false, texto: j.erro || `Falhou (HTTP ${r.status})` } }))
       } else {
-        setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: j.status === 'ok' || j.status === 'parcial', texto: montarTextoTeste(j) } }))
+        // #88: erro reconhecido no catálogo ⇒ o que fazer (+ o erro do banco no fim, para suporte)
+        const cat = j.status === 'erro' ? acharErroCatalogo(j.erro, catalogoErros, cfg.provider) : null
+        const texto = cat ? `${textoErroCatalogo(cat)} (Erro do banco: ${String(j.erro ?? '').slice(0, 160)})` : montarTextoTeste(j)
+        setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: j.status === 'ok' || j.status === 'parcial', texto } }))
       }
       await carregar()   // recarrega o "último teste"
     } catch (e) {
@@ -290,7 +300,7 @@ export default function ConexoesBancariasPage() {
     const r = testeResultado[cfg.id]
     if (r) {
       return (
-        <div style={{
+        <div data-testid={`teste-resultado-${cfg.provider}`} style={{
           fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6, maxWidth: 300, textAlign: 'right',
           background: r.ok ? '#DCFCE7' : '#FEE2E2', color: r.ok ? '#166534' : '#B91C1C',
         }}>
@@ -301,10 +311,11 @@ export default function ConexoesBancariasPage() {
     const ult = ultimosTestes[cfg.id]
     if (!ult) return null
     const q = ult.status === 'ok' ? '✅ ok' : ult.status === 'parcial' ? '⚠️ atenção' : '❌ falhou'
+    const catUlt = ult.status === 'erro' ? acharErroCatalogo(ult.erro, catalogoErros, cfg.provider) : null
     const cor = ult.status === 'erro' ? '#B91C1C' : ult.status === 'parcial' ? '#7A5A0F' : ESP60
     return (
       <div style={{ fontSize: 10, color: cor, textAlign: 'right', maxWidth: 300 }}>
-        Último teste: {fmtData(ult.testado_em)} · {q}{ult.testado_por_email ? ` · ${ult.testado_por_email}` : ''}
+        Último teste: {fmtData(ult.testado_em)} · {q}{catUlt ? ` · ${catUlt.titulo}` : ''}{ult.testado_por_email ? ` · ${ult.testado_por_email}` : ''}
       </div>
     )
   }
@@ -450,9 +461,15 @@ export default function ConexoesBancariasPage() {
                           🧾 Dados CNAB
                         </button>
                         {cfg.ativo && botaoTestar(cfg)}
-                        {cfg.cap_extrato && cfg.ativo && (
+                        {cfg.cap_extrato && cfg.ativo && !temConectorExtrato(cfg.provider) && (
+                          <span data-testid={`extrato-sem-conector-${cfg.provider}`} style={{ fontSize: 10, color: ESP60, maxWidth: 220 }}>
+                            {MSG_EXTRATO_SEM_CONECTOR}
+                          </span>
+                        )}
+                        {cfg.cap_extrato && cfg.ativo && temConectorExtrato(cfg.provider) && (
                           <button
                             type="button"
+                            data-testid={`sincronizar-extrato-${cfg.provider}`}
                             onClick={() => sincronizarExtrato(cfg)}
                             disabled={syncing === cfg.id}
                             style={{
@@ -1095,10 +1112,15 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
               <input type="checkbox" checked={capBoleto} onChange={(e) => setCapBoleto(e.target.checked)} />
               Emitir boletos
             </label>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: ESP }}>
-              <input type="checkbox" checked={capExtrato} onChange={(e) => setCapExtrato(e.target.checked)} />
-              Sincronizar extrato
-            </label>
+            {temConectorExtrato(banco.sigla) ? (
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: ESP }}>
+                <input type="checkbox" checked={capExtrato} onChange={(e) => setCapExtrato(e.target.checked)} />
+                Sincronizar extrato
+              </label>
+            ) : (
+              // #88: sem conector de extrato para este banco — não oferecer o que dá erro
+              <div style={{ fontSize: 11, color: ESP60 }}>{MSG_EXTRATO_SEM_CONECTOR}</div>
+            )}
           </div>
           {/* Encargos do boleto — espelha o bloco do OMIE ("Juros e Multa para o Boleto"). Só aparece quando
               a conexão emite boleto. Juros/multa em %, dias após o vencimento para cada encargo incidir, e as

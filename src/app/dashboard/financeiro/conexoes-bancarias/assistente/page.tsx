@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { acharErroCatalogo, type ErroCatalogo } from '@/lib/banco/erroCatalogo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#2E7D5B', WARN = '#8A5A00', ERR = '#B23B3B'
@@ -24,7 +25,7 @@ type Manifesto = {
 }
 type Config = { id: string; provider: string; ambiente: string; ativo: boolean; estado_conexao: string; banco_conta_id: string | null }
 type Teste = { provider: string; passo: string; status: string; detalhe: any }
-type ErroCat = { provider: string; codigo: string; titulo: string; o_que_e: string; o_que_fazer: string; quem_contatar: string | null }
+type ErroCat = ErroCatalogo
 
 const ESTADO_LABEL: Record<string, string> = {
   nao_iniciado: '⚪ Não iniciado', solicitado: '📤 Solicitado ao banco', aguardando_banco: '⏳ Aguardando o banco',
@@ -32,21 +33,7 @@ const ESTADO_LABEL: Record<string, string> = {
 }
 const PASSO_LABEL: Record<string, string> = { oauth: '1. Autenticar (OAuth)', boleto: '2. Registrar boleto', pdf: '3. Gerar PDF (com Pix)', extrato: '4. Puxar extrato', baixa: '5. Liquidação na conta certa' }
 
-// Matcher erro→código do catálogo. Case-insensitive; só casa o que reconhece COM CONFIANÇA.
-// Nada casou ⇒ null e a tela mostra o erro CRU (nunca uma linha arbitrária do catálogo). RD-51/RD-58:
-// erro não reconhecido é melhor que erro errado.
-const ERRO_MATCHERS: { re: RegExp; codigo: string }[] = [
-  { re: /invalid_grant|invalid user credentials/i, codigo: '401_invalid_user_credentials' },
-  { re: /10 caracteres|seu.?n[uú]mero/i,           codigo: '400_seu_numero' },
-  { re: /\b429\b|muitas requisi|too many request/i, codigo: '429' },
-]
-function acharErroCatalogo(detalhe: unknown, catalogo: ErroCat[]): ErroCat | null {
-  const raw = typeof detalhe === 'string' ? detalhe : JSON.stringify(detalhe ?? '')
-  for (const m of ERRO_MATCHERS) {
-    if (m.re.test(raw)) return catalogo.find((c) => c.codigo === m.codigo) ?? null
-  }
-  return null
-}
+// Matcher erro→código do catálogo: src/lib/banco/erroCatalogo.ts (compartilhado com a tela de Conexões, #88).
 function detalheTexto(detalhe: unknown): string {
   if (detalhe == null) return '(sem detalhe)'
   if (typeof detalhe === 'string') return detalhe
