@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { conferirBaixaParcial, saldoTitulo } from '@/lib/conciliacao/baixaParcial'
 
 interface Vinculo {
   vinculo_id: string
@@ -93,6 +94,10 @@ export default function VincularVariosModal({
   const [rateioVals, setRateioVals] = useState<Record<string, string>>({})
   const [saldos, setSaldos] = useState<Record<string, number>>({})
   const [rateando, setRateando] = useState(false)
+  // #145 · baixa PARCIAL por conta: o vínculo guarda o valor que esta fatura paga daquela conta; o resto fica em aberto.
+  const [parcialDe, setParcialDe] = useState<string | null>(null)       // vinculo_id em edição
+  const [parcialValor, setParcialValor] = useState('')
+  const [parcialSaldo, setParcialSaldo] = useState<number | null>(null)
 
   const naturezaBusca: 'debito' | 'credito' = natureza === 'credito' ? 'credito' : 'debito'
   const parseNum = (s: string) => Number((s || '0').replace(/\s/g, '').replace(',', '.')) || 0
@@ -167,6 +172,33 @@ export default function VincularVariosModal({
     await carregarResumo()
   }
 
+  async function abrirParcial(v: Vinculo) {
+    setErro(null); setParcialDe(v.vinculo_id); setParcialValor(v.valor.toFixed(2).replace('.', ',')); setParcialSaldo(null)
+    const { data } = await supabase.from(v.tabela).select('valor, juros, multa, desconto, valor_pago').eq('id', v.lancamento_id).maybeSingle()
+    const t = data as { valor: number; juros: number | null; multa: number | null; desconto: number | null; valor_pago: number | null } | null
+    // o que JÁ está vinculado a este movimento não foi pago ainda: o saldo é o do título antes desta fatura
+    setParcialSaldo(t ? saldoTitulo(t) : null)
+  }
+
+  async function aplicarParcial(v: Vinculo) {
+    if (parcialSaldo == null) return
+    const valor = parseNum(parcialValor)
+    const conf = conferirBaixaParcial(parcialSaldo, valor)
+    if (!conf.ok) { setErro(conf.erro); return }
+    setAcao(v.vinculo_id); setErro(null)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.rpc('fn_conciliacao_vincular', {
+      p_movimento_id: movimentoId, p_lancamento_tabela: v.tabela, p_lancamento_id: v.lancamento_id,
+      p_valor: Math.round(valor * 100) / 100, p_operador_id: user?.id ?? null,
+    })
+    setAcao(null)
+    if (error) { setErro(error.message); return }
+    const r = data as ResumoRPC
+    if (!r.ok) { setErro(r.msg ?? r.erro ?? 'Erro ao ajustar o valor'); return }
+    setParcialDe(null)
+    await carregarResumo()
+  }
+
   async function desvincular(v: Vinculo) {
     setAcao(v.vinculo_id)
     setErro(null)
@@ -189,7 +221,7 @@ export default function VincularVariosModal({
     const nQtd = resumo?.qtd_vinculos ?? resumo?.itens?.length ?? 0
     const linhaAjuste = acrNum > 0 ? `\nAcréscimo (juros/multa) de R$ ${fmt(acrNum)} registrado no título.`
       : descNum > 0 ? `\nDesconto de R$ ${fmt(descNum)} registrado no título.` : ''
-    if (!window.confirm(`CONCILIAR a fatura?\n\n${nQtd} conta(s) baixadas pelo total da fatura.${linhaAjuste}`)) return
+    if (!window.confirm(`CONCILIAR a fatura?\n\n${nQtd} conta(s) baixadas pelo valor vinculado a cada uma (baixa parcial deixa o saldo em aberto no título).${linhaAjuste}`)) return
     setFechando(true)
     setErro(null)
     const { data: { user } } = await supabase.auth.getUser()
@@ -384,9 +416,18 @@ export default function VincularVariosModal({
                         {v.tabela} · venc {fmtDate(v.vencimento)}
                       </div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#3B6D11', fontVariantNumeric: 'tabular-nums' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#3B6D11', fontVariantNumeric: 'tabular-nums' }} data-testid={`vv-vinculado-valor-${v.lancamento_id}`}>
                       R$ {fmt(v.valor)}
                     </div>
+                    <button
+                      onClick={() => (parcialDe === v.vinculo_id ? setParcialDe(null) : void abrirParcial(v))}
+                      disabled={acao === v.vinculo_id || fechando}
+                      style={ghostBtn}
+                      data-testid={`vv-parcial-${v.lancamento_id}`}
+                      title="Baixar só parte desta conta nesta fatura; o resto fica em aberto"
+                    >
+                      baixa parcial
+                    </button>
                     <button
                       onClick={() => void desvincular(v)}
                       disabled={acao === v.vinculo_id || fechando}
@@ -394,6 +435,25 @@ export default function VincularVariosModal({
                     >
                       remover
                     </button>
+                    {/* #145 · valor que esta fatura baixa desta conta; o que sobrar fica em aberto (título parcial) */}
+                    {parcialDe === v.vinculo_id && (() => {
+                      const conf = parcialSaldo == null ? null : conferirBaixaParcial(parcialSaldo, parseNum(parcialValor))
+                      return (
+                        <div style={{ flexBasis: '100%', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11.5, color: '#3D2314' }}>
+                          <span>Baixar nesta fatura R$</span>
+                          <input value={parcialValor} onChange={(e) => setParcialValor(e.target.value)} inputMode="decimal"
+                            data-testid={`vv-parcial-valor-${v.lancamento_id}`} style={{ ...inputStyle, width: 110 }} />
+                          <span data-testid={`vv-parcial-info-${v.lancamento_id}`} style={{ color: conf && !conf.ok ? '#A32D2D' : 'rgba(61,35,20,0.7)' }}>
+                            {parcialSaldo == null ? 'carregando saldo…'
+                              : !conf?.ok ? conf?.erro
+                              : conf.parcial ? `saldo do título R$ ${fmt(parcialSaldo)} · ficará parcial: restam R$ ${fmt(conf.restante)}`
+                              : `quita o título (saldo R$ ${fmt(parcialSaldo)})`}
+                          </span>
+                          <button onClick={() => void aplicarParcial(v)} disabled={!conf?.ok || acao === v.vinculo_id}
+                            data-testid={`vv-parcial-aplicar-${v.lancamento_id}`} style={ghostBtn}>aplicar</button>
+                        </div>
+                      )
+                    })()}
                   </div>
                 ))}
               </div>
