@@ -3,7 +3,7 @@
  * minutos (formato da apuração atual: { tipo, quantidade } + pausas do dia).
  *   tsx scripts/check-supervisao-frases.ts
  */
-import { frasesPausasCurtas, frasesExcesso } from '../src/lib/ponto/supervisaoFrases'
+import { frasesPausasCurtas, frasesExcesso, trechosSemPausa, fraseSinal } from '../src/lib/ponto/supervisaoFrases'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
@@ -18,6 +18,15 @@ ok(frasesPausasCurtas({ tipo: 'pausa_insuficiente', quantidade: 2 }, null, 20)[0
 ok(frasesPausasCurtas({ tipo: 'pausa_insuficiente', duracao_min: 18, inicio: '09:10', minimo: 20 }, null, 20)[0] === 'pausa de 18 min às 09:10 — o mínimo é 20 min', 'formato antigo continua legível')
 ok(frasesExcesso(pausas)[0] === 'pausa das 11:37 às 11:59: 23 min — acima do tempo previsto (gestão, não é infração)', 'excesso aparece como gestão')
 ok(frasesExcesso(null).length === 0, 'sem pausas, nada de excesso')
+
+// sinal de gestão de 1h40 (art. 253 CLT) — Anderson 16/09: ponto 03:55–09:00 / 10:10–13:47, pausas 05:36–05:56, 07:42–08:02, 11:37–11:59
+const tr = trechosSemPausa(['03:55', '09:00', '10:10', '13:47'], [{ de: '05:36', ate: '05:56' }, { de: '07:42', ate: '08:02' }, { de: '11:37', ate: '11:59' }], 100)
+ok(tr.map(t => `${t.de}-${t.ate}=${t.min}`).join(' ') === '03:55-05:36=101 05:56-07:42=106 11:59-13:47=108',
+  'acha os trechos sem pausa acima de 1h40 (1h41, 1h46 e 1h48 no dia do Anderson)')
+ok(fraseSinal(tr[2]) === 'ficou 1h48 sem pausa, das 11:59 às 13:47 — o limite é 1h40 (art. 253 da CLT)', 'frase do sinal com horário')
+ok(trechosSemPausa(['06:00', '07:40'], [], 100).length === 0, 'exatamente 1h40 não é sinal')
+ok(trechosSemPausa(['06:00', '09:00'], [{ de: '07:00', ate: '07:20' }], 100).length === 0, 'pausa no meio quebra o trecho')
+ok(trechosSemPausa(['06:00', '09:00', '10:00'], [], 100).length === 1, 'batida sem par no fim é ignorada (só pares entrada/saída)')
 
 if (falhas) { console.error(`\n[check-supervisao-frases] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-supervisao-frases] frases da Supervisão conferidas.')

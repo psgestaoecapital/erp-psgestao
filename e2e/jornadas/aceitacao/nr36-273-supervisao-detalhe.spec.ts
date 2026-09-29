@@ -1,6 +1,7 @@
 // #273 (Frioeste · SST) · Supervisão: "pausa de undefined minutos às undefined"; e pedir filtro por colaborador com o
 // detalhe de cada desvio do dia. Causa: a apuração atual grava { tipo: 'pausa_insuficiente', quantidade } e as pausas em
 // detalhe.pausas; a tela lia o formato antigo. Migration 20260929040000: fn_nr36_supervisao_casos devolve as pausas.
+// Sinal de gestão de 1h40 (art. 253 CLT, decisão do CEO 29/09): fn_nr36_supervisao_sinais, com horário, fora do veredito.
 // Demonstração Indústria (SST): um dia de desvio sintético (formato da apuração atual), removido no fim.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
@@ -33,6 +34,14 @@ test.describe('Supervisão de pausas — detalhe do desvio e filtro por colabora
         origem: 'e2e-273',
       },
     })
+    // sinal de 1h40 (art. 253): ponto 03:55–09:00 / 10:10–13:47 e as 3 pausas com fim → trechos 1h41, 1h46 e 1h48
+    await dbInsert('ind_ponto_dia', {
+      company_id: DEMO_SST, cpf, data: DIA, shift: '04:00-09:00 10:10-13:50', worked_seconds: 31200, total_pontos: 4, tem_ajuste: false,
+      raw: { points: ['03:55', '09:00', '10:10', '13:47'].map(h => ({ datetime: `${DIA}T${h}:00` })), origem: 'e2e-273' },
+    })
+    for (const [ini, fim, dur, classe] of [['05:36', '05:56', 1245, 'pausa_normal'], ['07:42', '08:02', 1165, 'pausa_insuficiente'], ['11:37', '11:59', 1353, 'pausa_normal']] as const) {
+      await dbInsert('ind_ponto_pausa', { company_id: DEMO_SST, cpf, data: DIA, tipo: 'termica_253', inicio: `${DIA}T${ini}:00-03:00`, fim: `${DIA}T${fim}:00-03:00`, duracao_seg: dur, classe_evento: classe, raw: { origem: 'e2e-273' } })
+    }
   })
 
   test.afterEach(async ({}, testInfo) => {
@@ -40,7 +49,10 @@ test.describe('Supervisão de pausas — detalhe do desvio e filtro por colabora
   })
 
   test.afterAll(async () => {
-    if (cpf) await dbDelete('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
+    if (!cpf) return
+    await dbDelete('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
+    await dbDelete('ind_ponto_pausa', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
+    await dbDelete('ind_ponto_dia', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
   })
 
   test('o caso mostra cada pausa curta com horário e minutos, o excesso como gestão, e filtra por colaborador', { tag: '@pos-migration' }, async ({ page }) => {
@@ -64,5 +76,10 @@ test.describe('Supervisão de pausas — detalhe do desvio e filtro por colabora
     await expect(frases.filter({ hasText: 'pausa das 07:42 às 08:02: 19 min — o mínimo é 20 min' })).toHaveCount(1)
     await expect(frases.filter({ hasText: 'pausa das 11:37 às 12:03: 26 min — acima do tempo previsto (gestão, não é infração)' })).toHaveCount(1)
     await expect(page.getByText(/undefined/)).toHaveCount(0)
+
+    // sinal de gestão de 1h40 (art. 253 CLT), com horário, fora do veredito
+    const sinais = page.getByTestId('sup-sinal')
+    await expect(sinais.filter({ hasText: 'ficou 1h48 sem pausa, das 11:59 às 13:47 — o limite é 1h40 (art. 253 da CLT)' })).toHaveCount(1)
+    await expect(sinais).toHaveCount(3)
   })
 })

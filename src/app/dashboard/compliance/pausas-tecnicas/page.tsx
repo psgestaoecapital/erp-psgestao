@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { CSS_IMPRESSAO } from '@/lib/ponto/impressaoDocumento'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { frasesPausasCurtas, frasesExcesso, type PausaDia } from '@/lib/ponto/supervisaoFrases'
+import { frasesPausasCurtas, frasesExcesso, fraseSinal, type PausaDia, type Trecho } from '@/lib/ponto/supervisaoFrases'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, type Marca, type PapelMarca, type LinhaPausaDia } from '@/lib/ponto/pausasMarcas'
@@ -1546,6 +1546,7 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
 // de chão, descreve o FATO — nunca julga a pessoa (cuidado de RH: "ficou 4h13 sem pausa", jamais
 // "não cumpriu"; a causa pode ser da operação). Horários em hora local (fuso normalizado na origem).
 type SupDesvio = { tipo: string; de?: string; ate?: string; minutos?: number; excedeu?: number; inicio?: string; duracao_min?: number; minimo?: number; faltantes?: number; quantidade?: number; marcacao_interna?: string[] }
+type SupSinal = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; status_dia: string; limite_min: number; trechos: Trecho[] }
 type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; shift: string | null; gatilho_min: string | null; pausa_min: string | null; jornada: { entrada: string | null; saida: string | null } | null; desvios: SupDesvio[]; pausas?: PausaDia[] | null }
 // #92 · dia aguardando confirmação (pausa sem hora de saída). Natureza DIFERENTE do desvio: não
 // está provado — o supervisor pergunta ao colaborador o que houve; a responsável fecha na aba
@@ -1596,6 +1597,7 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
   const [copiado, setCopiado] = useState<string | null>(null)
   // #273 · filtrar por colaborador
   const [colab, setColab] = useState('')
+  const [sinais, setSinais] = useState<SupSinal[]>([])
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('')
@@ -1605,12 +1607,18 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
       // #92 · dias aguardando confirmação — a segunda natureza, separada dos desvios provados
       const p = await rpc<{ pendentes: SupPendente[] }>('fn_nr36_supervisao_pendentes', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim })
       setPendentes(p.pendentes || [])
+      // #273 · sinal de gestão do limite de 1h40 (art. 253 CLT) — fora do veredito
+      try {
+        const sg = await rpc<{ sinais: SupSinal[] }>('fn_nr36_supervisao_sinais', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim })
+        setSinais(sg.sinais || [])
+      } catch { setSinais([]) }
       setCarregado(true)
     } catch (e) { setErro((e as Error).message) } finally { setCarregando(false) }
   }, [companyId, ini, fim])
   useEffect(() => { void carregar() }, [carregar])
 
-  const nomes = useMemo(() => Array.from(new Set([...casos.map(c => c.nome), ...pendentes.map(p => p.nome)])).sort(), [casos, pendentes])
+  const nomes = useMemo(() => Array.from(new Set([...casos.map(c => c.nome), ...pendentes.map(p => p.nome), ...sinais.map(g => g.nome)])).sort(), [casos, pendentes, sinais])
+  const sinaisF = useMemo(() => (colab ? sinais.filter(g => g.nome === colab) : sinais), [sinais, colab])
   const casosF = useMemo(() => (colab ? casos.filter(c => c.nome === colab) : casos), [casos, colab])
   const pendentesF = useMemo(() => (colab ? pendentes.filter(p => p.nome === colab) : pendentes), [pendentes, colab])
 
@@ -1642,7 +1650,7 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
 
       {erro && <div style={erroBox()}>{erro}</div>}
       {!carregado ? <Load /> :
-        (casosF.length === 0 && pendentesF.length === 0) ? <Vazio titulo="Nada para tratar no período" texto="Não há desvios provados nem dias aguardando confirmação neste período. Se faltam dados, importe o relatório de ponto e reapure no Painel." /> : (
+        (casosF.length === 0 && pendentesF.length === 0 && sinaisF.length === 0) ? <Vazio titulo="Nada para tratar no período" texto="Não há desvios provados nem dias aguardando confirmação neste período. Se faltam dados, importe o relatório de ponto e reapure no Painel." /> : (
         <>
           {/* SEÇÃO 1 · Desvios provados — pausa insuficiente/não realizada, fato registrado */}
           <div style={secTitle()}>Desvios provados</div>
@@ -1675,6 +1683,25 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
               </div>
             ) })}
           </div>
+          )}
+
+          {/* SEÇÃO 1b · #273 · SINAL DE GESTÃO — art. 253 CLT: 20 min de repouso a cada 1h40 em ambiente frio. Trecho
+              contínuo sem pausa acima do limite, pelas batidas do ponto menos as pausas. NÃO é veredito (decisão do CEO). */}
+          <div style={secTitle()}>Sinal de gestão — mais de 1h40 sem pausa</div>
+          <div style={{ fontSize: 12.5, color: C.gray, marginBottom: 8 }}>Art. 253 da CLT: 20 min de repouso a cada 1h40 de trabalho em ambiente frio. Trechos contínuos sem pausa acima do limite, medidos pelas batidas do ponto menos as pausas registradas. <b>É sinal para a gestão, não entra no veredito do dia.</b></div>
+          {sinaisF.length === 0 ? (
+            <div style={{ fontSize: 13, color: C.gray, marginBottom: 18 }} data-testid="sup-sinais-vazio">Nenhum trecho acima de 1h40 sem pausa no período.</div>
+          ) : (
+            <div style={{ marginBottom: 20 }} data-testid="sup-sinais">
+              {sinaisF.map((g) => (
+                <div key={g.cpf + g.data} style={{ border: `1px solid ${C.borderLt}`, borderRadius: 10, marginBottom: 6, background: '#fff', padding: '8px 14px', breakInside: 'avoid' }}>
+                  <div style={{ fontSize: 13 }}><b style={{ color: C.espresso }}>{g.nome}</b><span style={{ color: C.gray, fontSize: 12 }}> · {fmtData(g.data)}{g.setor ? ` · ${g.setor}` : ''} · dia {g.status_dia === 'desvio' ? 'com desvio' : 'conforme'}</span></div>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                    {g.trechos.map((t, i) => <li key={i} data-testid="sup-sinal" style={{ fontSize: 12.5, color: C.amber }}>{fraseSinal(t, g.limite_min)}</li>)}
+                  </ul>
+                </div>
+              ))}
+            </div>
           )}
 
           {/* SEÇÃO 2 · Dias aguardando confirmação — #92. Natureza DIFERENTE do desvio: pausa sem
