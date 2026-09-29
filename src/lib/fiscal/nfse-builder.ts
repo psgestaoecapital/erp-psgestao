@@ -1,6 +1,7 @@
 import type { NFSeRequest } from './types'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
+import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from './emissorConfig'
 
 export async function buildNFSeFromReceber(opts: {
   companyId: string
@@ -34,7 +35,7 @@ export async function buildNFSeFromReceber(opts: {
 
   const { data: cfg } = await supabaseAdmin
     .from('erp_fiscal_provider_config')
-    .select('cnae_padrao, serie_nfse_padrao, gov_nfse_municipio_codigo')
+    .select(SELECT_CONFIG_EMISSOR)
     .eq('company_id', opts.companyId)
     .eq('provider', 'focusnfe')
     .eq('ativo', true)
@@ -104,10 +105,11 @@ export async function buildNFSeFromReceber(opts: {
   const isCnpj = docLimpo.length === 14
   const isCpf = docLimpo.length === 11
 
+  const emissor = dadosEmissorDaConfig(cfg, opts.overrides?.cnae)
   return {
-    serie: cfg?.serie_nfse_padrao ?? '1',
+    serie: emissor.serie,
     dataEmissao: new Date().toISOString(),
-    cnaeServico: opts.overrides?.cnae ?? cfg?.cnae_padrao ?? '',
+    cnaeServico: emissor.cnaeServico,
     codigoServico: opts.overrides?.codigoServico ?? '',
     descricaoServico:
       opts.overrides?.descricaoServico ?? rec.descricao ?? 'Prestacao de servicos',
@@ -120,7 +122,7 @@ export async function buildNFSeFromReceber(opts: {
       inscricaoMunicipal: emp.inscricao_municipal ?? undefined,
       // FIX-PRESTADOR-CODIGO-MUNICIPIO: o Focus exige prestador.codigo_municipio (IBGE).
       // Vem da config fiscal (gov_nfse_municipio_codigo). Antes nunca era enviado.
-      codigoMunicipio: cfg?.gov_nfse_municipio_codigo ?? undefined,
+      codigoMunicipio: emissor.codigoMunicipio,
     },
     tomador: {
       cnpj: isCnpj ? docLimpo : undefined,

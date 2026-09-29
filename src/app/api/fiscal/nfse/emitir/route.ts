@@ -10,6 +10,7 @@ import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
+import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
 import { enderecoFiscalDoCliente, filtroDocumentoCliente, type ClienteEndereco } from '@/lib/fiscal/tomadorEndereco'
 import { calcularRetencoesFederais, issRetidoNfse, reformaIbsCbsDoServico, travaEmissaoNfse, type RetencoesFederaisNfse, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
@@ -181,12 +182,17 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       if (!emp) {
         return NextResponse.json({ ok: false, mensagem: 'Empresa nao encontrada' }, { status: 400 })
       }
+      // Série, CNAE e município do prestador: a MESMA leitura da Configuração Fiscal que a emissão pelo
+      // Recebível usa (nfse-builder). Sem isso a avulsa ia com série '1' e sem município, e travava.
+      const { data: cfgEmissor } = await supabaseAdmin.from('erp_fiscal_provider_config').select(SELECT_CONFIG_EMISSOR)
+        .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
+      const emissor = dadosEmissorDaConfig(cfgEmissor, body.manual.cnae)
       nfseReq = {
-        serie: '1',
+        serie: emissor.serie,
         dataEmissao: new Date().toISOString(),
         descricaoServico: body.manual.descricaoServico,
         valorServicos: body.manual.valorServicos,
-        cnaeServico: body.manual.cnae ?? '',
+        cnaeServico: emissor.cnaeServico,
         codigoServico: body.manual.codigoServico ?? '',
         aliquotaIss: body.manual.aliquotaIss,
         retemIss: body.manual.retemIss ?? false,
@@ -194,6 +200,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           cnpj: String(emp.cnpj ?? '').replace(/\D/g, ''),
           razaoSocial: emp.razao_social,
           inscricaoMunicipal: emp.inscricao_municipal ?? undefined,
+          codigoMunicipio: emissor.codigoMunicipio,
         },
         tomador: body.manual.tomador,
       }
