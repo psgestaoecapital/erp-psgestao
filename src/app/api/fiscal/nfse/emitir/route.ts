@@ -61,6 +61,8 @@ interface EmitirNFSeBody {
   // #35 · MEDIÇÃO: parcelas do pedido que esta nota fatura (a nota sai pela SOMA delas). gerarFinanceiro=false →
   // as parcelas seguem 'previsto' até o "Gerar financeiro desta nota"; true → viram título na autorização.
   medicao?: { pedidoId: string; parcelaIds: string[]; gerarFinanceiro?: boolean }
+  // #340 · itens do escopo da obra medidos por esta nota (abatem do contratado quando a nota for autorizada)
+  medicaoObra?: { obraId: string; itens: { item_id: string; quantidade: number }[] }
 }
 
 interface DadosNFSeRPC {
@@ -294,6 +296,20 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       const v = val as { ok?: boolean; erro?: string } | null
       if (valErr || !v?.ok) {
         return NextResponse.json({ ok: false, mensagem: valErr?.message ?? v?.erro ?? 'Medição inválida.' }, { status: 400 })
+      }
+    }
+
+    // #340 · MEDIÇÃO DO ESCOPO DA OBRA: confere no banco que os itens são da obra, cabem no que falta medir e somam
+    // o valor da nota (tolerância R$ 0,01 — decisão do CEO). Não fecha → a nota não sai, e a mensagem diz quanto.
+    const medicaoObra = body.medicaoObra && body.medicaoObra.obraId && Array.isArray(body.medicaoObra.itens) && body.medicaoObra.itens.length > 0
+      ? body.medicaoObra : null
+    if (medicaoObra) {
+      const { data: valO, error: valOErr } = await supabaseAdmin.rpc('fn_nfse_obra_medicao_validar', {
+        p_company_id: body.companyId, p_obra_id: medicaoObra.obraId, p_itens: medicaoObra.itens, p_valor: nfseReq.valorServicos,
+      })
+      const vo = valO as { ok?: boolean; erro?: string } | null
+      if (valOErr || !vo?.ok) {
+        return NextResponse.json({ ok: false, mensagem: valOErr?.message ?? vo?.erro ?? 'Medição do escopo inválida.' }, { status: 400 })
       }
     }
 
@@ -826,6 +842,20 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         console.error('[nfse/emitir] medição não vinculada', registroId, vincErr?.message ?? vj?.erro)
         medicaoAviso = 'A nota saiu, mas não foi ligada às parcelas do pedido — avise o suporte antes de faturar de novo. ' +
           (vincErr?.message ?? vj?.erro ?? '')
+      }
+    }
+
+    // #340 · grava os itens do escopo medidos por esta nota. Já autorizada → lança agora; em processamento → o
+    // gatilho lança na autorização; rejeitada não lança; cancelada estorna (trg_nfse_obra_medicao).
+    if (registroId && medicaoObra) {
+      const { data: vo, error: voErr } = await supabaseAdmin.rpc('fn_nfse_obra_medicao_vincular', {
+        p_nfse_id: registroId, p_obra_id: medicaoObra.obraId, p_itens: medicaoObra.itens,
+      })
+      const voj = vo as { ok?: boolean; erro?: string } | null
+      if (voErr || !voj?.ok) {
+        console.error('[nfse/emitir] medição do escopo não vinculada', registroId, voErr?.message ?? voj?.erro)
+        medicaoAviso = (medicaoAviso ? medicaoAviso + ' ' : '') + 'A nota saiu, mas a medição não foi ligada ao escopo da obra — avise o suporte. ' +
+          (voErr?.message ?? voj?.erro ?? '')
       }
     }
 
