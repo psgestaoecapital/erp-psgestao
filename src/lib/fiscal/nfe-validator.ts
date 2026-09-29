@@ -49,7 +49,8 @@ export function validateNFeRequest(req: NFeRequest): void {
       if (!item.ncm || !NCM_REGEX.test(item.ncm.replace(/\D/g, ''))) {
         erros.push(`${prefixo}: NCM invalido (8 digitos · ex: 84713012)`)
       }
-      if (!item.cfop || !CFOP_REGEX.test(item.cfop)) {
+      // CFOP ausente por falta de cadastro vira a mensagem de "produto sem tributação" (produto + campo), logo abaixo
+      if (!item.cfopFaltando && (!item.cfop || !CFOP_REGEX.test(item.cfop))) {
         erros.push(`${prefixo}: CFOP invalido (4 digitos · ex: 5102)`)
       }
       if (!item.quantidade || item.quantidade <= 0) erros.push(`${prefixo}: quantidade > 0`)

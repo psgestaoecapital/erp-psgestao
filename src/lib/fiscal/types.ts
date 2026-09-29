@@ -134,6 +134,8 @@ export interface NFeProdutoItem {
   descricao: string
   ncm: string
   cfop: string
+  // CEO 30/09: o produto não tem o CFOP de venda do escopo desta nota (dentro/fora do estado) — o validator trava
+  cfopFaltando?: 'dentro' | 'fora'
   unidade: string
   quantidade: number
   valorUnitario: number
