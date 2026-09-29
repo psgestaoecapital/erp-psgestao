@@ -8,11 +8,13 @@
 //    (Ajuste SINIEF 03/2010; Manual de Orientação do Contribuinte NF-e, grupo ICMSSN).
 //  - CST do ICMS: Tabela B do CST (Convênio s/nº de 1970, redação do Ajuste SINIEF 03/2018 e 01/2023 p/ 02, 15, 53, 61).
 //  - CST do PIS e da COFINS: Tabela 4.3.3 da EFD-Contribuições (IN RFB 1.009/2010).
+//  - CFOP: Anexo do Convênio s/nº de 15/12/1970 (Códigos Fiscais de Operações e Prestações), grupos 5.xxx (dentro do
+//    estado) e 6.xxx (fora do estado). 5405/6404 = mercadoria com ICMS já retido por ST (contribuinte substituído).
 
-export type CampoFiscal = 'tipo_item_sped' | 'cst_icms' | 'cst_pis' | 'cst_cofins'
+export type CampoFiscal = 'tipo_item_sped' | 'cst_icms' | 'cst_pis' | 'cst_cofins' | 'cfop_venda' | 'cfop_venda_interestadual'
 export type Opcao = { codigo: string; rotulo: string }
 
-export const CAMPOS_FISCAIS: readonly CampoFiscal[] = ['tipo_item_sped', 'cst_icms', 'cst_pis', 'cst_cofins']
+export const CAMPOS_FISCAIS: readonly CampoFiscal[] = ['tipo_item_sped', 'cst_icms', 'cst_pis', 'cst_cofins', 'cfop_venda', 'cfop_venda_interestadual']
 
 export const TIPOS_ITEM_SPED: readonly Opcao[] = [
   { codigo: '00', rotulo: 'Mercadoria para revenda' },
@@ -96,6 +98,26 @@ export const CST_PIS_COFINS: readonly Opcao[] = [
   { codigo: '99', rotulo: 'Outras operações' },
 ]
 
+// CFOP de venda mais usados (a validação aceita qualquer 5xxx dentro do estado e 6xxx fora — banco e tela iguais).
+export const CFOP_DENTRO: readonly Opcao[] = [
+  { codigo: '5102', rotulo: 'Venda de mercadoria adquirida de terceiros' },
+  { codigo: '5101', rotulo: 'Venda de produção do estabelecimento' },
+  { codigo: '5405', rotulo: 'Venda de mercadoria com ICMS já retido por ST (substituído)' },
+  { codigo: '5403', rotulo: 'Venda de mercadoria sujeita a ST, como substituto' },
+  { codigo: '5401', rotulo: 'Venda de produção própria sujeita a ST, como substituto' },
+  { codigo: '5656', rotulo: 'Venda de combustível/lubrificante adquirido de terceiros, a consumidor final' },
+]
+export const CFOP_FORA: readonly Opcao[] = [
+  { codigo: '6102', rotulo: 'Venda de mercadoria adquirida de terceiros' },
+  { codigo: '6101', rotulo: 'Venda de produção do estabelecimento' },
+  { codigo: '6404', rotulo: 'Venda de mercadoria com ICMS já retido por ST' },
+  { codigo: '6403', rotulo: 'Venda de mercadoria sujeita a ST, como substituto' },
+  { codigo: '6108', rotulo: 'Venda de mercadoria de terceiros a não contribuinte' },
+  { codigo: '6107', rotulo: 'Venda de produção própria a não contribuinte' },
+]
+export const CFOP_DENTRO_RE = /^5\d{3}$/
+export const CFOP_FORA_RE = /^6\d{3}$/
+
 // Empresa do Simples → ICMS é CSOSN (3 dígitos); regime normal → CST (2 dígitos). Mesmo teste do nfe-builder.
 export function ehSimples(regimeTributario: string | null | undefined): boolean {
   return (regimeTributario ?? '').toLowerCase().includes('simples')
@@ -107,6 +129,8 @@ export function rotuloCampo(campo: CampoFiscal, simples: boolean): string {
     case 'cst_icms': return simples ? 'CSOSN do ICMS' : 'CST do ICMS'
     case 'cst_pis': return 'CST do PIS'
     case 'cst_cofins': return 'CST da COFINS'
+    case 'cfop_venda': return 'CFOP de venda dentro do estado'
+    case 'cfop_venda_interestadual': return 'CFOP de venda fora do estado'
   }
 }
 
@@ -116,12 +140,16 @@ export function opcoesDoCampo(campo: CampoFiscal, simples: boolean): readonly Op
     case 'cst_icms': return simples ? CSOSN : CST_ICMS
     case 'cst_pis':
     case 'cst_cofins': return CST_PIS_COFINS
+    case 'cfop_venda': return CFOP_DENTRO
+    case 'cfop_venda_interestadual': return CFOP_FORA
   }
 }
 
 // null = válido; senão a mensagem do porquê não
 export function erroDoValor(campo: CampoFiscal, valor: string, simples: boolean): string | null {
   const v = valor.trim()
+  if (campo === 'cfop_venda') return CFOP_DENTRO_RE.test(v) ? null : `${v} não é CFOP de venda dentro do estado (4 dígitos começando com 5, ex.: 5102, 5405).`
+  if (campo === 'cfop_venda_interestadual') return CFOP_FORA_RE.test(v) ? null : `${v} não é CFOP de venda fora do estado (4 dígitos começando com 6, ex.: 6102, 6404).`
   if (opcoesDoCampo(campo, simples).some((o) => o.codigo === v)) return null
   if (campo === 'cst_icms') {
     return simples
@@ -132,7 +160,9 @@ export function erroDoValor(campo: CampoFiscal, valor: string, simples: boolean)
 }
 
 // ── Régua da emissão (nfe-validator): item de NF-e sem tributação do cadastro não sai ─────────────────────
-type ItemTributos = { icms?: { cst?: string | null } | null; pis?: { cst?: string | null } | null; cofins?: { cst?: string | null } | null }
+type ItemTributos = { icms?: { cst?: string | null } | null; pis?: { cst?: string | null } | null; cofins?: { cst?: string | null } | null;
+  // preenchido pelo nfe-builder quando o produto não tem o CFOP de venda do escopo da nota (dentro/fora do estado)
+  cfopFaltando?: 'dentro' | 'fora' }
 const vazio = (s: string | null | undefined) => (s ?? '').trim() === ''
 
 export function camposFaltandoNoItem(item: ItemTributos, simples: boolean): string[] {
@@ -140,6 +170,8 @@ export function camposFaltandoNoItem(item: ItemTributos, simples: boolean): stri
   if (vazio(item.icms?.cst)) f.push(rotuloCampo('cst_icms', simples))
   if (vazio(item.pis?.cst)) f.push(rotuloCampo('cst_pis', simples))
   if (vazio(item.cofins?.cst)) f.push(rotuloCampo('cst_cofins', simples))
+  if (item.cfopFaltando === 'dentro') f.push(rotuloCampo('cfop_venda', simples))
+  if (item.cfopFaltando === 'fora') f.push(rotuloCampo('cfop_venda_interestadual', simples))
   return f
 }
 

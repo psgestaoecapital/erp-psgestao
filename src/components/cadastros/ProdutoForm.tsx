@@ -15,6 +15,7 @@ export interface Produto {
   ncm?: string | null
   cest?: string | null
   cfop_venda?: string | null
+  cfop_venda_interestadual?: string | null
   origem?: string | null
   cst_icms?: string | null
   aliquota_icms?: number | null
@@ -61,7 +62,9 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
   const [precoCusto, setPrecoCusto] = useState(String(produto?.preco_custo ?? '0'))
   const [ncm, setNcm] = useState(produto?.ncm ?? '')
   const [cest, setCest] = useState(produto?.cest ?? '')
-  const [cfopVenda, setCfopVenda] = useState(produto?.cfop_venda ?? '5102')
+  // CEO 30/09: sem CFOP suposto (antes abria com 5102). Vazio = a nota não sai; preencha aqui ou na edição em massa.
+  const [cfopVenda, setCfopVenda] = useState(produto?.cfop_venda ?? '')
+  const [cfopVendaFora, setCfopVendaFora] = useState(produto?.cfop_venda_interestadual ?? '')
   const [origem, setOrigem] = useState(produto?.origem ?? '0')
   // CEO 29/09: nada de tributação suposta. Campo vazio fica vazio (NULL) — antes a ficha abria com CST 00 / PIS e
   // COFINS 01 / alíquotas 18-1,65-7,6 e GRAVAVA isso em qualquer produto sem cadastro fiscal só por salvar a ficha.
@@ -101,7 +104,8 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
         preco_custo: parseFloat(precoCusto) || 0,
         ncm: ncmLimpo || null,
         cest: cest || null,
-        cfop_venda: cfopVenda || null,
+        cfop_venda: cfopVenda.trim() || null,
+        cfop_venda_interestadual: cfopVendaFora.trim() || null,
         origem,
         cst_icms: cstIcms.trim() || null,
         aliquota_icms: numOuNulo(aliquotaIcms),
@@ -198,7 +202,8 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
               )}
               <Campo label="NCM * (8 digitos)" value={ncm} onChange={setNcm} placeholder="ex: 32091010" maxLength={8} mono />
               <Campo label="CEST" value={cest} onChange={setCest} placeholder="opcional (substituicao tributaria)" />
-              <Campo label="CFOP venda" value={cfopVenda} onChange={setCfopVenda} placeholder="5102 (dentro estado) · 6102 (fora)" />
+              <Campo label="CFOP venda dentro do estado" value={cfopVenda} onChange={setCfopVenda} placeholder="ex.: 5102 · 5405 (com ST)" />
+              <Campo label="CFOP venda fora do estado" value={cfopVendaFora} onChange={setCfopVendaFora} placeholder="ex.: 6102 · 6404 (com ST)" />
               <Select
                 label="Origem"
                 value={origem}

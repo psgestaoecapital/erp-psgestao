@@ -279,9 +279,9 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   const produtoIds = Array.from(new Set(itensInput.map((i) => i.produtoId)))
   const { data: produtos } = await supabaseAdmin
     .from('erp_produtos')
-    .select(
-      'id, codigo, nome, descricao, ncm, ex_ipi, cfop_venda, cest, origem, cst_icms, cst_pis, cst_cofins, aliquota_icms, aliquota_ipi, aliquota_pis, aliquota_cofins, unidade, preco_venda, vbcst_ret, pst, vicms_substituto, vicms_st_ret, combustivel_codigo_anp, combustivel_descricao_anp'
-    )
+    // '*' (CEO 30/09 · CFOP fora do estado): a coluna cfop_venda_interestadual chega pela migration 20260930120000 no
+    // merge; com a lista fixa de colunas, o código publicado antes da migration derrubaria TODA emissão de NF-e.
+    .select('*')
     .in('id', produtoIds)
     .eq('company_id', input.companyId)
 
@@ -295,6 +295,22 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   const itensNFe: NFeProdutoItem[] = itensInput.map((it) => {
     const prod = produtos.find((p) => p.id === it.produtoId)
     if (!prod) throw new FiscalError('PAYLOAD_INVALIDO', `Produto ${it.produtoId} nao encontrado`)
+
+    // CFOP (CEO 30/09): sem "5102 automático". Venda dentro do estado usa o CFOP de venda do cadastro; fora do estado,
+    // o CFOP de venda interestadual do cadastro (não deriva mais 5→6: 5405 virava 6405, que não existe — o certo é 6404).
+    // Sem o CFOP do escopo da nota, o item sai vazio e o nfe-validator trava dizendo o produto e o campo.
+    // Operações especiais (devolução, remessa) mandam cfopOverride e seguem derivando o escopo pela UF.
+    const ufDestItem = (destinatario.endereco?.uf ?? '').trim().toUpperCase()
+    const interestadual = !!ufEmitente && UFS_BR.has(ufDestItem) && ufDestItem !== ufEmitente
+    let cfopItem: string
+    let cfopFaltando: 'dentro' | 'fora' | undefined
+    if (it.cfopOverride) {
+      cfopItem = ajustarCfopEscopo(it.cfopOverride, ufEmitente, destinatario.endereco?.uf)
+    } else {
+      const doCadastro = String((interestadual ? prod.cfop_venda_interestadual : prod.cfop_venda) ?? '').trim()
+      cfopItem = doCadastro
+      if (!doCadastro) cfopFaltando = interestadual ? 'fora' : 'dentro'
+    }
 
     const valorUnit = it.valorUnitarioOverride ?? Number(prod.preco_venda ?? 0)
     const desconto = it.descontoUnitario ?? 0
@@ -335,7 +351,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       codigo: prod.codigo ?? prod.id,
       descricao: prod.descricao || prod.nome,
       ncm: prod.ncm ?? '',
-      cfop: ajustarCfopEscopo(it.cfopOverride ?? prod.cfop_venda ?? '5102', ufEmitente, destinatario.endereco?.uf),
+      cfop: cfopItem,
+      ...(cfopFaltando ? { cfopFaltando } : {}),
       unidade: prod.unidade ?? 'UN',
       quantidade: it.quantidade,
       valorUnitario: valorUnit,
