@@ -9,14 +9,21 @@
  * Este check varre supabase/migrations/*.sql com timestamp >= CUTOFF e reprova o PR nesses dois casos.
  * O passado fica "grandfathered" (o saneamento corrige os existentes por lotes) — só migration nova entra
  * na régua. Escape consciente: comentário `-- ci-allow-anon: <motivo>` no arquivo (ex.: rota pública do
- * contador) libera a regra 1 para aquele arquivo.
+ * contador) libera a regra 1 para aquele arquivo — SÓ para funções da lista aprovada (anon-funcoes-aprovadas.ts).
+ *
+ * Regra 3 (CEO 30/09): GRANT de função a anon ou PUBLIC só para a lista aprovada pelo CEO (26 funções). Função nova
+ * aberta a quem não está logado, fora da lista, reprova o PR — com ou sem SECURITY DEFINER.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { ANON_APROVADAS } from './anon-funcoes-aprovadas'
 
 const MIG_DIR = join(process.cwd(), 'supabase', 'migrations')
 // Migrations a partir deste timestamp são obrigadas a cumprir a régua (o saneamento é a primeira).
 const CUTOFF = '20260922130000'
+// Regra 3 (GRANT a anon/PUBLIC fora da lista aprovada) vale a partir da migration que fechou a lista em 26 (30/09).
+// As anteriores foram saneadas pelo REVOKE em massa da PR A (20260928180000) — não reabrem nada hoje.
+const CUTOFF_ANON = '20260930140000'
 
 type Violacao = { arquivo: string; fn: string; regra: string; detalhe: string }
 
@@ -62,7 +69,7 @@ function analisar(arquivo: string, sql: string): Violacao[] {
         String.raw`\s*\([^)]*\)\s+FROM\s+[^;]*\banon\b`,
       'i',
     ).test(sqlSemComentarios)
-    if (!revogaAnon && !permiteAnon) {
+    if (!revogaAnon && !(permiteAnon && ANON_APROVADAS.includes(nome))) {
       v.push({ arquivo, fn: nome, regra: 'revoke_anon',
         detalhe: `função SECURITY DEFINER sem "REVOKE ALL ON FUNCTION public.${nome}(...) FROM anon" (nem "-- ci-allow-anon: <motivo>")` })
     }
@@ -78,10 +85,41 @@ function analisar(arquivo: string, sql: string): Violacao[] {
         detalhe: `autoria "${a[1]}" gravada de "${a[2]}" (cliente) — use auth.uid()` })
     }
   }
+  // Regra 3 · GRANT a anon/PUBLIC fora da lista aprovada (qualquer função, definer ou não)
+  const versao = versaoDoArquivo(arquivo)
+  if (versao !== null && versao < CUTOFF_ANON) return v
+  const grantRe = /\bGRANT\s+(?:ALL(?:\s+PRIVILEGES)?|EXECUTE)\s+ON\s+FUNCTION\s+(?:public\.)?([a-zA-Z0-9_]+)\s*\([^)]*\)\s+TO\s+([^;]*)/gi
+  let g: RegExpExecArray | null
+  while ((g = grantRe.exec(sqlSemComentariosGlobal(sql))) !== null) {
+    const nomeG = g[1]
+    const destinos = g[2].toLowerCase()
+    if (/\b(anon|public)\b/.test(destinos) && !ANON_APROVADAS.includes(nomeG)) {
+      v.push({ arquivo, fn: nomeG, regra: 'grant_anon_sem_aprovacao',
+        detalhe: `GRANT a anon/PUBLIC em função fora da lista aprovada pelo CEO (scripts/anon-funcoes-aprovadas.ts)` })
+    }
+  }
   return v
 }
 
+function sqlSemComentariosGlobal(sql: string): string {
+  return sql.replace(/--[^\n]*/g, '')
+}
+
+// Autoteste (CEO 30/09): a régua tem de barrar função nova aberta ao anon fora da lista, e deixar passar a aprovada.
+function autoteste(): void {
+  const ruim = analisar('20991231000000_teste.sql', 'CREATE OR REPLACE FUNCTION public.fn_x_nova(p uuid) RETURNS int LANGUAGE sql AS $f$ SELECT 1 $f$;\nGRANT EXECUTE ON FUNCTION public.fn_x_nova(uuid) TO anon, authenticated;')
+  const boa = analisar('20991231000000_teste.sql', 'GRANT EXECUTE ON FUNCTION public.fn_convite_ler(text) TO anon;')
+  const escape = analisar('20991231000000_teste.sql', '-- ci-allow-anon: teste\nCREATE OR REPLACE FUNCTION public.fn_y_nova() RETURNS int LANGUAGE sql SECURITY DEFINER AS $f$ SELECT 1 $f$;')
+  const falhou = [
+    ruim.some((x) => x.regra === 'grant_anon_sem_aprovacao') ? null : 'não barrou GRANT a anon fora da lista',
+    boa.length === 0 ? null : 'barrou função da lista aprovada',
+    escape.some((x) => x.regra === 'revoke_anon') ? null : 'o comentário ci-allow-anon liberou função fora da lista',
+  ].filter(Boolean)
+  if (falhou.length) { console.error('✗ check:fn-guards — autoteste falhou: ' + falhou.join('; ')); process.exit(1) }
+}
+
 function main() {
+  autoteste()
   let arquivos: string[]
   try { arquivos = readdirSync(MIG_DIR).filter((f) => f.endsWith('.sql')) } catch { arquivos = [] }
   const alvo = arquivos.filter((f) => { const vv = versaoDoArquivo(f); return vv !== null && vv >= CUTOFF })
@@ -99,6 +137,7 @@ function main() {
   console.error('  1) toda função SECURITY DEFINER: REVOKE ALL ON FUNCTION public.<fn>(<args>) FROM PUBLIC, anon; GRANT EXECUTE ... TO authenticated, service_role;')
   console.error('     (rota pública legítima → comentar "-- ci-allow-anon: <motivo>")')
   console.error('  2) autoria (created_by/updated_by/*_por/usuario_id): usar auth.uid() (sem sessão → service_role grava sistema), nunca o p_user do cliente.')
+  console.error('  3) função aberta a quem não está logado (GRANT ... TO anon/PUBLIC) só com aprovação do CEO e o nome em scripts/anon-funcoes-aprovadas.ts.')
   process.exit(1)
 }
 
