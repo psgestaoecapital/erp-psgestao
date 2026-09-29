@@ -7,6 +7,8 @@
 //   CONFIGURAÇÃO  = regras editáveis (base legal) + elegíveis (por função/manual)
 // Realizado agora VEM do upload (ind_ponto_pausa). Dia sem planilha importada NÃO é dia sem pausa (RD-51).
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import { CSS_IMPRESSAO } from '@/lib/ponto/impressaoDocumento'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
@@ -383,10 +385,10 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
     if (p.fim_origem === 'confirmado_manual') return <span><span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span> <b style={{ color: C.espresso }}>(confirmado)</b></span>
     return <span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span>
   }
-  return (
-    <div onClick={onClose} style={modalBg()}>
-      <style>{`@media print { body { visibility: hidden !important } #ciencia-doc-print, #ciencia-doc-print * { visibility: visible !important } #ciencia-doc-print { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important } .no-print { display: none !important } @page { size: A4; margin: 14mm } }`}</style>
-      <div onClick={e => e.stopPropagation()} id="ciencia-doc-print" style={{ ...modalCard(), maxWidth: 720, maxHeight: '86vh', overflowY: 'auto' }}>
+  return createPortal(
+    <div onClick={onClose} style={modalBg()} className="ps-print-portal" data-testid="ciencia-doc-modal">
+      <style>{CSS_IMPRESSAO}</style>
+      <div onClick={e => e.stopPropagation()} id="ciencia-doc-print" className="ps-print-doc" style={{ ...modalCard(), maxWidth: 720, maxHeight: '86vh', overflowY: 'auto' }}>
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: C.gray, textTransform: 'uppercase', letterSpacing: 1 }}>Relatório de ciência mensal</div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -423,7 +425,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                 {nEst} pausa(s) deste período tiveram o horário de término estimado por falta de registro de saída. A estimativa considera a duração padrão de 20 minutos e não substitui o registro.
               </div>
             )}
-            <div style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
+            <div className="ps-print-assinatura" data-testid="ciencia-assinatura" style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
               {doc.status === 'assinado' ? (
                 <div style={{ color: C.green }}><b>✓ Assinado em {doc.assinado_em ? fmtDT(String(doc.assinado_em)) : ''}</b> · método {String(doc.metodo || '')} · hash {String(doc.hash_integridade || '').slice(0, 24)}…</div>
               ) : (
@@ -436,7 +438,8 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -517,12 +520,13 @@ function ModalProva({ companyId, cpf, nome, ini, fim, onClose }: { companyId: st
     try { const r = await rpc<{ linhas: ProvaLinha[]; colaborador: Record<string, unknown> }>('fn_nr36_relatorio_prova', { p_company_id: companyId, p_cpf: cpf, p_dt_ini: ini, p_dt_fim: fim }); setLinhas(r.linhas || []); setColab(r.colaborador) }
     catch { /* */ } finally { setLoading(false) }
   })() }, [companyId, cpf, ini, fim])
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1000 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.offwhite, borderRadius: 14, maxWidth: 720, width: '100%', maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+  return createPortal(
+    <div onClick={onClose} className="ps-print-portal" style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1000 }}>
+      <style>{CSS_IMPRESSAO}</style>
+      <div onClick={e => e.stopPropagation()} className="ps-print-doc" style={{ background: C.offwhite, borderRadius: 14, maxWidth: 720, width: '100%', maxHeight: '86vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.borderLt}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div><div style={{ fontSize: 11, color: C.gray, textTransform: 'uppercase', letterSpacing: 1 }}>Relatório de prova</div><div style={{ fontSize: 16, fontWeight: 700, color: C.espresso }}>{nome}</div></div>
-          <BtnGhost onClick={() => window.print()}>Imprimir/PDF</BtnGhost>
+          <span className="no-print"><BtnGhost onClick={() => window.print()}>Imprimir/PDF</BtnGhost></span>
         </div>
         <div style={{ padding: 16 }}>
           {colab && <div style={{ fontSize: 12, color: C.gray, marginBottom: 10 }}>{String(colab.funcao || '')} · matrícula {String(colab.matricula || '—')} · CPF {String(colab.cpf || cpf)}</div>}
@@ -546,7 +550,8 @@ function ModalProva({ companyId, cpf, nome, ini, fim, onClose }: { companyId: st
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
