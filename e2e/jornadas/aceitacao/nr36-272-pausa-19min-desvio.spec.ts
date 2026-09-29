@@ -11,7 +11,10 @@ import { dbSelect, dbInsert, dbDelete, obterSessionPayload, registrarJornada } f
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 const DEMO_SST = 'b0700000-0000-4000-a000-000000000005'
-const base = new Date(Date.UTC(2005, 0, 3) + (Math.floor(Date.now() / 60000) % 3650) * 86400000)
+// dia único por execução, SEMPRE em 2021 (sem horário de verão no Brasil desde 2019). A 1ª versão sorteava 2005–2015:
+// em 01/11/2010 (horário de verão) o 07:42-03:00 virou 08:42 em São Paulo e o veredito de produção deu vermelho
+// (29/09) — defeito do teste, não da correção. Um ano por teste de pausas: #256 = 2020, #272 = 2021.
+const base = new Date(Date.UTC(2021, 0, 1) + (Math.floor(Date.now() / 60000) % 360) * 86400000)
 const DIA = base.toISOString().slice(0, 10)
 const ts = (h: string) => `${DIA}T${h}:00-03:00`
 
