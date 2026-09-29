@@ -1,6 +1,9 @@
 'use client'
 
 // Relatório Plano Gerencial × Contábil (SPEC CEO 22/09). Expande F.cadastros.plano_contas_v2.
+// CEO 29/09 (impresso da FC não servia): lê-se pela árvore GERENCIAL, com as contábeis vinculadas logo abaixo de cada
+// conta; as contábeis sem conta gerencial vão numa seção compacta no FIM. Texto só preto/espresso (sem cinza-claro nem
+// laranja) — na impressão tudo sai em preto. Montagem em src/lib/contabil/relatorioPlano.ts (gate check-relatorio-plano).
 // Lê fn_plano_contas_relatorio(company). Exporta Excel (2 abas) e PDF (window.print, sem dep nova —
 // package.json não tem jspdf/pdfmake; pdf-lib é baixo nível). Paleta PS (psgc-tokens).
 
@@ -11,28 +14,16 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { PSGC_COLORS, PSGC_RADIUS } from '@/lib/psgc-tokens'
+import { contarKpis, montarRelatorioPlano, soVinculadas, type LinhaRelatorioPlano } from '@/lib/contabil/relatorioPlano'
 
 export const dynamic = 'force-dynamic'
 
-interface LinhaRelatorio {
-  origem: 'gerencial' | 'contabil_sem_vinculo'
-  ger_codigo: string | null
-  ger_descricao: string | null
-  ger_grupo: string | null
-  ger_tipo: string | null
-  ger_nivel: number | null
-  ger_is_totalizador: boolean | null
-  cont_codigo: string | null
-  cont_descricao: string | null
-  cont_nivel: number | null
-  cont_analitica: boolean | null
-  cont_codigo_antigo: string | null
-  vinculo_observacao: string | null
-}
+type LinhaRelatorio = LinhaRelatorioPlano
 
 type Filtro = 'todas' | 'vinculadas' | 'sem_vinculo'
 
 const C = PSGC_COLORS
+const INK = C.espresso   // texto do relatório: só espresso (preto na impressão)
 const hoje = () => new Date().toISOString().slice(0, 10)
 
 export default function Page() {
@@ -128,18 +119,12 @@ export default function Page() {
     finally { setImpBusy(false); if (fileRef.current) fileRef.current.value = '' }
   }
 
-  const kpis = useMemo(() => {
-    const gerenciais = linhas.filter((l) => l.origem === 'gerencial').length
-    const vinculadas = linhas.filter((l) => l.origem === 'gerencial' && l.cont_codigo).length
-    const orfas = linhas.filter((l) => l.origem === 'contabil_sem_vinculo').length
-    return { gerenciais, vinculadas, orfas, contabeis: vinculadas + orfas }
-  }, [linhas])
+  // contas, não linhas: a gerencial com N contábeis vem em N linhas (FC mostrava 121 em vez de 34)
+  const kpis = useMemo(() => contarKpis(linhas), [linhas])
 
-  const linhasFiltradas = useMemo(() => {
-    if (filtro === 'vinculadas') return linhas.filter((l) => l.origem === 'gerencial' && l.cont_codigo)
-    if (filtro === 'sem_vinculo') return linhas.filter((l) => l.origem === 'contabil_sem_vinculo')
-    return linhas
-  }, [linhas, filtro])
+  const rel = useMemo(() => montarRelatorioPlano(linhas), [linhas])
+  const linhasFiltradas = useMemo(() => linhas.filter((l) => l.origem === 'contabil_sem_vinculo'), [linhas])
+  const arvoreVisivel = useMemo(() => (filtro === 'vinculadas' ? soVinculadas(rel.arvore) : rel.arvore), [rel, filtro])
 
   function baixarExcel() {
     const nomeArq = (empresaNome || 'empresa').replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40)
@@ -168,12 +153,13 @@ export default function Page() {
 
   return (
     <div style={{ background: C.offWhite, minHeight: '100vh', padding: '24px 16px 64px' }}>
-      <style>{`@media print { .no-print{display:none!important} .only-print{display:block!important} body{background:#fff} } .only-print{display:none}`}</style>
+      {/* Impressão: tudo em preto (contraste em P&B) e a seção de pendentes começa em página própria se não couber. */}
+      <style>{`@media print { .no-print{display:none!important} .only-print{display:block!important} body{background:#fff} body *{color:#000!important} .rel-no{break-inside:avoid} .rel-pendentes{break-before:auto} } .only-print{display:none}`}</style>
 
       {/* Cabeçalho de impressão (só no PDF) */}
       <div className="only-print" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: '#000' }}>{empresaNome || 'Empresa'}</div>
-        <div style={{ fontSize: 12, color: '#333' }}>CNPJ: {empresaCnpj || '—'} · Emitido em {new Date().toLocaleDateString('pt-BR')}</div>
+        <div style={{ fontSize: 12, color: '#000' }}>CNPJ: {empresaCnpj || '—'} · Emitido em {new Date().toLocaleDateString('pt-BR')}</div>
         <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>Plano de Contas · Gerencial × Contábil</div>
       </div>
 
@@ -207,7 +193,7 @@ export default function Page() {
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
-              <PSGCMetric label="Contas gerenciais" valor={kpis.gerenciais} cor={C.espresso} />
+              <div data-testid="kpi-gerenciais"><PSGCMetric label="Contas gerenciais" valor={kpis.gerenciais} cor={C.espresso} /></div>
               <PSGCMetric label="Contas contábeis analíticas" valor={kpis.contabeis} cor={C.espresso} />
               <PSGCMetric label="Vinculadas" valor={kpis.vinculadas} cor={C.baixa} />
               <PSGCMetric label="Sem vínculo" valor={kpis.orfas} cor={kpis.orfas > 0 ? C.alta : C.baixa} destaque={kpis.orfas > 0} />
@@ -225,12 +211,12 @@ export default function Page() {
             {filtro === 'sem_vinculo' ? (
               <div style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
                 {linhasFiltradas.length === 0 ? (
-                  <div style={{ padding: 24, textAlign: 'center', color: 'rgba(61,35,20,0.55)' }}>Nenhuma conta contábil pendente de vínculo. 🎉</div>
+                  <div style={{ padding: 24, textAlign: 'center', color: INK }}>Nenhuma conta contábil pendente de vínculo. 🎉</div>
                 ) : linhasFiltradas.map((l, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderTop: i ? '1px solid rgba(61,35,20,0.07)' : 'none' }}>
                     <div style={{ minWidth: 220, flex: '1 1 260px' }}>
                       <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{l.cont_codigo}</div>
-                      <div style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.7)' }}>{l.cont_descricao}{l.cont_codigo_antigo ? ` · antigo ${l.cont_codigo_antigo}` : ''}</div>
+                      <div style={{ fontSize: 11.5, color: INK }}>{l.cont_descricao}{l.cont_codigo_antigo ? ` · antigo ${l.cont_codigo_antigo}` : ''}</div>
                     </div>
                     <select value={vincSel[l.cont_codigo ?? ''] ?? ''} onChange={(e) => setVincSel((p) => ({ ...p, [l.cont_codigo ?? '']: e.target.value }))}
                       style={{ flex: '1 1 240px', background: '#fff', border: '1px solid rgba(61,35,20,0.2)', borderRadius: PSGC_RADIUS.sm, padding: '8px 10px', fontSize: 12.5, color: C.espresso }}>
@@ -245,40 +231,49 @@ export default function Page() {
                 ))}
               </div>
             ) : (
-            <div style={{ overflowX: 'auto', border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                <thead>
-                  <tr style={{ background: C.offWhiteDark, color: C.espresso, textAlign: 'left' }}>
-                    <th style={th}>Gerencial</th><th style={th}>Descrição</th><th style={th}>Grupo</th>
-                    <th style={{ ...th, textAlign: 'center' }}>→</th>
-                    <th style={th}>Conta contábil</th><th style={th}>Descrição contábil</th><th style={th}>Cód. antigo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {linhasFiltradas.length === 0 ? (
-                    <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'rgba(61,35,20,0.55)' }}>Nenhuma conta neste filtro.</td></tr>
-                  ) : linhasFiltradas.map((l, i) => {
-                    const orfa = l.origem === 'contabil_sem_vinculo'
-                    const semVinculo = l.origem === 'gerencial' && !l.cont_codigo
-                    const bold = !!l.ger_is_totalizador
-                    const indent = orfa ? 0 : ((l.ger_nivel ?? 1) - 1) * 16
-                    return (
-                      <tr key={i} style={{ borderTop: '1px solid rgba(61,35,20,0.07)' }}>
-                        <td style={{ ...td, fontWeight: bold ? 700 : 400, paddingLeft: 12 + indent }}>{l.ger_codigo ?? (orfa ? '' : '—')}</td>
-                        <td style={{ ...td, fontWeight: bold ? 700 : 400 }}>
-                          {orfa ? <span style={{ fontSize: 11, color: C.laranjaAlerta, fontWeight: 600 }}>conta contábil sem conta gerencial</span> : (l.ger_descricao ?? '')}
-                        </td>
-                        <td style={{ ...td, color: 'rgba(61,35,20,0.6)' }}>{l.ger_grupo ?? ''}</td>
-                        <td style={{ ...td, textAlign: 'center', color: 'rgba(61,35,20,0.4)' }}>→</td>
-                        <td style={td}>{l.cont_codigo ?? (semVinculo ? <span style={{ color: 'rgba(61,35,20,0.45)' }}>— sem vínculo —</span> : '')}</td>
-                        <td style={{ ...td, color: 'rgba(61,35,20,0.75)' }}>{l.cont_descricao ?? ''}</td>
-                        <td style={{ ...td, color: 'rgba(61,35,20,0.5)' }}>{l.cont_codigo_antigo ?? ''}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+              <div id="relatorio-plano" data-testid="relatorio-plano">
+                <div data-testid="relatorio-arvore" style={{ border: '1px solid rgba(61,35,20,0.25)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 12px', background: C.offWhiteDark, color: INK, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Conta gerencial · ↳ contas contábeis vinculadas
+                  </div>
+                  {arvoreVisivel.length === 0 ? (
+                    <div style={{ padding: 24, textAlign: 'center', color: INK }}>Nenhuma conta neste filtro.</div>
+                  ) : arvoreVisivel.map((no) => (
+                    <div key={no.codigo} data-testid={`ger-${no.codigo}`} className="rel-no" style={{ borderTop: '1px solid rgba(61,35,20,0.15)', padding: '7px 12px', paddingLeft: 12 + (Math.max(no.nivel, 1) - 1) * 18 }}>
+                      <div style={{ fontSize: no.totalizador ? 13 : 12.5, fontWeight: no.totalizador ? 700 : 600, color: INK }}>
+                        {no.codigo} · {no.descricao}
+                      </div>
+                      {no.contabeis.map((c) => (
+                        <div key={c.codigo} data-testid={`cont-${c.codigo}`} style={{ fontSize: 12, color: INK, padding: '2px 0 0 18px' }}>
+                          ↳ {c.codigo} · {c.descricao}{c.antigo ? ` (antigo ${c.antigo})` : ''}{c.proposto ? ' — proposto, a confirmar' : ''}
+                        </div>
+                      ))}
+                      {!no.totalizador && no.contabeis.length === 0 && (
+                        <div style={{ fontSize: 12, color: INK, padding: '2px 0 0 18px' }}>sem conta contábil vinculada</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {filtro === 'todas' && (
+                  <div data-testid="relatorio-pendentes" className="rel-pendentes" style={{ marginTop: 24, border: '1px solid rgba(61,35,20,0.25)', borderRadius: PSGC_RADIUS.lg, background: '#fff', padding: '12px 14px' }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: INK, marginBottom: 8 }}>
+                      Contas contábeis ainda sem conta gerencial: {rel.pendentes.length}
+                    </div>
+                    {rel.pendentes.length === 0 ? (
+                      <div style={{ fontSize: 12.5, color: INK }}>Nenhuma. Todas as contas contábeis têm conta gerencial.</div>
+                    ) : (
+                      <div style={{ columnWidth: 320, columnGap: 24 }}>
+                        {rel.pendentes.map((c) => (
+                          <div key={c.codigo} data-testid={`pend-${c.codigo}`} style={{ fontSize: 11.5, color: INK, padding: '2px 0', breakInside: 'avoid' }}>
+                            {c.codigo} · {c.descricao}{c.antigo ? ` (antigo ${c.antigo})` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}
@@ -287,5 +282,3 @@ export default function Page() {
   )
 }
 
-const th: React.CSSProperties = { padding: '10px 12px', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, whiteSpace: 'nowrap' }
-const td: React.CSSProperties = { padding: '8px 12px', color: '#3D2314', verticalAlign: 'top' }

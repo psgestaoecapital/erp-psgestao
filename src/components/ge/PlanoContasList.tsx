@@ -103,6 +103,14 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
           </button>
           <button
             type="button"
+            data-testid="plano-vinculos"
+            onClick={() => router.push('/dashboard/cadastros/plano-contas/vinculos')}
+            style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Vínculos gerencial × contábil
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setEditing(null)
               setShowForm(true)
