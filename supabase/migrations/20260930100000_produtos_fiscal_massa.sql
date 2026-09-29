@@ -12,6 +12,8 @@
 --     com amostra); true aplica e registra. Por padrão só PREENCHE o que está vazio; sobrescrever é escolha explícita.
 --     Valida cada código contra a tabela oficial e contra o regime da empresa (Simples → CSOSN; normal → CST) —
 --     mesma régua de src/lib/produtos/fiscalMassa.ts (gate scripts/check-produtos-fiscal-massa.ts).
+--     p_observacao (opcional) marca cada produto alterado em erp_produtos.fiscal_observacao (ex.: "regra provisória
+--     30/09 — confirmar com o contador", ctx 2d18835f) e fica no lote. Prefixo de NCM aceita vários ("3208,3209").
 --  3) fn_produtos_fiscal_massa_historico(p_company_id): últimos lotes (quem, quando, quantos).
 --  4) fn_fiscal_previo: o pré-voo passa a contar e mostrar o produto SEM TRIBUTAÇÃO (sem CSOSN/CST do ICMS, CST do
 --     PIS ou CST da COFINS) — a mesma régua que a emissão vai usar quando o "102 automático" sair (PR seguinte).
@@ -22,12 +24,16 @@
 -- SECURITY DEFINER → REVOKE anon + GRANT (gate check-fn-guards); autoria por auth.uid().
 
 -- 1) registro ------------------------------------------------------------------------------------------------------
+ALTER TABLE public.erp_produtos ADD COLUMN IF NOT EXISTS fiscal_observacao text;
+COMMENT ON COLUMN public.erp_produtos.fiscal_observacao IS 'Marca da edição fiscal em massa (ex.: regra provisória a confirmar com o contador). Gravada por fn_produtos_fiscal_massa.';
+
 CREATE TABLE IF NOT EXISTS public.erp_produto_fiscal_lote (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id uuid NOT NULL REFERENCES public.companies(id),
   filtro jsonb NOT NULL,
   valores jsonb NOT NULL,
   sobrescrever boolean NOT NULL DEFAULT false,
+  observacao text,
   produtos_alterados int NOT NULL DEFAULT 0,
   campos_alterados int NOT NULL DEFAULT 0,
   usuario_id uuid,
@@ -63,7 +69,8 @@ GRANT SELECT ON public.erp_produto_fiscal_lote, public.erp_produto_fiscal_altera
 
 -- 2) prévia / aplicação --------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_produtos_fiscal_massa(
-  p_company_id uuid, p_filtro jsonb, p_valores jsonb, p_sobrescrever boolean DEFAULT false, p_aplicar boolean DEFAULT false)
+  p_company_id uuid, p_filtro jsonb, p_valores jsonb, p_sobrescrever boolean DEFAULT false, p_aplicar boolean DEFAULT false,
+  p_observacao text DEFAULT NULL)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -84,7 +91,9 @@ DECLARE
   v_pis text := NULLIF(btrim(COALESCE(p_valores->>'cst_pis','')),'');
   v_cofins text := NULLIF(btrim(COALESCE(p_valores->>'cst_cofins','')),'');
   v_ncm text := NULLIF(regexp_replace(COALESCE(p_filtro->>'ncm',''),'\D','','g'),'');
-  v_prefixo text := NULLIF(regexp_replace(COALESCE(p_filtro->>'ncm_prefixo',''),'\D','','g'),'');
+  -- vários prefixos: "3208, 3209 3210;3214" → {3208,3209,3210,3214}
+  v_prefixos text[] := (SELECT array_agg(x) FROM regexp_split_to_table(COALESCE(p_filtro->>'ncm_prefixo',''), '[^0-9]+') x WHERE x <> '');
+  v_obs text := NULLIF(btrim(COALESCE(p_observacao,'')),'');
   v_grupo text := NULLIF(btrim(COALESCE(p_filtro->>'grupo','')),'');
   v_sem text := NULLIF(btrim(COALESCE(p_filtro->>'sem_campo','')),'');
   v_todos boolean := COALESCE((p_filtro->>'todos')::boolean, false);
@@ -112,7 +121,7 @@ BEGIN
   IF v_tipo IS NULL AND v_icms IS NULL AND v_pis IS NULL AND v_cofins IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'erro', 'sem_valor', 'mensagem', 'Escolha o valor de pelo menos um dos 4 campos.');
   END IF;
-  IF v_ncm IS NULL AND v_prefixo IS NULL AND v_grupo IS NULL AND v_sem IS NULL AND NOT v_todos THEN
+  IF v_ncm IS NULL AND v_prefixos IS NULL AND v_grupo IS NULL AND v_sem IS NULL AND NOT v_todos THEN
     RETURN jsonb_build_object('ok', false, 'erro', 'sem_filtro',
       'mensagem', 'Escolha um filtro (NCM, prefixo de NCM, grupo ou "sem o campo") ou marque "todos os produtos".');
   END IF;
@@ -149,7 +158,7 @@ BEGIN
       AND (v_inativos OR COALESCE(p.ativo, true))
       AND (v_servicos OR lower(COALESCE(p.tipo,'')) NOT LIKE '%servi%')
       AND (v_ncm IS NULL OR regexp_replace(COALESCE(p.ncm,''),'\D','','g') = v_ncm)
-      AND (v_prefixo IS NULL OR regexp_replace(COALESCE(p.ncm,''),'\D','','g') LIKE v_prefixo || '%')
+      AND (v_prefixos IS NULL OR EXISTS (SELECT 1 FROM unnest(v_prefixos) px WHERE regexp_replace(COALESCE(p.ncm,''),'\D','','g') LIKE px || '%'))
       AND (v_grupo IS NULL OR p.grupo = v_grupo)
       AND (v_sem IS NULL
         OR (v_sem = 'tipo_item_sped' AND COALESCE(btrim(p.tipo_item_sped),'') = '')
@@ -173,7 +182,7 @@ BEGIN
     AND (v_inativos OR COALESCE(p.ativo, true))
     AND (v_servicos OR lower(COALESCE(p.tipo,'')) NOT LIKE '%servi%')
     AND (v_ncm IS NULL OR regexp_replace(COALESCE(p.ncm,''),'\D','','g') = v_ncm)
-    AND (v_prefixo IS NULL OR regexp_replace(COALESCE(p.ncm,''),'\D','','g') LIKE v_prefixo || '%')
+    AND (v_prefixos IS NULL OR EXISTS (SELECT 1 FROM unnest(v_prefixos) px WHERE regexp_replace(COALESCE(p.ncm,''),'\D','','g') LIKE px || '%'))
     AND (v_grupo IS NULL OR p.grupo = v_grupo)
     AND (v_sem IS NULL
       OR (v_sem = 'tipo_item_sped' AND COALESCE(btrim(p.tipo_item_sped),'') = '')
@@ -207,10 +216,10 @@ BEGIN
 
   -- ── aplica: lote + antes/depois de cada campo + update ─────────────────────────────────────────────────
   SELECT email INTO v_email FROM auth.users WHERE id = v_uid;
-  INSERT INTO public.erp_produto_fiscal_lote (company_id, filtro, valores, sobrescrever, produtos_alterados, campos_alterados, usuario_id, usuario_email)
+  INSERT INTO public.erp_produto_fiscal_lote (company_id, filtro, valores, sobrescrever, observacao, produtos_alterados, campos_alterados, usuario_id, usuario_email)
   VALUES (p_company_id, COALESCE(p_filtro,'{}'::jsonb),
           jsonb_strip_nulls(jsonb_build_object('tipo_item_sped', v_tipo, 'cst_icms', v_icms, 'cst_pis', v_pis, 'cst_cofins', v_cofins)),
-          v_sobre, v_prod_mudam, v_campos, auth.uid(), v_email)
+          v_sobre, v_obs, v_prod_mudam, v_campos, auth.uid(), v_email)
   RETURNING id INTO v_lote;
 
   INSERT INTO public.erp_produto_fiscal_alteracao (lote_id, company_id, produto_id, campo, valor_antes, valor_depois)
@@ -221,6 +230,7 @@ BEGIN
     cst_icms       = COALESCE((SELECT m.depois FROM _pfm_mudanca m WHERE m.produto_id = p.id AND m.campo = 'cst_icms'), p.cst_icms),
     cst_pis        = COALESCE((SELECT m.depois FROM _pfm_mudanca m WHERE m.produto_id = p.id AND m.campo = 'cst_pis'), p.cst_pis),
     cst_cofins     = COALESCE((SELECT m.depois FROM _pfm_mudanca m WHERE m.produto_id = p.id AND m.campo = 'cst_cofins'), p.cst_cofins),
+    fiscal_observacao = COALESCE(v_obs, p.fiscal_observacao),
     updated_at = now()
   WHERE p.company_id = p_company_id AND p.id IN (SELECT DISTINCT produto_id FROM _pfm_mudanca);
 
@@ -229,8 +239,8 @@ BEGIN
     'por_campo', v_por_campo, 'amostra', v_amostra);
 END;
 $function$;
-REVOKE ALL ON FUNCTION public.fn_produtos_fiscal_massa(uuid, jsonb, jsonb, boolean, boolean) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_produtos_fiscal_massa(uuid, jsonb, jsonb, boolean, boolean) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_produtos_fiscal_massa(uuid, jsonb, jsonb, boolean, boolean, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_produtos_fiscal_massa(uuid, jsonb, jsonb, boolean, boolean, text) TO authenticated, service_role;
 
 -- 3) histórico ------------------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_produtos_fiscal_massa_historico(p_company_id uuid)
@@ -247,7 +257,7 @@ BEGIN
     RAISE EXCEPTION 'sem acesso a esta empresa' USING errcode = '42501';
   END IF;
   SELECT COALESCE(jsonb_agg(jsonb_build_object('lote_id', id, 'criado_em', criado_em, 'usuario_email', usuario_email,
-           'filtro', filtro, 'valores', valores, 'sobrescrever', sobrescrever,
+           'filtro', filtro, 'valores', valores, 'sobrescrever', sobrescrever, 'observacao', observacao,
            'produtos_alterados', produtos_alterados, 'campos_alterados', campos_alterados) ORDER BY criado_em DESC), '[]'::jsonb)
     INTO v_out
   FROM (SELECT * FROM public.erp_produto_fiscal_lote WHERE company_id = p_company_id ORDER BY criado_em DESC LIMIT 20) l;
@@ -278,6 +288,7 @@ declare
   v_sem_ncm int; v_cst_st int; v_ncm2710 int; v_sem_sped int; v_prod_amostra jsonb;
   v_simples boolean; v_simples_cst int;   -- OS-0179: Simples com CST de regime normal
   v_sem_trib int;   -- 29/09: produto sem CSOSN/CST do ICMS, CST do PIS ou CST da COFINS (a emissão não supõe mais)
+  v_provisorio int; -- 30/09: produto com marca da edição em massa (ex.: regra provisória a confirmar com o contador)
   v_dest_sem_ie int; v_dest_amostra jsonb;
   v_nfse jsonb := '{}'::jsonb;   -- Fase 2: bloco NFS-e (aditivo)
 begin
@@ -333,8 +344,9 @@ begin
     count(*) filter (where regexp_replace(coalesce(ncm,''),'\D','','g') like '2710%' and (combustivel_codigo_anp is null or coalesce(btrim(combustivel_descricao_anp),'')='')),
     count(*) filter (where coalesce(btrim(tipo_item_sped),'')=''),
     count(*) filter (where v_simples and btrim(coalesce(cst_icms,'')) ~ '^\d{2}$'),
-    count(*) filter (where (lower(coalesce(tipo,'')) not like '%servi%' and (coalesce(btrim(cst_icms),'')='' or coalesce(btrim(cst_pis),'')='' or coalesce(btrim(cst_cofins),'')='')))
-  into v_sem_ncm, v_cst_st, v_ncm2710, v_sem_sped, v_simples_cst, v_sem_trib
+    count(*) filter (where (lower(coalesce(tipo,'')) not like '%servi%' and (coalesce(btrim(cst_icms),'')='' or coalesce(btrim(cst_pis),'')='' or coalesce(btrim(cst_cofins),'')=''))),
+    count(*) filter (where coalesce(btrim(fiscal_observacao),'') <> '')
+  into v_sem_ncm, v_cst_st, v_ncm2710, v_sem_sped, v_simples_cst, v_sem_trib, v_provisorio
   from public.erp_produtos where company_id = p_company_id and coalesce(ativo,true) = true;
 
   select coalesce(jsonb_agg(x.o), '[]'::jsonb) into v_prod_amostra from (
@@ -446,6 +458,7 @@ begin
       'sem_ncm', v_sem_ncm, 'cst_st_incompleto', v_cst_st, 'ncm2710_sem_anp', v_ncm2710, 'sem_tipo_item_sped', v_sem_sped,
       'simples_cst_regime_normal', v_simples_cst,
       'sem_tributacao', v_sem_trib,
+      'fiscal_provisorio', v_provisorio,
       'amostra', v_prod_amostra),
     'destinatarios', jsonb_build_object('contribuinte_sem_ie', v_dest_sem_ie, 'amostra', v_dest_amostra),
     'resumo', jsonb_build_object(
@@ -481,9 +494,11 @@ VALUES ('bpo.fiscal.tributacao_produtos', 'bpo', 'fiscal_emissao',
 3. **Ver prévia**: mostra quantos produtos mudam e o antes → depois (nada é gravado).
 4. **Aplicar**: grava. Por padrão **só preenche o que está vazio**; para trocar um valor já preenchido, marque "substituir".
 5. Fica registrado **quem aplicou, quando e o antes/depois de cada produto** (histórico no próprio modal).
+6. **Regra provisória** (ainda sem o ok do contador): preencha a "Marca em cada produto alterado" (ex.: `regra provisória 30/09 — confirmar com o contador`). A marca aparece na ficha do produto e no pré-voo ("Tributação provisória"). Vários prefixos de NCM de uma vez: `3208, 3209, 3210, 3214`.
 
 ## Ficha do produto
 - A ficha não abre mais com CST 00 / PIS-COFINS 01 / alíquotas 18-1,65-7,6. Campo vazio fica vazio.
+- A ficha abre com o produto completo: salvar (ex.: mudar o preço) não mexe mais em CST, alíquotas, CFOP ou ST que já estavam no cadastro.
 
 ## Se a emissão travar
 - A mensagem diz: "o produto X (cód. Y) está sem CSOSN do ICMS / CST do PIS / CST da COFINS". Preencha na ficha ou pela edição em massa e emita de novo.

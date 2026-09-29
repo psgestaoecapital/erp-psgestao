@@ -119,14 +119,14 @@ export default function ProdutosPage() {
   }, [companyId])
 
   // #118 (Jordana): deep-link ?edit=<id> abre a ficha do produto direto — é como o Estoque manda o
-  // usuário editar aqui. Busca a linha COMPLETA (SELECT_COLS) para o ProdutoForm não perder campo
+  // usuário editar aqui. Busca a linha COMPLETA (select '*') para o ProdutoForm não perder campo
   // fiscal (NCM/CST/ST) ao salvar.
   useEffect(() => {
     if (!companyId) return
     const editId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('edit') : null
     if (!editId) return
     let alive = true
-    supabase.from('erp_produtos').select(SELECT_COLS).eq('company_id', companyId).eq('id', editId).maybeSingle()
+    supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', editId).maybeSingle()
       .then(({ data }) => { if (alive && data) setEditando(data as unknown as Produto) })
     return () => { alive = false }
   }, [companyId])
@@ -217,6 +217,16 @@ export default function ProdutosPage() {
     if (companyId) carregar(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId, buscaDebounced, unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, origem, ordenarPor, ordemAsc])
+
+  // A lista traz só as colunas da tabela (SELECT_COLS); a ficha precisa da linha INTEIRA. Abrir a ficha com a linha
+  // da lista fazia o salvar gravar os campos fiscais que a lista não trouxe (CST, alíquotas, CFOP, origem, ST retido)
+  // com o valor padrão da ficha — por cima do que estava no banco. Busca o produto completo antes de abrir.
+  async function abrirEdicao(id: string) {
+    if (!companyId) return
+    const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
+    if (error || !data) { setErro(error?.message ?? 'Produto não encontrado'); return }
+    setEditando(data as unknown as Produto)
+  }
 
   function toggleOrdem(coluna: OrdenarPor) {
     if (ordenarPor === coluna) {
@@ -622,7 +632,7 @@ export default function ProdutosPage() {
                         <td className="px-4 py-2.5 text-right">
                           <button
                             type="button"
-                            onClick={() => setEditando(p)}
+                            onClick={() => abrirEdicao(p.id)}
                             data-testid="produto-editar"
                             className="text-[#C8941A] hover:text-[#A87810] mr-3"
                             title="Editar"
@@ -664,7 +674,7 @@ export default function ProdutosPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => setEditando(p)}
+                        onClick={() => abrirEdicao(p.id)}
                         className="text-[#C8941A] hover:text-[#A87810]"
                         title="Editar"
                       >

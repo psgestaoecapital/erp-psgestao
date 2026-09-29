@@ -16,7 +16,7 @@ type Previa = {
   por_campo?: Partial<Record<CampoFiscal, { preenche: number; substitui: number }>>
   amostra?: Array<{ codigo: string; nome: string; ncm: string | null; mudancas: Array<{ campo: CampoFiscal; antes: string | null; depois: string }> }>
 }
-type Lote = { lote_id: string; criado_em: string; usuario_email: string | null; valores: Record<string, string>; filtro: Record<string, unknown>; sobrescrever: boolean; produtos_alterados: number; campos_alterados: number }
+type Lote = { lote_id: string; criado_em: string; usuario_email: string | null; valores: Record<string, string>; filtro: Record<string, unknown>; sobrescrever: boolean; observacao?: string | null; produtos_alterados: number; campos_alterados: number }
 
 interface Props { companyId: string; onClose: () => void; onAplicado?: () => void }
 
@@ -36,6 +36,7 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
   // valores
   const [valores, setValores] = useState<Record<CampoFiscal, string>>({ tipo_item_sped: '', cst_icms: '', cst_pis: '', cst_cofins: '' })
   const [sobrescrever, setSobrescrever] = useState(false)
+  const [observacao, setObservacao] = useState('')
   // estado
   const [previa, setPrevia] = useState<Previa | null>(null)
   const [previaChave, setPreviaChave] = useState('')
@@ -82,13 +83,14 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
 
   const filtro = useMemo(() => ({
     ...(ncm ? { ncm } : {}),
-    ...(prefixo.replace(/\D/g, '') ? { ncm_prefixo: prefixo.replace(/\D/g, '') } : {}),
+    // vários prefixos separados por vírgula/espaço: "3208, 3209"
+    ...(prefixo.replace(/\D/g, '') ? { ncm_prefixo: prefixo.split(/[^0-9]+/).filter(Boolean).join(',') } : {}),
     ...(grupo ? { grupo } : {}),
     ...(semCampo ? { sem_campo: semCampo } : {}),
     ...(todos ? { todos: true } : {}),
   }), [ncm, prefixo, grupo, semCampo, todos])
   const valoresEscolhidos = useMemo(() => Object.fromEntries(Object.entries(valores).filter(([, v]) => v)), [valores])
-  const chave = JSON.stringify({ filtro, valoresEscolhidos, sobrescrever })
+  const chave = JSON.stringify({ filtro, valoresEscolhidos, sobrescrever, observacao: observacao.trim() })
   const temFiltro = Object.keys(filtro).length > 0
   const temValor = Object.keys(valoresEscolhidos).length > 0
   const previaVale = previa?.ok && previaChave === chave
@@ -99,6 +101,7 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
     try {
       const { data, error } = await supabase.rpc('fn_produtos_fiscal_massa', {
         p_company_id: companyId, p_filtro: filtro, p_valores: valoresEscolhidos, p_sobrescrever: sobrescrever, p_aplicar: aplicar,
+        p_observacao: observacao.trim() || null,
       })
       if (error) { setErro(error.message); return null }
       const r = data as Previa
@@ -157,7 +160,7 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
               </div>
               <div>
                 <label className={lbl}>Prefixo do NCM</label>
-                <input value={prefixo} onChange={(e) => setPrefixo(e.target.value)} placeholder="ex.: 3214, 6907" inputMode="numeric"
+                <input value={prefixo} onChange={(e) => setPrefixo(e.target.value)} placeholder="um ou vários: 3208, 3209, 3214"
                   data-testid="fm-filtro-prefixo" className={inp} />
               </div>
               <div>
@@ -203,6 +206,11 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
               <input type="checkbox" checked={sobrescrever} onChange={(e) => setSobrescrever(e.target.checked)} data-testid="fm-sobrescrever" className="accent-[#C8941A]" />
               Substituir também o que já está preenchido com outro valor (padrão: só preenche o vazio)
             </label>
+            <div className="mt-3">
+              <label className={lbl}>Marca em cada produto alterado (opcional)</label>
+              <input value={observacao} onChange={(e) => setObservacao(e.target.value)} data-testid="fm-observacao" className={inp}
+                placeholder="ex.: regra provisória 30/09 — confirmar com o contador" />
+            </div>
           </section>
 
           {erro && <div data-testid="fm-erro" className="px-3 py-2 rounded bg-[#FCEBEB] text-[#791F1F] text-[12.5px] border border-[#E8A6A5]">{erro}</div>}
@@ -269,6 +277,7 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
                     {new Date(l.criado_em).toLocaleString('pt-BR')} · <b>{l.usuario_email ?? '—'}</b> · {l.produtos_alterados} produto(s) ·{' '}
                     {Object.entries(l.valores).map(([c, v]) => `${rotuloCampo(c as CampoFiscal, simples)} ${v}`).join(', ')}
                     {l.sobrescrever && ' · substituindo'}
+                    {l.observacao && <> · <i>{l.observacao}</i></>}
                   </div>
                 ))}
               </div>

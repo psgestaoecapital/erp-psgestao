@@ -15,6 +15,7 @@ const RUN = Date.now().toString(36).toUpperCase()
 // NCM de teste, exclusivo desta execução (8 dígitos que não existem na TIPI), para o filtro pegar só os 2 produtos
 const NCM = `99${RUN.replace(/\D/g, '').padEnd(6, '7').slice(0, 6)}`
 const VALORES = { tipo_item_sped: '00', cst_icms: '102', cst_pis: '49', cst_cofins: '49' }
+const MARCA = `E2E regra provisória ${RUN} — confirmar com o contador`
 const produtos: string[] = []
 let token = ''
 
@@ -24,7 +25,7 @@ type Resp = { ok: boolean; erro?: string; aplicado?: boolean; lote_id?: string; 
 async function massa(filtro: Record<string, unknown>, valores: Record<string, string>, aplicar: boolean): Promise<Resp> {
   const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fn_produtos_fiscal_massa`, {
     method: 'POST', headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ p_company_id: DEMO, p_filtro: filtro, p_valores: valores, p_sobrescrever: false, p_aplicar: aplicar }),
+    body: JSON.stringify({ p_company_id: DEMO, p_filtro: filtro, p_valores: valores, p_sobrescrever: false, p_aplicar: aplicar, p_observacao: aplicar ? MARCA : null }),
   })
   if (!resp.ok) throw new Error(`fn_produtos_fiscal_massa: ${resp.status} ${await resp.text()}`)
   return (await resp.json()) as Resp
@@ -59,12 +60,13 @@ test.describe('Edição fiscal em massa de produtos', () => {
     const ap = await massa({ ncm: NCM }, VALORES, true)
     expect(ap.aplicado).toBe(true)
     expect(ap.campos_mudam, 'A: 3 campos (ICMS fica) · B: 4 campos').toBe(7)
-    const linhas = await dbSelect<{ id: string; tipo_item_sped: string; cst_icms: string; cst_pis: string; cst_cofins: string }>('erp_produtos',
-      `id=in.(${produtos.join(',')})&select=id,tipo_item_sped,cst_icms,cst_pis,cst_cofins`)
+    const linhas = await dbSelect<{ id: string; tipo_item_sped: string; cst_icms: string; cst_pis: string; cst_cofins: string; fiscal_observacao: string | null }>('erp_produtos',
+      `id=in.(${produtos.join(',')})&select=id,tipo_item_sped,cst_icms,cst_pis,cst_cofins,fiscal_observacao`)
     const A = linhas.find((l) => l.id === produtos[0])!
     const B = linhas.find((l) => l.id === produtos[1])!
     expect(A.cst_icms, 'CSOSN já preenchido fica').toBe('500')
-    expect(B).toMatchObject({ tipo_item_sped: '00', cst_icms: '102', cst_pis: '49', cst_cofins: '49' })
+    expect(B).toMatchObject({ tipo_item_sped: '00', cst_icms: '102', cst_pis: '49', cst_cofins: '49', fiscal_observacao: MARCA })
+    expect(A.fiscal_observacao, 'a marca vai em cada produto alterado').toBe(MARCA)
 
     const [lote] = await dbSelect<{ usuario_id: string | null; usuario_email: string | null; produtos_alterados: number }>('erp_produto_fiscal_lote',
       `id=eq.${ap.lote_id}&select=usuario_id,usuario_email,produtos_alterados`)
