@@ -43,6 +43,9 @@ interface Props {
 
 type Aba = 'basico' | 'fiscal' | 'precos'
 
+// '' → NULL (não informado); 0 é valor válido
+const numOuNulo = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')) || 0)
+
 export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Props) {
   const [aba, setAba] = useState<Aba>('basico')
   const [salvando, setSalvando] = useState(false)
@@ -58,13 +61,16 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
   const [cest, setCest] = useState(produto?.cest ?? '')
   const [cfopVenda, setCfopVenda] = useState(produto?.cfop_venda ?? '5102')
   const [origem, setOrigem] = useState(produto?.origem ?? '0')
-  const [cstIcms, setCstIcms] = useState(produto?.cst_icms ?? '00')
-  const [aliquotaIcms, setAliquotaIcms] = useState(String(produto?.aliquota_icms ?? '18'))
+  // CEO 29/09: nada de tributação suposta. Campo vazio fica vazio (NULL) — antes a ficha abria com CST 00 / PIS e
+  // COFINS 01 / alíquotas 18-1,65-7,6 e GRAVAVA isso em qualquer produto sem cadastro fiscal só por salvar a ficha.
+  // Produto sem CSOSN/CST não emite NF-e (nfe-validator) — preencha aqui ou em "Edição fiscal em massa".
+  const [cstIcms, setCstIcms] = useState(produto?.cst_icms ?? '')
+  const [aliquotaIcms, setAliquotaIcms] = useState(produto?.aliquota_icms != null ? String(produto.aliquota_icms) : '')
   const [aliquotaIpi, setAliquotaIpi] = useState(String(produto?.aliquota_ipi ?? '0'))
-  const [cstPis, setCstPis] = useState(produto?.cst_pis ?? '01')
-  const [aliquotaPis, setAliquotaPis] = useState(String(produto?.aliquota_pis ?? '1.65'))
-  const [cstCofins, setCstCofins] = useState(produto?.cst_cofins ?? '01')
-  const [aliquotaCofins, setAliquotaCofins] = useState(String(produto?.aliquota_cofins ?? '7.6'))
+  const [cstPis, setCstPis] = useState(produto?.cst_pis ?? '')
+  const [aliquotaPis, setAliquotaPis] = useState(produto?.aliquota_pis != null ? String(produto.aliquota_pis) : '')
+  const [cstCofins, setCstCofins] = useState(produto?.cst_cofins ?? '')
+  const [aliquotaCofins, setAliquotaCofins] = useState(produto?.aliquota_cofins != null ? String(produto.aliquota_cofins) : '')
   // CST 60/500 · ST retido (por unidade). '' = não informado (mantém NULL no banco).
   const [vbcstRet, setVbcstRet] = useState(produto?.vbcst_ret != null ? String(produto.vbcst_ret) : '')
   const [pst, setPst] = useState(produto?.pst != null ? String(produto.pst) : '')
@@ -95,13 +101,13 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
         cest: cest || null,
         cfop_venda: cfopVenda || null,
         origem,
-        cst_icms: cstIcms || null,
-        aliquota_icms: parseFloat(aliquotaIcms) || 0,
+        cst_icms: cstIcms.trim() || null,
+        aliquota_icms: numOuNulo(aliquotaIcms),
         aliquota_ipi: parseFloat(aliquotaIpi) || 0,
-        cst_pis: cstPis || null,
-        aliquota_pis: parseFloat(aliquotaPis) || 0,
-        cst_cofins: cstCofins || null,
-        aliquota_cofins: parseFloat(aliquotaCofins) || 0,
+        cst_pis: cstPis.trim() || null,
+        aliquota_pis: numOuNulo(aliquotaPis),
+        cst_cofins: cstCofins.trim() || null,
+        aliquota_cofins: numOuNulo(aliquotaCofins),
         // ST retido (CST 60/500) · '' → NULL; 0 é valor válido, por isso não uso `|| null`.
         vbcst_ret: vbcstRet.trim() === '' ? null : parseFloat(vbcstRet.replace(',', '.')),
         pst: pst.trim() === '' ? null : parseFloat(pst.replace(',', '.')),
@@ -190,14 +196,14 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
                 ]}
               />
               <div className="grid grid-cols-2 gap-3">
-                <Campo label="CST ICMS" value={cstIcms} onChange={setCstIcms} placeholder="00, 20, 40..." />
-                <Campo label="Aliquota ICMS (%)" value={aliquotaIcms} onChange={setAliquotaIcms} placeholder="18" />
+                <Campo label="CST / CSOSN ICMS" value={cstIcms} onChange={setCstIcms} placeholder="Simples: 102, 500… · normal: 00, 60…" />
+                <Campo label="Aliquota ICMS (%)" value={aliquotaIcms} onChange={setAliquotaIcms} placeholder="vazio = não informado" />
                 <Campo label="Aliquota IPI (%)" value={aliquotaIpi} onChange={setAliquotaIpi} placeholder="0" />
                 <span />
-                <Campo label="CST PIS" value={cstPis} onChange={setCstPis} placeholder="01" />
-                <Campo label="Aliquota PIS (%)" value={aliquotaPis} onChange={setAliquotaPis} placeholder="1.65" />
-                <Campo label="CST COFINS" value={cstCofins} onChange={setCstCofins} placeholder="01" />
-                <Campo label="Aliquota COFINS (%)" value={aliquotaCofins} onChange={setAliquotaCofins} placeholder="7.6" />
+                <Campo label="CST PIS" value={cstPis} onChange={setCstPis} placeholder="ex.: 01, 04, 49" />
+                <Campo label="Aliquota PIS (%)" value={aliquotaPis} onChange={setAliquotaPis} placeholder="vazio = não informado" />
+                <Campo label="CST COFINS" value={cstCofins} onChange={setCstCofins} placeholder="ex.: 01, 04, 49" />
+                <Campo label="Aliquota COFINS (%)" value={aliquotaCofins} onChange={setAliquotaCofins} placeholder="vazio = não informado" />
               </div>
 
               {(cstIcms === '500' || cstIcms === '60') && (

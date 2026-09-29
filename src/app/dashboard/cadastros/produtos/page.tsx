@@ -5,9 +5,10 @@ import { supabase } from '@/lib/supabase'
 import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
 import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
 import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarProdutosModal'
+import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModal'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload, Sparkles,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks,
 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -72,6 +73,7 @@ export default function ProdutosPage() {
   const [pendencias, setPendencias] = useState<{ id: string; codigo: string; nome: string; tipo_item_sped: string | null; motivo: string }[]>([])
   const [pendVerLista, setPendVerLista] = useState(false)
   const [autoclassificarAberto, setAutoclassificarAberto] = useState(false)
+  const [fiscalMassaAberto, setFiscalMassaAberto] = useState(false)
 
   const offsetRef = useRef(0)
 
@@ -285,6 +287,14 @@ export default function ProdutosPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setFiscalMassaAberto(true)}
+              data-testid="fiscal-massa-abrir"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+            >
+              <ListChecks size={15} /> Edição fiscal em massa
+            </button>
             <button
               type="button"
               onClick={() => setAutoclassificarAberto(true)}
@@ -708,6 +718,14 @@ export default function ProdutosPage() {
             companyId={companyId}
             onClose={() => setImportarFiscalAberto(false)}
             onAtualizado={() => carregar(true)}
+          />
+        )}
+
+        {fiscalMassaAberto && (
+          <EdicaoFiscalMassaModal
+            companyId={companyId}
+            onClose={() => setFiscalMassaAberto(false)}
+            onAplicado={() => carregar(true)}
           />
         )}
 
