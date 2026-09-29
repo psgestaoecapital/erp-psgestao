@@ -10,8 +10,10 @@ import { dbSelect, dbInsert, dbDelete, obterSessionPayload, registrarJornada } f
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 const DEMO_SST = 'b0700000-0000-4000-a000-000000000005'
-// dia único por execução (2015–2024), para não colidir com outra rodada nem com dado da demo
-const base = new Date(Date.UTC(2015, 0, 1) + (Math.floor(Date.now() / 60000) % 3650) * 86400000)
+// dia único por execução, SEMPRE em 2020 (sem horário de verão no Brasil desde 2019 — com horário de verão o
+// 07:42-03:00 vira 08:42 em São Paulo e o teste erra; falhou assim em produção em 29/09). Um ano por teste de pausas,
+// para um não pisar no dia do outro: #256 = 2020, #272 = 2021, apuração por colaborador = 2022, #273 = 2023.
+const base = new Date(Date.UTC(2020, 0, 1) + (Math.floor(Date.now() / 60000) % 360) * 86400000)
 const DIA = base.toISOString().slice(0, 10)
 const DIA_BR = DIA.split('-').reverse().join('/')
 const ts = (h: string) => `${DIA}T${h}:00-03:00`
