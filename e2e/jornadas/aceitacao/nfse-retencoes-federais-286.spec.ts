@@ -76,12 +76,14 @@ test.describe('#286 · NFS-e com as retenções federais do cadastro do serviço
     await expect(modal.getByTestId('nfse-sugerir-retencoes'), 'a sugestão manual de retenções saiu').toHaveCount(0)
   })
 
-  test('caminho principal: serviço sem retenção emite normalmente, sem bloco de retenções', async ({ page }) => {
+  test('caminho principal: serviço sem retenção emite normalmente, com a conferência "nenhuma retenção"', async ({ page }) => {
     const { modal, envios } = await abrirModalComServico(page, `E2E 286 sem retencao ${RUN}`, {
       ok: true, status: 'autorizada', numero: '998', nfseId: '00000000-0000-4000-a000-000000000287', providerReference: `e2e-286s-${RUN}`,
       retencoesFederais: null,
     })
     await expect(modal.getByTestId('nfse-retencoes-previa')).toHaveCount(0)
+    // #339 · a conferência aparece também sem retenção ("nenhuma retenção"), para a pessoa conferir antes de emitir
+    await expect(modal.getByTestId('nfse-retencoes-previa-nenhuma')).toBeVisible({ timeout: 15000 })
     await expect(modal.getByTestId('nfse-emitir-submit')).toBeEnabled()
     await modal.getByTestId('nfse-emitir-submit').click()
     await expect.poll(() => envios.length, { timeout: 15000 }).toBe(1)

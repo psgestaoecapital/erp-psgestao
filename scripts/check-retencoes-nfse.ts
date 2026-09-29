@@ -13,7 +13,7 @@
  *   E0901  cIndOp tem de existir (6 dígitos, Anexo C) — sem ele o grupo IBS/CBS não vai
  *   Linha 314  o grupo piscofins (tpRetPisCofins/vRetCSLL) exige o CST
  */
-import { calcularRetencoesFederais, codigoIndicadorOperacaoValido, issRetidoNfse, reformaIbsCbsDoServico, tipoRetencaoPisCofins } from '../src/lib/fiscal/retencoesFederaisNfse'
+import { calcularRetencoesFederais, codigoIndicadorOperacaoValido, issRetidoNfse, reformaIbsCbsDoServico, tipoRetencaoPisCofins, travaEmissaoNfse, MSG_EXIGE_SERVICO_NFSE, MSG_RETENCAO_SO_NACIONAL } from '../src/lib/fiscal/retencoesFederaisNfse'
 import { buildNacionalNFSePayload } from '../src/lib/fiscal/providers/focusnfe'
 import type { NFSeRequest } from '../src/lib/fiscal/types'
 
@@ -171,6 +171,19 @@ ok(issRetidoNfse(1000, 3, 5) === 50, 'ISS retido pelo intermediário (3) também
 ok(issRetidoNfse(98165.70, 1, 3) === 0, 'ISS não retido (1): nada no título')
 ok(issRetidoNfse(98165.70, null, 3) === 0, 'sem tipo de retenção = não retido')
 ok(issRetidoNfse(98165.70, 2, 0) === 0 && issRetidoNfse(98165.70, 2, null) === 0, 'sem alíquota: não chuta valor')
+
+// ── #339 (R.R) · trava de emissão em todas as telas: sem serviço do cadastro, não emite; padrão municipal com retenção, não emite
+{
+  const semRet = { retem_inss: false, iss_retido: false }
+  const comInss = { retem_inss: true, aliquota_inss: 11 }
+  ok(travaEmissaoNfse({ servicoId: null, padraoNacional: true, valor: 1000 }) === MSG_EXIGE_SERVICO_NFSE, '#339: sem serviço do cadastro → trava (a nota sairia sem retenção, calada)')
+  ok(travaEmissaoNfse({ servicoId: '', padraoNacional: false, valor: 1000 }) === MSG_EXIGE_SERVICO_NFSE, '#339: serviço vazio também trava')
+  ok(travaEmissaoNfse({ servicoId: 's1', padraoNacional: true, servico: comInss, valor: 1000 }) === null, '#339: nacional com INSS → emite (as retenções vão na nota)')
+  ok(travaEmissaoNfse({ servicoId: 's1', padraoNacional: false, servico: comInss, valor: 1000 }) === MSG_RETENCAO_SO_NACIONAL, '#339: municipal com INSS no cadastro → trava')
+  ok(travaEmissaoNfse({ servicoId: 's1', padraoNacional: false, servico: { iss_retido: true }, valor: 1000 }) === MSG_RETENCAO_SO_NACIONAL, '#339: municipal com ISS retido no cadastro → trava')
+  ok(travaEmissaoNfse({ servicoId: 's1', padraoNacional: false, servico: semRet, valor: 1000 }) === null, '#339: municipal sem retenção → emite')
+  ok(travaEmissaoNfse({ servicoId: 's1', padraoNacional: true, servico: semRet, valor: 1000 }) === null, '#339 caso R.R: 07.02 sem retenção no cadastro, nacional → emite')
+}
 
 if (falhas > 0) { console.error(`\n[check-retencoes-nfse] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-retencoes-nfse] todas as regras de retenção da NFS-e conferidas.')

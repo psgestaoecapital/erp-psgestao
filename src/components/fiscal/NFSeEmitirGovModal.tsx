@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@/components/comum/BlocoObraFiscal'
-import { calcularRetencoesFederais, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { calcularRetencoesFederais, MSG_EXIGE_SERVICO_NFSE, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 // bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos).
 // obra_sem_cno saiu (CNO virou opcional); obra_endereco_incompleto é o novo — a prefeitura exige endereço.
@@ -533,6 +533,8 @@ export default function NFSeEmitirGovModal({
       setErroLocal('Configure o emissor fiscal da empresa antes de emitir (Configurações › Fiscal).')
       return
     }
+    // #339 · sem serviço do cadastro não há de onde tirar as retenções (a rota também recusa)
+    if (!servicoIdEff) { setErroLocal(MSG_EXIGE_SERVICO_NFSE); return }
 
     // DECISÃO DO CEO (23/09): emissão fiscal EXCLUSIVAMENTE via Focus. ETAPA 1 (reversível, sem remoção):
     // toda emissão vai pela rota REST /api/fiscal/nfse/emitir — a edge gov-nfse-emitir deixa de ser
@@ -851,14 +853,14 @@ export default function NFSeEmitirGovModal({
                     Escolher também liga a busca de ISS por município quando o serviço é "fora do município". */}
                 {servicos.length > 0 && (
                   <label className="block">
-                    <span className="block text-[11px] text-[#3D2314]/60 mb-1">Serviço cadastrado (opcional)</span>
+                    <span className="block text-[11px] text-[#3D2314]/60 mb-1">Serviço cadastrado (as retenções vêm dele)</span>
                     <select
                       value={servicoSelId}
                       onChange={(e) => aplicarServico(e.target.value)}
                       data-testid="nfse-servico-select"
                       className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
                     >
-                      <option value="">— selecionar ou preencher manualmente —</option>
+                      <option value="">— selecione o serviço —</option>
                       {servicos.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.codigo ? `${s.codigo} · ` : ''}{s.descricao_resumida || s.descricao_detalhada || 'serviço'}
@@ -1017,6 +1019,20 @@ export default function NFSeEmitirGovModal({
               )}
               {servicoIdEff && validando && <div className="text-[11px] text-[#3D2314]/50">Verificando obra e alíquota…</div>}
 
+              {/* #339 · a conferência das retenções aparece SEMPRE que há serviço (1 parcela ou medição) — também
+                  quando o cadastro não retém nada, para a pessoa conferir antes de emitir. */}
+              {!servicoIdEff && (
+                <div className="rounded-md border border-[#C8941A]/40 bg-[#FAEEDA]/50 px-3 py-2 text-[12px] text-[#3D2314] flex items-start gap-1.5" data-testid="nfse-exige-servico">
+                  <Info size={13} className="mt-0.5 flex-shrink-0" /><span>{MSG_EXIGE_SERVICO_NFSE}</span>
+                </div>
+              )}
+              {svTrib && !retPreviaTem && (
+                <div className="rounded-md border border-[#3D2314]/15 bg-[#FAF7F2] px-3 py-2.5 space-y-1 text-[12px] text-[#3D2314]" data-testid="nfse-retencoes-previa-nenhuma">
+                  <div className="font-medium">Retenções desta nota (do cadastro do serviço)</div>
+                  <div>Nenhuma retenção no cadastro deste serviço: ISS não retido e sem INSS, IR, PIS, COFINS ou CSLL.</div>
+                  <div className="text-[11px] text-[#3D2314]/60">Se este serviço deveria reter, ajuste em Cadastros › Serviços antes de emitir.</div>
+                </div>
+              )}
               {retPreviaTem && retPrevia && (
                 <div className="rounded-md border border-[#C8941A]/40 bg-[#FAEEDA]/50 px-3 py-2.5 space-y-1.5 text-[12px] text-[#3D2314]" data-testid="nfse-retencoes-previa">
                   <div className="font-medium">Retenções desta nota (do cadastro do serviço)</div>
@@ -1060,8 +1076,8 @@ export default function NFSeEmitirGovModal({
                 <button
                   type="button"
                   onClick={emitir}
-                  disabled={fase === 'enviando' || validando || emissaoTravada || retPreviaBloqueia || providerAtivo === null}
-                  title={providerAtivo === null ? 'Configure o emissor fiscal da empresa' : emissaoTravada ? 'Resolva os itens acima antes de emitir' : undefined}
+                  disabled={fase === 'enviando' || validando || emissaoTravada || retPreviaBloqueia || providerAtivo === null || !servicoIdEff}
+                  title={providerAtivo === null ? 'Configure o emissor fiscal da empresa' : !servicoIdEff ? MSG_EXIGE_SERVICO_NFSE : emissaoTravada ? 'Resolva os itens acima antes de emitir' : undefined}
                   data-testid="nfse-emitir-submit"
                   className="flex-1 px-4 py-2.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center justify-center gap-2"
                 >
