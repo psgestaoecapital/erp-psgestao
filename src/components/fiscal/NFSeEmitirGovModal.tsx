@@ -12,6 +12,7 @@ import { authFetch } from '@/lib/authFetch'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@/components/comum/BlocoObraFiscal'
 import { calcularRetencoesFederais, MSG_EXIGE_SERVICO_NFSE, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { conferirMedicaoEscopo, brl as brlEscopo, type ItemEscopo } from '@/lib/fiscal/medicaoEscopoObra'
 
 // bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos).
 // obra_sem_cno saiu (CNO virou opcional); obra_endereco_incompleto é o novo — a prefeitura exige endereço.
@@ -212,6 +213,21 @@ export default function NFSeEmitirGovModal({
   const [finFase, setFinFase] = useState<'idle' | 'enviando' | 'ok' | 'erro'>('idle')
   const [finMsg, setFinMsg] = useState<string | null>(null)
   const obraIdEff = obraId ?? (obraFiscal.modo === 'apontar' ? (obraFiscal.obraSel?.id ?? undefined) : undefined)
+  // #340 · medição do ESCOPO da obra: com obra escolhida que tem itens de escopo, a pessoa diz quanto de cada item esta
+  // nota mede. Soma = valor da nota (tolerância R$ 0,01, decisão do CEO); lança só quando a nota for autorizada.
+  const [escopoObra, setEscopoObra] = useState<ItemEscopo[]>([])
+  const [qtdEscopo, setQtdEscopo] = useState<Record<string, string>>({})
+  useEffect(() => {
+    setQtdEscopo({})
+    if (!aberto || !obraIdEff) { setEscopoObra([]); return }
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.rpc('fn_obra_escopo', { p_obra_id: obraIdEff })
+      const r = data as { ok?: boolean; itens?: ItemEscopo[] } | null
+      if (vivo) setEscopoObra(r?.ok && Array.isArray(r.itens) ? r.itens.filter((i) => Number(i.quantidade_a_medir) > 0) : [])
+    })()
+    return () => { vivo = false }
+  }, [aberto, obraIdEff])
   const mostrarObra = !obraId && (permitirObra || exigeObra)
 
   // #32/#35 · servico_id efetivo: o que veio do pedido/OS (prop) OU o escolhido aqui no modal.
@@ -231,6 +247,11 @@ export default function NFSeEmitirGovModal({
     return () => { vivo = false }
   }, [aberto, servicoIdEff])
   const valorPrevia = (() => { const n = Number(String(valor || '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : 0 })()
+  const qtdNum = (v: string | undefined) => { const n = Number(String(v ?? '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0 }
+  const confEscopo = escopoObra.length > 0
+    ? conferirMedicaoEscopo(escopoObra, Object.fromEntries(Object.entries(qtdEscopo).map(([k, v]) => [k, qtdNum(v)])), valorPrevia)
+    : null
+  const escopoBloqueia = !!confEscopo && confEscopo.itens.length > 0 && !confEscopo.ok
   const retPrevia = svTrib ? calcularRetencoesFederais(valorPrevia, svTrib) : null
   // #286 · ISS retido pelo tomador vem do CADASTRO do serviço (iss_retido) — antes este modal mandava sempre "não retido"
   const issRetidoCadastro = !!(svTrib as { iss_retido?: boolean | null } | null)?.iss_retido
@@ -535,6 +556,8 @@ export default function NFSeEmitirGovModal({
     }
     // #339 · sem serviço do cadastro não há de onde tirar as retenções (a rota também recusa)
     if (!servicoIdEff) { setErroLocal(MSG_EXIGE_SERVICO_NFSE); return }
+    // #340 · medição do escopo que não fecha com a nota não sai
+    if (escopoBloqueia && confEscopo) { setErroLocal(confEscopo.erros.join(' ')); return }
 
     // DECISÃO DO CEO (23/09): emissão fiscal EXCLUSIVAMENTE via Focus. ETAPA 1 (reversível, sem remoção):
     // toda emissão vai pela rota REST /api/fiscal/nfse/emitir — a edge gov-nfse-emitir deixa de ser
@@ -572,6 +595,10 @@ export default function NFSeEmitirGovModal({
         }
         if (medicao && pedidoId) {
           bodyFocus.medicao = { pedidoId, parcelaIds: medicao.parcelaIds, gerarFinanceiro: gerarFinMedicao }
+        }
+        // #340 · itens do escopo medidos nesta nota (a rota confere de novo no banco antes de emitir)
+        if (obraIdEff && confEscopo && confEscopo.itens.length > 0) {
+          bodyFocus.medicaoObra = { obraId: obraIdEff, itens: confEscopo.itens }
         }
         if (erpReceberIdFocus) {
           bodyFocus.erpReceberId = erpReceberIdFocus
@@ -1057,6 +1084,32 @@ export default function NFSeEmitirGovModal({
                 </div>
               )}
 
+              {/* #340 · medição do escopo da obra: quanto de cada item esta nota mede (abate do contratado na autorização) */}
+              {escopoObra.length > 0 && (
+                <div className="rounded-md border border-[#C8941A]/40 bg-[#FAEEDA]/40 px-3 py-2.5 space-y-2 text-[12px] text-[#3D2314]" data-testid="nfse-escopo-obra">
+                  <div className="font-medium">Medição do escopo da obra</div>
+                  <div className="text-[11px] text-[#3D2314]/60">Informe quanto de cada item esta nota mede. A medição entra na obra quando a prefeitura autorizar; nota cancelada estorna.</div>
+                  {escopoObra.map((it) => (
+                    <label key={it.id} className="flex items-center gap-2">
+                      <span className="flex-1">{it.descricao} <span className="text-[#3D2314]/50">· falta medir {Number(it.quantidade_a_medir)} · R$ {brlEscopo(Number(it.preco_unitario))}/un</span></span>
+                      <input type="text" inputMode="decimal" value={qtdEscopo[it.id] ?? ''} placeholder="0"
+                        onChange={(e) => setQtdEscopo((p) => ({ ...p, [it.id]: e.target.value }))}
+                        data-testid={`nfse-escopo-qtd-${it.id}`}
+                        className="w-24 bg-white border border-[#3D2314]/15 rounded-md px-2 py-1 text-[12.5px] text-right" />
+                    </label>
+                  ))}
+                  {confEscopo && confEscopo.itens.length > 0 && (
+                    <div data-testid="nfse-escopo-soma">Itens medidos: <b>R$ {brlEscopo(confEscopo.soma)}</b> · nota: <b>R$ {brlEscopo(valorPrevia)}</b></div>
+                  )}
+                  {confEscopo?.erros.map((e) => (
+                    <div key={e} className="flex items-start gap-1.5 text-[#791F1F]" data-testid="nfse-escopo-erro"><AlertCircle size={13} className="mt-0.5 flex-shrink-0" /><span>{e}</span></div>
+                  ))}
+                  {confEscopo && confEscopo.itens.length === 0 && (
+                    <div className="text-[#8A5A00]" data-testid="nfse-escopo-aviso">Nenhum item marcado: esta nota não abate nada do escopo da obra.</div>
+                  )}
+                </div>
+              )}
+
               {erroLocal && (
                 <div className="flex items-start gap-2 bg-[#FCEBEB] border-l-4 border-[#C94544] rounded-md px-3 py-2 text-[12px] text-[#791F1F]">
                   <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
@@ -1076,7 +1129,7 @@ export default function NFSeEmitirGovModal({
                 <button
                   type="button"
                   onClick={emitir}
-                  disabled={fase === 'enviando' || validando || emissaoTravada || retPreviaBloqueia || providerAtivo === null || !servicoIdEff}
+                  disabled={fase === 'enviando' || validando || emissaoTravada || retPreviaBloqueia || escopoBloqueia || providerAtivo === null || !servicoIdEff}
                   title={providerAtivo === null ? 'Configure o emissor fiscal da empresa' : !servicoIdEff ? MSG_EXIGE_SERVICO_NFSE : emissaoTravada ? 'Resolva os itens acima antes de emitir' : undefined}
                   data-testid="nfse-emitir-submit"
                   className="flex-1 px-4 py-2.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center justify-center gap-2"
