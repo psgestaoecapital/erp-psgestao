@@ -5,7 +5,8 @@
 import { useEffect, useState, useCallback, type CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
-import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRight, Crown, Lock, UserPlus, Link2, Plus } from "lucide-react";
+import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRight, Crown, Lock, UserPlus, Link2, Plus, Send } from "lucide-react";
+import { textoUltimoEnvio, type UltimoEnvio } from "@/lib/acessos/enviarLink";
 import NovaEmpresaWizard from "./_components/NovaEmpresaWizard";
 import EquipePsSection from "./_components/EquipePsSection";
 
@@ -44,6 +45,21 @@ type Pessoa = {
   ultimo_login: string | null; situacao: string;
 };
 type Contexto = { empresa: Empresa; areas_contratadas: Area[]; plantas: Planta[]; master: Master[]; pessoas: Pessoa[] };
+type ConvitePendente = { id: string; email: string; created_at: string; expires_at: string | null };
+type Envios = { convites_pendentes: ConvitePendente[]; ultimos_envios: Record<string, UltimoEnvio> };
+
+// "Enviar link de acesso" (CEO 29/09): convite pendente → reenvia o convite; tem conta e nunca entrou → convite com
+// link para criar a senha; já entrou → e-mail de criar senha nova. Regra e registro no servidor (/api/acessos/enviar-link).
+async function chamarEnviarLink(companyId: string, alvo: { user_id: string } | { invite_id: string }) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const r = await fetch("/api/acessos/enviar-link", {
+    method: "POST", headers: { "content-type": "application/json", authorization: session ? `Bearer ${session.access_token}` : "" },
+    body: JSON.stringify({ company_id: companyId, ...alvo }),
+  });
+  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; rotulo?: string; destino?: string; enviado_em?: string; por?: string | null; erro?: string; error?: string };
+  return j.ok ? { ok: true as const, t: `${j.rotulo} para ${j.destino}.`, envio: { em: j.enviado_em || new Date().toISOString(), por: j.por ?? null } }
+    : { ok: false as const, t: j.erro || j.error || "Não foi possível enviar." };
+}
 
 export default function AcessosCascataPage() {
   // Empresa do seletor global do topo (RD-52: Acessos sempre na empresa do contexto, nunca uma stale).
@@ -58,6 +74,7 @@ export default function AcessosCascataPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [envios, setEnvios] = useState<Envios>({ convites_pendentes: [], ultimos_envios: {} });
 
   // Empresas que o usuário pode gerir: PS_ADMIN → todas; senão as que ele é CLIENT_OWNER ativo.
   useEffect(() => {
@@ -103,6 +120,16 @@ export default function AcessosCascataPage() {
     setLoading(false);
   }, []);
   useEffect(() => { if (companyId) void carregar(companyId); }, [companyId, carregar]);
+
+  const carregarEnvios = useCallback(async (cid: string) => {
+    if (!cid) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const r = await fetch(`/api/acessos/enviar-link?company_id=${cid}`, { headers: { authorization: session ? `Bearer ${session.access_token}` : "" } });
+    const j = (await r.json().catch(() => null)) as (Envios & { ok?: boolean }) | null;
+    setEnvios(j?.ok ? { convites_pendentes: j.convites_pendentes || [], ultimos_envios: j.ultimos_envios || {} } : { convites_pendentes: [], ultimos_envios: {} });
+  }, []);
+  useEffect(() => { if (companyId) void carregarEnvios(companyId); }, [companyId, carregarEnvios]);
+  const registrarEnvio = (id: string, e: UltimoEnvio) => setEnvios((v) => ({ ...v, ultimos_envios: { ...v.ultimos_envios, [id]: e } }));
 
   if (loading && !ctx) return <Shell><div style={{ color: TXM }}>Carregando…</div></Shell>;
   if (empresasGeriveis.length === 0) return <Shell><div style={{ color: TXM }}>Você não administra nenhuma empresa. Fale com a PS Gestão.</div></Shell>;
@@ -193,9 +220,23 @@ export default function AcessosCascataPage() {
               <PessoaRow key={`${p.user_id}:${p.restricted ? "r" : "o"}:${(p.areas || []).join("|")}:${p.role}`} p={p} aberto={editId === p.user_id}
                 onToggle={() => setEditId(editId === p.user_id ? null : p.user_id)}
                 areasContratadas={ctx.areas_contratadas} plantas={ctx.plantas}
-                companyId={companyId} onSaved={() => carregar(companyId)} />
+                companyId={companyId} onSaved={() => carregar(companyId)}
+                ultimoEnvio={envios.ultimos_envios[p.user_id]} onEnviado={(e) => registrarEnvio(p.user_id, e)} />
             ))}
           </div>
+
+          {/* 5 · Convites pendentes (a pessoa ainda não criou a conta) — reenviar o convite */}
+          {envios.convites_pendentes.length > 0 && (
+            <>
+              <div style={{ marginTop: 18 }}><Secao icon={<Send size={15} color={GO} />} titulo={`Convites pendentes · ${envios.convites_pendentes.length}`} /></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {envios.convites_pendentes.map((c) => (
+                  <ConviteRow key={c.id} c={c} companyId={companyId} ultimoEnvio={envios.ultimos_envios[c.id]}
+                    onEnviado={(e) => { registrarEnvio(c.id, e); void carregarEnvios(companyId); }} />
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
     </Shell>
@@ -300,8 +341,9 @@ function GerenciarAreas({ companyId, onChanged }: { companyId: string; onChanged
   );
 }
 
-function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, onSaved }: {
+function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, onSaved, ultimoEnvio, onEnviado }: {
   p: Pessoa; aberto: boolean; onToggle: () => void; areasContratadas: Area[]; plantas: Planta[]; companyId: string; onSaved: () => void;
+  ultimoEnvio?: UltimoEnvio; onEnviado: (e: UltimoEnvio) => void;
 }) {
   const [nome, setNome] = useState(p.nome ?? "");
   const [cargo, setCargo] = useState(p.cargo ?? "");
@@ -365,11 +407,21 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
     setMsg({ ok: true, t: "Removido da empresa." });
     onSaved();
   }
+  async function enviarLink() {
+    const acao = p.situacao === "NUNCA_LOGOU" ? "reenviar o convite (com link para criar a senha)" : "enviar o e-mail para criar uma senha nova";
+    if (!confirm(`Enviar link de acesso para ${p.email}?\n\nVai ${acao}.`)) return;
+    setAcaoBusy(true); setMsg(null);
+    const r = await chamarEnviarLink(companyId, { user_id: p.user_id });
+    setAcaoBusy(false);
+    setMsg({ ok: r.ok, t: r.t });
+    if (r.ok) onEnviado(r.envio);
+  }
   const toggle = <T,>(set: React.Dispatch<React.SetStateAction<Set<T>>>, v: T) =>
     set((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
+  const ultimo = textoUltimoEnvio(ultimoEnvio);
 
   return (
-    <div style={{ border: `1px solid ${BD}`, borderRadius: 10, background: BG2, overflow: "hidden" }}>
+    <div data-testid={`pessoa-${p.email}`} style={{ border: `1px solid ${BD}`, borderRadius: 10, background: BG2, overflow: "hidden" }}>
       <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
         {aberto ? <ChevronDown size={16} color={TXM} /> : <ChevronRight size={16} color={TXM} />}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -377,6 +429,7 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
             {p.nome || p.email}{p.is_master && <Crown size={13} color={GO} />}
           </div>
           <div style={{ fontSize: 12, color: TXD }}>{p.email}</div>
+          {ultimo && <div data-testid="ultimo-envio" style={{ fontSize: 11, color: TXM, marginTop: 2 }}>{ultimo}</div>}
         </div>
         <span style={{ fontSize: 10, color: TXD }} title="Nível — o que a pessoa VÊ">👁 {PAPEIS.find((x) => x.role === p.role)?.nome || p.role}</span>
         <span style={{ fontSize: 10, fontWeight: 700, color: p.is_master ? GO : BL }} title="Papel na empresa — o que a pessoa PODE GERIR">🛡 {PAPEL_GESTAO_LBL[p.papel_gestao ?? ""] ?? "Visualizador"}</span>
@@ -471,6 +524,11 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
               style={{ display: "inline-flex", alignItems: "center", gap: 6, background: BG2, color: TX, border: `1px solid ${GO}`, borderRadius: 8, padding: "9px 14px", fontWeight: 700, cursor: acaoBusy ? "default" : "pointer", opacity: acaoBusy ? 0.6 : 1 }}>
               <Crown size={14} color={GO} /> {p.is_master ? "Remover master" : "Tornar master"}
             </button>
+            <button data-testid="enviar-link" disabled={acaoBusy} onClick={() => void enviarLink()}
+              title={p.situacao === "NUNCA_LOGOU" ? "Nunca entrou: reenvia o convite com link para criar a senha" : "Já tem conta: envia o e-mail para criar uma senha nova"}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: BG2, color: TX, border: `1px solid ${GO}`, borderRadius: 8, padding: "9px 14px", fontWeight: 700, cursor: acaoBusy ? "default" : "pointer", opacity: acaoBusy ? 0.6 : 1 }}>
+              <Send size={14} color={GO} /> Enviar link de acesso
+            </button>
             <button disabled={acaoBusy} onClick={() => void removerPessoa()}
               style={{ background: "#fff", color: R, border: `1px solid #E5C2C2`, borderRadius: 8, padding: "9px 14px", fontWeight: 700, cursor: acaoBusy ? "default" : "pointer", opacity: acaoBusy ? 0.6 : 1 }}>
               Excluir
@@ -479,6 +537,38 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ConviteRow({ c, companyId, ultimoEnvio, onEnviado }: { c: ConvitePendente; companyId: string; ultimoEnvio?: UltimoEnvio; onEnviado: (e: UltimoEnvio) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const expira = c.expires_at ? new Date(c.expires_at) : null;
+  const [agora] = useState(() => Date.now());
+  const vencido = !!expira && expira.getTime() < agora;
+  async function reenviar() {
+    if (!confirm(`Reenviar o convite para ${c.email}?${vencido ? "\n\nO convite está vencido — a validade é renovada por 14 dias." : ""}`)) return;
+    setBusy(true); setMsg(null);
+    const r = await chamarEnviarLink(companyId, { invite_id: c.id });
+    setBusy(false); setMsg({ ok: r.ok, t: r.t });
+    if (r.ok) onEnviado(r.envio);
+  }
+  const ultimo = textoUltimoEnvio(ultimoEnvio);
+  return (
+    <div data-testid={`convite-${c.email}`} style={{ border: `1px dashed ${BD}`, borderRadius: 10, background: BG2, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ fontWeight: 700, color: TX, fontSize: 14 }}>{c.email}</div>
+        <div style={{ fontSize: 11, color: vencido ? R : TXD }}>
+          Convidado em {new Date(c.created_at).toLocaleDateString("pt-BR")}{expira ? ` · ${vencido ? "venceu" : "vale até"} ${expira.toLocaleDateString("pt-BR")}` : ""}
+        </div>
+        {ultimo && <div data-testid="ultimo-envio" style={{ fontSize: 11, color: TXM }}>{ultimo}</div>}
+      </div>
+      <button data-testid="enviar-link" disabled={busy} onClick={() => void reenviar()}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, background: BG2, color: TX, border: `1px solid ${GO}`, borderRadius: 8, padding: "8px 12px", fontWeight: 700, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
+        <Send size={14} color={GO} /> {busy ? "Enviando…" : "Enviar link de acesso"}
+      </button>
+      {msg && <span style={{ fontSize: 12.5, fontWeight: 600, color: msg.ok ? G : R, width: "100%" }}>{msg.t}</span>}
     </div>
   );
 }
