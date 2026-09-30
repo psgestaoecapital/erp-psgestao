@@ -57,7 +57,7 @@ interface Props {
   companyId: string
   initial?: OportunidadeRow | null
   onClose: () => void
-  onSaved: (id: string) => void
+  onSaved: (id: string, aviso?: string) => void
 }
 
 // Máscara BR de moeda por CENTAVOS (sem ambiguidade de milhar/decimal): o usuário digita só dígitos
@@ -242,6 +242,16 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     return (data as { id: string }).id
   }
 
+  // Tryo #263 · oportunidade salva na etapa "Orçando" (pelo seletor de Etapa) gera o orçamento, igual ao arrastar
+  // no kanban — antes só o arrastar gerava, e o card ia para "Orçando" sem orçamento na lista. A RPC é idempotente.
+  async function garantirOrcamento(id: string): Promise<string | undefined> {
+    if (form.etapa !== 'orcando') return undefined
+    const { data, error } = await supabase.rpc('fn_oportunidade_gerar_orcamento', { p_oportunidade_id: id })
+    const j = data as { ok?: boolean; erro?: string; mensagem?: string; numero?: string; ja_existia?: boolean } | null
+    if (error || !j?.ok) return `Orçamento não gerado: ${j?.mensagem ?? error?.message ?? j?.erro ?? 'falha'}`
+    return j.ja_existia ? undefined : `Orçamento ${j.numero} criado na lista de orçamentos.`
+  }
+
   async function salvar() {
     const nomeCliente = cliSel?.nome ?? buscaCli
     const invalido = erroOportunidade(form.titulo, nomeCliente)
@@ -279,9 +289,10 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     }
     if (isEdit && initial?.id) {
       const { error } = await supabase.from('erp_crm_oportunidade').update(payload).eq('id', initial.id)
+      if (error) { setSaving(false); setErr(error.message); return }
+      const avisoOrc = await garantirOrcamento(initial.id)
       setSaving(false)
-      if (error) { setErr(error.message); return }
-      onSaved(initial.id)
+      onSaved(initial.id, avisoOrc)
     } else {
       const { data, error } = await supabase
         .from('erp_crm_oportunidade')
@@ -295,8 +306,9 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         const r = await anexosRef.current.confirmar(novoId)
         if (r.erros.length > 0) { setSaving(false); setErr(`Oportunidade criada, mas ${r.erros.length} anexo(s) não subiram — anexe de novo na ficha.`); onSaved(novoId); return }
       }
+      const avisoOrc = await garantirOrcamento(novoId)
       setSaving(false)
-      onSaved(novoId)
+      onSaved(novoId, avisoOrc)
     }
   }
 

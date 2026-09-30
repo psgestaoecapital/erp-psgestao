@@ -233,8 +233,9 @@ export default function OportunidadesKanban({
     // confirmação e guarda se já existir. A RPC é idempotente: se a oportunidade já tem orçamento,
     // devolve o mesmo (ja_existia) em vez de criar um segundo. Abre o orçamento para anexar o PDF.
     if (novaEtapa === 'orcando') {
-      const card = (pipe?.etapas?.flatMap((e) => e.cards).find((c) => c.id === cardId)) as unknown as { cliente_nome?: string | null; titulo?: string | null } | undefined
-      const nome = card?.cliente_nome || card?.titulo || 'esta oportunidade'
+      // #263 · o card traz o nome em `cliente` (não `cliente_nome`): a confirmação mostrava só o título
+      const card = pipe?.etapas?.flatMap((e) => e.cards).find((c) => c.id === cardId)
+      const nome = card?.cliente || card?.titulo || 'esta oportunidade'
       if (!window.confirm(`Gerar orçamento para ${nome}?`)) return
       setGerandoId(cardId)
       const { data, error } = await supabase.rpc('fn_oportunidade_gerar_orcamento', { p_oportunidade_id: cardId })
