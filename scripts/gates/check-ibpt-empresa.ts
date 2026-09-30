@@ -4,8 +4,8 @@
  * Importado, Estadual, Municipal, Tipo, VigenciaInicio, VigenciaFim, Chave, Versao, Fonte. Quebra o build se regredir.
  *   tsx scripts/check-ibpt-empresa.ts
  */
-import { normalizarRespostaIbpt, dataIbptIso } from '../src/lib/fiscal/ibptEmpresa'
-import { ncmValidoParaTeste, escolherProdutoTeste } from '../src/lib/fiscal/ibptTeste'
+import { normalizarRespostaIbpt, dataIbptIso } from '../../src/lib/fiscal/ibptEmpresa'
+import { ncmValidoParaTeste, escolherProdutoTeste } from '../../src/lib/fiscal/ibptTeste'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }

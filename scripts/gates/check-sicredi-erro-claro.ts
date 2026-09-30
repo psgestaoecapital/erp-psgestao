@@ -2,8 +2,8 @@
 // (2) "Sincronizar extrato" só aparece para banco com conector de extrato por API (hoje só Sicoob).
 // Roda no build (package.json). Sem rede, sem banco.
 import { readFileSync } from 'node:fs'
-import { acharErroCatalogo, textoErroCatalogo, type ErroCatalogo } from '../src/lib/banco/erroCatalogo'
-import { temConectorExtrato, EXTRATO_COM_CONECTOR } from '../src/lib/banco/extratoConector'
+import { acharErroCatalogo, textoErroCatalogo, type ErroCatalogo } from '../../src/lib/banco/erroCatalogo'
+import { temConectorExtrato, EXTRATO_COM_CONECTOR } from '../../src/lib/banco/extratoConector'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }

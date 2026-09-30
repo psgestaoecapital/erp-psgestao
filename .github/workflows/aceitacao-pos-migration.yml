@@ -12,10 +12,6 @@ on:
     types: [completed]
     branches: [main]
 
-concurrency:
-  group: aceitacao-pos-migration
-  cancel-in-progress: false
-
 permissions:
   contents: read
   pull-requests: write
@@ -25,6 +21,13 @@ jobs:
     # só depois de um deploy de migrations VERDE (vermelho lá já é o alarme do próprio deploy-migrations)
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
+    # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
+    # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
+    concurrency:
+      group: demo-e2e
+      cancel-in-progress: false
+      queue: max
     # 100: o veredito de produção NÃO pode desistir na fila da demo (espera até 60 min pela trava)
     timeout-minutes: 100
     env:

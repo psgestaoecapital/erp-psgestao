@@ -15,7 +15,14 @@ jobs:
       !contains(github.event.deployment.environment, 'Production') &&
       !contains(github.event.deployment.environment, 'production')
     runs-on: ubuntu-latest
-    # 75: até 2 esperas pela trava da demo (passo bloqueante + informativo) com fila de PRs
+    # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
+    # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
+    # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
+    concurrency:
+      group: demo-e2e
+      cancel-in-progress: false
+      queue: max
+    # 75: a fila é o grupo demo-e2e (espera fora do runner); a trava no banco fica de segunda guarda
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4

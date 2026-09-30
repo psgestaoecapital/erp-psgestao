@@ -22,6 +22,13 @@ concurrency:
 jobs:
   auditar:
     runs-on: ubuntu-latest
+    # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
+    # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
+    # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
+    concurrency:
+      group: demo-e2e
+      cancel-in-progress: false
+      queue: max
     timeout-minutes: 45
     env:
       PROD_BASE_URL: https://erp-psgestao.vercel.app

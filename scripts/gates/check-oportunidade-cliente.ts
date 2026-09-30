@@ -5,7 +5,7 @@
  *   tsx scripts/check-oportunidade-cliente.ts
  */
 import { readFileSync, readdirSync } from 'node:fs'
-import { telefoneDoCliente, linkTelefone, tituloOportunidade, erroOportunidade } from '../src/lib/crm/oportunidadeCliente'
+import { telefoneDoCliente, linkTelefone, tituloOportunidade, erroOportunidade } from '../../src/lib/crm/oportunidadeCliente'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }

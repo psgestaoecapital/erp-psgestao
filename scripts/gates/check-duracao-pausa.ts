@@ -4,7 +4,7 @@
  *   tsx scripts/check-duracao-pausa.ts
  */
 import { readFileSync, readdirSync } from 'node:fs'
-import { duracaoPausaSeg, pausaInsuficiente } from '../src/lib/ponto/duracaoPausa'
+import { duracaoPausaSeg, pausaInsuficiente } from '../../src/lib/ponto/duracaoPausa'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
