@@ -2,11 +2,15 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import SeletorUsuario from '@/components/crm/SeletorUsuario'
+import { telefoneDoCliente, tituloOportunidade, erroOportunidade } from '@/lib/crm/oportunidadeCliente'
 
 // FIX 2 · caixa alta nos campos de texto (título/endereço/cidade/bairro). Não toca e-mail/CEP/números/responsável.
 const up = (s: string | null): string | null => { const t = (s ?? '').trim(); return t ? t.toUpperCase() : null }
 
-type ClienteOpt = { id: string; nome: string; cpf_cnpj: string | null }
+type ClienteOpt = { id: string; nome: string; cpf_cnpj: string | null; telefone?: string | null; celular?: string | null; whatsapp?: string | null }
+// coluna de onde veio o telefone mostrado — a edição grava de volta nela (#110)
+type ColTel = 'celular' | 'whatsapp' | 'telefone'
+const colunaDoTelefone = (c: ClienteOpt): ColTel => (c.celular?.trim() ? 'celular' : c.whatsapp?.trim() ? 'whatsapp' : 'telefone')
 type UserOpt = { id: string; email: string | null; full_name?: string | null }
 
 export type OportunidadeRow = {
@@ -69,8 +73,10 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
   const [err, setErr] = useState<string | null>(null)
   const isEdit = !!initial?.id
 
-  // FIX 1 · último título que preenchemos automaticamente (p/ não sobrescrever título digitado à mão)
-  const [tituloAuto, setTituloAuto] = useState('')
+  // Tryo #110 · telefone do cliente (mostrado e editável; grava no cadastro do cliente)
+  const [telCli, setTelCli] = useState('')
+  const [telCliOrig, setTelCliOrig] = useState('')
+  const [telCol, setTelCol] = useState<ColTel>('telefone')
 
   // Cliente autocomplete
   const [buscaCli, setBuscaCli] = useState('')
@@ -98,15 +104,18 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     if (!form.cliente_id) return
     supabase
       .from('erp_clientes')
-      .select('id, razao_social, nome_fantasia, cpf_cnpj')
+      .select('id, razao_social, nome_fantasia, cpf_cnpj, telefone, celular, whatsapp')
       .eq('id', form.cliente_id)
       .maybeSingle()
       .then(({ data }) => {
         if (!data) return
-        const d = data as { id: string; razao_social: string | null; nome_fantasia: string | null; cpf_cnpj: string | null }
+        const d = data as { id: string; razao_social: string | null; nome_fantasia: string | null; cpf_cnpj: string | null; telefone: string | null; celular: string | null; whatsapp: string | null }
         const nome = d.nome_fantasia || d.razao_social || ''
-        setCliSel({ id: d.id, nome, cpf_cnpj: d.cpf_cnpj })
+        const opt: ClienteOpt = { id: d.id, nome, cpf_cnpj: d.cpf_cnpj, telefone: d.telefone, celular: d.celular, whatsapp: d.whatsapp }
+        setCliSel(opt)
         setBuscaCli(nome)
+        const tel = telefoneDoCliente(opt)
+        setTelCli(tel); setTelCliOrig(tel); setTelCol(colunaDoTelefone(opt))
       })
   }, [form.cliente_id])
 
@@ -126,12 +135,12 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     const t = setTimeout(async () => {
       const { data } = await supabase
         .from('erp_clientes')
-        .select('id, razao_social, nome_fantasia, cpf_cnpj')
+        .select('id, razao_social, nome_fantasia, cpf_cnpj, telefone, celular, whatsapp')
         .eq('company_id', companyId)
         .or(`razao_social.ilike.%${buscaCli}%,nome_fantasia.ilike.%${buscaCli}%`)
         .limit(8)
-      const list = (data ?? []) as Array<{ id: string; razao_social: string | null; nome_fantasia: string | null; cpf_cnpj: string | null }>
-      setCliOpts(list.map((c) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social || '—', cpf_cnpj: c.cpf_cnpj })))
+      const list = (data ?? []) as Array<{ id: string; razao_social: string | null; nome_fantasia: string | null; cpf_cnpj: string | null; telefone: string | null; celular: string | null; whatsapp: string | null }>
+      setCliOpts(list.map((c) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social || '—', cpf_cnpj: c.cpf_cnpj, telefone: c.telefone, celular: c.celular, whatsapp: c.whatsapp })))
     }, 250)
     return () => clearTimeout(t)
   }, [buscaCli, companyId, cliSel])
@@ -143,19 +152,18 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     setCliSel(c)
     setBuscaCli(c.nome)
     setShowOpts(false)
-    // FIX 1 · título recebe o nome do cliente — mas só se estiver vazio ou ainda igual ao autofill
-    // anterior (quem digitou um título próprio não é sobrescrito silenciosamente).
-    setForm((f) => {
-      const podeAuto = !f.titulo.trim() || f.titulo === tituloAuto
-      return { ...f, cliente_id: c.id, ...(podeAuto ? { titulo: c.nome } : {}) }
-    })
-    setTituloAuto(c.nome)
+    // #262 · o cliente identifica o card no kanban; a descrição do serviço fica no próprio campo (não é mais
+    // preenchida com o nome do cliente).
+    setForm((f) => ({ ...f, cliente_id: c.id }))
+    const tel = telefoneDoCliente(c)
+    setTelCli(tel); setTelCliOrig(tel); setTelCol(colunaDoTelefone(c))
   }
 
   function limparCliente() {
     setCliSel(null)
     setBuscaCli('')
     setF('cliente_id', null)
+    setTelCli(''); setTelCliOrig(''); setTelCol('telefone')
   }
 
   async function criarClienteRapido() {
@@ -173,12 +181,12 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         cpf_cnpj: doc, cnpj_cpf: doc,
         telefone: novoCliTel.trim() || null, ativo: true,
       })
-      .select('id, nome_fantasia, cpf_cnpj')
+      .select('id, nome_fantasia, cpf_cnpj, telefone')
       .single()
     setNovoCliSaving(false)
     if (error) { setErr(`Erro ao criar cliente: ${error.message}`); return }
-    const d = data as { id: string; nome_fantasia: string | null; cpf_cnpj: string | null }
-    escolherCliente({ id: d.id, nome: d.nome_fantasia ?? novoCliNome.trim(), cpf_cnpj: d.cpf_cnpj })
+    const d = data as { id: string; nome_fantasia: string | null; cpf_cnpj: string | null; telefone: string | null }
+    escolherCliente({ id: d.id, nome: d.nome_fantasia ?? novoCliNome.trim(), cpf_cnpj: d.cpf_cnpj, telefone: d.telefone })
     setNovoCliOpen(false)
     setNovoCliNome(''); setNovoCliTel(''); setNovoCliDoc(''); setNovoCliTipo('PJ')
   }
@@ -204,17 +212,55 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     }
   }
 
+  // #262 · nome digitado no campo Cliente sem escolher da lista: reusa o cadastro de mesmo nome (sem diferenciar
+  // maiúsculas) ou cria um novo — antes o nome não era gravado e "sumia" ao reabrir. Devolve o id do cliente.
+  async function resolverClienteDigitado(nome: string): Promise<string | null> {
+    const alvo = nome.trim()
+    // igualdade sem diferenciar maiúsculas (ilike sem curinga; % e _ do nome são escapados)
+    const exato = alvo.replace(/[\\%_]/g, (c) => `\\${c}`)
+    for (const col of ['nome_fantasia', 'razao_social'] as const) {
+      const { data: achados } = await supabase
+        .from('erp_clientes').select('id')
+        .eq('company_id', companyId).eq('ativo', true).ilike(col, exato).limit(1)
+      const existente = (achados ?? [])[0] as { id: string } | undefined
+      if (existente) return existente.id
+    }
+    const { data, error } = await supabase
+      .from('erp_clientes')
+      .insert({
+        company_id: companyId, nome_fantasia: alvo.toUpperCase(), razao_social: alvo.toUpperCase(),
+        telefone: telCli.trim() || null, ativo: true,
+      })
+      .select('id')
+      .single()
+    if (error) { setErr(`Erro ao cadastrar o cliente: ${error.message}`); return null }
+    setTelCliOrig(telCli.trim())
+    return (data as { id: string }).id
+  }
+
   async function salvar() {
-    if (!form.titulo.trim()) { setErr('Titulo obrigatorio.'); return }
+    const nomeCliente = cliSel?.nome ?? buscaCli
+    const invalido = erroOportunidade(form.titulo, nomeCliente)
+    if (invalido) { setErr(invalido); return }
     setSaving(true)
     setErr(null)
+    let clienteId = form.cliente_id
+    if (!clienteId && buscaCli.trim()) {
+      clienteId = await resolverClienteDigitado(buscaCli)
+      if (!clienteId) { setSaving(false); return }
+    }
+    // #110 · telefone editado aqui vai para o cadastro do cliente (mesma coluna de onde veio)
+    if (clienteId && telCli.trim() !== telCliOrig.trim()) {
+      const { error: eTel } = await supabase.from('erp_clientes').update({ [telCol]: telCli.trim() || null }).eq('id', clienteId)
+      if (eTel) { setSaving(false); setErr(`Erro ao gravar o telefone do cliente: ${eTel.message}`); return }
+    }
     // Whitelist das colunas reais — ao editar via ficha [id], o `initial` chega com
     // campos extras (erp_clientes aninhado, valor_proposta, orcamento_id…) que NÃO
     // são colunas de update. Enviar só o que existe evita erro de coluna fantasma.
     const payload = {
       company_id: companyId,
-      cliente_id: form.cliente_id,
-      titulo: (form.titulo.trim().toUpperCase()),      // FIX 2 · caixa alta
+      cliente_id: clienteId,
+      titulo: tituloOportunidade(form.titulo, nomeCliente), // FIX 2 · caixa alta · #262 sem descrição = nome do cliente
       etapa: form.etapa,
       valor_estimado: form.valor_estimado,             // número — não mexe
       origem: form.origem,
@@ -254,20 +300,9 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
           <button onClick={onClose} style={closeBtn} aria-label="Fechar">✕</button>
         </div>
 
-        {/* Titulo */}
-        <label style={lbl}>
-          Título *
-          <input
-            value={form.titulo}
-            onChange={(e) => setF('titulo', e.target.value)}
-            placeholder="Forro gesso · Residência X"
-            style={inpUpper}
-          />
-        </label>
-
-        {/* Cliente autocomplete */}
-        <div style={{ marginTop: 12 }}>
-          <div style={lblTxt}>Cliente</div>
+        {/* Cliente autocomplete · #262: o cliente vem primeiro e identifica o card no kanban */}
+        <div>
+          <div style={lblTxt}>Nome do cliente</div>
           {cliSel ? (
             <div style={selectedRow}>
               <span style={{ fontSize: 13, color: '#3D2314' }}>
@@ -282,6 +317,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
                 onChange={(e) => { setBuscaCli(e.target.value); setShowOpts(true) }}
                 onFocus={() => setShowOpts(true)}
                 placeholder="Digite o nome do cliente…"
+                data-testid="oport-cliente"
                 style={inp}
               />
               {showOpts && cliOpts.length > 0 && (
@@ -338,6 +374,33 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
             </>
           )}
         </div>
+
+        {/* #110 · telefone do cliente — grava no cadastro do cliente e aparece no card do kanban */}
+        {(cliSel || buscaCli.trim()) && (
+          <label style={{ ...lbl, marginTop: 12 }}>
+            Telefone do cliente
+            <input
+              value={telCli}
+              onChange={(e) => setTelCli(e.target.value)}
+              placeholder="(49) 99999-9999"
+              inputMode="tel"
+              data-testid="oport-telefone-cliente"
+              style={inp}
+            />
+          </label>
+        )}
+
+        {/* #262 · descrição do serviço/produto (coluna titulo). Vazia = o card leva o nome do cliente */}
+        <label style={{ ...lbl, marginTop: 12 }}>
+          Descrição do serviço / produto
+          <input
+            value={form.titulo}
+            onChange={(e) => setF('titulo', e.target.value)}
+            placeholder="Forro de gesso · Residência"
+            data-testid="oport-descricao"
+            style={inpUpper}
+          />
+        </label>
 
         {/* Grid: etapa | valor | origem | data_prevista | probabilidade | responsavel */}
         <div style={grid}>
