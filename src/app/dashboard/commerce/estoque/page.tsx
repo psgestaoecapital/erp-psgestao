@@ -18,6 +18,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import { selecionarTodas } from '@/lib/selecionarTodas'
 import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
+import { BaixarPlanilhaContagemModal, SubirContagemModal } from '@/components/estoque/PlanilhaContagemInventario'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
   X, Info, Trash2, Pencil, Download, Upload, Car,
@@ -186,7 +187,7 @@ export default function EstoquePage() {
 }
 
 function EstoqueInner() {
-  const { companyIds, selInfo, loading: companiesLoading, sel } = useCompanyIds()
+  const { companyIds, selInfo, loading: companiesLoading, sel, companies } = useCompanyIds()
   const companyIdUnico = selInfo.tipo === 'empresa' && sel ? sel : null
   const canCreate = !!companyIdUnico
 
@@ -262,6 +263,9 @@ function EstoqueInner() {
   const [showNovoInventario, setShowNovoInventario] = useState(false)
   const [inventarios, setInventarios] = useState<Inventario[]>([])
   const [inventarioSel, setInventarioSel] = useState<Inventario | null>(null)
+  // Planilha de contagem (ida: baixar · volta: subir com prévia) — CEO 01/10
+  const [showBaixarContagem, setShowBaixarContagem] = useState(false)
+  const [showSubirContagem, setShowSubirContagem] = useState(false)
 
   // #147 · Revenda: o estoque de veículos vem do pátio (fn_veic_estoque_ge). A aba só aparece se a empresa tem veículos.
   const [veic, setVeic] = useState<(EstoqueVeiculos & { companyId: string }) | null>(null)
@@ -672,16 +676,30 @@ function EstoqueInner() {
             </button>
           </div>
         )}
-        {tab === 'inventario' && (
-          <button
-            onClick={() => setShowNovoInventario(true)}
-            disabled={!canCreate || locais.length === 0 || produtos.length === 0}
-            title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local de estoque primeiro' : (produtos.length === 0 ? 'Importe ou cadastre produtos primeiro (use a planilha padrão acima)' : ''))}
-            data-testid="estoque-inventario-btn"
-            style={btnPrincipal(canCreate && locais.length > 0 && produtos.length > 0)}>
-            📋 Iniciar inventário
-          </button>
-        )}
+        {tab === 'inventario' && (() => {
+          const podeInv = canCreate && locais.length > 0 && produtos.length > 0
+          const motivo = !canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local de estoque primeiro' : (produtos.length === 0 ? 'Importe ou cadastre produtos primeiro (use a planilha padrão acima)' : ''))
+          return (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => setShowBaixarContagem(true)} disabled={!podeInv} title={motivo}
+                data-testid="inventario-baixar-planilha" style={{ ...btnSec, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: podeInv ? 1 : 0.5 }}>
+                <Download size={14} /> Baixar planilha de contagem
+              </button>
+              <button onClick={() => setShowSubirContagem(true)} disabled={!podeInv} title={motivo}
+                data-testid="inventario-subir-planilha" style={{ ...btnSec, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: podeInv ? 1 : 0.5 }}>
+                <Upload size={14} /> Subir contagem
+              </button>
+              <button
+                onClick={() => setShowNovoInventario(true)}
+                disabled={!podeInv}
+                title={motivo}
+                data-testid="estoque-inventario-btn"
+                style={btnPrincipal(podeInv)}>
+                📋 Iniciar inventário
+              </button>
+            </div>
+          )
+        })()}
         </div>
       </header>
 
@@ -790,6 +808,37 @@ function EstoqueInner() {
               if (r) setInventarioSel(r)
             }
             flash('Inventário CRIADO.')
+            setTab('inventario')
+          }}
+          flashErr={flashErr}
+        />
+      )}
+
+      {/* Planilha de contagem · ida (baixar) e volta (subir com prévia; o estoque só muda no Fechar inventário) */}
+      {showBaixarContagem && companyIdUnico && (() => {
+        const emp = (companies as { id: string; nome_fantasia?: string | null; razao_social?: string | null; cnpj?: string | null }[]).find((c) => c.id === companyIdUnico)
+        return (
+          <BaixarPlanilhaContagemModal
+            companyId={companyIdUnico}
+            empresa={emp?.razao_social || emp?.nome_fantasia || selInfo.nome}
+            cnpj={emp?.cnpj ?? null}
+            locais={locais}
+            onClose={() => setShowBaixarContagem(false)}
+            flashErr={flashErr}
+          />
+        )
+      })()}
+      {showSubirContagem && companyIdUnico && (
+        <SubirContagemModal
+          companyId={companyIdUnico}
+          locais={locais}
+          onClose={() => setShowSubirContagem(false)}
+          onCriado={async (inventarioId) => {
+            setShowSubirContagem(false)
+            await carregar()
+            const r = (await supabase.from('erp_inventarios').select('*').eq('id', inventarioId).single()).data as Inventario | null
+            if (r) setInventarioSel(r)
+            flash('Inventário CRIADO com as contagens da planilha. Confira e use Fechar inventário para ajustar o estoque.')
             setTab('inventario')
           }}
           flashErr={flashErr}

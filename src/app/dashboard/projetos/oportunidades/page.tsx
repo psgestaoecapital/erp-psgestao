@@ -236,10 +236,10 @@ export default function OportunidadesPage() {
           companyId={empresaUnica}
           initial={editing ?? undefined}
           onClose={() => setEditing(undefined)}
-          onSaved={() => {
+          onSaved={(_id, aviso) => {
             const eraEdicao = !!editing?.id
             setEditing(undefined)
-            setToast(eraEdicao ? 'Oportunidade ALTERADA.' : 'Oportunidade CRIADA.')
+            setToast(`${eraEdicao ? 'Oportunidade ALTERADA.' : 'Oportunidade CRIADA.'}${aviso ? ` ${aviso}` : ''}`)
             reload(); setKanbanKey((k) => k + 1)
           }}
         />

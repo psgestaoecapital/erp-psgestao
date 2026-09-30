@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { labelUsuario } from '@/lib/usuarioLabel'
+import { linkTelefone } from '@/lib/crm/oportunidadeCliente'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 type Fechada = {
@@ -56,6 +57,7 @@ type Card = {
   id: string
   titulo: string
   cliente: string | null
+  cliente_telefone?: string | null
   valor_estimado: number | null
   probabilidade: number | null
   responsavel_id: string | null
@@ -231,8 +233,9 @@ export default function OportunidadesKanban({
     // confirmação e guarda se já existir. A RPC é idempotente: se a oportunidade já tem orçamento,
     // devolve o mesmo (ja_existia) em vez de criar um segundo. Abre o orçamento para anexar o PDF.
     if (novaEtapa === 'orcando') {
-      const card = (pipe?.etapas?.flatMap((e) => e.cards).find((c) => c.id === cardId)) as unknown as { cliente_nome?: string | null; titulo?: string | null } | undefined
-      const nome = card?.cliente_nome || card?.titulo || 'esta oportunidade'
+      // #263 · o card traz o nome em `cliente` (não `cliente_nome`): a confirmação mostrava só o título
+      const card = pipe?.etapas?.flatMap((e) => e.cards).find((c) => c.id === cardId)
+      const nome = card?.cliente || card?.titulo || 'esta oportunidade'
       if (!window.confirm(`Gerar orçamento para ${nome}?`)) return
       setGerandoId(cardId)
       const { data, error } = await supabase.rpc('fn_oportunidade_gerar_orcamento', { p_oportunidade_id: cardId })
@@ -400,8 +403,17 @@ export default function OportunidadesKanban({
                         cursor: movendoId === c.id ? 'wait' : 'grab',
                       }}
                     >
-                      <div style={{ fontWeight: 600, color: ESPRESSO, fontSize: 13, lineHeight: 1.2 }}>{c.titulo}</div>
-                      {c.cliente && <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{c.cliente}</div>}
+                      {/* #262 · o nome do cliente em destaque; a descrição do serviço embaixo. #110 · telefone para ligar */}
+                      <div style={{ fontWeight: 600, color: ESPRESSO, fontSize: 13, lineHeight: 1.2 }} data-testid="card-oport-nome">{c.cliente || c.titulo}</div>
+                      {c.cliente && c.titulo && c.titulo.toUpperCase() !== c.cliente.toUpperCase() && (
+                        <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{c.titulo}</div>
+                      )}
+                      {linkTelefone(c.cliente_telefone) && (
+                        <a href={linkTelefone(c.cliente_telefone)} onClick={(e) => e.stopPropagation()} data-testid="card-oport-telefone"
+                          style={{ display: 'inline-block', fontSize: 12, color: DOURADO, marginTop: 3, textDecoration: 'none' }}>
+                          <span aria-hidden>📞</span> {c.cliente_telefone}
+                        </a>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6 }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color: DOURADO }}>{brl(c.valor_estimado)}</span>
                         {c.probabilidade != null && (
