@@ -1,6 +1,6 @@
 // Gate (CEO 29/09 · baixa de boleto ciente do banco; #297). Regras puras + travas do código. Roda no build. Sem rede.
 import { readFileSync } from 'node:fs'
-import { PROVEDORES_LIQUIDACAO, BANCOS_COM_CONSULTA, provedorPorBanco, situacaoPaga, statusExecucao } from '../src/lib/banco/liquidacao'
+import { PROVEDORES_LIQUIDACAO, BANCOS_COM_CONSULTA, provedorPorBanco, situacaoPaga, statusExecucao } from '../../src/lib/banco/liquidacao'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }

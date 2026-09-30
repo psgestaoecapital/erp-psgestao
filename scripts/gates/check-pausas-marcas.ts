@@ -3,7 +3,7 @@
  * Ignorar) e o sistema refaz os pares do dia. Mesma regra de fn_nr36_reler_dia (banco).
  *   tsx scripts/check-pausas-marcas.ts
  */
-import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, type Marca } from '../src/lib/ponto/pausasMarcas'
+import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, type Marca } from '../../src/lib/ponto/pausasMarcas'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }

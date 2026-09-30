@@ -1,7 +1,7 @@
 // Gate (CEO 29/09 · virada FCR): na importação da migração financeira, título que já existe no sistema (mesmo
 // tipo + pessoa + valor + vencimento) aparece como "já existe" e NÃO é importado. Roda no build. Sem rede.
 import { readFileSync } from 'node:fs'
-import { marcarJaExistentes, normNome, type TituloExistente, type LinhaPlanilha } from '../src/lib/financeiro/importDuplicidade'
+import { marcarJaExistentes, normNome, type TituloExistente, type LinhaPlanilha } from '../../src/lib/financeiro/importDuplicidade'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }

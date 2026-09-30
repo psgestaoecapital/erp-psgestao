@@ -2,7 +2,7 @@
  * Gate de build: NFS-e avulsa completa o ENDEREÇO do tomador a partir do cadastro de clientes (nunca o e-mail).
  *   tsx scripts/check-nfse-tomador-endereco.ts
  */
-import { enderecoFiscalDoCliente, filtroDocumentoCliente, variantesDocumento } from '../src/lib/fiscal/tomadorEndereco'
+import { enderecoFiscalDoCliente, filtroDocumentoCliente, variantesDocumento } from '../../src/lib/fiscal/tomadorEndereco'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }

@@ -89,3 +89,9 @@ nunca as ~800 linhas históricas:
 
 O `deploy-migrations` está vermelho? É trabalho AGORA — ele sustenta o processo inteiro.
 <!-- END:disciplina-migrations -->
+# Gates do build — um arquivo por gate (CEO 30/09)
+
+Gate novo = **um arquivo novo em `scripts/gates/`** (`.ts`, imports de `../../src/...`). O `build` roda
+`tsx scripts/rodar-gates.ts && next build`, que descobre e roda todos os gates da pasta. **Não** acrescente gate na
+linha `build` do `package.json` — era a causa recorrente de conflito entre PRs em fila (e o gate
+`check-gates-por-pasta` quebra se alguém fizer). Rodar local: `npm run gates` (ou `npm run gates -- <trecho do nome>`).

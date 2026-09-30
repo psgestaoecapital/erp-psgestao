@@ -4,9 +4,9 @@
  *   tsx scripts/check-nfse-avulsa-emissor.ts
  */
 import { readFileSync } from 'node:fs'
-import { dadosEmissorDaConfig } from '../src/lib/fiscal/emissorConfig'
-import { buildNacionalNFSePayload } from '../src/lib/fiscal/providers/focusnfe'
-import type { NFSeRequest } from '../src/lib/fiscal/types'
+import { dadosEmissorDaConfig } from '../../src/lib/fiscal/emissorConfig'
+import { buildNacionalNFSePayload } from '../../src/lib/fiscal/providers/focusnfe'
+import type { NFSeRequest } from '../../src/lib/fiscal/types'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }
