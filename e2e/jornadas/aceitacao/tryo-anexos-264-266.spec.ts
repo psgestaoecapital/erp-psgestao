@@ -3,6 +3,8 @@
 // #264 "área para inserir orçamento em PDF": o PDF já existia (#1529), mas só em orçamento SALVO, e o orçamento exigia
 // lista de itens — quem faz o orçamento fora do sistema (Tryo: 9 orçamentos, 0 itens, 0 PDF) nunca chegava lá. Agora o
 // orçamento novo aceita o PDF + valor sem itens, e a lista abre o PDF.
+// #264 depende da migration 20260930180000 (fn_orcamento_anexar_pdf tinha a guarda quebrada — `= ANY` sobre SETOF, 42809
+// em toda chamada): @pos-migration, veredito em produção logo após o merge.
 // Demonstração Comércio (GE), nunca empresa real. Registros de teste desativados/cancelados no fim.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
@@ -59,7 +61,7 @@ test.describe('Anexos da Tryo — Nova oportunidade e orçamento em PDF (#264 #2
     { timeout: 15000, message: 'os 2 anexos (PDF e planta DWG) ficaram na oportunidade' }).toEqual(['documento', 'planta'])
   })
 
-  test('#264 · orçamento feito fora: criar só com o PDF e o valor, sem itens; a lista abre o PDF', async ({ page }) => {
+  test('#264 · orçamento feito fora: criar só com o PDF e o valor, sem itens; a lista abre o PDF', { tag: '@pos-migration' }, async ({ page }) => {
     const nome = `Cliente Orc 264 ${RUN}`
     const cli = await dbInsert<{ id: string }>('erp_clientes', { company_id: DEMO_COMERCIO, nome_fantasia: nome, razao_social: nome, ativo: true })
     clientes.push(cli.id)

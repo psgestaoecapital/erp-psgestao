@@ -26,5 +26,10 @@ ok(/const temPdf = !!pdfNovo \|\| !!editing\?\.pdf_anexo_path;/.test(orc), 'vale
 ok(/if\(!editing&&pdfNovo&&orcId\)[\s\S]{0,700}fn_orcamento_anexar_pdf/.test(orc), 'o PDF escolhido no orçamento novo sobe pela RPC oficial logo após criar')
 ok(/data-testid="orc-pdf-novo-input"/.test(orc) && /data-testid="orc-lista-pdf"/.test(orc), 'PDF no orçamento novo e botão 📎 PDF na lista')
 
+const mig = readFileSync('supabase/migrations/20260930180000_orcamento_anexar_pdf_guarda.sql', 'utf8').replace(/--[^\n]*/g, '')
+ok(/IF v_company NOT IN \(SELECT public\.get_user_company_ids\(\)\) THEN/.test(mig), 'guarda de empresa da fn_orcamento_anexar_pdf no padrão IN (SELECT …)')
+ok(!/ANY\s*\(\s*(public\.)?get_user_company_ids\(\)\s*\)/i.test(mig), 'sem `= ANY (get_user_company_ids())` (SETOF não é array — 42809)')
+ok(/REVOKE ALL ON FUNCTION public\.fn_orcamento_anexar_pdf\(uuid, text, numeric\) FROM PUBLIC, anon;/.test(mig), 'fechada ao anon')
+
 if (falhas > 0) { console.error(`\n[check-anexos-tryo] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-anexos-tryo] anexos da Tryo conferidos.')
