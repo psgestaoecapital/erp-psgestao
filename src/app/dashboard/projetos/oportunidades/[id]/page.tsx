@@ -8,6 +8,7 @@ import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { type OportunidadeRow } from '../OportunidadeFormModal'
 import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
 import AnexosCard from '@/components/crm/AnexosCard'
+import { telefoneDoCliente, linkTelefone } from '@/lib/crm/oportunidadeCliente'
 
 type Oport = {
   id: string
@@ -36,6 +37,8 @@ type Oport = {
     razao_social: string | null
     cpf_cnpj: string | null
     telefone: string | null
+    celular?: string | null
+    whatsapp?: string | null
     email: string | null
   } | null
 }
@@ -142,7 +145,7 @@ export default function OportunidadeFichaPage() {
       const [o, i, v, h] = await comPrazo(() => Promise.all([
         supabase
           .from('erp_crm_oportunidade')
-          .select('*, erp_clientes(id, nome_fantasia, razao_social, cpf_cnpj, telefone, email)')
+          .select('*, erp_clientes(id, nome_fantasia, razao_social, cpf_cnpj, telefone, celular, whatsapp, email)')
           .eq('id', id)
           .maybeSingle(),
         supabase.from('erp_crm_interacao').select('*').eq('oportunidade_id', id).order('data_interacao', { ascending: false }),
@@ -324,10 +327,16 @@ export default function OportunidadeFichaPage() {
       <div className="rounded-xl border p-4 mb-4" style={{ borderColor: BORDA, background: '#fff' }}>
         <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
           <div className="min-w-0">
-            <h1 className="text-xl font-bold">{op.titulo}</h1>
+            {/* #262 · o cliente identifica a oportunidade; a descrição do serviço embaixo. #110 · telefone para ligar */}
+            <h1 className="text-xl font-bold">{op.erp_clientes ? cliNome : op.titulo}</h1>
             <p className="text-sm" style={{ color: TEXTM }}>
-              {cliNome}{op.erp_clientes?.cpf_cnpj ? ` · ${op.erp_clientes.cpf_cnpj}` : ''}
+              {op.erp_clientes ? op.titulo : ''}{op.erp_clientes?.cpf_cnpj ? ` · ${op.erp_clientes.cpf_cnpj}` : ''}
             </p>
+            {linkTelefone(telefoneDoCliente(op.erp_clientes)) && (
+              <a href={linkTelefone(telefoneDoCliente(op.erp_clientes))} className="text-sm font-semibold" style={{ color: '#C8941A' }} data-testid="ficha-oport-telefone">
+                📞 {telefoneDoCliente(op.erp_clientes)}
+              </a>
+            )}
           </div>
           <div className="flex gap-2 flex-wrap">
             <button onClick={() => setEditing(true)} style={btnGhost}>Editar</button>
