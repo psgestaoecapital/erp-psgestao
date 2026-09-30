@@ -168,15 +168,15 @@ export async function gerarEtiquetasA4(produtos: EtiquetaProduto[], op: OpcoesEt
       y -= 9.5
       page.drawText(l, { x: x0 + PAD, y, size: 9, font: negrito, color: rgb(0, 0, 0) })
     }
-    // código · local
+    // código e local, cada um na sua linha e com a largura toda (o código nunca pode sair cortado no almoxarifado)
     y -= 10.5
     const cod = winAnsi(`Cód. ${p.codigo ?? '—'}`)
-    page.drawText(cortar(cod, regular, 8, larguraUtil * 0.45), { x: x0 + PAD, y, size: 8, font: regular, color: rgb(0, 0, 0) })
+    const tamCod = regular.widthOfTextAtSize(cod, 8) <= larguraUtil ? 8 : Math.max(6, (8 * larguraUtil) / regular.widthOfTextAtSize(cod, 8))
+    page.drawText(cortar(cod, regular, tamCod, larguraUtil), { x: x0 + PAD, y, size: tamCod, font: regular, color: rgb(0, 0, 0) })
+    y -= 10.5
     const local = (p.localizacao ?? '').trim()
-    const txtLocal = cortar(winAnsi(local ? `Local: ${local}` : 'Local: —'), negrito, 8, larguraUtil * 0.55)
-    page.drawText(txtLocal, {
-      x: x0 + W - PAD - negrito.widthOfTextAtSize(txtLocal, 8), y, size: 8, font: negrito, color: rgb(0, 0, 0),
-    })
+    const txtLocal = cortar(winAnsi(local ? `Local: ${local}` : 'Local: —'), negrito, 8, larguraUtil)
+    page.drawText(txtLocal, { x: x0 + PAD, y, size: 8, font: negrito, color: rgb(0, 0, 0) })
 
     // código de barras + texto legível
     const sim = simboloDoProduto(p)

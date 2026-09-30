@@ -43,7 +43,7 @@ async function main() {
 
   // 3) PDF de verdade: 25 produtos → 2 folhas A4, cada etiqueta com nome, código, local e barras
   const produtos = Array.from({ length: 25 }, (_, i) => ({
-    codigo: `FC-${String(i + 1).padStart(3, '0')}`,
+    codigo: i === 3 ? 'E2E-ETQ-MUO0YCEO-A' : `FC-${String(i + 1).padStart(3, '0')}`,
     nome: i === 0 ? 'Argamassa colante AC-III cinza 20 kg para porcelanato de grande formato área externa' : `Produto ${i + 1}`,
     codigo_barras: i === 1 ? '4006381333931' : null,
     localizacao: i === 0 ? 'Galpão B · Prat. 3' : i === 2 ? null : `Rua ${i}`,
@@ -59,6 +59,8 @@ async function main() {
   ok(p1.includes('Cód. FC-001') && p1.includes('Local: Galpão B · Prat. 3'), 'código e local de armazenagem (com acento) na etiqueta')
   ok(p1.includes('4006381333931'), 'EAN impresso legível embaixo das barras')
   ok(p1.includes('Local: —'), 'produto sem local mostra "Local: —" (não some o campo)')
+  ok(p1.includes('Cód. E2E-ETQ-MUO0YCEO-A'), 'código longo sai inteiro, sem reticências (achado da aceitação 30/09)')
+  ok(!/Cód\. [^\n]*…/.test(txt.join('\n')), 'nenhum código cortado')
   ok(txt[1].includes('Cód. FC-025') && !p1.includes('FC-025'), 'a 25ª etiqueta está na 2ª folha')
   const imagens = (Buffer.from(bytes).toString('latin1').match(/\/Subtype\s*\/Image/g) ?? []).length
   ok(imagens === 25, `um código de barras por produto (${imagens} imagens)`)
