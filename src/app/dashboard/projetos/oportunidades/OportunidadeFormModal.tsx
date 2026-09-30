@@ -1,7 +1,8 @@
 'use client'
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import SeletorUsuario from '@/components/crm/SeletorUsuario'
+import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
 import { telefoneDoCliente, tituloOportunidade, erroOportunidade } from '@/lib/crm/oportunidadeCliente'
 
 // FIX 2 · caixa alta nos campos de texto (título/endereço/cidade/bairro). Não toca e-mail/CEP/números/responsável.
@@ -72,6 +73,9 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const isEdit = !!initial?.id
+  // Tryo #266 · anexos (fotos, PDF, DWG) já na criação: ficam em espera e são presos à oportunidade no CRIAR
+  const anexosRef = useRef<AnexosCardHandle>(null)
+  const fechar = () => { if (!isEdit) void anexosRef.current?.limpar(); onClose() }
 
   // Tryo #110 · telefone do cliente (mostrado e editável; grava no cadastro do cliente)
   const [telCli, setTelCli] = useState('')
@@ -284,9 +288,15 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         .insert(payload)
         .select('id')
         .single()
+      if (error) { setSaving(false); setErr(error.message); return }
+      const novoId = (data as { id: string }).id
+      // #266 · anexos em espera (tmp/) passam a pertencer à oportunidade; um que falhe não perde a oportunidade
+      if (anexosRef.current?.temPendentes()) {
+        const r = await anexosRef.current.confirmar(novoId)
+        if (r.erros.length > 0) { setSaving(false); setErr(`Oportunidade criada, mas ${r.erros.length} anexo(s) não subiram — anexe de novo na ficha.`); onSaved(novoId); return }
+      }
       setSaving(false)
-      if (error) { setErr(error.message); return }
-      onSaved((data as { id: string }).id)
+      onSaved(novoId)
     }
   }
 
@@ -297,7 +307,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
           <h2 style={{ fontSize: 18, fontWeight: 700, color: '#3D2314', margin: 0 }}>
             {isEdit ? 'Editar oportunidade' : 'Nova oportunidade'}
           </h2>
-          <button onClick={onClose} style={closeBtn} aria-label="Fechar">✕</button>
+          <button onClick={fechar} style={closeBtn} aria-label="Fechar">✕</button>
         </div>
 
         {/* Cliente autocomplete · #262: o cliente vem primeiro e identifica o card no kanban */}
@@ -528,10 +538,15 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
           />
         </label>
 
+        {/* Tryo #266 · anexos: fotos, PDF, DWG (planta) e links */}
+        <div style={{ marginTop: 12 }} data-testid="oport-anexos">
+          <AnexosCard ref={anexosRef} companyId={companyId} vinculoTipo="oportunidade" vinculoId={initial?.id ?? null} />
+        </div>
+
         {err && <p style={{ color: '#b00', fontSize: 13, marginTop: 8 }}>Erro: {err}</p>}
 
         <div style={actions}>
-          <button onClick={onClose} style={btnGhost}>Cancelar</button>
+          <button onClick={fechar} style={btnGhost}>Cancelar</button>
           <button onClick={salvar} disabled={saving} style={btnPrimary}>
             {saving ? 'Salvando…' : isEdit ? 'SALVAR' : 'CRIAR'}
           </button>
