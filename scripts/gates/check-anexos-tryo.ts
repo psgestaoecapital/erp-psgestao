@@ -12,6 +12,9 @@ function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`
 const anexos = readFileSync('src/components/crm/AnexosCard.tsx', 'utf8')
 ok(/\['dwg', 'dxf'\]\.includes\(ext\)\) return 'planta'/.test(anexos), 'DWG/DXF entra como planta')
 ok(/input ref=\{inputRef\} type="file" multiple/.test(anexos), 'o card aceita vários arquivos de qualquer tipo (fotos, PDF, DWG)')
+ok(/if \(envioRef\.current\) await envioRef\.current/.test(anexos) && /const itens = stagingRef\.current/.test(anexos),
+  'CRIAR durante o upload espera o arquivo terminar (o anexo que ainda subia ficava órfão em tmp/)')
+ok(/temPendentes: \(\) => stagingRef\.current\.length > 0 \|\| envioRef\.current !== null/.test(anexos), 'upload em andamento conta como pendente')
 
 const form = readFileSync('src/app/dashboard/projetos/oportunidades/OportunidadeFormModal.tsx', 'utf8')
 ok(/<AnexosCard ref=\{anexosRef\} companyId=\{companyId\} vinculoTipo="oportunidade" vinculoId=\{initial\?\.id \?\? null\} \/>/.test(form),
