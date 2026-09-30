@@ -43,6 +43,7 @@ const statusMargem=(m?:number|null):{cor:string;label:string}=>{
 
 type Orcamento = {
   id:string; company_id:string; numero:string; versao:number;
+  pdf_anexo_path?:string|null; // Tryo #264 · PDF do orçamento feito fora (fn_orcamento_anexar_pdf)
   cliente_id:string; cliente_nome:string; cliente_cnpj:string; cliente_email:string; cliente_telefone:string;
   data_emissao:string; data_validade:string; data_aprovacao:string; data_previsao_faturamento?:string|null;
   status:string; vendedor_nome:string; comissao_percentual:number;
@@ -98,6 +99,9 @@ export default function OrcamentosPage(){
   const [showForm,setShowForm]=useState(false);
   const [showNumeracao,setShowNumeracao]=useState(false);
   const [editing,setEditing]=useState<Orcamento|null>(null);
+  // Tryo #264 · PDF do orçamento escolhido já na criação — sobe assim que o orçamento é criado
+  const [pdfNovo,setPdfNovo]=useState<File|null>(null);
+  const [pdfValor,setPdfValor]=useState<string>("");
   const [permEdit,setPermEdit]=useState<{pode_editar:boolean;precisa_liberacao:boolean;edicao_liberada:boolean;pode_liberar:boolean;motivo:string;status:string}|null>(null);
   const [msg,setMsg]=useState("");
 
@@ -237,7 +241,7 @@ export default function OrcamentosPage(){
       if(!confirm(`Novo orçamento será criado em "${empresaNome}". Continuar?`))return;
     }
     
-    setEditing(null);
+    setEditing(null);setPdfNovo(null);setPdfValor("");
     // Gera número automático
     const{data}=await supabase.rpc('next_orcamento_numero',{p_company_id:companyIdParaCadastro});
     const numero=data||`ORC-${new Date().getFullYear()}-0001`;
@@ -414,7 +418,10 @@ export default function OrcamentosPage(){
   const salvar=async()=>{
     if(!form.cliente_id&&!form.cliente_nome){setMsg("❌ Selecione um cliente.");return;}
     const itensValidosCheck = itens.filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome);
-    if(itensValidosCheck.length===0){setMsg("❌ Adicione pelo menos um item (produto ou serviço).");return;}
+    // Tryo #264 · orçamento feito FORA do sistema: basta o PDF (sem lista de itens). Com PDF escolhido agora ou já
+    // anexado, não exige item; sem PDF, continua exigindo pelo menos um item.
+    const temPdf = !!pdfNovo || !!editing?.pdf_anexo_path;
+    if(itensValidosCheck.length===0&&!temPdf){setMsg("❌ Adicione pelo menos um item (produto ou serviço) — ou anexe o PDF do orçamento feito fora do sistema.");return;}
 
     // Em modo consolidado, usa a empresa do cliente selecionado (se tiver) ou a primeira
     const clienteSel = clientesBusca.find(c=>c.id===form.cliente_id);
@@ -513,7 +520,22 @@ export default function OrcamentosPage(){
       detalhe:`${editing?'Atualizado':'Criado'} — Total ${fmtR(totalFinal)}`,
     });
 
-    setMsg(`✅ Orçamento ${form.numero} ${editing?'atualizado':'criado'}!`);
+    // Tryo #264 · PDF escolhido na criação: sobe para crm-anexos e grava pela RPC oficial (fn_orcamento_anexar_pdf)
+    let avisoPdf="";
+    if(!editing&&pdfNovo&&orcId){
+      try{
+        const safe=pdfNovo.name.replace(/[^\w.\-]+/g,"_").slice(-80);
+        const pdfPath=`${companyIdOrc}/orcamentos/${orcId}/${Date.now()}-${safe}`;
+        const up=await supabase.storage.from("crm-anexos").upload(pdfPath,pdfNovo,{upsert:false,contentType:"application/pdf"});
+        if(up.error)throw new Error(up.error.message);
+        const vNum=pdfValor.trim()===""?null:Number(pdfValor.replace(/\./g,"").replace(",","."));
+        const{data:rp,error:ep}=await supabase.rpc("fn_orcamento_anexar_pdf",{p_orcamento_id:orcId,p_path:pdfPath,p_valor:vNum!=null&&Number.isFinite(vNum)?vNum:null});
+        if(ep||!(rp as {ok?:boolean}|null)?.ok)throw new Error(ep?.message||"não gravou");
+      }catch{avisoPdf=" (o PDF não subiu — abra o orçamento e anexe de novo)";}
+    }
+    setPdfNovo(null);setPdfValor("");
+
+    setMsg(`✅ Orçamento ${form.numero} ${editing?'atualizado':'criado'}!${avisoPdf}`);
     setShowForm(false);setEditing(null);setPermEdit(null);loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
   };
@@ -904,8 +926,27 @@ export default function OrcamentosPage(){
 
           {/* CRM ② (Wesley) · anexar o PDF do orçamento feito FORA do sistema + informar o valor.
               Só em orçamento já salvo (precisa do id para o caminho no storage). */}
-          {editing?.id && (
+          {editing?.id ? (
             <OrcamentoPdfAnexo orcamentoId={editing.id} companyId={editing.company_id} onSaved={loadOrcamentos} />
+          ) : (
+            /* Tryo #264 · no orçamento novo o PDF já pode ser escolhido; sobe ao clicar em "Criar Orçamento" */
+            <div style={{marginBottom:16,background:BG3,borderRadius:8,padding:14,border:`1px solid ${GO}40`}} data-testid="orc-pdf-novo">
+              <div style={{fontSize:12,fontWeight:700,color:TX,marginBottom:2}}>📎 Orçamento em PDF</div>
+              <div style={{fontSize:10,color:TXD,marginBottom:10}}>Orçamento feito fora do sistema? Escolha o PDF aqui — ele é anexado assim que você criar o orçamento.</div>
+              <label style={{display:"inline-block",padding:"8px 14px",borderRadius:6,background:GO,color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                {pdfNovo?`✅ ${pdfNovo.name} (trocar)`:"📎 Escolher PDF do orçamento"}
+                <input type="file" accept="application/pdf,.pdf" data-testid="orc-pdf-novo-input" style={{display:"none"}}
+                  onChange={e=>{const f=e.target.files?.[0]??null;if(f&&f.type!=="application/pdf"&&!f.name.toLowerCase().endsWith(".pdf")){setMsg("Envie um arquivo PDF.");return;}setPdfNovo(f);}}/>
+              </label>
+              {pdfNovo&&<button type="button" onClick={()=>setPdfNovo(null)} style={{marginLeft:8,padding:"6px 12px",borderRadius:6,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:11,cursor:"pointer"}}>Remover</button>}
+              {pdfNovo&&(
+                <div style={{marginTop:10}}>
+                  <div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor do orçamento (R$) — com o PDF, a lista de itens é opcional</div>
+                  <input value={pdfValor} onChange={e=>setPdfValor(e.target.value)} inputMode="decimal" placeholder="0,00" data-testid="orc-pdf-novo-valor"
+                    style={{padding:"8px 10px",border:`1px solid ${BD}`,borderRadius:6,fontSize:13,background:"#fff",color:TX,width:160}}/>
+                </div>
+              )}
+            </div>
           )}
 
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
@@ -960,6 +1001,8 @@ export default function OrcamentosPage(){
                       <td style={{padding:"8px"}}>
                         <div style={{display:"flex",gap:3,justifyContent:"flex-end",flexWrap:"wrap"}}>
                           <button onClick={()=>abrirEdicao(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
+                          {/* Tryo #264 · abre o PDF anexado direto da lista */}
+                          {o.pdf_anexo_path&&<button onClick={async()=>{const{data}=await supabase.storage.from("crm-anexos").createSignedUrl(o.pdf_anexo_path as string,3600);if(data?.signedUrl)window.open(data.signedUrl,"_blank");}} data-testid="orc-lista-pdf" title="Abrir o PDF do orçamento" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>📎 PDF</button>}
                           {o.status==='convertido'&&o.pedido_id&&<button onClick={()=>router.push(`/dashboard/pedidos?abrir=${o.pedido_id}`)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}} title="Abrir o pedido para editar (demandas extras)">🎯 Abrir Pedido →</button>}
                           {o.status==='rascunho'&&<button onClick={()=>mudarStatus(o,'enviado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>📨 Enviar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'aprovado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>✅ Aprovar</button>}
