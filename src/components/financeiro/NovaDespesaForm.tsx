@@ -136,6 +136,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   const [modoValor, setModoValor] = useState<'total' | 'parcela'>('total')
   const [parcelasEdit, setParcelasEdit] = useState<{ vencimento: string; valor: number }[]>([])
   const [categoriaCodigo, setCategoriaCodigo] = useState('')
+  // 01/10 · centro de custo de verdade (erp_pagar.centro_custo_id). Cada obra do Hub tem o seu → liga a despesa à obra.
+  const [centros, setCentros] = useState<{ id: string; nome: string }[]>([])
+  const [centroCustoId, setCentroCustoId] = useState('')
   const [numeroDocumento, setNumeroDocumento] = useState('')
   const [formaPagamento, setFormaPagamento] = useState('pix')
   const [tipoChavePix, setTipoChavePix] = useState('cpf_cnpj')
@@ -294,6 +297,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     const v = searchParams.get('valor')
     const d = searchParams.get('data')
     const desc = searchParams.get('descricao')
+    const cc = searchParams.get('centro_custo_id')
+    if (cc && /^[0-9a-f-]{36}$/i.test(cc)) setCentroCustoId(cc)
     if (v && !valor) setValor(v)
     if (d && d.match(/^\d{4}-\d{2}-\d{2}$/)) setDataVencimento(d)
     if (desc && !descricao) setDescricao(desc)
@@ -304,7 +309,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     if (!companyId) return
     let alive = true
     ;(async () => {
-      const [forn, cats, bcs, prov] = await Promise.all([
+      const [forn, cats, bcs, prov, ccs] = await Promise.all([
         supabase
           .from('erp_fornecedores')
           .select('id, nome_fantasia, razao_social, cpf_cnpj')
@@ -331,6 +336,12 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
           .eq('company_id', companyId)
           .eq('ativo', true)
           .not('banco_conta_id', 'is', null),
+        supabase
+          .from('erp_centros_custo')
+          .select('id, nome')
+          .eq('company_id', companyId)
+          .eq('ativo', true)
+          .order('nome'),
       ])
       if (!alive) return
       setFornecedores((forn.data as Fornecedor[] | null) ?? [])
@@ -338,6 +349,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
       setContas((bcs.data as ContaBancaria[] | null) ?? [])
       setContasAuto(new Set(((prov.data as { banco_conta_id: string | null }[] | null) ?? [])
         .map((p) => p.banco_conta_id).filter((x): x is string => !!x)))
+      setCentros((ccs.data as { id: string; nome: string }[] | null) ?? [])
     })()
     return () => {
       alive = false
@@ -368,7 +380,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     fornecedorId: String(l.fornecedor_id ?? ''), fornecedorNome: String(l.fornecedor_nome ?? ''),
     descricao: String(l.descricao ?? ''), valor: l.valor == null ? '' : String(l.valor),
     dataVencimento: String(l.data_vencimento ?? ''), dataCompetencia: String(l.data_competencia ?? ''),
-    categoriaCodigo: String(l.categoria ?? ''), numeroDocumento: String(l.numero_documento ?? ''),
+    categoriaCodigo: String(l.categoria ?? ''), centroCustoId: String(l.centro_custo_id ?? ''),
+    numeroDocumento: String(l.numero_documento ?? ''),
     formaPagamento: String(l.forma_pagamento ?? ''), tipoChavePix: String(l.tipo_chave_pix ?? 'cpf_cnpj'),
     chavePix: String(l.chave_pix ?? ''), contaBancaria: String(l.conta_bancaria ?? ''),
     observacao: String(l.observacoes ?? ''), codigoBarras: String(l.codigo_barras ?? ''),
@@ -383,6 +396,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
       fornecedor_id: v.fornecedorId || null, fornecedor_nome: v.fornecedorNome || null,
       descricao: v.descricao, valor: v.valor, data_vencimento: v.dataVencimento,
       data_competencia: v.dataCompetencia || null, categoria: v.categoriaCodigo || null,
+      centro_custo_id: v.centroCustoId || null,
       numero_documento: v.numeroDocumento || null, forma_pagamento: v.formaPagamento || null,
       tipo_chave_pix: pix ? v.tipoChavePix : null, chave_pix: pix ? normalizarChavePix(v.tipoChavePix, v.chavePix) : null,
       conta_bancaria: v.contaBancaria || null, observacoes: v.observacao || null, codigo_barras: v.codigoBarras.trim() || null,
@@ -394,7 +408,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     const v = valoresDaLinha(ed.linha)
     setFornecedorId(v.fornecedorId); setFornecedorNome(v.fornecedorNome); setDescricao(v.descricao)
     setValor(v.valor); setDataVencimento(v.dataVencimento); setDataCompetencia(v.dataCompetencia)
-    setCategoriaCodigo(v.categoriaCodigo); setNumeroDocumento(v.numeroDocumento); setFormaPagamento(v.formaPagamento)
+    setCategoriaCodigo(v.categoriaCodigo); setCentroCustoId(v.centroCustoId); setNumeroDocumento(v.numeroDocumento); setFormaPagamento(v.formaPagamento)
     setTipoChavePix(v.tipoChavePix); setChavePix(v.chavePix); setContaBancaria(v.contaBancaria)
     setObservacao(v.observacao); setCodigoBarras(v.codigoBarras); setJuros(v.juros); setMulta(v.multa); setDesconto(v.desconto)
     setVencimentoManual(true)   // código de barras não sobrescreve o vencimento do título
@@ -422,7 +436,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     const fornecedorIdFinal = await garantirFornecedorId()
     const atual: ValoresDespesa = {
       fornecedorId: fornecedorIdFinal, fornecedorNome, descricao: descricao.trim() || montarDescricao(), valor, dataVencimento, dataCompetencia,
-      categoriaCodigo, numeroDocumento, formaPagamento, tipoChavePix, chavePix, contaBancaria, observacao, codigoBarras,
+      categoriaCodigo, centroCustoId, numeroDocumento, formaPagamento, tipoChavePix, chavePix, contaBancaria, observacao, codigoBarras,
       juros, multa, desconto,
     }
     setSalvandoEdicao(true)
@@ -478,7 +492,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   function limparForm() {
     setFornecedorId(''); setFornecedorNome(''); setDescricao(''); setValor('')
     setDataVencimento(new Date().toISOString().split('T')[0]); setDataCompetencia('')
-    setParcelas(1); setIntervaloDias(30); setCategoriaCodigo(''); setNumeroDocumento('')
+    setParcelas(1); setIntervaloDias(30); setCategoriaCodigo(''); setCentroCustoId(''); setNumeroDocumento('')
     setObservacao(''); setJaPago(false); setContaBancaria('')
   }
 
@@ -579,6 +593,15 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
         tipo_chave_pix: pix ? tipoChavePix : null,
         chave_pix: pix ? normalizarChavePix(tipoChavePix, chavePix) : null,
       }).in('id', ids)
+    }
+
+    // 01/10 · centro de custo / obra em todas as parcelas (o trigger confere a empresa e espelha o nome no texto)
+    if (ids.length > 0 && centroCustoId) {
+      const { error: eCc } = await supabase.from('erp_pagar').update({ centro_custo_id: centroCustoId }).in('id', ids)
+      if (eCc) {
+        setFeedback({ tipo: 'erro', texto: `Despesa CRIOU, mas o centro de custo NÃO foi gravado: ${eCc.message}. Edite a despesa e escolha de novo.` })
+        return
+      }
     }
 
     // VERBATIM (RD-57 · RD-55): grava o código de barras EXATAMENTE como o usuário informou, na 1ª
@@ -821,6 +844,23 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               value={categoriaCodigo}
               onChange={setCategoriaCodigo}
             />
+          </Campo>
+
+          <Campo label="Centro de custo / obra">
+            <select
+              data-testid="despesa-centro-custo"
+              value={centroCustoId}
+              onChange={(e) => setCentroCustoId(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">— sem centro de custo —</option>
+              {centroCustoId && !centros.some((c) => c.id === centroCustoId) && <option value={centroCustoId}>(centro atual)</option>}
+              {centros.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+            <small style={helperStyle}>
+              Despesa de obra? Escolha a obra: o custo aparece na ficha da obra no Hub.
+              {editando && !centroCustoId && String(ed.linha?.centro_custo ?? '').trim() !== '' && <> Hoje está só como texto: “{String(ed.linha?.centro_custo)}”.</>}
+            </small>
           </Campo>
 
           {!editando && (
