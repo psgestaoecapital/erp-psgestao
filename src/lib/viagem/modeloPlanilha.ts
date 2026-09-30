@@ -37,6 +37,23 @@ export const CAMPOS_CABECALHO: readonly Campo[] = [
   { chave: 'observacao', titulo: 'Observação', obrigatoria: false, largura: 0, ajuda: 'Opcional' },
 ] as const
 
+// Perfil transporte (CEO 30/09: "não agora" para a FC, mas pronto para um cliente de transporte, como opção por empresa).
+// Os dados de transportadora do acerto (DotSE): peso da carga, km vazio/carregado, fretes, salário do motorista e o
+// rendimento da viagem. Só entram no modelo quando o perfil da empresa é 'transporte'.
+export type PerfilAcerto = 'padrao' | 'transporte'
+
+export const CAMPOS_TRANSPORTE: readonly Campo[] = [
+  { chave: 'peso_carga', titulo: 'Peso da carga (kg)', obrigatoria: false, largura: 0, ajuda: 'Peso líquido transportado' },
+  { chave: 'km_vazio', titulo: 'Km vazio', obrigatoria: false, largura: 0, ajuda: 'Km rodados sem carga' },
+  { chave: 'km_carregado', titulo: 'Km carregado', obrigatoria: false, largura: 0, ajuda: 'Km rodados com carga' },
+  { chave: 'frete_total', titulo: 'Total de fretes (R$)', obrigatoria: false, largura: 0, ajuda: 'Receita de frete da viagem' },
+  { chave: 'frete_a_vista', titulo: 'Fretes à vista (R$)', obrigatoria: false, largura: 0, ajuda: 'Parte do frete recebida pelo motorista' },
+  { chave: 'salario_motorista', titulo: 'Salário do motorista (R$)', obrigatoria: false, largura: 0, ajuda: 'Comissão/salário da viagem' },
+] as const
+
+export const camposCabecalho = (perfil: PerfilAcerto = 'padrao'): readonly Campo[] =>
+  perfil === 'transporte' ? [...CAMPOS_CABECALHO, ...CAMPOS_TRANSPORTE] : CAMPOS_CABECALHO
+
 export const COLUNAS_DESPESAS: readonly Campo[] = [
   { chave: 'data', titulo: 'Data', obrigatoria: true, largura: 12, ajuda: 'Dentro do período' },
   { chave: 'fornecedor', titulo: 'Fornecedor', obrigatoria: true, largura: 34, ajuda: 'Restaurante, hotel, posto…' },
@@ -75,7 +92,7 @@ export const FORMAS_PAGAMENTO_VIAGEM = [
 
 export interface ObraLista { numero: string; nome: string }
 export interface CategoriaLista { codigo: string; descricao: string }
-export interface DadosModelo { empresa: string; cnpj?: string; obras: ObraLista[]; categorias: CategoriaLista[] }
+export interface DadosModelo { empresa: string; cnpj?: string; obras: ObraLista[]; categorias: CategoriaLista[]; perfil?: PerfilAcerto }
 
 export const rotuloObra = (o: ObraLista) => `${o.numero} · ${o.nome}`
 export const rotuloCategoria = (c: CategoriaLista) => `${c.codigo} · ${c.descricao}`
@@ -218,8 +235,10 @@ export async function gerarModeloViagem(d: DadosModelo): Promise<Uint8Array> {
   wa.getCell('B4').value = 'DADOS DA VIAGEM'
   wa.getCell('B4').font = { bold: true, color: { argb: DOURADO } }
 
+  const perfil: PerfilAcerto = d.perfil ?? 'padrao'
+  const campos = camposCabecalho(perfil)
   const linhaCab: Record<string, number> = {}
-  CAMPOS_CABECALHO.forEach((c, i) => {
+  campos.forEach((c, i) => {
     const r = 5 + i
     linhaCab[c.chave] = r
     wa.getCell(r, 1).value = c.chave
@@ -231,7 +250,8 @@ export async function gerarModeloViagem(d: DadosModelo): Promise<Uint8Array> {
     v.note = c.ajuda
     if (c.chave.startsWith('periodo')) { v.numFmt = 'dd/mm/yyyy'; dataVal(wa, `C${r}`) }
     if (c.chave.startsWith('km_')) { v.numFmt = '0'; numVal(wa, `C${r}`) }
-    if (c.chave === 'adiantamento_recebido') { v.numFmt = '#,##0.00'; numVal(wa, `C${r}`) }
+    if (c.chave === 'adiantamento_recebido' || ['frete_total', 'frete_a_vista', 'salario_motorista'].includes(c.chave)) { v.numFmt = '#,##0.00'; numVal(wa, `C${r}`) }
+    if (c.chave === 'peso_carga') { v.numFmt = '#,##0.00'; numVal(wa, `C${r}`) }
   })
   lista(wa, `C${linhaCab.obra}`, 0, false, 'Obra fora da lista: a importação vai pedir para cadastrar a obra antes.')
 
@@ -255,6 +275,12 @@ export async function gerarModeloViagem(d: DadosModelo): Promise<Uint8Array> {
     ['res_litros', 'Litros abastecidos', () => `SUM(${aR('litros')})`, '#,##0.00'],
     ['res_media', 'Média (km/l)', (l) => `IF(AND(N(${l.res_km})>0,N(${l.res_litros})>0),ROUND(${l.res_km}/${l.res_litros},2),"")`, '#,##0.00'],
     ['res_custo_km', 'Custo por km (R$)', (l) => `IF(N(${l.res_km})>0,ROUND(${l.res_total}/${l.res_km},2),"")`, '#,##0.00'],
+    ...(perfil === 'transporte' ? ([
+      ['res_frete', 'TOTAL DE FRETES', () => `N(${C('frete_total')})`, '#,##0.00'],
+      ['res_salario', 'Salário do motorista', () => `N(${C('salario_motorista')})`, '#,##0.00'],
+      ['res_rendimento', 'RENDIMENTO DA VIAGEM', (l) => `${l.res_frete}-${l.res_total}-${l.res_salario}`, '#,##0.00'],
+      ['res_rendimento_km', 'Rendimento por km (R$)', (l) => `IF(N(${l.res_km})>0,ROUND(${l.res_rendimento}/${l.res_km},2),"")`, '#,##0.00'],
+    ] as [string, string, (l: Record<string, string>) => string, string][]) : []),
   ]
   const ref: Record<string, string> = {}
   resumo.forEach(([chave], i) => { ref[chave] = `F${R0 + i}` })
@@ -283,7 +309,7 @@ export async function gerarModeloViagem(d: DadosModelo): Promise<Uint8Array> {
     wa.getCell(r, 6).value = { formula: `SUMIF(${dR('categoria')},"${rotuloCategoria(c)}",${dR('valor')})` + (c.codigo === '2.06' ? `+SUM(${aR('valor')})` : '') }
     wa.getCell(r, 6).numFmt = '#,##0.00'
   })
-  const rAss = Math.max(rCat + d.categorias.length + 4, 5 + CAMPOS_CABECALHO.length + 4)
+  const rAss = Math.max(rCat + d.categorias.length + 4, 5 + campos.length + 4)
   wa.getCell(rAss, 2).value = '________________________________'
   wa.getCell(rAss + 1, 2).value = 'Assinatura do colaborador'
   wa.getCell(rAss, 5).value = '________________________________'
@@ -303,6 +329,7 @@ export async function gerarModeloViagem(d: DadosModelo): Promise<Uint8Array> {
     ['Categoria', 'Pelo código gerencial da empresa (aba "Listas"). Abastecimento entra em 2.06 (veículos e equipamentos de obra).'],
     ['Datas e números', 'Datas dd/mm/aaaa, dentro do período da viagem. Valores só com número (ex.: 150,90), sem R$.'],
     ['Importação', 'O administrativo importa este arquivo na tela de viagem, sem redigitar. Não apague a coluna A da aba "Acerto" nem a linha 4 das abas de lançamentos.'],
+    ...(perfil === 'transporte' ? [['Transporte', 'Peso da carga, km vazio/carregado, fretes (total e à vista) e salário do motorista entram no resumo: rendimento da viagem = fretes − despesas − salário.'] as [string, string]] : []),
     ['', ''],
     ['Categorias desta empresa', ''],
     ...d.categorias.map((c): [string, string] => [c.codigo, c.descricao]),
@@ -335,6 +362,12 @@ export interface CabecalhoViagem {
   km_final: number | null
   adiantamento_recebido: number
   observacao: string | null
+  transporte: DadosTransporte | null // só no perfil transporte (campos presentes na aba Acerto)
+}
+
+export interface DadosTransporte {
+  peso_carga: number | null; km_vazio: number | null; km_carregado: number | null
+  frete_total: number; frete_a_vista: number; salario_motorista: number
 }
 
 export interface DespesaViagem {
@@ -351,6 +384,7 @@ export interface ResumoViagem {
   total_despesas: number; total_abastecimentos: number; total: number; a_prazo: number; a_vista: number
   pago_colaborador: number; adiantamento: number; saldo: number; km_rodado: number | null; litros: number
   media_km_l: number | null; custo_km: number | null; por_categoria: Record<string, number>
+  transporte: { frete_total: number; salario_motorista: number; rendimento: number; rendimento_km: number | null } | null
 }
 
 export interface ErroLinha { aba: string; linha: number; campo: string; mensagem: string }
@@ -462,6 +496,19 @@ export async function lerPlanilhaViagem(bytes: ArrayBuffer | Uint8Array, op: Opc
     viagem_numero: texto(cab.viagem_numero) || null, colaborador, obra_numero, placa: texto(cab.placa) || null,
     periodo_inicio: ini ?? '', periodo_fim: fim ?? '', origem: texto(cab.origem) || null, destino: texto(cab.destino) || null,
     km_inicial: kmIni, km_final: kmFim, adiantamento_recebido: r2(adiant ?? 0), observacao: texto(cab.observacao) || null,
+    transporte: null,
+  }
+  if (CAMPOS_TRANSPORTE.some((c) => c.chave in linhaDe)) {
+    const num = (k: string, obrigatorioZero: boolean) => {
+      if (vazio(cab[k])) return obrigatorioZero ? 0 : null
+      const n = lerValor(cab[k])
+      if (n == null || n < 0) { eC(k, 'Número inválido.'); return obrigatorioZero ? 0 : null }
+      return n
+    }
+    cabecalho.transporte = {
+      peso_carga: num('peso_carga', false), km_vazio: num('km_vazio', false), km_carregado: num('km_carregado', false),
+      frete_total: r2(num('frete_total', true)!), frete_a_vista: r2(num('frete_a_vista', true)!), salario_motorista: r2(num('salario_motorista', true)!),
+    }
   }
 
   const lerTabela = (ws: ExcelJS.Worksheet, aba: string, colunas: readonly Campo[]) => {
@@ -538,7 +585,12 @@ export async function lerPlanilhaViagem(bytes: ArrayBuffer | Uint8Array, op: Opc
     total_despesas, total_abastecimentos, total, a_prazo, a_vista: r2(total - a_prazo), pago_colaborador,
     adiantamento: cabecalho.adiantamento_recebido, saldo: r2(cabecalho.adiantamento_recebido - pago_colaborador),
     km_rodado, litros, media_km_l: km_rodado && litros > 0 ? r2(km_rodado / litros) : null,
-    custo_km: km_rodado ? r2(total / km_rodado) : null, por_categoria,
+    custo_km: km_rodado ? r2(total / km_rodado) : null, por_categoria, transporte: null,
+  }
+  if (cabecalho.transporte) {
+    const t = cabecalho.transporte
+    const rendimento = r2(t.frete_total - total - t.salario_motorista)
+    resumo.transporte = { frete_total: t.frete_total, salario_motorista: t.salario_motorista, rendimento, rendimento_km: km_rodado ? r2(rendimento / km_rodado) : null }
   }
   return { cabecalho, despesas, abastecimentos, resumo, erros }
 }

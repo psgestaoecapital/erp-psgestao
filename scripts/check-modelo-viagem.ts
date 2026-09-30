@@ -8,7 +8,7 @@ import ExcelJS from 'exceljs'
 import {
   gerarModeloViagem, lerPlanilhaViagem, lerData, lerValor, rotuloObra, rotuloCategoria, CAMPOS_CABECALHO,
   COLUNAS_DESPESAS, COLUNAS_ABASTECIMENTOS, ABA_ACERTO, ABA_DESPESAS, ABA_ABASTECIMENTOS, ABA_INSTRUCOES, ABA_LISTAS,
-  LINHA_CHAVES, PRIMEIRA_LINHA_DADOS, FORMAS_PAGAMENTO_VIAGEM,
+  LINHA_CHAVES, PRIMEIRA_LINHA_DADOS, FORMAS_PAGAMENTO_VIAGEM, CAMPOS_TRANSPORTE,
 } from '../src/lib/viagem/modeloPlanilha'
 
 let falhas = 0
@@ -103,6 +103,27 @@ async function main() {
   wd.getRow(LINHA_CHAVES).values = []
   const r2 = await lerPlanilhaViagem(new Uint8Array(await wb.xlsx.writeBuffer() as ArrayBuffer), OP)
   ok(r2.erros.some((e) => e.aba === ABA_DESPESAS && e.campo === 'cabecalho'), 'linha 4 das Despesas apagada: recusado com mensagem')
+  // 6) perfil transporte (opção por empresa; a FC usa o padrão): campos de transportadora só aparecem quando pedidos
+  ok(res.cabecalho?.transporte === null && res.resumo?.transporte === null, 'perfil padrão (FC): sem campos de transporte')
+  ok(!chavesA.some((k) => CAMPOS_TRANSPORTE.some((c) => c.chave === k)), 'modelo padrão não mostra peso/km vazio/fretes/salário')
+  const bt = await gerarModeloViagem({ empresa: 'Transportadora Teste', obras: OBRAS, categorias: CATS, perfil: 'transporte' })
+  const wt = new ExcelJS.Workbook(); await wt.xlsx.load(buf(bt))
+  const wat = wt.getWorksheet(ABA_ACERTO)!
+  const chavesT: string[] = []
+  wat.eachRow((r) => { const v = r.getCell(1).value; if (v) chavesT.push(String(v)) })
+  ok(CAMPOS_TRANSPORTE.every((c) => chavesT.includes(c.chave)), 'perfil transporte: peso, km vazio/carregado, fretes e salário no Acerto')
+  const resumoT: string[] = []
+  wat.eachRow((r) => { const v = r.getCell(4).value; if (v) resumoT.push(String(v)) })
+  ok(resumoT.includes('res_rendimento') && resumoT.includes('res_rendimento_km'), 'perfil transporte: rendimento da viagem e por km no resumo')
+  const setT = (k: string, v: ExcelJS.CellValue) => { wat.eachRow((r) => { if (r.getCell(1).value === k) r.getCell(3).value = v }) }
+  setT('colaborador', 'Motorista Teste'); setT('obra', rotuloObra(OBRAS[0])); setT('periodo_inicio', d('2026-07-06')); setT('periodo_fim', d('2026-07-17'))
+  setT('km_inicial', 160261); setT('km_final', 161187); setT('frete_total', 9000); setT('salario_motorista', '1.200,00'); setT('peso_carga', 25000)
+  const wdt = wt.getWorksheet(ABA_DESPESAS)!
+  L(wdt, R, [d('2026-07-06'), 'RESTAURANTE', '56', 'Alimentação', cat(0), '', F('dinheiro'), 'Sim', 286])
+  const rt = await lerPlanilhaViagem(new Uint8Array(await wt.xlsx.writeBuffer() as ArrayBuffer), OP)
+  ok(rt.erros.length === 0 && rt.cabecalho?.transporte?.peso_carga === 25000 && rt.cabecalho.transporte.salario_motorista === 1200, 'perfil transporte: lê peso e salário')
+  ok(rt.resumo?.transporte?.rendimento === 7514 && rt.resumo.transporte.rendimento_km === 8.11, `rendimento = 9.000 − 286 − 1.200 = 7.514 · 8,11/km (${rt.resumo?.transporte?.rendimento})`)
+
   let semObra = false
   try { await gerarModeloViagem({ empresa: 'x', obras: [], categorias: CATS }) } catch { semObra = true }
   ok(semObra, 'sem obra cadastrada: não gera modelo vazio')
