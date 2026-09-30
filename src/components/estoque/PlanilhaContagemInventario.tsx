@@ -11,7 +11,7 @@ import { X, Download, Upload } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { selecionarTodas } from '@/lib/selecionarTodas'
 import {
-  gerarPlanilhaContagem, lerPlanilhaContagem, montarPrevia, type Previa, type ProdutoAtual,
+  gerarPlanilhaContagem, lerPlanilhaContagem, montarPrevia, type LeituraContagem, type ProdutoAtual,
 } from '@/lib/estoque/planilhaContagem'
 
 const C = {
@@ -169,19 +169,18 @@ export function SubirContagemModal({ companyId, locais, onClose, onCriado, flash
   const [localId, setLocalId] = useState(principal?.id ?? '')
   const [arquivo, setArquivo] = useState<string>('')
   const [lendo, setLendo] = useState(false)
-  const [previa, setPrevia] = useState<Previa | null>(null)
-  const [emBranco, setEmBranco] = useState(0)
+  // a planilha é lida na hora; a prévia sai quando a lista de produtos também chegou (sem corrida entre as duas)
+  const [leitura, setLeitura] = useState<LeituraContagem | null>(null)
   const [so, setSo] = useState<'diferencas' | 'todos'>('diferencas')
   const [criando, setCriando] = useState<string>('')
   const { produtos } = useProdutosAtivos(companyId)
+  const previa = useMemo(() => (leitura && produtos ? montarPrevia(leitura, produtos) : null), [leitura, produtos])
+  const emBranco = leitura?.emBranco ?? 0
 
   async function ler(f: File) {
-    if (!produtos) return
-    setLendo(true); setPrevia(null); setArquivo(f.name)
+    setLendo(true); setLeitura(null); setArquivo(f.name)
     try {
-      const leitura = await lerPlanilhaContagem(await f.arrayBuffer())
-      setEmBranco(leitura.emBranco)
-      setPrevia(montarPrevia(leitura, produtos))
+      setLeitura(await lerPlanilhaContagem(await f.arrayBuffer()))
     } catch (e) {
       flashErr('Não foi possível ler a planilha: ' + ((e as Error)?.message ?? 'arquivo inválido'))
     } finally {
@@ -251,11 +250,11 @@ export function SubirContagemModal({ companyId, locais, onClose, onCriado, flash
           <div>
             <label style={lbl}>Planilha de contagem (.xlsx)</label>
             <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-testid="contagem-arquivo"
-              disabled={!produtos || lendo || !!criando} style={{ ...inp, padding: 6 }}
+              disabled={lendo || !!criando} style={{ ...inp, padding: 6 }}
               onChange={(e) => { const f = e.target.files?.[0]; if (f) void ler(f); e.target.value = '' }} />
           </div>
         </div>
-        {!produtos && <div style={{ fontSize: 12, color: C.espressoM }}>Carregando produtos…</div>}
+        {!produtos && <div style={{ fontSize: 12, color: C.espressoM }}>Carregando produtos…{leitura ? ' A prévia aparece em seguida.' : ''}</div>}
         {lendo && <div style={{ fontSize: 12, color: C.espressoM }}>Lendo a planilha…</div>}
 
         {previa && (

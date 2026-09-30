@@ -98,6 +98,8 @@ async function main() {
   ok(!/fechar_inventario|fn_movimentar_estoque|registrar_movimento_estoque|erp_estoque_movimentacoes/.test(modal), 'subida da planilha não ajusta estoque (sem fechar_inventario / movimentação)')
   ok(/fn_inventario_registrar_contagem/.test(modal) && /from\('erp_inventarios'\)\.insert/.test(modal), 'contagens pelo caminho oficial (inventário + RPC da contagem)')
   ok(/data-testid="contagem-previa"/.test(modal) && /Nada foi gravado ainda/.test(modal), 'prévia das diferenças antes de gravar')
+  ok(/useMemo\(\(\) => \(leitura && produtos \? montarPrevia\(leitura, produtos\) : null\)/.test(modal) && !/if \(!produtos\) return/.test(modal),
+    'arquivo escolhido antes da lista de produtos carregar não se perde (a prévia sai quando os dois chegam)')
   const pagina = readFileSync('src/app/dashboard/commerce/estoque/page.tsx', 'utf8')
   ok(/inventario-baixar-planilha/.test(pagina) && /inventario-subir-planilha/.test(pagina) && /estoque-inventario-btn/.test(pagina), 'botões na aba Inventário existente, ao lado de Iniciar inventário')
   ok(/useState\(true\)[^\n]*\n[^\n]*const \[cega, setCega\] = useState\(true\)/.test(modal), 'padrões: só com saldo = sim, contagem cega = sim')

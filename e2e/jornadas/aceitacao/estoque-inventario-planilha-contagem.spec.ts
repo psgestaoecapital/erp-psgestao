@@ -76,6 +76,7 @@ test.describe('Inventário: planilha de contagem (ida e volta com prévia)', () 
 
     // ── volta
     await page.getByTestId('inventario-subir-planilha').click()
+    await expect(page.getByTestId('contagem-arquivo')).toBeEnabled({ timeout: 30000 })
     await page.getByTestId('contagem-arquivo').setInputFiles({ name: 'contagem_preenchida.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: preenchida })
     const previa = page.getByTestId('contagem-previa')
     await expect(previa.getByTestId('contagem-previa-linha')).toHaveCount(2, { timeout: 30000 })
