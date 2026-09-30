@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase'
 import FornecedorContatosCard from './FornecedorContatosCard'
 import { buscarCNPJ } from '@/lib/cadastros/buscarCNPJ'
 import { buscarCEP } from '@/lib/cadastros/buscarCEP'
+import { deveConferirDuplicidade } from '@/lib/cadastros/duplicidadeDocumento'
 
 export interface Pessoa {
   id: string
@@ -184,8 +185,8 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
 
     const cnpjLimpo = onlyDigits(cnpjCpf)
 
-    // Duplicidade de CNPJ/CPF na empresa (so PJ ou PF com documento)
-    if (cnpjLimpo.length > 0) {
+    // Duplicidade de CNPJ/CPF na empresa (so PJ ou PF com documento). Na EDIÇÃO só confere se o documento mudou (#130).
+    if (deveConferirDuplicidade(pessoa, cnpjLimpo)) {
       const { data: dup } = await supabase
         .from(tabela)
         .select('id, nome_fantasia, razao_social')
