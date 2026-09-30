@@ -1,7 +1,8 @@
 'use client'
 
 // Edição fiscal EM MASSA de produtos (CEO 29/09 · FCR com 436 produtos sem os 4 campos). Filtra (NCM, prefixo de NCM,
-// grupo, "sem o campo" ou todos) → escolhe o valor de cada um dos 4 campos → PRÉVIA de quantos produtos mudam →
+// grupo, CSOSN/CST igual a, "sem o campo" ou todos) → escolhe o valor de cada campo (4 de tributação + CFOP de venda
+// dentro e fora do estado, CEO 30/09) → PRÉVIA de quantos produtos mudam →
 // aplica. Tudo pela fn_produtos_fiscal_massa (valida contra a tabela oficial e o regime da empresa, registra quem
 // alterou e o antes/depois de cada campo). Por padrão só PREENCHE o que está vazio. Serve para qualquer empresa.
 import { useEffect, useMemo, useState } from 'react'
@@ -32,9 +33,11 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
   const [prefixo, setPrefixo] = useState('')
   const [grupo, setGrupo] = useState('')
   const [semCampo, setSemCampo] = useState<SemCampo>('algum')
+  // ex.: aplicar 5405/6404 só em quem é CSOSN 500 (ICMS já retido por ST)
+  const [icmsIgual, setIcmsIgual] = useState('')
   const [todos, setTodos] = useState(false)
   // valores
-  const [valores, setValores] = useState<Record<CampoFiscal, string>>({ tipo_item_sped: '', cst_icms: '', cst_pis: '', cst_cofins: '' })
+  const [valores, setValores] = useState<Record<CampoFiscal, string>>({ tipo_item_sped: '', cst_icms: '', cst_pis: '', cst_cofins: '', cfop_venda: '', cfop_venda_interestadual: '' })
   const [sobrescrever, setSobrescrever] = useState(false)
   const [observacao, setObservacao] = useState('')
   // estado
@@ -87,8 +90,9 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
     ...(prefixo.replace(/\D/g, '') ? { ncm_prefixo: prefixo.split(/[^0-9]+/).filter(Boolean).join(',') } : {}),
     ...(grupo ? { grupo } : {}),
     ...(semCampo ? { sem_campo: semCampo } : {}),
+    ...(icmsIgual.trim() ? { icms_igual: icmsIgual.trim() } : {}),
     ...(todos ? { todos: true } : {}),
-  }), [ncm, prefixo, grupo, semCampo, todos])
+  }), [ncm, prefixo, grupo, semCampo, icmsIgual, todos])
   const valoresEscolhidos = useMemo(() => Object.fromEntries(Object.entries(valores).filter(([, v]) => v)), [valores])
   const chave = JSON.stringify({ filtro, valoresEscolhidos, sobrescrever, observacao: observacao.trim() })
   const temFiltro = Object.keys(filtro).length > 0
@@ -142,7 +146,7 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
 
         <div className="p-5 space-y-4 text-[#3D2314]">
           <p className="text-[12.5px] text-[#3D2314]/75">
-            Preenche <b>Tipo do item (SPED)</b>, <b>{rotuloCampo('cst_icms', simples)}</b>, <b>CST do PIS</b> e <b>CST da COFINS</b> de vários produtos
+            Preenche <b>Tipo do item (SPED)</b>, <b>{rotuloCampo('cst_icms', simples)}</b>, <b>CST do PIS</b>, <b>CST da COFINS</b> e o <b>CFOP de venda</b> (dentro e fora do estado) de vários produtos
             de uma vez. Primeiro a prévia (nada muda); depois aplicar. Fica registrado quem alterou, quando e o antes/depois de cada produto.
             {regime && <> Regime da empresa: <b>{regime}</b> → ICMS em <b>{simples ? 'CSOSN (3 dígitos)' : 'CST (2 dígitos)'}</b>.</>}
           </p>
@@ -174,12 +178,17 @@ export default function EdicaoFiscalMassaModal({ companyId, onClose, onAplicado 
                 <label className={lbl}>Só os que estão sem</label>
                 <select value={semCampo} onChange={(e) => setSemCampo(e.target.value as SemCampo)} data-testid="fm-filtro-sem" className={inp}>
                   <option value="">Não filtrar por isso</option>
-                  <option value="algum">Algum dos 4 campos</option>
+                  <option value="algum">Algum dos campos (tributação ou CFOP dentro do estado)</option>
                   {CAMPOS_FISCAIS.map((c) => <option key={c} value={c}>{rotuloCampo(c, simples)}</option>)}
                 </select>
               </div>
             </div>
-            {!ncm && !prefixo && !grupo && !semCampo && (
+            <div className="mt-3 max-w-xs">
+              <label className={lbl}>Só os com {rotuloCampo('cst_icms', simples)} igual a</label>
+              <input value={icmsIgual} onChange={(e) => setIcmsIgual(e.target.value)} placeholder={simples ? 'ex.: 500' : 'ex.: 60'}
+                inputMode="numeric" data-testid="fm-filtro-icms" className={inp} />
+            </div>
+            {!ncm && !prefixo && !grupo && !semCampo && !icmsIgual && (
               <label className="mt-3 flex items-center gap-2 text-[12.5px] cursor-pointer">
                 <input type="checkbox" checked={todos} onChange={(e) => setTodos(e.target.checked)} data-testid="fm-todos" className="accent-[#C8941A]" />
                 Todos os produtos da empresa (sem filtro)

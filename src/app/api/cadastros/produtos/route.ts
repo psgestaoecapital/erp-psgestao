@@ -17,6 +17,7 @@ interface ProdutoPayload {
   ncm?: string | null
   cest?: string | null
   cfop_venda?: string | null
+  cfop_venda_interestadual?: string | null
   origem?: string | null
   cst_icms?: string | null
   aliquota_icms?: number | null
