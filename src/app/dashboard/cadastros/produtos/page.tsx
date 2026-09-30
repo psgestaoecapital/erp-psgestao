@@ -6,9 +6,10 @@ import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
 import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
 import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarProdutosModal'
 import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModal'
+import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer,
 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -74,6 +75,11 @@ export default function ProdutosPage() {
   const [pendVerLista, setPendVerLista] = useState(false)
   const [autoclassificarAberto, setAutoclassificarAberto] = useState(false)
   const [fiscalMassaAberto, setFiscalMassaAberto] = useState(false)
+  // Etiquetas A4 (CEO 30/09 · Diego/FC): seleção sobrevive a busca/filtro/"carregar mais"
+  const [selecionados, setSelecionados] = useState<string[]>([])
+  const [etiquetasAberto, setEtiquetasAberto] = useState(false)
+  const alternarSel = (id: string) =>
+    setSelecionados((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
 
   const offsetRef = useRef(0)
 
@@ -299,6 +305,16 @@ export default function ProdutosPage() {
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
             <button
               type="button"
+              onClick={() => setEtiquetasAberto(true)}
+              disabled={selecionados.length === 0}
+              title={selecionados.length === 0 ? 'Marque os produtos na lista' : undefined}
+              data-testid="etiquetas-abrir"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-45 disabled:hover:bg-transparent flex items-center gap-2"
+            >
+              <Printer size={15} /> Etiquetas A4{selecionados.length > 0 ? ` (${selecionados.length})` : ''}
+            </button>
+            <button
+              type="button"
               onClick={() => setFiscalMassaAberto(true)}
               data-testid="fiscal-massa-abrir"
               className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
@@ -405,6 +421,16 @@ export default function ProdutosPage() {
             >
               {headerContagem}
             </span>
+            {selecionados.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelecionados([])}
+                data-testid="produto-sel-limpar"
+                className="text-[11px] text-[#C8941A] hover:underline flex-shrink-0"
+              >
+                {selecionados.length} marcado(s) · limpar
+              </button>
+            )}
           </div>
 
           {/* Filtros · colapsavel */}
@@ -594,6 +620,21 @@ export default function ProdutosPage() {
                 <table className="w-full text-[13px] text-[#3D2314]">
                   <thead className="bg-[#3D2314]/5 text-[11.5px] text-[#3D2314]/75 uppercase tracking-[0.5px]">
                     <tr>
+                      <th className="pl-4 pr-1 py-2.5 w-8">
+                        <input
+                          type="checkbox"
+                          aria-label="Selecionar os produtos listados"
+                          data-testid="produto-sel-todos"
+                          checked={produtos.length > 0 && produtos.every((p) => selecionados.includes(p.id))}
+                          onChange={(e) => {
+                            const ids = produtos.map((p) => p.id)
+                            setSelecionados((s) =>
+                              e.target.checked ? [...s, ...ids.filter((id) => !s.includes(id))] : s.filter((id) => !ids.includes(id)),
+                            )
+                          }}
+                          className="accent-[#C8941A]"
+                        />
+                      </th>
                       <ThSort label="Codigo" col="codigo" current={ordenarPor} asc={ordemAsc} onClick={toggleOrdem} />
                       <ThSort label="Descricao" col="nome" current={ordenarPor} asc={ordemAsc} onClick={toggleOrdem} />
                       <th className="text-left px-4 py-2.5 font-medium">NCM</th>
@@ -616,6 +657,16 @@ export default function ProdutosPage() {
                         data-testid="produto-row"
                         className="border-t border-[#3D2314]/8 hover:bg-[#FAEEDA]/30"
                       >
+                        <td className="pl-4 pr-1 py-2.5">
+                          <input
+                            type="checkbox"
+                            aria-label={`Selecionar ${p.nome}`}
+                            data-testid="produto-sel"
+                            checked={selecionados.includes(p.id)}
+                            onChange={() => alternarSel(p.id)}
+                            className="accent-[#C8941A]"
+                          />
+                        </td>
                         <td className="px-4 py-2.5 font-mono text-[12px] text-[#3D2314]">
                           {p.codigo ?? '—'}
                         </td>
@@ -654,6 +705,13 @@ export default function ProdutosPage() {
                     data-testid="produto-row-mobile"
                     className="px-4 py-3 flex items-start gap-3"
                   >
+                    <input
+                      type="checkbox"
+                      aria-label={`Selecionar ${p.nome}`}
+                      checked={selecionados.includes(p.id)}
+                      onChange={() => alternarSel(p.id)}
+                      className="mt-1 accent-[#C8941A]"
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="text-[13.5px] font-medium text-[#3D2314] leading-tight">
                         {p.nome}
@@ -729,6 +787,10 @@ export default function ProdutosPage() {
             onClose={() => setImportarFiscalAberto(false)}
             onAtualizado={() => carregar(true)}
           />
+        )}
+
+        {etiquetasAberto && companyId && (
+          <EtiquetasProdutosModal companyId={companyId} ids={selecionados} onClose={() => setEtiquetasAberto(false)} />
         )}
 
         {fiscalMassaAberto && (
