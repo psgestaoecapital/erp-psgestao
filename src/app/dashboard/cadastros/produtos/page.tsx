@@ -708,6 +708,7 @@ export default function ProdutosPage() {
                     <input
                       type="checkbox"
                       aria-label={`Selecionar ${p.nome}`}
+                      data-testid="produto-sel"
                       checked={selecionados.includes(p.id)}
                       onChange={() => alternarSel(p.id)}
                       className="mt-1 accent-[#C8941A]"
@@ -733,6 +734,7 @@ export default function ProdutosPage() {
                       <button
                         type="button"
                         onClick={() => abrirEdicao(p.id)}
+                        data-testid="produto-editar"
                         className="text-[#C8941A] hover:text-[#A87810]"
                         title="Editar"
                       >

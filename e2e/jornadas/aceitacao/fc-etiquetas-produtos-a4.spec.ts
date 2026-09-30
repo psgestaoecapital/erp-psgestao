@@ -13,6 +13,8 @@ const RUN = Date.now().toString(36).toUpperCase()
 const PREFIXO = `E2E-ETQ-${RUN}`
 const EAN = '4006381333931'
 const produtos: { id: string; codigo: string; nome: string; local: string }[] = []
+// linha do produto no computador (tabela) ou no celular (card) — só a que está visível no tamanho da tela
+const LINHA = '[data-testid="produto-row"]:visible, [data-testid="produto-row-mobile"]:visible'
 
 async function textoDoPdf(pdf: Buffer): Promise<{ paginas: number; texto: string }> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
@@ -54,7 +56,7 @@ test.describe('Etiquetas A4 de produtos (FC)', () => {
     await expect(page.getByTestId('etiquetas-abrir'), 'sem produto marcado o botão fica desabilitado').toBeDisabled()
 
     await page.getByPlaceholder('Buscar por nome, codigo ou NCM...').fill(PREFIXO)
-    const linhas = page.getByTestId('produto-row')
+    const linhas = page.locator(LINHA)
     await expect(linhas).toHaveCount(2, { timeout: 30000 })
     for (let i = 0; i < 2; i++) await linhas.nth(i).getByTestId('produto-sel').check()
     await expect(page.getByTestId('etiquetas-abrir')).toContainText('Etiquetas A4 (2)')
@@ -86,7 +88,7 @@ test.describe('Etiquetas A4 de produtos (FC)', () => {
     await page.goto('/dashboard/cadastros/produtos')
     await aguardarConteudo(page)
     await page.getByPlaceholder('Buscar por nome, codigo ou NCM...').fill(produtos[0].codigo)
-    const linha = page.getByTestId('produto-row')
+    const linha = page.locator(LINHA)
     await expect(linha).toHaveCount(1, { timeout: 30000 })
     await linha.getByTestId('produto-editar').click()
     const campo = page.getByTestId('produto-localizacao')
