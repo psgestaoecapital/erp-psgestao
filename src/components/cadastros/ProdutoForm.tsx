@@ -32,6 +32,9 @@ export interface Produto {
   combustivel_codigo_anp?: number | null
   combustivel_descricao_anp?: string | null
   ativo?: boolean | null
+  // Local de armazenagem (sai na etiqueta A4) e código de barras (EAN) do produto
+  localizacao?: string | null
+  codigo_barras?: string | null
   // marca da edição fiscal em massa (ex.: "regra provisória 30/09 — confirmar com o contador")
   fiscal_observacao?: string | null
 }
@@ -57,6 +60,8 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
   const [nome, setNome] = useState(produto?.nome ?? '')
   const [descricao, setDescricao] = useState(produto?.descricao ?? '')
   const [unidade, setUnidade] = useState(produto?.unidade ?? 'UN')
+  const [localizacao, setLocalizacao] = useState(produto?.localizacao ?? '')
+  const [codigoBarras, setCodigoBarras] = useState(produto?.codigo_barras ?? '')
   const [precoVenda, setPrecoVenda] = useState(String(produto?.preco_venda ?? '0'))
   const [precoCusto, setPrecoCusto] = useState(String(produto?.preco_custo ?? '0'))
   const [ncm, setNcm] = useState(produto?.ncm ?? '')
@@ -97,6 +102,8 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
         nome: nome.trim(),
         descricao: descricao || null,
         unidade: unidade || 'UN',
+        localizacao: localizacao.trim() || null,
+        codigo_barras: codigoBarras.trim() || null,
         preco_venda: parseFloat(precoVenda) || 0,
         preco_custo: parseFloat(precoCusto) || 0,
         ncm: ncmLimpo || null,
@@ -186,6 +193,10 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
                 multiline
               />
               <Campo label="Unidade *" value={unidade} onChange={setUnidade} placeholder="UN · KG · M · L · CX" />
+              <div className="grid grid-cols-2 gap-3">
+                <Campo label="Local de armazenagem" value={localizacao} onChange={setLocalizacao} placeholder="ex: Galpão B · Prat. 3" testId="produto-localizacao" />
+                <Campo label="Codigo de barras (EAN)" value={codigoBarras} onChange={setCodigoBarras} placeholder="vazio = etiqueta usa o codigo interno" mono />
+              </div>
             </>
           )}
 
@@ -303,9 +314,10 @@ interface CampoProps {
   multiline?: boolean
   maxLength?: number
   mono?: boolean
+  testId?: string
 }
 
-function Campo({ label, value, onChange, placeholder, multiline, maxLength, mono }: CampoProps) {
+function Campo({ label, value, onChange, placeholder, multiline, maxLength, mono, testId }: CampoProps) {
   const cls = `w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 ${
     mono ? 'font-mono' : ''
   }`
@@ -327,6 +339,7 @@ function Campo({ label, value, onChange, placeholder, multiline, maxLength, mono
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           maxLength={maxLength}
+          data-testid={testId}
           className={cls}
         />
       )}
