@@ -5,7 +5,8 @@
 // Usa o <Modal> central (não fecha no clique-fora; X + Esc; scroll-lock). RLS isola por company_id.
 //
 // A.2: no contexto RECEBER, Conta bancária e Centro de custo viram <select> (gravam conta_bancaria_id /
-// centro_custo_id). Contexto PAGAR fica como texto (erp_pagar ainda não tem as FKs — sem regressão).
+// centro_custo_id). Contexto PAGAR: conta fica como texto; centro de custo grava centro_custo_id desde 01/10
+// (erp_pagar ganhou a FK — o texto legado passa a espelhar o nome pelo trigger).
 // Aviso (não bloqueia) ao editar campo financeiro de um pago/conciliado.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -126,10 +127,10 @@ const CAMPOS_FINANCEIROS = ['valor', 'data_pagamento', 'conta_bancaria', 'conta_
 const NAO_REPLICA = new Set(['data_vencimento', 'data_pagamento', 'data_competencia', 'parcela', 'codigo_barras'])
 type Irma = { id: string; parcela: string | null; parcela_num: number | null; status: string; valor: number; data_vencimento: string; pago: boolean; atual: boolean }
 
-// 'conta'/'centro' = dropdown que grava o _id (FK · receber). 'conta_txt'/'centro_txt' = dropdown com a MESMA
-// lista, mas grava o NOME no campo texto (pagar · erp_pagar não tem as FKs). Chamado "ERRO SALVAR EDIÇÃO CONTAS"
+// 'conta'/'centro' = dropdown que grava o _id (FK). 'conta_txt' = dropdown com a MESMA lista, mas grava o NOME no
+// campo texto (conta do pagar · erp_pagar não tem essa FK). Chamado "ERRO SALVAR EDIÇÃO CONTAS"
 // (#71 · Jordana): editar despesa deve puxar as listas suspensas igual à inclusão, não campo de texto solto.
-type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro' | 'conta_txt' | 'centro_txt' | 'cliente' | 'fornecedor' | 'categoria'
+type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro' | 'conta_txt' | 'cliente' | 'fornecedor' | 'categoria'
 type Campo = { col: string; label: string; tipo: CampoTipo; opcoes?: string[]; largo?: boolean }
 const FORMAS = ['', 'boleto', 'pix', 'dinheiro', 'transferencia', 'cartao_debito', 'cartao_credito', 'cheque', 'permuta', 'debito_automatico']
 const TIPOS_CHAVE_PIX_OPCOES = ['', 'cpf_cnpj', 'telefone', 'email', 'aleatoria', 'copia_cola']
@@ -143,9 +144,8 @@ function campos(tipo: Tipo): Campo[] {
   const contaCampo: Campo = tipo === 'receber'
     ? { col: 'conta_bancaria_id', label: 'Conta bancária', tipo: 'conta' }
     : { col: 'conta_bancaria', label: 'Conta bancária', tipo: 'conta_txt' }
-  const centroCampo: Campo = tipo === 'receber'
-    ? { col: 'centro_custo_id', label: 'Centro de custo', tipo: 'centro' }
-    : { col: 'centro_custo', label: 'Centro de custo', tipo: 'centro_txt' }
+  // 01/10: pagar também grava o centro de custo pelo id (FK), igual ao receber
+  const centroCampo: Campo = { col: 'centro_custo_id', label: 'Centro de custo / obra', tipo: 'centro' }
   const base: Campo[] = [
     contraparte,
     { col: 'descricao', label: 'Descrição *', tipo: 'text', largo: true },
@@ -197,7 +197,7 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
   const [replicando, setReplicando] = useState(false)
   const [valorPago, setValorPago] = useState(0)   // p/ o saldo efetivo ao vivo (não editável aqui)
 
-  // dropdowns de conta/centro: receber grava _id (FK); pagar grava o NOME (texto). A LISTA é a mesma nos dois.
+  // dropdowns de conta/centro: centro grava o _id (FK) nos dois; conta grava _id no receber e o NOME no pagar.
   useEffect(() => {
     if (!open) return
     let alive = true
@@ -438,15 +438,6 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
                     {val && !contas.some((o) => o.nome === val) && <option value={val}>{val} (atual)</option>}
                     {contas.map((o) => <option key={o.id} value={o.nome}>{o.nome}{o.banco ? ` · ${o.banco}` : ''}</option>)}
                   </select>
-                ) : c.tipo === 'centro_txt' ? (
-                  <>
-                    <select value={val} onChange={(e) => set(c.col, e.target.value)} style={inp}>
-                      <option value="">— sem centro de custo —</option>
-                      {val && !centros.some((o) => o.nome === val) && <option value={val}>{val} (atual)</option>}
-                      {centros.map((o) => <option key={o.id} value={o.nome}>{o.nome}</option>)}
-                    </select>
-                    {centros.length === 0 && <span style={hintErr}>nenhum centro · <a href="/dashboard/gestao-empresarial/centros-custo" style={{ color: GOLD }}>cadastrar</a></span>}
-                  </>
                 ) : c.tipo === 'categoria' ? (
                   <CategoriaCombobox companyId={companyId} aplicacao={tipo} value={val} onChange={(codigo) => set(c.col, codigo)} />
                 ) : c.tipo === 'cliente' || c.tipo === 'fornecedor' ? (
