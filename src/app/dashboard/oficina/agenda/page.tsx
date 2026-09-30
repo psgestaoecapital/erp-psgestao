@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
+import { diasParaImpressao, mecanicosDoPeriodo, nomeMecanico } from '@/lib/agenda/impressao'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', AMBAR = '#B45309', VERM = '#B91C1C'
 const iso = (d: Date) => d.toISOString().slice(0, 10)
@@ -46,6 +47,8 @@ export default function OficinaAgendaPage() {
   const [msg, setMsg] = useState('')
   const [novo, setNovo] = useState(false)
   const [editAg, setEditAg] = useState<Ag | null>(null)
+  // Triches #133 · impressão: período visível (dia/semana), de todos ou de um mecânico
+  const [mecImp, setMecImp] = useState('')
 
   const range = useMemo(() => {
     if (modo === 'dia') return { de: iso(ref), ate: iso(ref) }
@@ -122,6 +125,14 @@ export default function OficinaAgendaPage() {
           <span style={{ fontSize: 13, color: ESP, fontWeight: 600 }}>
             {modo === 'dia' ? new Date(range.de + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }) : `${fmtDiaCurto(range.de)} – ${fmtDiaCurto(range.ate)}`}
           </span>
+          {/* Triches #133 · imprimir a agenda (semana ou dia · todos ou um mecânico) para deixar exposta na oficina */}
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <select value={mecImp} onChange={(e) => setMecImp(e.target.value)} data-testid="agenda-imp-mecanico" style={{ ...btnGhost, padding: '6px 8px' }}>
+              <option value="">Todos os mecânicos</option>
+              {mecanicosDoPeriodo(ags).map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button onClick={() => window.print()} disabled={loading || !!erro} data-testid="agenda-imprimir" style={btnGhost}>🖨 Imprimir {modo === 'dia' ? 'o dia' : 'a semana'}</button>
+          </span>
         </div>
 
         {msg && <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10, background: msg.startsWith('Erro') ? '#FBEAEA' : '#EAF5EE', color: msg.startsWith('Erro') ? VERM : VERDE, border: `0.5px solid ${LINE}` }}>{msg}</div>}
@@ -169,8 +180,54 @@ export default function OficinaAgendaPage() {
         )}
       </div>
 
+      <FolhaAgenda dias={modo === 'dia' ? [range.de] : diasSemana} ags={ags} mecanico={mecImp} titulo={modo === 'dia' ? new Date(range.de + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : `Semana ${fmtDiaCurto(range.de)} – ${fmtDiaCurto(range.ate)}`} />
+
       {novo && companyId && <ModalNovo companyId={companyId} dataDefault={modo === 'dia' ? range.de : iso(new Date())} onClose={() => setNovo(false)} onCriou={(m) => { setNovo(false); setMsg(m); void carregar() }} />}
       {editAg && companyId && <ModalEditar companyId={companyId} ag={editAg} onClose={() => setEditAg(null)} onSalvou={(m) => { setEditAg(null); setMsg(m); void carregar() }} />}
+    </div>
+  )
+}
+
+// Triches #133 · folha de impressão: só aparece no papel (@media print); na tela fica oculta. Uma seção por dia,
+// agendamentos por horário, com cliente, veículo/placa, serviço e mecânico — e espaço para anotar à mão.
+function FolhaAgenda({ dias, ags, mecanico, titulo }: { dias: string[]; ags: Ag[]; mecanico: string; titulo: string }) {
+  const secoes = diasParaImpressao(ags, dias, mecanico)
+  const td: React.CSSProperties = { border: '1px solid #999', padding: '4px 6px', fontSize: 11, verticalAlign: 'top' }
+  return (
+    <div id="agenda-print" data-testid="agenda-folha">
+      <style>{`
+        #agenda-print { display: none; }
+        @media print {
+          body * { visibility: hidden !important; }
+          #agenda-print, #agenda-print * { visibility: visible !important; }
+          #agenda-print { display: block !important; position: absolute; left: 0; top: 0; width: 100%; color: #000; background: #fff; }
+          @page { size: A4 landscape; margin: 10mm; }
+        }
+      `}</style>
+      <div style={{ fontSize: 16, fontWeight: 700 }}>Agenda da oficina — {titulo}</div>
+      <div style={{ fontSize: 12, marginBottom: 8 }}>{mecanico ? `Mecânico: ${mecanico}` : 'Todos os mecânicos'}</div>
+      {secoes.map(({ dia, itens }) => (
+        <div key={dia} style={{ marginBottom: 10, breakInside: 'avoid' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, textTransform: 'capitalize', borderBottom: '1px solid #000', marginBottom: 4 }}>{fmtDiaCurto(dia)}</div>
+          {itens.length === 0 ? <div style={{ fontSize: 11 }}>Nenhum agendamento.</div> : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>{['Horário', 'Cliente', 'Veículo / placa', 'Serviço', 'Mecânico', 'Anotações'].map((h) => <th key={h} style={{ ...td, textAlign: 'left', background: '#eee' }}>{h}</th>)}</tr></thead>
+              <tbody>
+                {itens.map((a) => (
+                  <tr key={a.id}>
+                    <td style={td}>{a.hora_inicio ? `${a.hora_inicio.slice(0, 5)}${a.hora_fim ? `–${a.hora_fim.slice(0, 5)}` : ''}` : 'sem horário'}</td>
+                    <td style={td}>{a.cliente_nome ?? '—'}</td>
+                    <td style={td}>{[a.dados?.veiculo, a.dados?.placa].filter(Boolean).join(' · ') || '—'}</td>
+                    <td style={td}>{[a.titulo, a.dados?.defeito, a.observacao].filter(Boolean).join(' · ') || '—'}</td>
+                    <td style={td}>{nomeMecanico(a)}</td>
+                    <td style={{ ...td, width: '22%' }}>&nbsp;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
