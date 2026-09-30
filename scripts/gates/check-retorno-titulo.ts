@@ -3,7 +3,7 @@
  * vencimento (antes só a descrição — e o Gean não conseguia saber qual era).
  *   tsx scripts/check-retorno-titulo.ts
  */
-import { linhaTituloRetorno } from '../src/lib/financeiro/retornoTitulo'
+import { linhaTituloRetorno } from '../../src/lib/financeiro/retornoTitulo'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }

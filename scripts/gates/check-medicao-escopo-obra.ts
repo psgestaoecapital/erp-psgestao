@@ -4,7 +4,7 @@
  * sobra, e nenhum item passa do que falta medir. Decisão do CEO 29/09.
  *   tsx scripts/check-medicao-escopo-obra.ts
  */
-import { conferirMedicaoEscopo } from '../src/lib/fiscal/medicaoEscopoObra'
+import { conferirMedicaoEscopo } from '../../src/lib/fiscal/medicaoEscopoObra'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }

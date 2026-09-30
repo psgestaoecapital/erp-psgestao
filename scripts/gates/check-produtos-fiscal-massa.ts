@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import {
   TIPOS_ITEM_SPED, CSOSN, CST_ICMS, CST_PIS_COFINS, ehSimples, erroDoValor, rotuloCampo,
   camposFaltandoNoItem, mensagemProdutoSemTributacao,
-} from '../src/lib/produtos/fiscalMassa'
+} from '../../src/lib/produtos/fiscalMassa'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }

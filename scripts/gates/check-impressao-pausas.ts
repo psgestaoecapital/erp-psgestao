@@ -5,7 +5,7 @@
  *   tsx scripts/check-impressao-pausas.ts
  */
 import { readFileSync } from 'node:fs'
-import { CSS_IMPRESSAO } from '../src/lib/ponto/impressaoDocumento'
+import { CSS_IMPRESSAO } from '../../src/lib/ponto/impressaoDocumento'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }

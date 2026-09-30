@@ -7,7 +7,7 @@ import { PDFDocument } from 'pdf-lib'
 import {
   eanValido, simboloDoProduto, posicoesEtiquetas, expandirCopias, gerarEtiquetasA4, opcoesBwip, textoCode128,
   POR_FOLHA, type RenderBarcode,
-} from '../src/lib/produtos/etiquetasA4'
+} from '../../src/lib/produtos/etiquetasA4'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }

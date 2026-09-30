@@ -4,7 +4,7 @@
  *   tsx scripts/check-agenda-impressao.ts
  */
 import { readFileSync } from 'node:fs'
-import { diasParaImpressao, mecanicosDoPeriodo, type AgImpressao } from '../src/lib/agenda/impressao'
+import { diasParaImpressao, mecanicosDoPeriodo, type AgImpressao } from '../../src/lib/agenda/impressao'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }

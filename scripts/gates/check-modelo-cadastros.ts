@@ -8,7 +8,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as XLSX from 'xlsx'
-import { CHAVES_CADASTROS } from '../src/lib/cadastros/colunasImportacao'
+import { CHAVES_CADASTROS } from '../../src/lib/cadastros/colunasImportacao'
 
 const MODELO = path.join(process.cwd(), 'public', 'modelos', 'MODELO_importacao_cadastros_PS.xlsx')
 

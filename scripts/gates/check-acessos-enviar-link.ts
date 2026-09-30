@@ -1,7 +1,7 @@
 // Gate (CEO 29/09 · Admin › Acessos · "Enviar link de acesso"). Regra de envio + travas de segurança da rota.
 // Roda no build. Sem rede.
 import { readFileSync } from 'node:fs'
-import { planoDeEnvio, textoUltimoEnvio, ACAO_AUDIT_LINK } from '../src/lib/acessos/enviarLink'
+import { planoDeEnvio, textoUltimoEnvio, ACAO_AUDIT_LINK } from '../../src/lib/acessos/enviarLink'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }

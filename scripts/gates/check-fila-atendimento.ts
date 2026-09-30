@@ -3,7 +3,7 @@
  * seja qual for o status; e a carga da fila nunca deixa um rascunho de fora.
  *   tsx scripts/check-fila-atendimento.ts
  */
-import { estadoFila, juntarFila, carregarFila, contarPendentesAprovacao, contarPrecisaDeMim, rascunhoNaoEnviado, filtrarBusca, semDemos, carregarEmpresasDemo } from '../src/lib/sugestoes/filaAtendimento'
+import { estadoFila, juntarFila, carregarFila, contarPendentesAprovacao, contarPrecisaDeMim, rascunhoNaoEnviado, filtrarBusca, semDemos, carregarEmpresasDemo } from '../../src/lib/sugestoes/filaAtendimento'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }

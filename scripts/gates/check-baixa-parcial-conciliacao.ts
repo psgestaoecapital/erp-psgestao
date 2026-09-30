@@ -3,7 +3,7 @@
  * do título, e o que sobra fica em aberto (título parcial).
  *   tsx scripts/check-baixa-parcial-conciliacao.ts
  */
-import { conferirBaixaParcial, saldoTitulo } from '../src/lib/conciliacao/baixaParcial'
+import { conferirBaixaParcial, saldoTitulo } from '../../src/lib/conciliacao/baixaParcial'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }

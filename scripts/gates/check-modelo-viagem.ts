@@ -9,7 +9,7 @@ import {
   gerarModeloViagem, lerPlanilhaViagem, lerData, lerValor, rotuloObra, rotuloCategoria, CAMPOS_CABECALHO,
   COLUNAS_DESPESAS, COLUNAS_ABASTECIMENTOS, ABA_ACERTO, ABA_DESPESAS, ABA_ABASTECIMENTOS, ABA_INSTRUCOES, ABA_LISTAS,
   LINHA_CHAVES, PRIMEIRA_LINHA_DADOS, FORMAS_PAGAMENTO_VIAGEM, CAMPOS_TRANSPORTE,
-} from '../src/lib/viagem/modeloPlanilha'
+} from '../../src/lib/viagem/modeloPlanilha'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
