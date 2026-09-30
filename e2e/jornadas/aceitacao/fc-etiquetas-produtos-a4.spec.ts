@@ -88,7 +88,7 @@ test.describe('Etiquetas A4 de produtos (FC)', () => {
     expect(texto, 'sem local: "Local:" com linha em branco, sem "—"').not.toContain('Local: —')
     expect(texto.split('\n'), 'sem local: "Local:" sozinho (a linha é desenhada ao lado)').toContain('Local:')
     expect(texto, 'o produto com EAN sai com o EAN legível embaixo das barras').toContain(EAN)
-    expect(texto, 'o produto sem EAN sai com o código interno embaixo das barras (Code128)').toContain(`\n${produtos[0].codigo}\n`)
+    expect(texto.split('\n'), 'o produto sem EAN sai com o código interno embaixo das barras (Code128)').toContain(produtos[0].codigo)
     expect((pdf.toString('latin1').match(/\/Subtype\s*\/Image/g) ?? []).length, 'um código de barras por etiqueta').toBe(3)
 
     // "Imprimir código de barras: não" → mesmo conteúdo, nenhuma barra
