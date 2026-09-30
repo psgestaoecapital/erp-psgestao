@@ -428,7 +428,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         <div style={grid}>
           <label style={lbl}>
             Etapa
-            <select value={form.etapa} onChange={(e) => setF('etapa', e.target.value)} style={inp}>
+            <select value={form.etapa} onChange={(e) => setF('etapa', e.target.value)} style={inp} data-testid="oport-etapa">
               {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
             </select>
           </label>

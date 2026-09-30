@@ -19,5 +19,8 @@ const kanban = readFileSync('src/app/dashboard/projetos/oportunidades/Oportunida
 ok(/rpc\('fn_oportunidade_gerar_orcamento', \{ p_oportunidade_id: cardId \}\)/.test(kanban), 'o arrastar para "Orçando" continua gerando')
 ok(/card\?\.cliente \|\| card\?\.titulo/.test(kanban) && !/cliente_nome\?: string/.test(kanban), 'a confirmação do arrastar usa o nome do cliente (campo certo)')
 
+const form263 = readFileSync('src/app/dashboard/projetos/oportunidades/OportunidadeFormModal.tsx', 'utf8')
+ok(/setF\('etapa', e\.target\.value\)\} style=\{inp\} data-testid="oport-etapa"/.test(form263), 'o seletor de Etapa do formulário tem testid próprio (a página atrás tem um filtro com as mesmas opções)')
+
 if (falhas > 0) { console.error(`\n[check-orcando-gera-orcamento] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-orcando-gera-orcamento] "Orçando" gera orçamento pelos dois caminhos.')

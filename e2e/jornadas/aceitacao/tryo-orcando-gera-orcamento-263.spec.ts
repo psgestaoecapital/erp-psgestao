@@ -37,7 +37,8 @@ test.describe('Oportunidade em "Orçando" gera o orçamento e ele aparece na lis
     await page.getByRole('button', { name: '+ Nova oportunidade' }).click()
     await page.getByTestId('oport-cliente').fill(CLIENTE)
     await page.getByTestId('oport-descricao').fill(DESCRICAO)
-    await page.locator('select').filter({ has: page.locator('option[value="orcando"]') }).first().selectOption('orcando')
+    // o seletor de Etapa DO FORMULÁRIO (a página atrás tem um filtro de etapa com as mesmas opções)
+    await page.getByTestId('oport-etapa').selectOption('orcando')
     await page.getByRole('button', { name: 'CRIAR', exact: true }).click()
 
     await expect.poll(async () => (await dbSelect<{ id: string; orcamento_id: string | null; cliente_id: string | null }>('erp_crm_oportunidade',
