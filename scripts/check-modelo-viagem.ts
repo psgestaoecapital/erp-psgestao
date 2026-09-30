@@ -71,7 +71,7 @@ async function main() {
   const erroEm = (linha: number, campo: string) => res.erros.some((e) => e.linha === linha && e.campo === campo)
   ok(erroEm(r0 + 4, 'data') && erroEm(r0 + 4, 'categoria') && erroEm(r0 + 4, 'valor') && erroEm(r0 + 4, 'forma_pagamento'),
     'linha ruim: data fora do período, categoria fora da empresa, valor zero, forma fora da lista')
-  ok(erroEm(r0 + 5, 'obra') && res.erros.find((e) => e.linha === r0 + 5)?.mensagem.includes('cadastre a obra'), 'obra não cadastrada: pede cadastrar antes (não cria sozinho)')
+  ok(erroEm(r0 + 5, 'obra') && !!res.erros.find((e) => e.linha === r0 + 5)?.mensagem.includes('cadastre a obra'), 'obra não cadastrada: pede cadastrar antes (não cria sozinho)')
   ok(erroEm(r0 + 7, 'adiantamento_recebido'), 'adiantamento diferente na mesma viagem é recusado')
   ok(!res.erros.some((e) => e.linha === r0 + 3), 'linha em branco é ignorada')
 
