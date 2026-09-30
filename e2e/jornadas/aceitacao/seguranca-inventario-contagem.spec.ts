@@ -29,7 +29,7 @@ async function itemDeTeste(status: 'em_andamento' | 'fechado'): Promise<string> 
   const [prod] = await dbSelect<{ id: string }>('erp_produtos', `company_id=eq.${DEMO}&ativo=eq.true&select=id&limit=1`)
   expect(prod, 'a demo tem produto').toBeTruthy()
   const inv = await dbInsert<{ id: string }>('erp_inventarios', {
-    company_id: DEMO, numero: `E2E-SEG-${RUN}-${status}`, status, data_inicio: new Date().toISOString().slice(0, 10),
+    company_id: DEMO, numero: `E2E${RUN}${status === 'fechado' ? 'F' : 'A'}`, status,  // numero é varchar(20) data_inicio: new Date().toISOString().slice(0, 10),
     observacoes: `E2E segurança ${RUN}`,
   })
   inventarios.push(inv.id)
