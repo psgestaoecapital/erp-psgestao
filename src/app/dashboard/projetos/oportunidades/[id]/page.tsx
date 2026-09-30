@@ -556,7 +556,7 @@ export default function OportunidadeFichaPage() {
           companyId={op.company_id}
           initial={op as unknown as OportunidadeRow}
           onClose={() => setEditing(false)}
-          onSaved={() => { setEditing(false); reload() }}
+          onSaved={(_id, aviso) => { setEditing(false); reload(); if (aviso) setToast(aviso) }}
         />
       )}
 
