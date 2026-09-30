@@ -48,7 +48,8 @@ test.describe('Anexos da Tryo — Nova oportunidade e orçamento em PDF (#264 #2
     await page.getByRole('button', { name: '+ Nova oportunidade' }).click()
     await page.getByTestId('oport-descricao').fill(descricao)
     await page.getByTestId('oport-anexos').locator('input[type="file"]').setInputFiles([PDF, DWG])
-    await expect(page.getByTestId('oport-anexos').getByText('planta.dwg')).toBeVisible({ timeout: 20000 })
+    // o item na lista de anexos (exact: o aviso de progresso "Enviando 2/2: planta.dwg…" também contém o nome)
+    await expect(page.getByTestId('oport-anexos').getByText('planta.dwg', { exact: true })).toBeVisible({ timeout: 20000 })
     await page.getByRole('button', { name: 'CRIAR', exact: true }).click()
 
     await expect.poll(async () => (await dbSelect<{ id: string }>('erp_crm_oportunidade',

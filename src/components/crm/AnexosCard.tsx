@@ -66,6 +66,14 @@ type Props = { companyId: string; vinculoTipo: VinculoTipo; vinculoId: string | 
 const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ companyId, vinculoTipo, vinculoId }, ref) {
   const [anexos, setAnexos] = useState<Anexo[]>([])          // modo normal (proposta salva)
   const [staging, setStaging] = useState<Staging[]>([])      // modo staging (proposta nova)
+  // Tryo #266 · cópia síncrona do staging + o envio em andamento: o CRIAR clicado durante o upload espera o arquivo
+  // terminar de subir (antes, o anexo que ainda subia ficava de fora e órfão em tmp/)
+  const stagingRef = useRef<Staging[]>([])
+  const envioRef = useRef<Promise<void> | null>(null)
+  const mudarStaging = useCallback((f: (s: Staging[]) => Staging[]) => {
+    stagingRef.current = f(stagingRef.current)
+    setStaging(stagingRef.current)
+  }, [])
   const [prog, setProg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [linkOpen, setLinkOpen] = useState(false)
@@ -87,6 +95,16 @@ const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ com
 
   // ── upload: modo normal persiste na hora; modo staging sobe p/ tmp/ e segura no estado ──────────
   async function enviar(files: FileList | File[]) {
+    let fim: () => void = () => {}
+    const envio = new Promise<void>((r) => { fim = r })
+    envioRef.current = envio
+    try { await enviarArquivos(files) } finally {
+      fim()
+      if (envioRef.current === envio) envioRef.current = null
+    }
+  }
+
+  async function enviarArquivos(files: FileList | File[]) {
     setErro(null)
     const arr = Array.from(files)
     let ok = 0
@@ -103,7 +121,7 @@ const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ com
         const up = await supabase.storage.from('crm-anexos').upload(path, f, { upsert: false, contentType: f.type || undefined })
         if (up.error) throw up.error
         if (modoStaging) {
-          setStaging((s) => [...s, { key: novaChave(), tipo: 'arquivo', categoria: categoriaDe(f.name, f.type), descricao: null, nome: f.name, path, mime: f.type || null, tamanho: f.size, url: null }])
+          mudarStaging((s) => [...s, { key: novaChave(), tipo: 'arquivo', categoria: categoriaDe(f.name, f.type), descricao: null, nome: f.name, path, mime: f.type || null, tamanho: f.size, url: null }])
           ok++
         } else {
           const { data, error } = await supabase.rpc('fn_crm_anexo_adicionar', {
@@ -129,7 +147,7 @@ const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ com
     if (!u) return
     setErro(null)
     if (modoStaging) {
-      setStaging((s) => [...s, { key: novaChave(), tipo: 'link', categoria: 'outro', descricao: linkDesc.trim() || null, nome: null, path: null, mime: null, tamanho: null, url: u }])
+      mudarStaging((s) => [...s, { key: novaChave(), tipo: 'link', categoria: 'outro', descricao: linkDesc.trim() || null, nome: null, path: null, mime: null, tamanho: null, url: u }])
       setLinkOpen(false); setLinkUrl(''); setLinkDesc('')
       return
     }
@@ -147,7 +165,7 @@ const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ com
     await supabase.rpc('fn_crm_anexo_editar', { p_anexo_id: id, p_descricao: descricao })
   }
   function salvarDescricaoStaging(key: string, descricao: string) {
-    setStaging((s) => s.map((x) => (x.key === key ? { ...x, descricao: descricao.trim() || null } : x)))
+    mudarStaging((s) => s.map((x) => (x.key === key ? { ...x, descricao: descricao.trim() || null } : x)))
   }
   async function excluirSalvo(id: string) {
     if (!window.confirm('Remover este anexo? Ele sai da lista (exclusão reversível).')) return
@@ -155,7 +173,7 @@ const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ com
     if ((data as { ok?: boolean } | null)?.ok) setAnexos((a) => a.filter((x) => x.id !== id))
   }
   async function excluirStaging(item: Staging) {
-    setStaging((s) => s.filter((x) => x.key !== item.key))
+    mudarStaging((s) => s.filter((x) => x.key !== item.key))
     if (item.path) { try { await supabase.storage.from('crm-anexos').remove([item.path]) } catch { /* silencioso */ } }
   }
   async function abrirSalvo(a: Anexo) {
@@ -173,9 +191,10 @@ const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ com
 
   // ── ref: o pai confirma (move tmp → destino + fn_crm_anexo_confirmar_lote) ou limpa no Cancelar ──
   useImperativeHandle(ref, () => ({
-    temPendentes: () => staging.length > 0,
+    temPendentes: () => stagingRef.current.length > 0 || envioRef.current !== null,
     async confirmar(novoVinculoId: string) {
-      const itens = staging
+      if (envioRef.current) await envioRef.current   // arquivo ainda subindo: espera antes de prender
+      const itens = stagingRef.current
       if (itens.length === 0) return { confirmados: 0, erros: [] }
       const erros: { nome: string; erro: string }[] = []
       const payload: Record<string, unknown>[] = []
@@ -204,15 +223,16 @@ const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ com
           for (const e of (r.erros ?? [])) erros.push(e)
         }
       }
-      setStaging([])
+      mudarStaging(() => [])
       return { confirmados, erros }
     },
     async limpar() {
-      const paths = staging.filter((x) => x.path).map((x) => x.path!) as string[]
-      setStaging([])
+      if (envioRef.current) await envioRef.current
+      const paths = stagingRef.current.filter((x) => x.path).map((x) => x.path!) as string[]
+      mudarStaging(() => [])
       if (paths.length > 0) { try { await supabase.storage.from('crm-anexos').remove(paths) } catch { /* rede da §5 cobre */ } }
     },
-  }), [companyId, vinculoTipo, staging])
+  }), [companyId, vinculoTipo, mudarStaging])
 
   const total = modoStaging ? staging.length : anexos.length
 
