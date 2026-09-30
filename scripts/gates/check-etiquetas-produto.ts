@@ -14,6 +14,21 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 
 const render: RenderBarcode = async (s) => new Uint8Array(await bwipjs.toBuffer(opcoesBwip(s)))
 
+type Item = { str: string; tam: number; x: number; y: number }
+async function itensDasPaginas(bytes: Uint8Array): Promise<Item[][]> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const doc = await pdfjs.getDocument({ data: bytes.slice(), useSystemFonts: false, isEvalSupported: false }).promise
+  const out: Item[][] = []
+  for (let i = 1; i <= doc.numPages; i++) {
+    const c = await (await doc.getPage(i)).getTextContent()
+    out.push(c.items.filter((it) => 'str' in it && it.str.trim()).map((it) => {
+      const t = (it as { str: string; transform: number[] }).transform
+      return { str: (it as { str: string }).str, tam: Math.round(Math.hypot(t[0], t[1]) * 10) / 10, x: t[4], y: t[5] }
+    }))
+  }
+  return out
+}
+
 async function textoDasPaginas(bytes: Uint8Array): Promise<string[]> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const doc = await pdfjs.getDocument({ data: bytes.slice(), useSystemFonts: false, isEvalSupported: false }).promise
@@ -55,15 +70,53 @@ async function main() {
   ok(Math.abs(width - 595.28) < 1 && Math.abs(height - 841.89) < 1, 'página A4 (210×297 mm)')
   const txt = await textoDasPaginas(bytes)
   const p1 = txt[0]
-  ok(p1.includes('Argamassa colante AC-III cinza 20 kg') && p1.includes('…'), 'nome longo em até 2 linhas, cortado com reticências')
+  const NOME_LONGO = produtos[0].nome
+  const itens = (await itensDasPaginas(bytes))[0]
+  // FC 30/09 · nome longo inteiro (até 3 linhas, sem reticências), letra reduzida só o necessário
+  const linhasNome = itens.filter((it) => NOME_LONGO.includes(it.str) && it.str.length > 3 && it.y > 700)
+  ok(linhasNome.map((l) => l.str).join(' ') === NOME_LONGO, `nome longo sai INTEIRO (${linhasNome.length} linha(s): ${linhasNome.map((l) => l.str).join(' | ')})`)
+  ok(linhasNome.length >= 2 && linhasNome.length <= 3, 'nome longo quebra em até 3 linhas')
+  ok(!p1.split('\n').some((l) => NOME_LONGO.startsWith(l.replace(/…$/, '')) && l.endsWith('…')), 'nome não é cortado com reticências')
+  const tamCurto = itens.find((it) => it.str === 'Produto 5')?.tam ?? 0
+  ok(tamCurto >= 16, `nome curto com barras em letra grande (${tamCurto} pt; antes 9 pt)`)
+  const tamCod = itens.find((it) => it.str === 'Cód. FC-005')?.tam ?? 0
+  const tamLocal = itens.find((it) => it.str === 'Local: Rua 4')?.tam ?? 0
+  ok(tamCod >= 10 && tamLocal >= 10, `código e local maiores (${tamCod} / ${tamLocal} pt; antes 8 pt)`)
   ok(p1.includes('Cód. FC-001') && p1.includes('Local: Galpão B · Prat. 3'), 'código e local de armazenagem (com acento) na etiqueta')
   ok(p1.includes('4006381333931'), 'EAN impresso legível embaixo das barras')
-  ok(p1.includes('Local: —'), 'produto sem local mostra "Local: —" (não some o campo)')
+  ok(!p1.includes('Local: —') && p1.split('\n').includes('Local:'), 'sem local: "Local:" + linha em branco para escrever à mão (sem "—")')
+  const tracos = async (b: Uint8Array) => {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    const d = await pdfjs.getDocument({ data: b.slice(), useSystemFonts: false, isEvalSupported: false }).promise
+    const ops = await (await d.getPage(1)).getOperatorList()
+    return ops.fnArray.filter((f: number) => f === pdfjs.OPS.stroke || f === pdfjs.OPS.constructPath).length
+  }
+  const semLocal = await tracos(await gerarEtiquetasA4([{ codigo: 'L-1', nome: 'Sem local', localizacao: null }], { renderBarcode: render }))
+  const comLocal = await tracos(await gerarEtiquetasA4([{ codigo: 'L-2', nome: 'Com local', localizacao: 'A1' }], { renderBarcode: render }))
+  ok(semLocal > comLocal, `sem local, a linha em branco é desenhada (${semLocal} traço(s) contra ${comLocal} com local)`)
   ok(p1.includes('Cód. E2E-ETQ-MUO0YCEO-A'), 'código longo sai inteiro, sem reticências (achado da aceitação 30/09)')
   ok(!/Cód\. [^\n]*…/.test(txt.join('\n')), 'nenhum código cortado')
   ok(txt[1].includes('Cód. FC-025') && !p1.includes('FC-025'), 'a 25ª etiqueta está na 2ª folha')
   const imagens = (Buffer.from(bytes).toString('latin1').match(/\/Subtype\s*\/Image/g) ?? []).length
   ok(imagens === 25, `um código de barras por produto (${imagens} imagens)`)
+
+  // FC 30/09 · sem código de barras: nenhuma imagem, e o espaço vai para o texto (letra ainda maior)
+  const semBytes = await gerarEtiquetasA4(produtos, { renderBarcode: render, codigoBarras: false })
+  const semImgs = (Buffer.from(semBytes).toString('latin1').match(/\/Subtype\s*\/Image/g) ?? []).length
+  ok(semImgs === 0, `"Imprimir código de barras: não" → nenhuma barra (${semImgs} imagens)`)
+  const semItens = (await itensDasPaginas(semBytes))[0]
+  const semTxt = (await textoDasPaginas(semBytes))[0]
+  ok(!semTxt.includes('4006381333931'), 'sem barras, sem o número embaixo das barras')
+  const tamSem = semItens.find((it) => it.str === 'Produto 5')?.tam ?? 0
+  ok(tamSem > tamCurto && tamSem >= 22, `sem barras a letra do nome cresce (${tamSem} pt > ${tamCurto} pt)`)
+  const tamCodSem = semItens.find((it) => it.str === 'Cód. FC-005')?.tam ?? 0
+  ok(tamCodSem > tamCod, `sem barras o código também cresce (${tamCodSem} pt)`)
+  const nomeSem = semItens.filter((it) => NOME_LONGO.includes(it.str) && it.str.length > 3 && it.y > 700)
+  ok(nomeSem.map((l) => l.str).join(' ') === NOME_LONGO && nomeSem.length <= 3, `sem barras o nome longo também sai inteiro (${nomeSem.length} linha(s))`)
+  const extremo = 'Kit de fixação com parafuso sextavado inox 304 M8x60 arruela lisa arruela de pressão porca e bucha de nylon para concreto e alvenaria'
+  const extItens = (await itensDasPaginas(await gerarEtiquetasA4([{ codigo: 'X-1', nome: extremo }], { renderBarcode: render })))[0]
+  const extNome = extItens.filter((it) => extremo.includes(it.str) && it.str.length > 2 && !it.str.startsWith('Cód') && it.str !== 'X-1')
+  ok(extNome.map((l) => l.str).join(' ') === extremo && extNome.length <= 3, `nome de ${extremo.length} letras com barras: inteiro em ${extNome.length} linha(s), ${extNome[0]?.tam} pt`)
 
   const copias = await PDFDocument.load(await gerarEtiquetasA4(produtos.slice(0, 5), { copias: 5, inicio: 1, renderBarcode: render }))
   ok(copias.getPageCount() === 2, '5 produtos × 5 cópias = 25 etiquetas = 2 folhas')
@@ -76,6 +129,7 @@ async function main() {
   const modal = readFileSync('src/components/cadastros/EtiquetasProdutosModal.tsx', 'utf8')
   const form = readFileSync('src/components/cadastros/ProdutoForm.tsx', 'utf8')
   ok(tela.includes('data-testid="produto-sel"') && tela.includes('data-testid="etiquetas-abrir"') && tela.includes('<EtiquetasProdutosModal'), 'Produtos: marcar na lista + botão Etiquetas A4')
+  ok(modal.includes('data-testid="etiquetas-barras"') && modal.includes("useState<'sim' | 'nao'>('sim')") && modal.includes("codigoBarras: barras === 'sim'"), 'tela: "Imprimir código de barras" sim/não, padrão sim')
   ok(/select\('id,codigo,nome,codigo_barras,localizacao'\)/.test(modal) && modal.includes(".eq('company_id', companyId)"), 'modal lê nome/código/barras/local do banco, só da empresa')
   ok(form.includes('localizacao: localizacao.trim() || null'), 'ficha do produto grava o local de armazenagem')
 

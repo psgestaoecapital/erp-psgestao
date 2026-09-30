@@ -30,6 +30,8 @@ interface Props {
 export default function EtiquetasProdutosModal({ companyId, ids, onClose }: Props) {
   const [copias, setCopias] = useState('1')
   const [inicio, setInicio] = useState('1')
+  // FC 30/09 · código de barras opcional (padrão: sim); sem ele, o espaço vai para o texto
+  const [barras, setBarras] = useState<'sim' | 'nao'>('sim')
   const [gerando, setGerando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
@@ -58,7 +60,9 @@ export default function EtiquetasProdutosModal({ companyId, ids, onClose }: Prop
       const porId = new Map(linhas.map((p) => [p.id, p]))
       const ordenados = ids.map((id) => porId.get(id)).filter((p): p is EtiquetaProduto & { id: string } => !!p)
       if (expandirCopias(ordenados, nCopias).length > MAX_ETIQUETAS) throw new Error(`Máximo de ${MAX_ETIQUETAS} etiquetas por vez.`)
-      const bytes = await gerarEtiquetasA4(ordenados, { copias: nCopias, inicio: nInicio, renderBarcode: renderNoCanvas })
+      const bytes = await gerarEtiquetasA4(ordenados, {
+        copias: nCopias, inicio: nInicio, codigoBarras: barras === 'sim', renderBarcode: renderNoCanvas,
+      })
       const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
       const a = document.createElement('a')
       a.href = url
@@ -91,7 +95,8 @@ export default function EtiquetasProdutosModal({ companyId, ids, onClose }: Prop
         <div className="p-5 space-y-4 text-[13px] text-[#3D2314]">
           <p>
             <b data-testid="etiquetas-qtd-produtos">{ids.length}</b> produto(s) selecionado(s). Cada etiqueta traz nome,
-            código, local de armazenagem e código de barras.
+            código e local de armazenagem{barras === 'sim' ? ' e o código de barras' : ''}. Sem local cadastrado, sai uma
+            linha em branco para escrever à mão.
           </p>
           <p className="text-[12px] text-[#3D2314]/70">Folha: {FOLHA_A4.rotulo}. Imprima em tamanho real (100%, sem ajustar à página).</p>
           <div className="grid grid-cols-2 gap-3">
@@ -113,6 +118,17 @@ export default function EtiquetasProdutosModal({ companyId, ids, onClose }: Prop
               <span className="text-[11px] text-[#3D2314]/55">para aproveitar folha já usada</span>
             </label>
           </div>
+          <label className="block">
+            <span className="text-[12px] font-medium block mb-1.5">Imprimir código de barras</span>
+            <select
+              value={barras} onChange={(e) => setBarras(e.target.value === 'nao' ? 'nao' : 'sim')}
+              data-testid="etiquetas-barras"
+              className="w-full px-3 py-2 border border-[#3D2314]/15 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40"
+            >
+              <option value="sim">Sim</option>
+              <option value="nao">Não — o espaço vai para o texto (letra maior)</option>
+            </select>
+          </label>
           <p className="text-[12px]" data-testid="etiquetas-resumo">
             {total} etiqueta(s) · {folhas} folha(s)
           </p>
