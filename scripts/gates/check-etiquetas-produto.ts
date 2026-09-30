@@ -118,6 +118,15 @@ async function main() {
   const extNome = extItens.filter((it) => extremo.includes(it.str) && it.str.length > 2 && !it.str.startsWith('Cód') && it.str !== 'X-1')
   ok(extNome.map((l) => l.str).join(' ') === extremo && extNome.length <= 3, `nome de ${extremo.length} letras com barras: inteiro em ${extNome.length} linha(s), ${extNome[0]?.tam} pt`)
 
+  // nomes reais da FC chegam a 176 letras em MAIÚSCULAS: nem na letra mínima cabem em 3 linhas → ganham linhas, sem corte
+  const caixaAlta = 'DISCO DIAMANTADO SEGMENTADO TURBO 230 MM PARA CORTE A SECO DE PORCELANATO GRANITO E CONCRETO COM FLANGE REFORCADA E FURO 22,23 MM LINHA PROFISSIONAL ALTA DURABILIDADE E ACABAMENTO'
+  for (const barras of [true, false]) {
+    const it = (await itensDasPaginas(await gerarEtiquetasA4([{ codigo: 'Y-1', nome: caixaAlta }], { renderBarcode: render, codigoBarras: barras })))[0]
+    const nm = it.filter((x) => caixaAlta.includes(x.str) && x.str.length > 2 && x.str !== 'Y-1')
+    ok(nm.map((l) => l.str).join(' ') === caixaAlta && nm.every((l) => l.tam >= 4.5),
+      `nome de ${caixaAlta.length} letras em maiúsculas ${barras ? 'com' : 'sem'} barras: inteiro, ${nm.length} linha(s) em ${nm[0]?.tam} pt (sem corte)`)
+  }
+
   const copias = await PDFDocument.load(await gerarEtiquetasA4(produtos.slice(0, 5), { copias: 5, inicio: 1, renderBarcode: render }))
   ok(copias.getPageCount() === 2, '5 produtos × 5 cópias = 25 etiquetas = 2 folhas')
   let vazio = false

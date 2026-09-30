@@ -110,9 +110,12 @@ export function winAnsi(s: string): string {
 export const LAYOUT = {
   entrelinha: 1.12,
   barrasAltura: 18,        // ~6,4 mm de barras + o texto legível embaixo
-  comBarras: { nomeMax: 18, nomeMin: 6, codigo: 10, local: 10 },
-  semBarras: { nomeMax: 26, nomeMin: 7, codigo: 13, local: 13 },
+  // nomeMin = menor letra aceita em até 3 linhas; abaixo dela o nome ganha mais linhas (até nomeMinAbsoluto) em vez
+  // de ser cortado — nomes reais da FC chegam a 176 letras em maiúsculas.
+  comBarras: { nomeMax: 18, nomeMin: 7, codigo: 10, local: 10 },
+  semBarras: { nomeMax: 26, nomeMin: 9, codigo: 13, local: 13 },
   maxLinhasNome: 3,
+  nomeMinAbsoluto: 4.5,
 } as const
 
 /** Quebra por palavras; palavra maior que a linha é partida em pedaços (nenhuma letra some). */
@@ -145,19 +148,26 @@ export interface AjusteNome { linhas: string[]; tamanho: number; cortado: boolea
 /** Altura ocupada por n linhas de tamanho t (do topo da 1ª letra ao pé da última). */
 const alturaLinhas = (n: number, t: number) => t * (0.99 + LAYOUT.entrelinha * (n - 1))
 
-/** Maior letra em que o nome inteiro cabe em até 3 linhas e na altura disponível. Corte com "…" só como último
- *  recurso, abaixo do tamanho mínimo (nome absurdo de longo). */
+/** Maior letra em que o nome inteiro cabe em até 3 linhas e na altura disponível. Se nem com a letra mínima ele cabe
+ *  em 3 linhas (nome muito longo), usa mais linhas — nunca corta. Corte com "…" só se nem na letra mínima absoluta
+ *  o nome couber na etiqueta (último recurso). */
 export function ajustarNome(texto: string, font: PDFFont, largura: number, alturaMax: number, tamMax: number, tamMin: number): AjusteNome {
   const nome = texto.trim() || '(sem nome)'
   for (let t = tamMax; t >= tamMin - 1e-9; t -= 0.5) {
     const l = quebrarLinhas(nome, font, t, largura)
     if (l.length <= LAYOUT.maxLinhasNome && alturaLinhas(l.length, t) <= alturaMax) return { linhas: l, tamanho: t, cortado: false }
   }
-  const l = quebrarLinhas(nome, font, tamMin, largura)
-  const res = l.slice(0, LAYOUT.maxLinhasNome)
-  const cortado = l.length > LAYOUT.maxLinhasNome
-  if (cortado) res[res.length - 1] = cortar(`${res[res.length - 1]}…`, font, tamMin, largura, true)
-  return { linhas: res, tamanho: tamMin, cortado }
+  for (let t = tamMin - 0.5; t >= LAYOUT.nomeMinAbsoluto - 1e-9; t -= 0.5) {
+    const l = quebrarLinhas(nome, font, t, largura)
+    if (alturaLinhas(l.length, t) <= alturaMax) return { linhas: l, tamanho: t, cortado: false }
+  }
+  const t = LAYOUT.nomeMinAbsoluto
+  const l = quebrarLinhas(nome, font, t, largura)
+  const cabem = Math.max(1, Math.floor((alturaMax / t - 0.99) / LAYOUT.entrelinha) + 1)
+  const res = l.slice(0, cabem)
+  const cortado = l.length > cabem
+  if (cortado) res[res.length - 1] = cortar(`${res[res.length - 1]}…`, font, t, largura, true)
+  return { linhas: res, tamanho: t, cortado }
 }
 
 /** Tamanho que faz o texto caber numa linha (sem passar de tamMax nem descer de tamMin). */
