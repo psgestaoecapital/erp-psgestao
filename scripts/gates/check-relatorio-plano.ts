@@ -5,7 +5,7 @@
  *   tsx scripts/check-relatorio-plano.ts
  */
 import { readFileSync } from 'node:fs'
-import { compararCodigo, contarKpis, montarRelatorioPlano, soVinculadas, type LinhaRelatorioPlano } from '../src/lib/contabil/relatorioPlano'
+import { compararCodigo, contarKpis, montarRelatorioPlano, soVinculadas, type LinhaRelatorioPlano } from '../../src/lib/contabil/relatorioPlano'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }

@@ -20,6 +20,8 @@ type Obra = {
   responsavel_nome: string | null; data_inicio: string | null; data_prevista_fim: string | null; data_conclusao: string | null
 }
 type Kpis = { em_andamento: number; concluidas: number; valor_em_andamento: number; valor_concluido: number }
+// Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita. Custo entra em novembro, com o centro de custo.
+type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number }
 
 const ST: Record<string, { label: string; cor: string }> = {
   em_andamento: { label: 'Em andamento', cor: GOLD },
@@ -45,6 +47,7 @@ export default function ObrasPage() {
   const [busy, setBusy] = useState('')
   const [obraAberta, setObraAberta] = useState<Obra | null>(null)
   const [obraFiscal, setObraFiscal] = useState<Obra | null>(null)
+  const [receita, setReceita] = useState<Record<string, Receita> | null>(null)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -56,6 +59,9 @@ export default function ObrasPage() {
       ]), { ms: 8000, tentativas: 1, label: 'projetos_obras' })
       if (ek || el) { setErro((ek ?? el)!.message); return }
       setKpis(k as Kpis); setObras((l as Obra[]) ?? [])
+      // receita não derruba o board: se falhar, o cartão mostra "não deu para carregar"
+      const { data: rc, error: er } = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
+      setReceita(er ? null : Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, x])))
     } catch {
       setErro(MSG_CARREGAMENTO_FALHOU)
     } finally {
@@ -124,13 +130,13 @@ export default function ObrasPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, alignItems: 'start' }}>
               {aba === 'principais' ? (
                 <>
-                  <Coluna titulo="Em andamento" cor={GOLD} obras={grupos.em_andamento} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
-                  <Coluna titulo="Concluídas" cor={VERDE} obras={grupos.concluida} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Em andamento" cor={GOLD} obras={grupos.em_andamento} receita={receita} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Concluídas" cor={VERDE} obras={grupos.concluida} receita={receita} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
                 </>
               ) : (
                 <>
-                  <Coluna titulo="Pausadas" cor={AMBAR} obras={grupos.pausada} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
-                  <Coluna titulo="Canceladas" cor={VERM} obras={grupos.cancelada} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Pausadas" cor={AMBAR} obras={grupos.pausada} receita={receita} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Canceladas" cor={VERM} obras={grupos.cancelada} receita={receita} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
                 </>
               )}
             </div>
@@ -143,19 +149,19 @@ export default function ObrasPage() {
   )
 }
 
-function Coluna({ titulo, cor, obras, onStatus, busy, onAbrir, onFiscal }: { titulo: string; cor: string; obras: Obra[]; onStatus: (o: Obra, s: string) => void; busy: string; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
+function Coluna({ titulo, cor, obras, receita, onStatus, busy, onAbrir, onFiscal }: { titulo: string; cor: string; obras: Obra[]; receita: Record<string, Receita> | null; onStatus: (o: Obra, s: string) => void; busy: string; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
   return (
     <div>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: cor, fontWeight: 700, marginBottom: 8 }}>{titulo} · {obras.length}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {obras.length === 0 ? <div style={{ fontSize: 12, color: MUT, fontStyle: 'italic' }}>—</div> :
-          obras.map((o) => <ObraCard key={o.id} o={o} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} onFiscal={onFiscal} />)}
+          obras.map((o) => <ObraCard key={o.id} o={o} receita={receita ? (receita[o.id] ?? null) : undefined} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} onFiscal={onFiscal} />)}
       </div>
     </div>
   )
 }
 
-function ObraCard({ o, onStatus, busy, onAbrir, onFiscal }: { o: Obra; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
+function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; receita: Receita | null | undefined; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
   const st = ST[o.status] ?? { label: o.status, cor: MUT }
   const local = [o.cidade, o.uf].filter(Boolean).join('/')
   return (
@@ -177,6 +183,8 @@ function ObraCard({ o, onStatus, busy, onAbrir, onFiscal }: { o: Obra; onStatus:
         </div>
       </div>
 
+      <ResultadoObra r={receita} />
+
       <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
         <button onClick={() => onAbrir(o)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${GOLD}`, background: '#FBF4E4', color: '#A57A15' }}>
           Ver escopo
@@ -194,6 +202,39 @@ function ObraCard({ o, onStatus, busy, onAbrir, onFiscal }: { o: Obra; onStatus:
           </button>
         ))}
       </div>
+    </div>
+  )
+}
+
+// Cartão "Resultado da obra" (receita): faturado = NFS-e autorizadas ligadas à obra; recebido = baixas dos títulos
+// dessas notas. undefined = não carregou (falha); null = obra sem nota autorizada.
+const fmtRc = (v: number) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+function ResultadoObra({ r }: { r: Receita | null | undefined }) {
+  const cel = (label: string, valor: string, cor: string, testId: string) => (
+    <div>
+      <div style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>{label}</div>
+      <div data-testid={testId} style={{ fontSize: 12.5, fontWeight: 700, color: cor, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
+    </div>
+  )
+  return (
+    <div data-testid="obra-resultado" style={{ marginTop: 10, background: BG, border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px' }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: ESP, marginBottom: 4 }}>Resultado da obra</div>
+      {r === undefined ? (
+        <div style={{ fontSize: 11.5, color: MUT }}>Não deu para carregar o faturado agora.</div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(80px,1fr))', gap: 8 }}>
+            {cel('Faturado', fmtRc(r?.faturado ?? 0), ESP, 'obra-faturado')}
+            {cel('Recebido', fmtRc(r?.recebido ?? 0), VERDE, 'obra-recebido')}
+            {cel('A receber', fmtRc(r?.a_receber ?? 0), GOLD, 'obra-a-receber')}
+            {cel('Custo', 'a partir de novembro', MUT, 'obra-custo')}
+          </div>
+          <div style={{ fontSize: 10.5, color: MUT, marginTop: 4 }} data-testid="obra-notas">
+            {r && r.notas > 0 ? `${r.notas} NFS-e autorizada(s)` : 'Nenhuma NFS-e autorizada ligada a esta obra'}
+            {r && r.notas_sem_titulo > 0 ? ` · ${r.notas_sem_titulo} sem título no financeiro (não entram no recebido)` : ''}
+          </div>
+        </>
+      )}
     </div>
   )
 }

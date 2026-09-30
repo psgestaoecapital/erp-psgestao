@@ -13,9 +13,9 @@
  *   E0901  cIndOp tem de existir (6 dígitos, Anexo C) — sem ele o grupo IBS/CBS não vai
  *   Linha 314  o grupo piscofins (tpRetPisCofins/vRetCSLL) exige o CST
  */
-import { calcularRetencoesFederais, codigoIndicadorOperacaoValido, issRetidoNfse, reformaIbsCbsDoServico, tipoRetencaoPisCofins, travaEmissaoNfse, MSG_EXIGE_SERVICO_NFSE, MSG_RETENCAO_SO_NACIONAL } from '../src/lib/fiscal/retencoesFederaisNfse'
-import { buildNacionalNFSePayload } from '../src/lib/fiscal/providers/focusnfe'
-import type { NFSeRequest } from '../src/lib/fiscal/types'
+import { calcularRetencoesFederais, codigoIndicadorOperacaoValido, issRetidoNfse, reformaIbsCbsDoServico, tipoRetencaoPisCofins, travaEmissaoNfse, MSG_EXIGE_SERVICO_NFSE, MSG_RETENCAO_SO_NACIONAL } from '../../src/lib/fiscal/retencoesFederaisNfse'
+import { buildNacionalNFSePayload } from '../../src/lib/fiscal/providers/focusnfe'
+import type { NFSeRequest } from '../../src/lib/fiscal/types'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) {

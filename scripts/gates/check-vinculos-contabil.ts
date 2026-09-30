@@ -5,7 +5,7 @@
  *   tsx scripts/check-vinculos-contabil.ts
  */
 import { readFileSync } from 'node:fs'
-import { FILTRO_PADRAO, alvosDaSelecao, contarVinculos, editavel, filtrarVinculos, statusDaLinha, type LinhaVinculoTela } from '../src/lib/contabil/vinculosTela'
+import { FILTRO_PADRAO, alvosDaSelecao, contarVinculos, editavel, filtrarVinculos, statusDaLinha, type LinhaVinculoTela } from '../../src/lib/contabil/vinculosTela'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }

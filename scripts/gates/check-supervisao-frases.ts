@@ -3,7 +3,7 @@
  * minutos (formato da apuração atual: { tipo, quantidade } + pausas do dia).
  *   tsx scripts/check-supervisao-frases.ts
  */
-import { frasesPausasCurtas, frasesExcesso, trechosSemPausa, fraseSinal } from '../src/lib/ponto/supervisaoFrases'
+import { frasesPausasCurtas, frasesExcesso, trechosSemPausa, fraseSinal } from '../../src/lib/ponto/supervisaoFrases'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }

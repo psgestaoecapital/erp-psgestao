@@ -5,7 +5,7 @@
  *   tsx scripts/check-cnpj-duplicado-edicao.ts
  */
 import { readFileSync } from 'node:fs'
-import { deveConferirDuplicidade } from '../src/lib/cadastros/duplicidadeDocumento'
+import { deveConferirDuplicidade } from '../../src/lib/cadastros/duplicidadeDocumento'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }
