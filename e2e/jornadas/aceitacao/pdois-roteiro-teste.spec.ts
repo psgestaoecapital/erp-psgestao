@@ -52,10 +52,18 @@ test.describe('Roteiro da Pdois: lead com WhatsApp → tarefa → Minhas tarefas
       return l ? `${l.origem}/${l.responsavel_id === robo}` : null
     }, { timeout: 15000, message: 'o lead gravou com a origem WhatsApp e é de quem criou' }).toBe('whatsapp/true')
 
-    // "Meus leads" mostra o lead recém-criado
+    // "Meus leads" mostra o lead recém-criado (cartão no funil)
     await page.getByLabel('Responsável', { exact: true }).selectOption({ label: 'Meus leads' })
     await page.getByPlaceholder('Buscar contato/empresa/email…').fill(RUN)
-    await expect(page.getByText(EMPRESA).first()).toBeVisible()
+    const cartao = page.getByTestId('lead-card').filter({ hasText: EMPRESA })
+    try {
+      await expect(cartao).toHaveCount(1, { timeout: 15000 })
+    } catch (e) {
+      // diagnóstico no log do CI (o relatório com print não sai do ambiente)
+      const corpo = (await page.locator('main').first().innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 1500)
+      console.log(`[roteiro-diag] cartões=${await page.getByTestId('lead-card').count()} tela="${corpo}"`)
+      throw e
+    }
   })
 
   test('3-4 · Tarefas do lead: botão do WhatsApp, criar tarefa; aparece em "Minhas tarefas" e marca como feita', async ({ page }) => {
