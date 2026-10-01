@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@/components/comum/BlocoObraFiscal'
-import { calcularRetencoesFederais, MSG_EXIGE_SERVICO_NFSE, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { aplicarRetencoesNota, calcularRetencoesFederais, MSG_EXIGE_SERVICO_NFSE, retencoesNotaDoCadastro, retencoesNotaIguais, sugerirRetencoesNota, TRIBUTOS_RETENCAO, type RetencoesNota, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 import { conferirMedicaoEscopo, brl as brlEscopo, type ItemEscopo } from '@/lib/fiscal/medicaoEscopoObra'
 
 // bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos).
@@ -242,20 +242,32 @@ export default function NFSeEmitirGovModal({
     let vivo = true
     void (async () => {
       const { data } = await supabase.from('erp_servicos').select('*').eq('id', servicoIdEff).maybeSingle()
-      if (vivo) setSvTrib((data as ServicoTributosFederais | null) ?? null)
+      if (vivo) {
+        const sv = (data as ServicoTributosFederais | null) ?? null
+        setSvTrib(sv)
+        // #339 · a cópia DESTA nota começa igual ao cadastro; o usuário ajusta por tomador
+        setRetNota(sv ? retencoesNotaDoCadastro(sv as ServicoTributosFederais & { iss_retido?: boolean | null }) : null)
+        setSugestaoMsg(null)
+      }
     })()
     return () => { vivo = false }
   }, [aberto, servicoIdEff])
+  // #339 (reaberto) · retenções AJUSTADAS NESTA NOTA — partem do cadastro, editáveis aqui; a rota faz a mesma conta
+  const [retNota, setRetNota] = useState<RetencoesNota | null>(null)
+  const [sugestaoMsg, setSugestaoMsg] = useState<string | null>(null)
+  const retCadastro = svTrib ? retencoesNotaDoCadastro(svTrib as ServicoTributosFederais & { iss_retido?: boolean | null }) : null
+  const retAjustada = !!retNota && !!retCadastro && !retencoesNotaIguais(retNota, retCadastro)
+  const svEff = svTrib && retNota ? aplicarRetencoesNota(svTrib, retNota) : svTrib
   const valorPrevia = (() => { const n = Number(String(valor || '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : 0 })()
   const qtdNum = (v: string | undefined) => { const n = Number(String(v ?? '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0 }
   const confEscopo = escopoObra.length > 0
     ? conferirMedicaoEscopo(escopoObra, Object.fromEntries(Object.entries(qtdEscopo).map(([k, v]) => [k, qtdNum(v)])), valorPrevia)
     : null
   const escopoBloqueia = !!confEscopo && confEscopo.itens.length > 0 && !confEscopo.ok
-  const retPrevia = svTrib ? calcularRetencoesFederais(valorPrevia, svTrib) : null
+  const retPrevia = svEff ? calcularRetencoesFederais(valorPrevia, svEff) : null
   // #286 · ISS retido pelo tomador vem do CADASTRO do serviço (iss_retido) — antes este modal mandava sempre "não retido"
-  const issRetidoCadastro = !!(svTrib as { iss_retido?: boolean | null } | null)?.iss_retido
-  const retPreviaTem = issRetidoCadastro || !!retPrevia && (retPrevia.totalRetido > 0 || retPrevia.erros.length > 0 || retPrevia.avisos.length > 0 || !!retPrevia.apuracaoPropria)
+  // #339 · o ISS retido é o DESTA nota (começa no cadastro, editável)
+  const issRetidoCadastro = retNota ? retNota.iss_retido : !!(svTrib as { iss_retido?: boolean | null } | null)?.iss_retido
   const retPreviaBloqueia = !!retPrevia && retPrevia.erros.length > 0
   const fmtBRLPrev = (n: number) => 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const issNoLocalEff = issNoLocalPrestacao || servicoIssLocal
@@ -592,6 +604,8 @@ export default function NFSeEmitirGovModal({
           codigoServicoTributacao: codigoTrib.trim() || undefined,
           obraId: obraIdFinal || undefined,
           tipoRetencaoIss: issRetidoCadastro ? 2 : 1,
+          // #339 · retenções desta nota (a rota aplica sobre o cadastro e registra o ajuste no histórico)
+          ...(servicoIdEff && retNota ? { retencoesNota: retNota } : {}),
         }
         if (medicao && pedidoId) {
           bodyFocus.medicao = { pedidoId, parcelaIds: medicao.parcelaIds, gerarFinanceiro: gerarFinMedicao }
@@ -828,6 +842,7 @@ export default function NFSeEmitirGovModal({
                 <div className="grid grid-cols-[92px_1fr_auto] gap-2">
                   <select
                     value={tomTipo}
+                    data-testid="nfse-tomador-tipo"
                     onChange={(e) => { setTomTipo(e.target.value as TomadorTipo); setTomDoc(''); setTomEndereco(''); setBuscaDocMsg('') }}
                     className="bg-white border border-[#3D2314]/15 rounded-md px-2 py-2 text-[13px] text-[#3D2314]"
                   >
@@ -1053,34 +1068,57 @@ export default function NFSeEmitirGovModal({
                   <Info size={13} className="mt-0.5 flex-shrink-0" /><span>{MSG_EXIGE_SERVICO_NFSE}</span>
                 </div>
               )}
-              {svTrib && !retPreviaTem && (
-                <div className="rounded-md border border-[#3D2314]/15 bg-[#FAF7F2] px-3 py-2.5 space-y-1 text-[12px] text-[#3D2314]" data-testid="nfse-retencoes-previa-nenhuma">
-                  <div className="font-medium">Retenções desta nota (do cadastro do serviço)</div>
-                  <div>Nenhuma retenção no cadastro deste serviço: ISS não retido e sem INSS, IR, PIS, COFINS ou CSLL.</div>
-                  <div className="text-[11px] text-[#3D2314]/60">Se este serviço deveria reter, ajuste em Cadastros › Serviços antes de emitir.</div>
-                </div>
-              )}
-              {retPreviaTem && retPrevia && (
-                <div className="rounded-md border border-[#C8941A]/40 bg-[#FAEEDA]/50 px-3 py-2.5 space-y-1.5 text-[12px] text-[#3D2314]" data-testid="nfse-retencoes-previa">
-                  <div className="font-medium">Retenções desta nota (do cadastro do serviço)</div>
-                  {issRetidoCadastro && <div data-testid="nfse-retencoes-previa-iss">ISS <b>retido pelo tomador</b> (alíquota do município da prestação)</div>}
-                  {retPrevia.totalRetido > 0 && (
-                    <div className="flex flex-wrap gap-x-4 gap-y-0.5" data-testid="nfse-retencoes-previa-valores">
-                      {retPrevia.valorCp > 0 && <span>INSS <b>{fmtBRLPrev(retPrevia.valorCp)}</b></span>}
-                      {retPrevia.valorIrrf > 0 && <span>IR <b>{fmtBRLPrev(retPrevia.valorIrrf)}</b></span>}
-                      {retPrevia.valorPisRet > 0 && <span>PIS <b>{fmtBRLPrev(retPrevia.valorPisRet)}</b></span>}
-                      {retPrevia.valorCofinsRet > 0 && <span>COFINS <b>{fmtBRLPrev(retPrevia.valorCofinsRet)}</b></span>}
-                      {retPrevia.valorCsllRet > 0 && <span>CSLL <b>{fmtBRLPrev(retPrevia.valorCsllRet)}</b></span>}
-                      <span>· total retido <b>{fmtBRLPrev(retPrevia.totalRetido)}</b></span>
+              {/* #339 (reaberto) · retenções AJUSTÁVEIS POR NOTA: começam no cadastro do serviço, o usuário ajusta para o
+                  tomador desta nota (o "Sugerir" aplica a regra do regime de quem emite e do tipo do tomador). Os mesmos
+                  valores vão para a nota e para o título; o ajuste fica no histórico. */}
+              {svTrib && retNota && retPrevia && (
+                <div className={`rounded-md border px-3 py-2.5 space-y-2 text-[12px] text-[#3D2314] ${retAjustada ? 'border-[#C8941A]/60 bg-[#FAEEDA]/60' : 'border-[#3D2314]/15 bg-[#FAF7F2]'}`} data-testid="nfse-retencoes-nota">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-medium">Retenções desta nota{retAjustada ? <span className="ml-1.5 text-[11px] font-normal text-[#8A5A00]" data-testid="nfse-retencoes-ajustada">· ajustada nesta nota</span> : <span className="ml-1.5 text-[11px] font-normal text-[#3D2314]/60">· como no cadastro do serviço</span>}</div>
+                    <div className="flex gap-1.5">
+                      <button type="button" data-testid="nfse-retencoes-sugerir"
+                        onClick={() => { const r = sugerirRetencoesNota({ cadastro: svTrib as ServicoTributosFederais & { iss_retido?: boolean | null }, prestadorSimples: empresaSimples, tomadorPJ: tomTipo === 'CNPJ' }); setRetNota(r.nota); setSugestaoMsg(r.motivo) }}
+                        className="px-2 py-1 rounded border border-[#C8941A]/60 text-[11.5px] text-[#3D2314] hover:bg-[#C8941A]/10">Sugerir</button>
+                      {retAjustada && (
+                        <button type="button" data-testid="nfse-retencoes-cadastro" onClick={() => { setRetNota(retCadastro); setSugestaoMsg(null) }}
+                          className="px-2 py-1 rounded border border-[#3D2314]/15 text-[11.5px] text-[#3D2314]/80 hover:bg-[#3D2314]/5">Voltar ao cadastro</button>
+                      )}
                     </div>
-                  )}
+                  </div>
+                  {sugestaoMsg && <div className="text-[11px] text-[#8A5A00]" data-testid="nfse-retencoes-sugestao">{sugestaoMsg}</div>}
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={retNota.iss_retido} data-testid="nfse-ret-iss"
+                      onChange={(e) => setRetNota({ ...retNota, iss_retido: e.target.checked })} />
+                    <span>ISS <b>retido pelo tomador</b> <span className="text-[#3D2314]/60">(alíquota do município da prestação; no Simples, a alíquota efetiva do mês)</span></span>
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                    {TRIBUTOS_RETENCAO.map((k) => {
+                      const rotulo = ({ inss: 'INSS', ir: 'IR', pis: 'PIS', cofins: 'COFINS', csll: 'CSLL' } as const)[k]
+                      const valorK = ({ inss: retPrevia.valorCp, ir: retPrevia.valorIrrf, pis: retPrevia.valorPisRet, cofins: retPrevia.valorCofinsRet, csll: retPrevia.valorCsllRet } as const)[k]
+                      const retem = retNota[`retem_${k}`]
+                      return (
+                        <div key={k} className="flex items-center gap-2" data-testid={`nfse-ret-linha-${k}`}>
+                          <input type="checkbox" checked={retem} data-testid={`nfse-ret-${k}`}
+                            onChange={(e) => setRetNota({ ...retNota, [`retem_${k}`]: e.target.checked })} />
+                          <span className="w-14">{rotulo}</span>
+                          <input type="text" inputMode="decimal" disabled={!retem} data-testid={`nfse-ret-aliq-${k}`}
+                            value={retem ? String(retNota[`aliquota_${k}`] || '').replace('.', ',') : ''} placeholder="%"
+                            onChange={(e) => { const n = Number(e.target.value.replace(/\./g, '').replace(',', '.')); setRetNota({ ...retNota, [`aliquota_${k}`]: Number.isFinite(n) && n >= 0 && n < 100 ? n : 0 }) }}
+                            className="w-16 border border-[#3D2314]/15 rounded px-1.5 py-0.5 text-[12px] disabled:bg-[#3D2314]/5" />
+                          <span className="text-[#3D2314]/60">%</span>
+                          <span className="ml-auto tabular-nums">{retem ? fmtBRLPrev(valorK) : '—'}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="text-[12px]" data-testid="nfse-retencoes-total">Total retido (federais) <b>{fmtBRLPrev(retPrevia.totalRetido)}</b>{issRetidoCadastro ? ' + ISS retido pelo tomador' : ''}</div>
                   {retPrevia.erros.map((e) => (
                     <div key={e} className="flex items-start gap-1.5 text-[#791F1F]" data-testid="nfse-retencoes-previa-erro"><AlertCircle size={13} className="mt-0.5 flex-shrink-0" /><span>{e}</span></div>
                   ))}
                   {retPrevia.avisos.map((a) => (
                     <div key={a} className="flex items-start gap-1.5 text-[#8A5A00]" data-testid="nfse-retencoes-previa-aviso"><Info size={13} className="mt-0.5 flex-shrink-0" /><span>{a}</span></div>
                   ))}
-                  <div className="text-[11px] text-[#3D2314]/60">Os mesmos valores vão para a nota e para o título a receber. Para mudar, ajuste o cadastro do serviço.</div>
+                  <div className="text-[11px] text-[#3D2314]/60">Os mesmos valores vão para a nota e para o título a receber. O ajuste vale só para esta nota e fica registrado no histórico; o cadastro do serviço não muda.</div>
                 </div>
               )}
 

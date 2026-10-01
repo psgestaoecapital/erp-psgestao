@@ -142,6 +142,93 @@ export function issRetidoNfse(valorServico: number, tipoRetencaoIss: number | nu
   return cent((Number(valorServico) || 0) * aliq / 100)
 }
 
+// #339 (R.R, reaberto 01/10) · retenções AJUSTADAS NA NOTA. O cadastro do serviço é o ponto de partida, mas a
+// retenção muda de tomador para tomador com o mesmo serviço (ex.: prestador do Simples faturando para outro CNPJ).
+// O modal edita uma cópia por nota; a rota aplica a MESMA cópia sobre o cadastro e faz a mesma conta
+// (calcularRetencoesFederais) — nota e título continuam batendo. O CST do PIS/COFINS segue do cadastro.
+export interface RetencoesNota {
+  iss_retido: boolean
+  retem_inss: boolean; aliquota_inss: number
+  retem_ir: boolean; aliquota_ir: number
+  retem_pis: boolean; aliquota_pis: number
+  retem_cofins: boolean; aliquota_cofins: number
+  retem_csll: boolean; aliquota_csll: number
+}
+export const TRIBUTOS_RETENCAO = ['inss', 'ir', 'pis', 'cofins', 'csll'] as const
+export type TributoRetencao = typeof TRIBUTOS_RETENCAO[number]
+
+export function retencoesNotaDoCadastro(sv: (ServicoTributosFederais & { iss_retido?: boolean | null }) | null | undefined): RetencoesNota {
+  const s = sv ?? {}
+  return {
+    iss_retido: !!s.iss_retido,
+    retem_inss: !!s.retem_inss, aliquota_inss: pct(s.aliquota_inss),
+    retem_ir: !!s.retem_ir, aliquota_ir: pct(s.aliquota_ir),
+    retem_pis: !!s.retem_pis, aliquota_pis: pct(s.aliquota_pis),
+    retem_cofins: !!s.retem_cofins, aliquota_cofins: pct(s.aliquota_cofins),
+    retem_csll: !!s.retem_csll, aliquota_csll: pct(s.aliquota_csll),
+  }
+}
+
+/** Retenção desmarcada na nota mantém a alíquota do cadastro (ela também serve à apuração própria do PIS/COFINS). */
+export function aplicarRetencoesNota<T extends ServicoTributosFederais>(sv: T | null | undefined, nota: RetencoesNota): T & { iss_retido: boolean } {
+  const base = (sv ?? {}) as T
+  const out: Record<string, unknown> = { ...(base as Record<string, unknown>), iss_retido: !!nota.iss_retido }
+  for (const k of TRIBUTOS_RETENCAO) {
+    const retem = !!nota[`retem_${k}`]
+    out[`retem_${k}`] = retem
+    if (retem) out[`aliquota_${k}`] = pct(nota[`aliquota_${k}`])
+  }
+  return out as unknown as T & { iss_retido: boolean }
+}
+
+export function retencoesNotaIguais(a: RetencoesNota, b: RetencoesNota): boolean {
+  if (!!a.iss_retido !== !!b.iss_retido) return false
+  return TRIBUTOS_RETENCAO.every((k) => !!a[`retem_${k}`] === !!b[`retem_${k}`]
+    && (!a[`retem_${k}`] || pct(a[`aliquota_${k}`]) === pct(b[`aliquota_${k}`])))
+}
+
+/** Corpo vindo do cliente: só booleanos e alíquotas 0–100; qualquer outra coisa → null (a rota recusa). */
+export function lerRetencoesNota(x: unknown): RetencoesNota | null {
+  if (!x || typeof x !== 'object') return null
+  const o = x as Record<string, unknown>
+  if (typeof o.iss_retido !== 'boolean') return null
+  const r: Record<string, unknown> = { iss_retido: o.iss_retido }
+  for (const k of TRIBUTOS_RETENCAO) {
+    const retem = o[`retem_${k}`]; const aliq = Number(o[`aliquota_${k}`] ?? 0)
+    if (typeof retem !== 'boolean' || !Number.isFinite(aliq) || aliq < 0 || aliq >= 100) return null
+    r[`retem_${k}`] = retem; r[`aliquota_${k}`] = aliq
+  }
+  return r as unknown as RetencoesNota
+}
+
+/**
+ * "Sugerir" (CEO 01/10): considera o regime de QUEM EMITE e o tipo do tomador.
+ *  • Tomador pessoa física não retém nada (nem ISS).
+ *  • Prestador do Simples Nacional, em regra, não sofre retenção de IR, PIS, COFINS e CSLL; o ISS, quando retido,
+ *    vai pela alíquota efetiva do Simples da competência (a rota já usa essa alíquota). INSS e ISS seguem o cadastro.
+ *  • Demais casos: o cadastro do serviço.
+ */
+export function sugerirRetencoesNota(p: {
+  cadastro: (ServicoTributosFederais & { iss_retido?: boolean | null }) | null | undefined
+  prestadorSimples: boolean
+  tomadorPJ: boolean
+}): { nota: RetencoesNota; motivo: string } {
+  const cad = retencoesNotaDoCadastro(p.cadastro)
+  if (!p.tomadorPJ) {
+    return {
+      nota: { ...cad, iss_retido: false, retem_inss: false, retem_ir: false, retem_pis: false, retem_cofins: false, retem_csll: false },
+      motivo: 'Tomador pessoa física não retém impostos: nenhuma retenção nesta nota.',
+    }
+  }
+  if (p.prestadorSimples) {
+    return {
+      nota: { ...cad, retem_ir: false, retem_pis: false, retem_cofins: false, retem_csll: false },
+      motivo: 'Prestador do Simples Nacional: em regra sem retenção de IR, PIS, COFINS e CSLL. INSS e ISS retido seguem o cadastro do serviço; o ISS retido usa a alíquota efetiva do Simples do mês.',
+    }
+  }
+  return { nota: cad, motivo: 'Retenções do cadastro do serviço.' }
+}
+
 // #339 (R.R) · trava de emissão, a mesma em TODAS as telas (a rota aplica; o modal mostra antes):
 //  1) toda NFS-e sai de um serviço do cadastro — é dele que vêm as retenções federais e o ISS retido. Sem serviço,
 //     a nota sairia sem nenhuma retenção, calada (o buraco do #286 por outro caminho).
