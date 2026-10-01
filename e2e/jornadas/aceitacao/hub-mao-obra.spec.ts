@@ -2,6 +2,7 @@
 // Caminho principal (pela tela): nova função → novo perfil padrão (2 pessoas, R$ 2.800 + benefícios) → a ficha mostra o
 // custo com os encargos da empresa enquanto digita → salvo fica "não conferido" e NÃO entra no custo da função →
 // "Conferir" → a função passa a ter custo/hora = média do grupo. Inativar tira do custo (nada é apagado — RD-30).
+// Toda abertura de ficha com salário fica em erp_mao_obra_acesso_log (CEO 01/10).
 // A conta da tela é a mesma do banco (fn_mao_obra_custo_calcular), inclusive o exemplo da SPEC (36,8% → R$ 31,18/h).
 // Depende das tabelas/funções da migration 20261002100000 → @pos-migration. Demonstração Comércio (GE); dados de teste
 // criados e removidos no fim.
@@ -30,6 +31,8 @@ test.describe('Hub · Mão de obra — função, equipe conferida e custo da hor
   test.afterAll(async () => {
     const fs = await dbSelect<{ id: string }>('erp_funcao_mao_obra', `company_id=eq.${DEMO_GE}&nome=eq.${encodeURIComponent(FUNCAO)}&select=id`).catch(() => [])
     for (const f of fs) {
+      const fichas = await dbSelect<{ id: string }>('erp_mao_obra_custo', `funcao_id=eq.${f.id}&select=id`).catch(() => [])
+      for (const k of fichas) await dbDelete('erp_mao_obra_acesso_log', `ficha_id=eq.${k.id}`).catch(() => {})
       await dbDelete('erp_mao_obra_custo', `funcao_id=eq.${f.id}`).catch(() => {})
       await dbDelete('erp_funcao_mao_obra', `id=eq.${f.id}`).catch(() => {})
     }
@@ -84,6 +87,10 @@ test.describe('Hub · Mão de obra — função, equipe conferida e custo da hor
     const antes = await rpc<{ origem: string; nao_conferidas: number }>('fn_funcao_custo_hora', { p_funcao_id: funcaoId })
     expect(antes.origem, 'não conferido não entra no custo da função').toBe('sem_dado')
     expect(antes.nao_conferidas).toBe(1)
+
+    // CEO 01/10: toda abertura de ficha com salário fica no log (quem, quando, qual ficha) — a tela abriu a lista
+    const log = await dbSelect<{ user_id: string; origem: string; em: string }>('erp_mao_obra_acesso_log', `ficha_id=eq.${ficha.id}&select=user_id,origem,em`)
+    expect(log.some((l) => l.origem === 'lista' && !!l.user_id && !!l.em), 'abertura da ficha registrada no log').toBe(true)
 
     // 3) conferir → entra na média
     const linha = page.getByTestId(`mao-obra-linha-${ficha.grupo_id}`)

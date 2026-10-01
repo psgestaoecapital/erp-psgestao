@@ -8,12 +8,14 @@
 --                            linha); conferido (não conferido não entra no custo).
 -- Custo da função = média do GRUPO (company_groups) ponderada pelas horas produtivas × pessoas, só fichas
 -- conferidas e vigentes; casa por CBO quando houver, senão pelo nome (sem acento/maiúscula), com "unir".
--- LGPD: salário e custo individual só para owner/sócio/diretor/gerente/financeiro/admin da empresa que emprega;
--- o resto vê só a média da função. Escrita só pelas funções (RLS sem INSERT/UPDATE/DELETE). Nada é apagado.
+-- LGPD: salário e custo individual só para owner/sócio/diretor/gerente/financeiro/admin/adm/acesso_total DA PRÓPRIA
+-- empresa que emprega (papel em outra empresa não vale — CEO 01/10); o resto vê só a média da função. Toda abertura de
+-- ficha com salário fica em erp_mao_obra_acesso_log (quem, quando, qual ficha); a tabela não é lida direto pelo cliente. Escrita só pelas funções (RLS sem INSERT/UPDATE/DELETE). Nada é apagado.
 -- A lista atual (projetos_mao_obra, ligada às composições) ganha funcao_id; a migração das funções antigas só com
 -- prévia e OK do CEO (fn_mao_obra_migrar_aplicar exige administrador PS).
 
 -- ───────────────────────────── quem vê custo individual ─────────────────────────────
+-- só o papel NA empresa que emprega (uc.company_id = a empresa da ficha); administrador PS também vê e também fica no log
 CREATE OR REPLACE FUNCTION public.fn__mao_obra_pode_ver_individual(p_company_id uuid)
  RETURNS boolean
  LANGUAGE sql
@@ -117,12 +119,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_mao_obra_custo_grupo_vigente ON public.erp_
 CREATE INDEX IF NOT EXISTS ix_mao_obra_custo_company ON public.erp_mao_obra_custo (company_id);
 CREATE INDEX IF NOT EXISTS ix_mao_obra_custo_funcao ON public.erp_mao_obra_custo (funcao_id);
 
+-- log de toda abertura de ficha com salário (CEO 01/10): quem, quando, qual ficha e por onde (lista ou histórico)
+CREATE TABLE IF NOT EXISTS public.erp_mao_obra_acesso_log (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  company_id uuid NOT NULL REFERENCES public.companies(id),
+  user_id uuid NOT NULL,
+  ficha_id uuid NOT NULL REFERENCES public.erp_mao_obra_custo(id),
+  grupo_id uuid NOT NULL,
+  origem text NOT NULL CHECK (origem IN ('lista', 'historico')),
+  em timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_mao_obra_acesso_log_empresa ON public.erp_mao_obra_acesso_log (company_id, em DESC);
+CREATE INDEX IF NOT EXISTS ix_mao_obra_acesso_log_ficha ON public.erp_mao_obra_acesso_log (grupo_id, em DESC);
+
 ALTER TABLE public.projetos_mao_obra ADD COLUMN IF NOT EXISTS funcao_id uuid REFERENCES public.erp_funcao_mao_obra(id);
 
--- RLS: leitura por empresa; ficha (salário) só para quem pode ver custo individual; escrita só pelas funções
+-- RLS: leitura por empresa; ficha (salário) só pelas funções (que gravam o log); escrita só pelas funções
 ALTER TABLE public.erp_funcao_mao_obra ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.erp_encargos_empresa ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.erp_mao_obra_custo ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.erp_mao_obra_acesso_log ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS funcao_mao_obra_select ON public.erp_funcao_mao_obra;
 CREATE POLICY funcao_mao_obra_select ON public.erp_funcao_mao_obra FOR SELECT TO authenticated
   USING (company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin());
@@ -132,9 +148,14 @@ CREATE POLICY encargos_empresa_select ON public.erp_encargos_empresa FOR SELECT 
 DROP POLICY IF EXISTS mao_obra_custo_select ON public.erp_mao_obra_custo;
 CREATE POLICY mao_obra_custo_select ON public.erp_mao_obra_custo FOR SELECT TO authenticated
   USING ((company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin()) AND public.fn__mao_obra_pode_ver_individual(company_id));
-REVOKE ALL ON public.erp_funcao_mao_obra, public.erp_encargos_empresa, public.erp_mao_obra_custo FROM anon;
-REVOKE INSERT, UPDATE, DELETE ON public.erp_funcao_mao_obra, public.erp_encargos_empresa, public.erp_mao_obra_custo FROM authenticated;
-GRANT SELECT ON public.erp_funcao_mao_obra, public.erp_encargos_empresa, public.erp_mao_obra_custo TO authenticated;
+DROP POLICY IF EXISTS mao_obra_acesso_log_select ON public.erp_mao_obra_acesso_log;
+CREATE POLICY mao_obra_acesso_log_select ON public.erp_mao_obra_acesso_log FOR SELECT TO authenticated
+  USING ((company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin()) AND public.fn__mao_obra_pode_ver_individual(company_id));
+REVOKE ALL ON public.erp_funcao_mao_obra, public.erp_encargos_empresa, public.erp_mao_obra_custo, public.erp_mao_obra_acesso_log FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.erp_funcao_mao_obra, public.erp_encargos_empresa, public.erp_mao_obra_custo, public.erp_mao_obra_acesso_log FROM authenticated;
+-- a ficha (salário) não é lida direto: só por fn_mao_obra_listar / fn_mao_obra_ficha_historico, que gravam o log
+REVOKE SELECT ON public.erp_mao_obra_custo FROM authenticated;
+GRANT SELECT ON public.erp_funcao_mao_obra, public.erp_encargos_empresa, public.erp_mao_obra_acesso_log TO authenticated;
 
 -- ───────────────────────────── encargos vigentes (padrão por regime = provisórios) ─────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_mao_obra_encargos_vigentes(p_company_id uuid, p_data date DEFAULT current_date)
@@ -300,7 +321,7 @@ GRANT EXECUTE ON FUNCTION public.fn__mao_obra_sync_catalogo(uuid) TO service_rol
 CREATE OR REPLACE FUNCTION public.fn_mao_obra_listar(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
- STABLE
+ VOLATILE
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
@@ -330,6 +351,12 @@ BEGIN
     JOIN erp_funcao_mao_obra fn ON fn.id = k.funcao_id
     LEFT JOIN compliance_funcionarios cf ON cf.id = k.funcionario_id
    WHERE k.company_id = p_company_id AND k.vigencia_fim IS NULL) z;
+  -- log: cada ficha com salário que chegou à tela (quem, quando, qual ficha)
+  IF v_pode AND auth.uid() IS NOT NULL THEN
+    INSERT INTO erp_mao_obra_acesso_log (company_id, user_id, ficha_id, grupo_id, origem)
+    SELECT k.company_id, auth.uid(), k.id, k.grupo_id, 'lista' FROM erp_mao_obra_custo k
+     WHERE k.company_id = p_company_id AND k.vigencia_fim IS NULL;
+  END IF;
   RETURN jsonb_build_object('pode_ver_individual', v_pode, 'encargos', v_enc, 'funcoes', v_funcoes, 'equipe', v_equipe);
 END $function$;
 REVOKE ALL ON FUNCTION public.fn_mao_obra_listar(uuid) FROM PUBLIC, anon;
@@ -339,7 +366,7 @@ GRANT EXECUTE ON FUNCTION public.fn_mao_obra_listar(uuid) TO authenticated, serv
 CREATE OR REPLACE FUNCTION public.fn_mao_obra_ficha_historico(p_grupo_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
- STABLE
+ VOLATILE
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
@@ -349,6 +376,10 @@ BEGIN
   IF v_company IS NULL THEN RETURN '[]'::jsonb; END IF;
   PERFORM public.fn__guarda_empresa(v_company);
   IF NOT public.fn__mao_obra_pode_ver_individual(v_company) THEN RAISE EXCEPTION 'Só gestor ou financeiro da empresa vê o histórico de custo.' USING ERRCODE = '42501'; END IF;
+  IF auth.uid() IS NOT NULL THEN
+    INSERT INTO erp_mao_obra_acesso_log (company_id, user_id, ficha_id, grupo_id, origem)
+    SELECT k.company_id, auth.uid(), k.id, k.grupo_id, 'historico' FROM erp_mao_obra_custo k WHERE k.grupo_id = p_grupo_id;
+  END IF;
   RETURN (SELECT COALESCE(jsonb_agg(jsonb_build_object('vigencia_inicio', k.vigencia_inicio, 'vigencia_fim', k.vigencia_fim, 'salario', k.salario,
             'valor_unidade', k.valor_unidade, 'motivo', k.motivo, 'conferido', k.conferido,
             'custo', public.fn_mao_obra_custo_calcular(to_jsonb(k), public.fn_mao_obra_encargos_vigentes(k.company_id, k.vigencia_inicio))) ORDER BY k.vigencia_inicio DESC), '[]'::jsonb)

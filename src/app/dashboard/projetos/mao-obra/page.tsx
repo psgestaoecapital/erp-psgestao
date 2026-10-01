@@ -100,6 +100,11 @@ export default function MaoObraPage() {
           <Lock size={13} /> Salário e custo de cada pessoa só aparecem para gestor e financeiro da empresa. Aqui você vê a média de cada função.
         </div>
       )}
+      {pode && dados && (
+        <div className="text-[11.5px] text-[#3D2314]/60 flex items-center gap-1.5" data-testid="mao-obra-lgpd-log">
+          <Lock size={12} /> Você vê salário e custo de cada pessoa desta empresa. Cada abertura fica registrada (quem, quando, qual ficha).
+        </div>
+      )}
       {erro && <div className="rounded-md bg-[#F7E1E1] text-[#791F1F] px-3 py-2 text-[12.5px]" data-testid="mao-obra-erro">{erro}</div>}
       {aviso && !erro && <div className="rounded-md bg-[#E5F2E1] text-[#2F5A1F] px-3 py-2 text-[12.5px]" data-testid="mao-obra-aviso">{aviso}</div>}
 
