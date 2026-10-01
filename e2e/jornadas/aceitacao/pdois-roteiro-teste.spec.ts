@@ -1,7 +1,8 @@
 // Roteiro de teste da Pdois (CEO 01/10, "a Pdois testa amanhã"): o MESMO caminho que a Pdois vai fazer, pela tela, na
 // Agência (P&M) - DEMO, como o robô. Cobre o que não tinha teste de tela: botão do WhatsApp, "Meus leads",
 // "Minhas tarefas" aberta pelo botão, agenda "Minha agenda × Equipe" (#119) e o lead criado pela tela com origem nova
-// (#552). Sem migration: roda no preview (veredito da PR) contra o banco de produção, só na demo.
+// (#552). Passos 1–5 dependem do funil de leads da demo, que só nasce com a correção 20261001220000 (o funil padrão
+// quebrava com "chave is ambiguous") → @pos-migration: no preview informativo, veredito em produção após o deploy.
 // Limpeza sem apagar (RD-30): lead de teste vai para a lixeira (deleted_at); tarefa fica "feita" (é o próprio roteiro).
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
@@ -33,7 +34,7 @@ test.describe('Roteiro da Pdois: lead com WhatsApp → tarefa → Minhas tarefas
     if (leadId) await dbPatch('agency_leads', `id=eq.${leadId}`, { deleted_at: new Date().toISOString() }).catch(() => {})
   })
 
-  test('1-2 · novo lead pela tela com origem WhatsApp; "Meus leads" no filtro', async ({ page }) => {
+  test('1-2 · novo lead pela tela com origem WhatsApp; "Meus leads" no filtro', { tag: '@pos-migration' }, async ({ page }) => {
     await page.goto('/dashboard/pm/leads')
     await aguardarConteudo(page)
     await expect(page.getByLabel('Responsável', { exact: true }).locator('option', { hasText: 'Meus leads' })).toHaveCount(1)
@@ -66,7 +67,7 @@ test.describe('Roteiro da Pdois: lead com WhatsApp → tarefa → Minhas tarefas
     }
   })
 
-  test('3-4 · Tarefas do lead: botão do WhatsApp, criar tarefa; aparece em "Minhas tarefas" e marca como feita', async ({ page }) => {
+  test('3-4 · Tarefas do lead: botão do WhatsApp, criar tarefa; aparece em "Minhas tarefas" e marca como feita', { tag: '@pos-migration' }, async ({ page }) => {
     expect(leadId, 'o passo anterior criou o lead').toBeTruthy()
     await page.goto('/dashboard/pm/leads')
     await aguardarConteudo(page)
@@ -108,7 +109,7 @@ test.describe('Roteiro da Pdois: lead com WhatsApp → tarefa → Minhas tarefas
       `id=eq.${tarefaId}&select=situacao,resultado`))[0]?.situacao ?? null, { timeout: 15000 }).toBe('feita')
   })
 
-  test('5 · Agenda: abre em "Minha agenda" com a tarefa do dia; "Equipe" mostra a de todos', async ({ page }) => {
+  test('5 · Agenda: abre em "Minha agenda" com a tarefa do dia; "Equipe" mostra a de todos', { tag: '@pos-migration' }, async ({ page }) => {
     const [ag] = await dbSelect<{ titulo: string }>('erp_agendamento',
       `company_id=eq.${DEMO_AG}&dados->>lead_id=eq.${leadId}&excluido_em=is.null&select=titulo&order=created_at.desc&limit=1`)
     expect(ag, 'a tarefa entrou na agenda').toBeTruthy()
