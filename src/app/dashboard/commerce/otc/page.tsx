@@ -31,6 +31,7 @@ import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 import NFeCard from '@/components/comum/NFeCard'
+import CancelarVendaModal from '@/components/comum/CancelarVendaModal'
 
 // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · tipos do retorno de fn_pedido_nfse_dados
 type NfsePedidoTomador = {
@@ -458,6 +459,7 @@ function OTCPageInner() {
           // PEDIDO 2 · um caminho: card, arrastar e drawer passam TODOS pela mesma confirmação →
           // fn_converter_orcamento_em_pedido (antes o drawer convertia direto, sem confirmar).
           onConverter={() => { const o = orcSel; setOrcSel(null); setConfirmConv(o) }}
+          onCancelado={() => { setOrcSel(null); carregar() }}
         />
       )}
 
@@ -870,10 +872,13 @@ function KpiCard({ label, valor, sub, accent }: { label: string; valor: string; 
   )
 }
 
-function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter }: {
+function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter, onCancelado }: {
   orc: Orcamento; itens: OrcamentoItem[]; onClose: () => void;
-  onEnviar: () => void; onAprovar: () => void; onConverter: () => void;
+  onEnviar: () => void; onAprovar: () => void; onConverter: () => void; onCancelado: () => void;
 }) {
+  // #728 · cancelar orçamento (motivo obrigatório; já convertido → cancela-se o pedido)
+  const [cancelarAberto, setCancelarAberto] = useState(false)
+  const canCancelar = !['convertido', 'cancelado', 'venda_avulsa'].includes(orc.status) && !orc.pedido_id
   const canEnviar = orc.status === 'rascunho'
   const canAprovar = ['enviado', 'visualizado'].includes(orc.status)
   // #122 (R.R): converte de qualquer etapa aberta — "enviado" é opcional (mesma regra do banco)
@@ -961,9 +966,16 @@ function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter
             {orc.pedido_id && (
               <span style={{ fontSize: 11, color: C.purple, fontWeight: 600, alignSelf: 'center' }}>✓ Já convertido em pedido</span>
             )}
+            {canCancelar && (
+              <button onClick={() => setCancelarAberto(true)} data-testid="orcamento-cancelar" style={{ ...btnSec, color: '#791F1F', borderColor: '#791F1F' }}><X size={14} /> Cancelar orçamento</button>
+            )}
           </div>
         </div>
       </aside>
+      {cancelarAberto && (
+        <CancelarVendaModal tipo="orcamento" id={orc.id} numero={orc.numero ?? null} companyId={orc.company_id}
+          onClose={() => setCancelarAberto(false)} onCancelado={() => { setCancelarAberto(false); onCancelado() }} />
+      )}
     </div>
   )
 }
@@ -973,6 +985,8 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   const orcOrigem = ped.orcamento_origem_id ? orcamentos.find((o) => o.id === ped.orcamento_origem_id) : null
   // FEAT-OS-ONDA3A-FATURAMENTO-v1 · status local pra refletir faturamento sem reload
   const [statusLocal, setStatusLocal] = useState(ped.status)
+  // #728 · cancelar pedido (as travas — nota, recebido, boleto, faturado — são do banco e aparecem na janela)
+  const [cancelarAberto, setCancelarAberto] = useState(false)
   const [faturando, setFaturando] = useState(false)
   const [faturaResult, setFaturaResult] = useState<{ ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null; erro?: string } | null>(null)
   // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · dados pra emitir NFS-e do pedido faturado
@@ -1088,8 +1102,18 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
               <p style={{ margin: '4px 0 0', fontSize: 11, color: C.purple }}>📂 Originado do orçamento <strong>{orcOrigem.numero}</strong></p>
             )}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: C.espressoM }}><X size={16} /></button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {!['cancelado', 'cancelado_parcial'].includes(statusLocal) && (
+              <button onClick={() => setCancelarAberto(true)} data-testid="pedido-cancelar" style={{ ...btnSec, color: '#791F1F', borderColor: '#791F1F' }}>Cancelar pedido</button>
+            )}
+            <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: C.espressoM }}><X size={16} /></button>
+          </div>
         </header>
+        {cancelarAberto && (
+          <CancelarVendaModal tipo="pedido" id={ped.id} numero={ped.numero ?? null} companyId={ped.company_id}
+            onClose={() => setCancelarAberto(false)}
+            onCancelado={async () => { setCancelarAberto(false); setStatusLocal('cancelado'); await onFaturado?.() }} />
+        )}
 
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Card titulo="Cliente & Datas">
