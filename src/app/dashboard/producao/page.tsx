@@ -463,45 +463,28 @@ function ProducaoPageInner() {
       {/* ─── FORM modal: job ─── */}
       {showForm === 'job' && (
         <Modal titulo={editId ? 'Editar job' : 'Novo job'} onClose={() => { setShowForm(null); setEditId(null); setForm({}); setMaisDetalhesJob(false) }}>
-          {/* ESSENCIAL */}
-          <div style={grid2}>
-            <Field label="Título *" v={form.titulo} on={(v) => setForm({ ...form, titulo: v })} />
-            <Select label="Cliente" v={(form.cliente_id as string) ?? ''} on={(v) => setForm({ ...form, cliente_id: v || null })}
+          {/* #144 (Pdois · CEO 01/10): ordem do SIGA — Cliente → Peça/tipo → Título (grande) → Prazo → Responsável → Briefing */}
+          <div style={{ display: 'grid', gap: 10, marginBottom: 10 }}>
+            <Select label="Cliente" testId="job-cliente" v={(form.cliente_id as string) ?? ''} on={(v) => setForm({ ...form, cliente_id: v || null })}
               opts={[['', '— selecionar —'], ...clientes.map((c) => [c.id, c.nome_fantasia || c.nome] as [string, string])]} />
-            {servicos.length > 0 && (
-              <Select label="Serviço (catálogo)" v={(form.servico_id as string) ?? ''}
-                on={(v) => {
-                  const s = servicos.find((x) => x.id === v)
-                  if (!s) { setForm({ ...form, servico_id: null }); return }
-                  setForm({
-                    ...form, servico_id: s.id,
-                    titulo: form.titulo || s.nome,
-                    valor_job: form.valor_job || s.valor_base || 0,
-                    horas_estimadas: form.horas_estimadas || s.horas_estimadas || 0,
-                    responsavel_id: (form.responsavel_id as string) || s.responsavel_padrao_id || null,
-                  })
-                }}
-                opts={[['', '— do catálogo (herda horas/responsável) —'], ...servicos.map((s) => [s.id, s.nome] as [string, string])]} />
-            )}
-            <Select label="Estágio" v={(form.status as string) ?? 'nao_iniciada'} on={(v) => setForm({ ...form, status: v })}
-              opts={ESTAGIOS.map((e) => [e.v, e.l])} />
-            <Select label="Prioridade" v={(form.prioridade as string) ?? 'normal'} on={(v) => setForm({ ...form, prioridade: v })}
-              opts={Object.entries(PRIORIDADES).map(([k, p]) => [k, p.l])} />
+            <Select label="Peça / tipo" testId="job-tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
+              opts={[['', '— que peça vai ser feita —'], ...TIPOS_PECA]} />
+            <label style={lbl}>
+              Título *
+              <textarea data-testid="job-titulo" rows={2} value={(form.titulo as string) ?? ''}
+                onChange={(e) => setForm({ ...form, titulo: e.target.value.replace(/\s*\n\s*/g, ' ') })}
+                placeholder="Ex.: Post Dia das Crianças — carrossel 3 cards"
+                style={{ ...inp, fontSize: 15, resize: 'vertical' }} />
+            </label>
           </div>
-
-          {/* BRIEFING — em destaque, o campo mais usado */}
-          <BriefingEditor value={(form.descricao as string) ?? ''} onChange={(v) => setForm({ ...form, descricao: v })} />
-
-          {/* PRAZOS & RESPONSÁVEL */}
-          <div style={{ fontSize: 12, fontWeight: 700, color: ESPRESSO, margin: '14px 0 6px' }}>Prazos & responsável</div>
           <div style={grid2}>
-            <Field label="Início" type="date" v={form.data_inicio} on={(v) => setForm({ ...form, data_inicio: v || null })} />
-            <Field label="Prazo" type="date" v={form.data_prazo} on={(v) => setForm({ ...form, data_prazo: v })} />
-            <Select label="Responsável" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
+            <Field label="Prazo" type="date" testId="job-prazo" v={form.data_prazo} on={(v) => setForm({ ...form, data_prazo: v })} />
+            <Select label="Responsável" testId="job-responsavel" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
               opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
-            <Field label="Responsável (sem login)" v={form.responsavel_nome as string | undefined}
-              on={(v) => setForm({ ...form, responsavel_nome: v || null, responsavel_id: v ? null : (form.responsavel_id ?? null) })} />
           </div>
+
+          {/* BRIEFING — por último, área grande */}
+          <BriefingEditor value={(form.descricao as string) ?? ''} onChange={(v) => setForm({ ...form, descricao: v })} />
 
           {/* MAIS DETALHES — colapsado */}
           <button type="button" onClick={() => setMaisDetalhesJob(!maisDetalhesJob)} style={maisDetalhesBtn}>
@@ -509,10 +492,28 @@ function ProducaoPageInner() {
           </button>
           {maisDetalhesJob && (
             <div style={grid2}>
-              <Select label="Tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
-                opts={[['', '— tipo —'], ['site', 'Site'], ['video', 'Vídeo'], ['arte', 'Arte/Design'],
-                  ['campanha', 'Campanha'], ['social_media', 'Social Media'], ['assessoria', 'Assessoria'],
-                  ['logomarca', 'Logomarca'], ['catalogo', 'Catálogo'], ['lp', 'Landing Page']]} />
+              {servicos.length > 0 && (
+                <Select label="Serviço (catálogo)" v={(form.servico_id as string) ?? ''}
+                  on={(v) => {
+                    const s = servicos.find((x) => x.id === v)
+                    if (!s) { setForm({ ...form, servico_id: null }); return }
+                    setForm({
+                      ...form, servico_id: s.id,
+                      titulo: form.titulo || s.nome,
+                      valor_job: form.valor_job || s.valor_base || 0,
+                      horas_estimadas: form.horas_estimadas || s.horas_estimadas || 0,
+                      responsavel_id: (form.responsavel_id as string) || s.responsavel_padrao_id || null,
+                    })
+                  }}
+                  opts={[['', '— do catálogo (herda horas/responsável) —'], ...servicos.map((s) => [s.id, s.nome] as [string, string])]} />
+              )}
+              <Select label="Estágio" v={(form.status as string) ?? 'nao_iniciada'} on={(v) => setForm({ ...form, status: v })}
+                opts={ESTAGIOS.map((e) => [e.v, e.l])} />
+              <Select label="Prioridade" v={(form.prioridade as string) ?? 'normal'} on={(v) => setForm({ ...form, prioridade: v })}
+                opts={Object.entries(PRIORIDADES).map(([k, p]) => [k, p.l])} />
+              <Field label="Início" type="date" v={form.data_inicio} on={(v) => setForm({ ...form, data_inicio: v || null })} />
+              <Field label="Responsável (sem login)" v={form.responsavel_nome as string | undefined}
+                on={(v) => setForm({ ...form, responsavel_nome: v || null, responsavel_id: v ? null : (form.responsavel_id ?? null) })} />
               <Field label="Valor (R$)" type="number" v={form.valor_job} on={(v) => setForm({ ...form, valor_job: parseFloat(v) || 0 })} />
               <Field label="Horas estimadas" type="number" v={form.horas_estimadas} on={(v) => setForm({ ...form, horas_estimadas: parseFloat(v) || 0 })} />
               <Field label="% Comissão (preview)" type="number" v={form.percentual_comissao} on={(v) => setForm({ ...form, percentual_comissao: v === '' ? null : parseFloat(v) })} />
@@ -894,6 +895,15 @@ function TimesheetTabela({
   )
 }
 
+// Peça/tipo do job (#144 · Pdois): as peças do dia a dia da agência primeiro, depois os projetos maiores.
+// agency_jobs.tipo é texto livre — as chaves antigas (site, video, arte…) continuam valendo.
+const TIPOS_PECA: Array<[string, string]> = [
+  ['post_rede_social', 'Post de rede social'], ['arte_avulsa', 'Arte avulsa'], ['capa_rede_social', 'Capa de rede social (Facebook, YouTube…)'],
+  ['story', 'Story / Reels'], ['arte', 'Arte/Design'], ['social_media', 'Social Media (pacote)'], ['campanha', 'Campanha'],
+  ['video', 'Vídeo'], ['site', 'Site'], ['lp', 'Landing Page'], ['logomarca', 'Logomarca'], ['catalogo', 'Catálogo'],
+  ['assessoria', 'Assessoria'], ['outro', 'Outro'],
+]
+
 // ─── Briefing do job (texto/markdown puro — SEM HTML, sem risco de XSS) ─────
 // O SIGA tem editor rico com HTML; como o projeto não tem sanitizador, guardamos
 // TEXTO/Markdown leve em agency_jobs.descricao. Os botões inserem apenas marcadores
@@ -961,23 +971,23 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Field({ label, v, on, type = 'text', multiline }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean }) {
+function Field({ label, v, on, type = 'text', multiline, testId }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string }) {
   return (
     <label style={lbl}>
       {label}
       {multiline ? (
-        <textarea rows={3} value={(v as string) ?? ''} onChange={(e) => on(e.target.value)} style={{ ...inp, resize: 'vertical' }} />
+        <textarea rows={3} value={(v as string) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={{ ...inp, resize: 'vertical' }} />
       ) : (
-        <input type={type} value={(v as string | number) ?? ''} onChange={(e) => on(e.target.value)} style={inp} />
+        <input type={type} value={(v as string | number) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={inp} />
       )}
     </label>
   )
 }
-function Select({ label, v, on, opts }: { label: string; v: string; on: (v: string) => void; opts: Array<[string, string]> }) {
+function Select({ label, v, on, opts, testId }: { label: string; v: string; on: (v: string) => void; opts: Array<[string, string]>; testId?: string }) {
   return (
     <label style={lbl}>
       {label}
-      <select value={v} onChange={(e) => on(e.target.value)} style={inp}>
+      <select value={v} onChange={(e) => on(e.target.value)} data-testid={testId} style={inp}>
         {opts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
     </label>
