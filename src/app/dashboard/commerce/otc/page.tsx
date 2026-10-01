@@ -31,6 +31,7 @@ import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 import NFeCard from '@/components/comum/NFeCard'
+import GerarBoletosReceita from '@/components/financeiro/GerarBoletosReceita'
 
 // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · tipos do retorno de fn_pedido_nfse_dados
 type NfsePedidoTomador = {
@@ -985,6 +986,12 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · ultima NFS-e do pedido (inclui rejeitada)
   const [nfseUltima, setNfseUltima] = useState<{ id: string; numero: string | null; status: string; pdf_url: string | null; motivo_rejeicao: string | null } | null>(null)
   const [nfseAtualizando, setNfseAtualizando] = useState(false)
+  // #782 · boleto na própria tela de pedido: após "Gerar Financeiro", as parcelas marcadas com
+  // "Boleto" têm seu boleto gerado aqui (reusa GerarBoletosReceita). Os receber_ids NÃO vêm do
+  // retorno do fn_faturar (o caminho com previsão delega a fn_faturar_efetivar, que não os retorna):
+  // buscamos os títulos efetivados cruzando com as parcelas que têm gerar_boleto=true.
+  const [boletoIds, setBoletoIds] = useState<string[]>([])
+  const [boletoAberto, setBoletoAberto] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -994,6 +1001,36 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
     })()
     return () => { alive = false }
   }, [ped.id])
+
+  // #782 · receber_ids dos títulos efetivados cujas parcelas pediram boleto (gerar_boleto=true).
+  const carregarBoletoIds = useCallback(async (): Promise<string[]> => {
+    const { data: parc } = await supabase
+      .from('erp_pedidos_parcelas')
+      .select('id')
+      .eq('pedido_id', ped.id)
+      .eq('gerar_boleto', true)
+    const parcIds = (parc ?? []).map((p) => p.id as string)
+    if (parcIds.length === 0) { setBoletoIds([]); return [] }
+    const { data: rec } = await supabase
+      .from('erp_receber')
+      .select('id')
+      .eq('pedido_id', ped.id)
+      .neq('status', 'previsto')
+      .is('deleted_at', null)
+      .in('pedido_parcela_id', parcIds)
+    const ids = (rec ?? []).map((r) => r.id as string)
+    setBoletoIds(ids)
+    return ids
+  }, [ped.id])
+
+  // Reabrir um pedido já faturado com parcelas de boleto ainda pendentes → mostra o gerador.
+  useEffect(() => {
+    let alive = true
+    if (ped.status === 'faturado' || ped.status === 'faturamento_parcial') {
+      void carregarBoletoIds().then((ids) => { if (alive && ids.length > 0) setBoletoAberto(true) })
+    }
+    return () => { alive = false }
+  }, [ped.id, ped.status, carregarBoletoIds])
 
   // FIX-NFSE-PRODUCAO-PROVIDER-v2 · lê a config fiscal ATIVA (helper compartilhado). Antes filtrava por
   // provider='gov_nfse_nacional' (legado, inativo) e travava Produção pra todo mundo — chamado #16.
@@ -1287,6 +1324,14 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     CMV: <strong>{fmtBRL(faturaResult.cmv)}</strong>
                   </div>
                 )}
+                {/* #782 · gera o(s) boleto(s) das parcelas marcadas, aqui mesmo na tela de pedido */}
+                {boletoAberto && boletoIds.length > 0 && (
+                  <GerarBoletosReceita
+                    companyId={ped.company_id}
+                    ids={boletoIds}
+                    onConcluir={() => setBoletoAberto(false)}
+                  />
+                )}
               </div>
             ) : statusLocal === 'cancelado' ? (
               <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>Pedido cancelado · não pode ser faturado.</p>
@@ -1327,6 +1372,9 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     setFaturaResult(r)
                     if (r?.ok) {
                       setStatusLocal('faturado')
+                      // #782 · parcelas marcadas com "Boleto" → abre o gerador na própria tela
+                      const ids = await carregarBoletoIds()
+                      if (ids.length > 0) setBoletoAberto(true)
                       await onFaturado?.()
                     }
                   }}
