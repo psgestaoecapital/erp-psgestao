@@ -10,14 +10,16 @@ import { HardHat, Plus, Users, UserPlus, Link2, History, Lock, CheckCircle2, Ale
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabase } from "@/lib/supabase";
 import MaoObraCatalogoLegado from "@/components/projetos/MaoObraCatalogoLegado";
-import { calcularCustoMaoObra, encargosFolhaPct, fatorFolhaReoneracao, type Encargos, type FichaCusto } from "@/lib/hub/custoMaoObra";
+import { calcularCustoMaoObra, encargosFolhaPct, fatorFolhaReoneracao, type Encargos, type FichaCusto, type PadroesFicha } from "@/lib/hub/custoMaoObra";
+import { cpfValido, mascaraCpf } from "@/lib/documentos/cpf";
 
 type CustoFuncao = { custo_hora: number | null; custo_m2: number | null; origem: "media_grupo" | "manual" | "sem_dado"; pessoas_conferidas: number; empresas: number; nao_conferidas: number };
-type Funcao = { id: string; nome: string; cbo: string | null; forma_pagamento: string; custo_hora_manual: number | null; unida_a_id: string | null; unida_a_nome: string | null; ativo: boolean; migrada_de: string | null; custo: CustoFuncao | null };
+type Funcao = { id: string; nome: string; cbo: string | null; forma_pagamento: string; custo_hora_manual: number | null; unida_a_id: string | null; unida_a_nome: string | null; ativo: boolean; migrada_de: string | null; custo: CustoFuncao | null;
+  salario_sugerido?: { valor: number; origem: "media_conferida" | "estimado_custo_hora"; pessoas: number } | null };
 type ItemEquipe = {
   id: string; grupo_id: string; tipo: "pessoa" | "perfil"; funcionario_id: string | null; nome: string; funcao_id: string; funcao: string;
   vinculo: string; forma_pagamento: string; setor: string | null; quantidade_pessoas: number; horas_produtivas_mes: number;
-  vigencia_inicio: string; conferido: boolean; ativo: boolean; matricula: string | null;
+  vigencia_inicio: string; conferido: boolean; ativo: boolean; matricula: string | null; ajuste_por_nome?: string | null;
   ficha: (Partial<FichaCusto> & Record<string, unknown>) | null; custo: { custo_mensal: number | null; custo_hora: number | null; custo_m2: number | null } | null;
 };
 type Lista = { pode_ver_individual: boolean; encargos: Encargos & { fonte: string; vigencia_inicio: string | null }; funcoes: Funcao[]; equipe: ItemEquipe[] };
@@ -92,7 +94,7 @@ export default function MaoObraPage() {
             {enc.desoneracao ? ` · desoneração: ${pct(Number(enc.desoneracao_fator_folha) * 100)} do INSS patronal na folha${enc.cprb_pct ? `, CPRB ${pct(enc.cprb_pct)} sobre a receita` : ""}` : ""}
             {" "}· 13º {pct(enc.prov_13_pct)} · férias {pct(enc.prov_ferias_pct)} · rescisão {pct(enc.prov_rescisao_pct)}
           </span>
-          {pode && <button className={btnSec} onClick={() => setModal({ tipo: "encargos" })} data-testid="mao-obra-encargos-editar">Configurar encargos</button>}
+          {pode && <button className={btnSec} onClick={() => setModal({ tipo: "encargos" })} data-testid="mao-obra-encargos-editar">Configurar padrões</button>}
         </div>
       )}
       {!pode && dados && (
@@ -210,7 +212,7 @@ function Janela({ titulo, onClose, children, testid }: { titulo: string; onClose
     </div>
   );
 }
-function Campo({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
+function Campo({ rotulo, children }: { rotulo: React.ReactNode; children: React.ReactNode }) {
   return <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70">{rotulo}</span>{children}</label>;
 }
 
@@ -264,51 +266,106 @@ const CAMPOS_VALOR: [keyof FichaCusto, string][] = [
 
 // Data de hoje no fuso de Brasília (UTC−3), para o campo "vale a partir de".
 function hojeBR() { return new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10); }
+const txt = (n: number | null | undefined) => (n === null || n === undefined ? "" : String(n).replace(".", ","));
+const PADRAO_FICHA: PadroesFicha = { horas_produtivas_mes: 176, vinculo: "clt", forma_pagamento: "mensal", beneficio_vt: 0, beneficio_alimentacao: 0, beneficio_saude: 0, beneficio_seguro: 0, beneficio_epi: 0 };
+// percentuais do cálculo que podem ser ajustados na ficha (vêm do padrão da empresa)
+const AJUSTES: { k: "encargos_folha_pct_ajuste" | "prov_13_pct_ajuste" | "prov_ferias_pct_ajuste" | "prov_rescisao_pct_ajuste"; padrao: keyof Encargos; l: string }[] = [
+  { k: "encargos_folha_pct_ajuste", padrao: "encargos_folha_pct", l: "Encargos da folha %" },
+  { k: "prov_13_pct_ajuste", padrao: "prov_13_pct", l: "13º %" },
+  { k: "prov_ferias_pct_ajuste", padrao: "prov_ferias_pct", l: "Férias + 1/3 %" },
+  { k: "prov_rescisao_pct_ajuste", padrao: "prov_rescisao_pct", l: "Provisão de rescisão %" },
+];
+const Obrig = () => <span className="text-[#791F1F]">*</span>;
 
 function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalvar }: { companyId: string; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe; funcoes: Funcao[]; encargos: Encargos; onClose: () => void; onSalvar: Salvar }) {
   const f0 = item?.ficha ?? {};
+  const novo = modo !== "editar";
   const tipo = modo === "editar" ? item?.tipo ?? "perfil" : modo;
+  const pad = encargos.padroes ?? PADRAO_FICHA;
   const [v, setV] = useState<Record<string, string>>(() => {
+    // ficha nova: pré-preenchida pelos padrões da empresa ("Configurar padrões"); edição: o que está na ficha
     const base: Record<string, string> = {
-      funcao_id: String(item?.funcao_id ?? funcoes[0]?.id ?? ""), vinculo: String(f0.vinculo ?? "clt"), forma_pagamento: String(f0.forma_pagamento ?? "mensal"),
-      salario: f0.salario != null ? String(f0.salario).replace(".", ",") : "", valor_unidade: f0.valor_unidade ? String(f0.valor_unidade).replace(".", ",") : "",
-      dias_mes: String(f0.dias_mes ?? 22), horas_produtivas_mes: String(f0.horas_produtivas_mes ?? 176), quantidade_pessoas: String(f0.quantidade_pessoas ?? 1),
+      funcao_id: String(item?.funcao_id ?? ""), vinculo: String(f0.vinculo ?? pad.vinculo), forma_pagamento: String(f0.forma_pagamento ?? pad.forma_pagamento),
+      salario: f0.salario != null ? txt(Number(f0.salario)) : "", valor_unidade: f0.valor_unidade ? txt(Number(f0.valor_unidade)) : "",
+      dias_mes: String(f0.dias_mes ?? 22), horas_produtivas_mes: txt(Number(f0.horas_produtivas_mes ?? pad.horas_produtivas_mes)), quantidade_pessoas: String(f0.quantidade_pessoas ?? 1),
       descricao: String(f0.descricao ?? ""), setor: String(f0.setor ?? ""), vigencia_inicio: hojeBR(), motivo: "",
     };
-    for (const [k] of CAMPOS_VALOR) base[k] = f0[k] ? String(f0[k]).replace(".", ",") : "";
+    for (const [k] of CAMPOS_VALOR) {
+      const daFicha = f0[k] != null && Number(f0[k]) !== 0 ? Number(f0[k]) : null;
+      const doPadrao = novo && k in pad ? Number((pad as unknown as Record<string, number>)[k] ?? 0) : 0;
+      base[k] = daFicha != null ? txt(daFicha) : doPadrao ? txt(doPadrao) : "";
+    }
+    for (const a of AJUSTES) base[a.k] = f0[a.k] != null ? txt(Number(f0[a.k])) : "";
     return base;
   });
+  const [salarioSugerido, setSalarioSugerido] = useState<string | null>(null);
   const [p, setP] = useState<Record<string, string>>({});
+  const [tentou, setTentou] = useState(false);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV((o) => ({ ...o, [k]: e.target.value }));
-  const setPes = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setP((o) => ({ ...o, [k]: e.target.value }));
+  const setPes = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setP((o) => ({ ...o, [k]: k === "cpf" ? mascaraCpf(e.target.value) : e.target.value }));
+  // ao escolher a função, sugere o salário médio da função (se o campo estiver vazio ou com a sugestão anterior)
+  function escolherFuncao(id: string) {
+    const fn = funcoes.find((x) => x.id === id);
+    const sug = fn?.salario_sugerido?.valor;
+    setV((o) => {
+      const vazio = !o.salario || o.salario === salarioSugerido;
+      return { ...o, funcao_id: id, ...(sug && vazio && o.vinculo === "clt" ? { salario: txt(sug) } : {}) };
+    });
+    setSalarioSugerido(sug ? txt(sug) : null);
+  }
+  const funcaoSel = funcoes.find((x) => x.id === v.funcao_id);
+  const aj = (k: string) => (v[k] === "" ? null : numBR(v[k]));
   const ficha: Partial<FichaCusto> = {
     vinculo: v.vinculo as FichaCusto["vinculo"], forma_pagamento: v.forma_pagamento as FichaCusto["forma_pagamento"],
     salario: numBR(v.salario), valor_unidade: numBR(v.valor_unidade), dias_mes: numBR(v.dias_mes) || 22, horas_produtivas_mes: numBR(v.horas_produtivas_mes) || 176,
     ...Object.fromEntries(CAMPOS_VALOR.map(([k]) => [k, numBR(v[k])])),
+    encargos_folha_pct_ajuste: aj("encargos_folha_pct_ajuste"), prov_13_pct_ajuste: aj("prov_13_pct_ajuste"),
+    prov_ferias_pct_ajuste: aj("prov_ferias_pct_ajuste"), prov_rescisao_pct_ajuste: aj("prov_rescisao_pct_ajuste"),
   };
   const calc = calcularCustoMaoObra(ficha, encargos);
+  const temAjuste = AJUSTES.some((a) => v[a.k] !== "");
   const corpoFicha = { ...ficha, tipo, funcao_id: v.funcao_id, descricao: v.descricao || null, setor: v.setor || null,
     quantidade_pessoas: tipo === "perfil" ? Math.max(1, Math.round(numBR(v.quantidade_pessoas))) : 1, vigencia_inicio: v.vigencia_inicio };
   const valorPorUnidade = v.vinculo === "diarista" || (v.vinculo === "pj" && v.forma_pagamento !== "mensal");
   const titulo = modo === "pessoa" ? "Novo funcionário" : modo === "perfil" ? "Novo perfil padrão (sem nome)" : `Editar / reajuste · ${item?.nome}`;
 
+  // obrigatórios (o banco confere de novo): pessoa = nome, CPF válido, função, vínculo, salário/valor e admissão; perfil = função, salário médio e vínculo
+  const faltando: string[] = [];
+  if (!v.funcao_id) faltando.push("função");
+  if (!v.vinculo) faltando.push("vínculo");
+  if (valorPorUnidade ? numBR(v.valor_unidade) <= 0 : numBR(v.salario) <= 0)
+    faltando.push(valorPorUnidade ? (v.vinculo === "diarista" || v.forma_pagamento === "diaria" ? "valor da diária" : v.forma_pagamento === "m2" ? "valor por m²" : "valor por hora") : tipo === "perfil" ? "salário médio" : "salário base");
+  if (modo === "pessoa") {
+    if ((p.nome_completo ?? "").trim().length < 3) faltando.push("nome completo");
+    if (!cpfValido(p.cpf)) faltando.push((p.cpf ?? "").replace(/\D/g, "").length === 11 ? "CPF válido (dígito não confere)" : "CPF");
+    if (!p.data_admissao) faltando.push("data de admissão");
+  }
+
   async function salvar() {
+    setTentou(true);
+    if (faltando.length) return;
     if (modo === "editar" && item) {
       if (await onSalvar("fn_mao_obra_ficha_reajustar", { p_ficha_id: item.id, p_dados: corpoFicha, p_vigencia: v.vigencia_inicio, p_motivo: v.motivo || "reajuste" }, "Reajuste salvo com histórico — confira para entrar no custo.")) onClose();
       return;
     }
     if (await onSalvar("fn_mao_obra_ficha_salvar", { p_company_id: companyId, p_ficha: corpoFicha, p_pessoa: tipo === "pessoa" ? p : null }, "Ficha salva — confira para entrar no custo da função.")) onClose();
   }
+  const marcaErro = (cond: boolean) => (tentou && cond ? " border-[#791F1F]" : "");
 
   return (
     <Janela titulo={titulo} onClose={onClose} testid="mao-obra-modal-ficha">
       {funcoes.length === 0 && <div className="rounded-md bg-[#FAEEDA] px-3 py-2 text-[12.5px]">Cadastre uma função antes (aba Funções → Nova função).</div>}
+      <p className="text-[11.5px] text-[#3D2314]/60"><Obrig /> obrigatório. O resto pode completar depois.</p>
       {modo === "pessoa" && (
         <fieldset className="space-y-2">
           <legend className="text-[11px] uppercase tracking-wide text-[#3D2314]/60">Dados pessoais e de vínculo (cadastro compartilhado — o mesmo do SST)</legend>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Campo rotulo="Nome completo"><input className={inp} onChange={setPes("nome_completo")} data-testid="pessoa-nome" /></Campo>
-            <Campo rotulo="CPF"><input className={inp} onChange={setPes("cpf")} data-testid="pessoa-cpf" /></Campo>
+            <Campo rotulo={<>Nome completo <Obrig /></>}><input className={inp + marcaErro((p.nome_completo ?? "").trim().length < 3)} onChange={setPes("nome_completo")} data-testid="pessoa-nome" /></Campo>
+            <Campo rotulo={<>CPF <Obrig /></>}>
+              <input className={inp + marcaErro(!cpfValido(p.cpf))} value={p.cpf ?? ""} onChange={setPes("cpf")} inputMode="numeric" placeholder="000.000.000-00" data-testid="pessoa-cpf" />
+              {(p.cpf ?? "").replace(/\D/g, "").length === 11 && !cpfValido(p.cpf) && <span className="text-[11px] text-[#791F1F]" data-testid="pessoa-cpf-invalido">CPF inválido — confira os números</span>}
+            </Campo>
+            <Campo rotulo={<>Data de admissão <Obrig /></>}><input type="date" className={inp + marcaErro(!p.data_admissao)} onChange={setPes("data_admissao")} data-testid="pessoa-admissao" /></Campo>
             <Campo rotulo="RG"><input className={inp} onChange={setPes("rg")} /></Campo>
             <Campo rotulo="Data de nascimento"><input type="date" className={inp} onChange={setPes("data_nascimento")} /></Campo>
             <Campo rotulo="Telefone"><input className={inp} onChange={setPes("telefone")} /></Campo>
@@ -320,7 +377,6 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
             <Campo rotulo="Cidade"><input className={inp} onChange={setPes("cidade")} /></Campo>
             <Campo rotulo="UF"><input className={inp} maxLength={2} onChange={setPes("uf")} /></Campo>
             <Campo rotulo="Matrícula"><input className={inp} onChange={setPes("matricula")} /></Campo>
-            <Campo rotulo="Data de admissão"><input type="date" className={inp} onChange={setPes("data_admissao")} /></Campo>
             <Campo rotulo="Cargo"><input className={inp} onChange={setPes("cargo")} /></Campo>
             <Campo rotulo="Setor"><input className={inp} onChange={setPes("setor")} /></Campo>
             <Campo rotulo="Obra atual"><input className={inp} onChange={setPes("obra_nome")} /></Campo>
@@ -331,18 +387,30 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
       <fieldset className="space-y-2">
         <legend className="text-[11px] uppercase tracking-wide text-[#3D2314]/60">Ficha de custo</legend>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <Campo rotulo="Função"><select className={inp} value={v.funcao_id} onChange={set("funcao_id")} data-testid="ficha-funcao">{funcoes.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></Campo>
-          <Campo rotulo="Vínculo"><select className={inp} value={v.vinculo} onChange={set("vinculo")} data-testid="ficha-vinculo">{VINCULOS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
+          <Campo rotulo={<>Função <Obrig /></>}>
+            <select className={inp + marcaErro(!v.funcao_id)} value={v.funcao_id} onChange={(e) => escolherFuncao(e.target.value)} data-testid="ficha-funcao">
+              <option value="">— escolha —</option>
+              {funcoes.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
+            </select>
+          </Campo>
+          <Campo rotulo={<>Vínculo <Obrig /></>}><select className={inp} value={v.vinculo} onChange={set("vinculo")} data-testid="ficha-vinculo">{VINCULOS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
           <Campo rotulo="Forma de pagamento"><select className={inp} value={v.forma_pagamento} onChange={set("forma_pagamento")}>{FORMAS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
           {tipo === "perfil" && <>
             <Campo rotulo="Descrição do perfil"><input className={inp} value={v.descricao} onChange={set("descricao")} placeholder="Gesseiro padrão" /></Campo>
             <Campo rotulo="Quantidade de pessoas"><input className={inp} value={v.quantidade_pessoas} onChange={set("quantidade_pessoas")} inputMode="numeric" data-testid="ficha-quantidade" /></Campo>
             <Campo rotulo="Setor"><input className={inp} value={v.setor} onChange={set("setor")} /></Campo>
           </>}
-          {!valorPorUnidade && <Campo rotulo={tipo === "perfil" ? "Salário médio (R$/mês)" : v.vinculo === "pj" ? "Valor mensal (R$)" : "Salário base (R$/mês)"}><input className={inp} value={v.salario} onChange={set("salario")} inputMode="decimal" data-testid="ficha-salario" /></Campo>}
-          {valorPorUnidade && <Campo rotulo={v.vinculo === "diarista" || v.forma_pagamento === "diaria" ? "Valor da diária (R$)" : v.forma_pagamento === "m2" ? "Valor por m² (R$)" : "Valor por hora (R$)"}><input className={inp} value={v.valor_unidade} onChange={set("valor_unidade")} inputMode="decimal" /></Campo>}
+          {!valorPorUnidade && <Campo rotulo={<>{tipo === "perfil" ? "Salário médio (R$/mês)" : v.vinculo === "pj" ? "Valor mensal (R$)" : "Salário base (R$/mês)"} <Obrig /></>}>
+            <input className={inp + marcaErro(numBR(v.salario) <= 0)} value={v.salario} onChange={set("salario")} inputMode="decimal" data-testid="ficha-salario" />
+            {salarioSugerido && v.salario === salarioSugerido && funcaoSel?.salario_sugerido && (
+              <span className="text-[11px] text-[#3D2314]/60" data-testid="ficha-salario-sugerido">
+                Sugerido: {funcaoSel.salario_sugerido.origem === "media_conferida" ? `média conferida da função (${funcaoSel.salario_sugerido.pessoas} pessoa(s))` : "estimado pelo custo/hora atual da função"} — ajuste se precisar
+              </span>
+            )}
+          </Campo>}
+          {valorPorUnidade && <Campo rotulo={<>{v.vinculo === "diarista" || v.forma_pagamento === "diaria" ? "Valor da diária (R$)" : v.forma_pagamento === "m2" ? "Valor por m² (R$)" : "Valor por hora (R$)"} <Obrig /></>}><input className={inp + marcaErro(numBR(v.valor_unidade) <= 0)} value={v.valor_unidade} onChange={set("valor_unidade")} inputMode="decimal" data-testid="ficha-valor-unidade" /></Campo>}
           {v.vinculo === "diarista" && <Campo rotulo="Dias por mês"><input className={inp} value={v.dias_mes} onChange={set("dias_mes")} inputMode="decimal" /></Campo>}
-          <Campo rotulo="Horas produtivas por mês (padrão 176)"><input className={inp} value={v.horas_produtivas_mes} onChange={set("horas_produtivas_mes")} inputMode="decimal" data-testid="ficha-horas" /></Campo>
+          <Campo rotulo={`Horas produtivas por mês (padrão ${txt(pad.horas_produtivas_mes)})`}><input className={inp} value={v.horas_produtivas_mes} onChange={set("horas_produtivas_mes")} inputMode="decimal" data-testid="ficha-horas" /></Campo>
           {CAMPOS_VALOR.map(([k, l]) => (v.vinculo === "clt" || !k.startsWith("adicional_")) && (
             <Campo key={k} rotulo={l}><input className={inp} value={v[k]} onChange={set(k)} inputMode="decimal" data-testid={`ficha-${k}`} /></Campo>
           ))}
@@ -350,16 +418,41 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
           {modo === "editar" && <Campo rotulo="Motivo (ex.: dissídio, promoção, correção)"><input className={inp} value={v.motivo} onChange={set("motivo")} /></Campo>}
         </div>
       </fieldset>
+      {v.vinculo === "clt" && (
+        <div className="rounded-md border border-[#3D2314]/15 bg-white px-3 py-2 space-y-2" data-testid="ficha-ajustes">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
+            <span className="text-[#3D2314]/70">Percentuais do cálculo — vêm do padrão da empresa{encargos.provisorio ? " (provisórios)" : ""}; altere só se esta ficha for diferente.</span>
+            {temAjuste && (
+              <span className="flex items-center gap-2">
+                <span className="rounded bg-[#FAEEDA] px-2 py-0.5 text-[11.5px] text-[#8A5A00]" data-testid="ficha-ajustada">
+                  Ajustado nesta ficha{item?.ajuste_por_nome && f0.ajuste_em ? ` por ${item.ajuste_por_nome} em ${new Date(String(f0.ajuste_em)).toLocaleString("pt-BR")}` : ""}
+                </span>
+                <button type="button" className="text-[12px] underline" data-testid="ficha-voltar-padrao" onClick={() => setV((o) => ({ ...o, ...Object.fromEntries(AJUSTES.map((a) => [a.k, ""])) }))}>Voltar ao padrão</button>
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {AJUSTES.map((a) => (
+              <Campo key={a.k} rotulo={a.l}>
+                <input className={inp + (v[a.k] !== "" ? " border-[#C8941A] bg-[#FFFBF0]" : "")} value={v[a.k] !== "" ? v[a.k] : txt(Number(encargos[a.padrao]))}
+                  onChange={(e) => { const x = e.target.value; setV((o) => ({ ...o, [a.k]: numBR(x) === Number(encargos[a.padrao]) ? "" : x })); }}
+                  inputMode="decimal" data-testid={`ficha-${a.k}`} />
+              </Campo>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="rounded-md border border-[#C8941A]/50 bg-white px-3 py-2 text-[12.5px] grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="ficha-calculo">
         <div>Remuneração + 13º e férias<br /><b>{brl(calc.remuneracao)}</b></div>
-        <div>Encargos ({pct(encargos.encargos_folha_pct)}){encargos.provisorio && <span className="text-[#8A5A00]"> · provisórios</span>}<br /><b>{brl(calc.encargos)}</b></div>
+        <div>Encargos ({pct(calc.encargos_folha_pct)}){encargos.provisorio && !temAjuste && <span className="text-[#8A5A00]"> · provisórios</span>}<br /><b>{brl(calc.encargos)}</b></div>
         <div>Custo mensal{tipo === "perfil" ? " (por pessoa)" : ""}<br /><b data-testid="ficha-custo-mensal">{brl(calc.custo_mensal)}</b></div>
         <div>{calc.custo_m2 != null ? "Custo por m²" : "Custo da hora produtiva"}<br /><b data-testid="ficha-custo-hora">{calc.custo_m2 != null ? brl(calc.custo_m2) : brl(calc.custo_hora)}</b></div>
       </div>
+      {tentou && faltando.length > 0 && <div className="rounded-md bg-[#F7E1E1] text-[#791F1F] px-3 py-2 text-[12.5px]" data-testid="ficha-faltando">Falta preencher: {faltando.join(", ")}.</div>}
       <p className="text-[11px] text-[#3D2314]/60">Depois de salvar, a ficha fica “não conferida” e não entra no custo da função até alguém conferir.</p>
       <div className="flex justify-end gap-2">
         <button className={btnSec} onClick={onClose}>Voltar</button>
-        <button className={btnPri} onClick={() => void salvar()} disabled={!v.funcao_id || (modo === "pessoa" && (p.nome_completo ?? "").trim().length < 3)} data-testid="ficha-salvar">Salvar</button>
+        <button className={btnPri} onClick={() => void salvar()} data-testid="ficha-salvar">Salvar</button>
       </div>
     </Janela>
   );
@@ -384,12 +477,20 @@ function ModalEncerrar({ item, onClose, onSalvar }: { item: ItemEquipe; onClose:
   );
 }
 
+const BENEFICIOS_PADRAO: [keyof PadroesFicha, string][] = [
+  ["beneficio_vt", "Vale-transporte (R$/mês)"], ["beneficio_alimentacao", "Alimentação (R$/mês)"], ["beneficio_saude", "Plano de saúde (R$/mês)"],
+  ["beneficio_seguro", "Seguro de vida (R$/mês)"], ["beneficio_epi", "EPI e uniforme (R$/mês)"],
+];
+
 function ModalEncargos({ companyId, enc, onClose, onSalvar }: { companyId: string; enc: Encargos; onClose: () => void; onSalvar: Salvar }) {
   const [v, setV] = useState<Record<string, string>>(() => ({
     regime: enc.regime, simples_anexo: enc.simples_anexo ?? "", inss_patronal_pct: String(enc.inss_patronal_pct), rat_pct: String(enc.rat_pct), fap: String(enc.fap),
     terceiros_pct: String(enc.terceiros_pct), fgts_pct: String(enc.fgts_pct), prov_13_pct: String(enc.prov_13_pct), prov_ferias_pct: String(enc.prov_ferias_pct),
     prov_rescisao_pct: String(enc.prov_rescisao_pct), desoneracao: enc.desoneracao ? "1" : "", desoneracao_fator_folha: String(enc.desoneracao ? enc.desoneracao_fator_folha : fatorFolhaReoneracao(new Date().getFullYear())),
     cprb_pct: enc.cprb_pct != null ? String(enc.cprb_pct) : "", vigencia_inicio: hojeBR(),
+    horas_produtivas_padrao: txt((enc.padroes ?? PADRAO_FICHA).horas_produtivas_mes), vinculo_padrao: (enc.padroes ?? PADRAO_FICHA).vinculo,
+    forma_padrao: (enc.padroes ?? PADRAO_FICHA).forma_pagamento,
+    ...Object.fromEntries(BENEFICIOS_PADRAO.map(([k]) => [`${k}_padrao`, txt(Number((enc.padroes ?? PADRAO_FICHA)[k] ?? 0))])),
   }));
   const [confirmar, setConfirmar] = useState(false);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV((o) => ({ ...o, [k]: e.target.value }));
@@ -400,7 +501,7 @@ function ModalEncargos({ companyId, enc, onClose, onSalvar }: { companyId: strin
     else setV((o) => ({ ...o, simples_anexo: anexo, inss_patronal_pct: "0", rat_pct: "0", terceiros_pct: "0", fgts_pct: "8" }));
   }
   return (
-    <Janela titulo="Encargos da empresa (quem emprega)" onClose={onClose} testid="mao-obra-modal-encargos">
+    <Janela titulo="Padrões da empresa (quem emprega)" onClose={onClose} testid="mao-obra-modal-encargos">
       <p className="text-[12px] text-[#3D2314]/70">Ficam “provisórios” até o contador confirmar. Nos Anexos III e V do Simples o INSS patronal está dentro do DAS (só FGTS na folha); no Anexo IV (obra) o INSS patronal e o RAT são pagos fora do DAS.</p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Campo rotulo="Regime"><select className={inp} value={v.regime} onChange={set("regime")}><option value="simples">Simples</option><option value="presumido">Lucro Presumido</option><option value="real">Lucro Real</option></select></Campo>
@@ -423,12 +524,23 @@ function ModalEncargos({ companyId, enc, onClose, onSalvar }: { companyId: strin
         </div>
       )}
       <div className="text-[12.5px]">Encargos da folha: <b>{pct(total)}</b></div>
+      <fieldset className="space-y-2 border-t border-[#3D2314]/10 pt-2" data-testid="padroes-ficha">
+        <legend className="text-[11px] uppercase tracking-wide text-[#3D2314]/60">Padrões da ficha nova (dá para mudar em cada ficha)</legend>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Campo rotulo="Horas produtivas/mês"><input className={inp} value={v.horas_produtivas_padrao} onChange={set("horas_produtivas_padrao")} inputMode="decimal" data-testid="padrao-horas" /></Campo>
+          <Campo rotulo="Vínculo"><select className={inp} value={v.vinculo_padrao} onChange={set("vinculo_padrao")}>{VINCULOS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
+          <Campo rotulo="Forma de pagamento"><select className={inp} value={v.forma_padrao} onChange={set("forma_padrao")}>{FORMAS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
+          {BENEFICIOS_PADRAO.map(([k, l]) => (
+            <Campo key={k} rotulo={l}><input className={inp} value={v[`${k}_padrao`]} onChange={set(`${k}_padrao`)} inputMode="decimal" data-testid={`padrao-${k}`} /></Campo>
+          ))}
+        </div>
+      </fieldset>
       <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={confirmar} onChange={(e) => setConfirmar(e.target.checked)} data-testid="encargos-confirmar" /> O contador confirmou estes percentuais</label>
       <div className="flex justify-end gap-2">
         <button className={btnSec} onClick={onClose}>Voltar</button>
         <button className={btnPri} data-testid="encargos-salvar" onClick={async () => {
-          const dados = { ...Object.fromEntries(Object.entries(v).map(([k, x]) => [k, ["regime", "simples_anexo", "vigencia_inicio"].includes(k) ? x : k === "desoneracao" ? !!x : x === "" ? null : numBR(x)])) };
-          if (await onSalvar("fn_mao_obra_encargos_salvar", { p_company_id: companyId, p_dados: dados, p_confirmar: confirmar }, confirmar ? "Encargos confirmados pelo contador." : "Encargos salvos (provisórios até o contador confirmar).")) onClose();
+          const dados = { ...Object.fromEntries(Object.entries(v).map(([k, x]) => [k, ["regime", "simples_anexo", "vigencia_inicio", "vinculo_padrao", "forma_padrao"].includes(k) ? x : k === "desoneracao" ? !!x : x === "" ? null : numBR(x)])) };
+          if (await onSalvar("fn_mao_obra_encargos_salvar", { p_company_id: companyId, p_dados: dados, p_confirmar: confirmar }, confirmar ? "Padrões salvos — encargos confirmados pelo contador." : "Padrões salvos.")) onClose();
         }}>Salvar</button>
       </div>
     </Janela>

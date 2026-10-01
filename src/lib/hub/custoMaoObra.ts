@@ -6,6 +6,7 @@
 // PJ:       mensal = valor mensal (ou valor/hora × horas) + benefícios; por m² → só custo do m².
 // Diarista: mensal = diária × dias + benefícios.
 // Hora produtiva = mensal ÷ horas produtivas. Exemplo da SPEC (Lucro Real, 36,8%): R$ 2.800 → R$ 5.487 → R$ 31,18/h.
+// Encargos %, 13º %, férias + 1/3 % e rescisão % podem ser ajustados na ficha (*_ajuste); sem ajuste, valem os da empresa.
 
 export type Vinculo = 'clt' | 'pj' | 'diarista'
 export type FormaPagamento = 'mensal' | 'hora' | 'm2' | 'diaria'
@@ -25,6 +26,23 @@ export interface FichaCusto {
   beneficio_seguro: number
   beneficio_epi: number
   horas_produtivas_mes: number
+  // ajuste desta ficha (null/ausente = padrão da empresa)
+  encargos_folha_pct_ajuste?: number | null
+  prov_13_pct_ajuste?: number | null
+  prov_ferias_pct_ajuste?: number | null
+  prov_rescisao_pct_ajuste?: number | null
+}
+
+/** Padrões da empresa para a ficha nova ("Configurar padrões"). */
+export interface PadroesFicha {
+  horas_produtivas_mes: number
+  vinculo: Vinculo
+  forma_pagamento: FormaPagamento
+  beneficio_vt: number
+  beneficio_alimentacao: number
+  beneficio_saude: number
+  beneficio_seguro: number
+  beneficio_epi: number
 }
 
 export interface Encargos {
@@ -43,6 +61,7 @@ export interface Encargos {
   prov_ferias_pct: number
   prov_rescisao_pct: number
   encargos_folha_pct: number
+  padroes?: PadroesFicha
 }
 
 export interface ResultadoCusto {
@@ -54,6 +73,11 @@ export interface ResultadoCusto {
   custo_mensal: number | null
   custo_hora: number | null
   custo_m2: number | null
+  // percentuais efetivamente usados (ajuste da ficha ou padrão da empresa)
+  encargos_folha_pct: number
+  prov_13_pct: number
+  prov_ferias_pct: number
+  prov_rescisao_pct: number
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -73,7 +97,9 @@ export function calcularCustoMaoObra(f: Partial<FichaCusto>, e: Pick<Encargos, '
   const horas = num(f.horas_produtivas_mes, 176) || null
   const adic = num(f.adicional_insalubridade) + num(f.adicional_periculosidade) + num(f.adicional_outros)
   const ben = num(f.beneficio_vt) + num(f.beneficio_alimentacao) + num(f.beneficio_saude) + num(f.beneficio_seguro) + num(f.beneficio_epi)
-  const p13 = num(e.prov_13_pct, 8.33), pfer = num(e.prov_ferias_pct, 11.11), presc = num(e.prov_rescisao_pct, 4), encp = num(e.encargos_folha_pct, 36.8)
+  const aj = (v: number | null | undefined, padrao: number) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? padrao : Number(v))
+  const p13 = aj(f.prov_13_pct_ajuste, num(e.prov_13_pct, 8.33)), pfer = aj(f.prov_ferias_pct_ajuste, num(e.prov_ferias_pct, 11.11))
+  const presc = aj(f.prov_rescisao_pct_ajuste, num(e.prov_rescisao_pct, 4)), encp = aj(f.encargos_folha_pct_ajuste, num(e.encargos_folha_pct, 36.8))
   let base: number, remun: number, enc: number, resc: number, mensal: number | null
   if (vinc === 'clt') {
     base = sal + adic
@@ -93,6 +119,7 @@ export function calcularCustoMaoObra(f: Partial<FichaCusto>, e: Pick<Encargos, '
   return {
     base: r2(base), remuneracao: r2(remun), encargos: r2(enc), rescisao: r2(resc), beneficios: r2(ben),
     custo_mensal: mensal === null ? null : r2(mensal), custo_hora: hora === null ? null : r2(hora), custo_m2: m2 === null ? null : r2(m2),
+    encargos_folha_pct: encp, prov_13_pct: p13, prov_ferias_pct: pfer, prov_rescisao_pct: presc,
   }
 }
 
