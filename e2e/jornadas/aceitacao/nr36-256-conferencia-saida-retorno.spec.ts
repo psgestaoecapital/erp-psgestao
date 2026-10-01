@@ -93,6 +93,9 @@ test.describe('Conferência de pausas — dizer se o horário é saída ou retor
     await expect(previa).toContainText('18:42 → 19:05 · 23 min')
     await expect(previa).toContainText('20:17 → 20:39 · 22 min')
 
+    // #587 (CEO 01/10): gravar a releitura exige justificativa — sem ela o botão fica desligado
+    await expect(page.getByTestId('marcas-salvar'), 'sem justificativa não grava').toBeDisabled()
+    await page.getByTestId('marcas-justificativa').fill('Conferido: faltou a batida de saída das 13:08')
     await page.getByTestId('marcas-salvar').click()
     await expect(modal).toBeHidden({ timeout: 20000 })
     await expect(page.getByText(/Dia relido: 4 pausa\(s\)/)).toBeVisible()

@@ -227,6 +227,16 @@ export function SubirContagemModal({ companyId, locais, onClose, onCriado, flash
         }
       }))
       if (erros.length) throw new Error(`${erros.length} contagem(ns) não gravaram (${erros[0]}). O inventário ficou aberto, sem ajustar o estoque.`)
+      // defeito (01/10): as 6 gravações em paralelo recalculam os totais do inventário cada uma sem enxergar as outras
+      // ainda abertas — o total de contados/divergências podia sair a menor. Uma última gravação, sozinha, depois de
+      // todas, refaz os totais já vendo tudo (mesma quantidade: não muda a contagem).
+      const ultimo = (itens as { id: string; produto_id: string }[]).at(-1)
+      if (ultimo) {
+        const { error: eFim } = await supabase.rpc('fn_inventario_registrar_contagem', {
+          p_item_id: ultimo.id, p_quantidade_contada: contado.get(ultimo.produto_id) ?? 0, p_usuario: user?.email ?? null,
+        })
+        if (eFim) throw new Error(`Os totais do inventário não fecharam (${eFim.message}). O inventário ficou aberto, sem ajustar o estoque.`)
+      }
       await onCriado(inv.id)
     } catch (e) {
       flashErr((e as Error)?.message ?? 'Erro ao criar o inventário')
