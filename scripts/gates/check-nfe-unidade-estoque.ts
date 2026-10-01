@@ -14,6 +14,7 @@ ok(/defaultValue=\{fatorSalvo\[it\.produto_id \?\? ''\] \?\? 1\}/.test(f) && !/d
 ok(/from\('erp_produtos'\)\.update\(\{ unidade \}\)\.eq\('id', produtoId\)\.eq\('company_id', companyId\)/.test(f), 'unidade grava no produto da própria empresa')
 ok(/window\.confirm\(`A unidade de estoque de/.test(f), 'mudar a unidade do produto pede confirmação')
 ok(/disabled=\{!it\.produto_id\}/.test(f), 'sem produto vinculado, não escolhe unidade')
+ok(/p_codigo_fornecedor: itens\.find\(\(x\) => x\.item_id === itemId\)\?\.codigo_produto/.test(f) && !/p_codigo_fornecedor: null/.test(f), 'fator salvo leva o código do item do fornecedor (1º fator não é recusado)')
 
 if (falhas) { console.error(`\n${falhas} falha(s) na unidade de estoque (#573)`); process.exit(1) }
 console.log('\nUnidade de estoque na conferência (#573): ok')

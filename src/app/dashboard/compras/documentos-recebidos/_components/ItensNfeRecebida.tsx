@@ -193,7 +193,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   // NFE-F2 · E2 · fator de conversão (CX→UN) no de-para (pergunta uma vez, vale sempre)
   async function salvarFator(itemId: string, produtoId: string | null, unidadeFornecedor: string | null, fator: number) {
     if (!produtoId) { setMsg('Vincule o produto antes de definir o fator.'); return }
-    const { data } = await supabase.rpc('fn_nfe_depara_fator_set', { p_company_id: companyId, p_fornecedor_cnpj: notaInfo?.emitente_cnpj ?? null, p_produto_id: produtoId, p_codigo_fornecedor: null, p_unidade_fornecedor: unidadeFornecedor, p_fator: fator })
+    const { data } = await supabase.rpc('fn_nfe_depara_fator_set', { p_company_id: companyId, p_fornecedor_cnpj: notaInfo?.emitente_cnpj ?? null, p_produto_id: produtoId,
+      // #573 · código do item na nota do fornecedor: sem ele, o 1º fator deste produto/fornecedor era recusado (coluna obrigatória)
+      p_codigo_fornecedor: itens.find((x) => x.item_id === itemId)?.codigo_produto ?? null, p_unidade_fornecedor: unidadeFornecedor, p_fator: fator })
     const r = data as { ok?: boolean } | null
     if (!r?.ok) { setMsg('Não consegui salvar o fator.'); return }
     setMsg(`Fator salvo: 1 ${unidadeFornecedor ?? 'emb.'} = ${fator} un. Vale sempre para este item deste fornecedor.`)
