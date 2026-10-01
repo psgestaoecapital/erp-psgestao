@@ -21,7 +21,7 @@ ok(pjHora.custo_hora === 40 && pjHora.encargos === 0, 'PJ por hora: custo é o v
 const pjM2 = calcularCustoMaoObra({ vinculo: 'pj', forma_pagamento: 'm2', valor_unidade: 18 }, { ...padrao, encargos_folha_pct: 36.8 })
 ok(pjM2.custo_m2 === 18 && pjM2.custo_hora === null, 'PJ por m²: só custo do m² (não inventa hora)')
 const diar = calcularCustoMaoObra({ vinculo: 'diarista', forma_pagamento: 'diaria', valor_unidade: 150, dias_mes: 20, horas_produtivas_mes: 160 }, { ...padrao, encargos_folha_pct: 36.8 })
-ok(diar.custo_mensal === 3000 && diar.custo_hora === 18.75, 'diarista: diária × dias ÷ horas')
+ok(diar.custo_mensal === 3600 && diar.custo_hora === 22.5, 'diarista: diária × dias, calculado como autônomo (+20% INSS do RPA, CEO 01/10) ÷ horas')
 
 // ── o banco ──
 const mig = readFileSync('supabase/migrations/20261002100000_hub_mao_obra.sql', 'utf8')

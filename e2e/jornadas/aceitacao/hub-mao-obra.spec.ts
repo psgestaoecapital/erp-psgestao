@@ -9,7 +9,7 @@
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { dbSelect, dbDelete, rpc, registrarJornada } from '../../support/api'
-import { calcularCustoMaoObra, type Encargos } from '../../../src/lib/hub/custoMaoObra'
+import { calcularCustoMaoObra, chavesPadrao, type Encargos } from '../../../src/lib/hub/custoMaoObra'
 
 const DEMO_GE = 'b0700000-0000-4000-a000-000000000004'
 const RUN = Date.now().toString(36)
@@ -32,7 +32,10 @@ test.describe('Hub · Mão de obra — função, equipe conferida e custo da hor
     const fs = await dbSelect<{ id: string }>('erp_funcao_mao_obra', `company_id=eq.${DEMO_GE}&nome=eq.${encodeURIComponent(FUNCAO)}&select=id`).catch(() => [])
     for (const f of fs) {
       const fichas = await dbSelect<{ id: string }>('erp_mao_obra_custo', `funcao_id=eq.${f.id}&select=id`).catch(() => [])
-      for (const k of fichas) await dbDelete('erp_mao_obra_acesso_log', `ficha_id=eq.${k.id}`).catch(() => {})
+      for (const k of fichas) {
+        await dbDelete('erp_mao_obra_acesso_log', `ficha_id=eq.${k.id}`).catch(() => {})
+        await dbDelete('erp_mao_obra_componente', `ficha_id=eq.${k.id}`).catch(() => {})
+      }
       await dbDelete('erp_mao_obra_custo', `funcao_id=eq.${f.id}`).catch(() => {})
       await dbDelete('erp_funcao_mao_obra', `id=eq.${f.id}`).catch(() => {})
     }
@@ -50,7 +53,9 @@ test.describe('Hub · Mão de obra — função, equipe conferida e custo da hor
 
   test('caminho principal: função → perfil padrão → só conta depois de conferido → inativar tira do custo', { tag: '@pos-migration' }, async ({ page }) => {
     const enc = await rpc<Encargos>('fn_mao_obra_encargos_vigentes', { p_company_id: DEMO_GE })
-    const esperado = calcularCustoMaoObra({ vinculo: 'clt', forma_pagamento: 'mensal', salario: 2800, beneficio_vt: 300, beneficio_alimentacao: 500, horas_produtivas_mes: 176 }, enc)
+    // v2 (componentes): o perfil tem um componente "fixo mensal" de R$ 2.800 — mesmo custo da ficha de salário único
+    const esperado = calcularCustoMaoObra({ vinculo: 'clt', horas_produtivas_mes: 176, beneficio_vt: 300, beneficio_alimentacao: 500,
+      componentes: [{ tipo: 'fixo', subtipo: 'mensal', valor: 2800, ...chavesPadrao('clt', 'fixo', 'mensal', enc.padroes?.incidencia ?? {}) }] }, enc)
 
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_GE)
     await page.goto('/dashboard/projetos/mao-obra')
@@ -71,8 +76,11 @@ test.describe('Hub · Mão de obra — função, equipe conferida e custo da hor
     const modal = page.getByTestId('mao-obra-modal-ficha')
     await modal.getByTestId('ficha-funcao').selectOption(funcaoId)
     await modal.getByPlaceholder('Gesseiro padrão').fill(PERFIL)
+    await modal.getByTestId('ficha-vinculo').selectOption('clt')
+    await modal.getByTestId('ficha-horas').fill('176')
     await modal.getByTestId('ficha-quantidade').fill('2')
-    await modal.getByTestId('ficha-salario').fill('2800')
+    await modal.getByTestId('componente-0').getByTestId('componente-tipo').selectOption('fixo')
+    await modal.getByTestId('componente-0').getByTestId('componente-valor').fill('2800')
     await modal.getByTestId('ficha-beneficio_vt').fill('300')
     await modal.getByTestId('ficha-beneficio_alimentacao').fill('500')
     await expect(modal.getByTestId('ficha-custo-mensal')).toHaveText(brl(esperado.custo_mensal!))
