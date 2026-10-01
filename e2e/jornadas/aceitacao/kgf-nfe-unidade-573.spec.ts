@@ -33,7 +33,7 @@ test.describe('Recebimento fiscal: unidade de estoque ao lado do fator (#573)', 
     token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
     const p = await dbInsert<{ id: string }>('erp_produtos', { company_id: DEMO_GE, codigo: `E2E-UN-${RUN}`, nome: `E2E óleo granel ${RUN}`, unidade: 'UN', tipo: 'produto', ativo: true, preco_venda: 1 })
     produtoId = p.id
-    await dbInsert('erp_produto_depara_fornecedor', { company_id: DEMO_GE, fornecedor_cnpj: CNPJ, produto_id: produtoId, unidade_fornecedor: 'CX', fator_conversao: 12 })
+    await dbInsert('erp_produto_depara_fornecedor', { company_id: DEMO_GE, fornecedor_cnpj: CNPJ, codigo_fornecedor: `E2E-F-${RUN}`, produto_id: produtoId, unidade_fornecedor: 'CX', fator_conversao: 12 })
   })
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-kgf-nfe-unidade-573', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
