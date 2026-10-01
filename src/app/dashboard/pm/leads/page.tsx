@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { nomeUsuario } from '@/lib/usuarioLabel'
 import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
+import { TarefasLeadModal, MinhasTarefasModal, SELECT_TAREFA, tipoTarefa, quando, atrasada, whatsappHref, type Tarefa } from '@/components/pm/TarefasLead'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -98,6 +99,10 @@ export default function LeadsPage() {
   const [reuniaoLead, setReuniaoLead] = useState<Lead | null>(null) // modal de agendamento de reunião
   const [detalheLead, setDetalheLead] = useState<Lead | null>(null) // detalhe da reunião (clique no 📅)
   const [reunioesMap, setReunioesMap] = useState<Record<string, { data: string; hora: string | null; link: string | null; local: string | null }>>({})
+  // #97/#98 Pdois · tarefas do lead (no lugar do registro de reunião) + "Minhas tarefas"
+  const [tarefas, setTarefas] = useState<Tarefa[]>([])
+  const [tarefasLead, setTarefasLead] = useState<Lead | null>(null)
+  const [minhasOpen, setMinhasOpen] = useState(false)
   const [cliTermo, setCliTermo] = useState('')
   const [cliSug, setCliSug] = useState<{ id: string; nome: string; doc: string | null }[]>([])
   const [cliBuscando, setCliBuscando] = useState(false)
@@ -185,6 +190,10 @@ export default function LeadsPage() {
       if (lid && !rm[lid]) rm[lid] = { data: a.data, hora: a.hora_inicio, link: a.link_reuniao, local: a.local }
     }
     setReunioesMap(rm)
+    // #97/#98 · tarefas da empresa (RLS por empresa) → por lead e "Minhas tarefas"
+    const { data: tfs } = await supabase.from('agency_lead_tarefa').select(SELECT_TAREFA)
+      .eq('company_id', empresa).order('data').order('hora', { nullsFirst: true })
+    setTarefas((tfs ?? []) as Tarefa[])
     setLoading(false)
   }, [empresa])
 
@@ -192,6 +201,17 @@ export default function LeadsPage() {
   useEffect(() => { void carregarEtapas() }, [carregarEtapas])
   useEffect(() => { void carregarOrigens() }, [carregarOrigens])
   useEffect(() => { void supabase.auth.getUser().then(({ data }) => setUid(data.user?.id ?? null)) }, [])
+  // aviso do sino (#98) abre direto "Minhas tarefas": /dashboard/pm/leads?tarefas=minhas
+  useEffect(() => {
+    try { if (new URLSearchParams(window.location.search).get('tarefas') === 'minhas') setMinhasOpen(true) } catch { /* sem window */ }
+  }, [])
+  const tarefasPorLead = useMemo(() => {
+    const m: Record<string, Tarefa[]> = {}
+    for (const t of tarefas) if (t.lead_id) (m[t.lead_id] ??= []).push(t)
+    return m
+  }, [tarefas])
+  const minhas = useMemo(() => tarefas.filter((t) => t.situacao === 'a_fazer' && !!uid && t.responsavel_id === uid), [tarefas, uid])
+  const leadsPorId = useMemo(() => Object.fromEntries(leads.map((l) => [l.id, l])), [leads])
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
 
   const etapaCfg = useCallback((chave: string) => etapas.find((e) => e.chave === chave) ?? { id: chave, chave, rotulo: chave, ordem: 999, cor: OFFWHITE, tipo_etapa: 'normal', ativo: true }, [etapas])
@@ -324,8 +344,6 @@ export default function LeadsPage() {
       setTimeout(() => router.push('/dashboard/pm/propostas'), 700)
     } finally { setBusy(false) }
   }
-  // Reunião: abre o modal de agendamento (substitui o prompt cru).
-  function agendar(l: Lead) { setReuniaoLead(l) }
 
   // PM-2 · Proposta: resolve o destino no SERVIDOR por cascata (lead_id → erp_cliente_id → título).
   //  1 forte → abre direto · várias → seletor · só título → lista com aviso · nenhuma → cria pré-preenchida.
@@ -390,6 +408,9 @@ export default function LeadsPage() {
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Funil da agência: da prospecção ao ganho. Arraste o card entre as etapas.</p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setMinhasOpen(true)} style={{ ...btnGhost, borderColor: minhas.some(atrasada) ? RED : BORDA }} data-testid="minhas-tarefas-abrir" title="Tarefas a fazer que estão com você">
+              ✅ Minhas tarefas{minhas.length ? ` (${minhas.length})` : ''}
+            </button>
             <button onClick={() => setCfgOpen(true)} style={btnGhost} data-testid="funil-config" title="Configurar etapas do funil">⚙️ Configurar funil</button>
             <button onClick={() => setOrigemCfgOpen(true)} style={btnGhost} data-testid="origem-config" title="Configurar origens do lead">⚙️ Origens</button>
             <button onClick={() => { setForm(FORM0); setCliTermo(''); setCliSug([]); setNovo(true) }} style={btnPri} data-testid="lead-novo">+ Novo lead</button>
@@ -411,6 +432,7 @@ export default function LeadsPage() {
           </select>
           <select value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp} aria-label="Responsável">
             <option value="todos">Responsável: todos</option>
+            {uid && <option value={uid}>Meus leads</option>}
             {Object.entries(respMap).sort((a, b) => a[1].localeCompare(b[1])).map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
           </select>
           <select value={fPeriodo} onChange={(e) => setFPeriodo(e.target.value as typeof fPeriodo)} style={inp} aria-label="Período">
@@ -488,6 +510,25 @@ export default function LeadsPage() {
                               {reunioesMap[l.id]?.local && <span style={{ color: TEXTM }}>· {reunioesMap[l.id]!.local}</span>}
                             </div>
                           )}
+                          {(() => {
+                            // #97/#98 · próxima tarefa a fazer do lead (atrasada em vermelho) + WhatsApp
+                            const prox = (tarefasPorLead[l.id] ?? []).find((t) => t.situacao === 'a_fazer')
+                            const wa = whatsappHref(l.contato_telefone)
+                            if (!prox && !wa) return null
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                                {prox && (
+                                  <button onClick={(e) => { e.stopPropagation(); setTarefasLead(l) }} data-testid="lead-tarefa-proxima"
+                                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10.5, fontWeight: 700, color: atrasada(prox) ? RED : DOURADO }}>
+                                    {tipoTarefa(prox.tipo).i} {tipoTarefa(prox.tipo).l} · {quando(prox)}{atrasada(prox) ? ' · atrasada' : ''}
+                                    {prox.responsavel_id && respMap[prox.responsavel_id] ? ` · ${respMap[prox.responsavel_id]}` : ''}
+                                  </button>
+                                )}
+                                {wa && <a href={wa} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} data-testid="lead-whatsapp"
+                                  style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#1F7A3A', borderRadius: 6, padding: '1px 7px', textDecoration: 'none' }}>💬 WhatsApp</a>}
+                              </div>
+                            )
+                          })()}
                           {fim && l.motivo_perda && <div style={{ fontSize: 10.5, color: RED, marginTop: 2 }}>motivo: {l.motivo_perda}</div>}
                           {/* PM-2 · chip da proposta ligada (abre direto). Vê antes de clicar. */}
                           {(propMap[l.id]?.length ?? 0) > 0 && (() => {
@@ -513,7 +554,10 @@ export default function LeadsPage() {
                           {!fim && (
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, alignItems: 'center' }}>
                               {/* Demanda 1: ações do estágio no rodapé = Reunião + Proposta. Demanda 2: Editar. */}
-                              <button onClick={() => agendar(l)} style={chip(DOURADO)}>📅 Reunião</button>
+                              {/* #97/#98 · Tarefas no lugar de "Reunião" (reunião virou um tipo de tarefa) */}
+                              <button onClick={() => setTarefasLead(l)} style={chip(DOURADO)} data-testid="lead-tarefas">
+                                ✅ Tarefas{(tarefasPorLead[l.id] ?? []).filter((t) => t.situacao === 'a_fazer').length ? ` (${(tarefasPorLead[l.id] ?? []).filter((t) => t.situacao === 'a_fazer').length})` : ''}
+                              </button>
                               <button disabled={busy} onClick={() => void proposta(l)} style={chip(ESPRESSO)}>📄 Proposta</button>
                               {/* #59 PDOIS · botão de contrato VISÍVEL no rodapé (não mais escondido no ⋯). */}
                               {ct
@@ -624,6 +668,15 @@ export default function LeadsPage() {
           onReagendar={() => { const l = detalheLead; setDetalheLead(null); setReuniaoLead(l) }} />
       )}
 
+      {tarefasLead && empresa && (
+        <TarefasLeadModal empresa={empresa} lead={tarefasLead} tarefas={tarefasPorLead[tarefasLead.id] ?? []} respMap={respMap} uid={uid}
+          onClose={() => setTarefasLead(null)} onSaved={() => { void carregar() }} setToast={setToast} />
+      )}
+      {minhasOpen && (
+        <MinhasTarefasModal tarefas={minhas} leads={leadsPorId}
+          onAbrirLead={(l) => { setMinhasOpen(false); const full = leadsPorId[l.id]; if (full) setTarefasLead(full) }}
+          onClose={() => setMinhasOpen(false)} />
+      )}
       {reuniaoLead && empresa && (
         <ReuniaoModal lead={reuniaoLead} empresa={empresa} uid={uid}
           reuniaoChave={etapas.find((e) => e.chave === 'reuniao_agendada')?.chave ?? null}

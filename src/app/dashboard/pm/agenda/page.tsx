@@ -45,6 +45,9 @@ export default function AgendaComercialPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [uid, setUid] = useState<string | null>(null)
+  // #119/#98 Pdois (CEO 01/10): cada login vê a PRÓPRIA agenda (eventos e tarefas em que é o responsável, ou que criou sem
+  // responsável); "Equipe" mostra a agenda de todos, como antes.
+  const [quem, setQuem] = useState<'minha' | 'equipe'>('minha')
   const [nomeUsuario, setNomeUsuario] = useState<string | null>(null)
   const [modal, setModal] = useState<{ data: string; ag: Ag | null } | null>(null)
   const [leads, setLeads] = useState<LeadOpt[]>([])
@@ -60,16 +63,19 @@ export default function AgendaComercialPage() {
   const carregar = useCallback(async () => {
     if (!empresa) { setLoading(false); return }
     setLoading(true); setErro(null)
-    const { data, error } = await supabase.from('erp_agendamento')
+    if (quem === 'minha' && !uid) return
+    let q = supabase.from('erp_agendamento')
       .select('id, titulo, data, hora_inicio, hora_fim, status, cliente_nome, responsavel_nome, observacao, local, link_reuniao, dados')
       .eq('company_id', empresa).eq('origem_modulo', 'comercial')
       // defeito (Pdois · 01/10): evento excluído (soft delete) continuava aparecendo na agenda
       .is('excluido_em', null)
-      .gte('data', range.de).lte('data', range.ate).order('data').order('hora_inicio')
+      .gte('data', range.de).lte('data', range.ate)
+    if (quem === 'minha' && uid) q = q.or(`responsavel_id.eq.${uid},and(responsavel_id.is.null,created_by.eq.${uid})`)
+    const { data, error } = await q.order('data').order('hora_inicio')
     setLoading(false)
     if (error) { setErro(error.message); return }
     setAgs((data as Ag[]) ?? [])
-  }, [empresa, range.de, range.ate])
+  }, [empresa, range.de, range.ate, quem, uid])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
   useEffect(() => {
@@ -120,6 +126,10 @@ export default function AgendaComercialPage() {
             <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Agenda</h1>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {(['minha', 'equipe'] as const).map((k) => (
+              <button key={k} onClick={() => setQuem(k)} data-testid={`agenda-${k}`} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${quem === k ? ESP : LINE}`, background: quem === k ? ESP : '#fff', color: quem === k ? '#fff' : TEXTM }}>{k === 'minha' ? 'Minha agenda' : 'Equipe'}</button>
+            ))}
+            <span style={{ width: 8 }} />
             {(['dia', 'semana', 'mes'] as Vis[]).map((v) => (
               <button key={v} onClick={() => setVis(v)} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${vis === v ? GOLD : LINE}`, background: vis === v ? '#FBF3DE' : '#fff', color: vis === v ? '#8A5A0B' : TEXTM }}>{v === 'mes' ? 'mês' : v}</button>
             ))}
