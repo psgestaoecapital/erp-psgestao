@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import type { SidebarSubItemNode } from '@/lib/menu/sidebar-config'
+import { useEhEquipePS } from '@/lib/menu/equipe-ps'
 
 interface Props {
   item: SidebarSubItemNode
@@ -11,6 +12,8 @@ interface Props {
 
 export default function SidebarSubItem({ item, isActive, onNavigate }: Props) {
   const emBreve = item.status === 'em_breve'
+  // selo de estado ("em breve") é dado interno da PS — cliente não vê selo nenhum (CEO 01/10)
+  const ps = useEhEquipePS()
   return (
     <Link
       href={item.href}
@@ -29,11 +32,11 @@ export default function SidebarSubItem({ item, isActive, onNavigate }: Props) {
       <span className="flex items-center gap-2 min-w-0">
         <span className="truncate">{item.label}</span>
         {item.badge && (
-          <span className="text-[9px] px-1.5 py-0.5 bg-[#C8941A]/30 text-[#FAF7F2] rounded uppercase tracking-wider flex-shrink-0">
+          <span className="text-[9px] px-1.5 py-0.5 bg-[#C8941A]/30 text-[#FAF7F2] rounded uppercase tracking-wider flex-shrink-0" data-testid="menu-selo">
             {item.badge}
           </span>
         )}
-        {emBreve && (
+        {ps && emBreve && (
           <span className="text-[9px] text-[#FAF7F2]/40 italic flex-shrink-0">em breve</span>
         )}
       </span>
