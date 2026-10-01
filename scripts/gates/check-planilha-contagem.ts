@@ -103,6 +103,8 @@ async function main() {
   const pagina = readFileSync('src/app/dashboard/commerce/estoque/page.tsx', 'utf8')
   ok(/inventario-baixar-planilha/.test(pagina) && /inventario-subir-planilha/.test(pagina) && /estoque-inventario-btn/.test(pagina), 'botões na aba Inventário existente, ao lado de Iniciar inventário')
   ok(/useState\(true\)[^\n]*\n[^\n]*const \[cega, setCega\] = useState\(true\)/.test(modal), 'padrões: só com saldo = sim, contagem cega = sim')
+  ok(/const ultimo = \(itens as[^\n]*\.at\(-1\)[\s\S]{0,300}fn_inventario_registrar_contagem/.test(modal),
+    'depois das gravações em paralelo, uma última sozinha refaz os totais (contados/divergências não saem a menor)')
 
   if (falhas) { console.error(`\n${falhas} falha(s) na planilha de contagem`); process.exit(1) }
   console.log('\nPlanilha de contagem do inventário: ok')
