@@ -45,6 +45,7 @@ export default function AgendaComercialPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [uid, setUid] = useState<string | null>(null)
+  const [nomeUsuario, setNomeUsuario] = useState<string | null>(null)
   const [modal, setModal] = useState<{ data: string; ag: Ag | null } | null>(null)
   const [leads, setLeads] = useState<LeadOpt[]>([])
 
@@ -62,6 +63,8 @@ export default function AgendaComercialPage() {
     const { data, error } = await supabase.from('erp_agendamento')
       .select('id, titulo, data, hora_inicio, hora_fim, status, cliente_nome, responsavel_nome, observacao, local, link_reuniao, dados')
       .eq('company_id', empresa).eq('origem_modulo', 'comercial')
+      // defeito (Pdois · 01/10): evento excluído (soft delete) continuava aparecendo na agenda
+      .is('excluido_em', null)
       .gte('data', range.de).lte('data', range.ate).order('data').order('hora_inicio')
     setLoading(false)
     if (error) { setErro(error.message); return }
@@ -69,7 +72,15 @@ export default function AgendaComercialPage() {
   }, [empresa, range.de, range.ate])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
-  useEffect(() => { void supabase.auth.getUser().then(({ data }) => setUid(data.user?.id ?? null)) }, [])
+  useEffect(() => {
+    void supabase.auth.getUser().then(async ({ data }) => {
+      const u = data.user; setUid(u?.id ?? null)
+      if (!u) return
+      // defeito (Pdois · 01/10): o card saía sem o nome do responsável — o evento era gravado com nome vazio
+      const { data: urow } = await supabase.from('users').select('full_name').eq('id', u.id).maybeSingle()
+      setNomeUsuario(((urow as { full_name?: string | null } | null)?.full_name || '').trim() || (u.email ?? null))
+    })
+  }, [])
 
   const carregarLeads = useCallback(async () => {
     if (!empresa) return
@@ -148,7 +159,7 @@ export default function AgendaComercialPage() {
       </div>
 
       {modal && empresa && (
-        <EventoModal empresa={empresa} uid={uid} dataInicial={modal.data} ag={modal.ag} leads={leads}
+        <EventoModal empresa={empresa} uid={uid} nomeUsuario={nomeUsuario} dataInicial={modal.data} ag={modal.ag} leads={leads}
           onClose={() => setModal(null)} onSaved={() => { setModal(null); void carregar() }} />
       )}
     </div>
@@ -220,8 +231,8 @@ function MesGrid({ ref_, porDia, onDia }: { ref_: Date; porDia: Map<string, Ag[]
   )
 }
 
-function EventoModal({ empresa, uid, dataInicial, ag, leads, onClose, onSaved }: {
-  empresa: string; uid: string | null; dataInicial: string; ag: Ag | null; leads: LeadOpt[]; onClose: () => void; onSaved: () => void
+function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClose, onSaved }: {
+  empresa: string; uid: string | null; nomeUsuario: string | null; dataInicial: string; ag: Ag | null; leads: LeadOpt[]; onClose: () => void; onSaved: () => void
 }) {
   const [titulo, setTitulo] = useState(ag?.titulo ?? '')
   const [data, setData] = useState(ag?.data ?? dataInicial)
@@ -241,10 +252,23 @@ function EventoModal({ empresa, uid, dataInicial, ag, leads, onClose, onSaved }:
     if (!linkOk) { setErro('O link deve começar com http:// ou https://'); return }
     setBusy(true); setErro(null)
     const lead = leads.find((l) => l.id === leadId)
+    // defeito (Pdois · 01/10): salvar um evento EXISTENTE criava outro (sempre chamava o criar). Agora atualiza o
+    // próprio evento (RLS da agenda limita à empresa do usuário); o vínculo com o lead vai em dados.lead_id.
+    if (ag) {
+      const dados = { ...(ag.dados ?? {}), lead_id: leadId || null, local: local.trim() || null, link_reuniao: link.trim() || null }
+      const { error } = await supabase.from('erp_agendamento').update({
+        titulo: titulo.trim(), data, hora_inicio: hIni || null, hora_fim: hFim || null, observacao: obs.trim() || null,
+        local: local.trim() || null, link_reuniao: link.trim() || null, dados,
+        ...(lead ? { cliente_id: lead.erp_cliente_id ?? null, cliente_nome: lead.empresa || lead.nome } : {}),
+      }).eq('id', ag.id).eq('company_id', empresa)
+      setBusy(false)
+      if (error) { setErro(error.message); return }
+      onSaved(); return
+    }
     const { error } = await supabase.rpc('fn_agendamento_criar', {
       p_company_id: empresa, p_origem: 'comercial', p_titulo: titulo.trim(),
       p_cliente_id: lead?.erp_cliente_id ?? null, p_cliente_nome: lead ? (lead.empresa || lead.nome) : null,
-      p_responsavel_id: uid, p_responsavel_nome: null,
+      p_responsavel_id: uid, p_responsavel_nome: nomeUsuario,
       p_data: data, p_hora_inicio: hIni || null, p_hora_fim: hFim || null,
       p_dados: { ...(leadId ? { lead_id: leadId } : {}), local: local.trim() || null, link_reuniao: link.trim() || null },
       p_observacao: obs.trim() || null,
@@ -275,7 +299,7 @@ function EventoModal({ empresa, uid, dataInicial, ag, leads, onClose, onSaved }:
                   <a href={ag.link_reuniao} target="_blank" rel="noopener noreferrer" style={{ background: '#166534', color: '#fff', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>▶ Entrar na reunião</a>
                 )}
               </div>
-              <div style={{ fontSize: 10.5, color: TEXTM }}>Para reagendar, crie um novo evento ou mude o status. (Edição completa vem no refinamento.)</div>
+              <div style={{ fontSize: 10.5, color: TEXTM }}>Altere os campos abaixo e salve para reagendar este mesmo evento.</div>
             </div>
           )}
           <label style={lbl}>Título<input value={titulo} onChange={(e) => setTitulo(e.target.value)} style={inp} placeholder="Ex.: Reunião com cliente" /></label>
