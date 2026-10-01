@@ -675,14 +675,16 @@ BEGIN
              'proposta', jsonb_build_object('funcao', btrim(m.funcao), 'vinculo', CASE WHEN upper(COALESCE(m.tipo_contratacao, '')) = 'PJ' THEN 'pj' ELSE 'clt' END,
                'salario_estimado', CASE WHEN upper(COALESCE(m.tipo_contratacao, '')) = 'PJ' THEN round(COALESCE(m.custo_hora, 0) * 176, 2)
                                          ELSE round(COALESCE(m.custo_hora, 0) * 176 / v_fator, 2) END,
-               'horas_produtivas_mes', 176, 'conferido', false)) ORDER BY m.funcao)
+               'custo_hora_manual', m.custo_hora, 'horas_produtivas_mes', 176, 'conferido', false)) ORDER BY m.funcao)
       FROM projetos_mao_obra m WHERE m.company_id = p_company_id AND COALESCE(m.ativo, true) AND m.funcao_id IS NULL), '[]'::jsonb));
 END $function$;
 REVOKE ALL ON FUNCTION public.fn_mao_obra_migrar_previa(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_mao_obra_migrar_previa(uuid) TO authenticated, service_role;
 
--- aplica a prévia (só administrador PS, depois do OK do CEO): função + perfil padrão NÃO conferido; liga o catálogo
-CREATE OR REPLACE FUNCTION public.fn_mao_obra_migrar_aplicar(p_company_id uuid)
+-- aplica a prévia (só administrador PS, depois do OK do CEO): cria a função com o R$/h atual como custo MANUAL (as
+-- composições continuam com o mesmo valor até haver ficha conferida) e liga o catálogo. p_criar_perfil = true também
+-- cria um perfil padrão NÃO conferido com salário estimado (opção B — só se o CEO escolher).
+CREATE OR REPLACE FUNCTION public.fn_mao_obra_migrar_aplicar(p_company_id uuid, p_criar_perfil boolean DEFAULT false)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -697,16 +699,19 @@ BEGIN
   FOR it IN SELECT * FROM jsonb_array_elements(v_prev->'itens') LOOP
     SELECT id INTO v_funcao FROM erp_funcao_mao_obra WHERE company_id = p_company_id AND ativo AND lower(btrim(nome)) = lower(it#>>'{proposta,funcao}');
     IF v_funcao IS NULL THEN
-      INSERT INTO erp_funcao_mao_obra (company_id, nome, forma_pagamento, projetos_mao_obra_id)
-      VALUES (p_company_id, it#>>'{proposta,funcao}', 'hora', (it->>'projetos_mao_obra_id')::uuid) RETURNING id INTO v_funcao;
+      INSERT INTO erp_funcao_mao_obra (company_id, nome, forma_pagamento, custo_hora_manual, projetos_mao_obra_id)
+      VALUES (p_company_id, it#>>'{proposta,funcao}', 'hora', (it#>>'{proposta,custo_hora_manual}')::numeric, (it->>'projetos_mao_obra_id')::uuid)
+      RETURNING id INTO v_funcao;
     END IF;
+    IF p_criar_perfil THEN
     INSERT INTO erp_mao_obra_custo (company_id, tipo, funcao_id, descricao, vinculo, forma_pagamento, salario, horas_produtivas_mes, motivo)
     VALUES (p_company_id, 'perfil', v_funcao, (it#>>'{proposta,funcao}') || ' (perfil padrão migrado)', it#>>'{proposta,vinculo}', 'mensal',
             (it#>>'{proposta,salario_estimado}')::numeric, 176, 'migrado da lista genérica — conferir antes de valer');
+    END IF;
     UPDATE projetos_mao_obra SET funcao_id = v_funcao WHERE id = (it->>'projetos_mao_obra_id')::uuid;
     v_n := v_n + 1;
   END LOOP;
-  RETURN jsonb_build_object('ok', true, 'migradas', v_n);
+  RETURN jsonb_build_object('ok', true, 'migradas', v_n, 'perfis_criados', p_criar_perfil);
 END $function$;
-REVOKE ALL ON FUNCTION public.fn_mao_obra_migrar_aplicar(uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_mao_obra_migrar_aplicar(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_mao_obra_migrar_aplicar(uuid, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_mao_obra_migrar_aplicar(uuid, boolean) TO service_role;

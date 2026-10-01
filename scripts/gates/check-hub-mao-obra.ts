@@ -57,8 +57,9 @@ for (const fn of ['fn_mao_obra_funcao_salvar', 'fn_mao_obra_funcao_unir', 'fn_ma
 ok(/n\.conferido := false/.test(corpo('fn_mao_obra_ficha_reajustar')) && /UPDATE erp_mao_obra_custo SET vigencia_fim = v_vig - 1/.test(corpo('fn_mao_obra_ficha_reajustar')), 'reajuste = nova vigência com histórico, volta a "não conferido"')
 ok(/UPDATE compliance_funcionarios SET data_demissao = v_data, ativo = false/.test(corpo('fn_mao_obra_ficha_encerrar')), 'desligar pessoa grava a demissão no cadastro compartilhado (o mesmo do SST)')
 const aplicar = corpo('fn_mao_obra_migrar_aplicar')
-ok(aplicar.includes('NOT public.is_admin()') && sql.includes('REVOKE ALL ON FUNCTION public.fn_mao_obra_migrar_aplicar(uuid) FROM PUBLIC, anon, authenticated;'), 'migração das funções antigas só com o OK do CEO (admin PS / service_role)')
-ok(/'perfil padrão migrado'|perfil padrão migrado/.test(aplicar) && aplicar.includes('conferir antes de valer'), 'o que é migrado entra NÃO conferido (não muda custo até alguém conferir)')
+ok(aplicar.includes('NOT public.is_admin()') && sql.includes('REVOKE ALL ON FUNCTION public.fn_mao_obra_migrar_aplicar(uuid, boolean) FROM PUBLIC, anon, authenticated;'), 'migração das funções antigas só com o OK do CEO (admin PS / service_role)')
+ok(/IF p_criar_perfil THEN/.test(aplicar) && aplicar.includes('conferir antes de valer'), 'perfil com salário estimado só se o CEO escolher (opção B) e entra NÃO conferido')
+ok(/custo_hora_manual, projetos_mao_obra_id\)/.test(aplicar), 'função migrada guarda o R$/h atual como custo manual (composições não mudam de valor)')
 ok(!/xlsx|importar_planilha/i.test(sql), 'sem importação por planilha (CEO cancelou o xlsx: cadastro manual e conferido)')
 
 // ── a tela ──
