@@ -12,7 +12,7 @@ import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/typ
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
 import { enderecoFiscalDoCliente, filtroDocumentoCliente, type ClienteEndereco } from '@/lib/fiscal/tomadorEndereco'
-import { calcularRetencoesFederais, issRetidoNfse, reformaIbsCbsDoServico, travaEmissaoNfse, type RetencoesFederaisNfse, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -64,6 +64,8 @@ interface EmitirNFSeBody {
   medicao?: { pedidoId: string; parcelaIds: string[]; gerarFinanceiro?: boolean }
   // #340 · itens do escopo da obra medidos por esta nota (abatem do contratado quando a nota for autorizada)
   medicaoObra?: { obraId: string; itens: { item_id: string; quantidade: number }[] }
+  // #339 (reaberto) · retenções AJUSTADAS NESTA NOTA (partem do cadastro do serviço; o modal edita). Ausente = cadastro.
+  retencoesNota?: RetencoesNota
 }
 
 interface DadosNFSeRPC {
@@ -117,6 +119,17 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfse', operacao: 'emissao', endpoint: 'nfse/emitir' } })
     if (negado) return negado
 
+    // #339 · retenções ajustadas na nota: só booleanos e alíquotas 0–100 (qualquer outra coisa é recusada, nunca
+    // ignorada calada — a nota sairia com a retenção do cadastro sem o usuário saber)
+    let retNota: RetencoesNota | null = null
+    if (body.retencoesNota !== undefined) {
+      retNota = lerRetencoesNota(body.retencoesNota)
+      if (!retNota) return NextResponse.json({ ok: false, mensagem: 'Retenções desta nota inválidas: confira as alíquotas (0 a 100%).' }, { status: 400 })
+      if (!body.servicoId) return NextResponse.json({ ok: false, mensagem: 'Escolha o serviço cadastrado: as retenções desta nota partem do cadastro dele.' }, { status: 400 })
+      // ISS retido da nota manda no tipo de retenção do ISS (2 = retido pelo tomador, 1 = não retido)
+      body.tipoRetencaoIss = retNota.iss_retido ? 2 : 1
+    }
+
     // receber-nfse-seletor-servico-v1: quando servicoId vem junto, busca os
     // dados via RPC (servico + tomador) e injeta como overrides confiaveis,
     // alem de devolver mensagens claras (sem "cadastre em /configuracoes/fiscal").
@@ -155,6 +168,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const usarIbptEmpresa = !!(cfgIbpt as { ibpt_empresa_nas_notas?: boolean } | null)?.ibpt_empresa_nas_notas
     // #286 · retenções federais calculadas do cadastro do serviço (as mesmas da tela) e avisos de grupos não enviados
     let retencoesCalculadas: RetencoesFederaisNfse | null = null
+    let retCadastro: RetencoesNota | null = null   // #339 · o que o cadastro diria (para o histórico do ajuste)
     const avisosTributos: string[] = []
     if (body.erpReceberId) {
       nfseReq = await buildNFSeFromReceber({
@@ -641,11 +655,14 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             if (sv?.codigo_nbs) nfseReq.codigoNbs = String(sv.codigo_nbs)
             if (sv) {
               // #286 · a MESMA conta que a tela mostrou antes de emitir (retencoesFederaisNfse)
-              const ret = calcularRetencoesFederais(Number(nfseReq.valorServicos), sv as ServicoTributosFederais)
+              // #339 · com as retenções ajustadas nesta nota (quando vieram), aplicadas sobre o cadastro
+              const svRet = retNota ? aplicarRetencoesNota(sv as ServicoTributosFederais, retNota) : (sv as ServicoTributosFederais)
+              const ret = calcularRetencoesFederais(Number(nfseReq.valorServicos), svRet)
               if (ret.erros.length > 0) {
                 return NextResponse.json({ ok: false, mensagem: ret.erros.join(' ') }, { status: 400 })
               }
               retencoesCalculadas = ret
+              retCadastro = retencoesNotaDoCadastro(sv as ServicoTributosFederais & { iss_retido?: boolean | null })
               avisosTributos.push(...ret.avisos)
               if (ret.totalRetido > 0 || ret.apuracaoPropria) {
                 nfseReq.retencoesFederais = {
@@ -687,6 +704,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       if (body.servicoId && !nfseReq.padraoNacional) {
         const { data } = await supabaseAdmin.from('erp_servicos').select('*').eq('id', body.servicoId).eq('company_id', body.companyId).maybeSingle()
         svTrava = (data as Record<string, unknown> | null) ?? null
+        if (svTrava && retNota) svTrava = aplicarRetencoesNota(svTrava as ServicoTributosFederais, retNota) as unknown as Record<string, unknown>
       }
       const trava = travaEmissaoNfse({
         servicoId: body.servicoId ?? null, padraoNacional: !!nfseReq.padraoNacional,
@@ -881,6 +899,15 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         valor_cofins_ret: retencoesCalculadas.valorCofinsRet,
         valor_csll_ret: retencoesCalculadas.valorCsllRet,
       }).eq('id', registroId)
+    }
+
+    // #339 · histórico: retenção ajustada na nota (≠ cadastro do serviço) fica registrada — quem, quando, de/para
+    if (registroId && retNota && retCadastro && !retencoesNotaIguais(retNota, retCadastro)) {
+      await supabaseAdmin.from('audit_log_global').insert({
+        company_id: body.companyId, user_id: userId, tabela: 'erp_nfse_emitidas', registro_id: registroId,
+        acao: 'RETENCAO_AJUSTADA_NA_NOTA', valor_anterior: { cadastro_do_servico: retCadastro, servico_id: body.servicoId },
+        valor_novo: { nesta_nota: retNota },
+      }).then(() => {}, () => {})
     }
 
     // #286 · ISS retido pelo tomador/intermediário (tpRetISSQN 2/3): valor × alíquota usada na emissão (a municipal

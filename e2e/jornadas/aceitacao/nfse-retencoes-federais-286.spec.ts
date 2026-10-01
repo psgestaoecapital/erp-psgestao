@@ -61,11 +61,14 @@ test.describe('#286 · NFS-e com as retenções federais do cadastro do serviço
       ok: true, status: 'autorizada', numero: '999', nfseId: '00000000-0000-4000-a000-000000000286', providerReference: `e2e-286-${RUN}`,
       retencoesFederais: { inss: 110, irrf: 0, pis: 0, cofins: 0, csll: 0, total: 110 }, issRetido: 30,
     })
-    const previa = modal.getByTestId('nfse-retencoes-previa')
+    // #339 (reaberto) · a seção é a "Retenções desta nota": começa igual ao cadastro (aqui, sem ajuste)
+    const previa = modal.getByTestId('nfse-retencoes-nota')
     await expect(previa, 'retenções aparecem ANTES de emitir').toBeVisible({ timeout: 15000 })
-    await expect(previa.getByTestId('nfse-retencoes-previa-valores')).toContainText('INSS R$ 110,00')
-    await expect(previa.getByTestId('nfse-retencoes-previa-valores')).toContainText('total retido R$ 110,00')
-    await expect(previa.getByTestId('nfse-retencoes-previa-iss'), 'ISS retido do cadastro aparece antes de emitir').toBeVisible()
+    await expect(previa.getByTestId('nfse-ret-inss'), 'INSS do cadastro já vem marcado').toBeChecked()
+    await expect(previa.getByTestId('nfse-ret-linha-inss')).toContainText('R$ 110,00')
+    await expect(previa.getByTestId('nfse-retencoes-total')).toContainText('R$ 110,00')
+    await expect(previa.getByTestId('nfse-ret-iss'), 'ISS retido do cadastro aparece antes de emitir').toBeChecked()
+    await expect(previa.getByTestId('nfse-retencoes-ajustada'), 'sem ajuste: igual ao cadastro').toHaveCount(0)
     await modal.getByTestId('nfse-emitir-submit').click()
     await expect.poll(() => envios.length, { timeout: 15000 }).toBe(1)
     expect(envios[0].tipoRetencaoIss, 'ISS retido pelo tomador, como no cadastro (tpRetISSQN 2)').toBe(2)
@@ -73,7 +76,6 @@ test.describe('#286 · NFS-e com as retenções federais do cadastro do serviço
     await expect(inss, 'o financeiro nasce com o INSS que foi na nota').toHaveValue('110,00', { timeout: 15000 })
     await expect(inss, 'e não se edita (nota e título nunca divergem)').toHaveAttribute('readonly', '')
     await expect(modal.getByTestId('nfse-fin-ret-iss'), 'o ISS retido da nota também vem preenchido').toHaveValue('30,00')
-    await expect(modal.getByTestId('nfse-sugerir-retencoes'), 'a sugestão manual de retenções saiu').toHaveCount(0)
   })
 
   test('caminho principal: serviço sem retenção emite normalmente, com a conferência "nenhuma retenção"', async ({ page }) => {
@@ -81,9 +83,11 @@ test.describe('#286 · NFS-e com as retenções federais do cadastro do serviço
       ok: true, status: 'autorizada', numero: '998', nfseId: '00000000-0000-4000-a000-000000000287', providerReference: `e2e-286s-${RUN}`,
       retencoesFederais: null,
     })
-    await expect(modal.getByTestId('nfse-retencoes-previa')).toHaveCount(0)
-    // #339 · a conferência aparece também sem retenção ("nenhuma retenção"), para a pessoa conferir antes de emitir
-    await expect(modal.getByTestId('nfse-retencoes-previa-nenhuma')).toBeVisible({ timeout: 15000 })
+    // #339 · a conferência aparece também sem retenção, para a pessoa conferir antes de emitir
+    const previa = modal.getByTestId('nfse-retencoes-nota')
+    await expect(previa).toBeVisible({ timeout: 15000 })
+    await expect(previa.getByTestId('nfse-retencoes-total')).toContainText('R$ 0,00')
+    await expect(previa.getByTestId('nfse-ret-iss')).not.toBeChecked()
     await expect(modal.getByTestId('nfse-emitir-submit')).toBeEnabled()
     await modal.getByTestId('nfse-emitir-submit').click()
     await expect.poll(() => envios.length, { timeout: 15000 }).toBe(1)
