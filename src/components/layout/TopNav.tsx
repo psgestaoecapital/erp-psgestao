@@ -44,7 +44,9 @@ export default function TopNav() {
   // Notificações de CHAMADO (Central de Melhorias) — por PESSOA (sugestao_notificacao), não por
   // empresa. Chamado é conversa entre duas pessoas; o sino soma as duas coisas, separadas.
   const [notifsChamado, setNotifsChamado] = useState<{ id: string; titulo: string; mensagem: string | null; lida: boolean }[]>([])
-  const temNotificacao = alertas.length > 0 || notifsChamado.some((n) => !n.lida)
+  // #120 · avisos POR PESSOA do próprio trabalho (ex.: oportunidade/orçamento mudou de etapa — erp_notificacao_usuario).
+  const [notifsUsuario, setNotifsUsuario] = useState<{ id: string; titulo: string; mensagem: string | null; link: string | null; lida: boolean }[]>([])
+  const temNotificacao = alertas.length > 0 || notifsChamado.some((n) => !n.lida) || notifsUsuario.some((n) => !n.lida)
   const [sinoAberto, setSinoAberto] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
   // ⑤ medidor da Central de Desenvolvimento — só admin (CEO). Chamada LEVE (fn_dev_medidor_badge):
@@ -128,6 +130,16 @@ export default function TopNav() {
           .order('criado_em', { ascending: false })
           .limit(12)
         if (!ignore) setNotifsChamado((nc as { id: string; titulo: string; mensagem: string | null; lida: boolean }[]) ?? [])
+
+        // #120 · avisos do próprio trabalho (RLS: destinatario_id = auth.uid()) — últimos 30 dias
+        const { data: nu } = await supabase
+          .from('erp_notificacao_usuario')
+          .select('id, titulo, mensagem, link, lida')
+          .eq('destinatario_id', authUser.id)
+          .gte('criado_em', corte)
+          .order('criado_em', { ascending: false })
+          .limit(12)
+        if (!ignore) setNotifsUsuario((nu as { id: string; titulo: string; mensagem: string | null; link: string | null; lida: boolean }[]) ?? [])
       }
     })()
     return () => { ignore = true }
@@ -228,10 +240,32 @@ export default function TopNav() {
               <div className="px-4 py-2.5 border-b border-[#3D2314]/8 text-[10.5px] uppercase tracking-wide text-[#3D2314]/45">
                 Notificações
               </div>
-              {alertas.length === 0 && notifsChamado.length === 0 ? (
+              {alertas.length === 0 && notifsChamado.length === 0 && notifsUsuario.length === 0 ? (
                 <div className="px-4 py-6 text-[12.5px] text-[#3D2314]/50 text-center">Nenhuma notificação no momento.</div>
               ) : (
                 <div className="max-h-[60vh] overflow-y-auto">
+                  {/* #120 · Para você (por PESSOA) — mudança de etapa da oportunidade/orçamento em que você é responsável ou vendedor */}
+                  {notifsUsuario.length > 0 && (
+                    <>
+                      <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Para você</div>
+                      {notifsUsuario.map((n) => (
+                        <Link key={n.id} href={n.link || '/dashboard/projetos/oportunidades'} data-testid="notif-usuario"
+                          onClick={() => {
+                            setSinoAberto(false)
+                            setNotifsUsuario((l) => l.map((x) => (x.id === n.id ? { ...x, lida: true } : x)))
+                            void supabase.from('erp_notificacao_usuario').update({ lida: true, lida_em: new Date().toISOString() }).eq('id', n.id)
+                          }}>
+                          <div className="px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 hover:bg-[#3D2314]/4 cursor-pointer">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${n.lida ? 'bg-[#3D2314]/20' : 'bg-[#C8941A]'}`} />
+                              <span className="text-[13px] font-medium text-[#3D2314] truncate">{n.titulo}</span>
+                            </div>
+                            {n.mensagem && <div className="text-[11.5px] text-[#3D2314]/55 mt-1 line-clamp-3">{n.mensagem}</div>}
+                          </div>
+                        </Link>
+                      ))}
+                    </>
+                  )}
                   {/* Chamados (por PESSOA) — resposta ao SEU chamado. Separado dos alertas do sistema. */}
                   {notifsChamado.length > 0 && (
                     <>
@@ -253,7 +287,7 @@ export default function TopNav() {
                   {/* Alertas do sistema (por EMPRESA) */}
                   {alertas.length > 0 && (
                     <>
-                      {notifsChamado.length > 0 && <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Alertas do sistema</div>}
+                      {(notifsChamado.length > 0 || notifsUsuario.length > 0) && <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Alertas do sistema</div>}
                       {alertas.map((a) => {
                         const clicavel = !!a.link_acao
                         const corpo = (
