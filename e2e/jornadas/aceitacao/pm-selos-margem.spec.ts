@@ -19,6 +19,8 @@ async function comoCliente(page: Page) {
 }
 
 test.describe('P&M · selos só para a equipe PS; margem sem custo/hora pede o cadastro', () => {
+  // o menu lateral só aparece em tela de computador (no celular ele fica na gaveta)
+  test.use({ viewport: { width: 1440, height: 900 } })
   test.beforeAll(async () => {
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO_AG}&select=is_demo`)
     expect(emp?.is_demo, 'só na demonstração').toBe(true)
@@ -42,7 +44,8 @@ test.describe('P&M · selos só para a equipe PS; margem sem custo/hora pede o c
     await page.goto('/dashboard/pm/eventos')
     await aguardarConteudo(page)
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Leads / CRM' }).first()).toBeVisible({ timeout: 15000 })
+    // a seção do módulo aberto já vem expandida no menu: o item aparece, sem selo
+    await expect(page.getByRole('link', { name: 'Eventos & Produções' }).first()).toBeVisible({ timeout: 15000 })
     await page.waitForTimeout(1500) // dá tempo de o selo aparecer, se fosse aparecer
     await expect(page.getByTestId('modulo-selo-estado')).toHaveCount(0)
     await expect(page.getByTestId('menu-selo')).toHaveCount(0)
