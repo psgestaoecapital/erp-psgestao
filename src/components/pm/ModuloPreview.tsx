@@ -1,5 +1,6 @@
 'use client'
 import type { CSSProperties, ReactNode } from 'react'
+import { useEhEquipePS } from '@/lib/menu/equipe-ps'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -34,6 +35,8 @@ export default function ModuloPreview({
   oQueE, comoFunciona, funcionalidades, diferencialIA,
 }: ModuloPreviewProps) {
   const cfg = STATUS_CFG[status]
+  // selo de estado (Previsto / Em breve / Pronto) só para a equipe PS — cliente não vê (CEO 01/10)
+  const ps = useEhEquipePS()
   return (
     <div className="p-4 max-w-4xl mx-auto" style={{ color: ESPRESSO }}>
       {/* Cabeçalho */}
@@ -43,7 +46,7 @@ export default function ModuloPreview({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <h1 className="text-2xl font-bold leading-tight">{titulo}</h1>
-              <span style={{ ...statusChip, background: cfg.bg, color: cfg.fg }}>{cfg.l}</span>
+              {ps && <span style={{ ...statusChip, background: cfg.bg, color: cfg.fg }} data-testid="modulo-selo-estado">{cfg.l}</span>}
               {badge && (
                 <span style={{ ...statusChip, background: DOURADO, color: '#fff' }}>{badge}</span>
               )}
