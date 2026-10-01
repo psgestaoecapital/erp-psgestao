@@ -13,7 +13,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { frasesPausasCurtas, frasesExcesso, fraseSinal, type PausaDia, type Trecho } from '@/lib/ponto/supervisaoFrases'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
-import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, type Marca, type PapelMarca, type LinhaPausaDia } from '@/lib/ponto/pausasMarcas'
+import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
 
 const C = {
@@ -1091,7 +1091,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState(''); const [okMsg, setOkMsg] = useState('')
   // #256 · editor das marcações do dia (Saída / Retorno / Ignorar)
-  const [editor, setEditor] = useState<{ cpf: string; data: string; colaborador: string } | null>(null)
+  const [editor, setEditor] = useState<{ cpf: string; data: string; colaborador: string; marcasIniciais?: Marca[] } | null>(null)
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(''); setOkMsg('')
@@ -1164,6 +1164,9 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       {erro && <div style={{ background: C.redBg, color: C.red, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
       {okMsg && <div style={{ background: C.greenBg, color: C.green, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}><CheckCircle2 size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />{okMsg}</div>}
 
+      {/* #587 · auditoria de batidas: o sistema sugere, a responsável confirma com justificativa */}
+      <AuditoriaBatidas companyId={companyId} onRevisar={(d) => setEditor(d)} />
+
       {/* Prévia + lote separado por confiabilidade */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.blueBg, border: `1px solid ${C.blue}22`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
         <div style={{ fontSize: 13, color: C.espresso, flex: '1 1 260px' }}>
@@ -1231,8 +1234,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
 // uma batida o par desliza. A responsável diz o que cada horário é — Saída, Retorno ou Ignorar (entrada do turno,
 // almoço) — e pode acrescentar o horário que faltou. A prévia mostra as pausas que vão ficar; salvar relê o dia
 // (fn_nr36_reler_dia: a leitura anterior vai para o histórico) e dá para desfazer.
-function EditorMarcasDia({ companyId, cpf, data, colaborador, onFechar, onSalvo }: { companyId: string; cpf: string; data: string; colaborador: string; onFechar: () => void; onSalvo: (msg: string) => void }) {
-  const [marcas, setMarcas] = useState<Marca[]>([])
+function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, onFechar, onSalvo }: { companyId: string; cpf: string; data: string; colaborador: string; marcasIniciais?: Marca[]; onFechar: () => void; onSalvo: (msg: string) => void }) {
+  const [marcas, setMarcas] = useState<Marca[]>(marcasIniciais ?? [])
+  // #587 · ANTES (como o dia está hoje) × DEPOIS (prévia) e justificativa obrigatória para gravar
+  const [antes, setAntes] = useState<PausaRelida[]>([])
+  const [justificativa, setJustificativa] = useState('')
+  const origem: 'sugestao' | 'manual' = marcasIniciais ? 'sugestao' : 'manual'
   const [podeDesfazer, setPodeDesfazer] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -1244,11 +1251,15 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, onFechar, onSalvo 
     ;(async () => {
       try {
         const r = await rpc<{ ok: boolean; linhas: LinhaPausaDia[]; pode_desfazer: boolean }>('fn_nr36_marcas_dia', { p_company_id: companyId, p_cpf: cpf, p_data: data })
-        if (vivo) { setMarcas(marcasDasPausas(r.linhas || [])); setPodeDesfazer(!!r.pode_desfazer) }
+        if (vivo) {
+          const atuais = marcasDasPausas(r.linhas || [])
+          setAntes(parearMarcas(atuais)); setPodeDesfazer(!!r.pode_desfazer)
+          if (!marcasIniciais) setMarcas(atuais)
+        }
       } catch (e) { if (vivo) setErro((e as Error).message) } finally { if (vivo) setCarregando(false) }
     })()
     return () => { vivo = false }
-  }, [companyId, cpf, data])
+  }, [companyId, cpf, data, marcasIniciais])
 
   const previa = useMemo(() => parearMarcas(marcas), [marcas])
   const invalido = useMemo(() => (marcas.length ? validarMarcas(marcas) : 'Nenhuma marcação neste dia.'), [marcas])
@@ -1263,10 +1274,11 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, onFechar, onSalvo 
   }
   async function salvar() {
     if (invalido) { setErro(invalido); return }
+    if (justificativa.trim().length < 10) { setErro('Escreva a justificativa (pelo menos 10 caracteres): por que este dia está sendo corrigido.'); return }
     if (!window.confirm(`Reler as pausas de ${colaborador} em ${data.split('-').reverse().join('/')} com estas marcações? A leitura anterior fica guardada no histórico e dá para desfazer.`)) return
     setBusy(true); setErro('')
     try {
-      const r = await rpc<{ ok: boolean; pausas?: number; mensagem?: string; erro?: string }>('fn_nr36_reler_dia', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_marcas: marcas })
+      const r = await rpc<{ ok: boolean; pausas?: number; mensagem?: string; erro?: string }>('fn_nr36_reler_dia_justificado', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_marcas: marcas, p_justificativa: justificativa.trim(), p_origem: origem })
       if (!r.ok) throw new Error(r.mensagem || r.erro || 'falha ao reler o dia')
       onSalvo(`Dia relido: ${r.pausas} pausa(s) de ${colaborador}. A leitura anterior está no histórico.`)
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
@@ -1314,8 +1326,16 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, onFechar, onSalvo 
               </select>
               <button type="button" style={papelBtn(false, C.gold)} data-testid="marca-nova-add" onClick={acrescentar}>Acrescentar</button>
             </div>
-            <div style={{ marginTop: 14, background: C.beigeLt, borderRadius: 10, padding: 10 }} data-testid="marcas-previa">
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, marginBottom: 6 }}>Pausas que vão ficar</div>
+            <div style={{ marginTop: 14, background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 10, padding: 10 }} data-testid="marcas-antes">
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, marginBottom: 6 }}>Antes — como o dia está hoje</div>
+              {antes.length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Nenhuma.</div> : antes.map((p, i) => (
+                <div key={i} style={{ fontSize: 12.5, color: C.gray }}>
+                  {p.situacao === 'fechada' ? <>{p.inicio} → {p.fim} · {p.minutos} min</> : p.situacao === 'sem_saida' ? <>retorno {p.fim} · saída não registrada</> : <>saída {p.inicio} · sem retorno</>}
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 10, background: C.beigeLt, borderRadius: 10, padding: 10 }} data-testid="marcas-previa">
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, marginBottom: 6 }}>Depois — pausas que vão ficar</div>
               {previa.length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Nenhuma.</div> : previa.map((p, i) => (
                 <div key={i} style={{ fontSize: 12.5, color: C.espresso }} data-testid={`marcas-previa-${i}`}>
                   {p.situacao === 'fechada' ? <>{p.inicio} → {p.fim} · <b>{p.minutos} min</b></>
@@ -1326,12 +1346,84 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, onFechar, onSalvo 
             </div>
           </>
         )}
+        {!carregando && (
+          <div style={{ marginTop: 12 }}>
+            <label style={{ fontSize: 12, color: C.gray }}>Justificativa (obrigatória) — por que este dia está sendo corrigido</label>
+            <textarea value={justificativa} onChange={e => setJustificativa(e.target.value)} data-testid="marcas-justificativa" rows={2}
+              placeholder="Ex.: conferido com o colaborador — esqueceu de bater a saída da 1ª pausa"
+              style={{ ...inp(), width: '100%', marginTop: 4, resize: 'vertical' }} />
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
           {podeDesfazer && <BtnGhost onClick={desfazer}><span data-testid="marcas-desfazer">Desfazer a última releitura</span></BtnGhost>}
           <BtnGhost onClick={onFechar}>Fechar</BtnGhost>
-          <button onClick={salvar} disabled={busy || carregando || !!invalido} style={btnStyle(busy || carregando || !!invalido)} data-testid="marcas-salvar">Salvar e reler o dia</button>
+          <button onClick={salvar} disabled={busy || carregando || !!invalido || justificativa.trim().length < 10} style={btnStyle(busy || carregando || !!invalido || justificativa.trim().length < 10)} data-testid="marcas-salvar">Confirmar e reler o dia</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// #587 (Frioeste · CEO 01/10) · Auditoria de batidas: lê as batidas ORIGINAIS do relatório no período e aponta os dias
+// em que os pares deslizaram (faltou uma batida). O sistema só SUGERE — cada dia abre no editor com antes/depois e a
+// responsável confirma com justificativa. Nada grava sozinho.
+type DiaAuditoria = { cpf: string; colaborador: string; data: string; linhas: LinhaPausaDia[] }
+function mesAnterior(): string { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
+function AuditoriaBatidas({ companyId, onRevisar }: { companyId: string; onRevisar: (d: { cpf: string; data: string; colaborador: string; marcasIniciais: Marca[] }) => void }) {
+  const [mes, setMes] = useState(mesAnterior())
+  const [dias, setDias] = useState<DiaAuditoria[] | null>(null)
+  const [busy, setBusy] = useState(false); const [erro, setErro] = useState('')
+  async function auditar() {
+    setBusy(true); setErro('')
+    try {
+      const [a, m] = mes.split('-').map(Number)
+      const ini = `${mes}-01`, fim = `${mes}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}`
+      const r = await rpc<{ ok: boolean; dias?: DiaAuditoria[]; mensagem?: string }>('fn_nr36_auditoria_batidas_dias', { p_company_id: companyId, p_ini: ini, p_fim: fim })
+      if (!r.ok) throw new Error(r.mensagem || 'falha na auditoria')
+      setDias((r.dias || []).filter(d => diaSuspeito(d.linhas)))
+    } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
+  }
+  const txt = (ps: PausaRelida[]) => ps.map(p => p.situacao === 'fechada' ? `${p.inicio}–${p.fim} (${p.minutos} min)` : p.situacao === 'sem_retorno' ? `${p.inicio}–?` : `?–${p.fim}`).join(' · ')
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 12, padding: 12, marginBottom: 14 }} data-testid="auditoria-batidas">
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 280px' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>Auditoria de batidas</div>
+          <div style={{ fontSize: 12.5, color: C.gray }}>Aponta os dias em que faltou uma batida e os horários do relatório ficaram trocados. O sistema <b>sugere</b>; você confere o antes/depois e <b>confirma com justificativa</b>. Nada é gravado sem você.</div>
+        </div>
+        <input type="month" value={mes} onChange={e => setMes(e.target.value)} data-testid="auditoria-mes" style={{ ...inp(), padding: '6px 8px' }} />
+        <button onClick={auditar} disabled={busy} style={btnStyle(busy)} data-testid="auditoria-rodar">{busy ? 'Auditando…' : 'Auditar o mês'}</button>
+      </div>
+      {erro && <div style={erroBox()}>{erro}</div>}
+      {dias && (dias.length === 0
+        ? <div style={{ fontSize: 12.5, color: C.green, marginTop: 10 }} data-testid="auditoria-vazia">Nenhum dia com batida faltando neste mês.</div>
+        : (
+        <div style={{ overflowX: 'auto', marginTop: 10 }}>
+          <div style={{ fontSize: 12.5, color: C.espresso, marginBottom: 6 }} data-testid="auditoria-resumo"><b>{dias.length}</b> dia(s) para conferir · <b>{dias.reduce((n, d) => n + sugerirPapeis(marcasDasPausas(d.linhas)).faltando.length, 0)}</b> batida(s) faltando apontada(s)</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
+              <th style={{ padding: '6px 8px' }}>Colaborador</th><th style={{ padding: '6px 8px' }}>Dia</th><th style={{ padding: '6px 8px' }}>Como veio do relatório</th><th style={{ padding: '6px 8px' }}>Sugestão</th><th style={{ padding: '6px 8px' }}>Batida faltando</th><th />
+            </tr></thead>
+            <tbody>
+              {dias.map(d => {
+                const marcas = marcasDasPausas(d.linhas)
+                const s = sugerirPapeis(marcas)
+                return (
+                  <tr key={d.cpf + d.data} style={{ borderBottom: `1px solid ${C.beigeLt}` }} data-testid={`auditoria-dia-${d.data}`}>
+                    <td style={{ padding: '7px 8px', fontWeight: 600, color: C.espresso }}>{d.colaborador}</td>
+                    <td style={{ padding: '7px 8px', color: C.gray }}>{d.data.split('-').reverse().join('/')}</td>
+                    <td style={{ padding: '7px 8px', color: C.gray }}>{txt(parearMarcas(marcas))}</td>
+                    <td style={{ padding: '7px 8px', color: C.espresso }}>{txt(s.pausas)}</td>
+                    <td style={{ padding: '7px 8px', color: C.amber, fontWeight: 700 }}>{s.faltando.join(', ') || '—'}</td>
+                    <td style={{ padding: '7px 8px' }}><button type="button" onClick={() => onRevisar({ cpf: d.cpf, data: d.data, colaborador: d.colaborador, marcasIniciais: s.marcas })} data-testid={`auditoria-revisar-${d.data}`}
+                      style={{ border: `1px solid ${C.borderLt}`, background: '#fff', color: C.espresso, borderRadius: 7, padding: '4px 9px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>Revisar</button></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ))}
     </div>
   )
 }

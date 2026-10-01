@@ -66,3 +66,58 @@ export function validarMarcas(marcas: Marca[]): string | null {
   if (!marcas.some(m => m.papel !== 'ignorar')) return 'Marque ao menos um horário como Saída ou Retorno.'
   return null
 }
+
+// #587 (Frioeste · CEO 01/10) · Auditoria de batidas: SUGERE o que cada horário do dia é quando os pares do relatório
+// deslizaram (falta uma batida e o coletor encaixa a próxima no lugar). Regra combinada: o sistema sugere, a responsável
+// confirma com justificativa, nada grava sozinho. A sugestão escolhe a leitura com mais pausas "plausíveis" (entre
+// PAUSA_MIN e PAUSA_MAX minutos) e, no empate, a mais perto de 20 min. Par longo que JÁ era par no relatório e não
+// disputa horário com outra pausa (ex.: almoço) fica como está. Horário que sobra sem par = "batida faltando": fica
+// como Saída sem retorno — a pausa continua pendente, nada é inventado (RD-38).
+export const PAUSA_MIN = 5
+export const PAUSA_MAX = 45
+export type SugestaoDia = { marcas: Marca[]; faltando: string[]; pausas: PausaRelida[]; mudou: boolean }
+
+const plausivel = (p: PausaRelida) => p.situacao === 'fechada' && (p.minutos ?? 0) >= PAUSA_MIN && (p.minutos ?? 0) <= PAUSA_MAX
+
+export function sugerirPapeis(marcasDia: Marca[]): SugestaoDia {
+  const ms = ordenarMarcas(marcasDia).filter((m, i, arr) => i === 0 || arr[i - 1].hora !== m.hora)
+  const n = ms.length
+  // dp[i] = melhor leitura de ms[i..]: [horários sem par, desvio total de 20 min]
+  const dp: Array<[number, number]> = Array.from({ length: n + 2 }, () => [0, 0])
+  const escolha: Array<'par' | 'orfa'> = new Array(n).fill('orfa')
+  const melhor = (a: [number, number], b: [number, number]) => (a[0] !== b[0] ? a[0] < b[0] : a[1] <= b[1])
+  for (let i = n - 1; i >= 0; i--) {
+    let best: [number, number] = [dp[i + 1][0] + 1, dp[i + 1][1]]
+    let esc: 'par' | 'orfa' = 'orfa'
+    if (i + 1 < n) {
+      const d = minDoDia(ms[i + 1].hora) - minDoDia(ms[i].hora)
+      if (d >= PAUSA_MIN && d <= PAUSA_MAX) {
+        const cand: [number, number] = [dp[i + 2][0], dp[i + 2][1] + Math.abs(d - 20)]
+        if (melhor(cand, best)) { best = cand; esc = 'par' }
+      }
+    }
+    dp[i] = best; escolha[i] = esc
+  }
+  const out: Marca[] = []; const faltando: string[] = []
+  for (let i = 0; i < n;) {
+    const parOriginal = i + 1 < n && ms[i].papel === 'saida' && ms[i + 1].papel === 'retorno'
+    if (escolha[i] === 'par') {
+      out.push({ ...ms[i], papel: 'saida' }, { ...ms[i + 1], papel: 'retorno' }); i += 2
+    } else if (parOriginal && escolha[i + 1] === 'orfa') {
+      // par longo do relatório sem disputa (ex.: almoço): mantém como estava
+      out.push({ ...ms[i] }, { ...ms[i + 1] }); i += 2
+    } else {
+      out.push({ ...ms[i], papel: 'saida' }); faltando.push(ms[i].hora); i += 1
+    }
+  }
+  const mudou = out.some((m) => ms.find((x) => x.hora === m.hora)?.papel !== m.papel)
+  return { marcas: out, faltando, pausas: parearMarcas(out), mudou }
+}
+
+// Dia com par provavelmente deslizado: a sugestão fecha MAIS pausas plausíveis do que a leitura atual.
+export function diaSuspeito(linhas: LinhaPausaDia[]): boolean {
+  const marcas = marcasDasPausas(linhas)
+  const atual = parearMarcas(marcas).filter(plausivel).length
+  const sug = sugerirPapeis(marcas)
+  return sug.mudou && sug.pausas.filter(plausivel).length > atual
+}
