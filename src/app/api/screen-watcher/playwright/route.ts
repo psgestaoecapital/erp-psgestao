@@ -17,6 +17,7 @@ import type { Browser } from 'playwright-core';
 import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-truth/executor';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
+import { empresaDoPedidoRobo } from '@/lib/gold/empresaDoPedidoRobo';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -261,7 +262,8 @@ export async function POST(req: Request) {
   // RD-69 P1/RD-70: o robô SÓ fotografa empresa de DEMONSTRAÇÃO (is_demo=true) — bucket público não
   // pode receber tela de cliente (LGPD). Sem default PS LTDA e sem id fixo: a permissão é conferida
   // no banco logo após criar o client (fail-closed). Empresa não-demo ⇒ 403 (a rota fica "NÃO AUDITADA").
-  const empresaId = (body.empresa_id || '').trim();
+  // O disparo do banco manda a empresa dentro da rota (?company_id=) — sem isso o run ficava "pending" para sempre.
+  const empresaId = empresaDoPedidoRobo(body.empresa_id, rotas);
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const SAAS_BASE_URL = process.env.SAAS_BASE_URL || 'https://erp-psgestao.vercel.app';
