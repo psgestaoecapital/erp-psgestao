@@ -24,7 +24,32 @@ jobs:
       queue: max
     # 75: a fila é o grupo demo-e2e (espera fora do runner); a trava no banco fica de segunda guarda
     timeout-minutes: 75
+    # actions: write → o run pode cancelar a si mesmo quando a versão é antiga (passo "Versão antiga?")
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
     steps:
+      # Versão antiga do mesmo ramo (CEO 01/10): ao chegar a vez na fila, se este commit já não é o último da PR, o run
+      # se cancela em segundos e libera a fila para o próximo (antes testava ~25 min uma versão que não vai ser mergeada).
+      # Não dá para usar concurrency por ramo: no deployment_status da Vercel o ref é o SHA e não vem o nome do ramo.
+      # Fila única entre ramos diferentes continua (grupo demo-e2e acima). Commit fora de PR aberta → testa normalmente.
+      - name: Versão antiga? (descarta e libera a fila)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.deployment.sha }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          heads=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.state == "open") | .head.sha] | join(" ")' 2>/dev/null || true)
+          echo "commit testado: $SHA"
+          echo "último commit das PRs abertas que contêm este commit: ${heads:-<nenhuma PR aberta>}"
+          if [ -n "$heads" ] && ! echo " $heads " | grep -q " $SHA "; then
+            echo "::notice::Versão antiga ($SHA): a PR já está em $heads. Teste descartado para liberar a fila."
+            gh run cancel "$RUN_ID" -R "$REPO"
+            sleep 120
+            exit 1
+          fi
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.deployment.sha }}
