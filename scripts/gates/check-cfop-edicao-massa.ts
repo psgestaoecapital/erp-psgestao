@@ -1,6 +1,6 @@
 // Gate (CEO 01/10 · parte A da #1937, SEM trava): CFOP de venda dentro (cfop_venda) e fora do estado
-// (cfop_venda_interestadual) no cadastro e na edição fiscal em massa. A trava na emissão (sem "5102 automático")
-// entra depois, em PR própria, quando os produtos da KGF e da FCR estiverem preenchidos. Roda no build, sem rede.
+// (cfop_venda_interestadual) no cadastro e na edição fiscal em massa. A trava na emissão (sem "5102 automático") é a
+// parte B, com gate próprio (check-cfop-trava-emissao). Roda no build, sem rede.
 import { readFileSync } from 'node:fs'
 import { erroDoValor, rotuloCampo, CAMPOS_FISCAIS } from '../../src/lib/produtos/fiscalMassa'
 
@@ -26,9 +26,7 @@ const form = readFileSync('src/components/cadastros/ProdutoForm.tsx', 'utf8')
 ok(!form.includes("cfop_venda ?? '5102'") && form.includes('cfop_venda_interestadual'), "ficha sem '5102' padrão e com CFOP fora do estado")
 ok(form.includes('produto-localizacao') && form.includes('codigo_barras'), 'ficha mantém local de armazenagem e código de barras (etiquetas)')
 
-// PARTE A: a emissão NÃO muda nesta PR (a trava vem depois, com o cadastro preenchido)
-const builder = readFileSync('src/lib/fiscal/nfe-builder.ts', 'utf8')
-ok(!builder.includes('cfopFaltando'), 'emissão sem trava de CFOP nesta PR (vem na parte B)')
+// A trava na emissão (parte B) é conferida por scripts/gates/check-cfop-trava-emissao.ts
 
 if (falhas) { console.error(`\ncheck-cfop-edicao-massa: ${falhas} falha(s)`); process.exit(1) }
 console.log('\ncheck-cfop-edicao-massa: ok')

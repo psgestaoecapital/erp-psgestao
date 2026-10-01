@@ -20,7 +20,7 @@ type Produto = {
 };
 
 const UNIDADES = ['UN','KG','G','M','M2','M3','LT','ML','CX','PCT','PR','JG','HR','SV','MÊS','DIA'];
-const EMPTY:Partial<Produto> = {codigo:'',nome:'',descricao:'',tipo:'produto',categoria:'',subcategoria:'',marca:'',grupo:'',unidade:'UN',preco_venda:0,preco_custo:0,ncm:'',cfop_venda:'5102',cfop_compra:'1102',origem:'0',estoque_atual:0,estoque_minimo:0,localizacao:'',fornecedor_padrao_nome:'',comissao_percentual:0,codigo_barras:'',ativo:true,destaque:false};
+const EMPTY:Partial<Produto> = {codigo:'',nome:'',descricao:'',tipo:'produto',categoria:'',subcategoria:'',marca:'',grupo:'',unidade:'UN',preco_venda:0,preco_custo:0,ncm:'',cfop_venda:'',cfop_compra:'1102',origem:'0',estoque_atual:0,estoque_minimo:0,localizacao:'',fornecedor_padrao_nome:'',comissao_percentual:0,codigo_barras:'',ativo:true,destaque:false};
 
 const fmtR=(v:number)=>v===0?"—":`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
 const fmtQ=(v:number)=>v===0?"0":v.toLocaleString("pt-BR",{maximumFractionDigits:1});

@@ -38,7 +38,8 @@ test.describe('NF-e sem tributação suposta — produto sem CSOSN/PIS/COFINS tr
     token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
     const p = await dbInsert<{ id: string }>('erp_produtos', {
       company_id: DEMO, codigo: CODIGO, nome: `E2E tributação ${RUN}`, ncm: '32145000', unidade: 'UN', preco_venda: 10,
-      tipo: 'produto', ativo: true, cst_icms: '102',
+      // CFOP de venda preenchido: isola a trava de PIS/COFINS da trava do CFOP (CEO 30/09)
+      tipo: 'produto', ativo: true, cst_icms: '102', cfop_venda: '5102',
     })
     produtoId = p.id
   })
