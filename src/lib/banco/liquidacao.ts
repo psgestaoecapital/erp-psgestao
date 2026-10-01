@@ -2,7 +2,8 @@
 // montar a credencial do banco (a partir de fn_banco_obter_credencial) e consultar um boleto pelo nosso número.
 // A rota /api/boleto/sync-liquidacao percorre as conexões ATIVAS de cada empresa e só consulta cada banco sobre os
 // boletos DAQUELE banco (boleto_banco_codigo) — antes mandava tudo para o Sicoob.
-// Bradesco entra quando chegar a documentação oficial de consulta de título (#297). Gate: scripts/check-baixa-boleto-banco.ts.
+// Bradesco (#297) tem rotina própria em src/lib/banco/bradesco/executarLiquidacao.ts (lista de liquidados às 7h, consulta
+// individual às 13h, baixados no banco). Gate: scripts/check-baixa-boleto-banco.ts.
 import { Buffer } from 'node:buffer'
 import { consultarBoleto as consultarSicoob, type Credencial as CredSicoob } from '@/lib/banco/sicoob'
 import { consultarBoleto as consultarSicredi, type Credencial as CredSicredi } from '@/lib/banco/sicredi'

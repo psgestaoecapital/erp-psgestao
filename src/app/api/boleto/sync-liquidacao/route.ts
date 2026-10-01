@@ -1,6 +1,7 @@
 // POST /api/boleto/sync-liquidacao — baixa automática dos boletos pagos, CIENTE DO BANCO (CEO 29/09 · aprovada).
 // Para cada empresa, percorre as conexões ATIVAS com boleto (erp_banco_provider_config) dos bancos com consulta
-// (src/lib/banco/liquidacao.ts: Sicoob e Sicredi; Bradesco quando chegar a documentação — #297). Cada banco só é
+// (src/lib/banco/liquidacao.ts: Sicoob e Sicredi, título a título; Bradesco — #297 — em lista às 7h e título a título às 13h,
+// em src/lib/banco/bradesco/executarLiquidacao.ts). Cada banco só é
 // consultado sobre os boletos DELE (boleto_banco_codigo) e a baixa vai por fn_boleto_liquidar com o banco (acha o título
 // por empresa + banco + nosso número e baixa na conta daquele banco; idempotente). Cada execução empresa/banco fica em
 // erp_boleto_liquidacao_execucao (sucesso ou falha); 2 falhas seguidas viram alerta no briefing.
@@ -16,6 +17,7 @@ import { Buffer } from 'node:buffer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { ehChamadaServico, exigirUsuario, empresasDoUsuario } from '@/lib/auth/guardaApi'
 import { PROVEDORES_LIQUIDACAO, BANCOS_COM_CONSULTA, provedorPorBanco, situacaoPaga, statusExecucao, type Ambiente } from '@/lib/banco/liquidacao'
+import { executarBradesco, modoDoHorario, BANCO_BRADESCO } from '@/lib/banco/bradesco/executarLiquidacao'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -42,8 +44,14 @@ async function registrar(lote: string, origem: 'agendado' | 'manual', r: Pick<Re
   } catch { /* o registro nunca derruba a baixa */ }
 }
 
-async function executarAlvo(alvo: Alvo): Promise<Resultado> {
+async function executarAlvo(alvo: Alvo, agendado: boolean): Promise<Resultado> {
   const base: Resultado = { ...alvo, status: 'ok', consultados: 0, liquidados: 0, erros: [], mensagem: null }
+  if (alvo.banco_codigo === BANCO_BRADESCO) {
+    // agendado: 7h = lista de liquidados + baixados; 13h = consulta individual. Botão manual: os dois (lista de 30 dias).
+    const b = await executarBradesco(alvo.company_id, agendado ? modoDoHorario() : 'ambos', agendado ? 5 : 30)
+    return { ...base, status: b.status, consultados: b.consultados, liquidados: b.liquidados, erros: b.erros,
+      mensagem: [b.mensagem, b.baixados ? `${b.baixados} boleto(s) baixado(s) no banco sem pagamento` : null].filter(Boolean).join(' · ') || null }
+  }
   const prov = provedorPorBanco(alvo.banco_codigo)
   if (!prov) return { ...base, status: 'erro', mensagem: `banco ${alvo.banco_codigo} sem consulta de boleto` }
 
@@ -130,7 +138,7 @@ export async function POST(req: NextRequest) {
   try {
     // conexões ativas com boleto dos bancos que têm consulta (uma por empresa+banco)
     let q = supabaseAdmin.from('erp_banco_provider_config').select('company_id, banco_codigo, provider')
-      .eq('ativo', true).eq('cap_boleto', true).in('banco_codigo', [...BANCOS_COM_CONSULTA])
+      .eq('ativo', true).eq('cap_boleto', true).in('banco_codigo', [...BANCOS_COM_CONSULTA, BANCO_BRADESCO])
     if (companyId) q = q.eq('company_id', companyId)
     const { data: cfgs, error } = await q
     if (error) throw new Error(error.message)
@@ -138,12 +146,12 @@ export async function POST(req: NextRequest) {
     const alvos: Alvo[] = []
     for (const c of (cfgs ?? []) as Alvo[]) {
       const k = `${c.company_id}|${c.banco_codigo}`
-      if (!vistos.has(k)) { vistos.add(k); alvos.push({ company_id: c.company_id, banco_codigo: c.banco_codigo, provider: provedorPorBanco(c.banco_codigo)?.provider ?? c.provider }) }
+      if (!vistos.has(k)) { vistos.add(k); alvos.push({ company_id: c.company_id, banco_codigo: c.banco_codigo, provider: c.banco_codigo === BANCO_BRADESCO ? 'bradesco' : (provedorPorBanco(c.banco_codigo)?.provider ?? c.provider) }) }
     }
 
     const resultados: Resultado[] = []
     for (const alvo of alvos) {
-      const r = await executarAlvo(alvo)
+      const r = await executarAlvo(alvo, agendado)
       resultados.push(r)
       await registrar(lote, origem, r, usuario)
     }
@@ -158,7 +166,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true, lote_id: lote, consultados, liquidados, erros,
       por_banco: resultados.map((r) => ({ company_id: r.company_id, banco_codigo: r.banco_codigo, provider: r.provider, status: r.status, consultados: r.consultados, liquidados: r.liquidados, mensagem: r.mensagem })),
-      bancos_com_consulta: Object.keys(PROVEDORES_LIQUIDACAO),
+      bancos_com_consulta: [...Object.keys(PROVEDORES_LIQUIDACAO), 'bradesco'],
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)

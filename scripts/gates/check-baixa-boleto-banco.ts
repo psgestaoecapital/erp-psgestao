@@ -7,7 +7,7 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 
 // 1) bancos com consulta e seus códigos (Sicoob e Sicredi agora; Bradesco quando chegar a documentação)
 ok(PROVEDORES_LIQUIDACAO.sicoob.banco_codigo === '756' && PROVEDORES_LIQUIDACAO.sicredi.banco_codigo === '748', 'Sicoob=756, Sicredi=748')
-ok(!BANCOS_COM_CONSULTA.includes('237'), 'Bradesco (237) ainda fora — sem documentação oficial de consulta')
+ok(!BANCOS_COM_CONSULTA.includes('237'), 'Bradesco (237) não usa a consulta título a título genérica: tem rotina própria (lista 7h / individual 13h — #297)')
 ok(provedorPorBanco('748')?.provider === 'sicredi' && provedorPorBanco('001') === null, 'banco → provedor; banco sem consulta → nenhum')
 
 // 2) o que é PAGO (e o que não é)
