@@ -21,6 +21,7 @@ import {
 } from './sidebar-config'
 import { useAreasVisiveis } from '@/hooks/useAreasVisiveis'
 import { useUsuario } from '@/lib/AuthProvider'
+import { ehEquipePS } from '@/lib/menu/equipe-ps'
 import { ramoConfig, RAMOS, type Ramo } from '@/lib/oficina/ramo'
 
 const AREA_STORAGE_KEY = 'ps_area_sel'
@@ -247,14 +248,14 @@ export function useSidebarModulos(): State {
   // B.3 · dono da OFICINA (papel por empresa) ganha o atalho "Usuários da Oficina".
   const [oficinaDono, setOficinaDono] = useState(false)
   // badge-so-ps · o badge de estado (Pronto/Parcial/Previsto) e dado interno da PS.
-  // Cliente nunca ve. So system_role='PS_ADMIN' recebe o badge no menu.
+  // Cliente nunca ve. So a equipe PS (ehEquipePS: PS_ADMIN, PS_ADMIN_CVM, PS_SUPPORT) recebe o badge no menu.
   const [isPS, setIsPS] = useState(false)
   useEffect(() => {
     let alive = true
     void (async () => {
       if (!userId) { if (alive) { setOwnerAtalho(false); setIsPS(false) } return }
       const { data: up } = await supabase.from('users').select('system_role').eq('id', userId).maybeSingle()
-      if (alive) setIsPS(up?.system_role === 'PS_ADMIN' || up?.system_role === 'PS_ADMIN_CVM')
+      if (alive) setIsPS(ehEquipePS(up?.system_role))
       if (up?.system_role) { if (alive) setOwnerAtalho(false); return } // PS_ADMIN ja tem o painel via RPC
       const { data: owner } = await supabase
         .from('tenant_user_roles')
