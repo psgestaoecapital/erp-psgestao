@@ -3,6 +3,7 @@
 // vê o diff com o texto anterior, os [VERIFICAR]/needs_human, e PUBLICA ou DESCARTA. IA nunca publica.
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import AjudaCampoEditor from '@/components/ajuda/AjudaCampoEditor'
 
 const ESP = '#3D2314', MUT = '#6B5D4F', BG = '#FAF7F2', LINE = '#E7DECF', GOLD = '#C8941A', RED = '#A32D2D', GREEN = '#166534'
 
@@ -31,6 +32,7 @@ export default function AjudaCuradoriaPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [editTxt, setEditTxt] = useState('')
+  const [aba, setAba] = useState<'artigos' | 'campos'>('artigos')
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -94,6 +96,12 @@ export default function AjudaCuradoriaPage() {
       <div style={{ maxWidth: 920, margin: '0 auto', padding: '20px 16px 80px' }}>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>Central de Ajuda</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 4px' }}>Curadoria IA</h1>
+        <div style={{ display: 'flex', gap: 6, margin: '6px 0 12px' }}>
+          {([['artigos', 'Artigos'], ['campos', 'Ajuda de campo']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setAba(k)} data-testid={`curadoria-aba-${k}`} style={{ ...btnGhost, padding: '6px 12px', borderColor: aba === k ? GOLD : LINE, fontWeight: aba === k ? 700 : 500 }}>{l}</button>
+          ))}
+        </div>
+        {aba === 'campos' ? <AjudaCampoEditor /> : <>
         <p style={{ fontSize: 13, color: MUT, margin: '0 0 14px' }}>A IA rascunha ancorada no material da tela — <b>ela nunca publica</b>. Você revisa, corrige e publica. <code>[VERIFICAR]</code> = falta info (não invente).</p>
 
         {stats && (
@@ -158,6 +166,7 @@ export default function AjudaCuradoriaPage() {
               )}
             </div>
           ))}
+        </>}
       </div>
       {msg && <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, zIndex: 60, maxWidth: '92%', textAlign: 'center' }}>{msg}</div>}
     </div>

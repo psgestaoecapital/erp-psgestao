@@ -15,6 +15,7 @@ import {
   TIPOS_COMPONENTE, VINCULOS, type ChavesIncidencia, type Componente, type Encargos, type FichaCusto, type FormaPagamento, type PadroesFicha, type TipoComponente, type Vinculo,
 } from "@/lib/hub/custoMaoObra";
 import { cpfValido, mascaraCpf } from "@/lib/documentos/cpf";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 type CustoFuncao = { custo_hora: number | null; custo_m2: number | null; custo_unidade?: number | null; unidade?: string | null; origem: "media_grupo" | "manual" | "sem_dado"; pessoas_conferidas: number; empresas: number; nao_conferidas: number };
 type Funcao = { id: string; nome: string; cbo: string | null; forma_pagamento: string; unidade_producao?: string | null; custo_hora_manual: number | null; unida_a_id: string | null; unida_a_nome: string | null; ativo: boolean; migrada_de: string | null; custo: CustoFuncao | null;
@@ -126,7 +127,7 @@ export default function MaoObraPage() {
           <table className="w-full text-[12.5px]" data-testid="mao-obra-equipe">
             <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
               <th className="py-2 pr-2">Nome</th><th className="pr-2">Função</th><th className="pr-2">Vínculo</th><th className="pr-2 text-right">Horas/mês</th>
-              <th className="pr-2 text-right">Custo mensal</th><th className="pr-2 text-right">Custo da hora</th><th className="pr-2 text-right">Por unidade</th><th className="pr-2">Situação</th><th></th>
+              <th className="pr-2 text-right">Custo mensal</th><th className="pr-2 text-right">Custo da hora</th><th className="pr-2 text-right">Por unidade</th><th className="pr-2">Situação<AjudaCampo chave="projetos.mao_obra.equipe.conferido" /></th><th></th>
             </tr></thead>
             <tbody>
               {dados.equipe.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-[#3D2314]/60">Ninguém cadastrado ainda. Use “Novo funcionário” ou “Novo perfil padrão”{dados.funcoes.length === 0 ? " (antes, cadastre as funções na aba Funções)" : ""}.</td></tr>}
@@ -172,7 +173,7 @@ export default function MaoObraPage() {
               {dados.funcoes.length === 0 && (
                 <tr><td colSpan={9} className="py-6 text-center text-[#3D2314]/60" data-testid="mao-obra-funcoes-vazia">
                   Nenhuma função ainda. Use “Nova função”{pode ? " ou comece pelas funções-modelo de obra (só os nomes e a forma de pagamento — sem custo inventado; você ajusta depois)." : "."}
-                  {pode && <div className="mt-2"><button className={btnPri} data-testid="mao-obra-funcoes-modelo" onClick={() => void rpc("fn_mao_obra_funcoes_modelo", { p_company_id: companyId }, "Funções-modelo criadas — ajuste nomes e forma de pagamento se precisar.")}>Usar funções-modelo</button></div>}
+                  {pode && <div className="mt-2"><button className={btnPri} data-testid="mao-obra-funcoes-modelo" onClick={() => void rpc("fn_mao_obra_funcoes_modelo", { p_company_id: companyId }, "Funções-modelo criadas — ajuste nomes e forma de pagamento se precisar.")}>Usar funções-modelo</button><AjudaCampo chave="projetos.mao_obra.funcao.modelo" /></div>}
                 </td></tr>
               )}
               {dados.funcoes.map((f) => (
@@ -223,8 +224,9 @@ function Janela({ titulo, onClose, children, testid }: { titulo: string; onClose
     </div>
   );
 }
-function Campo({ rotulo, children }: { rotulo: React.ReactNode; children: React.ReactNode }) {
-  return <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70">{rotulo}</span>{children}</label>;
+// todo campo do Hub tem o "?" (AjudaCampo) ao lado do rótulo — CEO 01/10; o gate check-ajuda-campo reprova campo sem ajuda
+function Campo({ rotulo, ajuda, children }: { rotulo: React.ReactNode; ajuda?: string; children: React.ReactNode }) {
+  return <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70">{rotulo}{ajuda && <AjudaCampo chave={ajuda} />}</span>{children}</label>;
 }
 
 function ModalFuncao({ companyId, f, onClose, onSalvar }: { companyId: string; f?: Funcao; onClose: () => void; onSalvar: Salvar }) {
@@ -237,13 +239,13 @@ function ModalFuncao({ companyId, f, onClose, onSalvar }: { companyId: string; f
   return (
     <Janela titulo={f ? `Editar função · ${f.nome}` : "Nova função"} onClose={onClose} testid="mao-obra-modal-funcao">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Campo rotulo="Nome da função"><input className={inp} value={nome} onChange={(e) => setNome(e.target.value)} data-testid="funcao-nome" placeholder="Gesseiro" /></Campo>
-        <Campo rotulo="CBO (opcional — casa a função entre as empresas do grupo)"><input className={inp} value={cbo} onChange={(e) => setCbo(e.target.value)} placeholder="7155-05" /></Campo>
-        <Campo rotulo="Forma de pagamento (sugerida na ficha)"><select className={inp} value={forma} onChange={(e) => setForma(e.target.value)} data-testid="funcao-forma">{FORMAS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
-        {forma === "producao" && <Campo rotulo="Unidade de produção"><select className={inp} value={unidade || "m2"} onChange={(e) => setUnidade(e.target.value)} data-testid="funcao-unidade">{UNIDADES.map((u) => <option key={u.v} value={u.v}>{u.l}</option>)}</select></Campo>}
-        <Campo rotulo="Custo/hora manual (só enquanto ninguém estiver conferido)"><input className={inp} value={manual} onChange={(e) => setManual(e.target.value)} inputMode="decimal" placeholder="opcional" /></Campo>
+        <Campo ajuda="projetos.mao_obra.funcao.nome" rotulo="Nome da função"><input className={inp} value={nome} onChange={(e) => setNome(e.target.value)} data-testid="funcao-nome" placeholder="Gesseiro" /></Campo>
+        <Campo ajuda="projetos.mao_obra.funcao.cbo" rotulo="CBO (opcional — casa a função entre as empresas do grupo)"><input className={inp} value={cbo} onChange={(e) => setCbo(e.target.value)} placeholder="7155-05" /></Campo>
+        <Campo ajuda="projetos.mao_obra.funcao.forma" rotulo="Forma de pagamento (sugerida na ficha)"><select className={inp} value={forma} onChange={(e) => setForma(e.target.value)} data-testid="funcao-forma">{FORMAS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
+        {forma === "producao" && <Campo ajuda="projetos.mao_obra.funcao.unidade" rotulo="Unidade de produção"><select className={inp} value={unidade || "m2"} onChange={(e) => setUnidade(e.target.value)} data-testid="funcao-unidade">{UNIDADES.map((u) => <option key={u.v} value={u.v}>{u.l}</option>)}</select></Campo>}
+        <Campo ajuda="projetos.mao_obra.funcao.custo_manual" rotulo="Custo/hora manual (só enquanto ninguém estiver conferido)"><input className={inp} value={manual} onChange={(e) => setManual(e.target.value)} inputMode="decimal" placeholder="opcional" /></Campo>
       </div>
-      {f && <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> Função ativa</label>}
+      {f && <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> Função ativa<AjudaCampo chave="projetos.mao_obra.funcao.ativa" /></label>}
       <div className="flex justify-end gap-2">
         <button className={btnSec} onClick={onClose}>Voltar</button>
         <button className={btnPri} data-testid="funcao-salvar" disabled={nome.trim().length < 2} onClick={async () => {
@@ -259,10 +261,10 @@ function ModalUnir({ f, funcoes, onClose, onSalvar }: { f: Funcao; funcoes: Func
   return (
     <Janela titulo={`Unir “${f.nome}” a outra função`} onClose={onClose} testid="mao-obra-modal-unir">
       <p className="text-[12.5px] text-[#3D2314]/70">As duas passam a contar como a mesma função na média do grupo (ex.: “Gesseiro” e “Gesseiro montador”).</p>
-      <select className={inp} value={alvo} onChange={(e) => setAlvo(e.target.value)}>
+      <div className="flex items-center gap-1"><select className={inp} value={alvo} onChange={(e) => setAlvo(e.target.value)}>
         <option value="">— não unir (separar) —</option>
         {funcoes.filter((x) => x.id !== f.id).map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
-      </select>
+      </select><AjudaCampo chave="projetos.mao_obra.funcao.unir" /></div>
       <div className="flex justify-end gap-2">
         <button className={btnSec} onClick={onClose}>Voltar</button>
         <button className={btnPri} onClick={async () => { if (await onSalvar("fn_mao_obra_funcao_unir", { p_funcao_id: f.id, p_unir_a_id: alvo || null }, "Funções atualizadas.")) onClose(); }}>Salvar</button>
@@ -271,9 +273,9 @@ function ModalUnir({ f, funcoes, onClose, onSalvar }: { f: Funcao; funcoes: Func
   );
 }
 
-const BENEFICIOS: [keyof FichaCusto, string][] = [
-  ["beneficio_vt", "Vale-transporte (já sem o desconto de 6%)"], ["beneficio_alimentacao", "Alimentação"], ["beneficio_saude", "Plano de saúde"],
-  ["beneficio_seguro", "Seguro de vida"], ["beneficio_epi", "EPI e uniforme (por mês)"],
+const BENEFICIOS: [keyof FichaCusto, string, string][] = [
+  ["beneficio_vt", "Vale-transporte (já sem o desconto de 6%)", "projetos.mao_obra.beneficio.vt"], ["beneficio_alimentacao", "Alimentação", "projetos.mao_obra.beneficio.alimentacao"],
+  ["beneficio_saude", "Plano de saúde", "projetos.mao_obra.beneficio.saude"], ["beneficio_seguro", "Seguro de vida", "projetos.mao_obra.beneficio.seguro"], ["beneficio_epi", "EPI e uniforme (por mês)", "projetos.mao_obra.beneficio.epi"],
 ];
 
 // Data de hoje no fuso de Brasília (UTC−3), para o campo "vale a partir de".
@@ -285,12 +287,12 @@ const PADRAO_FICHA: PadroesFicha = {
 };
 const padroesDe = (e: Encargos): PadroesFicha => ({ ...PADRAO_FICHA, ...(e.padroes ?? {}) } as PadroesFicha);
 // percentuais do cálculo que podem ser ajustados na ficha (vêm do padrão da empresa)
-const AJUSTES: { k: "encargos_folha_pct_ajuste" | "prov_13_pct_ajuste" | "prov_ferias_pct_ajuste" | "prov_rescisao_pct_ajuste" | "dsr_fator_ajuste"; padrao: (e: Encargos) => number; l: string }[] = [
-  { k: "encargos_folha_pct_ajuste", padrao: (e) => Number(e.encargos_folha_pct), l: "Encargos da folha %" },
-  { k: "prov_13_pct_ajuste", padrao: (e) => Number(e.prov_13_pct), l: "13º %" },
-  { k: "prov_ferias_pct_ajuste", padrao: (e) => Number(e.prov_ferias_pct), l: "Férias + 1/3 %" },
-  { k: "prov_rescisao_pct_ajuste", padrao: (e) => Number(e.prov_rescisao_pct), l: "Provisão de rescisão %" },
-  { k: "dsr_fator_ajuste", padrao: (e) => Number(padroesDe(e).dsr_fator), l: "DSR (1/6 = 0,16667)" },
+const AJUSTES: { k: "encargos_folha_pct_ajuste" | "prov_13_pct_ajuste" | "prov_ferias_pct_ajuste" | "prov_rescisao_pct_ajuste" | "dsr_fator_ajuste"; padrao: (e: Encargos) => number; l: string; ajuda: string }[] = [
+  { k: "encargos_folha_pct_ajuste", padrao: (e) => Number(e.encargos_folha_pct), l: "Encargos da folha %", ajuda: "projetos.mao_obra.ajuste.encargos" },
+  { k: "prov_13_pct_ajuste", padrao: (e) => Number(e.prov_13_pct), l: "13º %", ajuda: "projetos.mao_obra.ajuste.13" },
+  { k: "prov_ferias_pct_ajuste", padrao: (e) => Number(e.prov_ferias_pct), l: "Férias + 1/3 %", ajuda: "projetos.mao_obra.ajuste.ferias" },
+  { k: "prov_rescisao_pct_ajuste", padrao: (e) => Number(e.prov_rescisao_pct), l: "Provisão de rescisão %", ajuda: "projetos.mao_obra.ajuste.rescisao" },
+  { k: "dsr_fator_ajuste", padrao: (e) => Number(padroesDe(e).dsr_fator), l: "DSR (1/6 = 0,16667)", ajuda: "projetos.mao_obra.ajuste.dsr" },
 ];
 const Obrig = () => <span className="text-[#791F1F]">*</span>;
 
@@ -300,8 +302,9 @@ const SUBTIPOS: Partial<Record<TipoComponente, { v: string; l: string }[]>> = {
   fixo: [{ v: "mensal", l: "mensal" }, { v: "hora", l: "por hora" }],
   adicional: [{ v: "insalubridade", l: "insalubridade (% do mínimo)" }, { v: "periculosidade", l: "periculosidade (% do fixo)" }, { v: "noturno", l: "noturno" }, { v: "outro", l: "outro (R$)" }],
 };
-const CHAVES: { k: keyof ChavesIncidencia; l: string }[] = [
-  { k: "gera_dsr", l: "Gera DSR" }, { k: "integra_13_ferias", l: "13º/férias" }, { k: "incide_encargos", l: "INSS/FGTS" }, { k: "integra_remuneracao", l: "Integra a remuneração" },
+const CHAVES: { k: keyof ChavesIncidencia; l: string; ajuda: string }[] = [
+  { k: "gera_dsr", l: "Gera DSR", ajuda: "projetos.mao_obra.chave.gera_dsr" }, { k: "integra_13_ferias", l: "13º/férias", ajuda: "projetos.mao_obra.chave.13_ferias" },
+  { k: "incide_encargos", l: "INSS/FGTS", ajuda: "projetos.mao_obra.chave.encargos" }, { k: "integra_remuneracao", l: "Integra a remuneração", ajuda: "projetos.mao_obra.chave.integra" },
 ];
 const ehClt = (vinc: string) => vinc === "clt" || vinc === "clt_intermitente";
 
@@ -473,26 +476,26 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
         <fieldset className="space-y-2">
           <legend className="text-[11px] uppercase tracking-wide text-[#3D2314]/60">Dados pessoais e de vínculo (cadastro compartilhado — o mesmo do SST)</legend>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Campo rotulo={<>Nome completo <Obrig /></>}><input className={inp + marcaErro((p.nome_completo ?? "").trim().length < 3)} onChange={setPes("nome_completo")} data-testid="pessoa-nome" /></Campo>
-            <Campo rotulo={<>CPF <Obrig /></>}>
+            <Campo ajuda="projetos.mao_obra.pessoa.nome" rotulo={<>Nome completo <Obrig /></>}><input className={inp + marcaErro((p.nome_completo ?? "").trim().length < 3)} onChange={setPes("nome_completo")} data-testid="pessoa-nome" /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.cpf" rotulo={<>CPF <Obrig /></>}>
               <input className={inp + marcaErro(!cpfValido(p.cpf))} value={p.cpf ?? ""} onChange={setPes("cpf")} inputMode="numeric" placeholder="000.000.000-00" data-testid="pessoa-cpf" />
               {(p.cpf ?? "").replace(/\D/g, "").length === 11 && !cpfValido(p.cpf) && <span className="text-[11px] text-[#791F1F]" data-testid="pessoa-cpf-invalido">CPF inválido — confira os números</span>}
             </Campo>
-            <Campo rotulo={<>Data de admissão <Obrig /></>}><input type="date" className={inp + marcaErro(!p.data_admissao)} onChange={setPes("data_admissao")} data-testid="pessoa-admissao" /></Campo>
-            <Campo rotulo="RG"><input className={inp} onChange={setPes("rg")} /></Campo>
-            <Campo rotulo="Data de nascimento"><input type="date" className={inp} onChange={setPes("data_nascimento")} /></Campo>
-            <Campo rotulo="Telefone"><input className={inp} onChange={setPes("telefone")} /></Campo>
-            <Campo rotulo="E-mail"><input className={inp} onChange={setPes("email")} /></Campo>
-            <Campo rotulo="CEP"><input className={inp} onChange={setPes("cep")} /></Campo>
-            <Campo rotulo="Endereço"><input className={inp} onChange={setPes("logradouro")} /></Campo>
-            <Campo rotulo="Número"><input className={inp} onChange={setPes("numero")} /></Campo>
-            <Campo rotulo="Bairro"><input className={inp} onChange={setPes("bairro")} /></Campo>
-            <Campo rotulo="Cidade"><input className={inp} onChange={setPes("cidade")} /></Campo>
-            <Campo rotulo="UF"><input className={inp} maxLength={2} onChange={setPes("uf")} /></Campo>
-            <Campo rotulo="Matrícula"><input className={inp} onChange={setPes("matricula")} /></Campo>
-            <Campo rotulo="Cargo"><input className={inp} onChange={setPes("cargo")} /></Campo>
-            <Campo rotulo="Setor"><input className={inp} onChange={setPes("setor")} /></Campo>
-            <Campo rotulo="Obra atual"><input className={inp} onChange={setPes("obra_nome")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.admissao" rotulo={<>Data de admissão <Obrig /></>}><input type="date" className={inp + marcaErro(!p.data_admissao)} onChange={setPes("data_admissao")} data-testid="pessoa-admissao" /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.documentos" rotulo="RG"><input className={inp} onChange={setPes("rg")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.documentos" rotulo="Data de nascimento"><input type="date" className={inp} onChange={setPes("data_nascimento")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.contato" rotulo="Telefone"><input className={inp} onChange={setPes("telefone")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.contato" rotulo="E-mail"><input className={inp} onChange={setPes("email")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.endereco" rotulo="CEP"><input className={inp} onChange={setPes("cep")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.endereco" rotulo="Endereço"><input className={inp} onChange={setPes("logradouro")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.endereco" rotulo="Número"><input className={inp} onChange={setPes("numero")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.endereco" rotulo="Bairro"><input className={inp} onChange={setPes("bairro")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.endereco" rotulo="Cidade"><input className={inp} onChange={setPes("cidade")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.endereco" rotulo="UF"><input className={inp} maxLength={2} onChange={setPes("uf")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.matricula" rotulo="Matrícula"><input className={inp} onChange={setPes("matricula")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.cargo_setor" rotulo="Cargo"><input className={inp} onChange={setPes("cargo")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.cargo_setor" rotulo="Setor"><input className={inp} onChange={setPes("setor")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.pessoa.obra" rotulo="Obra atual"><input className={inp} onChange={setPes("obra_nome")} /></Campo>
           </div>
           <p className="text-[11px] text-[#3D2314]/60">Dados de saúde não entram aqui: ficam no SST.</p>
         </fieldset>
@@ -500,24 +503,24 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
       <fieldset className="space-y-2">
         <legend className="text-[11px] uppercase tracking-wide text-[#3D2314]/60">Ficha de custo</legend>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <Campo rotulo={<>Função <Obrig /></>}>
+          <Campo ajuda="projetos.mao_obra.ficha.funcao" rotulo={<>Função <Obrig /></>}>
             <select className={inp + marcaErro(!v.funcao_id)} value={v.funcao_id} onChange={(e) => escolherFuncao(e.target.value)} data-testid="ficha-funcao">
               <option value="">— escolha —</option>
               {funcoes.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
             </select>
           </Campo>
-          <Campo rotulo={<>Vínculo <Obrig /></>}><select className={inp} value={v.vinculo} onChange={(e) => mudarVinculo(e.target.value)} data-testid="ficha-vinculo">{VINCULOS.map((x) => <option key={x.v} value={x.v}>{x.rotulo}</option>)}</select></Campo>
-          <Campo rotulo={`Horas produtivas por mês (padrão ${txt(pad.horas_produtivas_mes)})`}><input className={inp} value={v.horas_produtivas_mes} onChange={set("horas_produtivas_mes")} inputMode="decimal" data-testid="ficha-horas" /></Campo>
+          <Campo ajuda="projetos.mao_obra.ficha.vinculo" rotulo={<>Vínculo <Obrig /></>}><select className={inp} value={v.vinculo} onChange={(e) => mudarVinculo(e.target.value)} data-testid="ficha-vinculo">{VINCULOS.map((x) => <option key={x.v} value={x.v}>{x.rotulo}</option>)}</select></Campo>
+          <Campo ajuda="projetos.mao_obra.ficha.horas" rotulo={`Horas produtivas por mês (padrão ${txt(pad.horas_produtivas_mes)})`}><input className={inp} value={v.horas_produtivas_mes} onChange={set("horas_produtivas_mes")} inputMode="decimal" data-testid="ficha-horas" /></Campo>
           {tipo === "perfil" && <>
-            <Campo rotulo="Descrição do perfil"><input className={inp} value={v.descricao} onChange={set("descricao")} placeholder="Gesseiro padrão" /></Campo>
-            <Campo rotulo="Quantidade de pessoas"><input className={inp} value={v.quantidade_pessoas} onChange={set("quantidade_pessoas")} inputMode="numeric" data-testid="ficha-quantidade" /></Campo>
-            <Campo rotulo="Setor"><input className={inp} value={v.setor} onChange={set("setor")} /></Campo>
+            <Campo ajuda="projetos.mao_obra.ficha.perfil_descricao" rotulo="Descrição do perfil"><input className={inp} value={v.descricao} onChange={set("descricao")} placeholder="Gesseiro padrão" /></Campo>
+            <Campo ajuda="projetos.mao_obra.ficha.perfil_quantidade" rotulo="Quantidade de pessoas"><input className={inp} value={v.quantidade_pessoas} onChange={set("quantidade_pessoas")} inputMode="numeric" data-testid="ficha-quantidade" /></Campo>
+            <Campo ajuda="projetos.mao_obra.ficha.perfil_setor" rotulo="Setor"><input className={inp} value={v.setor} onChange={set("setor")} /></Campo>
           </>}
         </div>
         {v.vinculo === "pj" && (
           <label className="flex items-start gap-2 text-[12.5px]">
             <input type="checkbox" checked={mei} onChange={(e) => { setMei(e.target.checked); setMeiTocado(true); }} data-testid="ficha-mei-obra" className="mt-0.5" />
-            <span>MEI em serviço de obra (hidráulica, elétrica, pintura, alvenaria, carpintaria): o contratante paga 20% de INSS patronal sobre o valor (LC 123). <span className="text-[#8A5A00]">A confirmar com o contador.</span></span>
+            <span>MEI em serviço de obra<AjudaCampo chave="projetos.mao_obra.ficha.mei_obra" /> (hidráulica, elétrica, pintura, alvenaria, carpintaria): o contratante paga 20% de INSS patronal sobre o valor (LC 123). <span className="text-[#8A5A00]">A confirmar com o contador.</span></span>
           </label>
         )}
         {v.vinculo === "diarista" && <p className="text-[11.5px] text-[#3D2314]/60">Diarista é calculado como autônomo (INSS do RPA sobre o valor).</p>}
@@ -532,13 +535,13 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
           return (
             <div key={l.key} className={`rounded-md border bg-white px-2 py-2 space-y-1.5${l.chaves_ajustadas ? " border-[#C8941A]" : " border-[#3D2314]/15"}`} data-testid={`componente-${idx}`}>
               <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end">
-                <Campo rotulo="Tipo">
+                <Campo ajuda="projetos.mao_obra.comp.tipo" rotulo="Tipo">
                   <select className={inp} value={l.tipo} onChange={(e) => mudarLinha(l.key, { tipo: e.target.value as TipoComponente })} data-testid="componente-tipo">
                     {TIPOS_COMPONENTE.map((t) => <option key={t.tipo} value={t.tipo}>{t.rotulo}</option>)}
                   </select>
                 </Campo>
                 {SUBTIPOS[l.tipo] && (
-                  <Campo rotulo="Qual">
+                  <Campo ajuda="projetos.mao_obra.comp.tipo" rotulo="Qual">
                     <select className={inp} value={l.subtipo} onChange={(e) => mudarLinha(l.key, { subtipo: e.target.value, ...(l.tipo === "adicional" ? { percentual: e.target.value === "periculosidade" ? "30" : e.target.value === "outro" ? "" : "20" } : {}), ...(l.tipo === "fixo" && e.target.value === "hora" && !l.quantidade ? { quantidade: v.horas_produtivas_mes } : {}) })} data-testid="componente-subtipo">
                       {SUBTIPOS[l.tipo]!.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}
                     </select>
@@ -548,11 +551,11 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
                 <div className="text-[12px] text-right sm:col-span-1">Valor do mês<br /><b data-testid="componente-valor-mes">{brl(Math.round(valorMes * 100) / 100)}</b></div>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px]">
-                <input className={inp + " max-w-[260px]"} value={l.descricao} onChange={(e) => mudarLinha(l.key, { descricao: e.target.value })} placeholder="descrição (opcional)" />
+                <span className="flex items-center"><input className={inp + " max-w-[260px]"} value={l.descricao} onChange={(e) => mudarLinha(l.key, { descricao: e.target.value })} placeholder="descrição (opcional)" /><AjudaCampo chave="projetos.mao_obra.comp.descricao" /></span>
                 {clt && (
                   <span className="flex flex-wrap items-center gap-3" data-testid="componente-chaves">
                     {CHAVES.map((ch) => (
-                      <label key={ch.k} className="flex items-center gap-1"><input type="checkbox" checked={l[ch.k]} onChange={(e) => mudarChave(l.key, ch.k, e.target.checked)} data-testid={`chave-${ch.k}`} /> {ch.l}</label>
+                      <label key={ch.k} className="flex items-center gap-1"><input type="checkbox" checked={l[ch.k]} onChange={(e) => mudarChave(l.key, ch.k, e.target.checked)} data-testid={`chave-${ch.k}`} /> {ch.l}<AjudaCampo chave={ch.ajuda} /></label>
                     ))}
                     {l.chaves_ajustadas && <button type="button" className="underline" onClick={() => setLinhas((ls) => ls.map((x) => (x.key === l.key ? { ...x, ...chavesPadrao(v.vinculo as Vinculo, x.tipo, x.subtipo || null, inc), chaves_ajustadas: false } : x)))}>padrão</button>}
                   </span>
@@ -563,10 +566,10 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
           );
         })}
         <div className="flex flex-wrap items-center gap-2">
-          <select className={inp + " max-w-[240px]"} value="" onChange={(e) => { if (e.target.value) setLinhas((ls) => [...ls, novaLinha(e.target.value as TipoComponente, v.vinculo, inc, e.target.value === "producao" && funcaoSel?.unidade_producao ? { unidade: funcaoSel.unidade_producao } : {})]); }} data-testid="componente-adicionar">
+          <span className="flex items-center"><select className={inp + " max-w-[240px]"} value="" onChange={(e) => { if (e.target.value) setLinhas((ls) => [...ls, novaLinha(e.target.value as TipoComponente, v.vinculo, inc, e.target.value === "producao" && funcaoSel?.unidade_producao ? { unidade: funcaoSel.unidade_producao } : {})]); }} data-testid="componente-adicionar">
             <option value="">+ adicionar componente…</option>
             {TIPOS_COMPONENTE.map((t) => <option key={t.tipo} value={t.tipo}>{t.rotulo} — {t.ajuda}</option>)}
-          </select>
+          </select><AjudaCampo chave="projetos.mao_obra.comp.tipo" /></span>
           {salarioSugerido && funcaoSel?.salario_sugerido && linhas.some((l) => l.tipo === "fixo" && l.valor === salarioSugerido) && (
             <span className="text-[11px] text-[#3D2314]/60" data-testid="ficha-salario-sugerido">
               Fixo sugerido: {funcaoSel.salario_sugerido.origem === "media_conferida" ? `média conferida da função (${funcaoSel.salario_sugerido.pessoas} pessoa(s))` : "estimado pelo custo/hora atual da função"} — ajuste se precisar
@@ -574,18 +577,18 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
           )}
         </div>
         {clt && (
-          <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={chavesOk} onChange={(e) => setChavesOk(e.target.checked)} data-testid="ficha-chaves-confirmadas" /> As chaves de incidência desta ficha foram conferidas com o contador</label>
+          <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={chavesOk} onChange={(e) => setChavesOk(e.target.checked)} data-testid="ficha-chaves-confirmadas" /> As chaves de incidência desta ficha foram conferidas com o contador<AjudaCampo chave="projetos.mao_obra.chave.confirmadas" /></label>
         )}
       </fieldset>
 
       <fieldset className="space-y-2">
         <legend className="text-[11px] uppercase tracking-wide text-[#3D2314]/60">Benefícios e vigência</legend>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {BENEFICIOS.map(([k, l]) => (
-            <Campo key={k} rotulo={l}><input className={inp} value={v[k]} onChange={set(k)} inputMode="decimal" data-testid={`ficha-${k}`} /></Campo>
+          {BENEFICIOS.map(([k, l, aj]) => (
+            <Campo key={k} rotulo={l} ajuda={aj}><input className={inp} value={v[k]} onChange={set(k)} inputMode="decimal" data-testid={`ficha-${k}`} /></Campo>
           ))}
-          <Campo rotulo={modo === "editar" ? "Vale a partir de (reajuste)" : "Vale a partir de"}><input type="date" className={inp} value={v.vigencia_inicio} onChange={set("vigencia_inicio")} /></Campo>
-          {modo === "editar" && <Campo rotulo="Motivo (ex.: dissídio, promoção, correção)"><input className={inp} value={v.motivo} onChange={set("motivo")} /></Campo>}
+          <Campo ajuda="projetos.mao_obra.ficha.vigencia" rotulo={modo === "editar" ? "Vale a partir de (reajuste)" : "Vale a partir de"}><input type="date" className={inp} value={v.vigencia_inicio} onChange={set("vigencia_inicio")} /></Campo>
+          {modo === "editar" && <Campo ajuda="projetos.mao_obra.ficha.motivo" rotulo="Motivo (ex.: dissídio, promoção, correção)"><input className={inp} value={v.motivo} onChange={set("motivo")} /></Campo>}
         </div>
       </fieldset>
       {clt && (
@@ -603,7 +606,7 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             {AJUSTES.map((a) => (
-              <Campo key={a.k} rotulo={a.l}>
+              <Campo key={a.k} rotulo={a.l} ajuda={a.ajuda}>
                 <input className={inp + (v[a.k] !== "" ? " border-[#C8941A] bg-[#FFFBF0]" : "")} value={v[a.k] !== "" ? v[a.k] : txt(a.padrao(encargos))}
                   onChange={(e) => { const x = e.target.value; setV((o) => ({ ...o, [a.k]: numBR(x) === a.padrao(encargos) ? "" : x })); }}
                   inputMode="decimal" data-testid={`ficha-${a.k}`} />
@@ -617,9 +620,9 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
         {clt && <div>DSR + 13º e férias<br /><b>{brl(calc.dsr + calc.provisoes)}</b></div>}
         <div>{rotEncargos}{encargos.provisorio && clt && !temAjuste && <span className="text-[#8A5A00]"> · provisórios</span>}<br /><b data-testid="ficha-encargos">{brl(calc.encargos)}</b></div>
         {clt && <div>Rescisão<br /><b>{brl(calc.rescisao)}</b></div>}
-        <div>Custo mensal{tipo === "perfil" ? " (por pessoa)" : ""}<br /><b data-testid="ficha-custo-mensal">{brl(calc.custo_mensal)}</b></div>
-        <div>Custo da hora produtiva<br /><b data-testid="ficha-custo-hora">{brl(calc.custo_hora)}</b></div>
-        {calc.custo_unidade != null && <div>Custo por {rotUnidade(calc.unidade)}<br /><b data-testid="ficha-custo-unidade">{brl(calc.custo_unidade)}</b></div>}
+        <div>Custo mensal{tipo === "perfil" ? " (por pessoa)" : ""}<AjudaCampo chave="projetos.mao_obra.resultado.mensal" /><br /><b data-testid="ficha-custo-mensal">{brl(calc.custo_mensal)}</b></div>
+        <div>Custo da hora produtiva<AjudaCampo chave="projetos.mao_obra.resultado.hora" /><br /><b data-testid="ficha-custo-hora">{brl(calc.custo_hora)}</b></div>
+        {calc.custo_unidade != null && <div>Custo por {rotUnidade(calc.unidade)}<AjudaCampo chave="projetos.mao_obra.resultado.unidade" /><br /><b data-testid="ficha-custo-unidade">{brl(calc.custo_unidade)}</b></div>}
       </div>
       {calc.alertas.includes("diarista_mais_8_dias") && (
         <div className="rounded-md bg-[#F7E1E1] text-[#791F1F] px-3 py-2 text-[12.5px]" data-testid="ficha-alerta-diarista">
@@ -641,36 +644,36 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
 
 // campos de valor de cada tipo de componente
 function CamposComponente({ l, onChange }: { l: LinhaComp; onChange: (patch: Partial<LinhaComp>) => void }) {
-  const campo = (k: "valor" | "quantidade" | "percentual", rotulo: string, testid: string, ph?: string) => (
-    <Campo rotulo={rotulo}><input className={inp} value={l[k]} onChange={(e) => onChange({ [k]: e.target.value })} inputMode="decimal" placeholder={ph} data-testid={testid} /></Campo>
+  const campo = (k: "valor" | "quantidade" | "percentual", rotulo: string, testid: string, ajuda: string, ph?: string) => (
+    <Campo rotulo={rotulo} ajuda={ajuda}><input className={inp} value={l[k]} onChange={(e) => onChange({ [k]: e.target.value })} inputMode="decimal" placeholder={ph} data-testid={testid} /></Campo>
   );
   switch (l.tipo) {
     case "fixo":
       return l.subtipo === "hora"
-        ? <>{campo("valor", "R$ por hora", "componente-valor")}{campo("quantidade", "Horas no mês", "componente-quantidade")}</>
-        : <>{campo("valor", "R$ por mês", "componente-valor")}</>;
+        ? <>{campo("valor", "R$ por hora", "componente-valor", "projetos.mao_obra.comp.fixo_hora")}{campo("quantidade", "Horas no mês", "componente-quantidade", "projetos.mao_obra.comp.fixo_hora")}</>
+        : <>{campo("valor", "R$ por mês", "componente-valor", "projetos.mao_obra.comp.fixo_mensal")}</>;
     case "producao":
       return <>
-        {campo("valor", `R$ por ${rotUnidade(l.unidade)}`, "componente-valor")}
-        <Campo rotulo="Unidade"><select className={inp} value={l.unidade || "m2"} onChange={(e) => onChange({ unidade: e.target.value })} data-testid="componente-unidade">{UNIDADES.map((u) => <option key={u.v} value={u.v}>{u.l}</option>)}</select></Campo>
-        {campo("quantidade", "Volume médio no mês", "componente-quantidade")}
-        <label className="flex items-center gap-1 text-[11.5px] pb-2"><input type="checkbox" checked={l.estimado} onChange={(e) => onChange({ estimado: e.target.checked })} data-testid="componente-estimado" /> volume estimado</label>
+        {campo("valor", `R$ por ${rotUnidade(l.unidade)}`, "componente-valor", "projetos.mao_obra.comp.producao_valor")}
+        <Campo ajuda="projetos.mao_obra.comp.producao_unidade" rotulo="Unidade"><select className={inp} value={l.unidade || "m2"} onChange={(e) => onChange({ unidade: e.target.value })} data-testid="componente-unidade">{UNIDADES.map((u) => <option key={u.v} value={u.v}>{u.l}</option>)}</select></Campo>
+        {campo("quantidade", "Volume médio no mês", "componente-quantidade", "projetos.mao_obra.comp.producao_volume")}
+        <label className="flex items-center gap-1 text-[11.5px] pb-2"><input type="checkbox" checked={l.estimado} onChange={(e) => onChange({ estimado: e.target.checked })} data-testid="componente-estimado" /> volume estimado<AjudaCampo chave="projetos.mao_obra.comp.producao_estimado" /></label>
       </>;
     case "empreitada":
-      return <>{campo("valor", "Valor da obra (R$)", "componente-valor")}{campo("quantidade", "Dias da obra", "componente-quantidade")}</>;
+      return <>{campo("valor", "Valor da obra (R$)", "componente-valor", "projetos.mao_obra.comp.empreitada")}{campo("quantidade", "Dias da obra", "componente-quantidade", "projetos.mao_obra.comp.empreitada")}</>;
     case "diaria":
-      return <>{campo("valor", "R$ por dia", "componente-valor")}{campo("quantidade", "Dias no mês", "componente-quantidade")}</>;
+      return <>{campo("valor", "R$ por dia", "componente-valor", "projetos.mao_obra.comp.diaria")}{campo("quantidade", "Dias no mês", "componente-quantidade", "projetos.mao_obra.comp.diaria")}</>;
     case "comissao":
-      return <>{campo("percentual", "Comissão %", "componente-percentual")}{campo("quantidade", "Base média do mês (R$)", "componente-quantidade")}</>;
+      return <>{campo("percentual", "Comissão %", "componente-percentual", "projetos.mao_obra.comp.comissao")}{campo("quantidade", "Base média do mês (R$)", "componente-quantidade", "projetos.mao_obra.comp.comissao")}</>;
     case "bonus":
-      return <>{campo("valor", "Valor médio no mês (R$)", "componente-valor")}</>;
+      return <>{campo("valor", "Valor médio no mês (R$)", "componente-valor", "projetos.mao_obra.comp.bonus")}</>;
     case "hora_extra":
-      return <>{campo("quantidade", "Horas extras no mês", "componente-quantidade")}{campo("percentual", "Adicional %", "componente-percentual")}{campo("valor", "R$ da hora (vazio = fixo ÷ 220)", "componente-valor", "auto")}</>;
+      return <>{campo("quantidade", "Horas extras no mês", "componente-quantidade", "projetos.mao_obra.comp.hora_extra")}{campo("percentual", "Adicional %", "componente-percentual", "projetos.mao_obra.comp.hora_extra")}{campo("valor", "R$ da hora (vazio = fixo ÷ 220)", "componente-valor", "projetos.mao_obra.comp.hora_extra", "auto")}</>;
     case "adicional":
-      if (l.subtipo === "insalubridade") return <>{campo("percentual", "% do salário mínimo (10, 20, 40)", "componente-percentual")}</>;
-      if (l.subtipo === "periculosidade") return <>{campo("percentual", "% do fixo", "componente-percentual")}</>;
-      if (l.subtipo === "noturno") return <>{campo("quantidade", "Horas noturnas no mês", "componente-quantidade")}{campo("percentual", "Adicional %", "componente-percentual")}</>;
-      return <>{campo("valor", "R$ por mês", "componente-valor")}</>;
+      if (l.subtipo === "insalubridade") return <>{campo("percentual", "% do salário mínimo (10, 20, 40)", "componente-percentual", "projetos.mao_obra.comp.insalubridade")}</>;
+      if (l.subtipo === "periculosidade") return <>{campo("percentual", "% do fixo", "componente-percentual", "projetos.mao_obra.comp.periculosidade")}</>;
+      if (l.subtipo === "noturno") return <>{campo("quantidade", "Horas noturnas no mês", "componente-quantidade", "projetos.mao_obra.comp.noturno")}{campo("percentual", "Adicional %", "componente-percentual", "projetos.mao_obra.comp.noturno")}</>;
+      return <>{campo("valor", "R$ por mês", "componente-valor", "projetos.mao_obra.comp.adicional_outro")}</>;
     default:
       return null;
   }
@@ -684,8 +687,8 @@ function ModalEncerrar({ item, onClose, onSalvar }: { item: ItemEquipe; onClose:
     <Janela titulo={pessoa ? `Desligar ${item.nome}` : `Inativar perfil ${item.nome}`} onClose={onClose} testid="mao-obra-modal-encerrar">
       <p className="text-[12.5px] text-[#3D2314]/70">{pessoa ? "A pessoa fica desligada (data de demissão no cadastro compartilhado) e sai do custo da função. Nada é apagado." : "O perfil sai do custo da função. Nada é apagado."}</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <Campo rotulo={pessoa ? "Data do desligamento" : "Data"}><input type="date" className={inp} value={data} onChange={(e) => setData(e.target.value)} /></Campo>
-        <Campo rotulo="Motivo"><input className={inp} value={motivo} onChange={(e) => setMotivo(e.target.value)} data-testid="encerrar-motivo" /></Campo>
+        <Campo ajuda="projetos.mao_obra.encerrar.data" rotulo={pessoa ? "Data do desligamento" : "Data"}><input type="date" className={inp} value={data} onChange={(e) => setData(e.target.value)} /></Campo>
+        <Campo ajuda="projetos.mao_obra.encerrar.motivo" rotulo="Motivo"><input className={inp} value={motivo} onChange={(e) => setMotivo(e.target.value)} data-testid="encerrar-motivo" /></Campo>
       </div>
       <div className="flex justify-end gap-2">
         <button className={btnSec} onClick={onClose}>Voltar</button>
@@ -733,48 +736,48 @@ function ModalEncargos({ companyId, enc, onClose, onSalvar }: { companyId: strin
     <Janela titulo="Padrões da empresa (quem emprega)" onClose={onClose} testid="mao-obra-modal-encargos">
       <p className="text-[12px] text-[#3D2314]/70">Ficam “provisórios” até o contador confirmar. Nos Anexos III e V do Simples o INSS patronal está dentro do DAS (só FGTS na folha); no Anexo IV (obra) o INSS patronal e o RAT são pagos fora do DAS.</p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <Campo rotulo="Regime"><select className={inp} value={v.regime} onChange={set("regime")}><option value="simples">Simples</option><option value="presumido">Lucro Presumido</option><option value="real">Lucro Real</option></select></Campo>
-        {v.regime === "simples" && <Campo rotulo="Anexo do Simples"><select className={inp} value={v.simples_anexo} onChange={(e) => aplicarPadrao(e.target.value)}><option value="">—</option>{["I", "II", "III", "IV", "V"].map((a) => <option key={a} value={a}>Anexo {a}</option>)}</select></Campo>}
-        <Campo rotulo="INSS patronal %"><input className={inp} value={v.inss_patronal_pct} onChange={set("inss_patronal_pct")} /></Campo>
-        <Campo rotulo="RAT %"><input className={inp} value={v.rat_pct} onChange={set("rat_pct")} /></Campo>
-        <Campo rotulo="FAP"><input className={inp} value={v.fap} onChange={set("fap")} /></Campo>
-        <Campo rotulo="Terceiros %"><input className={inp} value={v.terceiros_pct} onChange={set("terceiros_pct")} /></Campo>
-        <Campo rotulo="FGTS %"><input className={inp} value={v.fgts_pct} onChange={set("fgts_pct")} /></Campo>
-        <Campo rotulo="13º %"><input className={inp} value={v.prov_13_pct} onChange={set("prov_13_pct")} /></Campo>
-        <Campo rotulo="Férias + 1/3 %"><input className={inp} value={v.prov_ferias_pct} onChange={set("prov_ferias_pct")} /></Campo>
-        <Campo rotulo="Rescisão %"><input className={inp} value={v.prov_rescisao_pct} onChange={set("prov_rescisao_pct")} /></Campo>
-        <Campo rotulo="Vale a partir de"><input type="date" className={inp} value={v.vigencia_inicio} onChange={set("vigencia_inicio")} /></Campo>
+        <Campo ajuda="projetos.mao_obra.padrao.regime" rotulo="Regime"><select className={inp} value={v.regime} onChange={set("regime")}><option value="simples">Simples</option><option value="presumido">Lucro Presumido</option><option value="real">Lucro Real</option></select></Campo>
+        {v.regime === "simples" && <Campo ajuda="projetos.mao_obra.padrao.anexo" rotulo="Anexo do Simples"><select className={inp} value={v.simples_anexo} onChange={(e) => aplicarPadrao(e.target.value)}><option value="">—</option>{["I", "II", "III", "IV", "V"].map((a) => <option key={a} value={a}>Anexo {a}</option>)}</select></Campo>}
+        <Campo ajuda="projetos.mao_obra.padrao.inss" rotulo="INSS patronal %"><input className={inp} value={v.inss_patronal_pct} onChange={set("inss_patronal_pct")} /></Campo>
+        <Campo ajuda="projetos.mao_obra.padrao.rat" rotulo="RAT %"><input className={inp} value={v.rat_pct} onChange={set("rat_pct")} /></Campo>
+        <Campo ajuda="projetos.mao_obra.padrao.fap" rotulo="FAP"><input className={inp} value={v.fap} onChange={set("fap")} /></Campo>
+        <Campo ajuda="projetos.mao_obra.padrao.terceiros" rotulo="Terceiros %"><input className={inp} value={v.terceiros_pct} onChange={set("terceiros_pct")} /></Campo>
+        <Campo ajuda="projetos.mao_obra.padrao.fgts" rotulo="FGTS %"><input className={inp} value={v.fgts_pct} onChange={set("fgts_pct")} /></Campo>
+        <Campo ajuda="projetos.mao_obra.padrao.provisoes" rotulo="13º %"><input className={inp} value={v.prov_13_pct} onChange={set("prov_13_pct")} /></Campo>
+        <Campo ajuda="projetos.mao_obra.padrao.provisoes" rotulo="Férias + 1/3 %"><input className={inp} value={v.prov_ferias_pct} onChange={set("prov_ferias_pct")} /></Campo>
+        <Campo ajuda="projetos.mao_obra.padrao.provisoes" rotulo="Rescisão %"><input className={inp} value={v.prov_rescisao_pct} onChange={set("prov_rescisao_pct")} /></Campo>
+        <Campo ajuda="projetos.mao_obra.padrao.vigencia" rotulo="Vale a partir de"><input type="date" className={inp} value={v.vigencia_inicio} onChange={set("vigencia_inicio")} /></Campo>
       </div>
-      <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={!!v.desoneracao} onChange={(e) => setV((o) => ({ ...o, desoneracao: e.target.checked ? "1" : "" }))} data-testid="encargos-desoneracao" /> Desoneração da folha (CPRB) — reoneração gradual</label>
+      <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={!!v.desoneracao} onChange={(e) => setV((o) => ({ ...o, desoneracao: e.target.checked ? "1" : "" }))} data-testid="encargos-desoneracao" /> Desoneração da folha (CPRB) — reoneração gradual<AjudaCampo chave="projetos.mao_obra.padrao.desoneracao" /></label>
       {v.desoneracao && (
         <div className="grid grid-cols-2 gap-2">
-          <Campo rotulo={`Parte do INSS patronal na folha (${new Date().getFullYear()}: ${fatorFolhaReoneracao(new Date().getFullYear()) * 100}%)`}><input className={inp} value={v.desoneracao_fator_folha} onChange={set("desoneracao_fator_folha")} /></Campo>
-          <Campo rotulo="CPRB sobre a receita % (vai para os impostos da venda, não para a hora)"><input className={inp} value={v.cprb_pct} onChange={set("cprb_pct")} /></Campo>
+          <Campo ajuda="projetos.mao_obra.padrao.desoneracao" rotulo={`Parte do INSS patronal na folha (${new Date().getFullYear()}: ${fatorFolhaReoneracao(new Date().getFullYear()) * 100}%)`}><input className={inp} value={v.desoneracao_fator_folha} onChange={set("desoneracao_fator_folha")} /></Campo>
+          <Campo ajuda="projetos.mao_obra.padrao.desoneracao" rotulo="CPRB sobre a receita % (vai para os impostos da venda, não para a hora)"><input className={inp} value={v.cprb_pct} onChange={set("cprb_pct")} /></Campo>
         </div>
       )}
       <div className="text-[12.5px]">Encargos da folha: <b>{pct(total)}</b></div>
       <fieldset className="space-y-2 border-t border-[#3D2314]/10 pt-2" data-testid="padroes-ficha">
         <legend className="text-[11px] uppercase tracking-wide text-[#3D2314]/60">Padrões da ficha nova (dá para mudar em cada ficha)</legend>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <Campo rotulo="Horas produtivas/mês"><input className={inp} value={v.horas_produtivas_padrao} onChange={set("horas_produtivas_padrao")} inputMode="decimal" data-testid="padrao-horas" /></Campo>
-          <Campo rotulo="Vínculo"><select className={inp} value={v.vinculo_padrao} onChange={set("vinculo_padrao")}>{VINCULOS.map((x) => <option key={x.v} value={x.v}>{x.rotulo}</option>)}</select></Campo>
-          <Campo rotulo="Forma de pagamento"><select className={inp} value={v.forma_padrao} onChange={set("forma_padrao")}>{FORMAS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
+          <Campo ajuda="projetos.mao_obra.padrao.horas" rotulo="Horas produtivas/mês"><input className={inp} value={v.horas_produtivas_padrao} onChange={set("horas_produtivas_padrao")} inputMode="decimal" data-testid="padrao-horas" /></Campo>
+          <Campo ajuda="projetos.mao_obra.padrao.vinculo_forma" rotulo="Vínculo"><select className={inp} value={v.vinculo_padrao} onChange={set("vinculo_padrao")}>{VINCULOS.map((x) => <option key={x.v} value={x.v}>{x.rotulo}</option>)}</select></Campo>
+          <Campo ajuda="projetos.mao_obra.padrao.vinculo_forma" rotulo="Forma de pagamento"><select className={inp} value={v.forma_padrao} onChange={set("forma_padrao")}>{FORMAS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
           {BENEFICIOS_PADRAO.map(([k, l]) => (
-            <Campo key={k} rotulo={l}><input className={inp} value={v[`${k}_padrao`]} onChange={set(`${k}_padrao`)} inputMode="decimal" data-testid={`padrao-${k}`} /></Campo>
+            <Campo ajuda="projetos.mao_obra.padrao.beneficios" key={k} rotulo={l}><input className={inp} value={v[`${k}_padrao`]} onChange={set(`${k}_padrao`)} inputMode="decimal" data-testid={`padrao-${k}`} /></Campo>
           ))}
         </div>
       </fieldset>
       <fieldset className="space-y-2 border-t border-[#3D2314]/10 pt-2" data-testid="padroes-calculo">
         <legend className="text-[11px] uppercase tracking-wide text-[#3D2314]/60">Regras do cálculo (a confirmar com o contador)</legend>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <Campo rotulo="DSR (fração do mês; 1/6 = 0,16667)"><input className={inp} value={v.dsr_fator} onChange={set("dsr_fator")} inputMode="decimal" data-testid="padrao-dsr" /></Campo>
-          <Campo rotulo={`INSS do autônomo (RPA) % — regra do regime: ${rpaInssPadrao(v.regime, v.simples_anexo)}%`}><input className={inp} value={v.rpa_inss_pct} onChange={set("rpa_inss_pct")} inputMode="decimal" data-testid="padrao-rpa" /></Campo>
-          <Campo rotulo="Salário mínimo de referência (insalubridade)"><input className={inp} value={v.salario_minimo_ref} onChange={set("salario_minimo_ref")} inputMode="decimal" data-testid="padrao-salario-minimo" /></Campo>
+          <Campo ajuda="projetos.mao_obra.padrao.dsr" rotulo="DSR (fração do mês; 1/6 = 0,16667)"><input className={inp} value={v.dsr_fator} onChange={set("dsr_fator")} inputMode="decimal" data-testid="padrao-dsr" /></Campo>
+          <Campo ajuda="projetos.mao_obra.padrao.rpa" rotulo={`INSS do autônomo (RPA) % — regra do regime: ${rpaInssPadrao(v.regime, v.simples_anexo)}%`}><input className={inp} value={v.rpa_inss_pct} onChange={set("rpa_inss_pct")} inputMode="decimal" data-testid="padrao-rpa" /></Campo>
+          <Campo ajuda="projetos.mao_obra.padrao.salario_minimo" rotulo="Salário mínimo de referência (insalubridade)"><input className={inp} value={v.salario_minimo_ref} onChange={set("salario_minimo_ref")} inputMode="decimal" data-testid="padrao-salario-minimo" /></Campo>
         </div>
         <p className="text-[11px] text-[#3D2314]/60">RPA: 0% no Simples Anexo III ou V (o INSS já está no DAS); 20% no Anexo IV, Lucro Real e Presumido. MEI em serviço de obra: 20% (LC 123). Diarista é calculado como autônomo.</p>
         <div className="overflow-x-auto">
           <table className="w-full text-[12px]" data-testid="padroes-incidencia">
-            <thead><tr className="text-left text-[#3D2314]/60"><th className="py-1 pr-2">Componente (CLT)</th>{CHAVES.map((c) => <th key={c.k} className="pr-2 text-center">{c.l}</th>)}</tr></thead>
+            <thead><tr className="text-left text-[#3D2314]/60"><th className="py-1 pr-2">Componente (CLT)<AjudaCampo chave="projetos.mao_obra.padrao.chaves" /></th>{CHAVES.map((c) => <th key={c.k} className="pr-2 text-center">{c.l}</th>)}</tr></thead>
             <tbody>{LINHAS_INCIDENCIA.map((l) => (
               <tr key={l.k} className="border-t border-[#3D2314]/5"><td className="py-1 pr-2">{l.rotulo}</td>
                 {CHAVES.map((c) => <td key={c.k} className="pr-2 text-center"><input type="checkbox" checked={inc[l.k][c.k]} onChange={(e) => setInc((o) => ({ ...o, [l.k]: { ...o[l.k], [c.k]: e.target.checked } }))} /></td>)}
@@ -783,7 +786,7 @@ function ModalEncargos({ companyId, enc, onClose, onSalvar }: { companyId: strin
           </table>
         </div>
       </fieldset>
-      <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={confirmar} onChange={(e) => setConfirmar(e.target.checked)} data-testid="encargos-confirmar" /> O contador confirmou estes percentuais e regras</label>
+      <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={confirmar} onChange={(e) => setConfirmar(e.target.checked)} data-testid="encargos-confirmar" /> O contador confirmou estes percentuais e regras<AjudaCampo chave="projetos.mao_obra.padrao.confirmado" /></label>
       <div className="flex justify-end gap-2">
         <button className={btnSec} onClick={onClose}>Voltar</button>
         <button className={btnPri} data-testid="encargos-salvar" onClick={async () => {
