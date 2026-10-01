@@ -304,7 +304,9 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     // a SEFAZ rejeita (938). Os campos do produto são POR UNIDADE; os VALORES escalam pela quantidade,
     // a alíquota (pst) NÃO (é percentual). Só monta quando o produto tem os valores — sem eles, o
     // nfe-validator barra antes da SEFAZ com mensagem clara (guarda no padrão do 232).
-    const cstIcmsProd = prod.cst_icms ?? (ehSimples ? '102' : undefined)
+    // CEO 29/09 (FCR · 436 produtos sem tributação): NADA de "102 automático". Sem CSOSN/CST no cadastro o item
+    // sai vazio e o nfe-validator trava dizendo qual produto e qual campo falta (lib/produtos/fiscalMassa).
+    const cstIcmsProd = prod.cst_icms?.trim() || undefined
     const ehStRetido = cstIcmsProd === '500' || cstIcmsProd === '60'
     const stRet = ehStRetido
       ? {
@@ -342,12 +344,11 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       origem: prod.origem ?? '0',
       // EX da TIPI (IBPT Lei 12.741): entra na chave da tabela IBPT (NCM,EX,UF,versão). Vazio → '0'.
       exTipi: (String(prod.ex_ipi ?? '').trim() || '0'),
-      // Grupo <imposto> SEMPRE presente (SEFAZ 620). Produto sem campo fiscal cai no default do
-      // regime do EMITENTE. Simples: ICMS CSOSN 102 + PIS/COFINS CST 04 — a convencao dos proprios
-      // produtos configurados do KGF (auditado). Produto ja configurado: usa o dele (sem mudanca).
+      // Grupo <imposto> SEMPRE presente (SEFAZ 620), com a tributação DO CADASTRO do produto. Até 29/09 o
+      // produto sem campo fiscal caía no default do regime (Simples: CSOSN 102 + PIS/COFINS 04) — o CEO
+      // proibiu: produto sem CSOSN/CST não emite (nfe-validator trava com produto + campo).
       // devolucao-icms-espelho: se veio ICMS espelhado da nota original (it.icmsOverride), ele MANDA
-      // (CSOSN configuravel + base/aliquota/valor da entrada -> devolve o credito). Senao, o default:
-      // produto configurado, ou o do regime (Simples: CSOSN 102). base/valor so saem no espelho.
+      // (CSOSN escolhido na devolução + base/aliquota/valor da entrada -> devolve o credito).
       icms: it.icmsOverride
         ? {
             cst: it.icmsOverride.csosn ?? prod.cst_icms ?? (ehSimples ? '900' : undefined),
@@ -363,11 +364,11 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
           },
       ipi: undefined, // Simples Nacional / revenda: sem grupo IPI
       pis: {
-        cst: prod.cst_pis ?? (ehSimples ? '04' : undefined),
+        cst: prod.cst_pis?.trim() || undefined,
         aliquota: prod.aliquota_pis ?? (ehSimples ? 0 : undefined),
       },
       cofins: {
-        cst: prod.cst_cofins ?? (ehSimples ? '04' : undefined),
+        cst: prod.cst_cofins?.trim() || undefined,
         aliquota: prod.aliquota_cofins ?? (ehSimples ? 0 : undefined),
       },
       ...(comb ? { comb } : {}),

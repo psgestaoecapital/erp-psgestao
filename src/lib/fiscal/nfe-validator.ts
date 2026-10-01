@@ -1,5 +1,6 @@
 import type { NFeRequest } from './types'
 import { FiscalError } from './errors'
+import { camposFaltandoNoItem, mensagemProdutoSemTributacao } from '@/lib/produtos/fiscalMassa'
 
 const NCM_REGEX = /^\d{8}$/
 const CFOP_REGEX = /^\d{4}$/
@@ -67,6 +68,13 @@ export function validateNFeRequest(req: NFeRequest): void {
         if (faltando.length > 0) {
           erros.push(`${prefixo}: CST ${item.icms.cst} exige os campos de ST retido no cadastro do produto (bloco Fiscal) · faltando: ${faltando.join(', ')}`)
         }
+      }
+      // Guarda "sem tributação suposta" (CEO 29/09 · FCR com 436 produtos sem CSOSN/CST/PIS/COFINS): o builder não
+      // inventa mais 102/04 — item sem CSOSN/CST do ICMS, CST do PIS ou CST da COFINS no cadastro NÃO emite. Diz o
+      // produto e os campos que faltam. Mesmo predicado do pré-voo (fn_fiscal_previo · sem_tributacao).
+      const faltandoTrib = camposFaltandoNoItem(item, !!req.emitente.simplesNacional)
+      if (faltandoTrib.length > 0) {
+        erros.push(mensagemProdutoSemTributacao(prefixo, item.descricao, item.codigo, faltandoTrib))
       }
       // Guarda CST×CSOSN (OS-0179 · KGF): emitente do Simples com item em CST de regime normal (2 dígitos:
       // 00, 10, 20… 90) em vez de CSOSN (3 dígitos: 101…900). A Focus recusa na hora por schema (o CST não
