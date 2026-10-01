@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import AnexosCard from '@/components/crm/AnexosCard'
+import { UNIDADES_ESTOQUE } from '@/lib/produtos/unidades'
 
 type Sugestao = {
   produto_id: string
@@ -121,6 +122,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   // NFE-F2 · dados da nota p/ conferência (fornecedor p/ o fator, transp) + parcelas
   const [notaInfo, setNotaInfo] = useState<{ emitente_cnpj: string | null; valor_total: number | null; lancado_pagar: boolean | null } | null>(null)
   const [parcelas, setParcelas] = useState<{ id: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id: string | null; forma_pagamento: string | null; conta_bancaria_id: string | null; codigo_barras: string | null }[]>([])
+  // #573 · unidade de estoque de cada produto vinculado + fator já aprendido deste fornecedor
+  const [unidadeProd, setUnidadeProd] = useState<Record<string, string | null>>({})
+  const [fatorSalvo, setFatorSalvo] = useState<Record<string, number>>({})
   // §5 · contas bancárias da empresa (para escolher a conta que paga a parcela)
   const [contas, setContas] = useState<{ id: string; nome: string }[]>([])
 
@@ -148,6 +152,23 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     setNotaInfo(n ? { emitente_cnpj: (n as { emitente_cnpj: string | null }).emitente_cnpj, valor_total: (n as { valor_total: number | null }).valor_total, lancado_pagar: (n as { lancado_pagar: boolean | null }).lancado_pagar } : null)
     const { data: dups } = await supabase.from('erp_nfe_recebidas_duplicatas').select('id, numero_dup, data_vencimento, valor, pagar_id, forma_pagamento, conta_bancaria_id, codigo_barras').eq('nfe_recebida_id', nfeId).order('numero_dup')
     setParcelas((dups ?? []) as typeof parcelas)
+    // #573 · unidade de estoque dos produtos vinculados + fator já salvo para este fornecedor (antes o campo
+    // sempre mostrava 1, mesmo com o fator aprendido)
+    const prodIds = Array.from(new Set((r.itens ?? []).map((i) => i.produto_id).filter((x): x is string => !!x)))
+    if (prodIds.length) {
+      const { data: ps } = await supabase.from('erp_produtos').select('id, unidade').in('id', prodIds)
+      setUnidadeProd(Object.fromEntries(((ps ?? []) as { id: string; unidade: string | null }[]).map((x) => [x.id, x.unidade])))
+      const cnpj = String((n as { emitente_cnpj: string | null } | null)?.emitente_cnpj ?? '').replace(/\D/g, '')
+      if (cnpj) {
+        const { data: dp } = await supabase.from('erp_produto_depara_fornecedor').select('produto_id, fator_conversao, fornecedor_cnpj')
+          .eq('company_id', companyId).in('produto_id', prodIds)
+        const fs: Record<string, number> = {}
+        for (const d of (dp ?? []) as { produto_id: string; fator_conversao: number | null; fornecedor_cnpj: string | null }[]) {
+          if (String(d.fornecedor_cnpj ?? '').replace(/\D/g, '') === cnpj && d.fator_conversao) fs[d.produto_id] = Number(d.fator_conversao)
+        }
+        setFatorSalvo(fs)
+      }
+    }
     // §5 · contas bancárias ativas da empresa (para o seletor de conta da parcela)
     const { data: cs } = await supabase.from('erp_banco_contas').select('id, nome').eq('company_id', companyId).eq('ativo', true).order('nome')
     setContas((cs ?? []) as { id: string; nome: string }[])
@@ -172,11 +193,24 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   // NFE-F2 · E2 · fator de conversão (CX→UN) no de-para (pergunta uma vez, vale sempre)
   async function salvarFator(itemId: string, produtoId: string | null, unidadeFornecedor: string | null, fator: number) {
     if (!produtoId) { setMsg('Vincule o produto antes de definir o fator.'); return }
-    const { data } = await supabase.rpc('fn_nfe_depara_fator_set', { p_company_id: companyId, p_fornecedor_cnpj: notaInfo?.emitente_cnpj ?? null, p_produto_id: produtoId, p_codigo_fornecedor: null, p_unidade_fornecedor: unidadeFornecedor, p_fator: fator })
+    const { data } = await supabase.rpc('fn_nfe_depara_fator_set', { p_company_id: companyId, p_fornecedor_cnpj: notaInfo?.emitente_cnpj ?? null, p_produto_id: produtoId,
+      // #573 · código do item na nota do fornecedor: sem ele, o 1º fator deste produto/fornecedor era recusado (coluna obrigatória)
+      p_codigo_fornecedor: itens.find((x) => x.item_id === itemId)?.codigo_produto ?? null, p_unidade_fornecedor: unidadeFornecedor, p_fator: fator })
     const r = data as { ok?: boolean } | null
     if (!r?.ok) { setMsg('Não consegui salvar o fator.'); return }
     setMsg(`Fator salvo: 1 ${unidadeFornecedor ?? 'emb.'} = ${fator} un. Vale sempre para este item deste fornecedor.`)
     await carregar()
+  }
+  // #573 · unidade de estoque do produto (litro, metro, pacote…). Muda o cadastro do produto — pede confirmação.
+  async function salvarUnidade(produtoId: string | null, produtoNome: string | null, unidade: string) {
+    if (!produtoId) { setMsg('Vincule o produto antes de escolher a unidade.'); return }
+    const atual = unidadeProd[produtoId] ?? '—'
+    if (unidade === atual) return
+    if (!window.confirm(`A unidade de estoque de "${produtoNome ?? 'produto'}" passa de ${atual} para ${unidade}. Vale para o estoque e para as vendas deste produto. Continuar?`)) { await carregar(); return }
+    const { error } = await supabase.from('erp_produtos').update({ unidade }).eq('id', produtoId).eq('company_id', companyId)
+    if (error) { setMsg('Não consegui salvar a unidade.'); return }
+    setMsg(`Unidade de estoque salva: ${unidade}.`)
+    setUnidadeProd((u) => ({ ...u, [produtoId]: unidade }))
   }
   // NFE-F2 · E3 · refazer parcelas (N × a partir de uma data)
   async function refazerParcelas(num: number, primeiroVenc: string) {
@@ -510,10 +544,22 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
                       <input type="checkbox" checked={ex.gera_financeiro !== false} onChange={(e) => void conferir(it.item_id, { gera: e.target.checked })} /> gera financeiro
                     </label>
                     {/* E2 · fator de conversão (CX→UN) — pergunta uma vez, vale sempre */}
-                    <span className="flex items-center gap-1">fator ×
-                      <input type="number" step="any" min="0.000001" defaultValue={1} title="Quantas unidades do seu produto vêm em 1 unidade da nota (ex.: 1 CX = 12 UN → 12)"
-                        onBlur={(e) => { const f = Number(e.target.value); if (f > 0 && f !== 1) void salvarFator(it.item_id, it.produto_id, ex.unidade, f) }}
+                    <span className="flex items-center gap-1" data-testid={`nfe-conversao-${it.item_id}`}>1 {ex.unidade || 'emb.'} da nota =
+                      <input key={`f-${it.produto_id}-${fatorSalvo[it.produto_id ?? ''] ?? 1}`} type="number" step="any" min="0.000001"
+                        defaultValue={fatorSalvo[it.produto_id ?? ''] ?? 1} data-testid={`nfe-fator-${it.item_id}`}
+                        title="Quantas unidades do seu produto vêm em 1 unidade da nota (ex.: 1 CX = 12 LT → 12)"
+                        onBlur={(e) => { const f = Number(e.target.value); if (f > 0 && f !== (fatorSalvo[it.produto_id ?? ''] ?? 1)) void salvarFator(it.item_id, it.produto_id, ex.unidade, f) }}
                         className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5 text-[11px] text-[#3D2314]" />
+                      {/* #573 · unidade de estoque do produto (litro, metro, pacote…) */}
+                      <select key={`u-${it.produto_id}-${unidadeProd[it.produto_id ?? ''] ?? ''}`} defaultValue={unidadeProd[it.produto_id ?? ''] ?? ''}
+                        disabled={!it.produto_id} data-testid={`nfe-unidade-${it.item_id}`} title={it.produto_id ? 'Unidade de estoque do produto' : 'Vincule o produto primeiro'}
+                        onChange={(e) => void salvarUnidade(it.produto_id, it.produto_nome, e.target.value)}
+                        className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[11px] text-[#3D2314] disabled:opacity-50">
+                        {!(unidadeProd[it.produto_id ?? ''] ?? '') && <option value="">unidade…</option>}
+                        {unidadeProd[it.produto_id ?? ''] && !UNIDADES_ESTOQUE.some((u) => u.v === unidadeProd[it.produto_id ?? '']) &&
+                          <option value={unidadeProd[it.produto_id ?? ''] ?? ''}>{unidadeProd[it.produto_id ?? '']}</option>}
+                        {UNIDADES_ESTOQUE.map((u) => <option key={u.v} value={u.v}>{u.l}</option>)}
+                      </select>
                       {ex.custo_unitario_real != null && <span className="text-[#3D2314]/45">custo/un divide pelo fator</span>}
                     </span>
                   </div>
