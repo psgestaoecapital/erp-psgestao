@@ -18,9 +18,25 @@ async function comoCliente(page: Page) {
   })
 }
 
+// abre o menu como o usuário faz (celular: gaveta; computador: menu lateral) e abre todas as seções da sanfona
+async function abrirMenu(page: Page) {
+  const gaveta = page.getByTestId('mobile-drawer-toggle')
+  const celular = await gaveta.isVisible().catch(() => false)
+  if (celular) await gaveta.click()
+  const menu = page.getByTestId(celular ? 'menu-gaveta' : 'menu-lateral')
+  await expect(menu).toBeVisible({ timeout: 10000 })
+  const itens = menu.locator('nav').locator('a[href], button')
+  await expect.poll(async () => itens.count(), { timeout: 20000, message: 'menu carregou' }).toBeGreaterThan(0)
+  for (let i = 0; i < 6; i++) {
+    const fechada = menu.locator('nav button[aria-expanded="false"]').first()
+    if (!(await fechada.count())) break
+    await fechada.click()
+  }
+  await expect.poll(async () => menu.locator('nav a[href]').count(), { timeout: 20000, message: 'telas do menu visíveis' }).toBeGreaterThanOrEqual(3)
+  return menu
+}
+
 test.describe('P&M · selos só para a equipe PS; margem sem custo/hora pede o cadastro', () => {
-  // o menu lateral só aparece em tela de computador (no celular ele fica na gaveta)
-  test.use({ viewport: { width: 1440, height: 900 } })
   test.beforeAll(async () => {
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO_AG}&select=is_demo`)
     expect(emp?.is_demo, 'só na demonstração').toBe(true)
@@ -33,23 +49,23 @@ test.describe('P&M · selos só para a equipe PS; margem sem custo/hora pede o c
   })
 
   test('equipe PS vê o selo do módulo e do menu', async ({ page }) => {
-    await page.goto('/dashboard/pm/eventos')
+    await page.goto('/dashboard/pm/eventos?area=pm')
     await aguardarConteudo(page)
     await expect(page.getByTestId('modulo-selo-estado')).toBeVisible()
-    await expect.poll(async () => page.getByTestId('menu-selo').count(), { timeout: 15000, message: 'o menu mostra selos para a PS' }).toBeGreaterThan(0)
+    const menu = await abrirMenu(page)
+    await expect.poll(async () => menu.getByTestId('menu-selo').count(), { timeout: 15000, message: 'o menu mostra selos para a PS' }).toBeGreaterThan(0)
   })
 
   test('cliente não vê selo nenhum — nem no menu, nem no título do módulo', async ({ page }) => {
     await comoCliente(page)
-    await page.goto('/dashboard/pm/eventos')
+    await page.goto('/dashboard/pm/eventos?area=pm')
     await aguardarConteudo(page)
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
-    // a seção do módulo aberto já vem expandida no menu: o item aparece, sem selo
-    await expect(page.getByRole('link', { name: 'Eventos & Produções' }).first()).toBeVisible({ timeout: 15000 })
+    const menu = await abrirMenu(page)
     await page.waitForTimeout(1500) // dá tempo de o selo aparecer, se fosse aparecer
     await expect(page.getByTestId('modulo-selo-estado')).toHaveCount(0)
-    await expect(page.getByTestId('menu-selo')).toHaveCount(0)
-    await expect(page.getByText(/^(Previsto|Pronto|Parcial|Em breve)$/i)).toHaveCount(0)
+    await expect(menu.getByTestId('menu-selo')).toHaveCount(0)
+    await expect(menu.getByText(/^(Previsto|Pronto|Parcial|em breve)$/i)).toHaveCount(0)
   })
 
   test('Margem por Job: horas sem custo/hora → "Cadastre o custo da hora da equipe", sem lucro; leva à tela Equipe', async ({ page }) => {
