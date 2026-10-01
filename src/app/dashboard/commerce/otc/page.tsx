@@ -1275,7 +1275,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
             </Card>
           )}
 
-          <Card titulo="Faturamento">
+          <Card titulo="Gerar Financeiro">
             {/* FEAT-OS-ONDA3A-FATURAMENTO-v1 */}
             {statusLocal === 'faturado' ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1292,12 +1292,24 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
               <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>Pedido cancelado · não pode ser faturado.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
-                  Gere os títulos a receber + baixa de estoque (produtos + BOM dos serviços) em 1 clique.
-                </p>
                 {faturaResult?.erro && (
                   <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {faturaResult.erro}</p>
                 )}
+                {/* #780 · emissão de nota (NF-e) vem ANTES do financeiro — "Gerar Financeiro" é a última ação do fluxo */}
+                <p style={{ fontSize: 11, color: C.espressoL, margin: 0 }}>NF-e fica pra próxima onda.</p>
+                <button
+                  type="button"
+                  disabled
+                  title="Em desenvolvimento (Onda 3c)"
+                  style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.cream, color: C.espressoL, fontSize: 12, fontWeight: 600, cursor: 'not-allowed', alignSelf: 'flex-start' }}
+                >
+                  Emitir NF-e (em breve)
+                </button>
+                <hr style={{ border: 'none', borderTop: `1px solid ${C.borderL}`, margin: '4px 0' }} />
+                {/* #780 · última ação: gera os recebíveis + baixa de estoque (standalone p/ pedido sem nota) */}
+                <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
+                  Gere os títulos a receber + baixa de estoque (produtos + BOM dos serviços) em 1 clique.
+                </p>
                 <button
                   type="button"
                   disabled={faturando}
@@ -1327,17 +1339,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     cursor: faturando ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  {faturando ? 'Faturando…' : '💰 Faturar pedido'}
-                </button>
-                <hr style={{ border: 'none', borderTop: `1px solid ${C.borderL}`, margin: '4px 0' }} />
-                <p style={{ fontSize: 11, color: C.espressoL, margin: 0 }}>NF-e fica pra próxima onda.</p>
-                <button
-                  type="button"
-                  disabled
-                  title="Em desenvolvimento (Onda 3c)"
-                  style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.cream, color: C.espressoL, fontSize: 12, fontWeight: 600, cursor: 'not-allowed', alignSelf: 'flex-start' }}
-                >
-                  Emitir NF-e (em breve)
+                  {faturando ? 'Gerando…' : '💰 Gerar Financeiro'}
                 </button>
               </div>
             )}
