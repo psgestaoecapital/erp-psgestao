@@ -266,3 +266,72 @@ export async function registrarBoleto(input: RegistrarBoletoInput): Promise<Regi
     payload_resumo,
   }
 }
+
+// ───────────────────────────── consulta de liquidação (#297) ─────────────────────────────
+// API Cobrança (collection oficial "Cobrança - Cliente", produção): mesmo token mTLS do registro, só o header
+// Authorization (token cru). Os 4 serviços de leitura usados na baixa automática:
+//   cobranca-lista/v1/listar           — títulos LIQUIDADOS (filtro por data de movimento/pagamento DDMMAAAA; 0 = não usa)
+//   cobranca-consulta/v1/consultar     — um título pelo nosso número
+//   cobranca-pendente/v1/listar        — pendentes de liquidação
+//   cobranca-baixado-consulta/v1/listar — títulos BAIXADOS (cancelados no banco — NÃO é pagamento)
+// Paginação: até 50 por página, segue com paginaAnterior. O layout da RESPOSTA vem do manual (PDF v1.6.3): a leitura
+// dos campos fica no adaptador da baixa (src/lib/banco/liquidacao.ts) e a resposta crua sempre vai para o log.
+
+export type BeneficiarioListagem = {
+  cnpjBeneficiario: string  // 14 dígitos da empresa
+  agencia: string           // 4 dígitos
+  conta: string             // sem dígito (7)
+  carteira: string          // produto (ex.: '09')
+}
+
+/** cpfCnpj{raiz 9, filial 4, controle 2} + produto + negociacao (agência 4 + conta 7, sem dígito) — corpo comum das consultas. */
+export function identificacaoListagem(b: BeneficiarioListagem) {
+  const cnpj = onlyDigits(b.cnpjBeneficiario)
+  if (cnpj.length !== 14) throw new Error('CNPJ do beneficiario invalido')
+  const ag = onlyDigits(b.agencia).padStart(4, '0').slice(-4)
+  const contaSemDv = onlyDigits(String(b.conta ?? '').split('-')[0]).padStart(7, '0').slice(-7)
+  return {
+    cpfCnpj: { cpfCnpj: Number(cnpj.slice(0, 8)), filial: Number(cnpj.slice(8, 12)), controle: Number(cnpj.slice(12)) },
+    produto: Number(onlyDigits(b.carteira) || '0'),
+    negociacao: Number(`${ag}${contaSemDv}`),
+  }
+}
+
+/** Data ISO (AAAA-MM-DD) → DDMMAAAA como número (filtros de data das listagens). */
+export const dataListagem = (iso: string) => { const [y, m, d] = iso.split('-'); return Number(`${d}${m}${y}`) }
+
+async function postCobranca<T = unknown>(cred: Credencial, path: string, body: unknown): Promise<HttpResult<T>> {
+  const token = await obterToken(cred)
+  const raw = JSON.stringify(body)
+  return request<T>({
+    host: HOSTS[cred.ambiente], path, method: 'POST',
+    headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(raw)), 'authorization': token },
+    body: raw, pfx: cred.pfx, passphrase: cred.passphrase,
+  })
+}
+
+/** Liquidados por data de PAGAMENTO (até 60 dias; dados D-1). paginaAnterior = valor devolvido pela página anterior (0 na 1ª). */
+export function listarLiquidados(cred: Credencial, b: BeneficiarioListagem, pagamentoDeISO: string, pagamentoAteISO: string, paginaAnterior: number | string = 0) {
+  return postCobranca(cred, '/boleto/cobranca-lista/v1/listar', {
+    ...identificacaoListagem(b),
+    dataMovimentoDe: 0, dataMovimentoAte: 0,
+    dataPagamentoDe: dataListagem(pagamentoDeISO), dataPagamentoAte: dataListagem(pagamentoAteISO),
+    origemPagamento: 0, valorTituloDe: 0, valorTituloAte: 0, paginaAnterior,
+  })
+}
+
+/** Um título pelo nosso número. */
+export function consultarTitulo(cred: Credencial, b: BeneficiarioListagem, nossoNumero: string) {
+  return postCobranca(cred, '/boleto/cobranca-consulta/v1/consultar', {
+    ...identificacaoListagem(b), nossoNumero: Number(onlyDigits(nossoNumero)), sequencia: 0, status: 0,
+  })
+}
+
+/** Baixados no banco (cancelados) por vencimento — NÃO é pagamento. Datas AAAAMMDD neste serviço. */
+export function listarBaixados(cred: Credencial, b: BeneficiarioListagem, vencDeISO: string, vencAteISO: string, paginaAnterior: number | string = 0) {
+  return postCobranca(cred, '/boleto/cobranca-baixado-consulta/v1/listar', {
+    versao: 1, ...identificacaoListagem(b),
+    dataVencimentoDe: Number(vencDeISO.replaceAll('-', '')), dataVencimentoAte: Number(vencAteISO.replaceAll('-', '')),
+    valorTituloInicio: 0, codigoBaixa: 0, paginaAnterior,
+  })
+}
