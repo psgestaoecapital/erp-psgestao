@@ -93,7 +93,7 @@ export default function CertificadoUploadCard({ companyId, certificadoAtual, onA
       <div className="px-5 py-4 border-b border-[#3D2314]/10 flex items-center justify-between">
         <div>
           <div className="text-[11px] text-[#3D2314]/55 tracking-[0.8px] uppercase font-medium">Passo 1</div>
-          <h2 className="text-[15px] font-medium text-[#3D2314]">Certificado Digital A1</h2>
+          <h2 className="text-[15px] font-medium text-[#3D2314]">Configuração Fiscal</h2>
         </div>
         {certificadoAtual && (
           <span className="text-[10px] bg-[#C0DD97] text-[#173404] px-2.5 py-1 rounded-full font-medium tracking-[0.3px]">

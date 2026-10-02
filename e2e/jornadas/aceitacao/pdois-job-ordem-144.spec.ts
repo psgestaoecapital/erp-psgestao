@@ -1,7 +1,8 @@
 // Pdois #144 (CEO 01/10): formulário do Job na ordem do SIGA — Cliente → Peça/tipo → Título (campo grande) → Prazo →
 // Responsável → Briefing (área grande, por último). Sem migration: roda no preview.
 // Na Agência (P&M) - DEMO, pela tela: abre "Novo job", confere a ordem dos campos NA TELA (posição de cada um) e cria
-// um job com a peça "Post de rede social". O job de teste fica como "concluída" no fim (nada apagado, RD-30).
+// um job com a peça "Post de rede social". O job de teste vai para a lixeira da Pauta no fim (exclusão lógica,
+// restaurável — nada apagado, RD-30), para não sujar a Pauta da demonstração a cada execução (PM-A, 02/10).
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { dbPatch, dbSelect, registrarJornada } from '../../support/api'
@@ -19,7 +20,7 @@ test.describe('Pdois #144 · formulário do Job na ordem do SIGA', () => {
     await registrarJornada('aceitacao-pdois-job-ordem-144', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
   test.afterAll(async () => {
-    await dbPatch('agency_jobs', `company_id=eq.${DEMO_AG}&titulo=eq.${encodeURIComponent(TITULO)}`, { status: 'concluida' }).catch(() => {})
+    await dbPatch('agency_jobs', `company_id=eq.${DEMO_AG}&titulo=eq.${encodeURIComponent(TITULO)}`, { status: 'concluida', excluido_em: new Date().toISOString() }).catch(() => {})
   })
 
   test('Cliente → Peça → Título → Prazo → Responsável → Briefing, e o job grava a peça', async ({ page }) => {

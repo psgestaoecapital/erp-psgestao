@@ -5,7 +5,7 @@
 // por prazo com "Atrasados" no topo, ações em massa com desfazer (24 h), lixeira, impressão A4 e planilha.
 // Margem e valores só para gestor/financeiro (o banco devolve nulo para os demais). Todo campo tem o "?" da ajuda.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Filter, Printer, Download, Trash2, RotateCcw, Play, Paperclip, Link2, MessageCircle, Star, X, Undo2, Sparkles, ListChecks } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -139,13 +139,18 @@ export default function PautaPage() {
   }, [empresa, userId]);
 
   const filtrosAtivos = useMemo(() => limparFiltros(filtros), [filtros]);
+  // cada recarga ganha um número; resposta de uma recarga mais antiga (atalho + agrupamento trocados em sequência)
+  // é descartada, para o contador e a lista nunca ficarem com o resultado do filtro anterior
+  const recarga = useRef(0);
   const carregar = useCallback(async (pag: number) => {
     if (!empresa) return;
+    const minha = ++recarga.current;
     setCarregando(true); setErro(null);
     const [ct, ls] = await Promise.all([
       supabase.rpc("fn_pauta_contadores", { p_company_id: empresa, p_filtros: filtrosAtivos }),
       supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: filtrosAtivos, p_situacao: aba === "todas" ? null : aba, p_agrupar: agrup, p_pagina: pag, p_por_pagina: POR_PAGINA }),
     ]);
+    if (minha !== recarga.current) return;
     setCarregando(false);
     if (ct.error || ls.error) { setErro((ct.error ?? ls.error)!.message); return; }
     setContadores(ct.data as { por_situacao: Record<string, number>; total: number; atrasados: number });
