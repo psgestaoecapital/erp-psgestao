@@ -37,7 +37,7 @@ const PENDENTES = [
 const MAX_PENDENTES = 21   // tamanho da lista no dia da regra (01/10) — não pode crescer
 
 // + Pauta do P&M (CEO 02/10: P2 nasce com "?" em cada campo)
-const RAIZES = ['src/app/dashboard/projetos', 'src/components/projetos', 'src/app/dashboard/pm/pauta', 'src/app/dashboard/pm/briefings',
+const RAIZES = ['src/app/dashboard/projetos', 'src/components/projetos', 'src/app/dashboard/pm/pauta', 'src/app/dashboard/pm/briefings', 'src/app/dashboard/pm/importar-siga',
   'src/components/pm/ClienteBusca.tsx', 'src/components/pm/BriefingEditor.tsx']  // + Bloco 1 P&M (CEO 02/10)
 const CAMPOS = new Set(['input', 'select', 'textarea'])
 
