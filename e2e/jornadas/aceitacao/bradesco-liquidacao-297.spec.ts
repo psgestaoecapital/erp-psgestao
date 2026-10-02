@@ -3,7 +3,7 @@
 // banco de produção, na Demonstração Comércio (GE), com boletos 237 de teste criados e removidos no fim:
 //  - pago acima do valor → título pago, juros registrados; repetir não baixa duas vezes;
 //  - baixado no banco sem pagamento (57 "conforme seu pedido") → boleto marcado, título continua em aberto.
-// Depende da migration 20261002120000 → @pos-migration.
+// Depende da migration 20261002200000 → @pos-migration.
 
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, dbInsert, dbDelete, dbPatch, rpc, registrarJornada } from '../../support/api'
