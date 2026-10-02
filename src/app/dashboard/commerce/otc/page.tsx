@@ -20,7 +20,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import {
   Plus, Search, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight,
-  AlertTriangle,
+  AlertTriangle, Undo2,
   Columns3, Lock,
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
@@ -226,6 +226,11 @@ function OTCPageInner() {
   // #90 · arrastar para Faturado: faturar (pedido) ou converter+faturar (orçamento), com confirmação.
   const [confirmFatura, setConfirmFatura] = useState<{ tipo: 'orcamento'; orc: Orcamento } | { tipo: 'pedido'; ped: Pedido } | null>(null)
   const [faturandoKanban, setFaturandoKanban] = useState(false)
+  // #728 · pedido 'aberto' volta a ser orçamento (arraste reverso), com confirmação.
+  const [confirmReverter, setConfirmReverter] = useState<Pedido | null>(null)
+  const [revertendo, setRevertendo] = useState(false)
+  // #728 · cancelamento (perda) vive no orçamento — modal de motivo.
+  const [cancelOrc, setCancelOrc] = useState<Orcamento | null>(null)
 
   // FIX-VAZAMENTO-JORDANA (07/07 · defesa em profundidade sobre #541):
   //   1) Gate estrito em companyIdUnico (nunca .in(companyIds))
@@ -359,6 +364,25 @@ function OTCPageInner() {
     }
   }
 
+  // #728 · reverter pedido 'aberto' para orçamento (o orçamento volta a ser a entidade ativa).
+  async function executarReverter() {
+    if (!confirmReverter) return
+    setRevertendo(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_pedido_reverter_para_orcamento', { p_pedido_id: confirmReverter.id })
+      if (error) throw new Error(error.message)
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (!r?.ok) throw new Error(r?.erro ?? 'Não foi possível reverter o pedido')
+      flash('Pedido revertido para orçamento.')
+      setConfirmReverter(null)
+      await carregar()
+    } catch (e) {
+      flash('Erro ao reverter: ' + (e instanceof Error ? e.message : 'falha'))
+    } finally {
+      setRevertendo(false)
+    }
+  }
+
   // KPIs Visao Geral
   const kpis = useMemo(() => {
     const agora = new Date()
@@ -445,6 +469,7 @@ function OTCPageInner() {
           onSoltarEmPedido={(o) => setConfirmConv(o)}
           onFaturarOrc={(o) => setConfirmFatura({ tipo: 'orcamento', orc: o })}
           onFaturarPed={(p) => setConfirmFatura({ tipo: 'pedido', ped: p })}
+          onReverterParaOrcamento={(p) => setConfirmReverter(p)}
         />
       )}
 
@@ -459,6 +484,7 @@ function OTCPageInner() {
           // PEDIDO 2 · um caminho: card, arrastar e drawer passam TODOS pela mesma confirmação →
           // fn_converter_orcamento_em_pedido (antes o drawer convertia direto, sem confirmar).
           onConverter={() => { const o = orcSel; setOrcSel(null); setConfirmConv(o) }}
+          onCancelar={() => { const o = orcSel; setOrcSel(null); setCancelOrc(o) }}
         />
       )}
 
@@ -487,6 +513,26 @@ function OTCPageInner() {
           loading={faturandoKanban}
           onCancel={() => { if (!faturandoKanban) setConfirmFatura(null) }}
           onConfirm={() => { void executarFaturaKanban() }}
+        />
+      )}
+
+      {/* #728 · confirmação: reverter pedido para orçamento */}
+      {confirmReverter && (
+        <ConfirmReverterModal
+          ped={confirmReverter}
+          loading={revertendo}
+          onCancel={() => { if (!revertendo) setConfirmReverter(null) }}
+          onConfirm={() => { void executarReverter() }}
+        />
+      )}
+
+      {/* #728 · cancelamento (perda) do orçamento */}
+      {cancelOrc && (
+        <ModalCancelarOrcamento
+          orc={cancelOrc}
+          onClose={() => setCancelOrc(null)}
+          onDone={async () => { setCancelOrc(null); await carregar() }}
+          flash={flash}
         />
       )}
 
@@ -562,7 +608,7 @@ const DND_MIME = 'application/x-otc-card'
 // drop nunca depende de estado React defasado). Orçamento arrasta p/ Pedido (converter) ou p/
 // Faturado (converter+faturar). Pedido arrasta p/ Faturado (faturar). Tudo com confirmação.
 function KanbanBoard({
-  orcamentos, pedidos, onAbrirOrc, onAbrirPed, onSoltarEmPedido, onFaturarOrc, onFaturarPed,
+  orcamentos, pedidos, onAbrirOrc, onAbrirPed, onSoltarEmPedido, onFaturarOrc, onFaturarPed, onReverterParaOrcamento,
 }: {
   orcamentos: Orcamento[]
   pedidos: Pedido[]
@@ -571,10 +617,11 @@ function KanbanBoard({
   onSoltarEmPedido: (o: Orcamento) => void
   onFaturarOrc: (o: Orcamento) => void
   onFaturarPed: (p: Pedido) => void
+  onReverterParaOrcamento: (p: Pedido) => void
 }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [dragKind, setDragKind] = useState<'orc' | 'ped' | null>(null)
-  const [dropCol, setDropCol] = useState<'ped' | 'fat' | null>(null)
+  const [dropCol, setDropCol] = useState<'ped' | 'fat' | 'orc' | null>(null)
   const [busca, setBusca] = useState('')
   const q = busca.trim().toLowerCase()
 
@@ -585,7 +632,7 @@ function KanbanBoard({
     [orcamentos, q],
   )
   const colPed = useMemo(
-    () => pedidos.filter((p) => p.status !== 'faturado' && p.status !== 'cancelado' && !p.nf_emitida
+    () => pedidos.filter((p) => p.status !== 'faturado' && p.status !== 'cancelado' && p.status !== 'revertido' && !p.nf_emitida
       && (!q || (p.numero ?? '').toLowerCase().includes(q) || (p.cliente_nome ?? '').toLowerCase().includes(q))),
     [pedidos, q],
   )
@@ -603,7 +650,7 @@ function KanbanBoard({
   }
   function fimDrag() { setDragId(null); setDragKind(null); setDropCol(null) }
   // preventDefault SEMPRE (o alvo aceita o drop). Decidir o que fazer fica no onDrop.
-  function permitirDrop(e: React.DragEvent, col: 'ped' | 'fat') {
+  function permitirDrop(e: React.DragEvent, col: 'ped' | 'fat' | 'orc') {
     e.preventDefault(); e.dataTransfer.dropEffect = 'move'
     if (dropCol !== col) setDropCol(col)
   }
@@ -632,7 +679,7 @@ function KanbanBoard({
   const cardPed = (p: Pedido) => (
     <div key={p.id} draggable onDragStart={(e) => iniciarDrag(e, p.id, 'ped')} onDragEnd={fimDrag} onClick={() => onAbrirPed(p)}
       style={{ cursor: 'grab', opacity: dragId === p.id ? 0.5 : 1, background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}
-      title="Arraste para Faturado para faturar, ou clique para abrir">
+      title="Arraste para Faturado para faturar, de volta para Orçamento para reverter, ou clique para abrir">
       <KanbanCardTopo numero={p.numero} status={p.status} mapa={STATUS_PED} />
       <div style={{ fontWeight: 600, fontSize: 12 }}>{p.cliente_nome ?? '—'}</div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.espressoM }}>
@@ -653,13 +700,31 @@ function KanbanBoard({
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: C.espressoM }}>
         <Info size={13} />
-        <span>Arraste um <strong>orçamento</strong> para <strong>Pedido</strong> (converter) ou direto para <strong>Faturado</strong> (converter e faturar). Arraste um <strong>pedido</strong> para <strong>Faturado</strong> para faturar. Cada passo pede confirmação.</span>
+        <span>Arraste um <strong>orçamento</strong> para <strong>Pedido</strong> (converter) ou direto para <strong>Faturado</strong> (converter e faturar). Arraste um <strong>pedido</strong> para <strong>Faturado</strong> para faturar, ou de volta para <strong>Orçamento</strong> para revertê-lo. Cada passo pede confirmação.</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, alignItems: 'start' }}>
-        {/* ── Orçamento (arrastável) ── */}
-        <KanbanColuna titulo="Orçamento" cor={C.gold} corBg={C.goldBg} qtd={colOrc.length} total={colOrc.reduce((s, o) => s + (Number(o.total) || 0), 0)}>
-          {colOrc.length === 0 ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : colOrc.map(cardOrc)}
-        </KanbanColuna>
+        {/* ── Orçamento (arrastável; drop-target: reverter pedido aberto → orçamento · #728) ── */}
+        <div
+          onDragOver={(e) => { if (dragKind === 'ped') permitirDrop(e, 'orc') }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropCol((c) => (c === 'orc' ? null : c)) }}
+          onDrop={(e) => {
+            if (dragKind !== 'ped') return
+            e.preventDefault()
+            const ped = dragId ? colPed.find((p) => p.id === dragId) ?? null : null
+            fimDrag()
+            if (ped) onReverterParaOrcamento(ped)
+          }}
+          style={{ borderRadius: 12, outline: dropCol === 'orc' ? `2px dashed ${C.gold}` : '2px dashed transparent', outlineOffset: 2, transition: 'outline-color .12s' }}
+        >
+          <KanbanColuna titulo="Orçamento" cor={C.gold} corBg={C.goldBg} qtd={colOrc.length} total={colOrc.reduce((s, o) => s + (Number(o.total) || 0), 0)}>
+            {dropCol === 'orc' && (
+              <div style={{ border: `2px dashed ${C.gold}`, borderRadius: 8, padding: 12, textAlign: 'center', fontSize: 11, color: C.gold, background: C.goldBg, fontWeight: 600 }}>
+                Soltar para voltar a orçamento
+              </div>
+            )}
+            {colOrc.length === 0 && dropCol !== 'orc' ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : colOrc.map(cardOrc)}
+          </KanbanColuna>
+        </div>
 
         {/* ── Pedido (drop-target: converter) ── */}
         <div
@@ -824,6 +889,162 @@ function ConfirmFaturarModal({ info, loading, onCancel, onConfirm }: {
   )
 }
 
+// #728 · confirmação ao reverter pedido 'aberto' para orçamento. Soft-delete das previsões; o orçamento
+// de origem volta a ser a entidade ativa. Reversível sem efeito fiscal (pedido aberto não baixou estoque).
+function ConfirmReverterModal({ ped, loading, onCancel, onConfirm }: {
+  ped: Pedido; loading: boolean; onCancel: () => void; onConfirm: () => void
+}) {
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, 100%)', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Undo2 size={18} style={{ color: C.gold }} />
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Voltar pedido para orçamento?</h3>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, color: C.espresso }}>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            O pedido <strong style={{ fontFamily: 'monospace' }}>{ped.numero ?? '—'}</strong> de <strong>{ped.cliente_nome ?? '—'}</strong> ({fmtBRL(ped.total)}) volta a ser <strong>orçamento</strong>. As previsões de recebimento do pedido são descartadas; o cancelamento (perda) passa a ser feito no orçamento.
+          </p>
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onCancel} disabled={loading} style={{ ...btnSec, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>Voltar</button>
+          <button onClick={onConfirm} disabled={loading} style={{ ...btnPri, background: C.gold, opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
+            <Undo2 size={14} /> {loading ? 'Revertendo…' : 'Voltar a orçamento'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// #728 · cancelamento (perda) do orçamento: escolhe o motivo (erp_motivo_perda) + descrição se exigida.
+// Como não há tela dedicada de cadastro de motivos e muitas empresas têm zero, o modal permite cadastrar
+// um motivo na hora (RLS já libera insert por empresa) para o cancelamento nunca ficar sem saída.
+function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
+  orc: Orcamento; onClose: () => void; onDone: () => void | Promise<void>; flash: (m: string) => void
+}) {
+  type Motivo = { id: string; nome: string; exige_descricao: boolean }
+  const [motivos, setMotivos] = useState<Motivo[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [motivoId, setMotivoId] = useState('')
+  const [texto, setTexto] = useState('')
+  const [novoAberto, setNovoAberto] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const carregarMotivos = async (selecionarId?: string) => {
+    const { data } = await supabase
+      .from('erp_motivo_perda')
+      .select('id,nome,exige_descricao')
+      .eq('company_id', orc.company_id).eq('ativo', true)
+      .order('ordem', { ascending: true, nullsFirst: false }).order('nome')
+    const lista = (data as Motivo[] | null) ?? []
+    setMotivos(lista)
+    if (selecionarId) setMotivoId(selecionarId)
+    else if (lista.length === 1) setMotivoId(lista[0].id)
+    setCarregando(false)
+  }
+  useEffect(() => {
+    let alive = true
+    ;(async () => { if (alive) await carregarMotivos() })()
+    return () => { alive = false }
+  }, [orc.company_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const motivoSel = motivos.find((m) => m.id === motivoId) ?? null
+  const exigeTexto = !!motivoSel?.exige_descricao
+
+  async function criarMotivo() {
+    const nome = novoNome.trim()
+    if (!nome) { setErro('Dê um nome ao motivo.'); return }
+    setSalvando(true); setErro(null)
+    const { data, error } = await supabase
+      .from('erp_motivo_perda')
+      .insert({ company_id: orc.company_id, nome, ativo: true, exige_descricao: false })
+      .select('id').single()
+    setSalvando(false)
+    if (error) { setErro(error.message); return }
+    setNovoAberto(false); setNovoNome('')
+    await carregarMotivos((data as { id: string }).id)
+  }
+
+  async function confirmar() {
+    if (!motivoId) { setErro('Escolha o motivo da perda.'); return }
+    if (exigeTexto && !texto.trim()) { setErro('Este motivo exige uma descrição.'); return }
+    setSalvando(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_orcamento_cancelar', {
+      p_orcamento_id: orc.id, p_motivo_perda_id: motivoId, p_motivo_texto: texto.trim() || null,
+    })
+    setSalvando(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro ?? 'Não foi possível cancelar'); return }
+    flash('Orçamento cancelado (perda registrada).')
+    await onDone()
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 96, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(460px, 100%)', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <X size={18} style={{ color: C.red }} />
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Cancelar orçamento (perda)</h3>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, color: C.espresso }}>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            Orçamento <strong style={{ fontFamily: 'monospace' }}>{orc.numero ?? '—'}</strong> de <strong>{orc.cliente_nome ?? '—'}</strong> ({fmtBRL(orc.total)}).
+          </p>
+          {carregando ? (
+            <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>Carregando motivos…</p>
+          ) : (
+            <>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Motivo da perda</span>
+                <select value={motivoId} onChange={(e) => setMotivoId(e.target.value)}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }}>
+                  <option value="">{motivos.length === 0 ? 'Nenhum motivo cadastrado' : 'Selecione…'}</option>
+                  {motivos.map((m) => <option key={m.id} value={m.id}>{m.nome}{m.exige_descricao ? ' (exige descrição)' : ''}</option>)}
+                </select>
+              </label>
+
+              {!novoAberto ? (
+                <button type="button" onClick={() => setNovoAberto(true)}
+                  style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: C.gold, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                  + Cadastrar novo motivo
+                </button>
+              ) : (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', background: C.cream, borderRadius: 8, padding: 8 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                    <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Novo motivo</span>
+                    <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Ex.: Preço, Prazo, Concorrência…"
+                      style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }} />
+                  </label>
+                  <button type="button" onClick={() => void criarMotivo()} disabled={salvando}
+                    style={{ ...btnPri, padding: '8px 12px', opacity: salvando ? 0.7 : 1 }}>Criar</button>
+                </div>
+              )}
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Descrição {exigeTexto ? '(obrigatória)' : '(opcional)'}</span>
+                <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={2} placeholder="O que aconteceu?"
+                  style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso, resize: 'vertical' }} />
+              </label>
+            </>
+          )}
+          {erro && <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {erro}</p>}
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onClose} disabled={salvando} style={{ ...btnSec, opacity: salvando ? 0.6 : 1, cursor: salvando ? 'not-allowed' : 'pointer' }}>Voltar</button>
+          <button onClick={() => void confirmar()} disabled={salvando || carregando || !motivoId}
+            style={{ ...btnPri, background: C.red, opacity: (salvando || carregando || !motivoId) ? 0.6 : 1, cursor: (salvando || carregando || !motivoId) ? 'not-allowed' : 'pointer' }}>
+            <X size={14} /> {salvando ? 'Cancelando…' : 'Cancelar orçamento'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function VisaoGeralKPIs({ kpis }: { kpis: { orcMesQtd: number; orcMesTotal: number; conversao: number; ticketMedio: number; pipelineAberto: number; distribuicaoStatus: Record<string, number> } }) {
   const total = Object.values(kpis.distribuicaoStatus).reduce((s, v) => s + v, 0)
   return (
@@ -871,14 +1092,16 @@ function KpiCard({ label, valor, sub, accent }: { label: string; valor: string; 
   )
 }
 
-function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter }: {
+function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter, onCancelar }: {
   orc: Orcamento; itens: OrcamentoItem[]; onClose: () => void;
-  onEnviar: () => void; onAprovar: () => void; onConverter: () => void;
+  onEnviar: () => void; onAprovar: () => void; onConverter: () => void; onCancelar: () => void;
 }) {
   const canEnviar = orc.status === 'rascunho'
   const canAprovar = ['enviado', 'visualizado'].includes(orc.status)
   // #122 (R.R): converte de qualquer etapa aberta — "enviado" é opcional (mesma regra do banco)
   const canConverter = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
+  // #728 · cancelar (perda) só enquanto o orçamento está aberto e não virou pedido
+  const canCancelar = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
@@ -950,6 +1173,9 @@ function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter
 
           {/* Açoes */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+            {canCancelar && (
+              <button onClick={onCancelar} style={{ ...btnSec, color: C.red, borderColor: C.red, marginRight: 'auto' }}><X size={14} /> Cancelar (perda)</button>
+            )}
             {canEnviar && (
               <button onClick={onEnviar} style={btnSec}><Send size={14} /> Marcar enviado</button>
             )}
@@ -1025,10 +1251,12 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
 
   // Reabrir um pedido já faturado com parcelas de boleto ainda pendentes → mostra o gerador.
   useEffect(() => {
+    if (ped.status !== 'faturado' && ped.status !== 'faturamento_parcial') return
     let alive = true
-    if (ped.status === 'faturado' || ped.status === 'faturamento_parcial') {
-      void carregarBoletoIds().then((ids) => { if (alive && ids.length > 0) setBoletoAberto(true) })
-    }
+    ;(async () => {
+      const ids = await carregarBoletoIds()
+      if (alive && ids.length > 0) setBoletoAberto(true)
+    })()
     return () => { alive = false }
   }, [ped.id, ped.status, carregarBoletoIds])
 
