@@ -246,7 +246,9 @@ function Kpi({ label, n, cor, bg }: { label: string; n: number; cor: string; bg:
 // ─────────────────────── CIÊNCIA MENSAL (#74) ───────────────────────
 // Gera o relatório mensal por colaborador, coleta a assinatura via link público (mesmo fluxo do
 // EPI) e acompanha quem falta. O documento declara a origem de cada horário (RD-38).
-type CienciaLinha = { id: string; cpf: string; nome: string; funcao: string | null; setor: string | null; status: string; assinado_em: string | null; recusa_assinar: boolean; recusa_motivo: string | null; resumo: { conforme?: number; desvio?: number; pendente_confirmacao?: number; dias_total?: number } | null; documento_hash: string | null
+// #74 (CEO 02/10): a lista é de TODOS os elegíveis à pausa térmica do mês (fn_nr36_ciencia_painel), não só de quem já
+// tem documento: sem_documento → botão Gerar; sem_apuracao → não há pausa importada no mês para ele (motivo explícito)
+type CienciaLinha = { id: string | null; cpf: string; situacao?: 'com_documento' | 'sem_documento' | 'sem_apuracao'; elegivel?: boolean; dias_apurados?: number; nome: string; funcao: string | null; setor: string | null; status: string; assinado_em: string | null; recusa_assinar: boolean; recusa_motivo: string | null; resumo: { conforme?: number; desvio?: number; pendente_confirmacao?: number; dias_total?: number } | null; documento_hash: string | null
   // #587: documento assinado/recusado nunca é regerado — ajuste depois disso o marca como desatualizado e a nova versão guarda a anterior
   versao?: number; versao_motivo?: string | null; desatualizado_em?: string | null; desatualizado_motivo?: string | null; versoes_guardadas?: number }
 const cienciaSelo: Record<string, { c: string; bg: string; l: string }> = {
@@ -258,14 +260,15 @@ function mesAtual(): string { const d = new Date(); return `${d.getFullYear()}-$
 
 function AbaCiencia({ companyId }: { companyId: string }) {
   const [comp, setComp] = useState(mesAtual())
-  const [dados, setDados] = useState<{ total: number; assinados: number; pendentes: number; recusados: number; linhas: CienciaLinha[] } | null>(null)
+  const [dados, setDados] = useState<{ total: number; elegiveis: number; com_documento: number; sem_documento: number; sem_apuracao: number; assinados: number; pendentes: number; recusados: number; linhas: CienciaLinha[] } | null>(null)
+  const [gerandoCpf, setGerandoCpf] = useState<string | null>(null)
   const [erro, setErro] = useState(''); const [busy, setBusy] = useState(false); const [carregado, setCarregado] = useState(false)
   const [link, setLink] = useState<{ nome: string; url: string; wa: string | null } | null>(null)
   const [verDoc, setVerDoc] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     setErro('')
-    try { const r = await rpc<{ ok: boolean; total: number; assinados: number; pendentes: number; recusados: number; linhas: CienciaLinha[] }>('fn_nr36_ciencia_listar', { p_company_id: companyId, p_competencia: `${comp}-01` }); setDados(r); setCarregado(true) }
+    try { const r = await rpc<{ ok: boolean; total: number; elegiveis: number; com_documento: number; sem_documento: number; sem_apuracao: number; assinados: number; pendentes: number; recusados: number; linhas: CienciaLinha[] }>('fn_nr36_ciencia_painel', { p_company_id: companyId, p_competencia: `${comp}-01` }); setDados(r); setCarregado(true) }
     catch (e) { setErro((e as Error).message) }
   }, [companyId, comp])
   useEffect(() => { void carregar() }, [carregar])
@@ -275,7 +278,13 @@ function AbaCiencia({ companyId }: { companyId: string }) {
     try { await rpc('fn_nr36_ciencia_gerar', { p_company_id: companyId, p_competencia: `${comp}-01` }); await carregar() }
     catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
+  const gerarUm = async (l: CienciaLinha) => {
+    setGerandoCpf(l.cpf); setErro('')
+    try { await rpc('fn_nr36_ciencia_gerar', { p_company_id: companyId, p_competencia: `${comp}-01`, p_cpf: l.cpf }); await carregar() }
+    catch (e) { setErro((e as Error).message) } finally { setGerandoCpf(null) }
+  }
   const gerarLink = async (l: CienciaLinha) => {
+    if (!l.id) return
     setErro('')
     try {
       const r = await rpc<Array<{ token: string; url_assinatura: string; whatsapp_link: string | null; colaborador_nome: string }>>('fn_nr36_ciencia_gerar_link', { p_ciencia_id: l.id, p_whatsapp_telefone: null })
@@ -288,6 +297,7 @@ function AbaCiencia({ companyId }: { companyId: string }) {
     if (motivo === null) return
     setErro('')
     try {
+      if (!l.id) return
       const r = await rpc<{ ok: boolean; versao?: number; erro?: string; mensagem?: string }>('fn_nr36_ciencia_nova_versao', { p_id: l.id, p_motivo: motivo })
       if (!r.ok) throw new Error(r.mensagem || (r.erro === 'sem_motivo' ? 'Escreva o motivo (pelo menos 10 caracteres).' : r.erro) || 'falha ao gerar a nova versão')
       await carregar()
@@ -295,7 +305,7 @@ function AbaCiencia({ companyId }: { companyId: string }) {
   }
   const recusar = async (l: CienciaLinha) => {
     const motivo = window.prompt(`Registrar recusa de ${l.nome}. Motivo (opcional):`, '')
-    if (motivo === null) return
+    if (motivo === null || !l.id) return
     try { await rpc('fn_nr36_ciencia_recusar', { p_id: l.id, p_motivo: motivo }); await carregar() }
     catch (e) { setErro((e as Error).message) }
   }
@@ -315,7 +325,8 @@ function AbaCiencia({ companyId }: { companyId: string }) {
 
       {dados && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginBottom: 12 }}>
-          <Kpi label="Documentos" n={dados.total} cor={C.espresso} bg={C.beigeLt} />
+          <Kpi label="Elegíveis no mês" n={dados.elegiveis} cor={C.espresso} bg={C.beigeLt} />
+          <Kpi label="Sem documento" n={dados.sem_documento} cor={C.amber} bg={C.amberBg} />
           <Kpi label="Assinados" n={dados.assinados} cor={C.green} bg={C.greenBg} />
           <Kpi label="Aguardando" n={dados.pendentes} cor={C.amber} bg={C.amberBg} />
           <Kpi label="Recusaram" n={dados.recusados} cor={C.red} bg={C.redBg} />
@@ -324,7 +335,7 @@ function AbaCiencia({ companyId }: { companyId: string }) {
 
       {erro && <div style={erroBox()}>{erro}</div>}
       {!carregado ? <Load /> : !dados || dados.linhas.length === 0 ? (
-        <Vazio titulo="Sem documentos nesta competência" texto="Clique em “Gerar / atualizar documentos”. O sistema cria um relatório por colaborador que teve apuração de pausa no mês." />
+        <Vazio titulo="Nenhum elegível à pausa térmica" texto="Cadastre quem é elegível em Configuração. A lista mostra todos os elegíveis do mês, com e sem documento." />
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -332,18 +343,24 @@ function AbaCiencia({ companyId }: { companyId: string }) {
               <th style={th()}>Colaborador</th><th style={th()}>Resumo do mês</th><th style={th()}>Situação</th><th style={th()}></th>
             </tr></thead>
             <tbody>
-              {dados.linhas.map((l) => { const s = cienciaSelo[l.status] || cienciaSelo.pendente; return (
-                <tr key={l.id} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
+              {dados.linhas.map((l) => { const s = cienciaSelo[l.status] || cienciaSelo.pendente; const semDoc = !l.id; return (
+                <tr key={l.cpf} style={{ borderBottom: `1px solid ${C.beigeLt}` }} data-testid={`ciencia-linha-${l.cpf}`}>
                   <td style={td()}><div style={{ fontWeight: 600, color: C.espresso }}>{l.nome}</div><div style={{ fontSize: 11, color: C.gray }}>{l.funcao || ''}{l.setor ? ` · ${l.setor}` : ''}</div></td>
-                  <td style={td()}><span style={{ color: C.green }}>{l.resumo?.conforme ?? 0} conf.</span> · <span style={{ color: C.red }}>{l.resumo?.desvio ?? 0} desv.</span> · <span style={{ color: C.amber }}>{l.resumo?.pendente_confirmacao ?? 0} p/ confirmar</span></td>
-                  <td style={td()}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.bg, color: s.c, borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: s.c }} /> {s.l}</span>{l.recusa_motivo && <div style={{ fontSize: 10, color: C.gray, marginTop: 3 }}>{l.recusa_motivo}</div>}
+                  <td style={td()}>{semDoc ? <span style={{ color: C.gray }}>{l.dias_apurados ? `${l.dias_apurados} dia(s) apurado(s)` : 'nenhuma pausa importada no mês'}</span> : <><span style={{ color: C.green }}>{l.resumo?.conforme ?? 0} conf.</span> · <span style={{ color: C.red }}>{l.resumo?.desvio ?? 0} desv.</span> · <span style={{ color: C.amber }}>{l.resumo?.pendente_confirmacao ?? 0} p/ confirmar</span></>}</td>
+                  <td style={td()}>{semDoc ? (l.situacao === 'sem_apuracao'
+                    ? <span style={{ fontSize: 11.5, fontWeight: 700, color: C.gray, background: C.beigeLt, borderRadius: 999, padding: '3px 10px' }} data-testid={`ciencia-sem-apuracao-${l.cpf}`}>Sem relatório de pausa no mês</span>
+                    : <span style={{ fontSize: 11.5, fontWeight: 700, color: C.amber, background: C.amberBg, borderRadius: 999, padding: '3px 10px' }} data-testid={`ciencia-sem-documento-${l.cpf}`}>Sem documento</span>)
+                    : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.bg, color: s.c, borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: s.c }} /> {s.l}</span>}
+                    {l.elegivel === false && <div style={{ fontSize: 10, color: C.gray, marginTop: 3 }}>não está mais elegível</div>}{l.recusa_motivo && <div style={{ fontSize: 10, color: C.gray, marginTop: 3 }}>{l.recusa_motivo}</div>}
                     {(l.versao ?? 1) > 1 && <div style={{ fontSize: 10.5, color: C.gray, marginTop: 3 }} data-testid={`ciencia-versao-${l.cpf}`}>versão {l.versao}{l.versao_motivo ? ` · ${l.versao_motivo}` : ''} · {l.versoes_guardadas ?? 0} anterior(es) guardada(s)</div>}
                     {l.desatualizado_em && <div style={{ fontSize: 10.5, color: C.amber, fontWeight: 700, marginTop: 3 }} data-testid={`ciencia-desatualizado-${l.cpf}`}>ajuste depois da {l.status === 'assinado' ? 'assinatura' : 'recusa'}: {l.desatualizado_motivo}</div>}</td>
                   <td style={{ ...td(), whiteSpace: 'nowrap' }}>
+                    {semDoc ? (l.situacao === 'sem_documento' && <span data-testid={`ciencia-gerar-${l.cpf}`}><BtnGhost onClick={() => gerarUm(l)}><RefreshCw size={13} /> {gerandoCpf === l.cpf ? 'Gerando…' : 'Gerar documento'}</BtnGhost></span>) : <>
                     <BtnGhost onClick={() => setVerDoc(l.id)}><FileText size={13} /> Ver/PDF</BtnGhost>{' '}
                     {l.status !== 'assinado' && <><BtnGhost onClick={() => gerarLink(l)}><Copy size={13} /> Link p/ assinar</BtnGhost>{' '}
                     <BtnGhost onClick={() => recusar(l)}>Recusa</BtnGhost></>}
                     {(l.status === 'assinado' || l.status === 'recusado') && l.desatualizado_em && <>{' '}<BtnGhost onClick={() => novaVersao(l)}><RefreshCw size={13} /> Nova versão</BtnGhost></>}
+                    </>}
                   </td>
                 </tr>
               ) })}
