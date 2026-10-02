@@ -43,7 +43,7 @@ export default function TopNav() {
   const [alertas, setAlertas] = useState<Alerta[]>([])
   // Notificações de CHAMADO (Central de Melhorias) — por PESSOA (sugestao_notificacao), não por
   // empresa. Chamado é conversa entre duas pessoas; o sino soma as duas coisas, separadas.
-  const [notifsChamado, setNotifsChamado] = useState<{ id: string; titulo: string; mensagem: string | null; lida: boolean }[]>([])
+  const [notifsChamado, setNotifsChamado] = useState<{ id: string; titulo: string; mensagem: string | null; lida: boolean; tipo?: string; sugestao_id?: string }[]>([])
   // #120 · avisos POR PESSOA do próprio trabalho (ex.: oportunidade/orçamento mudou de etapa — erp_notificacao_usuario).
   const [notifsUsuario, setNotifsUsuario] = useState<{ id: string; titulo: string; mensagem: string | null; link: string | null; lida: boolean }[]>([])
   const temNotificacao = alertas.length > 0 || notifsChamado.some((n) => !n.lida) || notifsUsuario.some((n) => !n.lida)
@@ -125,11 +125,11 @@ export default function TopNav() {
       if (authUser?.id) {
         const { data: nc } = await supabase
           .from('sugestao_notificacao')
-          .select('id, titulo, mensagem, lida')
+          .select('id, titulo, mensagem, lida, tipo, sugestao_id')
           .eq('destinatario_id', authUser.id)
           .order('criado_em', { ascending: false })
           .limit(12)
-        if (!ignore) setNotifsChamado((nc as { id: string; titulo: string; mensagem: string | null; lida: boolean }[]) ?? [])
+        if (!ignore) setNotifsChamado((nc as { id: string; titulo: string; mensagem: string | null; lida: boolean; tipo?: string; sugestao_id?: string }[]) ?? [])
 
         // #120 · avisos do próprio trabalho (RLS: destinatario_id = auth.uid()) — últimos 30 dias
         const { data: nu } = await supabase
@@ -271,7 +271,7 @@ export default function TopNav() {
                     <>
                       <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Seus chamados</div>
                       {notifsChamado.map((n) => (
-                        <Link key={n.id} href="/dashboard/melhorias"
+                        <Link key={n.id} href={n.tipo === 'atendimento' && n.sugestao_id ? `/dashboard/atendimento?id=${n.sugestao_id}` : '/dashboard/melhorias'}
                           onClick={() => { setSinoAberto(false); void supabase.from('sugestao_notificacao').update({ lida: true, lida_em: new Date().toISOString() }).eq('id', n.id).then(() => undefined) }}>
                           <div className="px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 hover:bg-[#3D2314]/4 cursor-pointer">
                             <div className="flex items-center gap-2">

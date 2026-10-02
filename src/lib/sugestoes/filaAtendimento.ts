@@ -87,3 +87,38 @@ export async function carregarEmpresasDemo(sb: ClienteSupabase): Promise<Set<str
 }
 export const semDemos = <T extends { company_id: string | null }>(rows: T[], demos: Set<string>) =>
   rows.filter((r) => !r.company_id || !demos.has(r.company_id))
+
+// ── Chamados em equipe (SPEC rev. 9 · T1+T2) ──────────────────────────────────────────────────────────────────────
+// A carteira define para onde o chamado CAI (responsável); toda a equipe vê "Todos". Um atendente por vez (trava).
+export type Visao = 'meus' | 'todos' | 'sem_dono'
+export interface ItemEquipe { responsavel_id: string | null; atendente_id: string | null; interno: boolean; company_id: string | null }
+
+// "Meus chamados" = os da minha carteira + os que estou atendendo (inclusive de outra carteira, puxados/direcionados).
+export const ehMeu = (it: ItemEquipe, eu: string) => it.responsavel_id === eu || it.atendente_id === eu
+// "Sem dono" = empresa cliente sem responsável na carteira (interno e demo ficam fora).
+export const semDono = (it: ItemEquipe, demos: Set<string>) =>
+  !it.responsavel_id && !it.interno && !!it.company_id && !demos.has(it.company_id)
+export function filtrarVisao<T extends ItemEquipe>(rows: T[], visao: Visao, eu: string, demos: Set<string>, responsavel = 'todos'): T[] {
+  if (visao === 'meus') return rows.filter((r) => ehMeu(r, eu))
+  if (visao === 'sem_dono') return rows.filter((r) => semDono(r, demos))
+  return responsavel === 'todos' ? rows : rows.filter((r) => r.responsavel_id === responsavel)
+}
+
+// O que a pessoa pode fazer na trava deste chamado (a regra de verdade está no banco; isto só decide os botões).
+export interface Trava { livre: boolean; meu: boolean; deOutro: boolean; podeAssumir: boolean; podePuxar: boolean; podeLiberar: boolean; podeDirecionar: boolean }
+export function trava(it: ItemEquipe, eu: string, ehCeo: boolean): Trava {
+  const livre = !it.atendente_id
+  const meu = it.atendente_id === eu
+  const deOutro = !livre && !meu
+  return {
+    livre, meu, deOutro,
+    podeAssumir: livre,
+    podePuxar: deOutro,
+    podeLiberar: meu || (ehCeo && deOutro),
+    podeDirecionar: meu || it.responsavel_id === eu || ehCeo,
+  }
+}
+// Puxar com confirmação a mais quando o atendente mexeu há menos de 2 h (o CEO não precisa) — espelho da regra do banco.
+export const PUXAR_CONFIRMA_MIN = 120
+export const puxarPedeConfirmacao = (ultimoMovimento: string | null, ehCeo: boolean, agora = Date.now()) =>
+  !ehCeo && !!ultimoMovimento && (agora - new Date(ultimoMovimento).getTime()) / 60000 < PUXAR_CONFIRMA_MIN

@@ -6,10 +6,11 @@
 // como IA, separada da resposta do atendente (RD-51). Recusar exige motivo (a RPC bloqueia).
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
-import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, filtrarBusca, carregarEmpresasDemo, semDemos, type EstadoFila } from '@/lib/sugestoes/filaAtendimento'
+import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, filtrarBusca, carregarEmpresasDemo, semDemos, filtrarVisao, trava, type EstadoFila, type Visao } from '@/lib/sugestoes/filaAtendimento'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -31,7 +32,13 @@ type Item = {
   resposta_origem: string | null; resposta_redigida_por: string | null; resposta_aprovada_por: string | null
   resposta_aprovada_em: string | null
   redator_nome: string | null; aprovador_nome: string | null
+  // Chamados em equipe (T1+T2): carteira e trava de atendimento
+  responsavel_id: string | null; responsavel_nome: string | null; atendente_nome: string | null
+  em_atendimento_desde: string | null; ultimo_movimento: string | null; interno: boolean; agente: string | null
 }
+type Pessoa = { user_id: string; nome: string; papel: 'ceo' | 'socio' | 'suporte'; agente: string | null; eu: boolean }
+type Hist = { acao: string; de: string | null; para: string | null; por: string; motivo: string | null; confirmacao_extra: boolean; automatico: boolean; em: string }
+const ACAO_HIST: Record<string, string> = { assumir: 'assumiu', direcionar: 'direcionou', puxar: 'puxou', liberar: 'liberou', expirar: 'trava venceu', implantacao: 'implantação', carteira: 'carteira mudou' }
 
 // Três estados que importam para o CEO (em vez de misturar tudo em "em desenvolvimento"):
 const diasDesde = (iso: string | null) => iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)) : 0
@@ -60,6 +67,14 @@ function Inner() {
   const [anexosUrl, setAnexosUrl] = useState<Record<string, { url: string; marcacoes: Marca[] }[]>>({})
   const [ehAdmin, setEhAdmin] = useState(false)   // PS_ADMIN / PS_ADMIN_CVM aprovam resposta
   const [respExpandida, setRespExpandida] = useState<string | null>(null)   // "ver completa" da resposta no card
+  // Chamados em equipe: a carteira define para onde o chamado cai; toda a equipe vê "Todos" (SPEC rev. 9).
+  const [equipe, setEquipe] = useState<Pessoa[]>([])
+  const [visao, setVisao] = useState<Visao>('meus')
+  const [fResp, setFResp] = useState('todos')
+  const [historico, setHistorico] = useState<Record<string, Hist[]>>({})
+  const params = useSearchParams()
+  const idDaUrl = params.get('id')   // link do sino (/dashboard/atendimento?id=…)
+  const ehCeo = equipe.some((p) => p.eu && p.papel === 'ceo')
 
   const carregar = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -77,12 +92,34 @@ function Inner() {
     if (error) { setErro(error.message); return }
     setDemos(demoIds)
     setRows(data)
+    const { data: eq } = await supabase.rpc('fn_chamado_equipe_listar')
+    const pessoas = (eq as Pessoa[] | null) ?? []
+    setEquipe(pessoas)
+    // CEO abre em "Todos"; a equipe abre em "Meus chamados"
+    if (pessoas.some((p) => p.eu && p.papel === 'ceo')) setVisao((v) => (v === 'meus' ? 'todos' : v))
   }, [])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
+  // Link do sino: abre o chamado (mesmo de demo) e mostra ele, em qualquer visão/aba.
+  useEffect(() => {
+    if (!idDaUrl || !rows.length) return
+    const it = rows.find((r) => r.id === idDaUrl)
+    if (!it) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- abre o chamado do link uma vez, quando a fila carrega
+    setBusca(String(it.numero)); setVisao('todos'); setAberto(it.id)
+    if (it.company_id && demos.has(it.company_id)) setMostrarDemos(true)
+  }, [idDaUrl, rows, demos])
+
   // base da tela: sem demos no padrão (o cabeçalho "N p/ aprovar" usa a mesma base — contarPendentesAprovacao).
-  const base = useMemo(() => mostrarDemos ? rows : semDemos(rows, demos), [rows, demos, mostrarDemos])
+  const semDemo = useMemo(() => mostrarDemos ? rows : semDemos(rows, demos), [rows, demos, mostrarDemos])
+  // visão (Meus / Todos / Sem dono) vem antes das abas de estado; a busca por número varre tudo.
+  const base = useMemo(() => busca.trim() ? semDemo : filtrarVisao(semDemo, visao, userId ?? '', demos, fResp), [semDemo, visao, userId, demos, fResp, busca])
+  const contVisao = useMemo(() => ({
+    meus: filtrarVisao(semDemo, 'meus', userId ?? '', demos).filter((r) => estadoFila(r) !== 'terminal').length,
+    todos: semDemo.filter((r) => estadoFila(r) !== 'terminal').length,
+    sem_dono: filtrarVisao(semDemo, 'sem_dono', userId ?? '', demos).filter((r) => estadoFila(r) !== 'terminal').length,
+  }), [semDemo, userId, demos])
   const nDemos = rows.length - semDemos(rows, demos).length
   const empresas = useMemo(() => Array.from(new Set(base.map((r) => r.empresa).filter(Boolean))) as string[], [base])
   // busca: número EXATO ("14" ou "#14" → só o #14) OU trecho do título/descrição (filtrarBusca).
@@ -160,6 +197,45 @@ function Inner() {
     if (ok) setMsg(`#${it.numero} encerrado sem confirmação — registrado que o autor não confirmou.`)
   }
 
+  // ── Trava de atendimento (um atendente por vez). A regra está no banco; aqui só os botões e as perguntas.
+  async function rpcTrava(fn: string, p: Record<string, unknown>) {
+    const { data, error } = await supabase.rpc(fn, p)
+    const r = data as { ok?: boolean; erro?: string; mensagem?: string; precisa_confirmar?: boolean; avisado?: string } | null
+    if (error) { setErro(error.message); return null }
+    return r
+  }
+  async function assumir(it: Item) {
+    const r = await rpcTrava('fn_chamado_assumir', { p_id: it.id, p_agente: null })
+    if (r?.ok) { setMsg(`Você assumiu o #${it.numero}.`); void carregar() } else if (r) setErro(r.mensagem || r.erro || 'Falha')
+  }
+  async function liberar(it: Item) {
+    const motivo = window.prompt(`Liberar o #${it.numero}? Ele volta para a fila do responsável. Motivo (opcional):`)
+    if (motivo === null) return
+    const r = await rpcTrava('fn_chamado_liberar', { p_id: it.id, p_motivo: motivo })
+    if (r?.ok) { setMsg(`#${it.numero} liberado.`); void carregar() } else if (r) setErro(r.mensagem || r.erro || 'Falha')
+  }
+  async function puxar(it: Item) {
+    const motivo = window.prompt(`Puxar o #${it.numero} de ${it.atendente_nome || 'quem está atendendo'}. Motivo (obrigatório — a pessoa recebe o aviso):`) || ''
+    if (!motivo.trim()) return
+    let r = await rpcTrava('fn_chamado_puxar', { p_id: it.id, p_motivo: motivo, p_confirmar: false })
+    if (r?.precisa_confirmar) {
+      if (!window.confirm(r.mensagem || 'A pessoa mexeu neste chamado há pouco. Puxar mesmo assim?')) return
+      r = await rpcTrava('fn_chamado_puxar', { p_id: it.id, p_motivo: motivo, p_confirmar: true })
+    }
+    if (r?.ok) { setMsg(`Você puxou o #${it.numero}${r.avisado ? ` — ${r.avisado} foi avisado(a)` : ''}.`); void carregar() } else if (r) setErro(r.mensagem || r.erro || 'Falha')
+  }
+  async function direcionar(it: Item, para: string) {
+    const nome = equipe.find((p) => p.user_id === para)?.nome || 'a pessoa'
+    const motivo = window.prompt(`Direcionar o #${it.numero} para ${nome}. Motivo (obrigatório):`) || ''
+    if (!motivo.trim()) return
+    const r = await rpcTrava('fn_chamado_direcionar', { p_id: it.id, p_para: para, p_motivo: motivo })
+    if (r?.ok) { setMsg(`#${it.numero} direcionado para ${nome} — avisado(a) no sino.`); void carregar() } else if (r) setErro(r.mensagem || r.erro || 'Falha')
+  }
+  async function verHistorico(id: string) {
+    const { data } = await supabase.rpc('fn_chamado_historico', { p_id: id })
+    setHistorico((h) => ({ ...h, [id]: (data as Hist[] | null) ?? [] }))
+  }
+
   if (autorizado === null) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>
   if (!autorizado) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Esta é a fila do time de atendimento (PS). Você não tem acesso.</div>
 
@@ -167,7 +243,23 @@ function Inner() {
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>📥 Atendimento</div>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Fila de Melhorias</h1>
-      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>Todas as empresas numa fila só, por prioridade e idade. A leitura da IA é palpite — a decisão é sua.</p>
+      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>Cada empresa tem um responsável (carteira); toda a equipe vê todos os chamados. Um atendente por vez: assuma antes de mexer. <a href="/dashboard/admin/carteira" style={{ color: C.blue, fontWeight: 700 }}>Carteira →</a></p>
+
+      {/* VISÃO (Chamados em equipe): onde o chamado caiu. A carteira define para onde cai, não quem pode atender. */}
+      <div data-testid="fila-visoes" style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        {([['meus', '👤 Meus chamados', contVisao.meus], ['todos', '👥 Todos', contVisao.todos], ['sem_dono', '⚠️ Sem dono', contVisao.sem_dono]] as [Visao, string, number][]).map(([k, label, n]) => (
+          <button key={k} type="button" data-testid={`visao-${k}`} onClick={() => setVisao(k)}
+            style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${visao === k ? C.esp : C.border}`, background: visao === k ? C.esp : C.white, color: visao === k ? '#fff' : (k === 'sem_dono' && n ? C.red : C.esp), fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+            {label} <span style={{ opacity: 0.8 }}>{n}</span>
+          </button>
+        ))}
+        {visao === 'todos' && (
+          <select data-testid="fila-filtro-responsavel" value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp}>
+            <option value="todos">todos os responsáveis</option>
+            {equipe.filter((p) => p.papel !== 'suporte').map((p) => <option key={p.user_id} value={p.user_id}>{p.nome}</option>)}
+          </select>
+        )}
+      </div>
 
       {/* ABAS por estado — "quem trabalha" vê só o que é dela; entregue (aguardando o autor) sai da fila. */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap', borderBottom: `1px solid ${C.border}` }}>
@@ -214,6 +306,27 @@ function Inner() {
                     <b style={{ fontSize: 14.5 }}>{it.titulo || it.descricao.slice(0, 70)}</b>
                   </div>
                   <div style={{ fontSize: 12, color: C.espM, marginTop: 4 }}>{it.empresa || 'sem empresa'} · {it.user_name || it.user_email} · {brDate(it.created_at)} · <b>{it.dias_aberta}d aberta</b>{it.n_anexos ? ` · 📎 ${it.n_anexos}` : ''}</div>
+                  {(() => {
+                    const tv = trava(it, userId ?? '', ehCeo)
+                    const ativo = est !== 'terminal'
+                    return (
+                      <div data-testid={`trava-${it.numero}`} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 6, fontSize: 12 }}>
+                        <span data-testid={`trava-estado-${it.numero}`} style={{ padding: '2px 9px', borderRadius: 999, fontWeight: 700, background: tv.livre ? C.greenBg : tv.meu ? '#EAF0FA' : C.amberBg, color: tv.livre ? C.green : tv.meu ? C.blue : C.amber }}>
+                          {tv.livre ? '🟢 Livre' : tv.meu ? `🔒 Com você desde ${brDate(it.em_atendimento_desde || '')}` : `🔒 Em atendimento por ${it.atendente_nome || '—'} desde ${brDate(it.em_atendimento_desde || '')}`}
+                        </span>
+                        <span style={{ color: C.espM }}>responsável: <b>{it.responsavel_nome || (it.interno ? 'interno PS' : 'sem dono')}</b>{it.interno ? ' · interno' : ''}</span>
+                        {ativo && tv.podeAssumir && <button data-testid={`btn-assumir-${it.numero}`} onClick={() => void assumir(it)} style={btnMini(C.esp)}>Assumir</button>}
+                        {ativo && tv.podePuxar && <button data-testid={`btn-puxar-${it.numero}`} onClick={() => void puxar(it)} style={btnMini(C.amber)}>Puxar</button>}
+                        {ativo && tv.podeLiberar && <button data-testid={`btn-liberar-${it.numero}`} onClick={() => void liberar(it)} style={btnMini(C.espM)}>Liberar</button>}
+                        {ativo && tv.podeDirecionar && (
+                          <select data-testid={`sel-direcionar-${it.numero}`} value="" onChange={(e) => { if (e.target.value) void direcionar(it, e.target.value) }} style={{ ...inp, padding: '3px 6px', fontSize: 11.5 }}>
+                            <option value="">direcionar para…</option>
+                            {equipe.filter((p) => p.user_id !== it.atendente_id).map((p) => <option key={p.user_id} value={p.user_id}>{p.nome}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                   {it.origem_sugestao_id && <span title="desmembrado de outro chamado" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>↳ desmembrado</span>}
@@ -373,13 +486,24 @@ function Inner() {
                   {it.pr_numero && <div style={{ fontSize: 12, marginTop: 6, color: C.green }}>vinculado ao PR #{it.pr_numero}</div>}
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                    {!it.atendente_id && <button onClick={() => void acao(it.id, 'fn_sugestao_assumir', { p_id: it.id, p_user: userId }).then((ok) => { if (ok) setMsg('Você assumiu.') })} style={btn(C.esp)}>assumir</button>}
+                    <button data-testid={`btn-historico-${it.numero}`} onClick={() => void verHistorico(it.id)} style={btn(C.espM)}>histórico de atendimento</button>
                     <select value="" onChange={(e) => { if (e.target.value) void mudarStatus(it, e.target.value) }} style={{ ...inp, fontWeight: 700 }}>
                       <option value="">mudar status…</option>{STATUSES.filter((s) => s !== it.status).map((s) => <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>)}
                     </select>
                     {/* "responder" saiu daqui: agora mora na seção "Resposta ao autor" acima, que é sempre
                         visível e mostra o estado (sem resposta / rascunho / aprovada) — um único caminho claro. */}
                   </div>
+
+                  {historico[it.id] && (
+                    <div data-testid={`historico-${it.numero}`} style={{ marginTop: 10, background: C.cream, borderRadius: 8, padding: '8px 10px', fontSize: 12 }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Histórico de atendimento</div>
+                      {historico[it.id].length === 0 ? <div style={{ color: C.espM }}>Nenhuma troca de atendente ainda.</div> : historico[it.id].map((h, i) => (
+                        <div key={i} style={{ color: C.esp }}>
+                          {brDate(h.em)} · <b>{h.por}</b> {ACAO_HIST[h.acao] || h.acao}{h.de ? ` de ${h.de}` : ''}{h.para ? ` → ${h.para}` : ''}{h.motivo ? ` — "${h.motivo}"` : ''}{h.confirmacao_extra ? ' (confirmou: mexido há < 2 h)' : ''}{h.automatico ? ' (automático)' : ''}
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Conversa do chamado: o autor pode mandar foto nova sem encerrar; o PS responde aqui.
                       A resposta "oficial" (responder → aprovar) continua acima; isto é o ida-e-volta. */}
@@ -393,4 +517,5 @@ function Inner() {
     </div>
   )
 }
+function btnMini(bg: string): React.CSSProperties { return { padding: '3px 10px', border: 'none', borderRadius: 7, background: bg, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 11.5 } }
 function btn(bg: string): React.CSSProperties { return { padding: '7px 13px', border: 'none', borderRadius: 8, background: bg, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 12 } }
