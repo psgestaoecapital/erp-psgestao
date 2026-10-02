@@ -69,6 +69,14 @@ jobs:
           TRAVA_DEMO_ESPERA_MIN: '60'
         # sem teste @pos-migration no repo → nada a julgar (verde)
         run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration
+      # Prints de produção (o CEO pede print e link em toda onda): sobem sempre, verde ou vermelho.
+      - name: Upload prints (sempre)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aceitacao-prints
+          path: e2e/diagnostico-host/
+          if-no-files-found: ignore
       - name: Avisar na PR do commit (vermelho = reverter)
         if: failure()
         env:

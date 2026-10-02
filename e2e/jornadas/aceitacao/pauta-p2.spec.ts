@@ -97,10 +97,11 @@ test.describe('Pauta P2 — lista, abas, ações em massa com desfazer, lixeira,
     // limpa a preferência pela tela: tira o atalho e volta ao agrupamento por prazo
     await page.getByTestId('pauta-atalho-atrasados').click()
     await page.getByTestId('pauta-agrupar').selectOption('prazo')
-    // contador da aba "Todas" = total da lista mostrada
-    const nTodas = Number(await page.getByTestId('pauta-aba-n-todas').innerText())
+    // contador da aba "Todas" = total do banco (espera a recarga depois de tirar o atalho; antes dela o número
+    // ainda é o do filtro anterior)
     const ct = (await rpc<{ total: number }>('fn_pauta_contadores', { p_company_id: DEMO_PM, p_filtros: { titulo: 'a' } })).corpo
-    expect(nTodas, 'aba "Todas" mostra o mesmo número do banco').toBe(ct.total)
+    await expect.poll(async () => Number(await page.getByTestId('pauta-aba-n-todas').innerText()),
+      { timeout: 15000, message: 'aba "Todas" mostra o mesmo número do banco' }).toBe(ct.total)
     // "?" de ajuda nos campos do filtro
     await page.getByTestId('pauta-abrir-filtro').click()
     await expect(page.getByTestId('pauta-painel')).toBeVisible()
