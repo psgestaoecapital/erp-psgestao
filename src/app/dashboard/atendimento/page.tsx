@@ -112,9 +112,9 @@ function Inner() {
 
   async function acao(id: string, fn: string, params: Record<string, unknown>) {
     const { data, error } = await supabase.rpc(fn, params)
-    const r = data as { ok?: boolean; erro?: string } | null
+    const r = data as { ok?: boolean; erro?: string; mensagem?: string } | null
     if (error || !r?.ok) {
-      setErro(r?.erro === 'recusa_exige_motivo' ? 'Recusar exige um motivo — o usuário precisa saber por quê.' : (error?.message || r?.erro || 'Falha'))
+      setErro(r?.erro === 'recusa_exige_motivo' ? 'Recusar exige um motivo — o usuário precisa saber por quê.' : (r?.mensagem || error?.message || r?.erro || 'Falha'))
       return false
     }
     void carregar(); return true
