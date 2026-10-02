@@ -119,6 +119,14 @@ export function validarFiltroIA(bruto: unknown, ids: { clientes: Set<string>; re
   return limparFiltros(f)
 }
 
+// PM-B · link da visão salva: /dashboard/pm/pauta?visao=<id>. Só aceita um uuid (o resto da URL é ignorado).
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export function visaoDaUrl(search: string): string | null {
+  const v = new URLSearchParams(search).get('visao')?.trim() ?? ''
+  return UUID.test(v) ? v.toLowerCase() : null
+}
+export const linkVisao = (origem: string, id: string) => `${origem.replace(/\/$/, '')}/dashboard/pm/pauta?visao=${id}`
+
 export const AGRUPAMENTOS: { id: Agrupar; rotulo: string }[] = [
   { id: 'prazo', rotulo: 'Por prazo' }, { id: 'cliente', rotulo: 'Por cliente' }, { id: 'responsavel', rotulo: 'Por responsável' }, { id: 'sem', rotulo: 'Sem agrupar' },
 ]
