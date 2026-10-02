@@ -253,7 +253,7 @@ export default function TopNav() {
                           onClick={() => {
                             setSinoAberto(false)
                             setNotifsUsuario((l) => l.map((x) => (x.id === n.id ? { ...x, lida: true } : x)))
-                            void supabase.from('erp_notificacao_usuario').update({ lida: true, lida_em: new Date().toISOString() }).eq('id', n.id)
+                            void supabase.from('erp_notificacao_usuario').update({ lida: true, lida_em: new Date().toISOString() }).eq('id', n.id).then(() => undefined)
                           }}>
                           <div className="px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 hover:bg-[#3D2314]/4 cursor-pointer">
                             <div className="flex items-center gap-2">
@@ -272,7 +272,7 @@ export default function TopNav() {
                       <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Seus chamados</div>
                       {notifsChamado.map((n) => (
                         <Link key={n.id} href="/dashboard/melhorias"
-                          onClick={() => { setSinoAberto(false); void supabase.from('sugestao_notificacao').update({ lida: true, lida_em: new Date().toISOString() }).eq('id', n.id) }}>
+                          onClick={() => { setSinoAberto(false); void supabase.from('sugestao_notificacao').update({ lida: true, lida_em: new Date().toISOString() }).eq('id', n.id).then(() => undefined) }}>
                           <div className="px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 hover:bg-[#3D2314]/4 cursor-pointer">
                             <div className="flex items-center gap-2">
                               <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${n.lida ? 'bg-[#3D2314]/20' : 'bg-[#166534]'}`} />

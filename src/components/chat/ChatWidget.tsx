@@ -74,7 +74,7 @@ export default function ChatWidget() {
         (payload: { new: { canal_id?: string } }) => {
           void carregarCanais()
           const cid = canalAtivoRef.current
-          if (cid && payload.new?.canal_id === cid) { void carregarMsgs(cid); void supabase.rpc('fn_chat_marcar_lido', { p_canal_id: cid }) }
+          if (cid && payload.new?.canal_id === cid) { void carregarMsgs(cid); void supabase.rpc('fn_chat_marcar_lido', { p_canal_id: cid }).then(() => undefined) }
         })
       .subscribe()
 
