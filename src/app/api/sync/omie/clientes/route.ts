@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { omiePaginate, getOmieAuthFromDb } from '@/lib/omieClient'
+import { OMIE_DESLIGADO, omieDesligadoResposta } from '@/lib/omie/desligado'
 
 export const maxDuration = 300
 
@@ -40,6 +41,7 @@ function mapOmieCliente(omie: any, companyId: string) {
 }
 
 export async function POST(req: Request) {
+  if (OMIE_DESLIGADO) return omieDesligadoResposta()
   // Usuário da empresa, ou máquina (Bearer CRON_SECRET); /sync/omie/full repassa o Authorization.
   const guarda = await exigirUsuario(req, { cron: true })
   if (guarda instanceof NextResponse) return guarda

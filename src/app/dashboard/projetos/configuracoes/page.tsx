@@ -20,6 +20,7 @@ import {
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
+import { OMIE_DESLIGADO_ROTULO } from "@/lib/omie/constantes";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
 import PrecificacaoConfigPanel from "@/components/projetos/PrecificacaoConfigPanel";
 import ProdutividadePanel from "@/components/projetos/ProdutividadePanel";
@@ -103,7 +104,7 @@ function cargaInicial(): Partial<Config> {
     vendedor_pode_aprovar_proposta: false,
     exige_aprovacao_engenheiro: true,
     sincroniza_omie_estoque: false,
-    sincroniza_omie_pagar: true,
+    sincroniza_omie_pagar: false,
   };
 }
 
@@ -201,11 +202,9 @@ export default function ConfiguracoesPage() {
           dados.exige_aprovacao_engenheiro == null
             ? true
             : !!dados.exige_aprovacao_engenheiro,
-        sincroniza_omie_estoque: !!dados.sincroniza_omie_estoque,
-        sincroniza_omie_pagar:
-          dados.sincroniza_omie_pagar == null
-            ? true
-            : !!dados.sincroniza_omie_pagar,
+        // Omie desligado em 02/10/2026: as duas sincronizações ficam sempre desligadas (gravadas como false).
+        sincroniza_omie_estoque: false,
+        sincroniza_omie_pagar: false,
       });
       setImpactos(dadosImp);
     } catch (e: any) {
@@ -245,8 +244,8 @@ export default function ConfiguracoesPage() {
           vendedor_pode_alterar_preco: !!atual.vendedor_pode_alterar_preco,
           vendedor_pode_aprovar_proposta: !!atual.vendedor_pode_aprovar_proposta,
           exige_aprovacao_engenheiro: !!atual.exige_aprovacao_engenheiro,
-          sincroniza_omie_estoque: !!atual.sincroniza_omie_estoque,
-          sincroniza_omie_pagar: !!atual.sincroniza_omie_pagar,
+          sincroniza_omie_estoque: false,
+          sincroniza_omie_pagar: false,
         };
         const { data, error } = await supabase
           .from("projetos_modulo_config")
@@ -653,19 +652,14 @@ export default function ConfiguracoesPage() {
               Integrações
             </h3>
           </div>
-          <div className="space-y-2">
-            <Toggle
-              label="Sincronizar estoque com Omie"
-              hint="Movimenta estoque no Omie a cada saída de material"
-              valor={!!config.sincroniza_omie_estoque}
-              onChange={(v) => setField("sincroniza_omie_estoque", v)}
-            />
-            <Toggle
-              label="Sincronizar contas a pagar com Omie"
-              hint="Cria títulos a pagar no Omie ao confirmar fornecedor"
-              valor={!!config.sincroniza_omie_pagar}
-              onChange={(v) => setField("sincroniza_omie_pagar", v)}
-            />
+          {/* 02/10/2026 (CEO): Omie desconectado em definitivo — sem sincronização de estoque nem de contas a pagar. */}
+          <div
+            data-testid="hub-omie-desligado"
+            className="rounded-lg border border-[#3D2314]/10 bg-[#FAF7F2] px-3 py-2.5 text-xs text-[#3D2314]/70"
+          >
+            <span className="font-semibold text-[#3D2314]">Omie · {OMIE_DESLIGADO_ROTULO}.</span>{" "}
+            A integração foi desligada por decisão da PS: o Hub não sincroniza mais estoque nem contas a pagar com o Omie.
+            O histórico já importado continua no sistema.
           </div>
         </div>
       </section>

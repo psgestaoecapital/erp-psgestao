@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
 import { credencialEmpresa } from "@/lib/credenciais/servidor";
+import { OMIE_DESLIGADO, omieDesligadoResposta } from '@/lib/omie/desligado'
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -244,6 +245,7 @@ async function omieListarPosEstoqueAllPages(app_key: string, app_secret: string,
 }
 
 export async function POST(req: NextRequest) {
+  if (OMIE_DESLIGADO) return omieDesligadoResposta()
   // O sync agendado (pg_cron → fn_sync_empresa / fn_sync_produtos_empresa) chama com a service key; o usuário, com a
   // sessão. Sem { servico: true } o cron tomava 401 desde 28/09 01:00 UTC (4 empresas Omie sem sincronizar).
   const guarda = await exigirUsuario(req, { cron: true, servico: true });

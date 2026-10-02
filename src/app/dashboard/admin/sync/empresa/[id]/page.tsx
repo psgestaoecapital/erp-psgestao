@@ -6,6 +6,7 @@
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { OMIE_DESLIGADO, OMIE_DESLIGADO_ROTULO } from "@/lib/omie/constantes";
 import {
   H1,
   Breadcrumb,
@@ -178,6 +179,13 @@ export default function EmpresaSyncDetalhePage({
           {config && <ModoBadge modo={config.sync_mode} />}
         </header>
 
+        {OMIE_DESLIGADO && (
+          <div data-testid="admin-sync-empresa-omie-desligado" className="mb-4 rounded-lg border border-[#3D2314]/10 bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/80">
+            <strong className="text-[#3D2314]">Omie · {OMIE_DESLIGADO_ROTULO}.</strong> A integração foi desligada por decisão da PS:
+            não há promoção, pausa ou reativação — esta tela fica só como histórico.
+          </div>
+        )}
+
         {erro && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{erro}</div>}
         {aviso && (
           <div className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">✓ {aviso}</div>
@@ -342,7 +350,7 @@ export default function EmpresaSyncDetalhePage({
 
             {/* Ações */}
             <section className="flex flex-wrap gap-3">
-              {config.sync_mode === "shadow_mode" && (
+              {!OMIE_DESLIGADO && config.sync_mode === "shadow_mode" && (
                 <button
                   onClick={() => setConfirmacao("promover")}
                   className="rounded-lg bg-[#C8941A] px-4 py-2 text-sm font-medium text-white hover:bg-[#A87810]"
@@ -350,7 +358,7 @@ export default function EmpresaSyncDetalhePage({
                   Avaliar e promover
                 </button>
               )}
-              {config.sync_mode === "write_back" && (
+              {!OMIE_DESLIGADO && config.sync_mode === "write_back" && (
                 <button
                   onClick={() => setConfirmacao("pausar")}
                   className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
@@ -358,7 +366,7 @@ export default function EmpresaSyncDetalhePage({
                   Pausar emergência
                 </button>
               )}
-              {config.sync_mode === "paused" && (
+              {!OMIE_DESLIGADO && config.sync_mode === "paused" && (
                 <button
                   onClick={() => setConfirmacao("reativar")}
                   className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"

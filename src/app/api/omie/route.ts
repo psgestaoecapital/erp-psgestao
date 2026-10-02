@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exigirUsuario, exigirEmpresas } from "@/lib/auth/guardaApi";
 import { credencialEmpresa } from "@/lib/credenciais/servidor";
+import { OMIE_DESLIGADO, omieDesligadoResposta } from '@/lib/omie/desligado'
 
 // Omie API base URL
 const OMIE_BASE = "https://app.omie.com.br/api/v1";
@@ -8,6 +9,7 @@ const OMIE_BASE = "https://app.omie.com.br/api/v1";
 // PR E (CEO 28/09): exige login; com company_id, as chaves vêm do Vault no servidor (o navegador não as tem mais).
 // Chaves digitadas na tela (teste antes de salvar) ainda são aceitas no corpo.
 export async function POST(req: NextRequest) {
+  if (OMIE_DESLIGADO) return omieDesligadoResposta()
   const guarda = await exigirUsuario(req);
   if (guarda instanceof NextResponse) return guarda;
   try {

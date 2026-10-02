@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, XCircle, RefreshCw, AlertTriangle, ArrowRight } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { OMIE_DESLIGADO, OMIE_DESLIGADO_ROTULO } from "@/lib/omie/constantes";
 import { ModoBadge, H1, SectionLabel, Breadcrumb, fmtDateTime } from "./_components";
 
 interface SyncEmpresa {
@@ -209,6 +210,13 @@ export default function SyncDashboardPage() {
           </button>
         </header>
 
+        {OMIE_DESLIGADO && (
+          <div data-testid="admin-sync-omie-desligado" className="mb-4 rounded-lg border border-[#3D2314]/10 bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/80">
+            <strong className="text-[#3D2314]">Omie · {OMIE_DESLIGADO_ROTULO}.</strong> A integração foi desligada por decisão da PS:
+            não há promoção, pausa ou reativação — esta tela fica só como histórico.
+          </div>
+        )}
+
         {erro && (
           <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{erro}</div>
         )}
@@ -309,7 +317,7 @@ export default function SyncDashboardPage() {
                         : "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {emp.sync_mode === "shadow_mode" && (
+                      {!OMIE_DESLIGADO && emp.sync_mode === "shadow_mode" && (
                         <button
                           onClick={() => abrirAvaliacao(emp)}
                           className="inline-flex items-center gap-1 rounded-lg bg-[#C8941A] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#A87810]"
@@ -318,7 +326,7 @@ export default function SyncDashboardPage() {
                           <ArrowRight size={12} />
                         </button>
                       )}
-                      {emp.sync_mode === "write_back" && (
+                      {!OMIE_DESLIGADO && emp.sync_mode === "write_back" && (
                         <button
                           onClick={() => setConfirmacao({ tipo: "pausar", empresa: emp })}
                           className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
@@ -326,7 +334,7 @@ export default function SyncDashboardPage() {
                           Pausar
                         </button>
                       )}
-                      {emp.sync_mode === "paused" && (
+                      {!OMIE_DESLIGADO && emp.sync_mode === "paused" && (
                         <button
                           onClick={() => setConfirmacao({ tipo: "reativar", empresa: emp })}
                           className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
@@ -411,7 +419,7 @@ export default function SyncDashboardPage() {
                 )}
 
                 {/* CTA promover */}
-                {avaliacao.pode_promover ? (
+                {!OMIE_DESLIGADO && avaliacao.pode_promover ? (
                   <button
                     onClick={() => {
                       const emp = empresas.find((e) => e.company_id === avaliacaoOpen.id);

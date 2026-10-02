@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 // P0 · Camada 3 (16bc8561): cliente ÚNICO do navegador (evita GoTrueClient extra disputando
 // a trava de sessão). Antes esta tela criava o próprio createClient.
 import { supabase } from '@/lib/supabase'
+import { OMIE_DESLIGADO, OMIE_DESLIGADO_ROTULO } from '@/lib/omie/constantes'
 
 // Tipos
 type StatusGeral = {
@@ -129,6 +130,12 @@ export default function SyncStatusPage() {
               </span>
             )}
           </p>
+          {OMIE_DESLIGADO && (
+            <div data-testid="sync-status-omie-desligado" style={{ marginTop: 16, padding: '12px 16px', borderRadius: 10, backgroundColor: 'white', border: '1px solid rgba(61, 35, 20, 0.12)', fontSize: 13 }}>
+              <strong>Omie · {OMIE_DESLIGADO_ROTULO}.</strong> A integração foi desligada por decisão da PS: não há mais
+              sincronização nem crons para reativar. Esta tela fica só como histórico.
+            </div>
+          )}
         </header>
 
         {statusGeral && (
@@ -188,12 +195,12 @@ export default function SyncStatusPage() {
                     </p>
                   </div>
                 </div>
-                <button
+                {!OMIE_DESLIGADO && <button
                   onClick={() => executarAcao('sync_agora', e.company_id)}
                   style={{ width: '100%', padding: '10px 16px', borderRadius: 8, border: 'none', backgroundColor: '#3D2314', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer', letterSpacing: 0.3 }}
                 >
                   Sincronizar agora
-                </button>
+                </button>}
               </div>
             ))}
           </div>
@@ -207,9 +214,9 @@ export default function SyncStatusPage() {
             <button onClick={() => executarAcao('pausar_todos')} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #a02020', backgroundColor: 'white', color: '#a02020', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               ⏸ Pausar todos os crons
             </button>
-            <button onClick={() => executarAcao('reativar_todos')} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', backgroundColor: '#C8941A', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            {!OMIE_DESLIGADO && <button onClick={() => executarAcao('reativar_todos')} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', backgroundColor: '#C8941A', color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               ▶ Reativar todos
-            </button>
+            </button>}
             {mensagemAcao && <span style={{ fontSize: 13, color: '#2d6a3e', fontWeight: 500 }}>{mensagemAcao}</span>}
           </div>
         </section>

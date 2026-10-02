@@ -1,6 +1,8 @@
 // src/lib/omieClient.ts
 // PS Gestão ERP — Cliente da API Omie com retry + rate limiting
 
+import { OMIE_DESLIGADO } from './omie/constantes'
+
 type OmieAuth = {
   app_key: string
   app_secret: string
@@ -63,6 +65,8 @@ const ENDPOINTS: Record<string, string> = {
  * engolidas para não derrubar o fluxo principal.
  */
 export async function omieCall(auth: OmieAuth, opts: OmieCallOptions): Promise<any> {
+  // 02/10/2026 (CEO): Omie desconectado em definitivo — nenhuma chamada sai para a API do Omie.
+  if (OMIE_DESLIGADO) throw new Error('Integração com o Omie desligada em 02/10/2026')
   const endpoint = ENDPOINTS[opts.call]
   if (!endpoint) throw new Error(`Endpoint Omie desconhecido: ${opts.call}`)
 

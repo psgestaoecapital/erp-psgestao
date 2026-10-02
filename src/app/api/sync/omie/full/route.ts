@@ -4,10 +4,12 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
+import { OMIE_DESLIGADO, omieDesligadoResposta } from '@/lib/omie/desligado'
 
 export const maxDuration = 600 // 10 min
 
 export async function POST(req: Request) {
+  if (OMIE_DESLIGADO) return omieDesligadoResposta()
   const guarda = await exigirUsuario(req, { cron: true })
   if (guarda instanceof NextResponse) return guarda
   try {

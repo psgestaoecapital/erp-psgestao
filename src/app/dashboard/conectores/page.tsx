@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { authFetch } from '@/lib/authFetch'
+import { OMIE_DESLIGADO_ROTULO } from '@/lib/omie/constantes'
 
 // FIX-TEMA-PS (07/07 · CEO): tela estava dark (fundos #0C0C0A / #1A1410) —
 // destoava da identidade PS. Paleta reescrita pro padrao Espresso/off-white/
@@ -33,7 +34,8 @@ const CATS = [
 ]
 
 const CONNECTORS = [
-  { id: 'omie', nome: 'Omie', cat: 'erp_financeiro', status: 'ativo', cor: '#22C55E', campos: [{ k: 'omie_app_key', l: 'App Key', p: 'Chave do aplicativo Omie' }, { k: 'omie_app_secret', l: 'App Secret', p: 'Secret do aplicativo Omie', secret: true }], syncApi: '/api/omie/sync' },
+  // 02/10/2026 (CEO): Omie desconectado em definitivo — sem credenciais, sem Testar/Sincronizar.
+  { id: 'omie', nome: 'Omie', cat: 'erp_financeiro', status: 'desligado', cor: '#94A3B8', campos: [] },
   { id: 'contaazul', nome: 'ContaAzul', cat: 'erp_financeiro', status: 'ativo', cor: '#0EA5E9', campos: [{ k: 'contaazul_client_id', l: 'Client ID', p: 'Client ID do ContaAzul' }, { k: 'contaazul_client_secret', l: 'Client Secret', p: 'Client Secret do ContaAzul', secret: true }], syncApi: '/api/contaazul/sync', oauth: true },
   { id: 'bling', nome: 'Bling', cat: 'erp_financeiro', status: 'em_breve', cor: '#8B5CF6', campos: [{ k: 'bling_api_key', l: 'API Key', p: 'Chave API v3' }] },
   { id: 'nibo', nome: 'Nibo', cat: 'erp_financeiro', status: 'ativo', cor: '#3B82F6', campos: [{ k: 'nibo_api_key', l: 'API Key', p: 'API Key do Nibo' }, { k: 'nibo_api_secret', l: 'API Secret', p: 'API Secret do Nibo', secret: true }, { k: 'nibo_org_id', l: 'ID da Empresa', p: 'UUID da empresa no Nibo' }], syncApi: '/api/nibo/sync' },
@@ -73,8 +75,8 @@ const CONNECTORS = [
   { id: 'focusnfe', nome: 'Focus NFe', cat: 'fiscal', status: 'planejado', cor: '#8B5CF6', campos: [] },
 ]
 
-const statusLabel = (s: string) => s === 'ativo' ? 'Ativo' : s === 'em_breve' ? 'Em breve' : 'Planejado'
-const statusCor = (s: string) => s === 'ativo' ? C.g : s === 'em_breve' ? C.b : C.txd
+const statusLabel = (s: string) => s === 'ativo' ? 'Ativo' : s === 'em_breve' ? 'Em breve' : s === 'desligado' ? OMIE_DESLIGADO_ROTULO : 'Planejado'
+const statusCor = (s: string) => s === 'ativo' ? C.g : s === 'em_breve' ? C.b : s === 'desligado' ? C.r : C.txd
 
 // Mapa conector.id -> provider em erp_credencial (Cofre B.9).
 // Reorganizacao 3 telas (diretriz CEO 06/07): Conectores mostra credencial
@@ -431,7 +433,7 @@ export default function ConectoresPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 8 }}>
         {filtered.map(con => (
           <div key={con.id} style={{ background: C.card, borderRadius: 8, border: '1px solid ' + C.bd, overflow: 'hidden' }}>
-            <div onClick={() => setOpen(open === con.id ? null : con.id)} style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div data-testid={`conector-card-${con.id}`} onClick={() => setOpen(open === con.id ? null : con.id)} style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 32, height: 32, borderRadius: 6, background: con.cor + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: con.cor }}>{con.id.substring(0, 2).toUpperCase()}</div>
                 <div>
@@ -445,7 +447,7 @@ export default function ConectoresPage() {
                     🔒 VAULT OK
                   </span>
                 )}
-                <span style={{ fontSize: 8, padding: '2px 8px', borderRadius: 4, background: statusCor(con.status) + '15', color: statusCor(con.status), fontWeight: 600, border: '1px solid ' + statusCor(con.status) + '30' }}>{statusLabel(con.status)}</span>
+                <span data-testid={`conector-status-${con.id}`} style={{ fontSize: 8, padding: '2px 8px', borderRadius: 4, background: statusCor(con.status) + '15', color: statusCor(con.status), fontWeight: 600, border: '1px solid ' + statusCor(con.status) + '30' }}>{statusLabel(con.status)}</span>
               </div>
             </div>
 
@@ -508,6 +510,10 @@ export default function ConectoresPage() {
                     </div>
                     {con.status !== 'ativo' && <div style={{ fontSize: 9, color: C.txd, marginTop: 6 }}>Integracao em desenvolvimento. Salve as credenciais para quando ativarmos.</div>}
                   </>
+                ) : con.status === 'desligado' ? (
+                  <div data-testid={`conector-desligado-${con.id}`} style={{ padding: '10px 0', fontSize: 11, color: C.txd }}>
+                    Integração {OMIE_DESLIGADO_ROTULO.toLowerCase()} por decisão da PS. Não há mais sincronização; o histórico já importado continua no sistema.
+                  </div>
                 ) : (
                   <div style={{ padding: '10px 0', fontSize: 11, color: C.txd }}>Conector planejado — sem configuracao disponivel ainda.</div>
                 )}
