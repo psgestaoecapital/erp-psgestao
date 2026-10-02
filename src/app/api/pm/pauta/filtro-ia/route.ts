@@ -31,12 +31,14 @@ export async function POST(req: NextRequest) {
   const sb = createClient(url, anon, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } })
   const [cli, eq, srv] = await Promise.all([
     sb.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', companyId).limit(500),
-    sb.from('agency_equipe').select('user_id, nome').eq('company_id', companyId).eq('ativo', true).not('user_id', 'is', null).limit(300),
+    // Bloco 1 (CEO 02/10): responsáveis = usuários ativos da empresa (agency_equipe da Pdois não tem usuário ligado)
+    sb.rpc('fn_usuarios_da_empresa', { p_company_id: companyId }),
     sb.from('agency_servico').select('id, nome').eq('company_id', companyId).limit(300),
   ])
   if (cli.error) return NextResponse.json({ ok: false, erro: 'sem acesso a esta empresa' }, { status: 403 })
   const clientes: Nome[] = ((cli.data ?? []) as { id: string; nome: string; nome_fantasia: string | null }[]).map((c) => ({ id: c.id, nome: c.nome_fantasia || c.nome }))
-  const responsaveis: Nome[] = ((eq.data ?? []) as { user_id: string; nome: string }[]).map((p) => ({ id: p.user_id, nome: p.nome }))
+  const responsaveis: Nome[] = ((eq.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean }[])
+    .filter((u) => u.is_active).map((u) => ({ id: u.id, nome: u.full_name || u.email || 'usuário' }))
   const servicos: Nome[] = ((srv.data ?? []) as Nome[])
   if (!apiKey) return NextResponse.json({ ok: false, erro: 'IA não configurada' }, { status: 500 })
 
