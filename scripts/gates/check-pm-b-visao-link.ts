@@ -18,6 +18,10 @@ const tela = readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8')
 ok(/const idLink = visaoDaUrl\(window\.location\.search\)/.test(tela) && /setPrefCarregada\(true\)/.test(tela.slice(tela.indexOf('const idLink'))),
   'link da visão é aplicado antes da primeira carga (vale mais que a preferência)')
 ok(/não foi compartilhada com você/.test(tela), 'aviso quando a visão do link não é visível para a pessoa')
+// veredito em produção 02/10 (#1986): o aviso ia para "erro", que a primeira recarga da lista limpa — sumia antes de ser lido
+const corpoCarregar = tela.slice(tela.indexOf('const carregar = useCallback'), tela.indexOf('}, [empresa, filtrosAtivos, aba, agrup]);'))
+ok(/setAvisoLink\("Este link é de uma visão/.test(tela) && corpoCarregar.length > 0 && !/setAvisoLink/.test(corpoCarregar),
+  'aviso do link tem estado próprio: a recarga da lista não o apaga')
 ok(/data-testid="pauta-visao-copiar-link"/.test(tela) && /<AjudaCampo chave="pm\.pauta\.visao_link" \/>/.test(tela), '"Copiar link" com o "?"')
 ok(/podeGerir && visaoAtual\.dono_id === userId/.test(tela), 'só o gestor dono compartilha a visão pessoal')
 ok(/window\.history\.replaceState\(null, "", visao \? `\?visao=\$\{visao\.id\}` : window\.location\.pathname\)/.test(tela), 'endereço acompanha a visão em uso')

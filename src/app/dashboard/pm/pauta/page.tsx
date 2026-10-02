@@ -83,6 +83,8 @@ export default function PautaPage() {
   const [carregando, setCarregando] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [erro, setErro] = useState<string | null>(null);
+  // aviso do link de visão: estado próprio — a recarga da lista limpa "erro" e apagava o aviso antes de ser lido
+  const [avisoLink, setAvisoLink] = useState<string | null>(null);
   const [aviso, setAviso] = useState<{ texto: string; lote?: string } | null>(null);
   const [massa, setMassa] = useState(false);
   const [aberto, setAberto] = useState<ItemPauta | null>(null);
@@ -141,7 +143,7 @@ export default function PautaPage() {
       if (idLink) {
         const v = ((vi.data ?? []) as Visao[]).find((x) => x.id === idLink);
         if (v) { setFiltros(v.filtros ?? {}); setRascunho(v.filtros ?? {}); setAba("todas"); setVisaoAtual(v); }
-        else setErro("Este link é de uma visão que não existe mais ou que não foi compartilhada com você. Peça a quem mandou para compartilhar com a equipe.");
+        else setAvisoLink("Este link é de uma visão que não existe mais ou que não foi compartilhada com você. Peça a quem mandou para compartilhar com a equipe.");
       }
       setPrefCarregada(true);
     })();
@@ -198,7 +200,7 @@ export default function PautaPage() {
   function aplicar(f: FiltrosPauta, visao: Visao | null = null) {
     const limpo = limparFiltros(f);
     setFiltros(limpo); setRascunho(limpo); setPainel(false);
-    setVisaoAtual(visao);
+    setVisaoAtual(visao); setAvisoLink(null);
     // a barra de endereço acompanha: com visão, o endereço já é o link dela; sem visão, volta ao endereço limpo
     window.history.replaceState(null, "", visao ? `?visao=${visao.id}` : window.location.pathname);
     void salvarPreferencia(limpo, agrup, aba);
@@ -365,7 +367,7 @@ export default function PautaPage() {
         </span>
       </div>
 
-      {erro && <div className="rounded-md bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F] print:hidden" data-testid="pauta-erro" onClick={() => setErro(null)}>{erro}</div>}
+      {(erro || avisoLink) && <div className="rounded-md bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F] print:hidden" data-testid="pauta-erro" onClick={() => { setErro(null); setAvisoLink(null); }}>{erro ?? avisoLink}</div>}
       {aviso && (
         <div className="flex items-center justify-between gap-2 rounded-md bg-[#E5F2E1] px-3 py-2 text-[12.5px] text-[#2F5A1F] print:hidden" data-testid="pauta-aviso">
           <span>{aviso.texto}</span>
