@@ -1,4 +1,4 @@
-// PM-A · demonstração da Pauta (visita à Pdois, CEO 02/10). Migration 20261002180000 · @pos-migration.
+// PM-A · demonstração da Pauta (visita à Pdois, CEO 02/10). Migration 20261002200000 · @pos-migration.
 // Na "Agência (P&M) - DEMO", como o robô:
 //   1) o cenário existe e é útil: atrasados, vence hoje, esperando cliente, "Meus" e todas as abas com job;
 //   2) a lista por prazo começa pelos atrasados e o código mostra a letra da rodada (24101A);

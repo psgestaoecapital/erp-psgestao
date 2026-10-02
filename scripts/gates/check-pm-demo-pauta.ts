@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
 
-const mig = readFileSync('supabase/migrations/20261002180000_pm_demo_pauta_seed.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261002200000_pm_demo_pauta_seed.sql', 'utf8')
 const semComentarios = mig.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 
 ok(/IF p_company_id IS DISTINCT FROM v_demo/.test(mig) && /is_demo IS TRUE/.test(mig), 'só a demo da P&M (e só se for is_demo)')
