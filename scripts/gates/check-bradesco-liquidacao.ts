@@ -46,7 +46,7 @@ ok(!lerConsultaTitulo({ status: 412, causa: 'CBTT0552 - TITULO INEXISTENTE' }).o
 ok(modoDoHorario(new Date('2026-10-01T10:00:00Z')) === 'lista' && modoDoHorario(new Date('2026-10-01T16:00:00Z')) === 'individual', '7h de Brasília = lista; 13h = consulta individual')
 
 // ── banco ──
-const mig = readFileSync('supabase/migrations/20261002200000_boleto_bradesco_liquidacao.sql', 'utf8').replace(/--[^\n]*/g, '')
+const mig = readFileSync('supabase/migrations/20261002220000_boleto_bradesco_liquidacao.sql', 'utf8').replace(/--[^\n]*/g, '')
 ok(mig.includes('public.fn_boleto_liquidar(p_company_id, p_nosso_numero, p_data_pagamento, p_valor_pago'), 'baixa pelo caminho de sempre (fn_boleto_liquidar: idempotente, conta do banco do boleto)')
 ok(/IF v_dif > 0\.01 THEN\s+UPDATE erp_receber SET juros = v_dif/.test(mig), 'pago acima do valor → juros registrados')
 ok(mig.includes("'pago_a_menor'"), 'pago abaixo do valor → sinalizado (não vira desconto por conta própria)')
