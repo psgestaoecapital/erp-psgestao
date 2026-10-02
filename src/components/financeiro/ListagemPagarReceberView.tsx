@@ -820,13 +820,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         </div>
       )}
 
-      {tipo === 'receber' && provider === 'sicoob' && (
+      {/* #297: sincroniza a EMPRESA inteira (todos os bancos com consulta) — não depende do banco escolhido
+          no seletor de emissão. Aparece quando há banco de boleto com consulta de liquidação (Sicoob/Sicredi/Bradesco). */}
+      {tipo === 'receber' && providers.some((p) => ['sicoob', 'sicredi', 'bradesco'].includes(p)) && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 8 }}>
           <button
             type="button"
             onClick={sincronizarLiquidacao}
             disabled={sincLiqBusy}
-            title="Consulta o Sicoob e marca como liquidados os boletos ja pagos"
+            title="Consulta os bancos (Sicoob, Sicredi, Bradesco) e marca como liquidados os boletos já pagos da empresa"
             style={{
               background: sincLiqBusy ? 'rgba(200,148,26,0.4)' : '#C8941A',
               color: '#3D2314', border: 'none', padding: '6px 12px',
