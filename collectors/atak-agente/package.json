@@ -1,12 +1,12 @@
 {
   "name": "ps-atak-agente",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "private": true,
   "description": "Agente PS config-driven — coletor ATAK/Frigosoft empacotável como .exe de 2 cliques. Senha do SQL só local (DPAPI · Pilar 2); token embutido no config.json; auto-instala como Serviço do Windows com loop interno.",
   "bin": "agent.js",
   "main": "agent.js",
   "scripts": {
-    "test": "node --test test/update.test.js",
+    "test": "node --test test/update.test.js test/diagnostico.test.js",
     "start": "node agent.js",
     "once": "node agent.js --once",
     "testar": "node agent.js --testar",

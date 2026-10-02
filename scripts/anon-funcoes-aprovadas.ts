@@ -1,7 +1,7 @@
 // Funções do schema public que quem NÃO está logado (anon) pode executar — lista APROVADA pelo CEO.
 // Fonte: migrations 20260928180000 (PR A: páginas públicas com token + guardas das policies), 20260928213000 (hotfix
 // agente ATAK) e 20260928223000 (telemetria com limite). Em 30/09 o CEO tirou fn_acessos_pode_gerir (só as policies da
-// remessa usam; nenhum fluxo sem login precisa dela) → 26.
+// remessa usam; nenhum fluxo sem login precisa dela) → 26; em 02/10 o CEO aprovou fn_atak_diagnostico_responder → 27.
 // Qualquer função fora desta lista aberta ao anon REPROVA o PR (scripts/check-fn-guards.ts). Para incluir uma função
 // aqui é preciso aprovação escrita do CEO — ela passa a ser chamável por qualquer pessoa com a URL do Supabase.
 // Funções de extensão (pg_trgm, unaccent) não entram: são do Postgres, não do sistema.
@@ -17,6 +17,7 @@ export const ANON_APROVADAS: readonly string[] = [
   'fn_registrar_evento_auth', 'fn_registrar_travamento',
   // agente ATAK (token do agente conferido no corpo)
   'fn_agente_heartbeat', 'fn_atak_agente_config', 'fn_atak_heartbeat', 'fn_atak_teste_responder',
+  'fn_atak_diagnostico_responder',   // 02/10 (CEO): diagnóstico de chaves no ATAK — exige o token do agente
   // guardas das policies — só leitura; sem login devolvem vazio/falso
   'get_user_company_ids', 'is_admin', 'is_client_owner', 'user_can_access_plant', 'fn_eh_ps_admin',
   'fn_cofre_pode_acessar', 'fn_pode_ver_fila_suporte', 'fn_ind_tem_permissao',

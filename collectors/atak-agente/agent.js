@@ -22,7 +22,7 @@ const path = require('path')
 const readline = require('readline')
 const crypto = require('crypto')
 
-const VERSAO_AGENTE = '2.1.4'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
+const VERSAO_AGENTE = '2.1.5'            // semver — comparado com o manifesto /agente/versao.json (auto-update)
 // ↑ FONTE DA VERDADE da versão do binário. O CI (build-agente-atak.yml) valida que a tag agente-vX.Y.Z
 //   e o package.json batem com isto e gera o versao.json a partir DAQUI — nunca anuncia versão sem binário.
 const AGENT_VERSION = `atak-agente-${VERSAO_AGENTE}`
@@ -193,9 +193,11 @@ async function coletarDominio(C, pool, cfg, dom) {
   // FIX 3 — colchete SEMPRE o nome da coluna do watermark: ele pode vir "sujo" (espaco/ponto/maiuscula,
   // ex.: TITULO.DATA VENCTO). Sem os colchetes, `WHERE TITULO.DATA VENCTO >= ...` vira `TITULO.DATA` +
   // `VENCTO` solto → "non-boolean near 'VENCTO'". `[TITULO.DATA VENCTO]` trata o nome inteiro como 1 coluna.
-  const where = dom.coluna_watermark
+  // 2.1.5 — recarga_completa (pedida pela PS, entregue uma vez): busca a view INTEIRA, sem a janela de dias
+  const where = dom.coluna_watermark && !dom.recarga_completa
     ? ` WHERE [${dom.coluna_watermark}] >= DATEADD(day, -${C.janelaDias}, CAST(GETDATE() AS date))`
     : ''
+  if (dom.recarga_completa) log(`[${dom.dominio}] RECARGA COMPLETA pedida pela PS — sem a janela de ${C.janelaDias} dias.`)
   // FIX 2 — HASH_ROW (ou chave vazia): view de evento/snapshot SEM chave natural → o hash sha256 da linha
   // e computado AQUI (nao no SQL; `HASH_ROW` nao e coluna). Idempotente e IDENTICO ao que os coletores
   // irmaos (atak-frioeste / downloads) ja gravaram — mesma expressao exata: JSON.stringify(row, keys.sort()).
@@ -222,6 +224,49 @@ async function coletarDominio(C, pool, cfg, dom) {
   log(`[${dom.dominio}] ${registros.length} registros${semChave ? ` (${semChave} sem chave)` : ''}.`)
   if (registros.length) await enviarLotes(C, registros, dom.dominio, cfg.__ingestSecret)
   return registros.length
+}
+
+// ── Diagnóstico 2.1.5 (CEO 02/10): só LEITURA no ATAK — conta linhas e chaves distintas por domínio ────────────
+// Prova, sem gravar nenhum fato, se a chave de cada domínio identifica a LINHA (contabil_dre perdia dado porque
+// Num_lancto se repete). Para cada domínio: total da view, total na janela de dias, chaves distintas da chave atual
+// e de cada candidata (chaves_teste). HASH_ROW → linhas distintas (SELECT DISTINCT *). Erro de um domínio não para os outros.
+function montarSqlDiagnostico(dom, janelaDias) {
+  const hashRow = !dom.chave_fato_sql || String(dom.chave_fato_sql).trim().toUpperCase() === 'HASH_ROW'
+  const cands = Array.isArray(dom.chaves_teste) ? dom.chaves_teste.filter((x) => typeof x === 'string' && x.trim()) : []
+  const cols = ['COUNT_BIG(*) AS total']
+  if (!hashRow) cols.push(`COUNT_BIG(DISTINCT (${dom.chave_fato_sql})) AS chave_atual`)
+  cands.forEach((c, i) => cols.push(`COUNT_BIG(DISTINCT (${c})) AS cand_${i}`))
+  const principal = `SELECT ${cols.join(', ')} FROM ${dom.tabela_origem}`
+  const janela = dom.coluna_watermark
+    ? `SELECT COUNT_BIG(*) AS janela FROM ${dom.tabela_origem} WHERE [${dom.coluna_watermark}] >= DATEADD(day, -${Number(janelaDias) || 7}, CAST(GETDATE() AS date))`
+    : null
+  const distintasLinha = hashRow ? `SELECT COUNT_BIG(*) AS linhas_distintas FROM (SELECT DISTINCT * FROM ${dom.tabela_origem}) x` : null
+  return { principal, janela, distintasLinha, hashRow, cands }
+}
+
+async function rodarDiagnostico(C, pool, cfg) {
+  const dominios = Array.isArray(cfg.dominios) ? cfg.dominios : []
+  const resultado = { versao_agente: VERSAO_AGENTE, host: HOSTNAME, em: new Date().toISOString(), janela_dias: C.janelaDias, dominios: {} }
+  for (const dom of dominios) {
+    const q = montarSqlDiagnostico(dom, C.janelaDias)
+    const r = { tabela: dom.tabela_origem, chave_atual_sql: dom.chave_fato_sql || 'HASH_ROW' }
+    try {
+      const p = (await pool.request().query(q.principal)).recordset[0] || {}
+      r.total = Number(p.total)
+      if (!q.hashRow) r.chave_atual_distintas = Number(p.chave_atual)
+      r.candidatas = q.cands.map((sqlExpr, i) => ({ sql: sqlExpr, distintas: Number(p[`cand_${i}`]) }))
+      if (q.janela) r.janela = Number((await pool.request().query(q.janela)).recordset[0].janela)
+      if (q.distintasLinha) {
+        try { r.linhas_distintas = Number((await pool.request().query(q.distintasLinha)).recordset[0].linhas_distintas) }
+        catch (e) { r.linhas_distintas_erro = traduzErro(e) }
+      }
+    } catch (e) { r.erro = traduzErro(e) }
+    resultado.dominios[dom.dominio] = r
+    log(`[diagnóstico] ${dom.dominio}: ${r.erro ? 'ERRO ' + r.erro : `total=${r.total} chave=${r.chave_atual_distintas ?? r.linhas_distintas ?? '-'}`}`)
+  }
+  try { await rpc(C, 'fn_atak_diagnostico_responder', { p_token: C.token, p_resultado: resultado }); log('diagnóstico entregue à PS.') }
+  catch (e) { logErr('não entreguei o diagnóstico:', e.message) }
+  return resultado
 }
 
 async function responderTeste(C, cfg, senha) {
@@ -257,6 +302,7 @@ async function cicloColeta(C) {
   if (!dominios.length) { log('nenhum domínio ativo pra coletar.'); return }
 
   const pool = await conectarComRetry(cfg, senha)
+  if (cfg.diagnostico_pendente) { try { await rodarDiagnostico(C, pool, cfg) } catch (e) { logErr('falha no diagnóstico:', e.message) } }
   let enviados = 0, erros = 0
   for (const dom of dominios) {
     try { enviados += await coletarDominio(C, pool, cfg, dom) }
@@ -543,5 +589,5 @@ async function principal() {
 if (process.env.PS_AGENTE_TESTE !== '1') {
   principal().catch((e) => { logErr(e && e.message || e); process.exit(1) })
 } else {
-  module.exports = { umTick, iniciarAtualizacaoEmSegundoPlano, baixarAtualizacao, _upd, VERSAO_AGENTE, semverGt }
+  module.exports = { umTick, iniciarAtualizacaoEmSegundoPlano, baixarAtualizacao, _upd, VERSAO_AGENTE, semverGt, montarSqlDiagnostico }
 }
