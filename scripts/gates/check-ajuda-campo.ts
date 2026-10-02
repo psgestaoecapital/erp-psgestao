@@ -37,7 +37,8 @@ const PENDENTES = [
 const MAX_PENDENTES = 21   // tamanho da lista no dia da regra (01/10) — não pode crescer
 
 // + Pauta do P&M (CEO 02/10: P2 nasce com "?" em cada campo)
-const RAIZES = ['src/app/dashboard/projetos', 'src/components/projetos', 'src/app/dashboard/pm/pauta']
+const RAIZES = ['src/app/dashboard/projetos', 'src/components/projetos', 'src/app/dashboard/pm/pauta', 'src/app/dashboard/pm/briefings', 'src/app/dashboard/pm/importar-siga',
+  'src/components/pm/ClienteBusca.tsx', 'src/components/pm/BriefingEditor.tsx']  // + Bloco 1 P&M (CEO 02/10)
 const CAMPOS = new Set(['input', 'select', 'textarea'])
 
 let falhas = 0
@@ -100,7 +101,7 @@ function camposSemAjuda(arquivo: string): { linha: number; texto: string }[] {
 const migs = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).map((f) => readFileSync(join('supabase/migrations', f), 'utf8')).join('\n')
 const chavesBanco = new Set([...migs.matchAll(/'((?:projetos|pm)\.[a-z0-9_]+(?:\.[a-z0-9_]+)+)'/g)].map((m) => m[1]))
 
-const todos = RAIZES.flatMap(arquivos).map((f) => f.replace(/\\/g, '/'))
+const todos = RAIZES.flatMap((r) => (r.endsWith('.tsx') ? [r] : arquivos(r))).map((f) => f.replace(/\\/g, '/'))
 if (PENDENTES.length > MAX_PENDENTES) erro(`a lista de telas pendentes só pode diminuir (máx. ${MAX_PENDENTES}); tela nova já nasce com o "?"`)
 for (const p of PENDENTES) if (!todos.includes(p)) erro(`PENDENTES cita ${p}, que não existe mais — tire da lista`)
 

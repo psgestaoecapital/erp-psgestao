@@ -1,60 +1,65 @@
 'use client'
-// BRIEFINGS (P&M). Sobre agency_briefings, escopado por company_id (RD-45). Entrada estruturada
-// (objetivo/público/referências) que vira Job. Tema Espresso claro. Reusa o padrão de Leads/Propostas.
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+// BRIEFINGS (P&M). agency_briefings por company_id (RD-45). Bloco 1 · Pdois (CEO 02/10):
+//  · o modal ganhou o campo "Briefing" (agency_briefings.descricao, que existia e não era usado) com editor de negrito,
+//    listas e links; "Objetivo" virou campo grande; prazo desejado; "?" em cada campo;
+//  · cliente vem do cadastro da empresa (erp_clientes, busca por nome/razão/CNPJ) — o banco liga ao perfil P&M;
+//  · "Virar job" leva o briefing COMPLETO (objetivo, público, prazo, referências + texto) para o job, com prazo e cliente.
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { FileText, Plus, ArrowRight, CheckCircle2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { ClienteBusca } from '@/components/pm/ClienteBusca'
+import { BriefingEditor, briefingParaJob } from '@/components/pm/BriefingEditor'
 
-const ESPRESSO = '#3D2314'
-const OFFWHITE = '#FAF7F2'
-const DOURADO = '#C8941A'
-const BORDA = '#E7DED3'
-const TEXTM = '#6b5444'
-const GREEN = '#1F5A1F'
-
-const STATUS: Record<string, { l: string; cor: string }> = {
-  novo: { l: 'Novo', cor: '#FFF3D6' },
-  em_analise: { l: 'Em análise', cor: '#FCE9C2' },
-  aprovado: { l: 'Aprovado', cor: '#DCEFD7' },
-  virou_job: { l: 'Virou job', cor: '#E7DED3' },
+const STATUS: Record<string, { l: string; cls: string }> = {
+  novo: { l: 'Novo', cls: 'bg-[#FFF3D6] text-[#6B4A0E]' },
+  em_analise: { l: 'Em análise', cls: 'bg-[#FCE9C2] text-[#6B4A0E]' },
+  aprovado: { l: 'Aprovado', cls: 'bg-[#DCEFD7] text-[#2F5A1F]' },
+  virou_job: { l: 'Virou job', cls: 'bg-[#3D2314]/8 text-[#3D2314]' },
 }
-const stCfg = (v: string) => STATUS[v] ?? { l: v, cor: OFFWHITE }
 
 type Briefing = {
   id: string; company_id: string; cliente_id: string | null; titulo: string
   descricao: string | null; objetivo: string | null; publico_alvo: string | null
   referencias: string | null; tipo_servico: string | null; prioridade: string | null
-  status: string; created_at: string
+  prazo_desejado: string | null; status: string; created_at: string
 }
-type ClienteOpt = { id: string; nome: string; nome_fantasia: string | null }
+type Form = { cliente_id: string; cliente_nome: string; titulo: string; objetivo: string; descricao: string; publico_alvo: string; referencias: string; tipo_servico: string; prazo_desejado: string }
+const VAZIO: Form = { cliente_id: '', cliente_nome: '', titulo: '', objetivo: '', descricao: '', publico_alvo: '', referencias: '', tipo_servico: '', prazo_desejado: '' }
+const inp = 'w-full rounded-xl border border-[#3D2314]/15 bg-white px-3 py-2 text-[13.5px] text-[#3D2314] focus:border-[#C8941A] focus:outline-none'
+const rot = 'mb-1 flex items-center text-[12px] font-semibold text-[#3D2314]'
+const resumo = (t: string | null) => (t ?? '').replace(/[*_#>`[\]()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)
 
 export default function BriefingsPage() {
   const { selInfo, companyIds } = useCompanyIds()
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null)
 
   const [briefings, setBriefings] = useState<Briefing[]>([])
-  const [clientes, setClientes] = useState<ClienteOpt[]>([])
+  const [nomes, setNomes] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [novo, setNovo] = useState(false)
-  const [form, setForm] = useState({ cliente_id: '', titulo: '', objetivo: '', publico_alvo: '', referencias: '', tipo_servico: '' })
+  const [form, setForm] = useState<Form>(VAZIO)
   const [busy, setBusy] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ texto: string; jobId?: string } | null>(null)
 
   const carregar = async () => {
     if (!empresa) { setBriefings([]); setLoading(false); return }
     setLoading(true)
-    const [b, c] = await Promise.all([
-      supabase.from('agency_briefings').select('*').eq('company_id', empresa).order('created_at', { ascending: false }),
-      supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa).order('nome'),
-    ])
-    setBriefings((b.data ?? []) as Briefing[])
-    setClientes((c.data ?? []) as ClienteOpt[])
+    const { data } = await supabase.from('agency_briefings').select('*').eq('company_id', empresa).order('created_at', { ascending: false })
+    const lista = (data ?? []) as Briefing[]
+    setBriefings(lista)
+    const ids = [...new Set(lista.map((b) => b.cliente_id).filter(Boolean))] as string[]
+    if (ids.length) {
+      const { data: cl } = await supabase.from('agency_clientes').select('id, nome, nome_fantasia').in('id', ids)
+      setNomes(Object.fromEntries(((cl ?? []) as { id: string; nome: string; nome_fantasia: string | null }[]).map((c) => [c.id, c.nome_fantasia || c.nome])))
+    }
     setLoading(false)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 6000); return () => clearTimeout(t) }, [toast])
 
-  const nomeCliente = (id: string | null) => { const c = clientes.find((x) => x.id === id); return c ? (c.nome_fantasia ?? c.nome) : '—' }
   const kpis = useMemo(() => ({
     total: briefings.length,
     pendentes: briefings.filter((b) => ['novo', 'em_analise'].includes(b.status)).length,
@@ -63,71 +68,80 @@ export default function BriefingsPage() {
 
   async function criar() {
     if (!empresa) return
-    if (!form.titulo.trim()) { setToast('Informe o título do briefing.'); return }
+    if (!form.titulo.trim()) { setToast({ texto: 'Informe o título do briefing.' }); return }
     setBusy(true)
     const { error } = await supabase.from('agency_briefings').insert({
       company_id: empresa, cliente_id: form.cliente_id || null, titulo: form.titulo.trim(),
-      objetivo: form.objetivo.trim() || null, publico_alvo: form.publico_alvo.trim() || null,
-      referencias: form.referencias.trim() || null, tipo_servico: form.tipo_servico.trim() || null, status: 'novo',
+      objetivo: form.objetivo.trim() || null, descricao: form.descricao.trim() || null,
+      publico_alvo: form.publico_alvo.trim() || null, referencias: form.referencias.trim() || null,
+      tipo_servico: form.tipo_servico.trim() || null, prazo_desejado: form.prazo_desejado || null, status: 'novo',
     })
     setBusy(false)
-    if (error) { setToast(`Erro: ${error.message}`); return }
-    setNovo(false); setForm({ cliente_id: '', titulo: '', objetivo: '', publico_alvo: '', referencias: '', tipo_servico: '' })
-    setToast('Briefing CRIADO.'); void carregar()
+    if (error) { setToast({ texto: `Erro: ${error.message}` }); return }
+    setNovo(false); setForm(VAZIO)
+    setToast({ texto: 'Briefing criado.' }); void carregar()
   }
 
   async function virarJob(b: Briefing) {
     if (!empresa) return
-    if (!confirm(`Transformar "${b.titulo}" em Job de produção?`)) return
+    if (!confirm(`Transformar "${b.titulo}" em job de produção? O briefing inteiro vai junto.`)) return
     setBusy(true)
-    const { error } = await supabase.from('agency_jobs').insert({
+    const { data: job, error } = await supabase.from('agency_jobs').insert({
       company_id: empresa, cliente_id: b.cliente_id, briefing_id: b.id,
-      titulo: b.titulo, descricao: b.objetivo, tipo: b.tipo_servico ?? 'social', status: 'nao_iniciada', prioridade: 'normal',
-    })
+      titulo: b.titulo, descricao: briefingParaJob(b) || null, tipo: b.tipo_servico ?? 'social',
+      data_prazo: b.prazo_desejado, status: 'nao_iniciada', prioridade: 'normal',
+    }).select('id').single()
     if (!error) await supabase.from('agency_briefings').update({ status: 'virou_job', updated_at: new Date().toISOString() }).eq('id', b.id)
     setBusy(false)
-    setToast(error ? `Erro: ${error.message}` : 'Job CRIADO a partir do briefing.'); void carregar()
+    setToast(error ? { texto: `Erro: ${error.message}` } : { texto: 'Job criado com o briefing completo.', jobId: (job as { id: string } | null)?.id })
+    void carregar()
   }
 
-  if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
+  if (!empresa) return <div className="min-h-screen bg-[#FAF7F2] p-8 text-[13px] text-[#3D2314]/70">Selecione uma empresa no topo.</div>
 
   return (
-    <div style={{ background: OFFWHITE, minHeight: '100vh', padding: '24px 18px', color: ESPRESSO }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+    <div className="min-h-screen bg-[#FAF7F2] p-4 text-[#3D2314] md:p-6" data-testid="briefings-page">
+      <div className="mx-auto max-w-5xl">
+        <header className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>🎯 P&amp;M · Comercial</div>
-            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Briefings</h1>
-            <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Entrada estruturada da demanda → vira Job de produção.</p>
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C8941A]"><FileText size={13} /> P&amp;M · Atendimento</div>
+            <h1 className="text-[26px] font-medium leading-tight">Briefings</h1>
+            <p className="text-[13px] text-[#3D2314]/60">O pedido do cliente, registrado do jeito certo — e transformado em job com um toque.</p>
           </div>
-          <button onClick={() => setNovo(true)} style={btnPri}>+ Novo briefing</button>
+          <button onClick={() => setNovo(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-[#3D2314] px-4 py-2.5 text-[13.5px] font-medium text-white shadow-sm hover:bg-[#3D2314]/90" data-testid="briefing-novo"><Plus size={15} /> Novo briefing</button>
         </header>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Briefings" v={String(kpis.total)} />
-          <Kpi l="Pendentes" v={String(kpis.pendentes)} />
-          <Kpi l="Viraram job" v={String(kpis.viraramJob)} />
+        <div className="mb-4 grid grid-cols-3 gap-2">
+          {[['Briefings', kpis.total], ['Pendentes', kpis.pendentes], ['Viraram job', kpis.viraramJob]].map(([l, v]) => (
+            <div key={l as string} className="rounded-2xl border border-[#3D2314]/10 bg-white px-4 py-3">
+              <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[#3D2314]/55">{l}</div>
+              <div className="text-[22px] font-medium">{v}</div>
+            </div>
+          ))}
         </div>
 
-        {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
+        {loading ? <div className="p-10 text-center text-[13px] text-[#3D2314]/55">Carregando…</div>
           : briefings.length === 0 ? (
-            <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>
-              Registre o briefing da reunião com o cliente.
+            <div className="rounded-2xl border border-dashed border-[#3D2314]/20 bg-white p-10 text-center">
+              <div className="text-[15px] font-medium">Nenhum briefing ainda</div>
+              <p className="mt-1 text-[13px] text-[#3D2314]/60">Registre o briefing da reunião com o cliente: objetivo, mensagem, entregáveis, prazos e o que evitar.</p>
+              <button onClick={() => setNovo(true)} className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-[#C8941A] px-4 py-2 text-[13px] font-medium text-white"><Plus size={14} /> Novo briefing</button>
             </div>
           ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
+            <div className="grid gap-2">
               {briefings.map((b) => {
-                const cfg = stCfg(b.status)
+                const st = STATUS[b.status] ?? { l: b.status, cls: 'bg-white' }
                 return (
-                  <div key={b.id} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 200 }}>
-                      <div style={{ fontWeight: 700 }}>{b.titulo}<span style={{ color: TEXTM, fontWeight: 400 }}> · {nomeCliente(b.cliente_id)}</span></div>
-                      {b.objetivo && <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{b.objetivo}</div>}
+                  <div key={b.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#3D2314]/10 bg-white px-4 py-3" data-testid="briefing-item">
+                    <div className="min-w-[200px] flex-1">
+                      <div className="font-medium">{b.titulo}<span className="font-normal text-[#3D2314]/55"> · {b.cliente_id ? (nomes[b.cliente_id] ?? 'cliente') : 'sem cliente'}</span></div>
+                      {(b.objetivo || b.descricao) && <div className="mt-0.5 text-[12.5px] text-[#3D2314]/65">{resumo(b.objetivo || b.descricao)}</div>}
+                      {b.prazo_desejado && <div className="mt-0.5 text-[11.5px] text-[#3D2314]/50">prazo desejado {b.prazo_desejado.split('-').reverse().join('/')}</div>}
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: ESPRESSO, background: cfg.cor, padding: '3px 10px', borderRadius: 999 }}>{cfg.l}</span>
+                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${st.cls}`}>{st.l}</span>
                     {b.status !== 'virou_job'
-                      ? <button disabled={busy} onClick={() => virarJob(b)} style={btnGanhar}>→ Virar job</button>
-                      : <span style={{ fontSize: 11, color: GREEN, fontWeight: 700 }}>✓ em produção</span>}
+                      ? <button disabled={busy} onClick={() => void virarJob(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#2F5A1F] px-3 py-1.5 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="briefing-virar-job">Virar job <ArrowRight size={14} /></button>
+                      : <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#2F5A1F]"><CheckCircle2 size={14} /> em produção</span>}
                   </div>
                 )
               })}
@@ -136,49 +150,42 @@ export default function BriefingsPage() {
       </div>
 
       {novo && (
-        <div style={overlay} onClick={() => setNovo(false)}>
-          <div style={modal} onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 12px' }}>Novo briefing</h2>
-            <label style={lbl}>Cliente
-              <select style={inp} value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}>
-                <option value="">—</option>
-                {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome_fantasia ?? c.nome}</option>)}
-              </select>
-            </label>
-            <label style={lbl}>Título *<input style={inp} value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} /></label>
-            <label style={lbl}>Objetivo<textarea rows={2} style={{ ...inp, resize: 'vertical' }} value={form.objetivo} onChange={(e) => setForm({ ...form, objetivo: e.target.value })} /></label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <label style={lbl}>Público-alvo<input style={inp} value={form.publico_alvo} onChange={(e) => setForm({ ...form, publico_alvo: e.target.value })} /></label>
-              <label style={lbl}>Tipo de serviço<input style={inp} value={form.tipo_servico} onChange={(e) => setForm({ ...form, tipo_servico: e.target.value })} placeholder="social, design, vídeo…" /></label>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-0 sm:p-4" onClick={() => setNovo(false)}>
+          <div className="min-h-full w-full bg-white p-5 sm:mt-8 sm:min-h-0 sm:max-w-2xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()} data-testid="briefing-modal">
+            <h2 className="mb-3 text-[19px] font-medium">Novo briefing</h2>
+            <div className="space-y-3">
+              <ClienteBusca empresa={empresa} valorNome={form.cliente_nome} testId="briefing-cliente"
+                onEscolher={(id, nome) => setForm({ ...form, cliente_id: id, cliente_nome: nome })} onLimpar={() => setForm({ ...form, cliente_id: '', cliente_nome: '' })} />
+              <label className="block"><span className={rot}>Título *<AjudaCampo chave="pm.briefing.titulo" /></span>
+                <input className={inp} value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Ex.: Campanha Dia das Crianças — carrossel + stories" data-testid="briefing-titulo" /></label>
+              <label className="block"><span className={rot}>Objetivo<AjudaCampo chave="pm.briefing.objetivo" /></span>
+                <textarea rows={4} className={`${inp} resize-y`} value={form.objetivo} onChange={(e) => setForm({ ...form, objetivo: e.target.value })} placeholder="Qual resultado o cliente quer com isso?" data-testid="briefing-objetivo" /></label>
+              <BriefingEditor value={form.descricao} onChange={(v) => setForm({ ...form, descricao: v })} ajuda="pm.briefing.texto" testid="briefing-texto" linhas={10} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block"><span className={rot}>Público-alvo<AjudaCampo chave="pm.briefing.publico" /></span>
+                  <input className={inp} value={form.publico_alvo} onChange={(e) => setForm({ ...form, publico_alvo: e.target.value })} data-testid="briefing-publico" /></label>
+                <label className="block"><span className={rot}>Tipo de serviço<AjudaCampo chave="pm.briefing.tipo" /></span>
+                  <input className={inp} value={form.tipo_servico} onChange={(e) => setForm({ ...form, tipo_servico: e.target.value })} placeholder="social, design, vídeo…" data-testid="briefing-tipo" /></label>
+                <label className="block"><span className={rot}>Prazo desejado<AjudaCampo chave="pm.briefing.prazo" /></span>
+                  <input type="date" className={inp} value={form.prazo_desejado} onChange={(e) => setForm({ ...form, prazo_desejado: e.target.value })} data-testid="briefing-prazo" /></label>
+                <label className="block"><span className={rot}>Referências<AjudaCampo chave="pm.briefing.referencias" /></span>
+                  <input className={inp} value={form.referencias} onChange={(e) => setForm({ ...form, referencias: e.target.value })} placeholder="links, exemplos" data-testid="briefing-referencias" /></label>
+              </div>
             </div>
-            <label style={lbl}>Referências<input style={inp} value={form.referencias} onChange={(e) => setForm({ ...form, referencias: e.target.value })} placeholder="links, exemplos" /></label>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-              <button onClick={() => setNovo(false)} style={btnGhost}>Cancelar</button>
-              <button disabled={busy} onClick={criar} style={btnPri}>{busy ? 'Salvando…' : 'CRIAR'}</button>
+            <div className="sticky bottom-0 mt-4 flex justify-end gap-2 bg-white pt-2">
+              <button onClick={() => setNovo(false)} className="rounded-xl border border-[#3D2314]/15 px-4 py-2 text-[13px]">Cancelar</button>
+              <button disabled={busy} onClick={() => void criar()} className="rounded-xl bg-[#3D2314] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-40" data-testid="briefing-salvar">{busy ? 'Salvando…' : 'Criar briefing'}</button>
             </div>
           </div>
         </div>
       )}
 
-      {toast && <div style={toastStyle}>{toast}</div>}
+      {toast && (
+        <div className="fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-3 rounded-full bg-[#3D2314] px-4 py-2 text-[13px] text-white shadow-lg" data-testid="briefing-toast">
+          {toast.texto}
+          {toast.jobId && <Link href={`/dashboard/pm/pauta?job=${toast.jobId}`} className="font-semibold text-[#E8C474] underline">abrir o job</Link>}
+        </div>
+      )}
     </div>
   )
 }
-
-function Kpi({ l, v }: { l: string; v: string }) {
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
-    </div>
-  )
-}
-
-const inp: CSSProperties = { border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, minHeight: 40, background: '#fff', color: ESPRESSO }
-const lbl: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: TEXTM, marginTop: 8 }
-const btnPri: CSSProperties = { border: 'none', background: DOURADO, color: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 700, minHeight: 42 }
-const btnGhost: CSSProperties = { border: `1px solid ${BORDA}`, background: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', minHeight: 42 }
-const btnGanhar: CSSProperties = { border: `1px solid ${GREEN}`, color: GREEN, background: '#fff', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600, minHeight: 40 }
-const overlay: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 16, zIndex: 50, overflow: 'auto' }
-const modal: CSSProperties = { background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 480, marginTop: 40 }
-const toastStyle: CSSProperties = { position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: ESPRESSO, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, zIndex: 60 }

@@ -7,13 +7,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Filter, Printer, Download, Trash2, RotateCcw, Play, Paperclip, Link2, MessageCircle, Star, X, Undo2, Sparkles, ListChecks, Copy, Users } from "lucide-react";
+import { Filter, Printer, Download, Trash2, RotateCcw, Play, Paperclip, Link2, MessageCircle, Star, X, Undo2, Sparkles, ListChecks, Copy, Users, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { ClienteBusca } from "@/components/pm/ClienteBusca";
+import { JobFluxo } from "@/components/pm/JobFluxo";
 import { exportarExcel, type Coluna } from "@/lib/export/relatorioLista";
 import {
-  agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
+  agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, prazoAprovacao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
   AGRUPAMENTOS, PRIORIDADES, POR_PAGINA, type Agrupar, type Atalho, type FiltrosPauta, type ItemPauta,
 } from "@/lib/pm/pauta";
 
@@ -61,6 +63,9 @@ export default function PautaPage() {
   const empresa = selInfo.tipo === "empresa" && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null);
   const [userId, setUserId] = useState<string | null>(null);
   const [situacoes, setSituacoes] = useState<Opcao[]>([]);
+  const [motivos, setMotivos] = useState<Opcao[]>([]);
+  // PM-C: aprovação aberta (prazo) de cada job da página — selo "vence hoje" / "vencida" na lista
+  const [prazos, setPrazos] = useState<Record<string, string>>({});
   const [clientes, setClientes] = useState<Nome[]>([]);
   const [equipe, setEquipe] = useState<Nome[]>([]);
   const [grupos, setGrupos] = useState<Nome[]>([]);
@@ -82,12 +87,17 @@ export default function PautaPage() {
   const [carregando, setCarregando] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [erro, setErro] = useState<string | null>(null);
+  // aviso do link de visão: estado próprio — a recarga da lista limpa "erro" e apagava o aviso antes de ser lido
+  const [avisoLink, setAvisoLink] = useState<string | null>(null);
   const [aviso, setAviso] = useState<{ texto: string; lote?: string } | null>(null);
   const [massa, setMassa] = useState(false);
   const [aberto, setAberto] = useState<ItemPauta | null>(null);
   const [frase, setFrase] = useState("");
   const [sugestaoIA, setSugestaoIA] = useState<{ filtros: FiltrosPauta; explicacao: string } | null>(null);
   const [prefCarregada, setPrefCarregada] = useState(false);
+  const [nomesCli, setNomesCli] = useState<Record<string, string>>({});
+  // a empresa tem algum job? (Pauta vazia de verdade × filtro sem resultado)
+  const [temJob, setTemJob] = useState<boolean | null>(null);
   // PM-B: visão em uso (vem do menu ou do link ?visao=…) — o link abre a mesma visão para quem a pode ver
   const [visaoAtual, setVisaoAtual] = useState<Visao | null>(null);
 
@@ -101,7 +111,8 @@ export default function PautaPage() {
       const [op, cl, eq, gr, ca, co, sv, vi, pg, pr] = await Promise.all([
         supabase.rpc("fn_pauta_opcoes", { p_company_id: empresa }),
         supabase.from("agency_clientes").select("id, nome, nome_fantasia, grupo_id").eq("company_id", empresa).order("nome").limit(1000),
-        supabase.from("agency_equipe").select("user_id, nome").eq("company_id", empresa).eq("ativo", true).not("user_id", "is", null).order("nome"),
+        // Bloco 1 (CEO 02/10): responsáveis = usuários ativos da empresa (agency_equipe da Pdois não tem usuário ligado)
+        supabase.rpc("fn_usuarios_da_empresa", { p_company_id: empresa }),
         supabase.from("agency_grupos_clientes").select("id, nome").eq("company_id", empresa).order("nome"),
         supabase.from("agency_campanhas").select("id, nome, cliente_id").eq("company_id", empresa).order("nome"),
         supabase.from("agency_contratos").select("id, cliente_id, tipo, status").eq("company_id", empresa).limit(1000),
@@ -110,13 +121,18 @@ export default function PautaPage() {
         supabase.rpc("fn_acessos_pode_gerir", { p_company_id: empresa }),
         uid ? supabase.from("agency_pauta_preferencia").select("filtros, agrupar, aba").eq("company_id", empresa).eq("user_id", uid).maybeSingle() : Promise.resolve({ data: null }),
       ]);
+      const { count: nJobs } = await supabase.from("agency_jobs").select("id", { count: "exact", head: true }).eq("company_id", empresa);
+      if (vivo) setTemJob((nJobs ?? 0) > 0);
       if (!vivo) return;
       setUserId(uid);
       if (op.error) { setErro(op.error.message); return; }
       setSituacoes(((op.data as { situacoes: Opcao[] } | null)?.situacoes) ?? []);
+      setMotivos(((op.data as { motivos: Opcao[] | null } | null)?.motivos) ?? []);
       const cls = ((cl.data ?? []) as { id: string; nome: string; nome_fantasia: string | null; grupo_id: string | null }[]).map((c) => ({ id: c.id, nome: c.nome_fantasia || c.nome, grupo_id: c.grupo_id }));
       setClientes(cls);
-      setEquipe(((eq.data ?? []) as { user_id: string; nome: string }[]).map((p) => ({ id: p.user_id, nome: p.nome })));
+      setEquipe(((eq.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean }[])
+        .filter((u) => u.is_active).map((u) => ({ id: u.id, nome: u.full_name || u.email || "usuário" }))
+        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
       setGrupos((gr.data ?? []) as Nome[]);
       setCampanhas((ca.data ?? []) as Nome[]);
       const nomeCli = new Map(cls.map((c) => [c.id, c.nome]));
@@ -132,7 +148,7 @@ export default function PautaPage() {
       if (idLink) {
         const v = ((vi.data ?? []) as Visao[]).find((x) => x.id === idLink);
         if (v) { setFiltros(v.filtros ?? {}); setRascunho(v.filtros ?? {}); setAba("todas"); setVisaoAtual(v); }
-        else setErro("Este link é de uma visão que não existe mais ou que não foi compartilhada com você. Peça a quem mandou para compartilhar com a equipe.");
+        else setAvisoLink("Este link é de uma visão que não existe mais ou que não foi compartilhada com você. Peça a quem mandou para compartilhar com a equipe.");
       }
       setPrefCarregada(true);
     })();
@@ -166,14 +182,38 @@ export default function PautaPage() {
     const nova = ls.data as Lista;
     setLista((ant) => (pag > 1 && ant ? { ...nova, itens: [...ant.itens, ...nova.itens] } : nova));
     setPagina(pag);
+    const ids = nova.itens.filter((i) => i.status === "em_aprovacao").map((i) => i.id);
+    if (ids.length) {
+      const { data: ap } = await supabase.from("agency_aprovacoes").select("job_id, prazo_em").in("job_id", ids).is("decisao", null);
+      if (minha !== recarga.current) return;
+      const m: Record<string, string> = {};
+      for (const a of (ap ?? []) as { job_id: string; prazo_em: string }[]) m[a.job_id] = a.prazo_em;
+      setPrazos((ant) => (pag > 1 ? { ...ant, ...m } : m));
+    } else if (pag === 1) setPrazos({});
   }, [empresa, filtrosAtivos, aba, agrup]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- recarrega a pauta quando filtro/aba/agrupamento mudam
   useEffect(() => { if (prefCarregada) { setSel(new Set()); void carregar(1); } }, [carregar, prefCarregada]);
 
+  // /dashboard/pm/pauta?job=<id> (ex.: "abrir o job" do Briefing) abre o job direto, sem mexer no filtro da pessoa
+  const jobDoLink = useRef(false);
+  useEffect(() => {
+    if (!empresa || !prefCarregada || jobDoLink.current) return;
+    const id = new URLSearchParams(window.location.search).get("job");
+    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return;
+    jobDoLink.current = true;
+    void (async () => {
+      const { data: j } = await supabase.from("agency_jobs").select("numero").eq("id", id).maybeSingle();
+      const numero = (j as { numero: string | null } | null)?.numero;
+      const { data } = await supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: numero ? { codigo: numero } : {}, p_situacao: null, p_agrupar: "sem", p_pagina: 1, p_por_pagina: numero ? 20 : 500 });
+      const it = ((data as Lista | null)?.itens ?? []).find((x) => x.id === id);
+      if (it) setAberto(it);
+    })();
+  }, [empresa, prefCarregada]);
+
   function aplicar(f: FiltrosPauta, visao: Visao | null = null) {
     const limpo = limparFiltros(f);
     setFiltros(limpo); setRascunho(limpo); setPainel(false);
-    setVisaoAtual(visao);
+    setVisaoAtual(visao); setAvisoLink(null);
     // a barra de endereço acompanha: com visão, o endereço já é o link dela; sem visão, volta ao endereço limpo
     window.history.replaceState(null, "", visao ? `?visao=${visao.id}` : window.location.pathname);
     void salvarPreferencia(limpo, agrup, aba);
@@ -285,6 +325,7 @@ export default function PautaPage() {
             {visoes.map((v) => <option key={v.id} value={v.id}>{v.nome}{v.compartilhada ? " (equipe)" : ""}</option>)}
           </select>
           <AjudaCampo chave="pm.pauta.visao" />
+          <Link href="/dashboard/producao?novo=job" className="inline-flex items-center gap-1.5 rounded-md bg-[#3D2314] px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-[#3D2314]/90" data-testid="pauta-novo-job"><Plus size={14} /> Novo job</Link>
           <button className={btn} onClick={() => { setRascunho(filtros); setPainel(true); }} data-testid="pauta-abrir-filtro"><Filter size={14} /> Filtro{nFiltros ? ` (${nFiltros})` : ""}</button>
           <button className={btn} onClick={() => window.print()} data-testid="pauta-imprimir"><Printer size={14} /> Imprimir</button>
           <button className={btn} onClick={() => void exportar()} data-testid="pauta-exportar"><Download size={14} /> Planilha</button>
@@ -339,7 +380,7 @@ export default function PautaPage() {
         </span>
       </div>
 
-      {erro && <div className="rounded-md bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F] print:hidden" data-testid="pauta-erro" onClick={() => setErro(null)}>{erro}</div>}
+      {(erro || avisoLink) && <div className="rounded-md bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F] print:hidden" data-testid="pauta-erro" onClick={() => { setErro(null); setAvisoLink(null); }}>{erro ?? avisoLink}</div>}
       {aviso && (
         <div className="flex items-center justify-between gap-2 rounded-md bg-[#E5F2E1] px-3 py-2 text-[12.5px] text-[#2F5A1F] print:hidden" data-testid="pauta-aviso">
           <span>{aviso.texto}</span>
@@ -380,7 +421,18 @@ export default function PautaPage() {
 
       {/* lista agrupada (no celular vira cartão) */}
       <div className="space-y-4" data-testid="pauta-lista">
-        {!itens.length && !carregando && <div className="rounded-md border border-dashed border-[#3D2314]/20 p-6 text-center text-[13px] text-[#3D2314]/60">Nenhum job com esse filtro.</div>}
+        {!itens.length && !carregando && temJob === false && !naLixeira && (
+          <div className="rounded-2xl border border-[#C8941A]/40 bg-gradient-to-br from-white to-[#FAEEDA] p-8 text-center" data-testid="pauta-vazia">
+            <div className="text-[18px] font-medium">A pauta ainda está vazia</div>
+            <p className="mx-auto mt-1 max-w-md text-[13.5px] text-[#3D2314]/70">Os jobs do SIGA ainda não foram trazidos — a importação entra assim que a exportação chegar. Enquanto isso, já dá para criar jobs novos aqui.</p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <Link href="/dashboard/producao?novo=job" className="inline-flex items-center gap-2 rounded-xl bg-[#3D2314] px-5 py-3 text-[14px] font-medium text-white shadow-md hover:bg-[#3D2314]/90" data-testid="pauta-vazia-novo-job"><Plus size={16} /> Novo job</Link>
+              <Link href="/dashboard/pm/importar-siga" className="inline-flex items-center gap-2 rounded-xl border border-[#3D2314]/20 bg-white px-5 py-3 text-[14px] font-medium text-[#3D2314] hover:bg-[#FAF7F2]" data-testid="pauta-vazia-importar-siga">Importar jobs do SIGA</Link>
+            </div>
+            <div className="mt-2 flex items-center justify-center text-[12px] text-[#3D2314]/55">como funciona<AjudaCampo chave="pm.pauta.vazia" /></div>
+          </div>
+        )}
+        {!itens.length && !carregando && temJob !== false && <div className="rounded-md border border-dashed border-[#3D2314]/20 p-6 text-center text-[13px] text-[#3D2314]/60">Nenhum job com esse filtro.</div>}
         {grupos_.map((g, gi) => (
           <section key={`${g.grupo}-${gi}`} className="break-inside-avoid">
             {g.grupo && <h2 className={`mb-1 text-[12.5px] font-medium ${g.grupo === "Atrasados" ? "text-[#791F1F]" : "text-[#3D2314]/70"}`} data-testid="pauta-grupo">{g.grupo} · {g.itens.length}</h2>}
@@ -402,7 +454,9 @@ export default function PautaPage() {
                       {it.nota ? <span className="mr-1 inline-flex text-[#C8941A]" title={`nota ${it.nota}`}>{Array.from({ length: it.nota }).map((_, i) => <Star key={i} size={11} fill="currentColor" />)}</span> : null}
                       {it.titulo}
                       {it.rodada > 0 && <span className="ml-1 rounded bg-[#3D2314]/8 px-1 text-[10.5px]">rodada {it.rodada}</span>}
-                      {it.status === "aguardando" && <span className="ml-1 rounded bg-[#FAEEDA] px-1 text-[10.5px]" data-testid="pauta-selo-aguardando">{textoAguardando(it.aguardando_de, it.aguardando_dias)}</span>}
+                      {it.status === "aguardando" && <span className="ml-1 rounded bg-[#FAEEDA] px-1 text-[10.5px]" data-testid="pauta-selo-aguardando">{textoAguardando(it.aguardando_de, it.aguardando_dias, motivos.find((m) => m.valor === it.aguardando_motivo)?.rotulo)}</span>}
+                      {prazos[it.id] && (() => { const pr = prazoAprovacao(prazos[it.id]); return (
+                        <span className={`ml-1 rounded px-1 text-[10.5px] ${pr.nivel === "vencida" ? "bg-[#F7E1E1] text-[#791F1F]" : pr.nivel === "hoje" ? "bg-[#FAEEDA] text-[#6B4A0E]" : "bg-[#3D2314]/8"}`} data-testid="pauta-selo-aprovacao" data-nivel={pr.nivel}>aprovação {pr.texto}</span>); })()}
                       {selo && <span className={`ml-1 rounded px-1 text-[10.5px] ${it.escopo_estourou ? "bg-[#F7E1E1] text-[#791F1F]" : "bg-[#3D2314]/8"}`} data-testid="pauta-selo-escopo">{selo}</span>}
                       <span className="block text-[11px] text-[#3D2314]/50">{it.servico ?? it.tipo ?? ""}</span>
                     </span>
@@ -427,7 +481,20 @@ export default function PautaPage() {
           <div className="h-full w-full overflow-y-auto bg-[#FAF7F2] p-4 sm:w-[420px]" onClick={(e) => e.stopPropagation()} data-testid="pauta-painel">
             <div className="mb-3 flex items-center justify-between"><h2 className="text-[16px] font-medium">Filtro</h2><button onClick={() => setPainel(false)} aria-label="fechar"><X size={16} /></button></div>
             <div className="space-y-3">
-              <Multi texto="Cliente" ajuda="pm.pauta.filtro.cliente" itens={clientes} valor={r.clientes ?? []} onChange={(v) => setR({ clientes: v })} testid="pauta-f-cliente" />
+              <div data-testid="pauta-f-cliente">
+                <ClienteBusca empresa={empresa} modo="filtro" valorNome="" rotulo="Cliente" ajuda="pm.pauta.filtro.cliente" testId="pauta-f-cliente-busca"
+                  onEscolher={(id, nome) => { setNomesCli((m) => ({ ...m, [id]: nome })); setR({ clientes: [...new Set([...(r.clientes ?? []), id])] }); }} />
+                {!!r.clientes?.length && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {r.clientes.map((id) => (
+                      <span key={id} className="inline-flex items-center gap-1 rounded-full bg-[#FAEEDA] px-2 py-0.5 text-[12px]" data-testid="pauta-f-cliente-chip">
+                        {nomesCli[id] ?? clientes.find((c) => c.id === id)?.nome ?? "cliente"}
+                        <button onClick={() => setR({ clientes: (r.clientes ?? []).filter((x) => x !== id) })} aria-label="tirar cliente do filtro"><X size={12} /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
               <Multi texto="Responsável" ajuda="pm.pauta.filtro.responsavel" itens={equipe.filter((p) => p.id !== userId)} primeiro={userId ? { id: userId, nome: "Eu" } : undefined} valor={r.responsaveis ?? []} onChange={(v) => setR({ responsaveis: v })} testid="pauta-f-responsavel" />
               <Campo texto="Situação do job" ajuda="pm.pauta.filtro.situacao">
                 <select className={inp} value={aba} onChange={(e) => trocarAba(e.target.value)} data-testid="pauta-f-situacao">
@@ -473,17 +540,19 @@ export default function PautaPage() {
       {/* job aberto (resumo; a edição completa continua em Jobs) */}
       {aberto && (
         <div className="fixed inset-0 z-[120] flex justify-end bg-black/30 print:hidden" onClick={() => setAberto(null)}>
-          <div className="h-full w-full overflow-y-auto bg-white p-4 sm:w-[420px]" onClick={(e) => e.stopPropagation()} data-testid="pauta-job">
+          <div className="h-full w-full overflow-y-auto bg-white p-4 sm:w-[480px]" onClick={(e) => e.stopPropagation()} data-testid="pauta-job">
             <div className="mb-2 flex items-center justify-between"><h2 className="text-[16px] font-medium">{aberto.codigo} · {aberto.titulo}</h2><button onClick={() => setAberto(null)} aria-label="fechar"><X size={16} /></button></div>
             <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-[13px]">
               <dt className="text-[#3D2314]/60">Cliente</dt><dd>{aberto.cliente ?? "—"}</dd>
               <dt className="text-[#3D2314]/60">Responsável</dt><dd>{aberto.responsavel ?? "—"}</dd>
-              <dt className="text-[#3D2314]/60">Situação</dt><dd>{situacoes.find((s) => s.valor === aberto.status)?.rotulo ?? aberto.status}{aberto.status === "aguardando" ? ` · ${textoAguardando(aberto.aguardando_de, aberto.aguardando_dias)}` : ""}</dd>
+              <dt className="text-[#3D2314]/60">Situação</dt><dd>{situacoes.find((s) => s.valor === aberto.status)?.rotulo ?? aberto.status}{aberto.status === "aguardando" ? ` · ${textoAguardando(aberto.aguardando_de, aberto.aguardando_dias, motivos.find((m) => m.valor === aberto.aguardando_motivo)?.rotulo)}` : ""}</dd>
               <dt className="text-[#3D2314]/60">Prazo</dt><dd className={aberto.atrasado ? "text-[#791F1F]" : ""}>{aberto.data_prazo?.slice(0, 10).split("-").reverse().join("/") ?? "—"} {textoAtraso(aberto.dias_atraso)}</dd>
               <dt className="text-[#3D2314]/60">Tipo de peça</dt><dd>{aberto.servico ?? aberto.tipo ?? "—"}</dd>
               <dt className="text-[#3D2314]/60">Escopo</dt><dd>{seloEscopo(aberto) ?? "sem limite de ajustes"}</dd>
               {lista?.pode_ver_margem && <><dt className="text-[#3D2314]/60">Valor · margem</dt><dd>{brl(aberto.valor_job)} · {brl(aberto.margem)}</dd></>}
             </dl>
+            <JobFluxo key={aberto.id} jobId={aberto.id} motivos={motivos} situacoes={situacoes}
+              onMudou={(codigo) => { if (codigo) setAberto((a) => (a ? { ...a, codigo } : a)); void carregar(1); }} />
             <div className="mt-3 flex gap-2">
               <Link className={btn} href={`/dashboard/producao`}>Abrir em Jobs</Link>
               <Link className={btn} href={`/dashboard/pm/apontamento-horas?job=${aberto.id}`}><Play size={13} /> Cronômetro</Link>
