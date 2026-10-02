@@ -60,7 +60,7 @@ export default function AjudaWidget() {
     void supabase.rpc('fn_ajuda_registrar_uso', {
       p_company_id: activeCompany, p_pergunta: pergunta, p_resolveu: resolveu,
       p_artigo_id: artigoId ?? null, p_rota: pathname, p_papel: papelInt(papel),
-    })
+    }).then(() => undefined)
   }, [activeCompany, pathname, papel])
 
   const buscar = useCallback(async (q: string) => {

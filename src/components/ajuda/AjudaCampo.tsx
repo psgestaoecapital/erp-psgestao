@@ -43,7 +43,7 @@ export function AjudaCampo({ chave, rota }: { chave: string; rota?: string }) {
   const cartao = useRef<HTMLDivElement>(null);
 
   const registrar = useCallback((acao: "abriu" | "ver_mais") => {
-    void supabase.rpc("fn_ajuda_campo_uso", { p_chave: chave, p_company_id: empresa, p_rota: tela, p_acao: acao });
+    void supabase.rpc("fn_ajuda_campo_uso", { p_chave: chave, p_company_id: empresa, p_rota: tela, p_acao: acao }).then(() => undefined);
   }, [chave, empresa, tela]);
 
   function abrir(e: React.MouseEvent) {

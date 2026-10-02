@@ -238,7 +238,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   const [dupLogicaIgnorado, setDupLogicaIgnorado] = useState(false)
   // FASE E · log da decisão (reusa audit_log via RPC SECURITY DEFINER).
   const logDup = (tipo: 'codigo' | 'logico', decisao: 'cancelou' | 'continuou', detalhe: string) => {
-    void supabase.rpc('fn_pagar_log_duplicidade', { p_tipo: tipo, p_decisao: decisao, p_detalhe: detalhe })
+    void supabase.rpc('fn_pagar_log_duplicidade', { p_tipo: tipo, p_decisao: decisao, p_detalhe: detalhe }).then(() => undefined)
   }
   // dispara quando fornecedor(existente) + valor + vencimento estão preenchidos (qualquer ordem).
   // 🔒 sem fornecedor_id → sem alerta. Suprimido quando o 🔴 (código idêntico) já aparece.

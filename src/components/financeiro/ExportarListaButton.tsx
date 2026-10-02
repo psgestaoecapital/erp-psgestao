@@ -72,7 +72,7 @@ export default function ExportarListaButton({ companyId, tipo, titulo, filtros, 
       if (formato === 'excel') exportarExcel(meta, colunas, linhas)
       else await exportarPDF(meta, colunas, linhas)
       // auditoria (best-effort — nunca trava o download, RD-51)
-      void supabase.rpc('fn_relatorio_registrar', { p_company_id: companyId, p_tipo: `financeiro_${tipo}_${formato}`, p_periodo: filtros })
+      void supabase.rpc('fn_relatorio_registrar', { p_company_id: companyId, p_tipo: `financeiro_${tipo}_${formato}`, p_periodo: filtros }).then(() => undefined)
     } catch (e) {
       alert('Falha ao gerar o relatório: ' + ((e as Error).message || 'erro'))
     } finally {
