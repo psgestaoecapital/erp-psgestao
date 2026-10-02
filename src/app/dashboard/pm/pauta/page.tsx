@@ -12,9 +12,10 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { ClienteBusca } from "@/components/pm/ClienteBusca";
+import { JobFluxo } from "@/components/pm/JobFluxo";
 import { exportarExcel, type Coluna } from "@/lib/export/relatorioLista";
 import {
-  agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
+  agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, prazoAprovacao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
   AGRUPAMENTOS, PRIORIDADES, POR_PAGINA, type Agrupar, type Atalho, type FiltrosPauta, type ItemPauta,
 } from "@/lib/pm/pauta";
 
@@ -62,6 +63,9 @@ export default function PautaPage() {
   const empresa = selInfo.tipo === "empresa" && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null);
   const [userId, setUserId] = useState<string | null>(null);
   const [situacoes, setSituacoes] = useState<Opcao[]>([]);
+  const [motivos, setMotivos] = useState<Opcao[]>([]);
+  // PM-C: aprovação aberta (prazo) de cada job da página — selo "vence hoje" / "vencida" na lista
+  const [prazos, setPrazos] = useState<Record<string, string>>({});
   const [clientes, setClientes] = useState<Nome[]>([]);
   const [equipe, setEquipe] = useState<Nome[]>([]);
   const [grupos, setGrupos] = useState<Nome[]>([]);
@@ -123,6 +127,7 @@ export default function PautaPage() {
       setUserId(uid);
       if (op.error) { setErro(op.error.message); return; }
       setSituacoes(((op.data as { situacoes: Opcao[] } | null)?.situacoes) ?? []);
+      setMotivos(((op.data as { motivos: Opcao[] | null } | null)?.motivos) ?? []);
       const cls = ((cl.data ?? []) as { id: string; nome: string; nome_fantasia: string | null; grupo_id: string | null }[]).map((c) => ({ id: c.id, nome: c.nome_fantasia || c.nome, grupo_id: c.grupo_id }));
       setClientes(cls);
       setEquipe(((eq.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean }[])
@@ -177,6 +182,14 @@ export default function PautaPage() {
     const nova = ls.data as Lista;
     setLista((ant) => (pag > 1 && ant ? { ...nova, itens: [...ant.itens, ...nova.itens] } : nova));
     setPagina(pag);
+    const ids = nova.itens.filter((i) => i.status === "em_aprovacao").map((i) => i.id);
+    if (ids.length) {
+      const { data: ap } = await supabase.from("agency_aprovacoes").select("job_id, prazo_em").in("job_id", ids).is("decisao", null);
+      if (minha !== recarga.current) return;
+      const m: Record<string, string> = {};
+      for (const a of (ap ?? []) as { job_id: string; prazo_em: string }[]) m[a.job_id] = a.prazo_em;
+      setPrazos((ant) => (pag > 1 ? { ...ant, ...m } : m));
+    } else if (pag === 1) setPrazos({});
   }, [empresa, filtrosAtivos, aba, agrup]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- recarrega a pauta quando filtro/aba/agrupamento mudam
   useEffect(() => { if (prefCarregada) { setSel(new Set()); void carregar(1); } }, [carregar, prefCarregada]);
@@ -438,7 +451,9 @@ export default function PautaPage() {
                       {it.nota ? <span className="mr-1 inline-flex text-[#C8941A]" title={`nota ${it.nota}`}>{Array.from({ length: it.nota }).map((_, i) => <Star key={i} size={11} fill="currentColor" />)}</span> : null}
                       {it.titulo}
                       {it.rodada > 0 && <span className="ml-1 rounded bg-[#3D2314]/8 px-1 text-[10.5px]">rodada {it.rodada}</span>}
-                      {it.status === "aguardando" && <span className="ml-1 rounded bg-[#FAEEDA] px-1 text-[10.5px]" data-testid="pauta-selo-aguardando">{textoAguardando(it.aguardando_de, it.aguardando_dias)}</span>}
+                      {it.status === "aguardando" && <span className="ml-1 rounded bg-[#FAEEDA] px-1 text-[10.5px]" data-testid="pauta-selo-aguardando">{textoAguardando(it.aguardando_de, it.aguardando_dias, motivos.find((m) => m.valor === it.aguardando_motivo)?.rotulo)}</span>}
+                      {prazos[it.id] && (() => { const pr = prazoAprovacao(prazos[it.id]); return (
+                        <span className={`ml-1 rounded px-1 text-[10.5px] ${pr.nivel === "vencida" ? "bg-[#F7E1E1] text-[#791F1F]" : pr.nivel === "hoje" ? "bg-[#FAEEDA] text-[#6B4A0E]" : "bg-[#3D2314]/8"}`} data-testid="pauta-selo-aprovacao" data-nivel={pr.nivel}>aprovação {pr.texto}</span>); })()}
                       {selo && <span className={`ml-1 rounded px-1 text-[10.5px] ${it.escopo_estourou ? "bg-[#F7E1E1] text-[#791F1F]" : "bg-[#3D2314]/8"}`} data-testid="pauta-selo-escopo">{selo}</span>}
                       <span className="block text-[11px] text-[#3D2314]/50">{it.servico ?? it.tipo ?? ""}</span>
                     </span>
@@ -522,17 +537,19 @@ export default function PautaPage() {
       {/* job aberto (resumo; a edição completa continua em Jobs) */}
       {aberto && (
         <div className="fixed inset-0 z-[120] flex justify-end bg-black/30 print:hidden" onClick={() => setAberto(null)}>
-          <div className="h-full w-full overflow-y-auto bg-white p-4 sm:w-[420px]" onClick={(e) => e.stopPropagation()} data-testid="pauta-job">
+          <div className="h-full w-full overflow-y-auto bg-white p-4 sm:w-[480px]" onClick={(e) => e.stopPropagation()} data-testid="pauta-job">
             <div className="mb-2 flex items-center justify-between"><h2 className="text-[16px] font-medium">{aberto.codigo} · {aberto.titulo}</h2><button onClick={() => setAberto(null)} aria-label="fechar"><X size={16} /></button></div>
             <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-[13px]">
               <dt className="text-[#3D2314]/60">Cliente</dt><dd>{aberto.cliente ?? "—"}</dd>
               <dt className="text-[#3D2314]/60">Responsável</dt><dd>{aberto.responsavel ?? "—"}</dd>
-              <dt className="text-[#3D2314]/60">Situação</dt><dd>{situacoes.find((s) => s.valor === aberto.status)?.rotulo ?? aberto.status}{aberto.status === "aguardando" ? ` · ${textoAguardando(aberto.aguardando_de, aberto.aguardando_dias)}` : ""}</dd>
+              <dt className="text-[#3D2314]/60">Situação</dt><dd>{situacoes.find((s) => s.valor === aberto.status)?.rotulo ?? aberto.status}{aberto.status === "aguardando" ? ` · ${textoAguardando(aberto.aguardando_de, aberto.aguardando_dias, motivos.find((m) => m.valor === aberto.aguardando_motivo)?.rotulo)}` : ""}</dd>
               <dt className="text-[#3D2314]/60">Prazo</dt><dd className={aberto.atrasado ? "text-[#791F1F]" : ""}>{aberto.data_prazo?.slice(0, 10).split("-").reverse().join("/") ?? "—"} {textoAtraso(aberto.dias_atraso)}</dd>
               <dt className="text-[#3D2314]/60">Tipo de peça</dt><dd>{aberto.servico ?? aberto.tipo ?? "—"}</dd>
               <dt className="text-[#3D2314]/60">Escopo</dt><dd>{seloEscopo(aberto) ?? "sem limite de ajustes"}</dd>
               {lista?.pode_ver_margem && <><dt className="text-[#3D2314]/60">Valor · margem</dt><dd>{brl(aberto.valor_job)} · {brl(aberto.margem)}</dd></>}
             </dl>
+            <JobFluxo key={aberto.id} jobId={aberto.id} motivos={motivos} situacoes={situacoes}
+              onMudou={(codigo) => { if (codigo) setAberto((a) => (a ? { ...a, codigo } : a)); void carregar(1); }} />
             <div className="mt-3 flex gap-2">
               <Link className={btn} href={`/dashboard/producao`}>Abrir em Jobs</Link>
               <Link className={btn} href={`/dashboard/pm/apontamento-horas?job=${aberto.id}`}><Play size={13} /> Cronômetro</Link>
