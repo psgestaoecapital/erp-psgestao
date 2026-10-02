@@ -186,7 +186,7 @@ export default function OrcamentosPage(){
   const loadOrcamentos=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).order("data_emissao",{ascending:false}).limit(100);
+    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).order("data_emissao",{ascending:false}).order("created_at",{ascending:false}).limit(100);
     if(data)setOrcamentos(data);
     if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
     setLoading(false);
