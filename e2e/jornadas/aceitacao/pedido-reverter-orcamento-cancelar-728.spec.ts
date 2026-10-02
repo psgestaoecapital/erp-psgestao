@@ -1,6 +1,6 @@
 // #728 · Pedido reversível a orçamento + cancelamento no orçamento.
 // As RPCs fn_pedido_reverter_para_orcamento e fn_orcamento_cancelar só existem APÓS a migration
-// (20261002110000 / 20261002120000). No preview (antes do merge) o banco é o ATUAL: a função não existe
+// (20261002110000 / 20261002130000). No preview (antes do merge) o banco é o ATUAL: a função não existe
 // e o PostgREST responde PGRST202 (404) → este teste fica VERMELHO informativo no aceitacao-pr.yml e é o
 // VEREDITO no aceitacao-pos-migration.yml (produção, após o deploy-migrations). Daí a tag @pos-migration.
 //
