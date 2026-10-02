@@ -36,7 +36,8 @@ const PENDENTES = [
 ]
 const MAX_PENDENTES = 21   // tamanho da lista no dia da regra (01/10) — não pode crescer
 
-const RAIZES = ['src/app/dashboard/projetos', 'src/components/projetos']
+// + Pauta do P&M (CEO 02/10: P2 nasce com "?" em cada campo)
+const RAIZES = ['src/app/dashboard/projetos', 'src/components/projetos', 'src/app/dashboard/pm/pauta']
 const CAMPOS = new Set(['input', 'select', 'textarea'])
 
 let falhas = 0
@@ -81,7 +82,7 @@ function camposSemAjuda(arquivo: string): { linha: number; texto: string }[] {
       if (ts.isJsxElement(p)) {
         if (primeiro && filhoDiretoAjuda(p)) return true
         primeiro = false
-        if (temAttr(p, 'ajuda')) return true
+        if (temAttr(p, 'ajuda') || temAttr(p, 'data-ajuda')) return true
         const t = tag(p)
         if (t === 'label' || t === 'table' || t === 'Campo') return contemAjuda(p)
       }
@@ -97,7 +98,7 @@ function camposSemAjuda(arquivo: string): { linha: number; texto: string }[] {
 
 // ── chaves existem no banco ──
 const migs = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).map((f) => readFileSync(join('supabase/migrations', f), 'utf8')).join('\n')
-const chavesBanco = new Set([...migs.matchAll(/'(projetos\.[a-z0-9_]+(?:\.[a-z0-9_]+)+)'/g)].map((m) => m[1]))
+const chavesBanco = new Set([...migs.matchAll(/'((?:projetos|pm)\.[a-z0-9_]+(?:\.[a-z0-9_]+)+)'/g)].map((m) => m[1]))
 
 const todos = RAIZES.flatMap(arquivos).map((f) => f.replace(/\\/g, '/'))
 if (PENDENTES.length > MAX_PENDENTES) erro(`a lista de telas pendentes só pode diminuir (máx. ${MAX_PENDENTES}); tela nova já nasce com o "?"`)
@@ -116,7 +117,7 @@ for (const f of todos) {
     for (const c of faltando) erro(`${f}:${c.linha} campo sem ajuda ("?"): ${c.texto}`)
   } else cobertas++
   const src = readFileSync(f, 'utf8')
-  for (const m of src.matchAll(/["'`](projetos\.[a-z0-9_]+(?:\.[a-z0-9_]+)+)["'`]/g)) {
+  for (const m of src.matchAll(/["'`]((?:projetos|pm)\.[a-z0-9_]+(?:\.[a-z0-9_]+)+)["'`]/g)) {
     if (!chavesBanco.has(m[1])) erro(`${f}: chave de ajuda "${m[1]}" não existe no banco (seed em supabase/migrations)`)
   }
 }
