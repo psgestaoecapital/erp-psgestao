@@ -199,6 +199,22 @@ function buildChecklist(state: FiscalState): ChecklistItem[] {
         critico: true,
       },
     )
+  } else if (cfg?.opcao_simples_nacional === 1) {
+    // Não optante (Lucro Presumido/Real): itens exclusivos do Simples não se aplicam (neutro, não pendência).
+    items.push(
+      {
+        label: 'Opção Simples Nacional',
+        ok: true,
+        detalhe: 'Não se aplica · Não optante (Lucro Presumido/Real)',
+        critico: false,
+      },
+      {
+        label: 'Regime de apuração SN',
+        ok: true,
+        detalhe: 'Não se aplica · fora do Simples',
+        critico: false,
+      },
+    )
   }
   return items
 }

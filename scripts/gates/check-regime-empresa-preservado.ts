@@ -13,7 +13,7 @@ const dir = 'supabase/migrations'
 const ultimas = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
   .filter((f) => /FUNCTION\s+public\.fn_fiscal_salvar_config\s*\(/i.test(readFileSync(`${dir}/${f}`, 'utf8')))
 const vigente = ultimas[ultimas.length - 1]
-ok(vigente === '20260929070000_fiscal_config_preserva_regime.sql', `a definição vigente de fn_fiscal_salvar_config é a que preserva o regime (${vigente})`)
+ok(vigente === '20261002280000_fiscal_nao_optante.sql', `a definição vigente de fn_fiscal_salvar_config é a que preserva o regime (${vigente})`)
 const sql = readFileSync(`${dir}/${vigente}`, 'utf8')
 const upd = sql.slice(sql.indexOf('UPDATE companies SET'), sql.indexOf('WHERE id = p_company_id;'))
 ok(/WHEN p_regime = 'regime_normal' AND regime_tributario IN \('lucro_presumido', 'lucro_real'\)\s*THEN regime_tributario/.test(upd),

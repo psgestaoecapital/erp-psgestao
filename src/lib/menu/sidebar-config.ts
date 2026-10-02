@@ -203,7 +203,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     separator: true,
     items: [
       { id: 'empresa', label: 'Dados da Empresa', href: '/dashboard/configuracoes/empresa', status: 'pronto' },
-      { id: 'fiscal', label: 'Fiscal (A1 + Focus NFe)', href: '/dashboard/configuracoes/fiscal', status: 'pronto', badge: 'NFe' },
+      { id: 'fiscal', label: 'Configuração Fiscal', href: '/dashboard/configuracoes/fiscal', status: 'pronto', badge: 'NFe' },
     ],
   },
   {
