@@ -6,6 +6,7 @@ import { labelUsuario } from '@/lib/usuarioLabel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { ClienteBusca } from '@/components/pm/ClienteBusca'
 import { BriefingEditor } from '@/components/pm/BriefingEditor'
+import { juntarResponsaveis, type MembroEquipe, type UsuarioEmpresa } from '@/lib/pm/pauta'
 
 // Identidade Espresso (mesmos tokens do CRM Oportunidades / Financiamentos)
 const ESPRESSO = '#3D2314'
@@ -150,19 +151,21 @@ function ProducaoPageInner() {
   }
 
   async function loadAll() {
-    const [cl, jb, ts, us, ct, sv] = await Promise.all([
+    const [cl, jb, ts, us, ct, sv, eqAg] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).order('created_at', { ascending: false }),
       supabase.from('agency_timesheet').select('*').eq('company_id', sel).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
+      supabase.from('agency_equipe').select('user_id, nome').eq('company_id', sel).eq('ativo', true).not('user_id', 'is', null),
     ])
     setClientes((cl.data ?? []) as Cliente[])
     setJobs((jb.data ?? []) as Job[])
     setTimesheets((ts.data ?? []) as Timesheet[])
-    type U = { id: string; email: string | null; full_name?: string | null }
-    setResponsaveis((us.data ?? []) as U[])
+    // responsáveis = usuários ativos da empresa + equipe da agência com usuário (mesma regra da Pauta)
+    setResponsaveis(juntarResponsaveis((us.data ?? []) as UsuarioEmpresa[], (eqAg.data ?? []) as MembroEquipe[])
+      .map((r) => ({ id: r.id, email: null, full_name: r.nome })))
     setContratos((ct.data ?? []) as ContratoOpt[])
     setServicos(((sv.data as { servicos?: ServicoOpt[] } | null)?.servicos ?? []) as ServicoOpt[])
 

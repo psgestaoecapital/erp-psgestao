@@ -15,7 +15,7 @@ import { ClienteBusca } from "@/components/pm/ClienteBusca";
 import { JobFluxo } from "@/components/pm/JobFluxo";
 import { exportarExcel, type Coluna } from "@/lib/export/relatorioLista";
 import {
-  agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, prazoAprovacao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
+  agrupar, atalhosVisiveis, juntarResponsaveis, type UsuarioEmpresa, type MembroEquipe, contarFiltros, limparFiltros, linkVisao, prazoAprovacao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
   AGRUPAMENTOS, PRIORIDADES, POR_PAGINA, type Agrupar, type Atalho, type FiltrosPauta, type ItemPauta,
 } from "@/lib/pm/pauta";
 
@@ -111,8 +111,9 @@ export default function PautaPage() {
       const [op, cl, eq, gr, ca, co, sv, vi, pg, pr] = await Promise.all([
         supabase.rpc("fn_pauta_opcoes", { p_company_id: empresa }),
         supabase.from("agency_clientes").select("id, nome, nome_fantasia, grupo_id").eq("company_id", empresa).order("nome").limit(1000),
-        // Bloco 1 (CEO 02/10): responsáveis = usuários ativos da empresa (agency_equipe da Pdois não tem usuário ligado)
-        supabase.rpc("fn_usuarios_da_empresa", { p_company_id: empresa }),
+        // Bloco 1 (CEO 02/10): responsáveis = usuários ativos da empresa + equipe da agência com usuário (juntarResponsaveis)
+        Promise.all([supabase.rpc("fn_usuarios_da_empresa", { p_company_id: empresa }),
+          supabase.from("agency_equipe").select("user_id, nome").eq("company_id", empresa).eq("ativo", true).not("user_id", "is", null)]),
         supabase.from("agency_grupos_clientes").select("id, nome").eq("company_id", empresa).order("nome"),
         supabase.from("agency_campanhas").select("id, nome, cliente_id").eq("company_id", empresa).order("nome"),
         supabase.from("agency_contratos").select("id, cliente_id, tipo, status").eq("company_id", empresa).limit(1000),
@@ -130,9 +131,7 @@ export default function PautaPage() {
       setMotivos(((op.data as { motivos: Opcao[] | null } | null)?.motivos) ?? []);
       const cls = ((cl.data ?? []) as { id: string; nome: string; nome_fantasia: string | null; grupo_id: string | null }[]).map((c) => ({ id: c.id, nome: c.nome_fantasia || c.nome, grupo_id: c.grupo_id }));
       setClientes(cls);
-      setEquipe(((eq.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean }[])
-        .filter((u) => u.is_active).map((u) => ({ id: u.id, nome: u.full_name || u.email || "usuário" }))
-        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
+      setEquipe(juntarResponsaveis((eq[0].data ?? []) as UsuarioEmpresa[], (eq[1].data ?? []) as MembroEquipe[]));
       setGrupos((gr.data ?? []) as Nome[]);
       setCampanhas((ca.data ?? []) as Nome[]);
       const nomeCli = new Map(cls.map((c) => [c.id, c.nome]));
