@@ -124,3 +124,15 @@ export const MOTIVO_TEXTO: Record<Motivo, string> = {
   sem_numero: 'sem número de job', sem_titulo: 'sem título', fora_da_janela: 'concluído há mais de 60 dias',
   em_aprovacao_antigo: '"em aprovação" parado há mais de 60 dias', cancelado: 'cancelado', repetido_na_planilha: 'número repetido na planilha',
 }
+
+// CSV do SIGA (veredito em produção 02/10): ler os bytes do .csv direto na planilha trocava os acentos ("NÂº Job",
+// "TÃ­tulo") e o mapa não reconhecia as colunas; e a leitura de datas da biblioteca é americana (05/10 virava 10 de maio).
+// Por isso o CSV vira TEXTO antes: UTF-8 (sem o BOM) e, se não for UTF-8 válido, Windows-1252 (exportação do Excel
+// brasileiro). As datas ficam como texto e quem lê é dataSiga (dd/mm/aaaa).
+export function textoCsv(bytes: Uint8Array): string {
+  let t: string
+  try { t = new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+  catch { t = new TextDecoder('windows-1252').decode(bytes) }
+  return t.replace(/^﻿/, '')
+}
+export const ehCsv = (nome: string, tipo = '') => /\.csv$/i.test(nome) || /csv/i.test(tipo)
