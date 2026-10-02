@@ -12,7 +12,7 @@
 --     Idempotente: rodar de novo RE-ARMA o cenário (mesmos jobs, datas de volta ao relativo de hoje) — nada duplica.
 -- (2) fn_demo_reset passa a chamar (1) na demo da P&M (RD-69: sobrevive ao reset).
 -- (3) Roda uma vez agora.
--- Nada é apagado (RD-30); os 40 jobs existentes ficam como estão.
+-- (4) Os jobs de teste "E2E Post Dia das Crianças …" vão para a lixeira (restaurável). Nada é apagado (RD-30).
 
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_pm_pauta(p_company_id uuid) RETURNS jsonb
  LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
@@ -190,3 +190,12 @@ BEGIN
     RAISE NOTICE 'demo pauta → %', public.fn_demo_seed_pm_pauta('b0700000-0000-4000-a000-000000000002');
   END IF;
 END $$;
+
+-- (4) CEO 02/10 (aprovado): os jobs deixados pelo teste "Pdois #144" ("E2E Post Dia das Crianças …") vão para a
+--     lixeira da Pauta — exclusão lógica, restaurável pela tela (RD-30: nada é apagado). Só na demo da P&M.
+UPDATE public.agency_jobs
+   SET excluido_em = now(), updated_at = now()
+ WHERE company_id = 'b0700000-0000-4000-a000-000000000002'
+   AND titulo LIKE 'E2E Post Dia das Crianças %'
+   AND excluido_em IS NULL
+   AND EXISTS (SELECT 1 FROM public.companies WHERE id = 'b0700000-0000-4000-a000-000000000002' AND is_demo IS TRUE);

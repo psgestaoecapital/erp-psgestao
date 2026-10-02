@@ -35,5 +35,10 @@ ok(/pg_get_functiondef\('public\.fn_demo_reset\(uuid\)'::regprocedure\)/.test(mi
 ok(/REVOKE ALL ON FUNCTION public\.fn_demo_seed_pm_pauta\(uuid\) FROM PUBLIC, anon, authenticated;/.test(mig)
   && /GRANT EXECUTE ON FUNCTION public\.fn_demo_seed_pm_pauta\(uuid\) TO service_role;/.test(mig), 'só service_role executa')
 
+ok(/SET excluido_em = now\(\)[\s\S]*titulo LIKE 'E2E Post Dia das Crianças %'[\s\S]*excluido_em IS NULL/.test(mig),
+  'jobs de teste "E2E Post Dia das Crianças" vão para a lixeira (restaurável), só na demo')
+const t144 = readFileSync('e2e/jornadas/aceitacao/pdois-job-ordem-144.spec.ts', 'utf8')
+ok(/excluido_em: new Date\(\)\.toISOString\(\)/.test(t144), 'o teste #144 manda o próprio job para a lixeira no fim')
+
 if (falhas) { console.error(`\ncheck-pm-demo-pauta: ${falhas} falha(s)`); process.exit(1) }
 console.log('\nDemo da Pauta: ok')
