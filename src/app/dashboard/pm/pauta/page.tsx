@@ -7,13 +7,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Filter, Printer, Download, Trash2, RotateCcw, Play, Paperclip, Link2, MessageCircle, Star, X, Undo2, Sparkles, ListChecks } from "lucide-react";
+import { Filter, Printer, Download, Trash2, RotateCcw, Play, Paperclip, Link2, MessageCircle, Star, X, Undo2, Sparkles, ListChecks, Copy, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { exportarExcel, type Coluna } from "@/lib/export/relatorioLista";
 import {
-  agrupar, atalhosVisiveis, contarFiltros, limparFiltros, seloEscopo, textoAguardando, textoAtraso,
+  agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
   AGRUPAMENTOS, PRIORIDADES, POR_PAGINA, type Agrupar, type Atalho, type FiltrosPauta, type ItemPauta,
 } from "@/lib/pm/pauta";
 
@@ -88,6 +88,8 @@ export default function PautaPage() {
   const [frase, setFrase] = useState("");
   const [sugestaoIA, setSugestaoIA] = useState<{ filtros: FiltrosPauta; explicacao: string } | null>(null);
   const [prefCarregada, setPrefCarregada] = useState(false);
+  // PM-B: visão em uso (vem do menu ou do link ?visao=…) — o link abre a mesma visão para quem a pode ver
+  const [visaoAtual, setVisaoAtual] = useState<Visao | null>(null);
 
   // ── cargas iniciais: listas da empresa, preferência salva e visões ──
   useEffect(() => {
@@ -125,6 +127,13 @@ export default function PautaPage() {
       setPodeGerir(!!pg.data);
       const pref = pr.data as { filtros: FiltrosPauta; agrupar: Agrupar; aba: string | null } | null;
       if (pref) { setFiltros(pref.filtros ?? {}); setRascunho(pref.filtros ?? {}); setAgrup(pref.agrupar ?? "prazo"); setAba(pref.aba ?? "todas"); }
+      // link da visão salva: abre direto a visão (vale mais que a preferência guardada)
+      const idLink = visaoDaUrl(window.location.search);
+      if (idLink) {
+        const v = ((vi.data ?? []) as Visao[]).find((x) => x.id === idLink);
+        if (v) { setFiltros(v.filtros ?? {}); setRascunho(v.filtros ?? {}); setAba("todas"); setVisaoAtual(v); }
+        else setErro("Este link é de uma visão que não existe mais ou que não foi compartilhada com você. Peça a quem mandou para compartilhar com a equipe.");
+      }
       setPrefCarregada(true);
     })();
     return () => { vivo = false; };
@@ -161,10 +170,27 @@ export default function PautaPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect -- recarrega a pauta quando filtro/aba/agrupamento mudam
   useEffect(() => { if (prefCarregada) { setSel(new Set()); void carregar(1); } }, [carregar, prefCarregada]);
 
-  function aplicar(f: FiltrosPauta) {
+  function aplicar(f: FiltrosPauta, visao: Visao | null = null) {
     const limpo = limparFiltros(f);
     setFiltros(limpo); setRascunho(limpo); setPainel(false);
+    setVisaoAtual(visao);
+    // a barra de endereço acompanha: com visão, o endereço já é o link dela; sem visão, volta ao endereço limpo
+    window.history.replaceState(null, "", visao ? `?visao=${visao.id}` : window.location.pathname);
     void salvarPreferencia(limpo, agrup, aba);
+  }
+  async function copiarLink(v: Visao) {
+    const url = linkVisao(window.location.origin, v.id);
+    try { await navigator.clipboard.writeText(url); } catch { window.prompt("Copie o link da visão:", url); }
+    setAviso({ texto: v.compartilhada
+      ? `Link da visão "${v.nome}" copiado. Quem é da equipe abre a pauta já filtrada.`
+      : `Link copiado, mas a visão "${v.nome}" é só sua: para a equipe abrir, compartilhe-a.` });
+  }
+  async function compartilharVisao(v: Visao) {
+    const { error } = await supabase.from("agency_visoes_pauta").update({ compartilhada: true }).eq("id", v.id);
+    if (error) { setErro(error.message); return; }
+    const nova = { ...v, compartilhada: true };
+    setVisoes((xs) => xs.map((x) => (x.id === v.id ? nova : x))); setVisaoAtual(nova);
+    setAviso({ texto: `Visão "${v.nome}" agora é da equipe — o link funciona para todos.` });
   }
   function trocarAtalho(a: Atalho) { aplicar({ ...filtros, atalho: filtros.atalho === a ? undefined : a }); }
   function trocarAba(a: string) { setAba(a); void salvarPreferencia(filtros, agrup, a); }
@@ -175,11 +201,13 @@ export default function PautaPage() {
     const nome = window.prompt("Nome da visão (ex.: Atrasados da equipe):")?.trim();
     if (!nome) return;
     const compartilhada = podeGerir && window.confirm("Compartilhar com a equipe? (OK = da equipe · Cancelar = só sua)");
-    const { error } = await supabase.from("agency_visoes_pauta").insert({ company_id: empresa, nome, filtros: limparFiltros(rascunho), compartilhada, ordem: visoes.length });
+    const { data: nova, error } = await supabase.from("agency_visoes_pauta").insert({ company_id: empresa, nome, filtros: limparFiltros(rascunho), compartilhada, ordem: visoes.length })
+      .select("id, nome, filtros, compartilhada, dono_id").single();
     if (error) { setErro(error.message); return; }
     const { data } = await supabase.from("agency_visoes_pauta").select("id, nome, filtros, compartilhada, dono_id").eq("company_id", empresa).is("excluido_em", null).order("ordem");
     setVisoes((data ?? []) as Visao[]);
-    setAviso({ texto: `Visão "${nome}" salva${compartilhada ? " para a equipe" : ""}.` });
+    aplicar((nova as Visao).filtros, nova as Visao);
+    setAviso({ texto: `Visão "${nome}" salva${compartilhada ? " para a equipe" : ""}. Use "Copiar link" para mandar a alguém.` });
   }
 
   async function entenderFrase() {
@@ -252,7 +280,7 @@ export default function PautaPage() {
           <p className="text-sm text-[#3D2314]/60">{selInfo.nome} · o que cada pessoa tem para fazer e o que está atrasado, parado ou estourando o escopo.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <select className={btn} value="" aria-label="Visões salvas" data-testid="pauta-visoes" onChange={(e) => { const v = visoes.find((x) => x.id === e.target.value); if (v) aplicar(v.filtros); }}>
+          <select className={btn} value={visaoAtual?.id ?? ""} aria-label="Visões salvas" data-testid="pauta-visoes" onChange={(e) => { const v = visoes.find((x) => x.id === e.target.value); if (v) aplicar(v.filtros, v); else aplicar({}); }}>
             <option value="">Visões salvas…</option>
             {visoes.map((v) => <option key={v.id} value={v.id}>{v.nome}{v.compartilhada ? " (equipe)" : ""}</option>)}
           </select>
@@ -263,6 +291,22 @@ export default function PautaPage() {
           <button className={`${btn} ${naLixeira ? "border-[#791F1F] text-[#791F1F]" : ""}`} onClick={() => aplicar({ ...filtros, lixeira: !naLixeira })} data-testid="pauta-lixeira"><Trash2 size={14} /> {naLixeira ? "Sair da lixeira" : "Lixeira"}</button>
         </div>
       </header>
+
+      {/* visão em uso + link para mandar à equipe (PM-B) */}
+      {visaoAtual && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#C8941A]/40 bg-gradient-to-r from-[#FAEEDA] to-[#FAF7F2] px-3 py-2 text-[12.5px] print:hidden" data-testid="pauta-visao-atual">
+          <span className="font-medium">Visão: {visaoAtual.nome}</span>
+          <span className={`rounded-full px-2 py-0.5 text-[11px] ${visaoAtual.compartilhada ? "bg-[#3D2314] text-white" : "bg-white text-[#3D2314]/70"}`}>{visaoAtual.compartilhada ? "da equipe" : "só sua"}</span>
+          <span className="ml-auto inline-flex flex-wrap items-center gap-2">
+            <button className={btn} onClick={() => void copiarLink(visaoAtual)} data-testid="pauta-visao-copiar-link"><Copy size={13} /> Copiar link</button>
+            <AjudaCampo chave="pm.pauta.visao_link" />
+            {!visaoAtual.compartilhada && podeGerir && visaoAtual.dono_id === userId && (
+              <button className={btn} onClick={() => void compartilharVisao(visaoAtual)} data-testid="pauta-visao-compartilhar"><Users size={13} /> Compartilhar com a equipe</button>
+            )}
+            <button className={btn} onClick={() => aplicar({})} aria-label="sair da visão" data-testid="pauta-visao-sair"><X size={13} /></button>
+          </span>
+        </div>
+      )}
 
       {/* filtro por frase (IA): sugere, a pessoa confere e aplica */}
       <div className="flex flex-wrap items-center gap-2 print:hidden">
