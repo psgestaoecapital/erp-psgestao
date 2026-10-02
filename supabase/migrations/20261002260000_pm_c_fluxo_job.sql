@@ -154,12 +154,16 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'decisao', 'aprovado');
 END $$;
 
-REVOKE ALL ON FUNCTION public.fn_pm_job_pedir_ajuste(uuid, text, text), public.fn_pm_job_aguardar(uuid, text, text),
-  public.fn_pm_job_retomar(uuid, text), public.fn_pm_job_enviar_aprovacao(uuid, timestamptz),
-  public.fn_pm_job_decidir_aprovacao(uuid, text, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_pm_job_pedir_ajuste(uuid, text, text), public.fn_pm_job_aguardar(uuid, text, text),
-  public.fn_pm_job_retomar(uuid, text), public.fn_pm_job_enviar_aprovacao(uuid, timestamptz),
-  public.fn_pm_job_decidir_aprovacao(uuid, text, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_pm_job_pedir_ajuste(uuid, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_job_pedir_ajuste(uuid, text, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_pm_job_aguardar(uuid, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_job_aguardar(uuid, text, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_pm_job_retomar(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_job_retomar(uuid, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_pm_job_enviar_aprovacao(uuid, timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_job_enviar_aprovacao(uuid, timestamptz) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_pm_job_decidir_aprovacao(uuid, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_job_decidir_aprovacao(uuid, text, text) TO authenticated, service_role;
 
 -- ───────── demo: histórico de rodadas, aprovações abertas e motivos de espera ─────────
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_pm_fluxo(p_company_id uuid) RETURNS jsonb
