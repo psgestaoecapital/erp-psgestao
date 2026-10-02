@@ -3,6 +3,9 @@ import React, { Suspense, useState, useEffect, useRef, type CSSProperties, type 
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { labelUsuario } from '@/lib/usuarioLabel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { ClienteBusca } from '@/components/pm/ClienteBusca'
+import { BriefingEditor } from '@/components/pm/BriefingEditor'
 
 // Identidade Espresso (mesmos tokens do CRM Oportunidades / Financiamentos)
 const ESPRESSO = '#3D2314'
@@ -113,6 +116,13 @@ function ProducaoPageInner() {
 
   useEffect(() => { void loadCompanies() }, [])
   useEffect(() => { if (sel) void loadAll() }, [sel]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Bloco 1: /dashboard/producao?novo=job (botão "Novo job" da Pauta) já abre o formulário
+  const novoDoLink = useRef(false)
+  useEffect(() => {
+    if (!sel || novoDoLink.current || searchParams.get('novo') !== 'job') return
+    novoDoLink.current = true
+    setForm({ status: 'nao_iniciada', prioridade: 'normal' }); setEditId(null); setShowForm('job'); setTab('kanban')
+  }, [sel, searchParams])
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 3500)
@@ -176,7 +186,9 @@ function ProducaoPageInner() {
     setShowForm(null); setEditId(null); setForm({}); loadAll()
   }
   async function saveJob() {
-    const data = { ...form, company_id: sel }
+    const { cliente_nome_tmp: _nomeTmp, ...semTmp } = form
+    void _nomeTmp
+    const data = { ...semTmp, company_id: sel }
     const res = editId
       ? await supabase.from('agency_jobs').update(data).eq('id', editId)
       : await supabase.from('agency_jobs').insert(data)
@@ -465,8 +477,11 @@ function ProducaoPageInner() {
         <Modal titulo={editId ? 'Editar job' : 'Novo job'} onClose={() => { setShowForm(null); setEditId(null); setForm({}); setMaisDetalhesJob(false) }}>
           {/* #144 (Pdois · CEO 01/10): ordem do SIGA — Cliente → Peça/tipo → Título (grande) → Prazo → Responsável → Briefing */}
           <div style={{ display: 'grid', gap: 10, marginBottom: 10 }}>
-            <Select label="Cliente" testId="job-cliente" v={(form.cliente_id as string) ?? ''} on={(v) => setForm({ ...form, cliente_id: v || null })}
-              opts={[['', '— selecionar —'], ...clientes.map((c) => [c.id, c.nome_fantasia || c.nome] as [string, string])]} />
+            {/* Bloco 1 (CEO 02/10): cliente do cadastro da empresa (erp_clientes), com busca por nome/CNPJ */}
+            <ClienteBusca empresa={sel} testId="job-cliente"
+              valorNome={(() => { const c = clientes.find((x) => x.id === form.cliente_id); return c ? (c.nome_fantasia || c.nome) : ((form.cliente_nome_tmp as string) ?? '') })()}
+              onEscolher={(id, nome) => setForm({ ...form, cliente_id: id, cliente_nome_tmp: nome })}
+              onLimpar={() => setForm({ ...form, cliente_id: null, cliente_nome_tmp: '' })} />
             <Select label="Peça / tipo" testId="job-tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
               opts={[['', '— que peça vai ser feita —'], ...TIPOS_PECA]} />
             <label style={lbl}>
@@ -479,12 +494,15 @@ function ProducaoPageInner() {
           </div>
           <div style={grid2}>
             <Field label="Prazo" type="date" testId="job-prazo" v={form.data_prazo} on={(v) => setForm({ ...form, data_prazo: v })} />
-            <Select label="Responsável" testId="job-responsavel" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
+            <Select label="Responsável" ajuda="pm.job.responsavel" testId="job-responsavel" v={(form.responsavel_id as string) ?? ''} on={(v) => setForm({ ...form, responsavel_id: v || null, responsavel_nome: v ? null : (form.responsavel_nome ?? null) })}
               opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
           </div>
 
           {/* BRIEFING — por último, área grande */}
-          <BriefingEditor value={(form.descricao as string) ?? ''} onChange={(v) => setForm({ ...form, descricao: v })} />
+          <div style={{ marginTop: 12 }}>
+            <BriefingEditor value={(form.descricao as string) ?? ''} onChange={(v) => setForm({ ...form, descricao: v })} ajuda="pm.job.briefing" testid="job-briefing" linhas={8}
+              placeholder="Descreva o job para quem vai executar: contexto, entregáveis e formatos, prazos e o que evitar…" />
+          </div>
 
           {/* MAIS DETALHES — colapsado */}
           <button type="button" onClick={() => setMaisDetalhesJob(!maisDetalhesJob)} style={maisDetalhesBtn}>
@@ -904,51 +922,6 @@ const TIPOS_PECA: Array<[string, string]> = [
   ['assessoria', 'Assessoria'], ['outro', 'Outro'],
 ]
 
-// ─── Briefing do job (texto/markdown puro — SEM HTML, sem risco de XSS) ─────
-// O SIGA tem editor rico com HTML; como o projeto não tem sanitizador, guardamos
-// TEXTO/Markdown leve em agency_jobs.descricao. Os botões inserem apenas marcadores
-// markdown (operação de string). O editor rico com HTML sanitizado (DOMPurify) fica p/ v1.1.
-function BriefingEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const ref = useRef<HTMLTextAreaElement>(null)
-  function envolver(marca: string) {
-    const el = ref.current; if (!el) return
-    const ini = el.selectionStart ?? value.length
-    const fim = el.selectionEnd ?? value.length
-    const sel = value.slice(ini, fim) || 'texto'
-    const novo = value.slice(0, ini) + marca + sel + marca + value.slice(fim)
-    onChange(novo)
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(ini + marca.length, ini + marca.length + sel.length) })
-  }
-  function prefixarLinha(prefixo: string) {
-    const el = ref.current; if (!el) return
-    const ini = el.selectionStart ?? value.length
-    const inicioLinha = value.lastIndexOf('\n', ini - 1) + 1
-    const novo = value.slice(0, inicioLinha) + prefixo + value.slice(inicioLinha)
-    onChange(novo)
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(ini + prefixo.length, ini + prefixo.length) })
-  }
-  return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: ESPRESSO }}>📝 Briefing</span>
-        <span style={{ fontSize: 11, color: TEXTD }}>o que precisa ser feito</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          <button type="button" onClick={() => envolver('**')} style={briefBtn} title="Negrito"><b>B</b></button>
-          <button type="button" onClick={() => prefixarLinha('- ')} style={briefBtn} title="Lista">• lista</button>
-        </div>
-      </div>
-      <textarea
-        ref={ref}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={7}
-        placeholder="Descreva o job para quem vai executar: objetivo, referências, formatos, o que entregar…"
-        style={briefArea}
-      />
-    </div>
-  )
-}
-
 // ─── helpers de UI ───────────────────────────────────────────
 function Kpi({ titulo, valor, destaque }: { titulo: string; valor: string; destaque?: boolean }) {
   return (
@@ -983,10 +956,10 @@ function Field({ label, v, on, type = 'text', multiline, testId }: { label: stri
     </label>
   )
 }
-function Select({ label, v, on, opts, testId }: { label: string; v: string; on: (v: string) => void; opts: Array<[string, string]>; testId?: string }) {
+function Select({ label, v, on, opts, testId, ajuda }: { label: string; v: string; on: (v: string) => void; opts: Array<[string, string]>; testId?: string; ajuda?: string }) {
   return (
     <label style={lbl}>
-      {label}
+      <span style={{ display: 'flex', alignItems: 'center' }}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
       <select value={v} onChange={(e) => on(e.target.value)} data-testid={testId} style={inp}>
         {opts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
@@ -1138,15 +1111,6 @@ const etapasBtn: CSSProperties = {
 const maisDetalhesBtn: CSSProperties = {
   border: 'none', background: 'transparent', color: ESPRESSO, fontSize: 13, fontWeight: 600,
   cursor: 'pointer', padding: '8px 0', margin: '4px 0', minHeight: 40, textAlign: 'left', width: '100%',
-}
-const briefBtn: CSSProperties = {
-  border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO, borderRadius: 6,
-  padding: '4px 8px', fontSize: 12, cursor: 'pointer', minHeight: 30,
-}
-const briefArea: CSSProperties = {
-  width: '100%', border: `1px solid ${BORDA}`, borderRadius: 10, padding: '10px 12px',
-  fontSize: 14, lineHeight: 1.5, minHeight: 140, background: '#fff', color: ESPRESSO,
-  resize: 'vertical', colorScheme: 'light' as CSSProperties['colorScheme'],
 }
 
 export default function ProducaoPage() {
