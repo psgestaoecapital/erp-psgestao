@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { aiGuardedCall } from '@/lib/ai/aiGuardedCall'
-import { juntarResponsaveis, validarFiltroIA, type MembroEquipe, type UsuarioEmpresa } from '@/lib/pm/pauta'
+import { validarFiltroIA } from '@/lib/pm/pauta'
 
 // Pauta P&M · P2 · "Descreva o que quer ver" (SPEC P&M · Pauta, seções 5 e 8). A IA traduz a frase em FILTROS para a
 // pessoa conferir antes de aplicar — nunca aplica sozinha. LGPD/seção 8: vai para a API só o texto digitado e os NOMES
@@ -29,16 +29,16 @@ export async function POST(req: NextRequest) {
 
   // sessão do usuário: a RLS garante que só lê nomes da própria empresa
   const sb = createClient(url, anon, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } })
-  const [cli, eq, eqAg, srv] = await Promise.all([
+  const [cli, eq, srv] = await Promise.all([
     sb.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', companyId).limit(500),
     // Bloco 1 (CEO 02/10): responsáveis = usuários ativos da empresa (agency_equipe da Pdois não tem usuário ligado)
     sb.rpc('fn_usuarios_da_empresa', { p_company_id: companyId }),
-    sb.from('agency_equipe').select('user_id, nome').eq('company_id', companyId).eq('ativo', true).not('user_id', 'is', null),
     sb.from('agency_servico').select('id, nome').eq('company_id', companyId).limit(300),
   ])
   if (cli.error) return NextResponse.json({ ok: false, erro: 'sem acesso a esta empresa' }, { status: 403 })
   const clientes: Nome[] = ((cli.data ?? []) as { id: string; nome: string; nome_fantasia: string | null }[]).map((c) => ({ id: c.id, nome: c.nome_fantasia || c.nome }))
-  const responsaveis: Nome[] = juntarResponsaveis((eq.data ?? []) as UsuarioEmpresa[], (eqAg.data ?? []) as MembroEquipe[])
+  const responsaveis: Nome[] = ((eq.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean }[])
+    .filter((u) => u.is_active).map((u) => ({ id: u.id, nome: u.full_name || u.email || 'usuário' }))
   const servicos: Nome[] = ((srv.data ?? []) as Nome[])
   if (!apiKey) return NextResponse.json({ ok: false, erro: 'IA não configurada' }, { status: 500 })
 

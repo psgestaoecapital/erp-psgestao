@@ -7,7 +7,6 @@
 // d) Pauta vazia: "Novo job" em destaque + "Os jobs do SIGA ainda não foram trazidos".
 import { readFileSync } from 'node:fs'
 import { briefingParaJob, linkSeguro, termoBusca } from '../../src/lib/pm/briefing'
-import { juntarResponsaveis } from '../../src/lib/pm/pauta'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
@@ -35,21 +34,11 @@ const cb = ler('src/components/pm/ClienteBusca.tsx')
 ok(/from\("erp_clientes"\)/.test(cb) && /fn_pm_cliente_garantir/.test(cb) && /modo === "filtro"/.test(cb), 'b) busca em erp_clientes; escolher garante o perfil P&M; no filtro não cria nada')
 
 const pa = ler('src/app/dashboard/pm/pauta/page.tsx')
-ok(/supabase\.rpc\("fn_usuarios_da_empresa", \{ p_company_id: empresa \}\)/.test(pa) && /setEquipe\(juntarResponsaveis\(/.test(pa), 'c) Pauta: responsáveis = usuários ativos da empresa + equipe com usuário (filtro e edição em massa)')
+ok(!/from\("agency_equipe"\)/.test(pa) && /supabase\.rpc\("fn_usuarios_da_empresa", \{ p_company_id: empresa \}\)/.test(pa) && /\.filter\(\(u\) => u\.is_active\)/.test(pa), 'c) Pauta: responsáveis = usuários ativos da empresa (filtro e edição em massa)')
 ok(/<ClienteBusca empresa=\{empresa\} modo="filtro"/.test(pa), 'b) Pauta: filtro de cliente busca no cadastro')
 ok(/Os jobs do SIGA ainda não foram trazidos/.test(pa) && /data-testid="pauta-vazia-novo-job"/.test(pa) && /data-testid="pauta-novo-job"/.test(pa), 'd) Pauta vazia: texto do SIGA e "Novo job" em destaque')
 const ia = ler('src/app/api/pm/pauta/filtro-ia/route.ts')
-ok(/rpc\('fn_usuarios_da_empresa'/.test(ia) && /juntarResponsaveis\(/.test(ia), 'c) filtro por frase (IA) conhece os mesmos responsáveis da Pauta')
-ok(/juntarResponsaveis\(/.test(pr), 'c) Novo Job: mesma lista de responsáveis da Pauta')
-// veredito em produção 02/10 (#1987): só os usuários da empresa deixava de fora quem já é responsável por jobs sem estar
-// no cadastro de acessos (o administrador na demo: 6 jobs que sumiam do filtro)
-{
-  const r = juntarResponsaveis(
-    [{ id: 'u1', full_name: 'Marciana', email: null, is_active: true }, { id: 'u2', full_name: 'Inativo', email: null, is_active: false }, { id: 'u3', full_name: null, email: 'ana@x.com', is_active: true }],
-    [{ user_id: 'u9', nome: 'Gilberto' }, { user_id: 'u1', nome: 'Marci (equipe)' }, { user_id: null, nome: '[DEMO] Sem usuário' }])
-  ok(JSON.stringify(r) === JSON.stringify([{ id: 'u3', nome: 'ana@x.com' }, { id: 'u9', nome: 'Gilberto' }, { id: 'u1', nome: 'Marciana' }]),
-    'c) responsáveis: usuários ativos + equipe com usuário, sem repetir, sem inativos nem equipe sem usuário')
-}
+ok(/rpc\('fn_usuarios_da_empresa'/.test(ia) && !/from\('agency_equipe'\)/.test(ia), 'c) filtro por frase (IA) conhece os usuários da empresa')
 
 const mig = ler('supabase/migrations/20261002250000_pm_bloco1_clientes_erp.sql')
 ok(/PERFORM public\.fn__guarda_empresa\(p_company_id\);/.test(mig) && /WHERE id = p_erp_cliente_id AND company_id = p_company_id/.test(mig), 'b) garantir: só a empresa do usuário e cliente da mesma empresa')

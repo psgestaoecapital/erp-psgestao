@@ -167,15 +167,3 @@ export const AGRUPAMENTOS: { id: Agrupar; rotulo: string }[] = [
 ]
 export const PRIORIDADES = ['baixa', 'media', 'alta', 'critica']
 export const POR_PAGINA = 50
-
-// Responsáveis da P&M (veredito em produção do Bloco 1, 02/10): usuários ativos da empresa (fn_usuarios_da_empresa)
-// + quem está na equipe da agência com usuário ligado. Só os usuários da empresa deixava de fora quem já é
-// responsável por jobs sem estar no cadastro de acessos (ex.: o administrador na demo) — esses jobs sumiam do filtro.
-export type UsuarioEmpresa = { id: string; full_name: string | null; email: string | null; is_active?: boolean | null }
-export type MembroEquipe = { user_id: string | null; nome: string | null }
-export function juntarResponsaveis(usuarios: UsuarioEmpresa[], equipe: MembroEquipe[]): { id: string; nome: string }[] {
-  const porId = new Map<string, string>()
-  for (const u of usuarios) if (u.is_active !== false) porId.set(u.id, u.full_name || u.email || 'usuário')
-  for (const e of equipe) if (e.user_id && !porId.has(e.user_id)) porId.set(e.user_id, e.nome || 'usuário')
-  return [...porId].map(([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-}
