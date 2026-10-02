@@ -265,3 +265,14 @@ FROM (VALUES
 ) AS v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem)
 WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'erp_ajuda_campo')
 ON CONFLICT (chave) DO NOTHING;
+
+-- ───────── demo da P&M: equipe PS ligada à empresa (decisão do CEO, 02/10) ─────────
+-- A "Agência (P&M) - DEMO" tinha só o robô como usuário: a lista de responsáveis (usuários da empresa, Bloco 1) só
+-- mostrava "Eu". As demos de GE, Mecânica e Indústria já têm a equipe PS ligada (origem 'equipe_ps', acesso_total);
+-- copia o mesmo vínculo da demo de GE. Só empresa de demonstração; rodar de novo não duplica (UNIQUE user_id+company_id).
+INSERT INTO public.user_companies (user_id, company_id, role, origem)
+SELECT uc.user_id, 'b0700000-0000-4000-a000-000000000002'::uuid, uc.role, uc.origem
+  FROM public.user_companies uc
+ WHERE uc.company_id = 'b0700000-0000-4000-a000-000000000004'::uuid AND uc.origem = 'equipe_ps'
+   AND EXISTS (SELECT 1 FROM public.companies c WHERE c.id = 'b0700000-0000-4000-a000-000000000002'::uuid AND c.is_demo IS TRUE)
+ON CONFLICT (user_id, company_id) DO NOTHING;

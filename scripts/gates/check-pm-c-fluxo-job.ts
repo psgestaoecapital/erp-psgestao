@@ -47,5 +47,9 @@ ok(campos === ajudas && campos >= 5, `todo campo do fluxo tem o "?" (${ajudas}/$
 const pag = readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8')
 ok(/<JobFluxo key=\{aberto\.id\}/.test(pag) && /data-testid="pauta-selo-aprovacao"/.test(pag), 'Pauta: fluxo no job aberto e selo da aprovação na lista')
 
+// decisão do CEO 02/10: a demo da P&M ganha a equipe PS (como GE/Mecânica/Indústria), só se for demo, sem duplicar
+ok(/INSERT INTO public\.user_companies \(user_id, company_id, role, origem\)/.test(mig) && /uc\.origem = 'equipe_ps'/.test(mig)
+  && /c\.is_demo IS TRUE/.test(mig) && /ON CONFLICT \(user_id, company_id\) DO NOTHING/.test(mig), 'demo da P&M: equipe PS ligada (só demo, idempotente)')
+
 if (falhas) { console.error(`\ncheck-pm-c-fluxo-job: ${falhas} falha(s)`); process.exit(1) }
 console.log('\nPM-C fluxo do job: ok')
