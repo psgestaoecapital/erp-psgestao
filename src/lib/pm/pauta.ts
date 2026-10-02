@@ -93,8 +93,43 @@ export function seloEscopo(it: Pick<ItemPauta, 'rodada' | 'ajustes_limite' | 'es
 }
 export const textoAtraso = (dias: number | null) => (dias == null || dias <= 0 ? '' : dias === 1 ? 'há 1 dia' : `há ${dias} dias`)
 export const QUEM_AGUARDA: Record<string, string> = { cliente: 'cliente', planejamento: 'planejamento', fornecedor: 'fornecedor', interno: 'interno' }
-export const textoAguardando = (de: string | null, dias: number | null) =>
-  de ? `aguardando ${QUEM_AGUARDA[de] ?? de}${dias != null ? (dias === 0 ? ' desde hoje' : ` há ${dias} dia${dias === 1 ? '' : 's'}`) : ''}` : 'aguardando'
+export function textoAguardando(de: string | null, dias: number | null, motivo?: string | null): string {
+  if (!de) return 'aguardando'
+  const sep = motivo ? ' · ' : ' '
+  const tempo = dias == null ? '' : dias === 0 ? `${sep}desde hoje` : `${sep}há ${dias} dia${dias === 1 ? '' : 's'}`
+  return `aguardando ${QUEM_AGUARDA[de] ?? de}${motivo ? ` · ${motivo.toLowerCase()}` : ''}${tempo}`
+}
+
+// PM-C · prazo da aprovação do cliente: "vence hoje às 18h", "vencida há 2 dias", "até 05/10 às 18h".
+// nivel: 'vencida' (vermelho), 'hoje' (âmbar), 'ok'. Datas comparadas no fuso de São Paulo.
+export type NivelPrazo = 'vencida' | 'hoje' | 'ok'
+const FUSO = 'America/Sao_Paulo'
+const diaSP = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: FUSO, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+const horaSP = (d: Date) => new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO, hour: '2-digit', minute: '2-digit' }).format(d).replace(':00', 'h').replace(':', 'h')
+const ddmmSP = (d: Date) => new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO, day: '2-digit', month: '2-digit' }).format(d)
+export function prazoAprovacao(prazoIso: string, agora: Date = new Date()): { texto: string; nivel: NivelPrazo } {
+  const p = new Date(prazoIso)
+  if (Number.isNaN(p.getTime())) return { texto: 'sem prazo', nivel: 'ok' }
+  if (p.getTime() < agora.getTime()) {
+    const horas = Math.floor((agora.getTime() - p.getTime()) / 3_600_000)
+    if (horas < 24) return { texto: `vencida há ${Math.max(horas, 1)} h`, nivel: 'vencida' }
+    const dias = Math.floor(horas / 24)
+    return { texto: `vencida há ${dias} dia${dias === 1 ? '' : 's'}`, nivel: 'vencida' }
+  }
+  if (diaSP(p) === diaSP(agora)) return { texto: `vence hoje às ${horaSP(p)}`, nivel: 'hoje' }
+  return { texto: `até ${ddmmSP(p)} às ${horaSP(p)}`, nivel: 'ok' }
+}
+// tempo parado no "Aguardando": "há 3 h", "há 2 dias"
+export function tempoParado(desdeIso: string | null, agora: Date = new Date()): string {
+  if (!desdeIso) return ''
+  const ms = agora.getTime() - new Date(desdeIso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  const h = Math.floor(ms / 3_600_000)
+  if (h < 1) return 'há menos de 1 h'
+  if (h < 24) return `há ${h} h`
+  const d = Math.floor(h / 24)
+  return `há ${d} dia${d === 1 ? '' : 's'}`
+}
 
 // Filtro por frase (IA, seção 5): a IA só pode devolver filtros conhecidos, apontando para ids que EXISTEM nas listas da
 // empresa — qualquer outra coisa é descartada aqui antes de a pessoa conferir.
