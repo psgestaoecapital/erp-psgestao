@@ -67,9 +67,11 @@ test.describe('P&M Bloco 1 — briefing, clientes do cadastro, responsáveis', (
     await expect(painel.getByTestId('pauta-f-cliente-chip')).toContainText('Café Serra Azul')
     await page.screenshot({ path: 'e2e/diagnostico-host/pm-b1-pauta-filtro.png', fullPage: false })
     await painel.getByTestId('pauta-filtrar').click()
-    await expect(page.locator('[data-testid^="pauta-linha-"]').first()).toBeVisible({ timeout: 15000 })
-    const linhas = await page.locator('[data-testid^="pauta-linha-"]').allInnerTexts()
-    expect(linhas.every((l) => l.includes('Café Serra Azul')), 'só jobs do cliente escolhido').toBe(true)
+    // a lista sem filtro já está na tela: espera a lista filtrada chegar (antes lia a anterior — flaky no veredito da #1991)
+    await expect.poll(async () => {
+      const linhas = await page.locator('[data-testid^="pauta-linha-"]').allInnerTexts()
+      return linhas.length > 0 && linhas.every((l) => l.includes('Café Serra Azul'))
+    }, { message: 'só jobs do cliente escolhido', timeout: 15000 }).toBe(true)
     // volta a pauta limpa para os próximos testes
     await page.getByTestId('pauta-abrir-filtro').click()
     await page.getByTestId('pauta-limpar').click()
