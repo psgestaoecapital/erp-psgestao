@@ -1,5 +1,6 @@
 'use client'
-// EQUIPE (P&M). Sobre agency_equipe — custo/hora por pessoa é a BASE da margem (sem isso, margem=R$0).
+// EQUIPE (P&M). Sobre agency_equipe. CEO 03/10: o custo da hora que entra na margem vem da Mão de obra compartilhada
+// (/dashboard/_compartilhado/mao-obra?area=pm); o custo/hora daqui deixou de ser usado (não foi apagado).
 // Escopo por company_id (RD-45). Tema Espresso. Reusa o padrão de Leads/Propostas.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -63,11 +64,16 @@ export default function EquipePage() {
           <div>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>🏭 P&amp;M · Produção</div>
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Equipe</h1>
-            <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Custo/hora por pessoa — a base do cálculo de margem.</p>
+            <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Cadastro da equipe da agência.</p>
           </div>
           <button onClick={() => setEdit({ ativo: true, jornada_horas_dia: 8 })} style={btnPri}>+ Novo membro</button>
         </header>
 
+        <div data-testid="equipe-aviso-mao-obra" style={{ background: '#FFF7E6', border: `1px solid ${DOURADO}`, borderRadius: 12, padding: '12px 14px', marginBottom: 14, fontSize: 13 }}>
+          <b>O custo da hora agora vem da Mão de obra.</b> Lá o custo sai do salário e dos encargos da empresa, e cada pessoa é ligada ao
+          usuário que aponta as horas. O custo/hora desta tela não entra mais na margem dos jobs.{' '}
+          <a href="/dashboard/_compartilhado/mao-obra?area=pm" style={{ color: ESPRESSO, fontWeight: 700 }}>Abrir Mão de obra →</a>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
           <Kpi l="Membros ativos" v={String(kpis.total)} />
           <Kpi l="Custo/hora médio" v={brl(kpis.custoMedio)} />

@@ -7,6 +7,21 @@
 export type JobMargem = { id: string; valor_job: number | null; custo_estimado: number | null }
 export type ApontamentoMargem = { job_id: string | null; horas: number | null; custo_hora: number | null; custo_total: number | null }
 
+/** Totais por job de fn_pm_custo_jobs (LGPD: a tela não lê o custo de cada pessoa). */
+export type TotalJob = { job_id: string; horas: number | null; horas_sem_custo: number | null; custo: number | null }
+
+/** Converte os totais por job em apontamentos equivalentes (horas com custo + horas sem custo) para a mesma regra. */
+export function apontamentosDosTotais(totais: TotalJob[]): ApontamentoMargem[] {
+  const out: ApontamentoMargem[] = []
+  for (const t of totais) {
+    const horas = Number(t.horas ?? 0), sem = Number(t.horas_sem_custo ?? 0), custo = Number(t.custo ?? 0)
+    const com = Math.max(0, horas - sem)
+    if (com > 0) out.push({ job_id: t.job_id, horas: com, custo_hora: com > 0 ? custo / com : null, custo_total: custo })
+    if (sem > 0) out.push({ job_id: t.job_id, horas: sem, custo_hora: null, custo_total: 0 })
+  }
+  return out
+}
+
 export type SituacaoMargem = 'ok' | 'sem_custo_hora' | 'sem_custo'
 
 export type LinhaMargem = {

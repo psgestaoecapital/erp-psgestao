@@ -43,8 +43,8 @@ ok(tot.valor === 2000 && tot.custo === 500 && tot.lucro === 1500 && tot.semCusto
   'totais só com jobs de custo completo; os incompletos contados à parte')
 
 const pagina = readFileSync('src/app/dashboard/pm/margem-job/page.tsx', 'utf8')
-ok(pagina.includes("const ROTA_CUSTO_HORA = '/dashboard/pm/equipe'") && pagina.includes('Cadastre o custo da hora da equipe'),
-  'a tela diz o que fazer e leva à tela Equipe')
+ok(pagina.includes("const ROTA_CUSTO_HORA = '/dashboard/_compartilhado/mao-obra?area=pm'") && pagina.includes('Cadastre o custo da hora da equipe'),
+  'a tela diz o que fazer e leva à Mão de obra (CEO 03/10: o custo da hora vem de lá)')
 ok(!/valor\s*-\s*custo/.test(pagina.replace(/\/\/[^\n]*/g, '')), 'a tela não calcula lucro por conta própria (usa a regra única)')
 const equipe = readFileSync('src/app/dashboard/pm/equipe/page.tsx', 'utf8')
 ok(equipe.includes('Custo/hora (R$)'), 'tela Equipe tem o campo "Custo/hora (R$)"')

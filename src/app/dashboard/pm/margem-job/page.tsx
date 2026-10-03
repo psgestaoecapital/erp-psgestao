@@ -1,11 +1,13 @@
 'use client'
 // MARGEM POR JOB (P&M). valor_job − custo (Σ agency_timesheet.custo_total) → lucro/margem. Semáforo.
 // CEO 01/10: sem custo/hora não há lucro — a tela pede para cadastrar o custo da hora (regra em src/lib/pm/margem.ts).
+// CEO 03/10 (Mão de obra compartilhada): o custo da hora vem da Mão de obra (gatilho no apontamento); agency_equipe.custo_hora
+// não é mais usado. LGPD: a tela lê só TOTAIS por job (fn_pm_custo_jobs) — nunca o custo de cada pessoa.
 // Escopo por company_id (RD-45). Tema Espresso.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { calcularMargem, totaisMargem, type ApontamentoMargem } from '@/lib/pm/margem'
+import { apontamentosDosTotais, calcularMargem, totaisMargem, type ApontamentoMargem, type TotalJob } from '@/lib/pm/margem'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const YELLOW = '#7A5A0F'; const RED = '#7A1F1F'
@@ -13,16 +15,15 @@ const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency',
 
 type Job = { id: string; titulo: string; numero: string | null; valor_job: number | null; custo_estimado: number | null; status: string; cliente_id: string | null }
 type Cli = { id: string; nome: string; nome_fantasia: string | null }
-type Membro = { nome: string; custo_hora: number | null }
 
-// onde se cadastra o custo da hora: tela Equipe do P&M (custo/hora por pessoa)
-const ROTA_CUSTO_HORA = '/dashboard/pm/equipe'
+// onde se cadastra o custo da hora: Mão de obra (equipe conferida + pessoa ligada ao usuário que aponta as horas)
+const ROTA_CUSTO_HORA = '/dashboard/_compartilhado/mao-obra?area=pm'
 
 export default function MargemJobPage() {
   const { selInfo, companyIds } = useCompanyIds()
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null)
   const [jobs, setJobs] = useState<Job[]>([]); const [ts, setTs] = useState<ApontamentoMargem[]>([]); const [clientes, setClientes] = useState<Cli[]>([])
-  const [membros, setMembros] = useState<Membro[]>([])
+  const [semCustoHora, setSemCustoHora] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -31,12 +32,19 @@ export default function MargemJobPage() {
     setLoading(true)
     Promise.all([
       supabase.from('agency_jobs').select('id, titulo, numero, valor_job, custo_estimado, status, cliente_id').eq('company_id', empresa),
-      supabase.from('agency_timesheet').select('job_id, horas, custo_hora, custo_total').eq('company_id', empresa),
+      supabase.rpc('fn_pm_custo_jobs', { p_company_id: empresa }),
       supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa),
-      supabase.from('agency_equipe').select('nome, custo_hora').eq('company_id', empresa).eq('ativo', true).order('nome'),
-    ]).then(([j, t, c, m]) => {
-      setJobs((j.data ?? []) as Job[]); setTs((t.data ?? []) as ApontamentoMargem[]); setClientes((c.data ?? []) as Cli[])
-      setMembros((m.data ?? []) as Membro[]); setLoading(false)
+    ]).then(async ([j, t, c]) => {
+      setJobs((j.data ?? []) as Job[]); setClientes((c.data ?? []) as Cli[])
+      if (!t.error && t.data) {
+        const d = t.data as { jobs: TotalJob[]; pessoas_sem_custo: string[] }
+        setTs(apontamentosDosTotais(d.jobs ?? [])); setSemCustoHora(d.pessoas_sem_custo ?? [])
+      } else {
+        // antes da atualização do banco (sem fn_pm_custo_jobs): leitura antiga do apontamento
+        const a = await supabase.from('agency_timesheet').select('job_id, horas, custo_hora, custo_total').eq('company_id', empresa)
+        setTs((a.data ?? []) as ApontamentoMargem[])
+      }
+      setLoading(false)
     })
   }, [empresa])
 
@@ -48,7 +56,6 @@ export default function MargemJobPage() {
   }).sort((a, b) => (a.margem ?? -1e9) - (b.margem ?? -1e9)), [jobs, ts])
 
   const tot = useMemo(() => totaisMargem(linhas), [linhas])
-  const semCustoHora = membros.filter((m) => !(Number(m.custo_hora ?? 0) > 0)).map((m) => m.nome)
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
@@ -67,12 +74,12 @@ export default function MargemJobPage() {
             {tot.semCustoHora > 0
               ? <>Há {tot.semCustoHora === 1 ? '1 job com horas apontadas' : `${tot.semCustoHora} jobs com horas apontadas`} por quem não tem custo/hora — sem isso o lucro sairia igual ao valor do job.</>
               : <>Sem custo/hora, as horas apontadas por essas pessoas não entram no custo do job.</>}
-            {semCustoHora.length > 0 && <div style={{ color: TEXTM, marginTop: 4 }}>Sem custo/hora: {semCustoHora.join(', ')}.</div>}
+            {semCustoHora.length > 0 && <div style={{ color: TEXTM, marginTop: 4 }}>Apontaram horas sem custo da hora: {semCustoHora.join(', ')}.</div>}
             <div style={{ marginTop: 8 }}>
               <a href={ROTA_CUSTO_HORA} data-testid="margem-cadastrar-custo-hora" style={{ display: 'inline-block', background: ESPRESSO, color: '#fff', borderRadius: 8, padding: '6px 12px', fontWeight: 700, textDecoration: 'none' }}>
                 Cadastrar custo da hora →
               </a>
-              <span style={{ color: TEXTM, marginLeft: 8, fontSize: 12 }}>Tela Equipe: em cada pessoa, campo &quot;Custo/hora (R$)&quot;.</span>
+              <span style={{ color: TEXTM, marginLeft: 8, fontSize: 12 }}>Mão de obra: cadastre e confira a pessoa e ligue ao usuário dela (o custo vem dos encargos da empresa).</span>
             </div>
           </div>
         )}

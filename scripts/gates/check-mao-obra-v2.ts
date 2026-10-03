@@ -97,7 +97,8 @@ ok(modelo.includes("RAISE EXCEPTION 'A empresa já tem funções") && !/(PERFORM
 ok(!/DELETE\s+FROM/i.test(mig), 'nada é apagado')
 
 // ── a tela ──
-const tela = readFileSync('src/app/dashboard/projetos/mao-obra/page.tsx', 'utf8')
+// a tela virou compartilhada (CEO 03/10): o Hub e as áreas renderizam o mesmo componente
+const tela = readFileSync('src/components/mao-obra/MaoObraTela.tsx', 'utf8')
 ok(tela.includes('>Configurar padrões</button>') && tela.includes('data-testid="padroes-incidencia"') && tela.includes('data-testid="padrao-rpa"'), '"Configurar padrões": horas, vínculo, forma, benefícios, DSR, INSS do RPA, mínimo e chaves de incidência')
 for (const t of ['pessoa-nome', 'pessoa-cpf', 'pessoa-admissao', 'ficha-funcao', 'ficha-vinculo', 'ficha-componentes', 'componente-adicionar', 'componente-chaves', 'ficha-mei-obra', 'ficha-alerta-diarista', 'ficha-custo-unidade', 'ficha-chaves-confirmadas', 'mao-obra-funcoes-modelo']) {
   ok(tela.includes(`data-testid="${t}"`) || tela.includes(`data-testid={\`${t}`), `tela: ${t}`)

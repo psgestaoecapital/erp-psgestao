@@ -38,7 +38,8 @@ const MAX_PENDENTES = 21   // tamanho da lista no dia da regra (01/10) — não 
 
 // + Pauta do P&M (CEO 02/10: P2 nasce com "?" em cada campo)
 const RAIZES = ['src/app/dashboard/projetos', 'src/components/projetos', 'src/app/dashboard/pm/pauta', 'src/app/dashboard/pm/briefings', 'src/app/dashboard/pm/importar-siga',
-  'src/components/pm/ClienteBusca.tsx', 'src/components/pm/BriefingEditor.tsx']  // + Bloco 1 P&M (CEO 02/10)
+  'src/components/pm/ClienteBusca.tsx', 'src/components/pm/BriefingEditor.tsx',  // + Bloco 1 P&M (CEO 02/10)
+  'src/components/mao-obra']  // + Mão de obra compartilhada (CEO 03/10): a tela do Hub virou componente de todas as áreas
 const CAMPOS = new Set(['input', 'select', 'textarea'])
 
 let falhas = 0
@@ -122,7 +123,7 @@ for (const f of todos) {
     if (!chavesBanco.has(m[1])) erro(`${f}: chave de ajuda "${m[1]}" não existe no banco (seed em supabase/migrations)`)
   }
 }
-const mo = 'src/app/dashboard/projetos/mao-obra/page.tsx'
+const mo = 'src/components/mao-obra/MaoObraTela.tsx'   // a tela da Mão de obra (Hub e áreas) — CEO 03/10
 if (PENDENTES.includes(mo)) erro('a Mão de obra não pode ficar em PENDENTES (CEO 01/10: trava já vale nela)')
 const usadas = new Set([...readFileSync(mo, 'utf8').matchAll(/["'`](projetos\.mao_obra\.[a-z0-9_.]+)["'`]/g)].map((m) => m[1]))
 if (usadas.size < 70) erro(`Mão de obra usa só ${usadas.size} chaves de ajuda — esperado ≥ 70 dos 82 textos aprovados`)

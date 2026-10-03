@@ -36,10 +36,12 @@ export function coletarRotasReais(): string[] {
   const walk = (dir: string) => {
     for (const nome of readdirSync(dir)) {
       const p = join(dir, nome)
-      if (statSync(p).isDirectory()) { walk(p); continue }
+      // pasta privada do App Router (_x) não vira rota — senão um item do menu pra ela passaria aqui e daria 404
+      if (statSync(p).isDirectory()) { if (!nome.startsWith('_')) walk(p); continue }
       if (/^page\.(tsx|ts|jsx|js)$/.test(nome)) {
         const relDir = relative(APP_DIR, dir)
         const segs = relDir.split(/[\\/]/).filter((s) => s && !/^\(.*\)$/.test(s)) // remove route groups (…)
+          .map((s) => s.replace(/%5F/gi, '_'))                                      // %5Fpasta = /_pasta na URL
         rotas.push('/' + segs.join('/'))
       }
     }

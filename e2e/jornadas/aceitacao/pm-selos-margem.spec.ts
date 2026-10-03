@@ -3,7 +3,7 @@
 //     users.system_role é trocada por null no navegador (é a única coisa que a tela usa para decidir) → nenhum selo,
 //     nem no menu nem no título da tela do módulo.
 //  2) Margem por Job: a demo tem horas apontadas sem custo/hora → a linha do job pede "Cadastre o custo da hora da
-//     equipe" (sem lucro), o aviso leva à tela Equipe.
+//     equipe" (sem lucro), o aviso leva à Mão de obra (CEO 03/10: o custo da hora vem de lá, não mais da tela Equipe).
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { dbSelect, registrarJornada } from '../../support/api'
@@ -68,7 +68,7 @@ test.describe('P&M · selos só para a equipe PS; margem sem custo/hora pede o c
     await expect(menu.getByText(/^(Previsto|Pronto|Parcial|em breve)$/i)).toHaveCount(0)
   })
 
-  test('Margem por Job: horas sem custo/hora → "Cadastre o custo da hora da equipe", sem lucro; leva à tela Equipe', async ({ page }) => {
+  test('Margem por Job: horas sem custo/hora → "Cadastre o custo da hora da equipe", sem lucro; leva à Mão de obra', async ({ page }) => {
     const [ap] = await dbSelect<{ job_id: string }>('agency_timesheet',
       `company_id=eq.${DEMO_AG}&horas=gt.0&or=(custo_hora.is.null,custo_hora.eq.0)&job_id=not.is.null&select=job_id&limit=1`)
     expect(ap, 'a demo tem hora apontada sem custo/hora').toBeTruthy()
@@ -82,7 +82,7 @@ test.describe('P&M · selos só para a equipe PS; margem sem custo/hora pede o c
     await expect(page.getByTestId('margem-fora-do-total')).toBeVisible()
 
     await page.getByTestId('margem-cadastrar-custo-hora').click()
-    await expect(page).toHaveURL(/\/dashboard\/pm\/equipe/)
+    await expect(page).toHaveURL(/\/dashboard\/_compartilhado\/mao-obra\?area=pm/)
     await aguardarConteudo(page)
   })
 })

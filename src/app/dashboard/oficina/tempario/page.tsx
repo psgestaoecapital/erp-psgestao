@@ -65,6 +65,8 @@ interface CustoHora {
   horas_produtivas_mes?: number
   detalhe?: DetalheCusto[]
   alerta?: string | null
+  aviso_origem?: string | null       // Mão de obra (03/10): por que o custo ainda não vem da equipe conferida
+  quadro_conferido?: boolean
 }
 
 const fmtBRL = (v: number | null | undefined) =>
@@ -221,7 +223,7 @@ export default function TemparioPage() {
                       <span style={{ fontSize: 15, fontWeight: 700, color: C.gold }}>/h</span>
                     </div>
                     <div style={{ fontSize: 11.5, color: C.espressoM, marginTop: 4 }}>
-                      custo homem-hora · {custo?.origem === 'manual' ? 'definido manualmente' : 'calculado dos seus custos reais'}
+                      custo homem-hora · {custo?.origem === 'manual' ? 'definido manualmente' : custo?.origem === 'mao_obra' ? 'da equipe conferida em Mão de obra' : 'calculado dos seus custos reais'}
                     </div>
                     {custo?.origem === 'manual' && custo?.custo_hora_calculado != null && (
                       <div style={{ fontSize: 11.5, color: C.amber, marginTop: 4 }}>
@@ -230,6 +232,11 @@ export default function TemparioPage() {
                     )}
                     {custo?.alerta && (
                       <div style={{ fontSize: 11.5, color: C.amber, marginTop: 4 }}>⚠️ {custo.alerta}</div>
+                    )}
+                    {custo?.aviso_origem && (
+                      <div style={{ fontSize: 11.5, color: C.espressoM, marginTop: 4 }} data-testid="tempario-aviso-origem">
+                        ℹ️ {custo.aviso_origem} <a href="/dashboard/_compartilhado/mao-obra?area=oficina" style={{ color: C.gold, fontWeight: 700 }}>Abrir Mão de obra</a>
+                      </div>
                     )}
 
                     {/* TRANSPARÊNCIA — expansível */}

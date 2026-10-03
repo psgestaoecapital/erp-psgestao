@@ -5,7 +5,7 @@
 // "ver mais" ficam em erp_ajuda_uso. No celular o cartão sobe de baixo (bottom sheet); no computador abre junto do "?".
 // O gate scripts/gates/check-ajuda-campo.ts reprova campo do Hub sem "?" e chave que não exista no banco.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -14,6 +14,13 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 type TextoCampo = { rotulo: string; o_que_preencher: string; para_que_serve: string; exemplo: string; erro_comum: string; artigo_id: string | null };
 type Artigo = { titulo: string; resumo: string | null; corpo_md: string | null };
 type Dados = { campos: Record<string, TextoCampo>; artigos: Record<string, Artigo> };
+
+// Tela compartilhada (ex.: Mão de obra em /dashboard/_compartilhado/mao-obra?area=pm) usa os textos da rota de origem:
+// o <AjudaRota rota="…"> em volta da tela faz todos os "?" lerem e registrarem por essa rota.
+const AjudaRotaContext = createContext<string | null>(null);
+export function AjudaRota({ rota, children }: { rota: string; children: React.ReactNode }) {
+  return <AjudaRotaContext.Provider value={rota}>{children}</AjudaRotaContext.Provider>;
+}
 
 // uma busca por tela, compartilhada por todos os "?" dela
 const cache = new Map<string, Promise<Dados>>();
@@ -31,7 +38,8 @@ function carregar(rota: string): Promise<Dados> {
 
 export function AjudaCampo({ chave, rota }: { chave: string; rota?: string }) {
   const pathname = usePathname();
-  const tela = rota ?? pathname ?? "";
+  const rotaTela = useContext(AjudaRotaContext);
+  const tela = rota ?? rotaTela ?? pathname ?? "";
   const { sel } = useCompanyIds();
   const empresa = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const [aberto, setAberto] = useState(false);

@@ -1,26 +1,31 @@
 'use client'
-// APONTAMENTO DE HORAS (P&M). Cronômetro no job + manual → agency_timesheet. custo_total = horas ×
-// custo_hora (agency_equipe). Escopo por company_id (RD-45). Tema Espresso.
+// APONTAMENTO DE HORAS (P&M). Cronômetro no job + manual → agency_timesheet. custo_total = horas × custo_hora.
+// CEO 03/10: o custo da hora vem da Mão de obra (gatilho no banco, pela pessoa ligada ao usuário que aponta);
+// agency_equipe.custo_hora não é mais usado. LGPD: a lista não mostra custo por lançamento (seria o custo da pessoa) —
+// só o total; "o custo da sua hora" vem de fn_mao_obra_custo_hora_usuario (individual só para quem vê salário).
+// Escopo por company_id (RD-45). Tema Espresso.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
-const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'
+const BORDA = '#E7DED3'; const TEXTM = '#6b5444'
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 type JobOpt = { id: string; titulo: string; numero: string | null }
-type MembroOpt = { id: string; nome: string; custo_hora: number | null }
-type Linha = { id: string; job_id: string | null; data: string; horas: number; descricao: string | null; custo_total: number | null; user_id: string | null }
+type Linha = { id: string; job_id: string | null; data: string; horas: number; descricao: string | null; user_id: string | null }
+type CustoHoraUsuario = { encontrado: boolean; individual: boolean; tipo: 'individual' | 'media_funcao' | 'sem_cadastro'; custo_hora: number | null; funcao?: string | null }
+const ROTA_MAO_OBRA = '/dashboard/_compartilhado/mao-obra?area=pm'
 
 export default function ApontamentoHorasPage() {
   const { selInfo, companyIds } = useCompanyIds()
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null)
   const [jobs, setJobs] = useState<JobOpt[]>([])
-  const [membros, setMembros] = useState<MembroOpt[]>([])
+  const [custoMinha, setCustoMinha] = useState<CustoHoraUsuario | null>(null)
+  const [custoTotal, setCustoTotal] = useState<number | null>(null)
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [loading, setLoading] = useState(true)
-  const [jobSel, setJobSel] = useState(''); const [membroSel, setMembroSel] = useState('')
+  const [jobSel, setJobSel] = useState('')
   const [horasManual, setHorasManual] = useState(''); const [desc, setDesc] = useState('')
   const [rodando, setRodando] = useState<number | null>(null); const [tick, setTick] = useState(0)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -29,21 +34,23 @@ export default function ApontamentoHorasPage() {
   const carregar = async () => {
     if (!empresa) { setLoading(false); return }
     setLoading(true)
-    const [j, e, t] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser()
+    const [j, t, tot, minha] = await Promise.all([
       supabase.from('agency_jobs').select('id, titulo, numero').eq('company_id', empresa).order('created_at', { ascending: false }),
-      supabase.from('agency_equipe').select('id, nome, custo_hora').eq('company_id', empresa).eq('ativo', true).order('nome'),
-      supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, custo_total, user_id').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
+      supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, user_id').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
+      supabase.rpc('fn_pm_custo_jobs', { p_company_id: empresa }),
+      user ? supabase.rpc('fn_mao_obra_custo_hora_usuario', { p_company_id: empresa, p_user_id: user.id }) : Promise.resolve({ data: null, error: null }),
     ])
-    setJobs((j.data ?? []) as JobOpt[]); setMembros((e.data ?? []) as MembroOpt[]); setLinhas((t.data ?? []) as Linha[])
+    setJobs((j.data ?? []) as JobOpt[]); setLinhas((t.data ?? []) as Linha[])
+    setCustoTotal(tot.error ? null : Number((tot.data as { total_custo?: number } | null)?.total_custo ?? 0))
+    setCustoMinha(minha.error ? null : (minha.data as CustoHoraUsuario | null))
     setLoading(false)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const x = setTimeout(() => setToast(null), 3000); return () => clearTimeout(x) }, [toast])
   useEffect(() => () => { if (timer.current) clearInterval(timer.current) }, [])
 
-  const custoHora = useMemo(() => Number(membros.find((m) => m.id === membroSel)?.custo_hora ?? 0), [membros, membroSel])
   const totalHorasMes = useMemo(() => linhas.reduce((s, l) => s + Number(l.horas ?? 0), 0), [linhas])
-  const custoMes = useMemo(() => linhas.reduce((s, l) => s + Number(l.custo_total ?? 0), 0), [linhas])
 
   function iniciar() {
     if (!jobSel) { setToast('Escolha o job.'); return }
@@ -66,19 +73,19 @@ export default function ApontamentoHorasPage() {
     if (!empresa || !jobSel) { setToast('Escolha o job.'); return }
     setBusy(true)
     // user_id é obrigatório; custo_total é coluna GERADA (horas × custo_hora) — não enviar.
+    // custo_hora não vai: o banco tira da Mão de obra (gatilho trg_agency_timesheet_custo_mao_obra).
     // fim_em setado = entrada concluída (o índice único é só p/ timer aberto: fim_em IS NULL).
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setBusy(false); setToast('Sessão expirada, entre de novo.'); return }
     const fim = new Date(); const ini = new Date(fim.getTime() - horas * 3_600_000)
-    const custoPrev = Number((horas * custoHora).toFixed(2))
     const { error } = await supabase.from('agency_timesheet').insert({
       company_id: empresa, job_id: jobSel, user_id: user.id, data: fim.toISOString().slice(0, 10),
-      horas, descricao: desc || null, custo_hora: custoHora || null,
+      horas, descricao: desc || null,
       inicio_em: ini.toISOString(), fim_em: fim.toISOString(),
     })
     setBusy(false)
     if (error) { setToast(`Erro: ${error.message}`); return }
-    setHorasManual(''); setDesc(''); setToast(`Apontamento CRIADO · ${horas}h · ${brl(custoPrev)}`); void carregar()
+    setHorasManual(''); setDesc(''); setToast(`Apontamento CRIADO · ${horas}h`); void carregar()
   }
 
   const elapsed = rodando != null ? Math.floor((Date.now() - rodando) / 1000) : 0
@@ -93,7 +100,7 @@ export default function ApontamentoHorasPage() {
         <header style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>🏭 P&amp;M · Produção</div>
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Apontamento de horas</h1>
-          <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Cronômetro no job ou manual. O custo vem do custo/hora da equipe.</p>
+          <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Cronômetro no job ou manual. O custo da hora vem da Mão de obra (a pessoa ligada ao seu usuário).</p>
         </header>
 
         <section style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 14, padding: 16, marginBottom: 14 }}>
@@ -104,12 +111,12 @@ export default function ApontamentoHorasPage() {
                 {jobs.map((j) => <option key={j.id} value={j.id}>{j.titulo}</option>)}
               </select>
             </label>
-            <label style={lbl}>Responsável (custo/h)
-              <select style={inp} value={membroSel} onChange={(e) => setMembroSel(e.target.value)}>
-                <option value="">—</option>
-                {membros.map((m) => <option key={m.id} value={m.id}>{m.nome} · {brl(Number(m.custo_hora ?? 0))}/h</option>)}
-              </select>
-            </label>
+            <div style={{ ...lbl, justifyContent: 'center' }} data-testid="apontamento-custo-origem">
+              {custoMinha == null ? <span>O custo da hora vem da Mão de obra.</span>
+                : !custoMinha.encontrado ? <span>Seu usuário não está ligado a ninguém na <a href={ROTA_MAO_OBRA} style={{ color: ESPRESSO, fontWeight: 700 }}>Mão de obra</a> — suas horas ficam sem custo até o gestor ligar.</span>
+                : custoMinha.individual ? <span>Custo da hora (individual{custoMinha.funcao ? ` · ${custoMinha.funcao}` : ''}): <b style={{ color: ESPRESSO }}>{custoMinha.custo_hora != null ? `${brl(custoMinha.custo_hora)}/h` : '—'}</b></span>
+                : <span>Custo da hora da sua função{custoMinha.funcao ? ` (${custoMinha.funcao})` : ''}: <b style={{ color: ESPRESSO }}>{custoMinha.custo_hora != null ? `${brl(custoMinha.custo_hora)}/h` : '—'}</b> · média da função</span>}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
             {rodando == null
@@ -124,7 +131,7 @@ export default function ApontamentoHorasPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
           <Kpi l="Horas (últimas)" v={totalHorasMes.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} />
-          <Kpi l="Custo apontado" v={brl(custoMes)} />
+          <Kpi l="Custo apontado (total)" v={custoTotal == null ? '—' : brl(custoTotal)} />
           <Kpi l="Lançamentos" v={String(linhas.length)} />
         </div>
 
@@ -134,14 +141,13 @@ export default function ApontamentoHorasPage() {
           ) : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 520 }}>
-                <thead style={{ background: OFFWHITE }}><tr><Th>Data</Th><Th>Job</Th><Th>Horas</Th><Th>Custo</Th><Th>Descrição</Th></tr></thead>
+                <thead style={{ background: OFFWHITE }}><tr><Th>Data</Th><Th>Job</Th><Th>Horas</Th><Th>Descrição</Th></tr></thead>
                 <tbody>
                   {linhas.map((l) => (
                     <tr key={l.id} style={{ borderTop: `1px solid ${BORDA}` }}>
                       <Td>{l.data}</Td>
                       <Td>{jobs.find((j) => j.id === l.job_id)?.titulo ?? '—'}</Td>
                       <Td>{Number(l.horas).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}h</Td>
-                      <Td style={{ color: GREEN, fontWeight: 600 }}>{brl(Number(l.custo_total ?? 0))}</Td>
                       <Td style={{ color: TEXTM }}>{l.descricao ?? ''}</Td>
                     </tr>
                   ))}
