@@ -104,6 +104,8 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
       if (passo2?.valor) setProvider(passo2.valor as Provider)
       if (passo2?.ambiente) setAmbiente(passo2.ambiente as Ambiente)
       if (passo2?.opcao_sn != null) setOpcaoSN(String(passo2.opcao_sn))
+      else if (passo2?.regime && passo2.regime !== 'simples_nacional') setOpcaoSN('1') // presumido/real → Não optante
+
       if (passo2?.apuracao_sn != null) setApuracaoSN(String(passo2.apuracao_sn))
       if (passo2?.pct_trib != null) setPctTrib(String(passo2.pct_trib))
       if (passo2?.regime) setRegime(passo2.regime)
@@ -185,7 +187,6 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
   }
 
   const isNacional = provider === 'gov_nfse_nacional'
-  const isSN = regime === 'simples_nacional'
 
   const concluidos = resumo?.concluidos ?? 0
   const total = resumo?.total ?? 5
@@ -241,10 +242,11 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
       p_inscricao_municipal: inscricaoMunicipal,
       p_serie_nfse: serie || null,
       p_proximo_numero: Number(proximo) || 1,
-      p_regime: regime,
-      p_opcao_sn: isSN && opcaoSN ? Number(opcaoSN) : null,
-      p_apuracao_sn: isSN && apuracaoSN ? Number(apuracaoSN) : null,
-      p_pct_trib: isSN && pctTrib ? Number(pctTrib.replace(',', '.')) : null,
+      // opção 1 = Não optante (Lucro Presumido/Real): regime não-Simples e campos SN zerados.
+      p_regime: opcaoSN === '1' ? (regime && regime !== 'simples_nacional' ? regime : 'regime_normal') : 'simples_nacional',
+      p_opcao_sn: opcaoSN ? Number(opcaoSN) : null,
+      p_apuracao_sn: opcaoSN !== '1' && apuracaoSN ? Number(apuracaoSN) : null,
+      p_pct_trib: opcaoSN !== '1' && pctTrib ? Number(pctTrib.replace(',', '.')) : null,
     })
     setSalvando(false)
     if (error) { setErro(error.message); return }
@@ -303,41 +305,46 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
               )}
             </div>
 
-            {isSN && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
-                <Field label="Opção SN">
-                  <select
-                    value={opcaoSN}
-                    onChange={(e) => setOpcaoSN(e.target.value)}
-                    className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]"
-                  >
-                    <option value="2">2 · MEI</option>
-                    <option value="3">3 · ME/EPP optante</option>
-                  </select>
-                </Field>
-                <Field label="Regime de apuração">
-                  <select
-                    value={apuracaoSN}
-                    onChange={(e) => setApuracaoSN(e.target.value)}
-                    className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]"
-                  >
-                    <option value="1">1 · Fed + ISS pelo SN</option>
-                    <option value="2">2 · Fed SN, ISS fora</option>
-                    <option value="3">3 · Fed e ISS fora</option>
-                  </select>
-                </Field>
-                <Field label="% total tributos aprox.">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={pctTrib}
-                    onChange={(e) => setPctTrib(e.target.value)}
-                    placeholder="ex.: 8,55"
-                    className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]"
-                  />
-                </Field>
-              </div>
-            )}
+            {/* Opção tributária (opcao_simples_nacional): sempre visível para permitir "Não optante" (Lucro
+                Presumido/Real). Regime de apuração e % tributos são exclusivos do Simples (2/3). */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+              <Field label="Opção SN">
+                <select
+                  value={opcaoSN}
+                  onChange={(e) => setOpcaoSN(e.target.value)}
+                  className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]"
+                >
+                  <option value="1">1 · Não optante (Lucro Presumido/Real)</option>
+                  <option value="2">2 · MEI</option>
+                  <option value="3">3 · ME/EPP optante</option>
+                </select>
+              </Field>
+              {opcaoSN !== '1' && (
+                <>
+                  <Field label="Regime de apuração">
+                    <select
+                      value={apuracaoSN}
+                      onChange={(e) => setApuracaoSN(e.target.value)}
+                      className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]"
+                    >
+                      <option value="1">1 · Fed + ISS pelo SN</option>
+                      <option value="2">2 · Fed SN, ISS fora</option>
+                      <option value="3">3 · Fed e ISS fora</option>
+                    </select>
+                  </Field>
+                  <Field label="% total tributos aprox.">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={pctTrib}
+                      onChange={(e) => setPctTrib(e.target.value)}
+                      placeholder="ex.: 8,55"
+                      className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]"
+                    />
+                  </Field>
+                </>
+              )}
+            </div>
           </Section>
 
           {/* Passo 3 · Municipio */}
