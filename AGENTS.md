@@ -59,7 +59,27 @@ no livro de intervenções e nos comentários de PR).
    `SELECT fn_agente_mensagem_responder('<id>', '<seu-identificador>', 'concluida', '<BOX>', <nº da PR>);`
    ou `'recusada'` com o motivo. Depois grave o handoff (acima).
 5. Codes dos sócios recebem só **avisos** de coordenação (o banco recusa tarefa para eles).
+6. **O Code NUNCA chama `fn_agente_mensagem_enviar` nem `fn_agente_mensagem_ok_ceo`.** Quem envia tarefa e registra
+   o OK do CEO é só o Eng. Chefe. O Code só lê a própria caixa (`fn_agente_caixa`) e responde
+   (`fn_agente_mensagem_responder`). Cada envio e cada OK ficam gravados com quem chamou (`enviado_por`,
+   `ok_registrado_por`).
 <!-- END:protocolo-sessao -->
+
+<!-- BEGIN:provas-producao -->
+# Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
+
+Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
+agregação e **reiniciou o banco de produção (~1,5 min fora)**. Regra desde então:
+
+1. Prova em produção **nunca varre tabela grande** nem **chama função por linha em volume** (função com
+   `SET search_path` não é "inlinada": cada chamada é uma execução à parte e acumula memória).
+2. **Provas pesadas primeiro numa cópia local** (Postgres local com o esquema e amostra); só a versão leve vai à
+   produção.
+3. Toda prova começa com **`SET LOCAL statement_timeout` curto** (ex.: `'15s'`) e `SET LOCAL lock_timeout='5s'`, dentro
+   de `BEGIN … ROLLBACK`, e termina conferindo que não sobrou nada.
+4. Comandos que a ferramenta do banco trata como destrutivos (`DROP`, `DELETE`, `TRUNCATE`, `UPDATE` sem `WHERE`)
+   ficam fora da prova em produção; o que só se prova com eles vai para a cópia local ou para o teste `@pos-migration`.
+<!-- END:provas-producao -->
 
 <!-- BEGIN:disciplina-migrations -->
 # Disciplina de migrations — NÃO quebre o `deploy-migrations` (o CEO exige)

@@ -39,7 +39,7 @@ const fns = [...s.matchAll(/CREATE OR REPLACE FUNCTION public\.([a-z_]+)\(([^)]*
 ok(fns.length >= 8, `${fns.length} funções da caixa`)
 for (const f of fns) {
   ok(new RegExp(`REVOKE ALL ON FUNCTION public\\.${f.nome}\\([^)]*\\) FROM PUBLIC, anon, authenticated`).test(s), `${f.nome}: revogada de PUBLIC/anon/authenticated`)
-  if (f.nome === 'fn__agente_assert_servico' || f.ret === 'trigger') continue
+  if (f.nome === 'fn__agente_assert_servico' || f.nome === 'fn__agente_sessao' || f.ret === 'trigger') continue
   const corpo = s.slice(s.indexOf(`FUNCTION public.${f.nome}(`))
   const ate = corpo.indexOf('$function$', corpo.indexOf('$function$') + 10)
   ok(corpo.slice(0, ate).includes('fn__agente_assert_servico()'), `${f.nome}: passa pela guarda do canal protegido`)
@@ -64,10 +64,16 @@ ok(/'Bearer ' \|\| v_token/.test(acionar) && /experimental-cc-routine-2026-04-01
 ok(/'Nova mensagem ' \|\| m\.id::text/.test(acionar) && !/m\.corpo/.test(acionar), 'texto do disparo é só aviso (sem o corpo da tarefa)')
 ok(!/\bcron\.schedule\b/.test(s), 'sem plantão automático (cron)')
 
+// autoria: quem enviou e quem registrou o OK (sessão/agente)
+ok(/enviado_por\s+text NOT NULL/.test(s) && /fn__agente_sessao\(p_enviado_por\)/.test(s), 'envio grava enviado_por (quem chamou)')
+ok(/ok_registrado_por = public\.fn__agente_sessao\(p_registrado_por\)/.test(s), 'OK do CEO grava ok_registrado_por (quem chamou)')
+
 // 6) protocolo no AGENTS.md
 const agents = readFileSync(join(raiz, 'AGENTS.md'), 'utf8')
 ok(/fn_agente_caixa\('<seu-identificador>'\)/.test(agents) && /requer_ok_ceo/.test(agents) && /fn_agente_mensagem_responder/.test(agents),
   'AGENTS.md: protocolo da caixa (ler no início, OK do CEO, responder na mensagem)')
+ok(/NUNCA chama `fn_agente_mensagem_enviar` nem `fn_agente_mensagem_ok_ceo`/.test(agents), 'AGENTS.md: Code nunca envia nem registra OK')
+ok(/statement_timeout/.test(agents) && /nunca varre tabela grande/.test(agents), 'AGENTS.md: regra das provas em produção (incidente 03/10)')
 
 if (falhas) { console.error(`\n[check-agente-caixa] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-agente-caixa] caixa de mensagens dos agentes: canal protegido, OK do CEO e cofre conferidos.')

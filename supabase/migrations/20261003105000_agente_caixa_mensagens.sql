@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS public.erp_agente_mensagem (
   resposta       text,                          -- BOX curto do Code
   pr_numero      integer,
   acionamento    jsonb,                         -- último disparo da rotina: {em, request_id | motivo}
+  enviado_por    text NOT NULL,                 -- quem chamou fn_agente_mensagem_enviar (declarado + sessão do banco)
+  ok_registrado_por text,                       -- quem chamou fn_agente_mensagem_ok_ceo (declarado + sessão do banco)
   arquivada      boolean NOT NULL DEFAULT false, -- nada é apagado
   criado_em      timestamptz NOT NULL DEFAULT now(),
   recebida_em    timestamptz,
@@ -75,6 +77,20 @@ BEGIN
     RAISE EXCEPTION 'caixa_de_agentes_so_pelo_canal_protegido' USING ERRCODE = '42501';
   END IF;
 END;
+$function$;
+
+-- quem está chamando: o que o chamador declara (ex.: 'eng_chefe · chat') + a sessão do banco (papel e aplicação).
+-- A caixa só é gravada pela conexão de serviço; isto registra QUAL sessão/agente fez cada envio e cada OK.
+CREATE OR REPLACE FUNCTION public.fn__agente_sessao(p_declarado text)
+ RETURNS text
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE(NULLIF(btrim(p_declarado), ''), 'não declarado')
+      || ' | sessão: ' || session_user || '/' || current_user
+      || COALESCE(' | app: ' || NULLIF(current_setting('application_name', true), ''), '')
+      || COALESCE(' | papel jwt: ' || (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'), '');
 $function$;
 
 -- ── acionamento da rotina do agente (pg_net + cofre) ───────────────────────────────────────────────────────────────
@@ -152,7 +168,7 @@ CREATE TRIGGER trg_agente_mensagem_acionar
 -- ── funções de uso (todas pelo canal protegido) ────────────────────────────────────────────────────────────────────
 -- Eng. Chefe (ou CEO) envia
 CREATE OR REPLACE FUNCTION public.fn_agente_mensagem_enviar(p_para text, p_de text, p_tipo text, p_assunto text, p_corpo text,
-                                                           p_requer_ok_ceo boolean DEFAULT false)
+                                                           p_requer_ok_ceo boolean DEFAULT false, p_enviado_por text DEFAULT NULL)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -161,8 +177,9 @@ AS $function$
 DECLARE v_id uuid; v_ac jsonb;
 BEGIN
   PERFORM public.fn__agente_assert_servico();
-  INSERT INTO erp_agente_mensagem (para, de, tipo, assunto, corpo, requer_ok_ceo)
-  VALUES (p_para, p_de, COALESCE(p_tipo, 'tarefa'), p_assunto, p_corpo, COALESCE(p_requer_ok_ceo, false))
+  INSERT INTO erp_agente_mensagem (para, de, tipo, assunto, corpo, requer_ok_ceo, enviado_por)
+  VALUES (p_para, p_de, COALESCE(p_tipo, 'tarefa'), p_assunto, p_corpo, COALESCE(p_requer_ok_ceo, false),
+          public.fn__agente_sessao(p_enviado_por))
   RETURNING id INTO v_id;
   SELECT acionamento INTO v_ac FROM erp_agente_mensagem WHERE id = v_id;
   RETURN jsonb_build_object('ok', true, 'id', v_id, 'acionamento', v_ac);
@@ -170,7 +187,8 @@ END;
 $function$;
 
 -- Eng. Chefe registra o OK do CEO (dado no chat) → aciona a rotina
-CREATE OR REPLACE FUNCTION public.fn_agente_mensagem_ok_ceo(p_mensagem_id uuid, p_origem text DEFAULT 'chat do Eng. Chefe')
+CREATE OR REPLACE FUNCTION public.fn_agente_mensagem_ok_ceo(p_mensagem_id uuid, p_origem text DEFAULT 'chat do Eng. Chefe',
+                                                            p_registrado_por text DEFAULT NULL)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -184,7 +202,8 @@ BEGIN
   IF NOT m.requer_ok_ceo THEN RETURN jsonb_build_object('ok', false, 'erro', 'mensagem_nao_pede_ok'); END IF;
   IF m.ok_ceo_em IS NOT NULL THEN RETURN jsonb_build_object('ok', true, 'ja_registrado', m.ok_ceo_em); END IF;
   UPDATE erp_agente_mensagem
-     SET ok_ceo_em = now(), ok_ceo_origem = COALESCE(NULLIF(btrim(p_origem), ''), 'chat do Eng. Chefe'), atualizado_em = now()
+     SET ok_ceo_em = now(), ok_ceo_origem = COALESCE(NULLIF(btrim(p_origem), ''), 'chat do Eng. Chefe'),
+         ok_registrado_por = public.fn__agente_sessao(p_registrado_por), atualizado_em = now()
    WHERE id = p_mensagem_id;
   RETURN jsonb_build_object('ok', true, 'acionamento', (SELECT acionamento FROM erp_agente_mensagem WHERE id = p_mensagem_id));
 END;
@@ -208,6 +227,7 @@ BEGIN
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
            'id', id, 'de', de, 'tipo', tipo, 'assunto', assunto, 'corpo', corpo, 'status', status,
            'requer_ok_ceo', requer_ok_ceo, 'ok_ceo_em', ok_ceo_em, 'ok_ceo_origem', ok_ceo_origem,
+           'enviado_por', enviado_por, 'ok_registrado_por', ok_registrado_por,
            -- com OK pendente, o Code NÃO executa: só lê e aguarda
            'pode_executar', (NOT requer_ok_ceo OR ok_ceo_em IS NOT NULL),
            'criado_em', criado_em) ORDER BY criado_em), '[]'::jsonb)
@@ -291,18 +311,20 @@ $function$;
 
 -- todas só pelo canal protegido: nem anônimo nem usuário logado
 REVOKE ALL ON FUNCTION public.fn__agente_assert_servico() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn__agente_sessao(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_agente_acionar(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_agente_mensagem_trg_acionar() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.fn_agente_mensagem_enviar(text, text, text, text, text, boolean) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.fn_agente_mensagem_ok_ceo(uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_agente_mensagem_enviar(text, text, text, text, text, boolean, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.fn_agente_mensagem_ok_ceo(uuid, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_agente_caixa(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_agente_mensagem_responder(uuid, text, text, text, integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_agente_mensagem_arquivar(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_agente_acionamento_status(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn__agente_assert_servico() TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn__agente_sessao(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_agente_acionar(uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.fn_agente_mensagem_enviar(text, text, text, text, text, boolean) TO service_role;
-GRANT EXECUTE ON FUNCTION public.fn_agente_mensagem_ok_ceo(uuid, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_agente_mensagem_enviar(text, text, text, text, text, boolean, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_agente_mensagem_ok_ceo(uuid, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_agente_caixa(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_agente_mensagem_responder(uuid, text, text, text, integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_agente_mensagem_arquivar(uuid) TO service_role;

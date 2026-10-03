@@ -11,7 +11,7 @@ const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABA
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 
 type Envio = { ok: boolean; id: string; acionamento: { acionou: boolean; motivo?: string } | null }
-type Caixa = { ok: boolean; mensagens: { id: string; status: string; pode_executar: boolean; assunto: string }[] }
+type Caixa = { ok: boolean; mensagens: { id: string; status: string; pode_executar: boolean; assunto: string; enviado_por: string }[] }
 type Resp = { ok: boolean; erro?: string; status?: string }
 
 test.describe('Caixa de mensagens dos agentes', () => {
@@ -28,6 +28,7 @@ test.describe('Caixa de mensagens dos agentes', () => {
     const r = await rpc<Envio>('fn_agente_mensagem_enviar', {
       p_para: para, p_de: 'eng_chefe', p_tipo: tipo, p_assunto: `[TESTE ${RUN}] não executar`,
       p_corpo: 'Mensagem de teste da aceitação. Não executar.', p_requer_ok_ceo: requerOk,
+      p_enviado_por: `aceitacao-e2e ${RUN}`,
     })
     if (r.id) criadas.push(r.id)
     return r
@@ -47,6 +48,7 @@ test.describe('Caixa de mensagens dos agentes', () => {
     const m = caixa.mensagens.find((x) => x.id === id)
     expect(m?.status, 'ao ler, a nova vira recebida').toBe('recebida')
     expect(m?.pode_executar).toBe(true)
+    expect(m?.enviado_por, 'fica gravado quem enviou (declarado + sessão)').toContain(`aceitacao-e2e ${RUN}`)
     expect((await rpc<Resp>('fn_agente_mensagem_responder', { p_mensagem_id: id, p_agente: 'jordana-code', p_status: 'concluida', p_resposta: 'x' })).erro)
       .toBe('mensagem_de_outro_agente')
     expect((await rpc<Resp>('fn_agente_mensagem_responder', { p_mensagem_id: id, p_agente: 'stephany-code', p_status: 'concluida' })).erro,
