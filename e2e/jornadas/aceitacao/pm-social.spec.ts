@@ -89,6 +89,14 @@ test.describe('P&M Social — planejamento, posts, calendário e post que vira j
     expect(post.dados[0].job_id, 'rascunho não vira job').toBeNull()
     const postId = post.dados[0].id
 
+    // 2b) rede em uso por post não sai da lista (a empresa oculta; remover é recusado e nada é apagado)
+    const listaIds = await api<{ id: string; valor: string }[]>('POST', 'rpc/fn_agency_config_listar', { p_company_id: DEMO_PM, p_lista: 'rede_social' })
+    const insta = listaIds.dados.find((r) => r.valor === 'instagram')
+    expect(insta?.id, 'instagram na lista da empresa').toBeTruthy()
+    const rem = await api<{ ok: boolean; erro?: string }>('POST', 'rpc/fn_agency_config_excluir', { p_id: insta!.id })
+    expect(rem.dados.ok, 'rede usada em post não pode ser removida').toBe(false)
+    expect(rem.dados.erro).toBe('opcao_em_uso')
+
     // 3) aprovado → job com prazo = publicação − antecedência
     const ap = await api<{ job_id: string }[]>('PATCH', `agency_posts?id=eq.${postId}`, { status: 'aprovado' })
     expect(ap.status, ap.texto).toBe(200)
