@@ -5,7 +5,8 @@
 // pares. Esta é a MESMA regra de fn_nr36_reler_dia (banco); aqui serve para a prévia na tela e para o gate de build.
 
 export type PapelMarca = 'saida' | 'retorno' | 'ignorar'
-export type Marca = { hora: string; papel: PapelMarca; origem: 'arquivo' | 'manual' }
+// origem 'arquivo' = batida original do relatório (imutável); 'manual' = horário digitado, que diz de onde veio (#587)
+export type Marca = { hora: string; papel: PapelMarca; origem: 'arquivo' | 'manual'; origem_ajuste?: 'catraca' | 'conferido_colaborador' }
 export type SituacaoPausa = 'fechada' | 'sem_retorno' | 'sem_saida'
 export type PausaRelida = { inicio: string | null; fim: string | null; minutos: number | null; situacao: SituacaoPausa }
 // sem_saida: a linha guarda um RETORNO cuja saída não foi batida (o horário está em inicio_local, sem fim)

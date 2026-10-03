@@ -63,6 +63,9 @@ test.describe('Conferência de pausas — dizer se o horário é saída ou retor
     if (!cpf) return
     await dbDelete('ind_ponto_pausa', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
     await dbDelete('nr36_pausa_historico', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
+    // #587: a camada de ajuste e as justificativas do dia de teste também saem (dado só da demonstração)
+    await dbDelete('nr36_batida_ajuste', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
+    await dbDelete('nr36_releitura_justificativa', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
   })
 
   test('a responsável marca 13:30 como retorno, acrescenta a saída 13:08 e o dia fecha com as pausas reais', { tag: '@pos-migration' }, async ({ page }) => {
@@ -86,7 +89,12 @@ test.describe('Conferência de pausas — dizer se o horário é saída ou retor
     }
     await page.getByTestId('marca-nova-hora').fill('13:08')
     await page.getByTestId('marca-nova-papel').selectOption('saida')
+    // #587 (CEO 02/10): o horário digitado diz de onde veio — sem origem não entra
     await page.getByTestId('marca-nova-add').click()
+    await expect(page.getByTestId('marcas-erro'), 'sem origem o horário não entra').toContainText('catraca')
+    await page.getByTestId('marca-nova-origem').selectOption('catraca')
+    await page.getByTestId('marca-nova-add').click()
+    await expect(page.getByTestId('marca-1308-origem')).toContainText('catraca')
     const previa = page.getByTestId('marcas-previa')
     await expect(previa).toContainText('13:08 → 13:30 · 22 min')
     await expect(previa).toContainText('15:02 → 15:32 · 30 min')
@@ -121,10 +129,14 @@ test.describe('Conferência de pausas — dizer se o horário é saída ou retor
   })
 
   test('retorno sem saída não se fecha pelo fim: fica pendente até informar a saída', { tag: '@pos-migration' }, async () => {
-    const r = await comoRobo<{ ok: boolean; mensagem?: string }>('fn_nr36_reler_dia', {
-      p_company_id: DEMO_SST, p_cpf: cpf, p_data: DIA,
-      p_marcas: [{ hora: '13:30', papel: 'retorno' }, { hora: '15:02', papel: 'saida' }, { hora: '15:32', papel: 'retorno' }],
-    })
+    // #587: a releitura só passa pela porta justificada; retorno sem saída exige dizer que não se sabe o horário
+    const marcas = [{ hora: '13:30', papel: 'retorno' }, { hora: '15:02', papel: 'saida' }, { hora: '15:32', papel: 'retorno' }]
+    const sem = await comoRobo<{ ok: boolean; erro?: string }>('fn_nr36_reler_dia_justificado', {
+      p_company_id: DEMO_SST, p_cpf: cpf, p_data: DIA, p_marcas: marcas, p_justificativa: 'E2E 256: não sei a saída das 13:30', p_origem: 'manual' })
+    expect(sem.erro, 'sem "não sei o horário" não grava').toBe('falta_horario')
+    const r = await comoRobo<{ ok: boolean; mensagem?: string }>('fn_nr36_reler_dia_justificado', {
+      p_company_id: DEMO_SST, p_cpf: cpf, p_data: DIA, p_marcas: marcas, p_justificativa: 'E2E 256: não sei a saída das 13:30', p_origem: 'manual',
+      p_pendencia_ciente: true })
     expect(r.ok, r.mensagem).toBe(true)
     const pend = await comoRobo<Array<{ pausa_id: string; data: string; inicio_local: string; sem_saida: boolean }>>('fn_nr36_pausas_pendentes_listar', { p_company_id: DEMO_SST, p_limite: 5000 })
     const semSaida = pend.find(p => p.data === DIA && p.inicio_local === '13:30')
