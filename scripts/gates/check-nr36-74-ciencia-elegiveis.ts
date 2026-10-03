@@ -13,7 +13,10 @@ ok(/REVOKE ALL ON FUNCTION public\.fn_nr36_ciencia_painel\(uuid, date\) FROM PUB
 ok(!/\b(INSERT INTO|UPDATE|DELETE FROM)\b/.test(mig), 'a migration não grava nada')
 
 const tela = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
-ok(/rpc<[^>]*>\('fn_nr36_ciencia_painel'/.test(tela) && !/rpc<[^>]*>\('fn_nr36_ciencia_listar'/.test(tela), 'a aba lê o painel de elegíveis (não mais só os documentos)')
+// a leitura antiga (só documentos) fica apenas como volta quando o banco ainda não tem o painel (preview antes da migration)
+const semVolta = tela.replace(/banco ainda sem o painel[\s\S]*?catch \(e2\)/, '')
+ok(/rpc<[^>]*>\('fn_nr36_ciencia_painel'/.test(tela) && !/fn_nr36_ciencia_listar/.test(semVolta), 'a aba lê o painel de elegíveis (a leitura só de documentos é só a volta sem o painel)')
+ok(/could not find the function\|schema cache\|perhaps you meant/.test(tela), 'a volta só entra quando a função do painel não existe (outro erro aparece na tela)')
 ok(/ciencia-gerar-\$\{l\.cpf\}/.test(tela) && /fn_nr36_ciencia_gerar', \{ p_company_id: companyId, p_competencia: `\$\{comp\}-01`, p_cpf: l\.cpf \}/.test(tela), 'quem está sem documento tem o botão para gerar o dele')
 ok(/Sem relatório de pausa no mês/.test(tela) && /Sem documento/.test(tela) && /Elegíveis no mês/.test(tela), 'a tela mostra elegíveis, sem documento e sem pausa no mês')
 

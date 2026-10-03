@@ -269,7 +269,16 @@ function AbaCiencia({ companyId }: { companyId: string }) {
   const carregar = useCallback(async () => {
     setErro('')
     try { const r = await rpc<{ ok: boolean; total: number; elegiveis: number; com_documento: number; sem_documento: number; sem_apuracao: number; assinados: number; pendentes: number; recusados: number; linhas: CienciaLinha[] }>('fn_nr36_ciencia_painel', { p_company_id: companyId, p_competencia: `${comp}-01` }); setDados(r); setCarregado(true) }
-    catch (e) { setErro((e as Error).message) }
+    catch (e) {
+      // banco ainda sem o painel (preview antes da migration): mostra ao menos quem já tem documento, como antes
+      const msg = (e as Error).message
+      if (!/fn_nr36_ciencia_painel|could not find the function|schema cache|perhaps you meant|PGRST202/i.test(msg)) { setErro(msg); return }
+      try {
+        const r = await rpc<{ total: number; assinados: number; pendentes: number; recusados: number; linhas: CienciaLinha[] }>('fn_nr36_ciencia_listar', { p_company_id: companyId, p_competencia: `${comp}-01` })
+        const linhas = (r.linhas || []).map(l => ({ ...l, situacao: 'com_documento' as const, elegivel: true }))
+        setDados({ ...r, linhas, elegiveis: linhas.length, com_documento: linhas.length, sem_documento: 0, sem_apuracao: 0 }); setCarregado(true)
+      } catch (e2) { setErro((e2 as Error).message) }
+    }
   }, [companyId, comp])
   useEffect(() => { void carregar() }, [carregar])
 
