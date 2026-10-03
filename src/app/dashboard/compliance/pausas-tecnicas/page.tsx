@@ -14,6 +14,7 @@ import { frasesPausasCurtas, frasesExcesso, fraseSinal, type PausaDia, type Trec
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
+import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
 import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
 
 const C = {
@@ -245,7 +246,9 @@ function Kpi({ label, n, cor, bg }: { label: string; n: number; cor: string; bg:
 // ─────────────────────── CIÊNCIA MENSAL (#74) ───────────────────────
 // Gera o relatório mensal por colaborador, coleta a assinatura via link público (mesmo fluxo do
 // EPI) e acompanha quem falta. O documento declara a origem de cada horário (RD-38).
-type CienciaLinha = { id: string; cpf: string; nome: string; funcao: string | null; setor: string | null; status: string; assinado_em: string | null; recusa_assinar: boolean; recusa_motivo: string | null; resumo: { conforme?: number; desvio?: number; pendente_confirmacao?: number; dias_total?: number } | null; documento_hash: string | null }
+type CienciaLinha = { id: string; cpf: string; nome: string; funcao: string | null; setor: string | null; status: string; assinado_em: string | null; recusa_assinar: boolean; recusa_motivo: string | null; resumo: { conforme?: number; desvio?: number; pendente_confirmacao?: number; dias_total?: number } | null; documento_hash: string | null
+  // #587: documento assinado/recusado nunca é regerado — ajuste depois disso o marca como desatualizado e a nova versão guarda a anterior
+  versao?: number; versao_motivo?: string | null; desatualizado_em?: string | null; desatualizado_motivo?: string | null; versoes_guardadas?: number }
 const cienciaSelo: Record<string, { c: string; bg: string; l: string }> = {
   assinado: { c: C.green, bg: C.greenBg, l: 'Assinado' },
   pendente: { c: C.amber, bg: C.amberBg, l: 'Aguardando assinatura' },
@@ -280,6 +283,16 @@ function AbaCiencia({ companyId }: { companyId: string }) {
       if (row) setLink({ nome: l.nome, url: row.url_assinatura, wa: row.whatsapp_link })
     } catch (e) { setErro((e as Error).message) }
   }
+  const novaVersao = async (l: CienciaLinha) => {
+    const motivo = window.prompt(`Nova versão do documento de ${l.nome}. A versão ${l.versao ?? 1} (${l.status === 'assinado' ? 'assinada' : 'com a recusa registrada'}) fica guardada, sem mudança. Motivo:`, l.desatualizado_motivo || '')
+    if (motivo === null) return
+    setErro('')
+    try {
+      const r = await rpc<{ ok: boolean; versao?: number; erro?: string; mensagem?: string }>('fn_nr36_ciencia_nova_versao', { p_id: l.id, p_motivo: motivo })
+      if (!r.ok) throw new Error(r.mensagem || (r.erro === 'sem_motivo' ? 'Escreva o motivo (pelo menos 10 caracteres).' : r.erro) || 'falha ao gerar a nova versão')
+      await carregar()
+    } catch (e) { setErro((e as Error).message) }
+  }
   const recusar = async (l: CienciaLinha) => {
     const motivo = window.prompt(`Registrar recusa de ${l.nome}. Motivo (opcional):`, '')
     if (motivo === null) return
@@ -296,7 +309,7 @@ function AbaCiencia({ companyId }: { companyId: string }) {
       <div style={{ display: 'flex', gap: 10, background: C.blueBg, border: `1px solid ${C.blue}33`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
         <FileSignature size={18} style={{ color: C.blue, flexShrink: 0, marginTop: 1 }} />
         <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
-          Gera um relatório mensal por colaborador com os horários de pausa e sua origem (registrado · confirmado pelo ponto · estimado), coleta a <b>assinatura por link</b> (Lei 14.063/2020, mesmo fluxo do EPI) e mostra <b>quem já assinou e quem falta</b>. A abertura do link é registrada mesmo sem assinatura. Só gera para quem tem apuração no mês; documento já assinado não é sobrescrito.
+          Gera um relatório mensal por colaborador com os horários de pausa e sua origem (registrado · confirmado pelo ponto · estimado), coleta a <b>assinatura por link</b> (Lei 14.063/2020, mesmo fluxo do EPI) e mostra <b>quem já assinou e quem falta</b>. A abertura do link é registrada mesmo sem assinatura. Só gera para quem tem apuração no mês; documento já assinado não é sobrescrito. Quando um dia é ajustado na Conferência, o documento ainda não assinado é atualizado sozinho e mostra o horário original e o ajustado (origem, quem e quando); o já assinado fica como está e pede uma <b>nova versão</b>, que guarda a assinada.
         </div>
       </div>
 
@@ -323,11 +336,14 @@ function AbaCiencia({ companyId }: { companyId: string }) {
                 <tr key={l.id} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
                   <td style={td()}><div style={{ fontWeight: 600, color: C.espresso }}>{l.nome}</div><div style={{ fontSize: 11, color: C.gray }}>{l.funcao || ''}{l.setor ? ` · ${l.setor}` : ''}</div></td>
                   <td style={td()}><span style={{ color: C.green }}>{l.resumo?.conforme ?? 0} conf.</span> · <span style={{ color: C.red }}>{l.resumo?.desvio ?? 0} desv.</span> · <span style={{ color: C.amber }}>{l.resumo?.pendente_confirmacao ?? 0} p/ confirmar</span></td>
-                  <td style={td()}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.bg, color: s.c, borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: s.c }} /> {s.l}</span>{l.recusa_motivo && <div style={{ fontSize: 10, color: C.gray, marginTop: 3 }}>{l.recusa_motivo}</div>}</td>
+                  <td style={td()}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.bg, color: s.c, borderRadius: 999, padding: '3px 10px', fontSize: 11.5, fontWeight: 700 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: s.c }} /> {s.l}</span>{l.recusa_motivo && <div style={{ fontSize: 10, color: C.gray, marginTop: 3 }}>{l.recusa_motivo}</div>}
+                    {(l.versao ?? 1) > 1 && <div style={{ fontSize: 10.5, color: C.gray, marginTop: 3 }} data-testid={`ciencia-versao-${l.cpf}`}>versão {l.versao}{l.versao_motivo ? ` · ${l.versao_motivo}` : ''} · {l.versoes_guardadas ?? 0} anterior(es) guardada(s)</div>}
+                    {l.desatualizado_em && <div style={{ fontSize: 10.5, color: C.amber, fontWeight: 700, marginTop: 3 }} data-testid={`ciencia-desatualizado-${l.cpf}`}>ajuste depois da {l.status === 'assinado' ? 'assinatura' : 'recusa'}: {l.desatualizado_motivo}</div>}</td>
                   <td style={{ ...td(), whiteSpace: 'nowrap' }}>
                     <BtnGhost onClick={() => setVerDoc(l.id)}><FileText size={13} /> Ver/PDF</BtnGhost>{' '}
                     {l.status !== 'assinado' && <><BtnGhost onClick={() => gerarLink(l)}><Copy size={13} /> Link p/ assinar</BtnGhost>{' '}
                     <BtnGhost onClick={() => recusar(l)}>Recusa</BtnGhost></>}
+                    {(l.status === 'assinado' || l.status === 'recusado') && l.desatualizado_em && <>{' '}<BtnGhost onClick={() => novaVersao(l)}><RefreshCw size={13} /> Nova versão</BtnGhost></>}
                   </td>
                 </tr>
               ) })}
@@ -377,15 +393,15 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
     } catch (e) { alert('Falha ao anexar: ' + (e as Error).message) } finally { setSubindo(false) }
   }
   const snap = (doc?.colaborador_snapshot || {}) as Record<string, string>
-  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; pausas?: Array<{ de?: string; ate?: string; min?: number; fim_origem?: string }> }>
+  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; pausas?: PausaDoc[]; ajuste?: AjusteDia | null }>
   const nEst = detalhe.reduce((a, d) => a + (d.pausas || []).filter(p => p.fim_origem === 'estimado').length, 0)
-  const fim = (p: { de?: string; ate?: string; fim_origem?: string }) => {
-    const de = p.de || '—'
-    if (!p.ate) return <span style={{ color: C.red }}>{de} → sem registro de saída</span>
-    if (p.fim_origem === 'estimado') return <span><span style={{ fontFamily: 'monospace' }}>{de} → ~{p.ate}</span> <b style={{ color: C.amber }}>(estimado)</b></span>
-    if (p.fim_origem === 'confirmado_ponto') return <span><span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span> <b style={{ color: C.blue }}>(confirmado pelo ponto)</b></span>
-    if (p.fim_origem === 'confirmado_manual') return <span><span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span> <b style={{ color: C.espresso }}>(confirmado)</b></span>
-    return <span style={{ fontFamily: 'monospace' }}>{de} → {p.ate}</span>
+  // #587: mesma leitura da página de assinatura (lib/ponto/ajusteBatida) — retorno sem saída não sai invertido e o
+  // horário ajustado aparece junto do original, com origem, quem e quando
+  const corTom = { normal: C.espresso, alerta: C.red, estimado: C.amber, ponto: C.blue, confirmado: C.espresso } as const
+  const fim = (p: PausaDoc, aj?: AjusteDia | null) => {
+    const l = linhaPausaDoc(p, aj)
+    return <span><span style={{ fontFamily: 'monospace', color: l.tom === 'alerta' ? C.red : undefined }}>{l.texto}</span>{l.sufixo && <b style={{ color: corTom[l.tom] }}>{l.sufixo}</b>}
+      {l.notas.map((n, k) => <span key={k} style={{ display: 'block', fontSize: 11, color: C.gray, paddingLeft: 12 }} data-testid="ciencia-ajuste-nota">{n}</span>)}</span>
   }
   return createPortal(
     <div onClick={onClose} style={modalBg()} className="ps-print-portal" data-testid="ciencia-doc-modal">
@@ -408,7 +424,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
           <div>
             <div style={{ textAlign: 'center', marginBottom: 12 }}>
               <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 700, color: C.espresso }}>Relatório Mensal de Pausas Térmicas — NR-36 / Art. 253 CLT</div>
-              <div style={{ fontSize: 12, color: C.gray }}>Competência {String(doc.competencia).slice(0, 7)}</div>
+              <div style={{ fontSize: 12, color: C.gray }}>Competência {String(doc.competencia).slice(0, 7)}{Number(doc.versao ?? 1) > 1 ? ` · versão ${String(doc.versao)}${doc.versao_motivo ? ` (${String(doc.versao_motivo)})` : ''}` : ''}</div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 6, fontSize: 12.5, marginBottom: 12 }}>
               <div><b>Nome:</b> {snap.nome || '—'}</div><div><b>CPF:</b> {snap.cpf || '—'}</div>
@@ -418,8 +434,9 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
             {detalhe.map((d, i) => (
               <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span></div>
+                {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.gray }} data-testid="ciencia-originais">{notaDiaDoc(d.ajuste)}</div>}
                 {(d.pausas || []).length === 0 ? <div style={{ fontSize: 11.5, color: C.gray, fontStyle: 'italic' }}>Sem pausa registrada.</div> :
-                  (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}
+                  (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}
               </div>
             ))}
             {nEst > 0 && (
@@ -1234,6 +1251,9 @@ function AbaConferencia({ companyId }: { companyId: string }) {
 // uma batida o par desliza. A responsável diz o que cada horário é — Saída, Retorno ou Ignorar (entrada do turno,
 // almoço) — e pode acrescentar o horário que faltou. A prévia mostra as pausas que vão ficar; salvar relê o dia
 // (fn_nr36_reler_dia: a leitura anterior vai para o histórico) e dá para desfazer.
+// #587 (CEO 02/10): a batida ORIGINAL não muda; o horário digitado diz de onde veio (catraca | conferido com o
+// colaborador) e fica numa camada à parte. Se sobrar retorno sem saída (ou saída sem retorno), só grava marcando,
+// de propósito, que não se sabe o horário — foi assim que os horários da catraca deixaram de ser gravados.
 function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, onFechar, onSalvo }: { companyId: string; cpf: string; data: string; colaborador: string; marcasIniciais?: Marca[]; onFechar: () => void; onSalvo: (msg: string) => void }) {
   const [marcas, setMarcas] = useState<Marca[]>(marcasIniciais ?? [])
   // #587 · ANTES (como o dia está hoje) × DEPOIS (prévia) e justificativa obrigatória para gravar
@@ -1245,15 +1265,24 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState('')
   const [novaHora, setNovaHora] = useState(''); const [novoPapel, setNovoPapel] = useState<PapelMarca>('saida')
+  const [novaOrigem, setNovaOrigem] = useState<OrigemAjuste | ''>('')
+  const [ajusteDia, setAjusteDia] = useState<AjusteDia | null>(null)
+  const [pendCiente, setPendCiente] = useState(false)
 
   useEffect(() => {
     let vivo = true
     ;(async () => {
       try {
-        const r = await rpc<{ ok: boolean; linhas: LinhaPausaDia[]; pode_desfazer: boolean }>('fn_nr36_marcas_dia', { p_company_id: companyId, p_cpf: cpf, p_data: data })
+        const r = await rpc<{ ok: boolean; linhas: LinhaPausaDia[]; pode_desfazer: boolean; ajuste?: AjusteDia | null }>('fn_nr36_marcas_dia', { p_company_id: companyId, p_cpf: cpf, p_data: data })
         if (vivo) {
-          const atuais = marcasDasPausas(r.linhas || [])
-          setAntes(parearMarcas(atuais)); setPodeDesfazer(!!r.pode_desfazer)
+          const aj = r.ajuste ?? null
+          // horário digitado antes segue com a origem que já tem na camada de ajuste
+          const atuais = marcasDasPausas(r.linhas || []).map(m => {
+            if (m.origem !== 'manual' || m.papel === 'ignorar') return m
+            const a = ajusteDe(aj, m.hora, m.papel)
+            return a ? { ...m, origem_ajuste: a.origem } : m
+          })
+          setAjusteDia(aj); setAntes(parearMarcas(atuais)); setPodeDesfazer(!!r.pode_desfazer)
           if (!marcasIniciais) setMarcas(atuais)
         }
       } catch (e) { if (vivo) setErro((e as Error).message) } finally { if (vivo) setCarregando(false) }
@@ -1263,6 +1292,8 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
 
   const previa = useMemo(() => parearMarcas(marcas), [marcas])
   const invalido = useMemo(() => (marcas.length ? validarMarcas(marcas) : 'Nenhuma marcação neste dia.'), [marcas])
+  const pendencias = useMemo(() => pendenciasDaPrevia(previa), [previa])
+  const bloqueadoPend = pendencias.length > 0 && !pendCiente
   const setPapel = (hora: string, papel: PapelMarca) => setMarcas(ms => ms.map(m => (m.hora === hora ? { ...m, papel } : m)))
   const tid = (h: string) => h.replace(':', '')
 
@@ -1270,17 +1301,21 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
     const h = normalizarHora(novaHora)
     if (!h) { setErro('Horário inválido — use HH:MM.'); return }
     if (marcas.some(m => m.hora === h)) { setErro(`O horário ${h} já está no dia.`); return }
-    setErro(''); setMarcas(ms => [...ms, { hora: h, papel: novoPapel, origem: 'manual' as const }].sort((a, b) => a.hora.localeCompare(b.hora))); setNovaHora('')
+    if (!novaOrigem) { setErro('Diga de onde veio o horário: catraca ou conferido com o colaborador.'); return }
+    setErro(''); setMarcas(ms => [...ms, { hora: h, papel: novoPapel, origem: 'manual' as const, origem_ajuste: novaOrigem }].sort((a, b) => a.hora.localeCompare(b.hora))); setNovaHora('')
   }
   async function salvar() {
     if (invalido) { setErro(invalido); return }
     if (justificativa.trim().length < 10) { setErro('Escreva a justificativa (pelo menos 10 caracteres): por que este dia está sendo corrigido.'); return }
+    if (bloqueadoPend) { setErro(`Falta horário: ${pendencias.map(textoPendencia).join('; ')}. Digite o horário em "Horário que faltou" ou marque que não sabe.`); return }
     if (!window.confirm(`Reler as pausas de ${colaborador} em ${data.split('-').reverse().join('/')} com estas marcações? A leitura anterior fica guardada no histórico e dá para desfazer.`)) return
     setBusy(true); setErro('')
     try {
-      const r = await rpc<{ ok: boolean; pausas?: number; mensagem?: string; erro?: string }>('fn_nr36_reler_dia_justificado', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_marcas: marcas, p_justificativa: justificativa.trim(), p_origem: origem })
+      const r = await rpc<{ ok: boolean; pausas?: number; mensagem?: string; erro?: string }>('fn_nr36_reler_dia_justificado', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_marcas: marcas, p_justificativa: justificativa.trim(), p_origem: origem, p_pendencia_ciente: pendencias.length > 0 && pendCiente })
       if (!r.ok) throw new Error(r.mensagem || r.erro || 'falha ao reler o dia')
-      onSalvo(`Dia relido: ${r.pausas} pausa(s) de ${colaborador}. A leitura anterior está no histórico.`)
+      const ci = (r as { ciencia?: { acao?: string } }).ciencia?.acao
+      onSalvo(`Dia relido: ${r.pausas} pausa(s) de ${colaborador}. A leitura anterior está no histórico.`
+        + (ci === 'regerado' ? ' O documento de Ciência do mês foi atualizado com o ajuste.' : ci === 'desatualizado' ? ' A Ciência deste mês já estava assinada: ela não muda; gere uma nova versão na aba Ciência.' : ''))
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
   async function desfazer() {
@@ -1300,7 +1335,8 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
     <div style={modalBg()} onClick={onFechar}>
       <div style={{ ...modalCard(), maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()} data-testid="marcas-dia-modal">
         <div style={secTitle()}>Saída e retorno · {colaborador} · {data.split('-').reverse().join('/')}</div>
-        <div style={{ fontSize: 12.5, color: C.gray, marginBottom: 10 }}>Diga o que cada horário é. <b>Saída</b> começa a pausa, o <b>Retorno</b> seguinte fecha. <b>Ignorar</b> tira o horário da conta (ex.: entrada do turno). Se faltou a saída, acrescente o horário abaixo; se não souber, deixe o retorno sem saída — a pausa continua pendente, nada é inventado.</div>
+        <div style={{ fontSize: 12.5, color: C.gray, marginBottom: 10 }}>Diga o que cada horário é. <b>Saída</b> começa a pausa, o <b>Retorno</b> seguinte fecha. <b>Ignorar</b> tira o horário da conta (ex.: entrada do turno). Se faltou a saída, <b>digite o horário abaixo</b> (ex.: o da catraca) e diga de onde veio. A batida original do relógio nunca muda: o horário digitado fica registrado à parte, com quem digitou e quando.</div>
+        {ajusteDia && ajusteDia.originais.length > 0 && <div style={{ fontSize: 11.5, color: C.gray, marginBottom: 8 }} data-testid="marcas-originais">Batidas originais do relógio: <b style={{ color: C.espresso }}>{ajusteDia.originais.join(', ')}</b></div>}
         {erro && <div style={{ ...erroBox(), marginTop: 0, marginBottom: 10 }} data-testid="marcas-erro">{erro}</div>}
         {carregando ? <Load /> : (
           <>
@@ -1308,7 +1344,8 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
               {marcas.map(m => (
                 <div key={m.hora} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', borderBottom: `1px solid ${C.beigeLt}`, paddingBottom: 6 }}>
                   <span style={{ fontWeight: 700, color: C.espresso, width: 50 }}>{m.hora}</span>
-                  <span style={{ fontSize: 10.5, color: m.origem === 'manual' ? C.amber : C.gray, width: 70 }}>{m.origem === 'manual' ? 'digitado' : 'do relatório'}</span>
+                  <span style={{ fontSize: 10.5, color: m.origem === 'manual' ? C.amber : C.gray, minWidth: 70 }} data-testid={`marca-${tid(m.hora)}-origem`}>{m.origem !== 'manual' ? 'original do relógio'
+                    : (() => { const a = m.papel !== 'ignorar' ? ajusteDe(ajusteDia, m.hora, m.papel) : null; return a ? rotuloAjuste(a) : `digitado${m.origem_ajuste ? ` · ${rotuloOrigemAjuste(m.origem_ajuste)}` : ' · origem?'}` })()}</span>
                   {(['saida', 'retorno', 'ignorar'] as PapelMarca[]).map(p => (
                     <button key={p} type="button" style={papelBtn(m.papel === p, corPapel[p])} data-testid={`marca-${tid(m.hora)}-${p}`} onClick={() => setPapel(m.hora, p)}>
                       {p === 'saida' ? 'Saída' : p === 'retorno' ? 'Retorno' : 'Ignorar'}
@@ -1323,6 +1360,10 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
               <input value={novaHora} onChange={e => setNovaHora(e.target.value)} placeholder="HH:MM" data-testid="marca-nova-hora" style={{ ...inp(), width: 80, padding: '6px 8px' }} />
               <select value={novoPapel} onChange={e => setNovoPapel(e.target.value as PapelMarca)} data-testid="marca-nova-papel" style={{ ...inp(), padding: '6px 8px' }}>
                 <option value="saida">Saída</option><option value="retorno">Retorno</option>
+              </select>
+              <select value={novaOrigem} onChange={e => setNovaOrigem(e.target.value as OrigemAjuste | '')} data-testid="marca-nova-origem" style={{ ...inp(), padding: '6px 8px' }}>
+                <option value="">De onde veio?</option>
+                {ORIGENS_AJUSTE.map(o => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
               </select>
               <button type="button" style={papelBtn(false, C.gold)} data-testid="marca-nova-add" onClick={acrescentar}>Acrescentar</button>
             </div>
@@ -1344,6 +1385,15 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
                 </div>
               ))}
             </div>
+            {pendencias.length > 0 && (
+              <div style={{ marginTop: 10, background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 10, padding: 10, fontSize: 12.5, color: '#92400E' }} data-testid="marcas-pendencias">
+                <b>Falta horário:</b> {pendencias.map(textoPendencia).join('; ')}. Se você tem o horário (ex.: da catraca), digite em <b>Horário que faltou</b>.
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6, cursor: 'pointer', color: C.espresso }}>
+                  <input type="checkbox" checked={pendCiente} onChange={e => setPendCiente(e.target.checked)} data-testid="marcas-pendencia-ciente" />
+                  Não sei o horário — o dia continua pendente
+                </label>
+              </div>
+            )}
           </>
         )}
         {!carregando && (
@@ -1357,7 +1407,7 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
           {podeDesfazer && <BtnGhost onClick={desfazer}><span data-testid="marcas-desfazer">Desfazer a última releitura</span></BtnGhost>}
           <BtnGhost onClick={onFechar}>Fechar</BtnGhost>
-          <button onClick={salvar} disabled={busy || carregando || !!invalido || justificativa.trim().length < 10} style={btnStyle(busy || carregando || !!invalido || justificativa.trim().length < 10)} data-testid="marcas-salvar">Confirmar e reler o dia</button>
+          <button onClick={salvar} disabled={busy || carregando || !!invalido || bloqueadoPend || justificativa.trim().length < 10} style={btnStyle(busy || carregando || !!invalido || bloqueadoPend || justificativa.trim().length < 10)} data-testid="marcas-salvar">Confirmar e reler o dia</button>
         </div>
       </div>
     </div>
@@ -1368,19 +1418,23 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
 // em que os pares deslizaram (faltou uma batida). O sistema só SUGERE — cada dia abre no editor com antes/depois e a
 // responsável confirma com justificativa. Nada grava sozinho.
 type DiaAuditoria = { cpf: string; colaborador: string; data: string; linhas: LinhaPausaDia[] }
+// #587 (CEO 02/10): dia já relido continua na auditoria, como "ajustado" — e com o que ainda falta (ex.: retorno sem saída)
+type DiaAjustado = { cpf: string; colaborador: string; data: string; pendencias: Array<{ tipo: 'sem_saida' | 'sem_retorno'; hora: string }>; ajuste: AjusteDia }
 function mesAnterior(): string { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
-function AuditoriaBatidas({ companyId, onRevisar }: { companyId: string; onRevisar: (d: { cpf: string; data: string; colaborador: string; marcasIniciais: Marca[] }) => void }) {
+function AuditoriaBatidas({ companyId, onRevisar }: { companyId: string; onRevisar: (d: { cpf: string; data: string; colaborador: string; marcasIniciais?: Marca[] }) => void }) {
   const [mes, setMes] = useState(mesAnterior())
   const [dias, setDias] = useState<DiaAuditoria[] | null>(null)
+  const [ajustados, setAjustados] = useState<DiaAjustado[]>([])
   const [busy, setBusy] = useState(false); const [erro, setErro] = useState('')
   async function auditar() {
     setBusy(true); setErro('')
     try {
       const [a, m] = mes.split('-').map(Number)
       const ini = `${mes}-01`, fim = `${mes}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}`
-      const r = await rpc<{ ok: boolean; dias?: DiaAuditoria[]; mensagem?: string }>('fn_nr36_auditoria_batidas_dias', { p_company_id: companyId, p_ini: ini, p_fim: fim })
+      const r = await rpc<{ ok: boolean; dias?: DiaAuditoria[]; ajustados?: DiaAjustado[]; mensagem?: string }>('fn_nr36_auditoria_batidas_dias', { p_company_id: companyId, p_ini: ini, p_fim: fim })
       if (!r.ok) throw new Error(r.mensagem || 'falha na auditoria')
       setDias((r.dias || []).filter(d => diaSuspeito(d.linhas)))
+      setAjustados(r.ajustados || [])
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
   const txt = (ps: PausaRelida[]) => ps.map(p => p.situacao === 'fechada' ? `${p.inicio}–${p.fim} (${p.minutos} min)` : p.situacao === 'sem_retorno' ? `${p.inicio}–?` : `?–${p.fim}`).join(' · ')
@@ -1395,8 +1449,43 @@ function AuditoriaBatidas({ companyId, onRevisar }: { companyId: string; onRevis
         <button onClick={auditar} disabled={busy} style={btnStyle(busy)} data-testid="auditoria-rodar">{busy ? 'Auditando…' : 'Auditar o mês'}</button>
       </div>
       {erro && <div style={erroBox()}>{erro}</div>}
+      {dias && ajustados.length > 0 && (
+        <div style={{ overflowX: 'auto', marginTop: 10 }} data-testid="auditoria-ajustados">
+          <div style={{ fontSize: 12.5, color: C.espresso, marginBottom: 6 }}>
+            <b>{ajustados.length}</b> dia(s) já ajustado(s) · <b style={{ color: C.amber }}>{ajustados.filter(a => a.pendencias.length > 0).length}</b> ainda com horário faltando
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
+              <th style={{ padding: '6px 8px' }}>Colaborador</th><th style={{ padding: '6px 8px' }}>Dia</th><th style={{ padding: '6px 8px' }}>Situação</th><th style={{ padding: '6px 8px' }}>Ajuste (original × digitado)</th><th />
+            </tr></thead>
+            <tbody>
+              {ajustados.map(a => {
+                const ult = a.ajuste.justificativas?.[a.ajuste.justificativas.length - 1]
+                return (
+                  <tr key={a.cpf + a.data} style={{ borderBottom: `1px solid ${C.beigeLt}` }} data-testid={`auditoria-ajustado-${a.data}`}>
+                    <td style={{ padding: '7px 8px', fontWeight: 600, color: C.espresso }}>{a.colaborador}</td>
+                    <td style={{ padding: '7px 8px', color: C.gray }}>{a.data.split('-').reverse().join('/')}</td>
+                    <td style={{ padding: '7px 8px' }}>
+                      {a.pendencias.length === 0
+                        ? <span style={{ fontSize: 10.5, fontWeight: 700, color: C.green, background: C.greenBg, padding: '2px 8px', borderRadius: 20 }}>ajustado</span>
+                        : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, padding: '2px 8px', borderRadius: 20 }} data-testid={`auditoria-falta-${a.data}`}>ajustado · {a.pendencias.map(textoPendencia).join('; ')}</span>}
+                    </td>
+                    <td style={{ padding: '7px 8px', color: C.espresso }}>
+                      <div style={{ color: C.gray }}>original: {a.ajuste.originais.join(', ') || '—'}</div>
+                      {a.ajuste.ajustes.map(x => <div key={x.hora + x.papel}>{x.papel === 'saida' ? 'saída' : 'retorno'} {x.hora} · {rotuloAjuste(x)}</div>)}
+                      {ult && <div style={{ color: C.gray, fontSize: 11 }}>“{ult.justificativa}” — {ult.por || 'responsável'}</div>}
+                    </td>
+                    <td style={{ padding: '7px 8px' }}><button type="button" onClick={() => onRevisar({ cpf: a.cpf, data: a.data, colaborador: a.colaborador })} data-testid={`auditoria-abrir-${a.data}`}
+                      style={{ border: `1px solid ${C.borderLt}`, background: '#fff', color: C.espresso, borderRadius: 7, padding: '4px 9px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{a.pendencias.length ? 'Digitar horário' : 'Abrir o dia'}</button></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {dias && (dias.length === 0
-        ? <div style={{ fontSize: 12.5, color: C.green, marginTop: 10 }} data-testid="auditoria-vazia">Nenhum dia com batida faltando neste mês.</div>
+        ? <div style={{ fontSize: 12.5, color: C.green, marginTop: 10 }} data-testid="auditoria-vazia">Nenhum dia novo (ainda não conferido) com batida faltando neste mês.</div>
         : (
         <div style={{ overflowX: 'auto', marginTop: 10 }}>
           <div style={{ fontSize: 12.5, color: C.espresso, marginBottom: 6 }} data-testid="auditoria-resumo"><b>{dias.length}</b> dia(s) para conferir · <b>{dias.reduce((n, d) => n + sugerirPapeis(marcasDasPausas(d.linhas)).faltando.length, 0)}</b> batida(s) faltando apontada(s)</div>

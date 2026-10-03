@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { linhaPausaDoc, notaDiaDoc, type AjusteDia } from '@/lib/ponto/ajusteBatida'
 
 const C = {
   espresso: '#3D2314', espressoM: '#6B5D4F', offwhite: '#FAF7F2', cream: '#F0ECE3',
@@ -21,8 +22,8 @@ const C = {
   amber: '#B45309', amberSoft: '#FEF3C7', blue: '#1D4ED8',
 }
 
-interface Pausa { de: string | null; ate: string | null; min: number | null; classe: string | null; fim_origem: string | null; origem_label?: string | null; fim_original?: string | null }
-interface Dia { data: string; status: string; jornada?: { inicio?: string; fim?: string } | null; pausas: Pausa[] }
+interface Pausa { de: string | null; ate: string | null; min: number | null; classe: string | null; fim_origem: string | null; origem_label?: string | null; fim_original?: string | null; sem_saida?: boolean | null }
+interface Dia { data: string; status: string; jornada?: { inicio?: string; fim?: string } | null; pausas: Pausa[]; ajuste?: AjusteDia | null }
 interface Viz {
   token_id: string; company_id: string
   colaborador: { nome?: string; cpf?: string; matricula?: string; pis?: string; funcao?: string; setor?: string } | null
@@ -43,16 +44,13 @@ const fmtData = (s: string) => { try { return new Date(s + (s.length === 10 ? 'T
 const fmtDT = (s: string) => { try { return new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
 const competenciaLabel = (s: string) => { try { const d = new Date(s + 'T00:00:00'); return d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) } catch { return s } }
 
-// as 3 aparências por origem (RD-38): registrado ≠ confirmado pelo ponto ≠ estimado
-function renderPausaFim(p: Pausa): { texto: string; cor: string; sufixo: string } {
-  const de = p.de || '—'
-  if (!p.ate) return { texto: `${de} → sem registro de saída`, cor: C.red, sufixo: '' }
-  switch (p.fim_origem) {
-    case 'estimado': return { texto: `${de} → ~${p.ate}`, cor: C.amber, sufixo: ' (estimado)' }
-    case 'confirmado_ponto': return { texto: `${de} → ${p.ate}`, cor: C.blue, sufixo: ' (confirmado pelo ponto)' }
-    case 'confirmado_manual': return { texto: `${de} → ${p.ate}`, cor: C.espresso, sufixo: ' (confirmado)' }
-    default: return { texto: `${de} → ${p.ate}`, cor: C.espresso, sufixo: '' } // registrado no relógio
-  }
+// as aparências por origem (RD-38): registrado ≠ confirmado pelo ponto ≠ estimado ≠ ajustado (#587: o horário
+// ajustado aparece junto do original, com origem, quem e quando; retorno sem saída não sai invertido). A mesma
+// leitura do documento na tela (lib/ponto/ajusteBatida).
+const COR_TOM = { normal: C.espresso, alerta: C.red, estimado: C.amber, ponto: C.blue, confirmado: C.espresso } as const
+function renderPausaFim(p: Pausa, aj?: AjusteDia | null): { texto: string; cor: string; sufixo: string; notas: string[] } {
+  const l = linhaPausaDoc(p, aj)
+  return { texto: l.texto, cor: COR_TOM[l.tom], sufixo: l.sufixo, notas: l.notas }
 }
 
 export default function SignNr36Page() {
@@ -156,12 +154,14 @@ export default function SignNr36Page() {
             <strong style={{ color: C.espresso, fontSize: 13 }}>{fmtData(d.data)}</strong>
             <span style={{ fontSize: 11, color: C.muted }}>{d.jornada?.inicio && d.jornada?.fim ? `jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span>
           </div>
+          {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{notaDiaDoc(d.ajuste)}</div>}
           {(d.pausas || []).length === 0 ? <div style={{ fontSize: 12, color: C.muted, fontStyle: 'italic' }}>Nenhuma pausa registrada neste dia.</div> :
-            (d.pausas || []).map((p, j) => { const f = renderPausaFim(p); return (
+            (d.pausas || []).map((p, j) => { const f = renderPausaFim(p, d.ajuste); return (
               <div key={j} style={{ fontSize: 13, color: C.espresso, lineHeight: 1.7 }}>
-                <span style={{ fontFamily: 'monospace' }}>{f.texto}</span>
+                <span style={{ fontFamily: 'monospace', color: f.cor === C.red ? C.red : undefined }}>{f.texto}</span>
                 <span style={{ color: f.cor, fontWeight: 600 }}>{f.sufixo}</span>
                 {p.min != null && <span style={{ color: C.muted, fontSize: 11 }}> · {p.min} min</span>}
+                {f.notas.map((n, k) => <span key={k} style={{ display: 'block', fontSize: 11, color: C.muted, paddingLeft: 12 }}>{n}</span>)}
               </div>
             ) })}
         </div>

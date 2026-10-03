@@ -66,8 +66,12 @@ test.describe('NR-36 · auditoria de batidas: sugere, confirma com justificativa
     const intacto = await dbSelect<{ id: string }>('ind_ponto_pausa', `company_id=eq.${DEMO_SST}&cpf=eq.${CPF}&data=eq.${DIA}&select=id`)
     expect(intacto, 'nada gravado sem justificativa').toHaveLength(4)
 
-    const ok = await rpc('fn_nr36_reler_dia_justificado', { p_company_id: DEMO_SST, p_cpf: CPF, p_data: DIA, p_marcas: marcas,
+    // #587 (CEO 02/10): a sugestão deixa a 09:05 sem retorno — sem dizer que não sabe o horário, não grava
+    const falta = await rpc('fn_nr36_reler_dia_justificado', { p_company_id: DEMO_SST, p_cpf: CPF, p_data: DIA, p_marcas: marcas,
       p_justificativa: `E2E ${RUN}: conferido — esqueceu de bater a 1ª pausa`, p_origem: 'sugestao' })
+    expect(falta.corpo.erro, 'pendência sem "não sei o horário" não grava').toBe('falta_horario')
+    const ok = await rpc('fn_nr36_reler_dia_justificado', { p_company_id: DEMO_SST, p_cpf: CPF, p_data: DIA, p_marcas: marcas,
+      p_justificativa: `E2E ${RUN}: conferido — esqueceu de bater a 1ª pausa`, p_origem: 'sugestao', p_pendencia_ciente: true })
     expect(ok.status, JSON.stringify(ok.corpo)).toBe(200)
     expect(ok.corpo.ok, JSON.stringify(ok.corpo)).toBe(true)
     const [j] = await dbSelect<{ origem: string; justificativa: string; autor_id: string | null; antes: unknown[] }>('nr36_releitura_justificativa',
@@ -76,5 +80,34 @@ test.describe('NR-36 · auditoria de batidas: sugere, confirma com justificativa
     expect(j.justificativa).toContain(RUN)
     expect(j.autor_id, 'autoria pela sessão').toBeTruthy()
     expect(j.antes, 'guarda como estava antes').toHaveLength(4)
+  })
+
+  test('batida original é imutável; o horário digitado entra como ajuste (catraca, quem, quando) e o dia segue na auditoria', { tag: '@pos-migration' }, async () => {
+    // as batidas originais do relatório deste dia: 09:05, 10:40, 11:01, 15:10, 15:30, 17:04, 17:27
+    const base = [['09:05', 'retorno'], ['10:40', 'saida'], ['11:01', 'retorno'], ['15:10', 'saida'], ['15:30', 'retorno'], ['17:04', 'saida'], ['17:27', 'retorno']]
+      .map(([hora, papel]) => ({ hora, papel, origem: 'arquivo' }))
+    const just = `E2E ${RUN}: saída das 09:05 tirada da catraca`
+    // "do relatório" com horário que não é batida original: recusado
+    const inventada = await rpc('fn_nr36_reler_dia_justificado', { p_company_id: DEMO_SST, p_cpf: CPF, p_data: DIA,
+      p_marcas: [{ hora: '08:45', papel: 'saida', origem: 'arquivo' }, ...base], p_justificativa: just, p_origem: 'manual' })
+    expect(inventada.corpo.erro, 'batida original não se inventa nem se altera').toBe('marca_original_alterada')
+    // digitado sem origem: recusado
+    const semOrigem = await rpc('fn_nr36_reler_dia_justificado', { p_company_id: DEMO_SST, p_cpf: CPF, p_data: DIA,
+      p_marcas: [{ hora: '08:45', papel: 'saida', origem: 'manual' }, ...base], p_justificativa: just, p_origem: 'manual' })
+    expect(semOrigem.corpo.erro, 'horário digitado diz de onde veio').toBe('origem_ajuste_obrigatoria')
+    // com a catraca: grava como ajuste, o dia fecha e as originais continuam as mesmas
+    const ok = await rpc('fn_nr36_reler_dia_justificado', { p_company_id: DEMO_SST, p_cpf: CPF, p_data: DIA,
+      p_marcas: [{ hora: '08:45', papel: 'saida', origem: 'manual', origem_ajuste: 'catraca' }, ...base], p_justificativa: just, p_origem: 'manual' })
+    expect(ok.corpo.ok, JSON.stringify(ok.corpo)).toBe(true)
+    const [aj] = await dbSelect<{ hora: string; papel: string; origem: string; autor_id: string | null; removido_em: string | null }>('nr36_batida_ajuste',
+      `company_id=eq.${DEMO_SST}&cpf=eq.${CPF}&data=eq.${DIA}&removido_em=is.null&select=hora,papel,origem,autor_id,removido_em`)
+    expect(aj, 'o ajuste fica na camada à parte').toMatchObject({ hora: '08:45', papel: 'saida', origem: 'catraca' })
+    expect(aj.autor_id, 'quem ajustou').toBeTruthy()
+    const r = await rpc('fn_nr36_auditoria_batidas_dias', { p_company_id: DEMO_SST, p_ini: '2026-09-01', p_fim: '2026-09-30' })
+    const dia = (r.corpo.ajustados as { cpf: string; pendencias: unknown[]; ajuste: { originais: string[]; ajustes: { hora: string }[] } }[]).find((d) => d.cpf === CPF)
+    expect(dia, 'o dia ajustado continua na auditoria').toBeTruthy()
+    expect(dia!.pendencias, 'sem horário faltando').toHaveLength(0)
+    expect(dia!.ajuste.originais, 'batidas originais intactas').toEqual(['09:05', '10:40', '11:01', '15:10', '15:30', '17:04', '17:27'])
+    expect(dia!.ajuste.ajustes.map((a) => a.hora)).toEqual(['08:45'])
   })
 })
