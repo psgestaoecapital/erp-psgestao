@@ -11,7 +11,7 @@ import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft } from 
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
-import { CAMPOS, MOTIVO_TEXTO, adivinharMapa, selecionar, type CampoSiga, type Motivo } from "@/lib/pm/importSiga";
+import { CAMPOS, MOTIVO_TEXTO, adivinharMapa, ehCsv, selecionar, textoCsv, type CampoSiga, type Motivo } from "@/lib/pm/importSiga";
 
 type Conferencia = { ok: boolean; erro?: string; mensagem?: string; total: number; novos: number; ja_existem: number; gravados: number;
   clientes_nao_encontrados: string[] | null; responsaveis_nao_encontrados: string[] | null; pecas_nao_encontradas: string[] | null };
@@ -33,7 +33,10 @@ export default function ImportarSigaPage() {
   async function ler(f: File) {
     setErro(null); setConf(null); setFeito(null);
     try {
-      const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
+      // CSV: texto com acentos certos e datas sem conversão (lidas por dataSiga, dd/mm/aaaa); Excel: como está
+      const wb = ehCsv(f.name, f.type)
+        ? XLSX.read(textoCsv(new Uint8Array(await f.arrayBuffer())), { type: "string", raw: true })
+        : XLSX.read(await f.arrayBuffer(), { cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const m = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: "" });
       const i = m.findIndex((r) => (r as unknown[]).filter((x) => String(x ?? "").trim()).length >= 2); // pula títulos em cima

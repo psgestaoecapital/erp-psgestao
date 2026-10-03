@@ -1,7 +1,8 @@
 // Gate · PM-J — importador de jobs do SIGA (CEO 02/10). Sem rede.
 // Regra do CEO: últimos 60 dias + em aberto; "em aprovação" antigo fica de fora; nada gravado sem prévia; não duplica.
 import { readFileSync } from 'node:fs'
-import { adivinharMapa, dataSiga, numeroSiga, selecionar, situacaoSiga } from '../../src/lib/pm/importSiga'
+import * as XLSX from 'xlsx'
+import { adivinharMapa, dataSiga, ehCsv, numeroSiga, selecionar, situacaoSiga, textoCsv } from '../../src/lib/pm/importSiga'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
@@ -44,6 +45,25 @@ const tela = readFileSync('src/app/dashboard/pm/importar-siga/page.tsx', 'utf8')
 ok(/chamar\(false\)/.test(tela) && /disabled=\{ocupado \|\| !conf \|\| !conf\.novos/.test(tela), 'tela: importar só depois de conferir no sistema')
 for (const k of ['pm.siga.arquivo', 'pm.siga.mapa', 'pm.siga.previa']) ok(tela.includes(`chave="${k}"`) && mig.includes(`'${k}'`), `"?" ${k}`)
 ok(readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8').includes('href="/dashboard/pm/importar-siga"'), 'Pauta vazia leva ao importador')
+
+// veredito em produção 02/10 (#1991): o CSV lido como bytes trocava os acentos ("NÂº Job") e o mapa não achava número
+// nem título; e a biblioteca lia 05/10/2026 como 10 de maio. CSV vira texto (UTF-8 ou Windows-1252) e as datas ficam texto.
+{
+  const csv = 'Nº Job,Título do Job,Cliente,Responsável,Status,Prazo,Data de Criação,Tipo de Peça\n24101,Post,Café Serra Azul,,Em produção,05/10/2026,01/10/2026,Post feed'
+  const ler = (bytes: Uint8Array) => {
+    const wb = XLSX.read(textoCsv(bytes), { type: 'string', raw: true })
+    return XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' })
+  }
+  const utf8 = ler(new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode(csv)]))
+  const mapa = adivinharMapa((utf8[0] as unknown[]).map(String))
+  ok(mapa.numero === 0 && mapa.titulo === 1 && mapa.cliente === 2 && mapa.responsavel === 3 && mapa.peca === 7, 'CSV UTF-8 (com BOM): acentos certos e mapa completo')
+  ok(dataSiga(utf8[1][5]) === '2026-10-05', 'CSV: 05/10/2026 é 5 de outubro (não 10 de maio)')
+  const win = new Uint8Array([...csv].map((c) => { const k = c.charCodeAt(0); return k < 256 ? k : 63 }))  // Windows-1252 = Latin-1 nesses acentos
+  ok(String(ler(win)[0][1]) === 'Título do Job' && String(ler(win)[0][0]) === 'Nº Job', 'CSV Windows-1252 (Excel brasileiro): acentos certos')
+  ok(ehCsv('jobs.CSV') && ehCsv('x', 'text/csv') && !ehCsv('jobs.xlsx'), 'reconhece o CSV pelo nome ou tipo')
+  const tela = readFileSync('src/app/dashboard/pm/importar-siga/page.tsx', 'utf8')
+  ok(/ehCsv\(f\.name, f\.type\)/.test(tela) && /XLSX\.read\(textoCsv\(/.test(tela) && /type: "string", raw: true/.test(tela), 'tela lê CSV como texto, sem converter datas')
+}
 
 if (falhas) { console.error(`\ncheck-pm-importar-siga: ${falhas} falha(s)`); process.exit(1) }
 console.log('\nImportador do SIGA: ok')
