@@ -155,3 +155,6 @@ BEGIN
   END LOOP;
   RETURN jsonb_build_object('ok',true,'linhas',v_linhas);
 END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_nr36_apurar(uuid, date, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_apurar(uuid, date, date, text) TO authenticated, service_role;
