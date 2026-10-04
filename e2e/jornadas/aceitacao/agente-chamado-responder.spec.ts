@@ -34,9 +34,9 @@ test.describe('Agente responde chamado e e-mails de chamado', () => {
       p_corpo: 'Teste da aceitação: nunca recebe o OK.', p_requer_ok_ceo: true, p_enviado_por: `aceitacao-e2e ${RUN}`,
     })
     try {
-      const r = await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: env.id, p_sugestao_id: SEM_ID, p_texto: 'x', p_ceo_user: SEM_ID })
+      const r = await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: env.id, p_sugestao_id: SEM_ID, p_texto: 'x' })
       expect(r.erro, 'sem OK do CEO a função recusa').toBe('sem_ok_do_ceo')
-      const inexistente = await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: SEM_ID, p_sugestao_id: SEM_ID, p_texto: 'x', p_ceo_user: SEM_ID })
+      const inexistente = await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: SEM_ID, p_sugestao_id: SEM_ID, p_texto: 'x' })
       expect(inexistente.erro).toBe('mensagem_nao_encontrada')
     } finally {
       await rpc('fn_agente_mensagem_arquivar', { p_mensagem_id: env.id })

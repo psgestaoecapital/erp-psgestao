@@ -23,7 +23,15 @@ ALTER TABLE public.sugestao_mensagem
   ADD COLUMN IF NOT EXISTS aprovado_por uuid,
   ADD COLUMN IF NOT EXISTS ok_ceo_em timestamptz,
   ADD COLUMN IF NOT EXISTS mensagem_agente_id uuid REFERENCES public.erp_agente_mensagem(id),
-  ADD COLUMN IF NOT EXISTS texto_hash text;
+  ADD COLUMN IF NOT EXISTS texto_hash text,
+  ADD COLUMN IF NOT EXISTS ok_ceo_origem text,        -- quem deu o OK: o CEO ou o Eng. Chefe por delegação (RD-94)
+  ADD COLUMN IF NOT EXISTS ok_registrado_por text;    -- quem chamou fn_agente_mensagem_ok_ceo
+
+-- configuração única do autor das respostas do agente (não é parâmetro do chamador). Só a conexão de serviço lê (RLS sem política).
+CREATE TABLE IF NOT EXISTS public.erp_agente_config (chave text PRIMARY KEY, valor text NOT NULL, atualizado_em timestamptz NOT NULL DEFAULT now());
+ALTER TABLE public.erp_agente_config ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.erp_agente_config FROM PUBLIC, anon, authenticated;
+INSERT INTO public.erp_agente_config (chave, valor) VALUES ('chamado_autor_email', 'gilberto.paravizi@gmail.com') ON CONFLICT (chave) DO NOTHING;
 
 -- ── (1) fn_email_render com todos os templates ───────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_email_render(p_template text, p_dados jsonb)
@@ -106,24 +114,25 @@ BEGIN
   RETURN jsonb_build_object('assunto', v_assunto, 'html', v_html);
 END $function$;
 
--- notificações de resposta que esgotaram as tentativas só por causa do template ausente voltam à fila (nada é apagado)
+-- notificações de resposta (até 7 dias) que esgotaram as tentativas só por causa do template ausente voltam à fila (nada é apagado)
 UPDATE public.sugestao_notificacao
    SET email_status = 'pendente', email_tentativas = 0, email_proxima_tentativa = now()
  WHERE tipo = 'resposta' AND email_enviado_em IS NULL
    AND email_status IN ('pendente','falhou')
-   AND email_ultimo_erro LIKE 'template desconhecido: chamado_resposta%';
+   AND email_ultimo_erro LIKE 'template desconhecido: chamado_resposta%'
+   AND criado_em >= now() - interval '7 days';   -- as mais antigas NÃO são reenviadas em massa (Eng. Chefe 04/10): ficam 'falhou', listadas na PR
 
 -- ── (2) a função oficial ───────────────────────────────────────────────────────────────────────────────────────────
 -- ci-sem-guarda: fn_agente_chamado_responder — só a conexão de serviço (fn__agente_assert_servico) e só com OK do CEO na caixa
 CREATE OR REPLACE FUNCTION public.fn_agente_chamado_responder(
-    p_mensagem_agente uuid, p_sugestao_id uuid, p_texto text, p_novo_status text DEFAULT NULL, p_ceo_user uuid DEFAULT NULL)
+    p_mensagem_agente uuid, p_sugestao_id uuid, p_texto text, p_novo_status text DEFAULT NULL, p_hash_aprovado text DEFAULT NULL)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
 DECLARE
-  m record; s record; v_ceo_email text; v_msg uuid; v_notif uuid; v_status text; v_hash text; v_texto text := btrim(COALESCE(p_texto,''));
+  m record; s record; v_ceo_email text; v_ceo_user uuid; v_msg uuid; v_notif uuid; v_status text; v_hash text; v_texto text := btrim(COALESCE(p_texto,''));
 BEGIN
   PERFORM public.fn__agente_assert_servico();
   SELECT * INTO m FROM erp_agente_mensagem WHERE id = p_mensagem_agente FOR UPDATE;
@@ -135,26 +144,30 @@ BEGIN
   IF v_texto = '' THEN RETURN jsonb_build_object('ok', false, 'erro', 'texto_vazio'); END IF;
   IF p_novo_status IS NOT NULL AND p_novo_status NOT IN ('em_analise','aceita','em_desenvolvimento','aguardando_confirmacao','concluida','recusada') THEN
     RETURN jsonb_build_object('ok', false, 'erro', 'status_invalido'); END IF;
-  -- o CEO que aprovou é o autor da resposta: tem de ser PS_ADMIN/PS_ADMIN_CVM de verdade (a rotina não escolhe um usuário qualquer)
-  SELECT email INTO v_ceo_email FROM users WHERE id = p_ceo_user AND system_role IN ('PS_ADMIN','PS_ADMIN_CVM');
-  IF v_ceo_email IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'ceo_nao_identificado'); END IF;
+  -- o autor é a conta PS configurada (erp_agente_config), nunca um parâmetro do chamador; tem de ser PS_ADMIN/PS_ADMIN_CVM de verdade
+  SELECT u.id, u.email INTO v_ceo_user, v_ceo_email FROM users u
+   WHERE lower(u.email) = lower((SELECT valor FROM erp_agente_config WHERE chave = 'chamado_autor_email'))
+     AND u.system_role IN ('PS_ADMIN','PS_ADMIN_CVM');
+  IF v_ceo_user IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'ceo_nao_identificado'); END IF;
   SELECT id, user_id, numero, titulo, status INTO s FROM sugestoes WHERE id = p_sugestao_id FOR UPDATE;
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'erro', 'chamado_nao_encontrado'); END IF;
   IF s.user_id IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'chamado_sem_autor'); END IF;   -- sem destinatário não há aviso
 
   v_hash := encode(sha256(convert_to(v_texto, 'UTF8')), 'hex');
+  IF p_hash_aprovado IS NOT NULL AND lower(btrim(p_hash_aprovado)) <> v_hash THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'texto_diferente_do_aprovado', 'texto_hash', v_hash); END IF;
   v_status := CASE WHEN p_novo_status IS NOT NULL THEN p_novo_status
                    WHEN s.status IN ('nova','em_analise','aceita','em_desenvolvimento') OR s.status IS NULL THEN 'aguardando_confirmacao'
                    ELSE s.status END;
 
   INSERT INTO sugestao_mensagem (sugestao_id, autor_id, autor_email, papel, texto, criado_em,
-                                 redigido_por, aprovado_por, ok_ceo_em, mensagem_agente_id, texto_hash)
-  VALUES (p_sugestao_id, p_ceo_user, v_ceo_email, 'ps', v_texto, now(),
-          m.para, p_ceo_user, m.ok_ceo_em, m.id, v_hash)
+                                 redigido_por, aprovado_por, ok_ceo_em, mensagem_agente_id, texto_hash, ok_ceo_origem, ok_registrado_por)
+  VALUES (p_sugestao_id, v_ceo_user, v_ceo_email, 'ps', v_texto, now(),
+          m.para, v_ceo_user, m.ok_ceo_em, m.id, v_hash, m.ok_ceo_origem, m.ok_registrado_por)
   RETURNING id INTO v_msg;
 
   -- mesmo efeito de fn_sugestao_aprovar_resposta: a resposta fica aprovada e o chamado anda
-  UPDATE sugestoes SET resposta = v_texto, resposta_aprovada = true, resposta_aprovada_por = p_ceo_user, resposta_aprovada_em = now(),
+  UPDATE sugestoes SET resposta = v_texto, resposta_aprovada = true, resposta_aprovada_por = v_ceo_user, resposta_aprovada_em = now(),
          status = v_status, confirmado_pelo_autor = false, updated_at = now()
    WHERE id = p_sugestao_id;
 
@@ -167,5 +180,5 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'mensagem_id', v_msg, 'notificacao_id', v_notif, 'status', v_status, 'texto_hash', v_hash);
 END;
 $function$;
-REVOKE ALL ON FUNCTION public.fn_agente_chamado_responder(uuid, uuid, text, text, uuid) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_agente_chamado_responder(uuid, uuid, text, text, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_agente_chamado_responder(uuid, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_agente_chamado_responder(uuid, uuid, text, text, text) TO service_role;

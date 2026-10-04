@@ -29,11 +29,14 @@ ok(corpo.includes('fn__agente_assert_servico()'), 'passa pela guarda do canal (s
 ok(/requer_ok_ceo OR m\.ok_ceo_em IS NULL/.test(corpo) && corpo.includes("'sem_ok_do_ceo'"), 'só posta com OK do CEO registrado na caixa')
 ok(corpo.includes('sha256(') && corpo.includes('texto_hash'), 'registra o hash do texto aprovado')
 ok(/system_role IN \('PS_ADMIN','PS_ADMIN_CVM'\)/.test(corpo) && corpo.includes("'ceo_nao_identificado'"), 'autor é o CEO (usuário PS_ADMIN de verdade)')
+ok(!/p_ceo_user/.test(sql) && corpo.includes('erp_agente_config'), 'autor vem da configuração única, não de parâmetro do chamador')
+ok(/ok_ceo_origem/.test(corpo) && /ok_registrado_por/.test(corpo), 'rastro registra ok_ceo_origem e ok_registrado_por')
+ok(corpo.includes("'texto_diferente_do_aprovado'"), 'texto postado tem de bater com o hash aprovado')
 ok(/redigido_por/.test(corpo) && /aprovado_por/.test(corpo) && /mensagem_agente_id/.test(corpo) && /ok_ceo_em/.test(corpo), 'rastro: redigido_por, aprovado_por, ok_ceo_em, mensagem_agente_id')
 ok(/INSERT INTO sugestao_notificacao[^;]*'resposta'[^;]*'pendente'/.test(corpo), "notificação do caminho normal (tipo 'resposta', e-mail pendente)")
 ok(!/set_config|request\.jwt|auth\.uid\(\)\s*:=/i.test(corpo), 'não forja claims de JWT nem identidade')
 ok(!/DELETE\s+FROM/i.test(corpo), 'nada é apagado')
-ok(sql.includes('REVOKE ALL ON FUNCTION public.fn_agente_chamado_responder(uuid, uuid, text, text, uuid) FROM PUBLIC, anon, authenticated;'), 'revogada de PUBLIC/anon/authenticated')
+ok(sql.includes('REVOKE ALL ON FUNCTION public.fn_agente_chamado_responder(uuid, uuid, text, text, text) FROM PUBLIC, anon, authenticated;'), 'revogada de PUBLIC/anon/authenticated')
 
 // 2) AGENTS.md
 const agents = readFileSync(join(raiz, 'AGENTS.md'), 'utf8')
