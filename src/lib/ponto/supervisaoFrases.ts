@@ -2,21 +2,28 @@
 // como { tipo: 'pausa_insuficiente', quantidade: N } e as pausas do dia em detalhe.pausas; a tela lia o formato antigo
 // ({ duracao_min, inicio, minimo }) e escrevia "pausa de undefined minutos às undefined". Aqui cada pausa curta vira uma
 // frase com horário e minutos; as pausas acima do tempo previsto aparecem como gestão (não é infração).
-export type PausaDia = { de?: string | null; ate?: string | null; min?: number | null; classe?: string | null }
+import { motivoRegua, type Regua } from './reguaPausa'
+
+// seg: duração em segundos (o número que a régua compara — #76); min é o arredondado
+export type PausaDia = { de?: string | null; ate?: string | null; min?: number | null; seg?: number | null; classe?: string | null }
 export type DesvioSup = { tipo: string; quantidade?: number | null; duracao_min?: number | null; inicio?: string | null; minimo?: number | null; faltantes?: number | null }
 
-export function frasesPausasCurtas(dv: DesvioSup, pausas: PausaDia[] | null | undefined, pausaMin: number): string[] {
+// #76: com a régua da empresa, cada pausa diz o motivo com o número que decide ("abaixo do mínimo: 19:57 < 20:00")
+export function frasesPausasCurtas(dv: DesvioSup, pausas: PausaDia[] | null | undefined, pausaMin: number, regua?: Regua): string[] {
   // formato antigo, com os dados da pausa no próprio desvio
   if (dv.duracao_min != null && dv.inicio) return [`pausa de ${dv.duracao_min} min às ${dv.inicio} — o mínimo é ${dv.minimo ?? pausaMin} min`]
   const curtas = (pausas || []).filter(p => p.classe === 'pausa_insuficiente')
+  if (curtas.length && regua) return curtas.map(p => `pausa das ${p.de ?? '—'} às ${p.ate ?? '—'} — ${motivoRegua(p, regua) ?? `o mínimo é ${pausaMin} min`}`)
   if (curtas.length) return curtas.map(p => `pausa das ${p.de ?? '—'} às ${p.ate ?? '—'}: ${p.min ?? '—'} min — o mínimo é ${pausaMin} min`)
   const n = dv.quantidade ?? 1
   return [n === 1 ? `uma pausa abaixo de ${pausaMin} min` : `${n} pausas abaixo de ${pausaMin} min`]
 }
 
-export function frasesExcesso(pausas: PausaDia[] | null | undefined): string[] {
+export function frasesExcesso(pausas: PausaDia[] | null | undefined, regua?: Regua): string[] {
   return (pausas || []).filter(p => p.classe === 'pausa_excesso')
-    .map(p => `pausa das ${p.de ?? '—'} às ${p.ate ?? '—'}: ${p.min ?? '—'} min — acima do tempo previsto (gestão, não é infração)`)
+    .map(p => regua
+      ? `pausa das ${p.de ?? '—'} às ${p.ate ?? '—'} — ${motivoRegua(p, regua)} (gestão, não é infração)`
+      : `pausa das ${p.de ?? '—'} às ${p.ate ?? '—'}: ${p.min ?? '—'} min — acima do tempo previsto (gestão, não é infração)`)
 }
 
 // #273 · SINAL DE GESTÃO (decisão do CEO, 29/09): art. 253 da CLT — 20 min de repouso a cada 1h40 de trabalho em
