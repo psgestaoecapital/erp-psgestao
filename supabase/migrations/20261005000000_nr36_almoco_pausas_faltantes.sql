@@ -131,13 +131,19 @@ DROP TRIGGER IF EXISTS trg_nr36_ciencia_versionar ON public.nr36_ciencia_mensal;
 CREATE TRIGGER trg_nr36_ciencia_versionar BEFORE UPDATE ON public.nr36_ciencia_mensal
   FOR EACH ROW EXECUTE FUNCTION public.fn_nr36_ciencia_versionar();
 
--- fn_nr36_ciencia_gerar: antes só protegia 'assinado' (a recusada era sobrescrita). Agora só a 'pendente' muda.
+-- fn_nr36_ciencia_gerar: a definição viva já protege assinado e recusado (NOT IN); agora só a 'pendente' muda.
+-- Aceita as duas formas históricas da cláusula (a antiga <> 'assinado' e a atual NOT IN); falha se nenhuma bater.
 DO $mig$
-DECLARE v_def text; a text := 'WHERE public.nr36_ciencia_mensal.status <> ''assinado''';
+DECLARE v_def text; a text; v_alvo text := 'WHERE public.nr36_ciencia_mensal.status = ''pendente''';
 BEGIN
   SELECT pg_get_functiondef('public.fn_nr36_ciencia_gerar(uuid,date,text)'::regprocedure) INTO v_def;
   IF v_def LIKE '%nr36_ciencia_mensal.status = ''pendente''%' THEN RETURN; END IF;
-  IF (length(v_def)-length(replace(v_def,a,'')))/length(a) <> 1 THEN
-    RAISE EXCEPTION 'nr36 ciência: âncora de fn_nr36_ciencia_gerar não bate'; END IF;
-  EXECUTE replace(v_def, a, 'WHERE public.nr36_ciencia_mensal.status = ''pendente''');
+  FOREACH a IN ARRAY ARRAY[
+    'WHERE public.nr36_ciencia_mensal.status NOT IN (''assinado'', ''recusado'')',
+    'WHERE public.nr36_ciencia_mensal.status <> ''assinado'''] LOOP
+    IF (length(v_def)-length(replace(v_def,a,'')))/length(a) = 1 THEN
+      EXECUTE replace(v_def, a, v_alvo); RETURN;
+    END IF;
+  END LOOP;
+  RAISE EXCEPTION 'nr36 ciência: âncora de fn_nr36_ciencia_gerar não bate';
 END $mig$;
