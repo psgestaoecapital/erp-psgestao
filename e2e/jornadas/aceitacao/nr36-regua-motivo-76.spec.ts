@@ -1,7 +1,7 @@
 // #76 (Frioeste · CEO 03/10) · "precisa estar especificado o porquê do desvio indicando a régua estabelecida de mínimo e
 // máximo". fn_nr36_pausas_regua devolve a régua da empresa e a duração em SEGUNDOS de cada pausa curta/longa — o número
 // que decide (a tela mostrava minutos arredondados: 19:56 aparecia como "20 min").
-// Migration 20261003100000 · @pos-migration: o veredito é o aceitacao-pos-migration.yml em PRODUÇÃO.
+// Migration 20261004090000 · @pos-migration: o veredito é o aceitacao-pos-migration.yml em PRODUÇÃO.
 // RD-82: chamada COMO O ROBÔ (a mesma da tela). Demonstração Indústria (SST), só leitura.
 
 import { test, expect } from '../../support/fixtures'

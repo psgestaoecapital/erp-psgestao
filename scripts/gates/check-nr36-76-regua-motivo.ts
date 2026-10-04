@@ -21,7 +21,7 @@ ok(frasesPausasCurtas({ tipo: 'pausa_insuficiente', quantidade: 1 }, pausas, 20,
 ok(frasesExcesso(pausas, r)[0] === 'pausa das 07:13 às 07:37 — acima do máximo: 24:00 ≥ 24:00 (gestão, não é infração)', 'Supervisão: excesso com a régua')
 ok(frasesPausasCurtas({ tipo: 'pausa_insuficiente', quantidade: 1 }, pausas, 20)[0] === 'pausa das 14:40 às 15:00: 20 min — o mínimo é 20 min', 'sem a régua, o texto de antes (compatível)')
 
-const mig = readFileSync('supabase/migrations/20261003100000_nr36_76_regua_motivo.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261004090000_nr36_76_regua_motivo.sql', 'utf8')
 ok(/FUNCTION public\.fn_nr36_pausas_regua[\s\S]*STABLE/.test(mig) && /fn_nr36_duracao_seg/.test(mig), 'régua + segundos: função só de leitura, mesma duração da apuração')
 ok(/#76 limite inferior/.test(mig) && /fn_nr36_classificar_eventos/.test(mig) && /fn_nr36_apurar/.test(mig), 'limite inferior nas DUAS leituras (classificação e apuração)')
 ok(/COALESCE\(\(v_par->>''limite_inferior_min''\)::numeric, v_pmin\)/.test(mig) && /COALESCE\(\(v_param->>''limite_inferior_min''\)::numeric, v_pausa_min\)/.test(mig), 'vazio = a própria pausa (resultado idêntico ao de hoje)')
