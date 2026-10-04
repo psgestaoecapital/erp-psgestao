@@ -2,6 +2,8 @@
 // detalhe de cada desvio do dia. Causa: a apuração atual grava { tipo: 'pausa_insuficiente', quantidade } e as pausas em
 // detalhe.pausas; a tela lia o formato antigo. Migration 20260929040000: fn_nr36_supervisao_casos devolve as pausas.
 // Sinal de gestão de 1h40 (art. 253 CLT, decisão do CEO 29/09): fn_nr36_supervisao_sinais, com horário, fora do veredito.
+// #76 (#1997): as frases trazem o motivo pela régua (mm:ss); a DEMO_SST não tem régua própria → padrão 20 min / excesso 23 min;
+// 07:42 usa os 1165 s do ind_ponto_pausa (19:25); 11:37 está 'normal' lá, então vale o min do detalhe (26:00).
 // Demonstração Indústria (SST): um dia de desvio sintético (formato da apuração atual), removido no fim.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
@@ -74,8 +76,8 @@ test.describe('Supervisão de pausas — detalhe do desvio e filtro por colabora
     await caso.click()
     const frases = page.getByTestId('sup-frase')
     await expect(frases.first()).toBeVisible()
-    await expect(frases.filter({ hasText: 'pausa das 07:42 às 08:02: 19 min — o mínimo é 20 min' })).toHaveCount(1)
-    await expect(frases.filter({ hasText: 'pausa das 11:37 às 12:03: 26 min — acima do tempo previsto (gestão, não é infração)' })).toHaveCount(1)
+    await expect(frases.filter({ hasText: 'pausa das 07:42 às 08:02 — abaixo do mínimo: 19:25 < 20:00' })).toHaveCount(1)
+    await expect(frases.filter({ hasText: 'pausa das 11:37 às 12:03 — acima do máximo: 26:00 ≥ 23:00 (gestão, não é infração)' })).toHaveCount(1)
     await expect(page.getByText(/undefined/)).toHaveCount(0)
 
     // sinal de gestão de 1h40 (art. 253 CLT), com horário, fora do veredito
