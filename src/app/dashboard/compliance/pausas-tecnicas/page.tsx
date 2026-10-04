@@ -12,6 +12,7 @@ import { CSS_IMPRESSAO } from '@/lib/ponto/impressaoDocumento'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { frasesPausasCurtas, frasesExcesso, fraseSinal, type PausaDia, type Trecho } from '@/lib/ponto/supervisaoFrases'
 import { reguaDe, textoRegua, mmss, motivoRegua, type Regua } from '@/lib/ponto/reguaPausa'
+import { rotuloPendente, explicaPendente } from '@/lib/ponto/motivoPendente'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
@@ -1779,7 +1780,7 @@ type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null;
 // #92 · dia aguardando confirmação (pausa sem hora de saída). Natureza DIFERENTE do desvio: não
 // está provado — o supervisor pergunta ao colaborador o que houve; a responsável fecha na aba
 // Conferência. NUNCA é desvio no escuro (RD-38).
-type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; jornada: { entrada: string | null; saida: string | null } | null }
+type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; pausas_devidas?: number | null; pausas_realizadas?: number | null; almoco_min?: number | null; jornada: { entrada: string | null; saida: string | null } | null }
 
 const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
 // FATO, não julgamento (RH). Descreve o que aconteceu; a causa é a conversa.
@@ -1959,7 +1960,7 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
             <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
               <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
-                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Duas naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
+                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Três naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro) e <b>pausas faltantes</b> (há menos pausas registradas do que a jornada pedia, e nenhuma está abaixo do mínimo). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
@@ -1969,15 +1970,16 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
                 </tr></thead>
                 <tbody>
                   {pendentesF.map((p, i) => {
-                    const semReg = p.sem_registro_pausa === true || p.motivo === 'sem_registro_pausa'
+                    const explica = explicaPendente(p)
                     return (
                     <tr key={p.cpf + p.data + i} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
                       <td style={td()}><div style={{ fontWeight: 600, color: C.espresso }}>{p.nome}</div>{p.funcao && <div style={{ fontSize: 11, color: C.gray }}>{p.funcao}</div>}</td>
                       <td style={td()}>{fmtData(p.data)}</td>
                       <td style={td()}>
                         <span style={{ display: 'inline-block', background: C.amberBg, color: C.amber, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-                          {semReg ? 'Sem registro de pausa' : 'Pausa sem hora de saída'}
+                          {rotuloPendente(p)}
                         </span>
+                        {explica && <div data-testid="pendente-explica" style={{ fontSize: 11, color: C.gray, marginTop: 4, maxWidth: 320, lineHeight: 1.4 }}>{explica}</div>}
                       </td>
                       <td style={td()}>{p.setor || '—'}</td>
                       <td style={td()}>{p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}</td>
