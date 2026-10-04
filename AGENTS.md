@@ -135,3 +135,13 @@ Gate novo = **um arquivo novo em `scripts/gates/`** (`.ts`, imports de `../../sr
 `tsx scripts/rodar-gates.ts && next build`, que descobre e roda todos os gates da pasta. **Não** acrescente gate na
 linha `build` do `package.json` — era a causa recorrente de conflito entre PRs em fila (e o gate
 `check-gates-por-pasta` quebra se alguém fizer). Rodar local: `npm run gates` (ou `npm run gates -- <trecho do nome>`).
+
+# Chamados: o agente nunca forja identidade (CEO 04/10)
+
+Responder chamado exige usuário logado (`auth.uid()`), e a rotina/Code é conexão de serviço — não é usuário.
+1. **Nunca** poste em `sugestao_mensagem` "como" uma pessoa, nem forje claims de JWT, nem escreva direto nas tabelas do chamado.
+2. A **única** via é `SELECT fn_agente_chamado_responder('<id da mensagem da caixa>', '<id do chamado>', '<texto aprovado>', <novo_status|NULL>, '<sha256 do texto aprovado|NULL>');`
+   — só vale com a mensagem da caixa com `requer_ok_ceo` e `ok_ceo_em` preenchido; o texto postado é exatamente o aprovado
+   (fica o hash; com `p_hash_aprovado` a função recusa texto diferente); a resposta entra com autor = a conta PS configurada (`erp_agente_config`, não é parâmetro) e rastro (`redigido_por` = agente, `aprovado_por`, `ok_ceo_em`, `ok_ceo_origem`, `ok_registrado_por`, `mensagem_agente_id`)
+   e o aviso por e-mail sai pelo mesmo caminho da aprovação normal.
+3. Sem OK do CEO na caixa: não responda o chamado; registre `recusada` com o motivo.
