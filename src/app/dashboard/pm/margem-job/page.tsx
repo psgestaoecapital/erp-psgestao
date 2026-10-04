@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { calcularMargem, totaisMargem, type ApontamentoMargem } from '@/lib/pm/margem'
+import { carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const YELLOW = '#7A5A0F'; const RED = '#7A1F1F'
@@ -13,7 +14,8 @@ const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency',
 
 type Job = { id: string; titulo: string; numero: string | null; valor_job: number | null; custo_estimado: number | null; status: string; cliente_id: string | null }
 type Cli = { id: string; nome: string; nome_fantasia: string | null }
-type Membro = { nome: string; custo_hora: number | null }
+// custo_hora por pessoa só para quem vê salário (fn_pm_equipe_custos, LGPD 03/10); os demais veem só os totais
+type Membro = { id: string; nome: string; custo_hora: number | null }
 
 // onde se cadastra o custo da hora: tela Equipe do P&M (custo/hora por pessoa)
 const ROTA_CUSTO_HORA = '/dashboard/pm/equipe'
@@ -23,6 +25,7 @@ export default function MargemJobPage() {
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null)
   const [jobs, setJobs] = useState<Job[]>([]); const [ts, setTs] = useState<ApontamentoMargem[]>([]); const [clientes, setClientes] = useState<Cli[]>([])
   const [membros, setMembros] = useState<Membro[]>([])
+  const [podeVer, setPodeVer] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -33,10 +36,13 @@ export default function MargemJobPage() {
       supabase.from('agency_jobs').select('id, titulo, numero, valor_job, custo_estimado, status, cliente_id').eq('company_id', empresa),
       supabase.from('agency_timesheet').select('job_id, horas, custo_hora, custo_total').eq('company_id', empresa),
       supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa),
-      supabase.from('agency_equipe').select('nome, custo_hora').eq('company_id', empresa).eq('ativo', true).order('nome'),
-    ]).then(([j, t, c, m]) => {
+      supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
+      carregarCustosEquipe(supabase, empresa),
+    ]).then(([j, t, c, m, custos]) => {
       setJobs((j.data ?? []) as Job[]); setTs((t.data ?? []) as ApontamentoMargem[]); setClientes((c.data ?? []) as Cli[])
-      setMembros((m.data ?? []) as Membro[]); setLoading(false)
+      setPodeVer(custos.podeVer)
+      setMembros(((m.data ?? []) as { id: string; nome: string }[]).map((x) => ({ ...x, custo_hora: custos.custos.get(x.id) ?? null })))
+      setLoading(false)
     })
   }, [empresa])
 
@@ -48,7 +54,8 @@ export default function MargemJobPage() {
   }).sort((a, b) => (a.margem ?? -1e9) - (b.margem ?? -1e9)), [jobs, ts])
 
   const tot = useMemo(() => totaisMargem(linhas), [linhas])
-  const semCustoHora = membros.filter((m) => !(Number(m.custo_hora ?? 0) > 0)).map((m) => m.nome)
+  // quem está sem custo/hora é dado por pessoa: só aparece para quem vê salário
+  const semCustoHora = podeVer ? membros.filter((m) => !(Number(m.custo_hora ?? 0) > 0)).map((m) => m.nome) : []
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
