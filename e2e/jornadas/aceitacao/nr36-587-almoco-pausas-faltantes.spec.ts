@@ -41,11 +41,15 @@ const apurado = async () => (await dbSelect<Ap>('nr36_pausa_apurada', `company_i
 async function importar(batidas: string[], pausas: Array<[string, string, number]>, shift: string) {
   await dbDelete('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
   await dbDelete('ind_ponto_pausa', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
-  await dbDelete('ind_ponto_dia', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
-  await dbInsert('ind_ponto_dia', {
+  // ind_ponto_dia não aceita DELETE físico (RD-30, trg_bloqueia_delete_fisico): o dia de teste é gravado por upsert
+  // (patch se a linha de uma execução anterior ficou, insert se não), nunca por apagar-e-inserir.
+  const diaRow = {
     company_id: DEMO_SST, cpf, registration_number: MATRICULA, data: DIA, shift, worked_seconds: 30000, total_pontos: batidas.length, tem_ajuste: false,
     raw: { points: batidas.map(h => ({ datetime: `${DIA}T${h}:00` })), origem: 'e2e-587' },
-  })
+  }
+  const jaExiste = await dbSelect<{ id: string }>('ind_ponto_dia', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}&select=id`)
+  if (jaExiste.length > 0) await dbPatch('ind_ponto_dia', `id=eq.${jaExiste[0].id}`, diaRow)
+  else await dbInsert('ind_ponto_dia', diaRow)
   const hash = `e2e-587-${Date.now()}`
   const reg = await comoRobo<{ ok: boolean; upload_id?: string; mensagem?: string }>('fn_nr36_upload_registrar', {
     p_company_id: DEMO_SST, p_arquivo_nome: 'e2e-587.xlsx', p_arquivo_path: `e2e/${hash}.xlsx`, p_arquivo_hash: hash,
@@ -76,8 +80,7 @@ test.describe('NR-36: almoço desconta da exposição e pausa faltante é penden
     await dbDelete('nr36_ciencia_mensal', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&competencia=gte.2022-01-01&competencia=lte.2022-12-31`).catch(() => {})
     await dbDelete('nr36_pausa_apurada', janela).catch(() => {})
     await dbDelete('ind_ponto_pausa', janela).catch(() => {})
-    await dbDelete('ind_ponto_dia', `${janela}&registration_number=eq.${MATRICULA}`).catch(() => {})
-    await dbDelete('ind_ponto_dia', `${janela}&registration_number=is.null`).catch(() => {})
+    // ind_ponto_dia fica de fora: DELETE físico é bloqueado no banco (RD-30); o dia de teste é reaproveitado por upsert
   }
 
   test.beforeAll(async ({}, testInfo) => {
