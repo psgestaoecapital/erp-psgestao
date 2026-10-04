@@ -1781,6 +1781,11 @@ type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null;
 // Conferência. NUNCA é desvio no escuro (RD-38).
 type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; jornada: { entrada: string | null; saida: string | null } | null }
 
+// #587: motivo do dia pendente em linguagem simples (pausas_faltantes = fez menos pausas do que a jornada exigia)
+const rotuloPendente = (p: { sem_registro_pausa?: boolean; motivo?: string | null }) =>
+  p.motivo === 'pausas_faltantes' ? 'Fez menos pausas do que a jornada pedia — confirmar com o colaborador'
+    : p.sem_registro_pausa === true || p.motivo === 'sem_registro_pausa' ? 'Sem registro de pausa' : 'Pausa sem hora de saída'
+
 const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
 // FATO, não julgamento (RH). Descreve o que aconteceu; a causa é a conversa.
 // #76 (CEO 03/10): com a régua da empresa e a duração em segundos, cada pausa diz o motivo pelo número que decide
@@ -1969,14 +1974,13 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
                 </tr></thead>
                 <tbody>
                   {pendentesF.map((p, i) => {
-                    const semReg = p.sem_registro_pausa === true || p.motivo === 'sem_registro_pausa'
                     return (
                     <tr key={p.cpf + p.data + i} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
                       <td style={td()}><div style={{ fontWeight: 600, color: C.espresso }}>{p.nome}</div>{p.funcao && <div style={{ fontSize: 11, color: C.gray }}>{p.funcao}</div>}</td>
                       <td style={td()}>{fmtData(p.data)}</td>
                       <td style={td()}>
                         <span style={{ display: 'inline-block', background: C.amberBg, color: C.amber, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-                          {semReg ? 'Sem registro de pausa' : 'Pausa sem hora de saída'}
+                          {rotuloPendente(p)}
                         </span>
                       </td>
                       <td style={td()}>{p.setor || '—'}</td>
