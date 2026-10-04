@@ -8,7 +8,7 @@
 --     Correção: UMA definição com TODOS os templates (convite, reset_senha, boas_vindas, chamado_resposta,
 --     chamado_lembrete, revenda_convite_contador, contrato_evento). O gate check-email-render-templates segura que o
 --     último fn_email_render do repo tenha todos os templates que algum fn_enviar_email usa.
---     As notificações 'resposta' que ficaram em 'falhou' por isso voltam à fila (tentativas zeradas); o cron reenvia.
+--     Nenhuma notificação antiga é re-enfileirada por esta migration (decisão do CEO, em consulta).
 --
 -- (2) fn_agente_chamado_responder — a rotina (conexão de serviço) não é usuário (auth.uid() nulo), então não passa pela
 --     fn_sugestao_mensagem_enviar. Antes: uma sessão postou "como Gilberto" (#116), outra recusou (#727). Agora há UMA
@@ -114,13 +114,7 @@ BEGIN
   RETURN jsonb_build_object('assunto', v_assunto, 'html', v_html);
 END $function$;
 
--- notificações de resposta (até 7 dias) que esgotaram as tentativas só por causa do template ausente voltam à fila (nada é apagado)
-UPDATE public.sugestao_notificacao
-   SET email_status = 'pendente', email_tentativas = 0, email_proxima_tentativa = now()
- WHERE tipo = 'resposta' AND email_enviado_em IS NULL
-   AND email_status IN ('pendente','falhou')
-   AND email_ultimo_erro LIKE 'template desconhecido: chamado_resposta%'
-   AND criado_em >= now() - interval '7 days';   -- as mais antigas NÃO são reenviadas em massa (Eng. Chefe 04/10): ficam 'falhou', listadas na PR
+-- (Eng. Chefe 04/10) NÃO re-enfileira notificações antigas: reenviar os avisos represados é decisão do CEO.
 
 -- ── (2) a função oficial ───────────────────────────────────────────────────────────────────────────────────────────
 -- ci-sem-guarda: fn_agente_chamado_responder — só a conexão de serviço (fn__agente_assert_servico) e só com OK do CEO na caixa
