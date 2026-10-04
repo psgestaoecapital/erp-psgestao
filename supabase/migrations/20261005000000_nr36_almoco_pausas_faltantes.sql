@@ -94,6 +94,8 @@ DECLARE v jsonb; BEGIN
   WHERE ap.company_id=p_company_id AND ap.status='pendente_confirmacao' AND ap.data BETWEEN p_dt_ini AND p_dt_fim;
   RETURN jsonb_build_object('ok',true,'pendentes',v);
 END $function$;
+REVOKE ALL ON FUNCTION public.fn_nr36_supervisao_pendentes(uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_supervisao_pendentes(uuid, date, date) TO authenticated, service_role;
 
 -- ── 3) Ciência mensal: versão + histórico; só a PENDENTE é regenerada ─────────────────────────────────────────────
 ALTER TABLE public.nr36_ciencia_mensal ADD COLUMN IF NOT EXISTS versao int NOT NULL DEFAULT 1;
@@ -123,6 +125,8 @@ BEGIN
   END IF;
   RETURN NEW;
 END $fn$;
+REVOKE ALL ON FUNCTION public.fn_nr36_ciencia_versionar() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_ciencia_versionar() TO service_role;
 DROP TRIGGER IF EXISTS trg_nr36_ciencia_versionar ON public.nr36_ciencia_mensal;
 CREATE TRIGGER trg_nr36_ciencia_versionar BEFORE UPDATE ON public.nr36_ciencia_mensal
   FOR EACH ROW EXECUTE FUNCTION public.fn_nr36_ciencia_versionar();
