@@ -11,9 +11,11 @@ import { dbSelect, dbInsert, dbDelete, dbPatch, obterSessionPayload, registrarJo
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 const DEMO_SST = 'b0700000-0000-4000-a000-000000000005'
-const base = new Date(Date.UTC(2022, 0, 1) + (Math.floor(Date.now() / 60000) % 330) * 86400000)
-const DIA = base.toISOString().slice(0, 10)
-const COMP = DIA.slice(0, 7) + '-01'
+const MATRICULA = 'E2E587' // matrícula exclusiva do spec: toda linha criada aqui leva essa marca
+// Dia único por worker (projetos desktop e celular rodam em paralelo com o mesmo CPF): 2022 inteiro é do #587.
+let DIA = ''
+let COMP = ''
+const diaDoWorker = (idx: number) => new Date(Date.UTC(2022, 0, 1) + ((Math.floor(Date.now() / 60000) + idx * 37) % 330) * 86400000).toISOString().slice(0, 10)
 
 let cpf = ''
 let colaboradorId = ''
@@ -41,7 +43,7 @@ async function importar(batidas: string[], pausas: Array<[string, string, number
   await dbDelete('ind_ponto_pausa', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
   await dbDelete('ind_ponto_dia', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
   await dbInsert('ind_ponto_dia', {
-    company_id: DEMO_SST, cpf, data: DIA, shift, worked_seconds: 30000, total_pontos: batidas.length, tem_ajuste: false,
+    company_id: DEMO_SST, cpf, registration_number: MATRICULA, data: DIA, shift, worked_seconds: 30000, total_pontos: batidas.length, tem_ajuste: false,
     raw: { points: batidas.map(h => ({ datetime: `${DIA}T${h}:00` })), origem: 'e2e-587' },
   })
   const hash = `e2e-587-${Date.now()}`
@@ -66,13 +68,28 @@ const D30 = { batidas: ['07:19', '12:00', '12:59', '17:23'], shift: '07:30-12:00
   pausas: [['08:47', '09:13', 1560], ['11:39', '11:59', 1200], ['14:49', '15:11', 1320], ['16:40', '17:00', 1200]] as Array<[string, string, number]> }
 
 test.describe('NR-36: almoço desconta da exposição e pausa faltante é pendente (#587)', () => {
-  test.beforeAll(async () => {
+  // limpeza do próprio fixture (só 2022, só a colaboradora da demo, só a matrícula do spec)
+  async function limparFixture() {
+    const janela = `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=gte.2022-01-01&data=lte.2022-12-31`
+    const cien = await dbSelect<{ id: string }>('nr36_ciencia_mensal', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&competencia=gte.2022-01-01&competencia=lte.2022-12-31&select=id`).catch(() => [])
+    for (const c of cien) await dbDelete('nr36_ciencia_mensal_historico', `ciencia_id=eq.${c.id}`).catch(() => {})
+    await dbDelete('nr36_ciencia_mensal', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&competencia=gte.2022-01-01&competencia=lte.2022-12-31`).catch(() => {})
+    await dbDelete('nr36_pausa_apurada', janela).catch(() => {})
+    await dbDelete('ind_ponto_pausa', janela).catch(() => {})
+    await dbDelete('ind_ponto_dia', `${janela}&registration_number=eq.${MATRICULA}`).catch(() => {})
+    await dbDelete('ind_ponto_dia', `${janela}&registration_number=is.null`).catch(() => {})
+  }
+
+  test.beforeAll(async ({}, testInfo) => {
+    DIA = diaDoWorker(testInfo.parallelIndex)
+    COMP = DIA.slice(0, 7) + '-01'
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO_SST}&select=is_demo`)
     expect(emp?.is_demo, 'só na demonstração').toBe(true)
     const [c] = await dbSelect<{ id: string; cpf: string }>('ind_ponto_colaborador',
       `company_id=eq.${DEMO_SST}&nome=eq.${encodeURIComponent('Ana Paula Demo')}&select=id,cpf`)
     expect(c, 'a demo tem a colaboradora Ana Paula Demo').toBeTruthy()
     cpf = c.cpf; colaboradorId = c.id
+    await limparFixture() // sobra de execução interrompida
     const regras = await dbSelect<{ parametros: Record<string, unknown> }>('nr36_pausa_regra', `company_id=eq.${DEMO_SST}&tipo=eq.termica_253&select=parametros`)
     if (regras.length === 0) { await comoRobo('fn_nr36_regra_seed_padrao', { p_company_id: DEMO_SST }); criouRegra = true }
     const [r] = await dbSelect<{ parametros: Record<string, unknown> }>('nr36_pausa_regra', `company_id=eq.${DEMO_SST}&tipo=eq.termica_253&select=parametros`)
@@ -88,12 +105,7 @@ test.describe('NR-36: almoço desconta da exposição e pausa faltante é penden
 
   test.afterAll(async () => {
     if (!cpf) return
-    const cien = await dbSelect<{ id: string }>('nr36_ciencia_mensal', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&competencia=eq.${COMP}&select=id`).catch(() => [])
-    for (const c of cien) await dbDelete('nr36_ciencia_mensal_historico', `ciencia_id=eq.${c.id}`).catch(() => {})
-    await dbDelete('nr36_ciencia_mensal', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&competencia=eq.${COMP}`).catch(() => {})
-    await dbDelete('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
-    await dbDelete('ind_ponto_pausa', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
-    await dbDelete('ind_ponto_dia', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
+    await limparFixture()
     if (uploadId) await dbDelete('nr36_upload', `id=eq.${uploadId}`).catch(() => {})
     if (regraOriginal && !criouRegra) await dbPatch('nr36_pausa_regra', `company_id=eq.${DEMO_SST}&tipo=eq.termica_253`, { parametros: regraOriginal }).catch(() => {})
     if (!eraElegivel) await comoRobo('fn_nr36_elegivel_set', { p_company_id: DEMO_SST, p_colaborador_id: colaboradorId, p_tipo: 'termica_253', p_ativo: false }).catch(() => {})
@@ -122,7 +134,7 @@ test.describe('NR-36: almoço desconta da exposição e pausa faltante é penden
     await dbPatch('nr36_pausa_regra', `company_id=eq.${DEMO_SST}&tipo=eq.termica_253`, { parametros: { ...(regraOriginal ?? {}), almoco_interrompe_exposicao: true } })
     await importar(D30.batidas, D30.pausas, D30.shift)
     const ap = await apurado()
-    expect(ap.detalhe.almoco_min).toBe(60)
+    expect(ap.detalhe.almoco_min, 'batidas 12:00 → 12:59 do Leonel: 59 min de fato').toBe(59)
     expect([ap.detalhe.pausas_devidas, ap.detalhe.pausas_realizadas]).toEqual([4, 4])
     expect(ap.status).toBe('conforme')
   })
