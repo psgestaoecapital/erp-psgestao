@@ -12,6 +12,7 @@ import { uploadFotoSugestao } from '@/lib/sugestaoUpload'
 import { type Marca } from './FotoMarcador'
 import FotosChamado, { type FotoItem } from './FotosChamado'
 import { BotaoDitar } from './BotaoDitar'
+import PedidoOkSocio from './PedidoOkSocio'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', white: '#FFFFFF', cream: '#F0ECE3',
@@ -129,6 +130,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
   return (
     <div style={{ marginTop: 10, borderTop: `1px dashed ${C.border}`, paddingTop: 10 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>💬 Conversa do chamado</div>
+      {ehSuporte && <PedidoOkSocio sugestaoId={sugestaoId} />}
 
       {carregando ? <div style={{ fontSize: 12, color: C.espL }}>carregando…</div> : msgs.length === 0 ? (
         <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginBottom: 6 }}>Sem mensagens ainda. Escreva abaixo — dá pra anexar uma foto nova.</div>

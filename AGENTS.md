@@ -175,3 +175,13 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Sempre com checks e aceitação verdes, `main` verde, dois testes e um merge por vez. É SENSÍVEL (exige "MERGE AUTORIZADO #NNNN"):
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
+
+# Chamado de agente de sócio (CEO 05/10) — o `gilberto-chamados` NÃO age nele
+Chamado **aberto pelo sócio** ou com o sócio como **responsável** (`sugestoes.responsavel_id`) pertence ao agente de sócio
+(`erp_agente_escopo`: `rodrigo-code` ↔ equipe `code-rodrigo`). `fn_chamado_agente_dono(<chamado>)` devolve o dono (ou null).
+1. **`gilberto-chamados` (e qualquer outro agente) confere antes de começar:** se o dono não é null, não age — `fn_agente_chamado_responder`
+   recusa com `chamado_de_agente_socio`. O agente de sócio só age no próprio escopo (`chamado_fora_do_escopo`).
+2. Chamado novo (ou reatribuído) do escopo vira tarefa na caixa do agente de sócio (se `aciona=true`); o despertador aciona.
+3. **OK do sócio** (em vez do OK do CEO): o Code pede com `fn_agente_pedir_ok_socio(<id>, '<agente>', '<texto>')`; o sócio aprova ou recusa no bloco
+   "O Code pede sua aprovação" da tela do chamado (`fn_agente_ok_socio`, só `auth.uid()` = sócio). Só com `aprovado` o `fn_agente_chamado_responder` posta,
+   e o texto postado tem de estar contido no pedido aprovado.
