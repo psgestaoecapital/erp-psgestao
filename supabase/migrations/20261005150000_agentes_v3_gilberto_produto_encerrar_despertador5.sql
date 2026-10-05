@@ -105,3 +105,6 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'disparos', v_disparos, 'alertas_teto', v_alertas);
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_agente_despertador(interval, integer, uuid, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_agente_despertador(interval, integer, uuid, boolean) TO service_role;
