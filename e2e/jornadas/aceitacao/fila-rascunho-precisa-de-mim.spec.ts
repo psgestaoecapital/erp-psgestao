@@ -59,7 +59,9 @@ test.describe('Fila de chamados · cabeçalho "p/ aprovar" = aba "Precisa de mim
   test('a carga não corta chamados: com menos de FILA_LIMITE chamados, a fila traz todos', async () => {
     const total = await dbSelect<{ id: string }>('sugestoes', 'select=id')
     const fila = await carregarFila<Linha>(sb())
-    if (total.length <= FILA_LIMITE) expect(fila.data.length, 'nenhum chamado some da fila').toBe(total.length)
+    // dbSelect é cortado pelo limite do PostgREST (1000): com total == FILA_LIMITE a contagem pode estar truncada,
+    // então só vale a igualdade exata abaixo do limite; do limite para cima a fila traz pelo menos FILA_LIMITE
+    if (total.length < FILA_LIMITE) expect(fila.data.length, 'nenhum chamado some da fila').toBe(total.length)
     else expect(fila.data.length).toBeGreaterThanOrEqual(FILA_LIMITE)
   })
 })

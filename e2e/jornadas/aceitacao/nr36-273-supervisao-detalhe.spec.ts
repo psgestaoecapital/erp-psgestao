@@ -56,7 +56,7 @@ test.describe('Supervisão de pausas — detalhe do desvio e filtro por colabora
     await dbDelete('ind_ponto_dia', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`).catch(() => {})
   })
 
-  test('o caso mostra cada pausa curta com horário e minutos, o excesso como gestão, e filtra por colaborador', { tag: '@pos-migration' }, async ({ page }) => {
+  test('o caso mostra cada pausa curta com horário e o motivo pela régua (mm:ss), o excesso como gestão, e filtra por colaborador', { tag: '@pos-migration' }, async ({ page }) => {
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
     await page.goto('/dashboard/compliance/pausas-tecnicas')
     await aguardarConteudo(page)
@@ -74,8 +74,8 @@ test.describe('Supervisão de pausas — detalhe do desvio e filtro por colabora
     await caso.click()
     const frases = page.getByTestId('sup-frase')
     await expect(frases.first()).toBeVisible()
-    await expect(frases.filter({ hasText: 'pausa das 07:42 às 08:02: 19 min — o mínimo é 20 min' })).toHaveCount(1)
-    await expect(frases.filter({ hasText: 'pausa das 11:37 às 12:03: 26 min — acima do tempo previsto (gestão, não é infração)' })).toHaveCount(1)
+    await expect(frases.filter({ hasText: 'pausa das 07:42 às 08:02 — abaixo do mínimo: 19:25 < 20:00' })).toHaveCount(1)
+    await expect(frases.filter({ hasText: 'pausa das 11:37 às 12:03 — acima do máximo: 26:00 ≥ 23:00 (gestão, não é infração)' })).toHaveCount(1)
     await expect(page.getByText(/undefined/)).toHaveCount(0)
 
     // sinal de gestão de 1h40 (art. 253 CLT), com horário, fora do veredito
