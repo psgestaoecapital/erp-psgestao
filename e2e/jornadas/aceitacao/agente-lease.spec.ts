@@ -4,6 +4,7 @@
 
 import { test, expect } from '../../support/fixtures'
 import { rpc, dbInsert, dbPatch, dbSelect, registrarJornada } from '../../support/api'
+import { liberarLease } from '../../support/lease'
 
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 const MIN = 60_000
@@ -15,18 +16,21 @@ type Desp = { disparos: { mensagem_id: string }[] }
 
 test.describe('Lease de sessão dos agentes', () => {
   const criadas: string[] = []
-  let leaseAnterior: { sessao_ref: string; renovada_em: string } | undefined
+  let devolverLease: () => Promise<void> = async () => {}
+  let leaseAnterior = false
 
   test.beforeAll(async () => {
-    leaseAnterior = (await dbSelect<{ sessao_ref: string; renovada_em: string }>('erp_agente_sessao_lease', `agente=eq.${AG}&select=sessao_ref,renovada_em`))[0]
+    leaseAnterior = (await dbSelect('erp_agente_sessao_lease', `agente=eq.${AG}&select=sessao_ref`)).length > 0
+    devolverLease = await liberarLease(AG)
   })
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-agente-lease', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
   test.afterAll(async () => {
     for (const id of criadas) await dbPatch('erp_agente_mensagem', `id=eq.${id}`, { arquivada: true })
-    // devolve o lease do agente como estava (ou o expira, se não havia)
-    await dbPatch('erp_agente_sessao_lease', `agente=eq.${AG}`, { sessao_ref: leaseAnterior?.sessao_ref ?? `teste-${RUN}`, renovada_em: leaseAnterior?.renovada_em ?? ha(60) })
+    // devolve o lease do agente como estava (sessão real renovada agora; sem lease prévio, deixa expirado)
+    await dbPatch('erp_agente_sessao_lease', `agente=eq.${AG}`, { sessao_ref: `teste-${RUN}`, renovada_em: ha(60) })
+    await devolverLease()
   })
 
   const iniciar = (ref: string) => rpc<Sessao>('fn_agente_sessao_iniciar', { p_agente: AG, p_sessao_ref: ref })
