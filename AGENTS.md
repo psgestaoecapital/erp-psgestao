@@ -159,6 +159,8 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   **Ao terminar** (sucesso, recusa ou espera de run), chame `SELECT fn_agente_sessao_encerrar('<seu-identificador>', '<ref da sessão>');`
   — libera a vez na hora; o despertador pode acordar a próxima no ciclo seguinte.
   O teto de redisparos (18) conta só os seguidos sem progresso (resposta nova zera).
+  **Com lease ativa o envio só grava a mensagem (não aciona):** antes de encerrar, **leia a caixa de novo**
+  (`SELECT fn_agente_caixa('<seu-identificador>');`) e trate o que chegou durante a sessão; o despertador cobre o resto.
 - **(A) Enquanto aguarda run/CI**, adiante o diagnóstico (sem merge) do próximo item da fila, registrando o progresso dos dois.
 - **(C) Antes de abrir PR:** rode o teste novo DUAS vezes seguidas (idempotência) e, em patch de função existente,
   leia a definição VIVA com `pg_get_functiondef` antes de reescrevê-la.
