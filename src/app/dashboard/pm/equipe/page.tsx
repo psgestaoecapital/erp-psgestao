@@ -1,9 +1,12 @@
 'use client'
 // EQUIPE (P&M). Sobre agency_equipe — custo/hora por pessoa é a BASE da margem (sem isso, margem=R$0).
 // Escopo por company_id (RD-45). Tema Espresso. Reusa o padrão de Leads/Propostas.
+// LGPD (03/10): custo/hora por pessoa só para quem vê salário, via fn_pm_equipe_custos (registra o acesso); a coluna
+// custo_hora não é lida direto. Quem não vê salário vê a equipe sem os valores e não cadastra/edita.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { COLUNAS_EQUIPE, carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const RED = '#7A1F1F'
@@ -22,12 +25,18 @@ export default function EquipePage() {
   const [edit, setEdit] = useState<Partial<Membro> | null>(null)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [podeVer, setPodeVer] = useState(false)
 
   const carregar = async () => {
     if (!empresa) { setMembros([]); setLoading(false); return }
     setLoading(true)
-    const { data } = await supabase.from('agency_equipe').select('*').eq('company_id', empresa).order('nome')
-    setMembros((data ?? []) as Membro[]); setLoading(false)
+    const [{ data }, c] = await Promise.all([
+      supabase.from('agency_equipe').select(COLUNAS_EQUIPE).eq('company_id', empresa).order('nome'),
+      carregarCustosEquipe(supabase, empresa),
+    ])
+    setPodeVer(c.podeVer)
+    setMembros(((data ?? []) as Omit<Membro, 'custo_hora'>[]).map((m) => ({ ...m, custo_hora: c.custos.get(m.id) ?? null })))
+    setLoading(false)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
@@ -65,18 +74,18 @@ export default function EquipePage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Equipe</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Custo/hora por pessoa — a base do cálculo de margem.</p>
           </div>
-          <button onClick={() => setEdit({ ativo: true, jornada_horas_dia: 8 })} style={btnPri}>+ Novo membro</button>
+          {podeVer && <button onClick={() => setEdit({ ativo: true, jornada_horas_dia: 8 })} style={btnPri}>+ Novo membro</button>}
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
           <Kpi l="Membros ativos" v={String(kpis.total)} />
-          <Kpi l="Custo/hora médio" v={brl(kpis.custoMedio)} />
+          <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} />
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
           : membros.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>
-              Cadastre a equipe com o custo/hora — sem isso a margem por job sai R$ 0.
+              {podeVer ? 'Cadastre a equipe com o custo/hora — sem isso a margem por job sai R$ 0.' : 'Equipe ainda não cadastrada (quem vê salário cadastra).'}
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
@@ -86,10 +95,12 @@ export default function EquipePage() {
                     <div style={{ fontWeight: 700 }}>{m.nome}{!m.ativo && <span style={{ color: RED, fontSize: 11, fontWeight: 400 }}> · inativo</span>}</div>
                     <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{m.cargo ?? '—'}{m.setor ? ` · ${m.setor}` : ''} · {m.jornada_horas_dia ?? 8}h/dia</div>
                   </div>
-                  <div style={{ textAlign: 'right', minWidth: 110 }}>
-                    <div style={{ fontWeight: 700, color: m.custo_hora ? ESPRESSO : RED }}>{m.custo_hora ? `${brl(Number(m.custo_hora))}/h` : 'sem custo/h'}</div>
-                  </div>
-                  <button onClick={() => setEdit(m)} style={btnSec}>Editar</button>
+                  {podeVer && <>
+                    <div style={{ textAlign: 'right', minWidth: 110 }}>
+                      <div style={{ fontWeight: 700, color: m.custo_hora ? ESPRESSO : RED }}>{m.custo_hora ? `${brl(Number(m.custo_hora))}/h` : 'sem custo/h'}</div>
+                    </div>
+                    <button onClick={() => setEdit(m)} style={btnSec}>Editar</button>
+                  </>}
                 </div>
               ))}
             </div>

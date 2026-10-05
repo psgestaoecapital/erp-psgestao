@@ -11,6 +11,8 @@ import { createPortal } from 'react-dom'
 import { CSS_IMPRESSAO } from '@/lib/ponto/impressaoDocumento'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { frasesPausasCurtas, frasesExcesso, fraseSinal, type PausaDia, type Trecho } from '@/lib/ponto/supervisaoFrases'
+import { reguaDe, textoRegua, mmss, motivoRegua, type Regua } from '@/lib/ponto/reguaPausa'
+import { rotuloPendente, explicaPendente } from '@/lib/ponto/motivoPendente'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
@@ -922,7 +924,12 @@ function SecaoRegras({ companyId }: { companyId: string }) {
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <Campo label="A cada (min de trabalho)"><input type="number" style={inp()} value={Number(r.parametros.gatilho_min ?? 100)} onChange={e => setParam(r.tipo, { gatilho_min: Number(e.target.value) })} /></Campo>
               <Campo label="Pausa (min)"><input type="number" style={inp()} value={Number(r.parametros.pausa_min ?? 20)} onChange={e => setParam(r.tipo, { pausa_min: Number(e.target.value) })} /></Campo>
-              <div style={{ flex: 2, fontSize: 11.5, color: C.gray, alignSelf: 'center' }}>Art.253: 20 min de repouso a cada 1h40 (100 min) de trabalho contínuo, computado como trabalho efetivo.</div>
+              {/* #76 (CEO 03/10): a régua de mínimo e máximo é da empresa e aparece no motivo de cada desvio */}
+              <Campo label="Excesso a partir de (min)"><input type="number" style={inp()} data-testid="regua-excesso" value={Number(r.parametros.tolerancia_excesso_min ?? 23)} onChange={e => setParam(r.tipo, { tolerancia_excesso_min: Number(e.target.value) })} /></Campo>
+              <Campo label="Limite inferior (min)"><input type="number" step="0.01" style={inp()} data-testid="regua-limite-inferior" placeholder={`vazio = ${Number(r.parametros.pausa_min ?? 20)} (sem tolerância)`}
+                value={r.parametros.limite_inferior_min == null ? '' : Number(r.parametros.limite_inferior_min)}
+                onChange={e => setParam(r.tipo, { limite_inferior_min: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+              <div style={{ flex: 2, fontSize: 11.5, color: C.gray, alignSelf: 'center' }}>Art.253: 20 min de repouso a cada 1h40 (100 min) de trabalho contínuo, computado como trabalho efetivo. {textoRegua(reguaDe(r.parametros))}.</div>
             </div>
           ) : (
             <div>
@@ -1618,12 +1625,26 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
   }, [companyId])
   useEffect(() => { void listarEmissoes() }, [listarEmissoes])
 
+  const [reguaRel, setReguaRel] = useState<Regua | undefined>(undefined)
+  const [segRel, setSegRel] = useState<Map<string, number> | undefined>(undefined)
+  // pausa curta com o motivo pela régua (segundos); sem a régua, o texto de antes
+  const rotuloDesvio = (dv: RelDesvio, cpf: string, data: string) => {
+    if (dv.tipo !== 'pausa_insuficiente' || !reguaRel) return desvioLabel(dv)
+    const seg = segRel?.get(chaveSeg(cpf, data, dv.inicio))
+    const m = motivoRegua({ seg: seg ?? null, min: dv.duracao_min ?? null, classe: 'pausa_insuficiente' }, reguaRel)
+    return `Pausa às ${dv.inicio}${seg != null ? ` durou ${mmss(seg)}` : ''} — ${m}`
+  }
   const gerar = async (registrar: boolean) => {
     if (registrar) setEmitindo(true); else setCarregando(true)
     setErro('')
     try {
       const r = await rpc<Relatorio>('fn_nr36_relatorio_auditoria', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim, p_registrar: registrar })
       setRel(r)
+      // #76 · régua da empresa + duração em segundos para o motivo de cada pausa curta
+      try {
+        const rg = await rpc<{ ok: boolean; regua?: Record<string, unknown>; pausas?: PausaSeg[] }>('fn_nr36_pausas_regua', { p_company_id: companyId, p_ini: ini, p_fim: fim })
+        if (rg.ok) { setReguaRel(reguaDe(rg.regua)); setSegRel(new Map((rg.pausas || []).map(p => [chaveSeg(p.cpf, p.data, p.de), p.seg]))) }
+      } catch { setReguaRel(undefined); setSegRel(undefined) }
       if (registrar) { await listarEmissoes(); setTimeout(() => window.print(), 300) }
     } catch (e) { setErro((e as Error).message) } finally { setCarregando(false); setEmitindo(false) }
   }
@@ -1666,6 +1687,7 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
             {rel.regras.map((r, i) => (
               <div key={i} style={{ marginTop: 4 }}>· <b>{tipoLabel(r.tipo)}</b>: {r.base_legal} — {Object.entries(r.parametros).map(([k, v]) => `${k}=${String(v)}`).join(' · ')}</div>
             ))}
+            {reguaRel && <div style={{ marginTop: 6 }} data-testid="rel-regua"><b>{textoRegua(reguaRel)}</b>. Durações em minutos:segundos.</div>}
           </div>
 
           <div style={{ fontSize: 13, color: C.espresso, marginBottom: 10 }}><b>{rel.colaboradores.length}</b> colaborador(es) no período · <b style={{ color: totalDesvios > 0 ? C.red : C.green }}>{totalDesvios}</b> dia(s) com desvio.</div>
@@ -1704,7 +1726,7 @@ function AbaAuditoria({ companyId }: { companyId: string }) {
                                 {e.classe === 'exposicao' ? '🔵 exposição' : e.classe === 'aberto' ? '⏳ em aberto' : '⏸ pausa'} {e.inicio}{e.fim ? `–${e.fim}` : ''} {e.dur_min != null ? `(${e.dur_min} min)` : ''}
                               </div>
                             ))}
-                        {d.desvios.length > 0 && <div style={{ marginTop: 4 }}>{d.desvios.map((dv, k) => <div key={k} style={{ color: C.red, fontSize: 11 }}>⚠ {desvioLabel(dv)}</div>)}</div>}
+                        {d.desvios.length > 0 && <div style={{ marginTop: 4 }}>{d.desvios.map((dv, k) => <div key={k} style={{ color: C.red, fontSize: 11 }}>⚠ {rotuloDesvio(dv, c.cpf, d.data)}</div>)}</div>}
                       </td>
                       <td style={td()}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: s.bg, color: s.c, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{s.l}</span></td>
                     </tr>
@@ -1758,18 +1780,26 @@ type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null;
 // #92 · dia aguardando confirmação (pausa sem hora de saída). Natureza DIFERENTE do desvio: não
 // está provado — o supervisor pergunta ao colaborador o que houve; a responsável fecha na aba
 // Conferência. NUNCA é desvio no escuro (RD-38).
-type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; jornada: { entrada: string | null; saida: string | null } | null }
+type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; pausas_devidas?: number | null; pausas_realizadas?: number | null; almoco_min?: number | null; jornada: { entrada: string | null; saida: string | null } | null }
 
 const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
 // FATO, não julgamento (RH). Descreve o que aconteceu; a causa é a conversa.
-function frasesChao(d: SupCaso): string[] {
+// #76 (CEO 03/10): com a régua da empresa e a duração em segundos, cada pausa diz o motivo pelo número que decide
+type PausaSeg = { cpf: string; data: string; de: string; ate: string; seg: number; classe: string }
+const chaveSeg = (cpf: string, data: string, de?: string | null) => `${cpf}|${data}|${de ?? ''}`
+function comSegundos(d: SupCaso, seg?: Map<string, number>): PausaDia[] | null | undefined {
+  if (!seg || !d.pausas) return d.pausas
+  return d.pausas.map(p => ({ ...p, seg: seg.get(chaveSeg(d.cpf, d.data, p.de)) ?? p.seg ?? null }))
+}
+function frasesChao(d: SupCaso, regua?: Regua, seg?: Map<string, number>): string[] {
   const pausaMin = Number(d.pausa_min) || 20
+  const pausas = comSegundos(d, seg)
   // #273 · cada pausa curta com horário e minutos (antes: "pausa de undefined minutos às undefined"); e as pausas acima
   // do tempo previsto no mesmo dia, como gestão
   return [...(d.desvios || []).flatMap((dv) => {
-    if (dv.tipo === 'pausa_insuficiente') return frasesPausasCurtas(dv, d.pausas, pausaMin)
+    if (dv.tipo === 'pausa_insuficiente') return frasesPausasCurtas(dv, pausas, pausaMin, regua)
     return [fraseDesvio(dv)]
-  }), ...frasesExcesso(d.pausas)]
+  }), ...frasesExcesso(pausas, regua)]
 }
 function fraseDesvio(dv: SupDesvio): string {
   return (() => {
@@ -1785,9 +1815,9 @@ function fraseDesvio(dv: SupDesvio): string {
     return dv.tipo
   })()
 }
-function casoTexto(d: SupCaso): string {
+function casoTexto(d: SupCaso, regua?: Regua, seg?: Map<string, number>): string {
   const cab = `${d.nome}${d.funcao ? ` — ${d.funcao}` : ''}${d.setor ? ` — ${d.setor}` : ''}\n${fmtData(d.data)} · jornada ${d.jornada?.entrada ?? '—'}–${d.jornada?.saida ?? '—'}\n`
-  const linhas = frasesChao(d).map(f => `• ${f}`).join('\n')
+  const linhas = frasesChao(d, regua, seg).map(f => `• ${f}`).join('\n')
   return `${cab}\n${linhas}\n\nO sistema registra o fato ocorrido; a causa (linha parada, falta de substituto, demanda da operação) é a conversa entre supervisão e colaborador.`
 }
 
@@ -1805,6 +1835,8 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
   // #273 · filtrar por colaborador
   const [colab, setColab] = useState('')
   const [sinais, setSinais] = useState<SupSinal[]>([])
+  const [regua, setRegua] = useState<Regua | undefined>(undefined)
+  const [segMap, setSegMap] = useState<Map<string, number> | undefined>(undefined)
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('')
@@ -1819,6 +1851,11 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
         const sg = await rpc<{ sinais: SupSinal[] }>('fn_nr36_supervisao_sinais', { p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim })
         setSinais(sg.sinais || [])
       } catch { setSinais([]) }
+      // #76 · régua da empresa + duração em segundos (o motivo de cada desvio sai com o número que decide)
+      try {
+        const rg = await rpc<{ ok: boolean; regua?: Record<string, unknown>; pausas?: PausaSeg[] }>('fn_nr36_pausas_regua', { p_company_id: companyId, p_ini: ini, p_fim: fim })
+        if (rg.ok) { setRegua(reguaDe(rg.regua)); setSegMap(new Map((rg.pausas || []).map(p => [chaveSeg(p.cpf, p.data, p.de), p.seg]))) }
+      } catch { setRegua(undefined); setSegMap(undefined) }
       setCarregado(true)
     } catch (e) { setErro((e as Error).message) } finally { setCarregando(false) }
   }, [companyId, ini, fim])
@@ -1831,7 +1868,7 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
 
   const copiar = async (d: SupCaso) => {
     const k = d.cpf + d.data
-    try { await navigator.clipboard.writeText(casoTexto(d)); setCopiado(k); setTimeout(() => setCopiado(null), 1800) } catch { /* */ }
+    try { await navigator.clipboard.writeText(casoTexto(d, regua, segMap)); setCopiado(k); setTimeout(() => setCopiado(null), 1800) } catch { /* */ }
   }
 
   return (
@@ -1854,6 +1891,7 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
           Casos para a <b>conversa da supervisão com o colaborador</b>. O texto descreve <b>o que aconteceu</b>, não julga — a causa (linha parada, falta de substituto, demanda da operação) é a conversa. Abra o dia, copie ou imprima o caso.
         </div>
       </div>
+      {regua && <div style={{ fontSize: 12.5, color: C.espresso, background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 10, padding: '8px 12px', marginBottom: 12 }} data-testid="sup-regua">{textoRegua(regua)}. A duração é em minutos:segundos — é ela que decide.</div>}
 
       {erro && <div style={erroBox()}>{erro}</div>}
       {!carregado ? <Load /> :
@@ -1879,7 +1917,7 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
                   <div style={{ padding: '0 14px 14px' }}>
                     <div style={{ fontSize: 12, color: C.gray, marginBottom: 6 }}>Jornada {d.jornada?.entrada ?? '—'}–{d.jornada?.saida ?? '—'}{d.shift ? ` · escala ${d.shift}` : ''}</div>
                     <ul style={{ margin: '0 0 10px', paddingLeft: 18 }}>
-                      {frasesChao(d).map((f, i) => <li key={i} data-testid="sup-frase" style={{ fontSize: 13, color: C.espresso, marginBottom: 3 }}>{f}</li>)}
+                      {frasesChao(d, regua, segMap).map((f, i) => <li key={i} data-testid="sup-frase" style={{ fontSize: 13, color: C.espresso, marginBottom: 3 }}>{f}</li>)}
                     </ul>
                     <div style={{ display: 'flex', gap: 8 }} data-no-print="true">
                       <BtnGhost onClick={() => copiar(d)}><Copy size={13} /> {copiado === k ? 'Copiado!' : 'Copiar caso'}</BtnGhost>
@@ -1922,7 +1960,7 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
             <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
               <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
-                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Duas naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
+                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Três naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro) e <b>pausas faltantes</b> (há menos pausas registradas do que a jornada pedia, e nenhuma está abaixo do mínimo). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
@@ -1932,15 +1970,16 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
                 </tr></thead>
                 <tbody>
                   {pendentesF.map((p, i) => {
-                    const semReg = p.sem_registro_pausa === true || p.motivo === 'sem_registro_pausa'
+                    const explica = explicaPendente(p)
                     return (
                     <tr key={p.cpf + p.data + i} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
                       <td style={td()}><div style={{ fontWeight: 600, color: C.espresso }}>{p.nome}</div>{p.funcao && <div style={{ fontSize: 11, color: C.gray }}>{p.funcao}</div>}</td>
                       <td style={td()}>{fmtData(p.data)}</td>
                       <td style={td()}>
                         <span style={{ display: 'inline-block', background: C.amberBg, color: C.amber, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-                          {semReg ? 'Sem registro de pausa' : 'Pausa sem hora de saída'}
+                          {rotuloPendente(p)}
                         </span>
+                        {explica && <div data-testid="pendente-explica" style={{ fontSize: 11, color: C.gray, marginTop: 4, maxWidth: 320, lineHeight: 1.4 }}>{explica}</div>}
                       </td>
                       <td style={td()}>{p.setor || '—'}</td>
                       <td style={td()}>{p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}</td>

@@ -1,9 +1,12 @@
 'use client'
 // APONTAMENTO DE HORAS (P&M). Cronômetro no job + manual → agency_timesheet. custo_total = horas ×
 // custo_hora (agency_equipe). Escopo por company_id (RD-45). Tema Espresso.
+// LGPD (03/10): o custo/hora por pessoa vem de fn_pm_equipe_custos (só para quem vê salário); os demais apontam as
+// horas sem ver o custo de ninguém — o apontamento sai sem custo/hora e a Margem avisa.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'
@@ -29,12 +32,14 @@ export default function ApontamentoHorasPage() {
   const carregar = async () => {
     if (!empresa) { setLoading(false); return }
     setLoading(true)
-    const [j, e, t] = await Promise.all([
+    const [j, e, t, c] = await Promise.all([
       supabase.from('agency_jobs').select('id, titulo, numero').eq('company_id', empresa).order('created_at', { ascending: false }),
-      supabase.from('agency_equipe').select('id, nome, custo_hora').eq('company_id', empresa).eq('ativo', true).order('nome'),
+      supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
       supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, custo_total, user_id').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
+      carregarCustosEquipe(supabase, empresa),
     ])
-    setJobs((j.data ?? []) as JobOpt[]); setMembros((e.data ?? []) as MembroOpt[]); setLinhas((t.data ?? []) as Linha[])
+    setJobs((j.data ?? []) as JobOpt[]); setLinhas((t.data ?? []) as Linha[])
+    setMembros(((e.data ?? []) as { id: string; nome: string }[]).map((m) => ({ ...m, custo_hora: c.custos.get(m.id) ?? null })))
     setLoading(false)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -78,7 +83,7 @@ export default function ApontamentoHorasPage() {
     })
     setBusy(false)
     if (error) { setToast(`Erro: ${error.message}`); return }
-    setHorasManual(''); setDesc(''); setToast(`Apontamento CRIADO · ${horas}h · ${brl(custoPrev)}`); void carregar()
+    setHorasManual(''); setDesc(''); setToast(`Apontamento CRIADO · ${horas}h${custoHora ? ` · ${brl(custoPrev)}` : ''}`); void carregar()
   }
 
   const elapsed = rodando != null ? Math.floor((Date.now() - rodando) / 1000) : 0
@@ -104,10 +109,10 @@ export default function ApontamentoHorasPage() {
                 {jobs.map((j) => <option key={j.id} value={j.id}>{j.titulo}</option>)}
               </select>
             </label>
-            <label style={lbl}>Responsável (custo/h)
+            <label style={lbl}>Responsável
               <select style={inp} value={membroSel} onChange={(e) => setMembroSel(e.target.value)}>
                 <option value="">—</option>
-                {membros.map((m) => <option key={m.id} value={m.id}>{m.nome} · {brl(Number(m.custo_hora ?? 0))}/h</option>)}
+                {membros.map((m) => <option key={m.id} value={m.id}>{m.nome}{m.custo_hora != null ? ` · ${brl(Number(m.custo_hora))}/h` : ''}</option>)}
               </select>
             </label>
           </div>
