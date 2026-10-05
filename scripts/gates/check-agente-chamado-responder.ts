@@ -49,7 +49,7 @@ const ultimoRender = [...arqs].reverse().find((f) => le(f).includes('FUNCTION pu
 ok(!!ultimoRender, `última definição de fn_email_render (${ultimoRender ?? '—'})`)
 const render = ultimoRender ? le(ultimoRender) : ''
 for (const t of usados) ok(new RegExp(`'${t}'`).test(render), `fn_email_render (última definição) tem o template ${t}`)
-for (const t of ['convite', 'reset_senha', 'boas_vindas', 'chamado_resposta', 'chamado_lembrete', 'revenda_convite_contador', 'contrato_evento'])
+for (const t of ['convite', 'reset_senha', 'boas_vindas', 'chamado_resposta', 'chamado_lembrete', 'revenda_convite_contador', 'contrato_evento', 'chamado_resumo'])
   ok(new RegExp(`'${t}'`).test(render), `template ${t} presente`)
 
 if (falhas) { console.error(`\ncheck-agente-chamado-responder: ${falhas} falha(s)`); process.exit(1) }
