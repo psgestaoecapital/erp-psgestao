@@ -164,6 +164,7 @@ const LISTAS = [
   { id: 'area_equipe', label: 'Áreas / equipe' },
   { id: 'periodicidade', label: 'Periodicidade' },
   { id: 'unidade', label: 'Unidades' },
+  { id: 'rede_social', label: 'Redes sociais' },   // Social (03/10): redes dos posts do planejamento
 ]
 function AbaListas({ empresa }: { empresa: string | null }) {
   const [lista, setLista] = useState('area_equipe')
@@ -191,9 +192,11 @@ function AbaListas({ empresa }: { empresa: string | null }) {
   async function excluir(id: string) {
     if (!confirm('Remover esta opção?')) return
     setBusy(true); setMsg('')
-    const { error } = await supabase.rpc('fn_agency_config_excluir', { p_id: id })
+    const { data, error } = await supabase.rpc('fn_agency_config_excluir', { p_id: id })
     setBusy(false)
+    const j = data as { ok?: boolean; erro?: string; mensagem?: string } | null
     if (error) { setMsg('Erro: ' + error.message); return }
+    if (j && j.ok === false) { setMsg(j.mensagem ?? (j.erro === 'opcao_em_uso' ? 'Opção em uso — oculte em vez de remover.' : 'Erro: ' + (j.erro ?? 'falhou'))); return }
     void carregar()
   }
   async function adicionar() {
