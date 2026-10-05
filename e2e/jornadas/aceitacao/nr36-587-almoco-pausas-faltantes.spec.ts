@@ -162,18 +162,22 @@ test.describe('NR-36: almoço desconta da exposição e pausa faltante é penden
     expect(v1.status).toBe('pendente')
     expect(v1.versao).toBe(1)
 
-    // pendente com conteúdo diferente → regenera como versão 2, a 1 fica no histórico
-    await dbPatch('nr36_ciencia_mensal', `id=eq.${v1.id}`, { documento_hash: 'conteudo-antigo' })
+    // pendente com conteúdo diferente → regenera como versão 2, a 1 fica no histórico. O conteúdo muda de verdade
+    // (a apuração do dia muda com as batidas do 30/09); NÃO se faz PATCH em documento_hash: o gatilho
+    // trg_nr36_ciencia_versionar já conta versão em UPDATE de pendente e o gerar contaria outra (1→2→3).
+    await importar(D30.batidas, D30.pausas, D30.shift)
     await comoRobo('fn_nr36_ciencia_gerar', { p_company_id: DEMO_SST, p_competencia: COMP, p_cpf: cpf })
     const [v2] = await dbSelect<{ versao: number; documento_hash: string }>('nr36_ciencia_mensal', q)
     expect(v2.versao).toBe(2)
-    expect(v2.documento_hash).toBe(v1.documento_hash)
+    expect(v2.documento_hash).not.toBe(v1.documento_hash)
     const hist = await dbSelect<{ versao: number }>('nr36_ciencia_mensal_historico', `ciencia_id=eq.${v1.id}&select=versao`)
     expect(hist.map(h => h.versao)).toEqual([1])
 
     // assinada ou recusada: nada muda
     for (const st of ['assinado', 'recusado']) {
-      await dbPatch('nr36_ciencia_mensal', `id=eq.${v1.id}`, { status: st, documento_hash: `trava-${st}`, ...(st === 'recusado' ? { recusa_assinar: true } : {}) })
+      // status primeiro (hash igual: sem versão nova); só então o hash, já fora de 'pendente' (o gatilho não versiona)
+      await dbPatch('nr36_ciencia_mensal', `id=eq.${v1.id}`, { status: st, ...(st === 'recusado' ? { recusa_assinar: true } : {}) })
+      await dbPatch('nr36_ciencia_mensal', `id=eq.${v1.id}`, { documento_hash: `trava-${st}` })
       await comoRobo('fn_nr36_ciencia_gerar', { p_company_id: DEMO_SST, p_competencia: COMP, p_cpf: cpf })
       const [x] = await dbSelect<{ versao: number; status: string; documento_hash: string }>('nr36_ciencia_mensal', q)
       expect(x.status).toBe(st)
