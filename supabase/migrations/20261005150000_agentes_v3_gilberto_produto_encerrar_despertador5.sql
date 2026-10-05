@@ -7,19 +7,14 @@
 
 ALTER TABLE public.erp_agente_rotina DROP CONSTRAINT IF EXISTS erp_agente_rotina_agente_check;
 ALTER TABLE public.erp_agente_rotina ADD CONSTRAINT erp_agente_rotina_agente_check
-  CHECK (agente = ANY (ARRAY['gilberto-desenv','gilberto-produto','gilberto-automotivo','gilberto-industria','gilberto-chamados','rodrigo-code','jordana-code','andre-code','stephany-code']));
+  CHECK (agente = ANY (ARRAY['gilberto-desenv','gilberto-produto','gilberto-chamados','rodrigo-code','jordana-code','andre-code','stephany-code']));
 
 ALTER TABLE public.erp_agente_mensagem DROP CONSTRAINT IF EXISTS erp_agente_mensagem_socio_so_aviso;
 ALTER TABLE public.erp_agente_mensagem ADD CONSTRAINT erp_agente_mensagem_socio_so_aviso
-  CHECK (tipo = 'aviso' OR para = ANY (ARRAY['gilberto-desenv','gilberto-produto','gilberto-automotivo','gilberto-industria','gilberto-chamados']));
+  CHECK (tipo = 'aviso' OR para = ANY (ARRAY['gilberto-desenv','gilberto-produto','gilberto-chamados']));
 
 INSERT INTO public.erp_agente_rotina (agente, aciona, observacao)
 VALUES ('gilberto-produto', true, 'Desenvolvedor de produto (P&M, Virada 01/11, Oficina); faixa 05')
-ON CONFLICT (agente) DO NOTHING;
--- Verticais futuras (CEO 05/10): existem nos checks e na rotina, mas desligadas (aciona=false) até a etapa futura.
-INSERT INTO public.erp_agente_rotina (agente, aciona, observacao) VALUES
-  ('gilberto-automotivo', false, 'Desenvolvedor da vertical Automotivo; faixa 15; liga em etapa futura'),
-  ('gilberto-industria',  false, 'Desenvolvedor da vertical Indústria; faixa 25; liga em etapa futura')
 ON CONFLICT (agente) DO NOTHING;
 
 CREATE OR REPLACE FUNCTION public.fn_agente_sessao_encerrar(p_agente text, p_sessao_ref text)
