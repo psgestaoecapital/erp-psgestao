@@ -4,6 +4,7 @@
 
 import { test, expect } from '../../support/fixtures'
 import { rpc, dbInsert, dbPatch, dbSelect, registrarJornada } from '../../support/api'
+import { liberarLease } from '../../support/lease'
 
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 const MIN = 60_000
@@ -14,12 +15,16 @@ type Linha = { redisparos: number; acionamento_historico: unknown[]; alerta_teto
 
 test.describe('Despertador dos agentes', () => {
   const criadas: string[] = []
+  let devolverLease: () => Promise<void> = async () => {}
 
+  // o lease real do agente (sessão de produção ativa) não pode mascarar o que o teste prova
+  test.beforeAll(async () => { devolverLease = await liberarLease('gilberto-chamados') })
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-agente-despertador', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
   test.afterAll(async () => {
     for (const id of criadas) await dbPatch('erp_agente_mensagem', `id=eq.${id}`, { arquivada: true })
+    await devolverLease()
   })
 
   const criar = async (requerOk: boolean, parada = 30) => {
