@@ -76,6 +76,7 @@ export default function ConfigEmpresaPage() {
 
   const emp = comps.find((c) => c.id === sel) ?? null
   const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }))
+  const ieIsenta = form.inscricao_estadual.trim().toUpperCase() === 'ISENTO'
 
   // prévia do cabeçalho: LIVE dos campos do form + logo atual
   const header: EmpresaHeader = {
@@ -158,7 +159,14 @@ export default function ConfigEmpresaPage() {
             <Campo label="Razão social *" span><input value={form.razao_social} onChange={(e) => set('razao_social', e.target.value)} style={inp} /></Campo>
             <Campo label="Nome fantasia"><input value={form.nome_fantasia} onChange={(e) => set('nome_fantasia', e.target.value)} style={inp} /></Campo>
             <Campo label="CNPJ"><input value={form.cnpj} onChange={(e) => set('cnpj', maskCNPJ(e.target.value))} inputMode="numeric" placeholder="00.000.000/0000-00" style={inp} /></Campo>
-            <Campo label="Inscrição estadual"><input value={form.inscricao_estadual} onChange={(e) => set('inscricao_estadual', e.target.value)} style={inp} /></Campo>
+            {/* #776 · empresa isenta de IE: grava "ISENTO" (convenção fiscal) em vez de exigir número */}
+            <Campo label="Inscrição estadual">
+              <input value={form.inscricao_estadual} onChange={(e) => set('inscricao_estadual', e.target.value)} disabled={ieIsenta} style={inp} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: MUT, marginTop: 6 }}>
+                <input id="ie-isenta" type="checkbox" checked={ieIsenta} onChange={(e) => set('inscricao_estadual', e.target.checked ? 'ISENTO' : '')} />
+                Isento de inscrição estadual
+              </div>
+            </Campo>
             <Campo label="Inscrição municipal"><input value={form.inscricao_municipal} onChange={(e) => set('inscricao_municipal', e.target.value)} style={inp} /></Campo>
             <Campo label="Cidade/Estado"><input value={form.cidade_estado} onChange={(e) => set('cidade_estado', e.target.value)} placeholder="São Miguel do Oeste/SC" style={inp} /></Campo>
             <Campo label="CNAE"><input value={form.cnae} onChange={(e) => set('cnae', e.target.value)} placeholder="0000-0/00" style={inp} /></Campo>

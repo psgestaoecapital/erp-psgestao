@@ -111,7 +111,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       'UF fiscal do emitente não cadastrada · defina a UF da empresa (companies.uf_fiscal) antes de emitir NF-e'
     )
   }
-  if (!emp.inscricao_estadual) {
+  // #776: "ISENTO" (empresa marcada como isenta de IE) não é IE de emitente — NF-e segue exigindo número
+  if (!emp.inscricao_estadual || emp.inscricao_estadual.trim().toUpperCase() === 'ISENTO') {
     throw new FiscalError(
       'PAYLOAD_INVALIDO',
       'Inscricao Estadual obrigatoria pra NFe · cadastre em Configuracoes da empresa'
