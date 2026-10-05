@@ -11,9 +11,14 @@
  *    exposta pelo PostgREST). Sem credenciais: LOCAL = SKIP da regra 2; CI (GITHUB_ACTIONS/CI) = fail-closed.
  *    Se a RPC ainda não existe (primeiro deploy após 20260926160000) → aviso + SKIP, nunca trava o próprio deploy.
  *
+ * 3) PR (git disponível, origin/main alcançável): migration NOVA (adicionada no PR) com versão menor ou igual à
+ *    última versão da main → falha (CEO 05/10: cada agente usa a sua faixa de segundos e nunca volta no tempo;
+ *    renomeie para uma versão acima da última da main). Sem origin/main (clone raso, local) → SKIP com aviso.
+ *
  * Uso: npm run check:migrations
  */
 import { readdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { createClient } from '@supabase/supabase-js'
 
@@ -43,6 +48,30 @@ export function colisoesComLedger(locaisArr: Local[], ledgerRows: LedgerRow[]): 
   return { problemas, semNomeReal }
 }
 
+// Regra 3 isolada (pura, testável): novas versões que não passam da última da main.
+export function novasAbaixoDaMain(novas: string[], versoesMain: string[]): string[] {
+  if (!versoesMain.length) return []
+  const ultima = versoesMain.reduce((a, b) => (b > a ? b : a))
+  return novas.filter((v) => v <= ultima && !versoesMain.includes(v)).map((v) => `versão ${v} nova no PR não passa da última da main (${ultima}) — renomeie para uma versão maior, na sua faixa de segundos (AGENTS.md)`)
+}
+
+function git(args: string[]): string | null {
+  try { return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }) } catch { return null }
+}
+
+function regra3(): string[] {
+  const ls = git(['ls-tree', '--name-only', 'origin/main', 'supabase/migrations/'])
+  const add = git(['diff', '--name-only', '--diff-filter=A', 'origin/main...HEAD', '--', 'supabase/migrations/'])
+  if (ls === null || add === null) {
+    console.warn('⚠️  check:migrations — origin/main inacessível (clone raso/local): regra "versão acima da main" SKIP.')
+    return []
+  }
+  const ver = (f: string) => f.split('/').pop()!.match(RE)?.[1]
+  const main = ls.split('\n').map(ver).filter((v): v is string => !!v)
+  const novas = add.split('\n').map(ver).filter((v): v is string => !!v)
+  return novasAbaixoDaMain(novas, main)
+}
+
 function locais(): Local[] {
   let files: string[]
   try { files = readdirSync(MIG_DIR) } catch { return [] }
@@ -65,6 +94,9 @@ async function main() {
   for (const [v, ls] of porVersao) {
     if (ls.length > 1) problemas.push(`versão ${v} em ${ls.length} arquivos: ${ls.map((l) => l.arquivo).join(' · ')} — só um entra no ledger; renomeie os demais`)
   }
+
+  // ── Regra 3 · versão nova acima da última da main (git) ───────────────────────────────────────
+  problemas.push(...regra3())
 
   // ── Regra 2 · colisão com o ledger (online) ────────────────────────────────────────────────────
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
