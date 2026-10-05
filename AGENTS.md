@@ -175,3 +175,10 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Sempre com checks e aceitação verdes, `main` verde, dois testes e um merge por vez. É SENSÍVEL (exige "MERGE AUTORIZADO #NNNN"):
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
+
+# Núcleo compartilhado e dados de carteira (CEO 05/10)
+- **Núcleo compartilhado** (financeiro, fiscal, cadastros, permissões/RLS, menu, segurança, `/_compartilhado`, qualquer função/tabela
+  usada por mais de uma vertical): **evolução e feature nova só pela `gilberto-desenv`**; os Codes de vertical abrem pedido no BOX e o
+  Eng. Chefe repassa. **Correção de BUG** em módulo compartilhado pode ser feita por Code de sócio, com a label `revisao-eng-chefe`.
+- **Correção de DADO** das empresas da própria carteira pelo Code do sócio: só com backup, escopo por `company_id`, em transação, com
+  prova antes/depois e **nunca em título pago**. Fiscal, permissões/RLS/views, LGPD e NR-36 levam a label `revisao-eng-chefe`.
