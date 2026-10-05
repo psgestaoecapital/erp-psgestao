@@ -202,6 +202,7 @@ function Header() {
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 23, fontWeight: 400, color: C.espresso, margin: 0 }}>Documentos Exigidos</h1>
         <div style={{ fontSize: 12, color: C.gray }}>Configure quais documentos a sua empresa exige — próprios × terceiros</div>
       </div>
+      <a href="/dashboard/compliance/treinamentos-por-setor" data-testid="link-treinamentos-por-setor" style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: C.gold }}>Treinamentos por setor →</a>
     </div>
   )
 }
