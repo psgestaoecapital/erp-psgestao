@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { PackageOpen, Plus, Pencil, Copy, Trash2, X, GripVertical } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESPRESSO = '#3D2314', OFFWHITE = '#FAF7F2', DOURADO = '#C8941A', BORDA = '#E7DED3', TEXTM = '#6b5444', RED = '#7A1F1F'
 const brl = (n: number | null | undefined) => n == null ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -17,7 +18,7 @@ type PacoteItem = { servico_item_id: string; quantidade: number; nome?: string }
 type Servico = {
   id: string; nome: string; descricao: string | null; tipo: string; area: string | null; modelo_preco: string;
   valor_base: number | null; unidade: string | null; periodicidade: string | null; horas_estimadas: number | null;
-  prazo_dias_padrao: number | null; entregaveis: string[]; especificacoes: string | null; responsavel_padrao_id: string | null;
+  prazo_dias_padrao: number | null; antecedencia_dias?: number | null; entregaveis: string[]; especificacoes: string | null; responsavel_padrao_id: string | null;
   responsavel_nome?: string | null; ativo: boolean; ordem: number; usos: number; pacote_itens: PacoteItem[]
 }
 
@@ -76,7 +77,13 @@ export default function ServicosPage() {
         especificacoes: edit.especificacoes ?? '', responsavel_padrao_id: edit.responsavel_padrao_id ?? null, ativo: edit.ativo ?? true,
       }
       if (edit.tipo === 'pacote') payload.pacote_itens = (edit.pacote_itens ?? []).filter(p => p.servico_item_id)
-      await rpc('fn_agency_servico_salvar', { p_company_id: companyId, p_payload: payload })
+      const salvo = await rpc<{ id: string; antecedencia_dias?: number | null }>('fn_agency_servico_salvar', { p_company_id: companyId, p_payload: payload })
+      // Social (03/10): antecedência da peça para o prazo do job gerado pelo post (coluna própria, gravada à parte)
+      const antecedencia = edit.antecedencia_dias ?? 2
+      if (salvo?.id && salvo.antecedencia_dias !== antecedencia) {
+        const { error } = await supabase.from('agency_servico').update({ antecedencia_dias: antecedencia }).eq('id', salvo.id).eq('company_id', companyId)
+        if (error) throw new Error(error.message)
+      }
       setEdit(null); void carregar()
     } catch (e) { setErro((e as Error).message) }
   }
@@ -167,6 +174,10 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro, opcoes, 
         {edit.tipo === 'recorrente' && <Campo label="Periodicidade"><SelectConfig lista="periodicidade" opcoes={opcoes} value={edit.periodicidade ?? ''} onChange={v => setEdit({ ...edit, periodicidade: v || null })} onGerenciar={onGerenciar} /></Campo>}
         <Campo label="Horas estimadas"><input type="number" style={inp} value={edit.horas_estimadas ?? ''} onChange={e => setEdit({ ...edit, horas_estimadas: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
         <Campo label="Prazo padrão (dias)"><input type="number" style={inp} value={edit.prazo_dias_padrao ?? ''} onChange={e => setEdit({ ...edit, prazo_dias_padrao: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+        <div style={{ marginBottom: 10, flex: 1, minWidth: 130 }}>
+          <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: TEXTM, marginBottom: 4 }}>Antecedência da publicação (dias)<AjudaCampo chave="pm.servico.antecedencia" /></label>
+          <input type="number" min={0} max={60} style={inp} value={edit.antecedencia_dias ?? 2} onChange={e => setEdit({ ...edit, antecedencia_dias: e.target.value === '' ? 2 : Math.max(0, Math.min(60, Number(e.target.value))) })} data-testid="servico-antecedencia" />
+        </div>
       </div>
       <Campo label="Responsável / equipe padrão">
         <select style={inp} value={edit.responsavel_padrao_id ?? ''} onChange={e => setEdit({ ...edit, responsavel_padrao_id: e.target.value || null })}>
