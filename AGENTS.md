@@ -175,3 +175,12 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Sempre com checks e aceitação verdes, `main` verde, dois testes e um merge por vez. É SENSÍVEL (exige "MERGE AUTORIZADO #NNNN"):
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
+
+# Agentes de sócio: escopo de chamados e OK do sócio (CEO 05/10)
+- `erp_agente_escopo` liga cada agente de sócio ao usuário dele (`rodrigo-code` ↔ equipe `code-rodrigo`). Chamado **aberto pelo sócio ou com ele
+  como responsável** (ou carteira vigente da empresa) é do agente dele: o gatilho em `sugestoes` enfileira, o job `agente_escopo_enfileirar`
+  (1 min) vira mensagem na caixa dele (só com a rotina ligada).
+- **`gilberto-chamados` e qualquer outro agente NÃO agem em chamado cujo dono é agente de sócio ativo e ligado**: confira
+  `fn_chamado_agente_dono(<chamado>)` antes de começar; `fn_agente_chamado_responder` recusa (`chamado_de_agente_socio`).
+- Agente de sócio responde chamado só com OK do **sócio**: `fn_agente_pedir_ok_socio(<msg>, '<agente>', '<texto>')`; o sócio aprova/recusa na tela do
+  chamado (`fn_agente_ok_socio`, só `auth.uid()` = dono). Sem `ok_socio_decisao='aprovado'`, `fn_agente_chamado_responder` recusa (`sem_ok_do_socio`).

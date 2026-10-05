@@ -10,6 +10,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
+import PedidoOkSocio from '@/components/melhorias/PedidoOkSocio'
 import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, filtrarBusca, carregarEmpresasDemo, semDemos, filtrarVisao, trava, type EstadoFila, type Visao } from '@/lib/sugestoes/filaAtendimento'
 
 const C = {
@@ -392,6 +393,7 @@ function Inner() {
 
               {aberto === it.id && (
                 <div style={{ marginTop: 10, borderTop: `1px solid ${C.cream}`, paddingTop: 10 }}>
+                  <PedidoOkSocio chamadoId={it.id} />
                   <div style={{ fontSize: 13, color: C.esp, whiteSpace: 'pre-wrap' }}>{it.descricao}</div>
                   {(anexosUrl[it.id] || []).map((a, ai) => (
                     <div key={ai} style={{ position: 'relative', display: 'inline-block', marginTop: 10, maxWidth: '100%' }}>
