@@ -156,7 +156,7 @@ function ProducaoPageInner() {
     const [cl, jb, ts, us, ct, sv] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).order('created_at', { ascending: false }),
-      supabase.from('agency_timesheet').select('*').eq('company_id', sel).order('data', { ascending: false }),
+      supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),

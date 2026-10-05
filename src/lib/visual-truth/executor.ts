@@ -57,7 +57,7 @@ async function fetchExpectedValue(
     case 'R.compliance.total_funcionarios': {
       const { count, error } = await supabase
         .from('compliance_funcionarios')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
         .eq('ativo', true);
       if (error) throw error;
       return count ?? null;
