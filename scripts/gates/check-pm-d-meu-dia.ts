@@ -39,7 +39,7 @@ ok(/insert\(\{ company_id: empresa, user_id: userId, texto/.test(dia) && /exclui
 const pauta = readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8')
 ok(/<JobComentarios key=/.test(pauta) && /<Cronometro key=/.test(pauta) && /get\("job"\)/.test(pauta), 'job aberto da Pauta com comentários, cronômetro e link ?job=')
 
-const mig = readFileSync('supabase/migrations/20261002280000_pm_d_meu_dia.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261005160005_pm_d_meu_dia.sql', 'utf8')
 ok(/'pm_meu_dia', 'Meu dia', 'pm', 'pm_producao', 'Sun', '\/dashboard\/pm\/meu-dia'/.test(mig) && /WHERE pm\.module_id = 'pm_jobs'/.test(mig), 'menu "Meu dia" nos planos do P&M')
 ok(/IF p_company_id IS DISTINCT FROM v_demo/.test(mig) && /fn_demo_seed_pm_dia\(p_company_id\)/.test(mig) && /IF v_new = v_def THEN RAISE EXCEPTION/.test(mig), 'demo só na P&M e no reset (RD-69)')
 ok(/REVOKE ALL ON FUNCTION public\.fn_demo_seed_pm_dia\(uuid\) FROM PUBLIC, anon, authenticated;/.test(mig), 'seed sem acesso de usuário')
