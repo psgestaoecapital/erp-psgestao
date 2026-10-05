@@ -13,13 +13,15 @@ const RUN = Date.now().toString().slice(-8)
 const NN_PAGO = `91${RUN}1`
 const NN_BAIXADO = `91${RUN}2`
 const hoje = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10)
+// vencimento do boleto 'baixado' no dia seguinte (UTC): entre 21h e 24h BRT o banco (UTC) já virou o dia e 'hoje' sai 'vencido'
+const vencimento = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10)
 
 test.describe('Bradesco — baixa automática (#297)', () => {
   test.beforeAll(async () => {
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO_GE}&select=is_demo`)
     expect(emp?.is_demo, 'só na demonstração').toBe(true)
     for (const [nn, valor] of [[NN_PAGO, 100], [NN_BAIXADO, 80]] as const) {
-      await dbInsert('erp_receber', { company_id: DEMO_GE, descricao: `Aceitação Bradesco ${nn}`, valor, data_vencimento: hoje,
+      await dbInsert('erp_receber', { company_id: DEMO_GE, descricao: `Aceitação Bradesco ${nn}`, valor, data_vencimento: nn === NN_BAIXADO ? vencimento : hoje,
         status: 'aberto', boleto_status: 'registrado', boleto_banco_codigo: '237', boleto_nosso_numero: nn })
     }
   })
