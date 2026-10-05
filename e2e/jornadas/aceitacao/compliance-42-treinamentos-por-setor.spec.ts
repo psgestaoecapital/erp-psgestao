@@ -42,9 +42,11 @@ test.describe('#42 treinamentos por setor', { tag: '@pos-migration' }, () => {
   })
 
   test('caminho principal: o que já era exigido continua exigido (aditivo, RD-55)', async () => {
-    const regra = await dbSelect<{ id: string }>('compliance_documento_exigido', `company_id=eq.${DEMO_SST}&ativo=eq.true&funcao=is.null&setor_id=is.null&nome_custom=is.null&select=id`)
+    const regra = await dbSelect<{ id: string; aplica_a: string }>('compliance_documento_exigido', `company_id=eq.${DEMO_SST}&ativo=eq.true&funcao=is.null&setor_id=is.null&nome_custom=is.null&select=id,aplica_a`)
     test.skip(regra.length === 0, 'DEMO sem exigido sem escopo')
-    const pessoas = await dbSelect<{ id: string }>('compliance_funcionarios', `company_id=eq.${DEMO_SST}&ativo=eq.true&prestador_id=is.null&select=id`)
+    // a população é a do aplica_a do exigido (terceiros ≠ funcionários próprios)
+    const terceiro = regra[0].aplica_a === 'funcionario_terceiro'
+    const pessoas = await dbSelect<{ id: string }>('compliance_funcionarios', `company_id=eq.${DEMO_SST}&ativo=eq.true&prestador_id=${terceiro ? 'not.is.null' : 'is.null'}&select=id`)
     const m = await matriz(`exigido_id=eq.${regra[0].id}`)
     expect(new Set(m.map(l => l.funcionario_id)).size).toBe(pessoas.length)
   })
