@@ -61,6 +61,12 @@ GRANT EXECUTE ON FUNCTION public.fn_nr36_classificar_eventos_nucleo(uuid) TO ser
 REVOKE ALL ON FUNCTION public.fn_nr36_apurar_nucleo(uuid, date, date, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_nr36_apurar_nucleo(uuid, date, date, text) TO service_role;
 
+-- portas da tela: grants explícitos (nada muda para quem já usa; anon continua de fora)
+REVOKE ALL ON FUNCTION public.fn_nr36_apurar(uuid, date, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_apurar(uuid, date, date, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_nr36_classificar_eventos(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_classificar_eventos(uuid) TO service_role;
+
 -- ── backup carimbado (RD-55) ─────────────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.nr36_pausa_apurada_backup (
   backup_id   uuid        NOT NULL,
@@ -83,6 +89,7 @@ REVOKE ALL ON TABLE public.nr36_pausa_apurada_backup FROM PUBLIC, anon, authenti
 GRANT SELECT ON TABLE public.nr36_pausa_apurada_backup TO authenticated;
 GRANT ALL ON TABLE public.nr36_pausa_apurada_backup TO service_role;
 
+-- ci-sem-guarda: fn_nr36_reapurar_servico — só service_role (REVOKE de authenticated/anon); não há sessão de usuário nem empresa de usuário a conferir
 -- ── reapurar_servico ─────────────────────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_nr36_reapurar_servico(p_company uuid, p_ini date, p_fim date)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
