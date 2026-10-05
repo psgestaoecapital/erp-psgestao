@@ -224,6 +224,10 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.fn_agente_despertador(interval, integer, uuid, boolean) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_agente_despertador(interval, integer, uuid, boolean) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_agente_acionar(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_agente_acionar(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_agente_mensagem_responder(uuid, text, text, text, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_agente_mensagem_responder(uuid, text, text, text, integer) TO service_role;
 REVOKE ALL ON FUNCTION public.fn_agente_sessao_iniciar(text, text, interval) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_agente_sessao_iniciar(text, text, interval) TO service_role;
 REVOKE ALL ON FUNCTION public.fn__agente_lease_ativa(text) FROM PUBLIC, anon, authenticated;
