@@ -145,3 +145,18 @@ Responder chamado exige usuário logado (`auth.uid()`), e a rotina/Code é conex
    (fica o hash; com `p_hash_aprovado` a função recusa texto diferente); a resposta entra com autor = a conta PS configurada (`erp_agente_config`, não é parâmetro) e rastro (`redigido_por` = agente, `aprovado_por`, `ok_ceo_em`, `ok_ceo_origem`, `ok_registrado_por`, `mensagem_agente_id`)
    e o aviso por e-mail sai pelo mesmo caminho da aprovação normal.
 3. Sem OK do CEO na caixa: não responda o chamado; registre `recusada` com o motivo.
+
+# Merge pelo Code (RD-94, CEO 04/10) — o CEO não faz merge
+O Code PODE mergear uma PR com `gh pr merge` (nunca auto-merge) somente quando: (1) há na SUA caixa uma mensagem do
+`eng_chefe` com "MERGE AUTORIZADO #NNNN" para essa PR; (2) a PR está Ready, atualizada com a main, com todos os checks e
+a aceitação verdes; (3) nenhum `deploy-migrations` ou `aceitacao-pos-migration` está em andamento ou vermelho na main.
+Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve no caso real; vermelho = reverter na hora.
+
+# Velocidade e disciplina de sessão (CEO 04/10)
+- **(D) Uma sessão por agente (lease):** ao iniciar, chame `SELECT fn_agente_sessao_iniciar('<seu-identificador>', '<ref da sessão>');`.
+  Se vier `ocupado`, **encerre sem fazer nada**. O lease é renovado a cada `fn_agente_mensagem_responder` e expira sozinho
+  após 12 min sem renovação; `fn_agente_acionar` e o despertador (a cada 5 min, mensagem parada > 10 min) não disparam com lease ativo.
+  O teto de redisparos (18) conta só os seguidos sem progresso (resposta nova zera).
+- **(A) Enquanto aguarda run/CI**, adiante o diagnóstico (sem merge) do próximo item da fila, registrando o progresso dos dois.
+- **(C) Antes de abrir PR:** rode o teste novo DUAS vezes seguidas (idempotência) e, em patch de função existente,
+  leia a definição VIVA com `pg_get_functiondef` antes de reescrevê-la.

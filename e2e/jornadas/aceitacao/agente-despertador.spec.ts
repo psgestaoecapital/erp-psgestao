@@ -1,4 +1,4 @@
-// CEO 04/10 · despertador automático dos agentes. Migration 20261004100000 (@pos-migration).
+// CEO 04/10 · despertador automático dos agentes. Migrations 20261004100000 e 20261005110000 (@pos-migration).
 // NUNCA aciona uma rotina de verdade: usa p_simular (registra o redisparo sem chamar o gatilho) e p_somente (só a
 // mensagem de teste). A mensagem nasce ARQUIVADA (o gatilho de envio não dispara) e termina arquivada.
 
@@ -35,7 +35,7 @@ test.describe('Despertador dos agentes', () => {
   const desp = (id: string) => rpc<Desp>('fn_agente_despertador', { p_somente: id, p_simular: true })
   const linha = async (id: string) => (await dbSelect<Linha>('erp_agente_mensagem', `id=eq.${id}&select=redisparos,acionamento_historico,alerta_teto_em`))[0]
 
-  test('dispara após 20 min parada, registra no histórico e não redispara antes de 20 min', { tag: '@pos-migration' }, async () => {
+  test('dispara após 10 min parada, registra no histórico e não redispara antes de 10 min', { tag: '@pos-migration' }, async () => {
     const id = await criar(false)
     const a = await desp(id)
     expect(a.disparos.map((d) => d.mensagem_id), 'parada há 30 min: redispara').toEqual([id])
@@ -46,9 +46,9 @@ test.describe('Despertador dos agentes', () => {
     expect(l.acionamento_historico, 'cada redisparo fica no histórico').toHaveLength(1)
   })
 
-  test('respeita o teto de 12 redisparos e avisa o Eng. Chefe uma vez só', { tag: '@pos-migration' }, async () => {
+  test('respeita o teto de 18 redisparos e avisa o Eng. Chefe uma vez só', { tag: '@pos-migration' }, async () => {
     const id = await criar(false)
-    await dbPatch('erp_agente_mensagem', `id=eq.${id}`, { redisparos: 12, atualizado_em: ha(30) })
+    await dbPatch('erp_agente_mensagem', `id=eq.${id}`, { redisparos: 18, atualizado_em: ha(30) })
     const a = await desp(id)
     expect(a.disparos, 'no teto: não dispara').toEqual([])
     expect(a.alertas_teto, 'registra o alerta').toBe(1)
