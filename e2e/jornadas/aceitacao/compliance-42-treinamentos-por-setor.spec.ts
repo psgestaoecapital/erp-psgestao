@@ -24,7 +24,8 @@ test.describe('#42 treinamentos por setor', { tag: '@pos-migration' }, () => {
   test.afterAll(async () => { await limpar() })
 
   test('correção: marcar o setor exige o treinamento só dos colaboradores dele; desmarcar volta ao que era', async () => {
-    const pessoas = await dbSelect<{ id: string; setor_id: string; setor: string }>('compliance_funcionarios', `company_id=eq.${DEMO_SST}&ativo=eq.true&setor_id=not.is.null&select=id,setor_id,setor`)
+    // só colaboradores próprios: o exigido de teste é aplica_a='funcionario' (terceiros ficam fora da matriz)
+    const pessoas = await dbSelect<{ id: string; setor_id: string; setor: string }>('compliance_funcionarios', `company_id=eq.${DEMO_SST}&ativo=eq.true&setor_id=not.is.null&prestador_id=is.null&select=id,setor_id,setor`)
     const setores = Array.from(new Set(pessoas.map(p => p.setor_id)))
     test.skip(setores.length < 2, 'DEMO sem dois setores')
     const [alvo, outro] = setores
