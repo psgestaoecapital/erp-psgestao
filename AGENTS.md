@@ -165,7 +165,7 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
 
 # Faixa de migration por agente, regras dos sócios e RD-94.1 (CEO 05/10)
 - **Faixa de migration** no campo de SEGUNDOS do timestamp: `gilberto-desenv` 00, `gilberto-produto` 05, `gilberto-chamados` 10,
-  `jordana-code` 20, `rodrigo-code` 30, `andre-code` 40, `stephany-code` 50. Nunca versão duplicada nem menor que a última da `main`.
+  `gilberto-automotivo` 15, `jordana-code` 20, `gilberto-industria` 25, `rodrigo-code` 30, `andre-code` 40, `stephany-code` 50. Nunca versão duplicada nem menor que a última da `main`.
 - **Codes dos sócios:** banco só leitura (mudança só por migration em PR); merge de baixo risco com OK do próprio sócio; PR sensível
   (permissão/RLS/views, fiscal, financeiro de cliente, alterar/apagar dado de cliente, NR-36, LGPD, Wealth/CVM) leva a label
   `revisao-eng-chefe` e espera revisão; **um merge por vez entre TODOS os Codes** (conferir os runs da `main` antes).
@@ -175,3 +175,8 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Sempre com checks e aceitação verdes, `main` verde, dois testes e um merge por vez. É SENSÍVEL (exige "MERGE AUTORIZADO #NNNN"):
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
+
+# Núcleo compartilhado (CEO 05/10)
+**Núcleo compartilhado** (financeiro, fiscal, cadastros, permissões/RLS, menu, segurança, `/_compartilhado`, qualquer
+função/tabela usada por mais de uma vertical) só é alterado pela `gilberto-desenv`; os Codes de vertical abrem pedido no BOX
+e o Eng. Chefe repassa.
