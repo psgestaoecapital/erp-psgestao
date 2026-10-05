@@ -1538,8 +1538,9 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
 
           {/* FEAT-NFE-PRODUTO-3-PRODUCAO-v1 · NF-e do produto · ambiente vem da config (producao) */}
           {/* #780 (cont.) · NF-e do produto PRIMEIRO: emitir ANTES de "Gerar Financeiro", igual à NFS-e. Vale para
-              pedido NÃO cancelado (o gate antigo 'faturado' só mostrava o card depois do financeiro — inverso do #780). */}
-          {statusLocal !== 'cancelado' && (
+              pedido NÃO cancelado e NÃO revertido (revisão Eng. Chefe: pedido que voltou a orçamento não emite NF-e).
+              O gate antigo 'faturado' só mostrava o card depois do financeiro — inverso do #780. */}
+          {statusLocal !== 'cancelado' && statusLocal !== 'revertido' && (
             <Card titulo="NF-E DO PRODUTO">
               <NFeCard companyId={ped.company_id} pedidoId={ped.id} />
             </Card>
