@@ -1,5 +1,5 @@
 // PM-D · Meu Dia, cronômetro, comentários com @, minhas últimas ações e anotações (CEO 02/10, visita à Pdois).
-// Migration 20261002280000 · @pos-migration. Na "Agência (P&M) - DEMO", como o robô ("Assistente PS"):
+// Migration 20261005160005 · @pos-migration. Na "Agência (P&M) - DEMO", como o robô ("Assistente PS"):
 //   1) Meu dia mostra o que é dele (atrasados/hoje), menções com @ para ele, a anotação fixada e as últimas ações;
 //   2) cronômetro: iniciar num job, continua contando depois de recarregar a página, parar grava as horas;
 //   3) comentário com @ no job aberto da Pauta (lista de sugestões enquanto digita) chega com a menção certa;
