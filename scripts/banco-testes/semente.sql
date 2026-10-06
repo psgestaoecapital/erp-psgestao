@@ -22,4 +22,14 @@ INSERT INTO public.user_companies (user_id, company_id, role)
 SELECT u.id, 'b0700000-0000-4000-a000-000000000003', 'admin'
 FROM auth.users u WHERE lower(u.email) = lower(:'bot_email')
   ON CONFLICT (user_id, company_id) DO NOTHING;
+-- Catálogo de planos (dado de REFERÊNCIA, não de cliente): o dump traz só a estrutura, e fn_demo_garantir_plano
+-- (chamada por fn_demo_reset) cria tenant_subscriptions com FK para plan_catalog. Só os planos das empresas demo.
+INSERT INTO public.plan_catalog (id, nome, ativo, legacy, vertical, descricao, sla_level, plan_group, billing_model, tier_internal, is_replacement)
+VALUES
+  ('v15_oficina_grande','Oficina Grande',true,false,'oficina','Oficina mecânica 15+ mecânicos','enterprise','transacional_pesado','mensal_fixo','grande',true),
+  ('v15_pm_grande','P&M Grande',true,false,'pm','ERP agência/produtora grande','enterprise','hibrido','mensal_fixo','grande',true),
+  ('v15_revenda','Revenda de Veículos',true,false,'revenda_veiculos','ERP para revenda de veículos','basic','recorrente_leve','mensal_fixo',NULL,false),
+  ('v15_gestao_empresarial_pro','Gestão Empresarial Pró',true,false,'gestao_empresarial','Gestão Empresarial Pró','pro','gestao_empresarial','mensal_fixo','pro',true),
+  ('v15_compliance','Compliance',true,false,'compliance','Gestão obrigações trabalhistas/fiscais','pro','horizontal','por_funcionario',NULL,false)
+ON CONFLICT (id) DO NOTHING;
 COMMIT;
