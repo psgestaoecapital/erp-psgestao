@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import Indicadores from './Indicadores'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF',
@@ -43,7 +44,18 @@ type FluxoCompleto = {
 type Prontidao = { ok: boolean; pronto_para_medir: boolean; falta: string[]; tem: { setores_com_vinculo: number; postos: number; quadros: number; dias_com_ponto: number; datas_distintas: number; vinculos_ponto: number; producao_chaves: string[]; fluxos: number } }
 
 export default function ProdutividadePage() {
-  return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
+  const [aba, setAba] = useState<'cadastro' | 'indicadores'>('indicadores')
+  const tab = (id: 'cadastro' | 'indicadores', t: string) => (
+    <button onClick={() => setAba(id)} style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700, border: 'none', borderBottom: `3px solid ${aba === id ? C.gold : 'transparent'}`, background: 'transparent', color: aba === id ? C.esp : C.espL, cursor: 'pointer' }}>{t}</button>
+  )
+  return (
+    <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}>
+      <div className="no-print" style={{ background: C.bg, padding: '14px 16px 0', maxWidth: 1120, margin: '0 auto', display: 'flex', gap: 4 }}>{tab('indicadores', 'Indicadores')}{tab('cadastro', 'Cadastro por fluxo')}</div>
+      {aba === 'indicadores'
+        ? <div style={{ background: C.bg, minHeight: '100vh', padding: '10px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}><h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 6px' }}>Produtividade · Indicadores</h1><Indicadores /></div>
+        : <Inner />}
+    </Suspense>
+  )
 }
 
 function Inner() {
