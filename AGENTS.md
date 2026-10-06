@@ -175,3 +175,15 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Sempre com checks e aceitação verdes, `main` verde, dois testes e um merge por vez. É SENSÍVEL (exige "MERGE AUTORIZADO #NNNN"):
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
+
+# Regras de merge da esteira (CEO 06/10, "destravar a esteira") — código em `scripts/merge/`, gate `check-merge-esteira`
+Comandos sempre por REST (`GH_TOKEN`; o GraphQL do `gh` é bloqueado na rede dos Codes).
+1. **@pos-migration CANCELADO não é vermelho:** `npx tsx scripts/merge/pos-migration.ts` olha a última migration da main; com run
+   verde desde ela → libera; só cancelado → re-roda o run via REST (`actions/runs/<id>/rerun`) e espera; falha real → vermelho.
+2. **PR sem arquivo em `supabase/migrations/` não espera o @pos-migration:** exige gates + Vercel + aceitação da própria área.
+   O @pos-migration só bloqueia PR COM migration.
+3. **MERGE AUTORIZADO vale para o CONTEÚDO, não para o SHA:** o revisor grava no comentário `MERGE AUTORIZADO #N` + `patch-id: <hex>`
+   (`npx tsx scripts/merge/patch-id.ts origin/main <head>`; = `git diff base...head | git patch-id --stable`). Atualizar com a main
+   mantém o patch-id e a autorização; mudar o código da PR muda o patch-id e exige nova revisão
+   (`npx tsx scripts/merge/patch-id.ts origin/main <head> --pr N` confere; autorizadores em `FILA_AUTORIZADORES`).
+4. **Fila de merge própria:** PENDENTE de decisão (a automação de merge foi barrada pela trava de segurança da sessão).
