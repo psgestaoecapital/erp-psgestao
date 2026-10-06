@@ -1,0 +1,62 @@
+name: Fila de merge
+
+# CEO 06/10 (regras de merge a–d, proposta do Rodrigo · erp_contexto_projeto 5c30d735). O merge queue do GitHub exige
+# plano pago de organização (RD-42); no lugar, esta fila própria: PR com a label `fila-merge`, autorizada e verde, é
+# atualizada com a main e mergeada EM ORDEM, uma por vez. Lógica e regras em scripts/merge/fila-merge.sh.
+# Sem polling: acorda por evento (label, push na PR, comentário de autorização, fim de CI/aceitação/deploy, Vercel,
+# push na main). Cada rodada reavalia a fila do zero (idempotente); a concorrência deixa no máximo 1 rodada pendente.
+#
+# FILA_MERGE_TOKEN (segredo, PAT fine-grained só deste repo: Contents, Pull requests, Issues e Actions = read/write) é
+# OBRIGATÓRIO: merge e update-branch feitos com o GITHUB_TOKEN não disparam os workflows da main (deploy-migrations!).
+on:
+  pull_request_target:
+    types: [labeled, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_run:
+    workflows:
+      - 'Aceitação (preview)'
+      - 'Aceitação @pos-migration (produção)'
+      - 'Deploy Migrations (Production)'
+      - 'Guarda de funções do banco (REVOKE anon + autoria auth.uid)'
+      - 'Régua de menu (rota × página)'
+      - 'Régua de migrations (versão única · sem colisão com o ledger)'
+    types: [completed]
+  status:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: fila-merge
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fila:
+    # filtros baratos: só acorda quando o evento pode mudar o estado da fila
+    if: >-
+      (github.event_name != 'pull_request_target' || contains(github.event.pull_request.labels.*.name, 'fila-merge')) &&
+      (github.event_name != 'issue_comment' || (github.event.issue.pull_request && contains(github.event.comment.body, 'MERGE AUTORIZADO'))) &&
+      (github.event_name != 'status' || (startsWith(github.event.context, 'Vercel') && github.event.state != 'pending'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # checkout da MAIN (código confiável). O código da PR só entra como objeto git para o patch-id — nunca é executado.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Token da fila
+        env:
+          FILA_MERGE_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+        run: |
+          [ -n "$FILA_MERGE_TOKEN" ] || { echo "::error::segredo FILA_MERGE_TOKEN ausente — sem ele o merge não dispara o deploy-migrations. Peça ao CEO."; exit 1; }
+      - name: Processar a fila (uma PR por vez)
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: scripts/merge/fila-merge.sh
