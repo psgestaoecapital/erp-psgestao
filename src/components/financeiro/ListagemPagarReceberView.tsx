@@ -20,6 +20,7 @@ import HistoricoLancamentoModal from './HistoricoLancamentoModal'
 import HistoricoGlobalModal from './HistoricoGlobalModal'
 import ExportarListaButton from './ExportarListaButton'
 import { FORMAS_PAGAMENTO } from '@/lib/financeiro/formasPagamento'
+import { motivoValido } from '@/lib/financeiro/bloqueioPagamento'
 import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
 
 // Campos liberados na edição em massa (Jordana #6) — todos na whitelist do fn_*_editar_completo.
@@ -141,6 +142,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [dataInicio, setDataInicio] = useState<string>(inicioMesAtual())
   const [dataFim, setDataFim] = useState<string>(fimMesAtual())
   const [pagandoItem, setPagandoItem] = useState<Resultado | null>(null)
+  // #1672: bloqueio de pagamento (só contas a pagar). Mapa id → motivo das linhas visíveis + se o usuário é Master.
+  const [bloqueioMap, setBloqueioMap] = useState<Record<string, string>>({})
+  const [ehMaster, setEhMaster] = useState(false)
+  const [soBloqueadas, setSoBloqueadas] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   // Ações em massa (RD-41 · só despesas): alterar valor / excluir em lote.
@@ -403,6 +408,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const vMax = parseValorBR(fValorMax)
     const filtrado = base.filter((r) => {
       if (categoria && r.categoria !== categoria) return false
+      if (soBloqueadas && !(r.id in bloqueioMap)) return false   // #1672
       // item 3 + 3b: filtro Conta (sentinel "— sem conta informada —" = linha sem conta bancária)
       if (contasSel.size > 0) {
         const ck = contaMap[r.id]?.trim() ? contaMap[r.id] : SEM_CONTA
@@ -435,7 +441,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       })
     }
     return filtrado
-  }, [data, busca, categoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax])
+  }, [data, busca, categoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax, soBloqueadas, bloqueioMap])
 
   // GE-CARDS-FILTRO (bug André): os KPIs do topo vinham do fn_ge_listagem_v2 (período inteiro, SEM os
   // filtros client-side de categoria/conta/busca/coluna) — enquanto a LISTA já era filtrada, então os
@@ -555,6 +561,42 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     })()
     return () => { alive = false }
   }, [data, tipo])
+
+  // #1672: bloqueio de pagamento das linhas visíveis (consulta tolerante: sem a coluna, nada aparece bloqueado).
+  useEffect(() => {
+    if (tipo !== 'pagar') { setBloqueioMap({}); return }
+    const ids = (data?.resultados ?? []).map((r) => r.id)
+    if (ids.length === 0) { setBloqueioMap({}); return }
+    let alive = true
+    ;(async () => {
+      const { data: rows, error } = await supabase.from('erp_pagar').select('id, bloqueado_motivo').eq('bloqueado', true).in('id', ids)
+      if (!alive) return
+      if (error || !rows) { setBloqueioMap({}); return }
+      const map: Record<string, string> = {}
+      ;(rows as { id: string; bloqueado_motivo: string | null }[]).forEach((x) => { map[x.id] = x.bloqueado_motivo ?? '' })
+      setBloqueioMap(map)
+    })()
+    return () => { alive = false }
+  }, [data, tipo, reloadKey])
+
+  useEffect(() => {
+    if (tipo !== 'pagar' || !companyId) { setEhMaster(false); return }
+    let alive = true
+    supabase.rpc('fn_pagar_usuario_master', { p_company_id: companyId }).then(({ data: m, error }) => { if (alive) setEhMaster(!error && m === true) })
+    return () => { alive = false }
+  }, [tipo, companyId])
+
+  async function alternarBloqueio(r: Resultado) {
+    const bloquear = !(r.id in bloqueioMap)
+    const motivo = prompt(bloquear ? `BLOQUEAR o pagamento de "${r.descricao}"?\nInforme o motivo:` : `DESBLOQUEAR o pagamento de "${r.descricao}"?\nInforme o motivo:`)
+    if (motivo === null) return
+    if (!motivoValido(motivo)) { alert('Informe o motivo (mínimo 3 caracteres).'); return }
+    const { data: j, error } = await supabase.rpc('fn_pagar_bloquear', { p_id: r.id, p_bloquear: bloquear, p_motivo: motivo.trim() })
+    if (error) { alert('Erro: ' + error.message); return }
+    const res = j as { sucesso?: boolean; erro?: string } | null
+    if (!res?.sucesso) { alert(res?.erro ?? 'Não foi possível alterar o bloqueio.'); return }
+    setReloadKey((k) => k + 1)
+  }
 
   // PR3b (Jordana #106/#38): busca as baixas dos títulos de receber visíveis e agrega por título em
   // { conc: soma das baixas conciliadas (com movimento_banco_id), agu: soma aguardando conciliação (sem) }.
@@ -973,6 +1015,14 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                 </button>
               )
             })}
+            {tipo === 'pagar' && (
+              <button type="button" data-testid="status-chip-bloqueada" onClick={() => { setSoBloqueadas((v) => !v); setPage(1) }}
+                style={{ padding: '6px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: `0.5px solid ${soBloqueadas ? '#DC2626' : 'rgba(61,35,20,0.2)'}`,
+                  background: soBloqueadas ? '#FEE2E2' : '#fff', color: soBloqueadas ? '#991B1B' : 'rgba(61,35,20,0.7)' }}>
+                {soBloqueadas ? '✓ ' : ''}🔒 Bloqueadas
+              </button>
+            )}
             {statusSel.length > 0
               ? <button type="button" onClick={() => { setStatusSel([]); setPage(1) }} style={{ padding: '6px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', border: '0.5px solid rgba(61,35,20,0.2)', background: 'transparent', color: 'rgba(61,35,20,0.6)' }}>limpar</button>
               : <span style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.45)' }}>Todos</span>}
@@ -1314,6 +1364,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         <Td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                             <Pill situacao={r.situacao} tipo={tipo} />
+                            {tipo === 'pagar' && r.id in bloqueioMap && (
+                              <span title={`Pagamento bloqueado: ${bloqueioMap[r.id]}`} style={{ fontSize: 10, background: '#FEE2E2', color: '#991B1B', padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>
+                                🔒 Bloqueada
+                              </span>
+                            )}
                             {r.status === 'parcial' && (
                               <span style={{ fontSize: 9, background: '#FEF3C7', color: '#7A5A0F', padding: '2px 6px', borderRadius: 3, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase' }}>
                                 parcial
@@ -1396,10 +1451,20 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             {!pago && (
                               <button
                                 type="button"
-                                onClick={() => setPagandoItem(r)}
+                                onClick={() => { if (tipo === 'pagar' && r.id in bloqueioMap) { alert('Conta BLOQUEADA para pagamento. Desbloqueie antes de dar baixa.'); return } setPagandoItem(r) }}
                                 style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
                               >
                                 {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
+                              </button>
+                            )}
+                            {tipo === 'pagar' && ehMaster && !pago && (
+                              <button
+                                type="button"
+                                onClick={() => void alternarBloqueio(r)}
+                                title={r.id in bloqueioMap ? 'Desbloquear pagamento (pede motivo)' : 'Bloquear pagamento (pede motivo)'}
+                                style={{ background: '#FFFFFF', color: '#991B1B', border: '0.5px solid #DC2626', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                              >
+                                {r.id in bloqueioMap ? '🔓 Desbloquear' : '🔒 Bloquear'}
                               </button>
                             )}
                             {pago && <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)', marginRight: 6 }}>✓ baixado</span>}
