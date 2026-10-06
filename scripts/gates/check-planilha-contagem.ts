@@ -89,6 +89,14 @@ async function main() {
   ok(pv.totais.contados === 3 && pv.totais.sobras === 2 && pv.totais.faltas === 1, 'totais da prévia (3 contados: 2 sobras, 1 falta)')
   const dup = montarPrevia({ linhas: [lida.linhas[0], { ...lida.linhas[0], linha: 99, id: null, codigo: 'A-100' }], erros: [], emBranco: 0 }, atuais)
   ok(dup.itens.length === 1 && dup.erros.length === 1, 'mesmo produto em duas linhas: entra uma, a outra vira erro')
+  // id desalinhado do código (bug FCR 06/10): recusa a linha, nunca ajusta o produto do id
+  const ln = (linha: number, id: string | null, codigo: string, quantidade: number) => ({ linha, id, codigo, descricao: codigo, quantidade, observacao: '' })
+  const desal = montarPrevia({ linhas: [ln(9, P[1].id, 'A-100', 5), ln(10, P[2].id, 'C-300', 2), ln(11, null, 'B-200', 1)], erros: [], emBranco: 0 }, atuais)
+  ok(desal.itens.length === 2 && !desal.itens.some((i) => i.codigo === 'A-100') && desal.erros.some((e) => e.linha === 9 && /desalinhada/.test(e.mensagem)),
+    'id que não é do código da linha: linha recusada e listada; as demais seguem')
+  const reord = montarPrevia({ linhas: [ln(9, P[2].id, 'C-300', 2), ln(10, P[0].id, 'A-100', 7), ln(11, P[1].id, 'B-200', 1), ln(12, 'id-inexistente', 'A-100', 1)], erros: [], emBranco: 0 }, atuais)
+  ok(reord.itens.length === 3 && reord.itens.every((i) => i.produto_id === P.find((p) => p.codigo === i.codigo)!.id) && reord.erros.length === 1,
+    'linhas reordenadas com id certo casam pelo código; id inexistente com código conhecido é recusado')
   const outro = new ExcelJS.Workbook(); outro.addWorksheet('Planilha1').getCell('A1').value = 'x'
   const semAba = await lerPlanilhaContagem(new Uint8Array(await outro.xlsx.writeBuffer() as ArrayBuffer))
   ok(semAba.linhas.length === 0 && semAba.erros.length === 1 && /Contagem/.test(semAba.erros[0].mensagem), 'arquivo sem a aba Contagem é recusado com mensagem')

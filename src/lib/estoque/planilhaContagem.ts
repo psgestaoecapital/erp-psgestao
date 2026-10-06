@@ -281,12 +281,22 @@ export function montarPrevia(leitura: LeituraContagem, produtos: ProdutoAtual[])
   const itens: ItemPrevia[] = []
   const usados = new Set<string>()
   for (const l of leitura.linhas) {
-    let p = l.id ? porId.get(l.id) : undefined
-    if (!p && !l.id && l.codigo) {
+    // chave = CÓDIGO; o id da linha só confere (06/10, FCR: id desalinhado do código). Divergiu → recusa, nunca ajusta.
+    let p: ProdutoAtual | undefined
+    if (l.codigo) {
       const c = porCodigo.get(l.codigo)
-      if (c === null) { erros.push({ linha: l.linha, mensagem: `Código "${l.codigo}" repetido no cadastro — baixe a planilha de novo (ela identifica o produto sem depender do código).` }); continue }
-      p = c
-    }
+      if (c === null) {
+        // código repetido no cadastro: só o id desempata, e ele precisa apontar para um produto com esse mesmo código
+        const doId = l.id ? porId.get(l.id) : undefined
+        if (!doId || (doId.codigo ?? '').trim() !== l.codigo) {
+          erros.push({ linha: l.linha, mensagem: `Código "${l.codigo}" repetido no cadastro — baixe a planilha de novo.` }); continue
+        }
+        p = doId
+      } else p = c
+      if (p && l.id && p.id !== l.id) {
+        erros.push({ linha: l.linha, mensagem: `Linha recusada: o id da linha não é do produto de código "${l.codigo}" (planilha desalinhada ou reordenada). Baixe a planilha de novo.` }); continue
+      }
+    } else if (l.id) p = porId.get(l.id)
     if (!p) { erros.push({ linha: l.linha, mensagem: `"${l.descricao || l.codigo}" não é um produto ativo desta empresa.` }); continue }
     if (usados.has(p.id)) { erros.push({ linha: l.linha, mensagem: `"${p.nome}" aparece em mais de uma linha.` }); continue }
     usados.add(p.id)
