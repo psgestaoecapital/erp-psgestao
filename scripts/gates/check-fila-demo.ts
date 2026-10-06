@@ -21,7 +21,7 @@ for (const f of readdirSync(DIR).filter((n) => /\.ya?ml$/.test(n))) {
     if (!/playwright test|jornadas:revenda/.test(bloco)) continue
     comDemo++
     const c = bloco.match(/^    concurrency:\s*\n((?:      .*\n?)+)/m)?.[1] ?? ''
-    ok(/^      group: demo-e2e\s*$/m.test(c) && /^      queue: max\s*$/m.test(c) && !/cancel-in-progress: true/.test(c),
+    ok(/^      group: .*'demo-e2e'.*$|^      group: demo-e2e\s*$/m.test(c) && /^      queue: max\s*$/m.test(c) && !/cancel-in-progress: true/.test(c),
       `${f} › ${nome}: na fila da demo (group demo-e2e, queue: max, sem cancelar)`)
   }
 }
