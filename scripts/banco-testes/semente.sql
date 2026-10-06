@@ -9,14 +9,17 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.companies WHERE id = 'b0700000-0000-4000-a000-000000000003') THEN
     SELECT id INTO v_org FROM public.organizations LIMIT 1;
     IF v_org IS NULL THEN
-      INSERT INTO public.organizations (name) VALUES ('PS Gestão (testes)') RETURNING id INTO v_org;
+      INSERT INTO public.organizations (name, slug) VALUES ('PS Gestão (testes)', 'ps-gestao-testes')
+      ON CONFLICT (slug) DO NOTHING;
+      SELECT id INTO v_org FROM public.organizations WHERE slug = 'ps-gestao-testes';
     END IF;
     INSERT INTO public.companies (id, org_id, razao_social, nome_fantasia, is_demo, ambiente_tenant)
-    VALUES ('b0700000-0000-4000-a000-000000000003', v_org, 'Demonstração Revenda', 'Demonstração Revenda', true, 'producao');
+    VALUES ('b0700000-0000-4000-a000-000000000003', v_org, 'Demonstração Revenda', 'Demonstração Revenda', true, 'producao')
+    ON CONFLICT DO NOTHING;
   END IF;
 END $$;
 INSERT INTO public.user_companies (user_id, company_id, role)
 SELECT u.id, 'b0700000-0000-4000-a000-000000000003', 'admin'
 FROM auth.users u WHERE lower(u.email) = lower(:'bot_email')
-  AND NOT EXISTS (SELECT 1 FROM public.user_companies x WHERE x.user_id = u.id AND x.company_id = 'b0700000-0000-4000-a000-000000000003');
+  ON CONFLICT (user_id, company_id) DO NOTHING;
 COMMIT;
