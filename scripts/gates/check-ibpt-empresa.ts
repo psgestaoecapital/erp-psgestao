@@ -5,7 +5,7 @@
  *   tsx scripts/check-ibpt-empresa.ts
  */
 import { normalizarRespostaIbpt, dataIbptIso } from '../../src/lib/fiscal/ibptEmpresa'
-import { ncmValidoParaTeste, escolherProdutoTeste } from '../../src/lib/fiscal/ibptTeste'
+import { ncmValidoParaTeste, escolherProdutoTeste, escolherVeiculoTeste } from '../../src/lib/fiscal/ibptTeste'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
@@ -32,6 +32,16 @@ const fc = [
 ok(escolherProdutoTeste(fc)?.ncmTeste === '68101900', 'caso FC: pula o 00000000 e o vazio → primeiro NCM válido')
 ok(escolherProdutoTeste([{ ncm: '68101900' }, { ncm: '27101932' }], '2710')?.ncmTeste === '27101932', 'prefere o óleo (2710) quando existe')
 ok(escolherProdutoTeste([{ ncm: '00000000' }, { ncm: '' }]) === null, 'só NCM inválido → nenhum produto (vai para o serviço/teste genérico)')
+
+// Revenda (#994, Alliance): sem produto em erp_produtos, o item do teste vem do veículo com NCM válido (veic_veiculo)
+ok(escolherVeiculoTeste([{ ncm: '00000000', marca: 'X' }, { ncm: '87032210', marca: 'VOLKSWAGEN', modelo: 'GOL', preco_venda: 57000 }])?.ncmTeste === '87032210',
+  'revenda: pula o veículo com NCM inválido e pega o primeiro com NCM válido')
+const veic = escolherVeiculoTeste([{ ncm: '8703.22.10', marca: 'KIA MOTORS', modelo: 'SORENTO', preco_venda: null, preco_minimo: 0, valor_fipe: 72956 }])
+ok(veic?.ncmTeste === '87032210', 'revenda: NCM com pontos vira 8 dígitos')
+ok(veic?.descricao === 'KIA MOTORS SORENTO', 'revenda: descrição = marca + modelo')
+ok(veic?.valor === 72956, 'revenda: valor cai para a FIPE quando não há preço de venda nem mínimo')
+ok(escolherVeiculoTeste([]) === null && escolherVeiculoTeste([{ ncm: null }]) === null,
+  'revenda: sem veículo com NCM válido → nenhum item (vai para o serviço/teste genérico)')
 
 if (falhas) { console.error(`\n[check-ibpt-empresa] ${falhas} falha(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-ibpt-empresa] leitura da resposta do IBPT conferida.')
