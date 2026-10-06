@@ -5,7 +5,7 @@
 // pra fn_extrato_importar_sistema (idempotente por id_externo) e dispara
 // fn_conciliacao_rodar_lote.
 
-export type ExtratoProvider = 'sicoob' | 'bradesco' | 'sicredi'
+export type ExtratoProvider = 'sicoob' | 'bradesco' | 'sicredi' | 'bb'
 
 export type MovimentoExtrato = {
   data_transacao: string      // ISO YYYY-MM-DD (fuso America/Sao_Paulo)
@@ -26,6 +26,10 @@ export type ExtratoCredencial = {
   conta: string               // conta corrente
   codigo_beneficiario: string
   convenio: string
+  // Banco do Brasil (#1736): OAuth com client_secret + gw-dev-app-key (slot api_key) e agência no path.
+  client_secret?: string
+  api_key?: string
+  agencia?: string
 }
 
 export type ExtratoJanela = {
