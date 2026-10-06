@@ -8,9 +8,70 @@ on:
   deployment_status:
 
 jobs:
-  aceitacao:
-    # só preview com sucesso (ignora Production e estados pending/failure)
+  # Triagem barata (sem fila, ~10 s): decide se a aceitação pesada precisa rodar e limpa a fila (RD-42, minutos do Actions).
+  #  (1) cancela runs ANTIGOS da mesma PR que ainda esperam vez na fila demo-e2e (commit já superado);
+  #  (2) pula a aceitação quando o diff da PR (contra a main) só tem .md / workflow / AGENTS.md e nenhum spec em
+  #      e2e/jornadas/aceitacao — nada a testar, custo zero. Qualquer outro arquivo → roda normalmente.
+  triagem:
     if: >-
+      github.event.deployment_status.state == 'success' &&
+      !contains(github.event.deployment.environment, 'Production') &&
+      !contains(github.event.deployment.environment, 'production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    outputs:
+      rodar: ${{ steps.decide.outputs.rodar }}
+      vaga: ${{ steps.decide.outputs.vaga }}
+    steps:
+      - name: Decide e limpa a fila
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.deployment.sha }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          rodar=true
+          pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null || true)
+          if [ -n "$pr" ]; then
+            echo "PR aberta: #$pr"
+            # (2) só doc/workflow sem spec?
+            files=$(gh api "repos/$REPO/pulls/$pr/files" --paginate --jq '.[].filename' 2>/dev/null || true)
+            if [ -n "$files" ]; then
+              outros=$(echo "$files" | grep -vE '(\.md$|^\.github/workflows/|^AGENTS\.md$|^CLAUDE\.md$)' || true)
+              spec=$(echo "$files" | grep -E '^e2e/jornadas/aceitacao/' || true)
+              if [ -z "$outros" ] && [ -z "$spec" ]; then
+                rodar=false
+                echo "::notice::Diff só com .md/workflow e sem spec de aceitação: aceitação pulada (custo zero)."
+              fi
+            fi
+            # (1) cancela runs antigos da mesma PR ainda na fila
+            for st in queued pending waiting; do
+              for rid in $(gh api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=$st&per_page=50" --jq '.workflow_runs[].id' 2>/dev/null || true); do
+                [ "$rid" = "$RUN_ID" ] && continue
+                hsha=$(gh api "repos/$REPO/actions/runs/$rid" --jq '.head_sha' 2>/dev/null || true)
+                [ -z "$hsha" ] || [ "$hsha" = "$SHA" ] && continue
+                n=$(gh api "repos/$REPO/commits/$hsha/pulls" --jq "[.[] | select(.number == $pr)] | length" 2>/dev/null || echo 0)
+                if [ "$n" -gt 0 ]; then
+                  echo "cancelando run antigo $rid ($hsha) da PR #$pr"
+                  gh run cancel "$rid" -R "$REPO" || true
+                fi
+              done
+            done
+          fi
+          echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
+          # vaga 0..2 do banco de testes (o operador % não existe nas expressões do Actions)
+          echo "vaga=$(( ${{ github.run_number }} % 3 ))" >> "$GITHUB_OUTPUT"
+
+  aceitacao:
+    needs: triagem
+    # só preview com sucesso (ignora Production e estados pending/failure); triagem pode dispensar (diff só .md/workflow)
+    if: >-
+      needs.triagem.outputs.rodar == 'true' &&
       github.event.deployment_status.state == 'success' &&
       !contains(github.event.deployment.environment, 'Production') &&
       !contains(github.event.deployment.environment, 'production')
@@ -18,12 +79,15 @@ jobs:
     # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
     # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
     # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
+    # Chave do banco de testes (CEO 06/10): com a variável de repositório ACEITACAO_BANCO=testes a aceitação roda
+    # contra o banco de TESTES (segredos TEST_*), em até 3 vagas simultâneas, timeout 40 min. Sem a variável, tudo
+    # como antes (produção, fila única demo-e2e). O CEO só liga depois de trocar o ambiente Preview da Vercel.
     concurrency:
-      group: demo-e2e
+      group: ${{ vars.ACEITACAO_BANCO == 'testes' && format('aceitacao-testes-{0}', needs.triagem.outputs.vaga) || 'demo-e2e' }}
       cancel-in-progress: false
       queue: max
-    # 75: a fila é o grupo demo-e2e (espera fora do runner); a trava no banco fica de segunda guarda
-    timeout-minutes: 75
+    # 75 em produção (fila fora do runner); 40 no banco de testes
+    timeout-minutes: ${{ vars.ACEITACAO_BANCO == 'testes' && 40 || 75 }}
     # actions: write → o run pode cancelar a si mesmo quando a versão é antiga (passo "Versão antiga?")
     permissions:
       contents: read
@@ -78,9 +142,9 @@ jobs:
       - name: Jornadas de aceitação contra o preview
         env:
           PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
           TRAVA_DEMO_ESPERA_MIN: '30'
@@ -98,9 +162,9 @@ jobs:
         continue-on-error: true
         env:
           PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
           TRAVA_DEMO_ESPERA_MIN: '30'
