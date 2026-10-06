@@ -89,6 +89,13 @@ async function main() {
   ok(pv.totais.contados === 3 && pv.totais.sobras === 2 && pv.totais.faltas === 1, 'totais da prévia (3 contados: 2 sobras, 1 falta)')
   const dup = montarPrevia({ linhas: [lida.linhas[0], { ...lida.linhas[0], linha: 99, id: null, codigo: 'A-100' }], erros: [], emBranco: 0 }, atuais)
   ok(dup.itens.length === 1 && dup.erros.length === 1, 'mesmo produto em duas linhas: entra uma, a outra vira erro')
+  // id desalinhado (bug FCR 06/10): código A-100 com o id do B-200 → recusa a linha, não ajusta nenhum dos dois
+  const desal = montarPrevia({ linhas: [
+    { linha: 9, id: P[1].id, codigo: 'A-100', descricao: 'Argamassa AC-III 20kg', quantidade: 5, observacao: '' },
+    { linha: 10, id: P[2].id, codigo: 'C-300', descricao: 'Primer PU bicomponente', quantidade: 2, observacao: '' },
+  ], erros: [], emBranco: 0 }, atuais)
+  ok(desal.itens.length === 1 && desal.itens[0].codigo === 'C-300' && desal.erros.length === 1 && /A-100/.test(desal.erros[0].mensagem) && /B-200/.test(desal.erros[0].mensagem),
+    'código × id divergentes: linha recusada com o erro listado; linhas reordenadas mas coerentes continuam entrando')
   const outro = new ExcelJS.Workbook(); outro.addWorksheet('Planilha1').getCell('A1').value = 'x'
   const semAba = await lerPlanilhaContagem(new Uint8Array(await outro.xlsx.writeBuffer() as ArrayBuffer))
   ok(semAba.linhas.length === 0 && semAba.erros.length === 1 && /Contagem/.test(semAba.erros[0].mensagem), 'arquivo sem a aba Contagem é recusado com mensagem')
