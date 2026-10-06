@@ -25,6 +25,7 @@ jobs:
       pull-requests: read
     outputs:
       rodar: ${{ steps.decide.outputs.rodar }}
+      vaga: ${{ steps.decide.outputs.vaga }}
     steps:
       - name: Decide e limpa a fila
         id: decide
@@ -63,6 +64,8 @@ jobs:
             done
           fi
           echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
+          # vaga 0..2 do banco de testes (o operador % não existe nas expressões do Actions)
+          echo "vaga=$(( ${{ github.run_number }} % 3 ))" >> "$GITHUB_OUTPUT"
 
   aceitacao:
     needs: triagem
@@ -76,12 +79,15 @@ jobs:
     # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
     # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
     # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
+    # Chave do banco de testes (CEO 06/10): com a variável de repositório ACEITACAO_BANCO=testes a aceitação roda
+    # contra o banco de TESTES (segredos TEST_*), em até 3 vagas simultâneas, timeout 40 min. Sem a variável, tudo
+    # como antes (produção, fila única demo-e2e). O CEO só liga depois de trocar o ambiente Preview da Vercel.
     concurrency:
-      group: demo-e2e
+      group: ${{ vars.ACEITACAO_BANCO == 'testes' && format('aceitacao-testes-{0}', needs.triagem.outputs.vaga) || 'demo-e2e' }}
       cancel-in-progress: false
       queue: max
-    # 75: a fila é o grupo demo-e2e (espera fora do runner); a trava no banco fica de segunda guarda
-    timeout-minutes: 75
+    # 75 em produção (fila fora do runner); 40 no banco de testes
+    timeout-minutes: ${{ vars.ACEITACAO_BANCO == 'testes' && 40 || 75 }}
     # actions: write → o run pode cancelar a si mesmo quando a versão é antiga (passo "Versão antiga?")
     permissions:
       contents: read
@@ -136,9 +142,9 @@ jobs:
       - name: Jornadas de aceitação contra o preview
         env:
           PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
           TRAVA_DEMO_ESPERA_MIN: '30'
@@ -156,9 +162,9 @@ jobs:
         continue-on-error: true
         env:
           PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
           TRAVA_DEMO_ESPERA_MIN: '30'
