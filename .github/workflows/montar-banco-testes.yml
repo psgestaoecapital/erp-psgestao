@@ -1,0 +1,115 @@
+name: Montar banco de testes
+
+# CEO 06/10: aceitação fora da produção. Atalho (horas, não dias): copia a ESTRUTURA da produção (pg_dump
+# schema-only, sem dados de cliente, sem Vault, sem cron) para o projeto erp-psgestao-testes, marca o ledger de
+# migrations até a última da main e planta a semente mínima (empresa DEMO + usuário do Playwright).
+#  - manual (workflow_dispatch): remonta (opcionalmente zera o schema public antes);
+#  - push na main com migration nova: só aplica as pendentes no banco de testes (a produção segue pelo deploy-migrations).
+# Segredos: SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF/SUPABASE_DB_PASSWORD (produção, só leitura via dump),
+# TEST_DATABASE_URL (Session pooler), TEST_SUPABASE_URL, TEST_SUPABASE_SERVICE_ROLE_KEY,
+# PLAYWRIGHT_USER_EMAIL/PASSWORD (os mesmos já existentes).
+on:
+  workflow_dispatch:
+    inputs:
+      zerar_public:
+        description: 'Zerar o schema public do banco de testes antes de restaurar (necessário se já houver estrutura)'
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ['supabase/migrations/**']
+
+concurrency:
+  group: banco-testes
+  cancel-in-progress: false
+
+jobs:
+  montar:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+      PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+      PROD_REF: horsymhsinqcimflrtjo
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trava de segurança (nunca restaurar sobre a produção)
+        run: |
+          [ -n "$TEST_DATABASE_URL" ] || { echo "::error::TEST_DATABASE_URL ausente"; exit 1; }
+          case "$TEST_DATABASE_URL$TEST_SUPABASE_URL" in
+            *"$PROD_REF"*) echo "::error::segredo TEST_* aponta para a PRODUÇÃO — abortado"; exit 1;;
+          esac
+          echo "inicio=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      - name: Dump só da estrutura da produção (sem dados)
+        run: |
+          supabase link --project-ref "$PROD_REF"
+          # --schema-only é o padrão do db dump; exclui schemas gerenciados (auth, storage...). Sem dados, sem cron, sem Vault.
+          supabase db dump --linked -f estrutura.sql
+          wc -l estrutura.sql
+      - name: Zerar public (opcional)
+        if: inputs.zerar_public
+        run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'
+      - name: Restaurar no banco de testes
+        run: |
+          # Não aborta no 1º erro: extensões/roles que só existem na produção falham e ficam registradas abaixo.
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=0 -f estrutura.sql > restore.log 2>&1 || true
+          n=$(grep -c 'ERROR:' restore.log || true)
+          echo "### Restore: $n erros" >> "$GITHUB_STEP_SUMMARY"
+          grep 'ERROR:' restore.log | sort | uniq -c | sort -rn | head -40 >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Marcar migrations do repo como aplicadas (ledger)
+        run: |
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+          CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+            version text PRIMARY KEY, statements text[], name text);
+          SQL
+          for f in supabase/migrations/*.sql; do
+            b=$(basename "$f" .sql); v=${b%%_*}; n=${b#*_}
+            echo "INSERT INTO supabase_migrations.schema_migrations(version,name) VALUES ('$v','$n') ON CONFLICT (version) DO NOTHING;"
+          done | psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q
+          psql "$TEST_DATABASE_URL" -Atc 'SELECT count(*) AS ledger FROM supabase_migrations.schema_migrations'
+      - name: Usuário do Playwright (Auth do banco de testes) + semente
+        run: |
+          resp=$(curl -sS -X POST "$TEST_SUPABASE_URL/auth/v1/admin/users" \
+            -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg e "$PLAYWRIGHT_USER_EMAIL" --arg p "$PLAYWRIGHT_USER_PASSWORD" '{email:$e,password:$p,email_confirm:true}')")
+          uid=$(echo "$resp" | jq -r '.id // empty')
+          if [ -z "$uid" ]; then   # já existe: busca pelo e-mail
+            uid=$(psql "$TEST_DATABASE_URL" -Atc "SELECT id FROM auth.users WHERE email = '$PLAYWRIGHT_USER_EMAIL'")
+          fi
+          [ -n "$uid" ] || { echo "::error::não consegui criar/achar o usuário do Playwright"; exit 1; }
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -v bot_uid="$uid" -f scripts/banco-testes/semente.sql
+      - name: Tempo de montagem
+        run: |
+          s=$(( $(date +%s) - inicio ))
+          echo "### Montagem: ${s}s" >> "$GITHUB_STEP_SUMMARY"
+
+  aplicar-pendentes:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trava de segurança
+        run: |
+          [ -n "$TEST_DATABASE_URL" ] || { echo "::notice::banco de testes ainda não configurado — nada a fazer"; exit 0; }
+          case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO"; exit 1;; esac
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      - name: db push no banco de testes
+        run: |
+          [ -n "$TEST_DATABASE_URL" ] || exit 0
+          supabase db push --db-url "$TEST_DATABASE_URL" --include-all
