@@ -43,9 +43,10 @@ jobs:
       - name: Normaliza TEST_DATABASE_URL (psql lê string fora do formato URI como NOME DE BANCO e tenta o socket local)
         run: |
           u="$TEST_DATABASE_URL"
-          u="$(printf '%s' "$u" | tr -d '\r\n' | sed -E "s/^[[:space:]]+//; s/[[:space:]]+$//; s/^psql[[:space:]]+//; s/^['\"]//; s/['\"]$//")"
+          u="$(printf '%s' "$u" | sed -E "s/^[[:space:]]*(TEST_DATABASE_URL=)?//; s/^psql[[:space:]]+//" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
           case "$u" in postgresql://*|postgres://*) ;; *) echo "::error::TEST_DATABASE_URL não começa com postgresql:// (começa com: ${u:0:12}). Cole a Connection string (Session pooler) inteira, sem aspas."; exit 1;; esac
           case "$u" in *'[YOUR-PASSWORD]'*|*'[SENHA]'*) echo "::error::TEST_DATABASE_URL ainda tem o marcador [YOUR-PASSWORD]: troque pela senha real (sem os colchetes)"; exit 1;; esac
+          case "$u" in *pooler.supabase.com*) ;; *@db.*) echo "::error::TEST_DATABASE_URL usa o host db.* (conexão direta, IPv6) em vez do Session pooler (*.pooler.supabase.com)"; exit 1;; *) echo "::error::TEST_DATABASE_URL não contém pooler.supabase.com"; exit 1;; esac
           echo "::add-mask::$u"
           echo "TEST_DATABASE_URL=$u" >> "$GITHUB_ENV"
           echo "URL normalizada: esquema ${u%%://*}, host $(printf '%s' "$u" | sed -E 's#^[^@]*@([^:/]+).*#\1#')"
