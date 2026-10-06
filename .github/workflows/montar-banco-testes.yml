@@ -1,0 +1,128 @@
+name: Montar banco de testes
+
+# CEO 06/10: banco de testes separado (projeto erp-psgestao-testes). Atalho por cópia da ESTRUTURA da produção
+# (supabase db dump, só leitura, sem dados de cliente, sem Vault/cron) em vez de reaplicar 2.000+ migrations.
+#  - manual (workflow_dispatch): reconstrói tudo (dump → restore → ledger → semente);
+#  - push na main com migration nova: aplica só as pendentes no banco de testes (db push --db-url).
+# Segredos: SUPABASE_ACCESS_TOKEN/SUPABASE_DB_PASSWORD/SUPABASE_PROJECT_ID (produção, só leitura aqui),
+# TEST_DATABASE_URL (Session pooler), TEST_SUPABASE_URL, TEST_SUPABASE_SERVICE_ROLE_KEY, PLAYWRIGHT_USER_EMAIL/PASSWORD.
+on:
+  workflow_dispatch:
+    inputs:
+      reconstruir:
+        description: 'Reconstruir a estrutura do zero (apaga e recria os schemas do banco de TESTES)'
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+
+concurrency:
+  group: banco-testes
+  cancel-in-progress: false
+
+jobs:
+  reconstruir:
+    if: github.event_name == 'workflow_dispatch' && inputs.reconstruir
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trava de segurança (nunca restaurar sobre a produção)
+        run: |
+          if [ -z "$TEST_DATABASE_URL" ]; then echo "::error::TEST_DATABASE_URL ausente"; exit 1; fi
+          if echo "$TEST_DATABASE_URL" | grep -q "horsymhsinqcimflrtjo"; then
+            echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO. Abortado."; exit 1
+          fi
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      - name: Dump da estrutura da produção (somente schema, sem dados)
+        run: |
+          date +%s > /tmp/t0
+          supabase link --project-ref horsymhsinqcimflrtjo
+          supabase db dump -f /tmp/estrutura.sql
+          wc -l /tmp/estrutura.sql
+          # jobs do cron e segredos do Vault não vão para o banco de testes
+          grep -vE "cron\.schedule|vault\.create_secret" /tmp/estrutura.sql > /tmp/estrutura_limpa.sql
+      - name: Restaurar no banco de testes
+        run: |
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=0 -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" 2>&1 | tail -3
+          # ON_ERROR_STOP=0: erros por extensão/objeto da produção ficam no log (marcador documentado), o resto segue
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=0 -f /tmp/estrutura_limpa.sql > /tmp/restore.log 2>&1 || true
+          echo "erros no restore: $(grep -c 'ERROR' /tmp/restore.log || true)"
+          grep 'ERROR' /tmp/restore.log | sort | uniq -c | sort -rn | head -40 || true
+      - name: Marcar ledger de migrations como aplicado (até a última da main)
+        run: |
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+          CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+            version text PRIMARY KEY, statements text[], name text);
+          SQL
+          ls supabase/migrations/*.sql | while read -r f; do
+            b=$(basename "$f" .sql); v=${b%%_*}; n=${b#*_}
+            echo "INSERT INTO supabase_migrations.schema_migrations(version,name) VALUES ('$v','$n') ON CONFLICT (version) DO NOTHING;"
+          done | psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q
+          psql "$TEST_DATABASE_URL" -t -c "SELECT count(*) || ' versões no ledger de testes' FROM supabase_migrations.schema_migrations"
+      - name: Semente (empresa DEMO + usuário do Playwright)
+        env:
+          TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          TEST_SERVICE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          BOT_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+          BOT_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+        run: |
+          # cria (ou localiza) o usuário no Auth do banco de testes via service role
+          code=$(curl -sS -o /tmp/u.json -w '%{http_code}' -X POST "$TEST_SUPABASE_URL/auth/v1/admin/users" \
+            -H "apikey: $TEST_SERVICE_KEY" -H "Authorization: Bearer $TEST_SERVICE_KEY" -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg e "$BOT_EMAIL" --arg p "$BOT_PASSWORD" '{email:$e,password:$p,email_confirm:true}')")
+          echo "auth admin create: HTTP $code"
+          bot_id=$(jq -r '.id // empty' /tmp/u.json)
+          if [ -z "$bot_id" ]; then
+            bot_id=$(curl -sS "$TEST_SUPABASE_URL/auth/v1/admin/users?per_page=200" -H "apikey: $TEST_SERVICE_KEY" -H "Authorization: Bearer $TEST_SERVICE_KEY" \
+              | jq -r --arg e "$BOT_EMAIL" '.users[] | select(.email==$e) | .id' | head -1)
+          fi
+          [ -n "$bot_id" ] || { echo "::error::usuário do robô não criado/encontrado"; exit 1; }
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -v bot_id="$bot_id" -v bot_email="$BOT_EMAIL" -f scripts/banco-testes/semente.sql
+      - name: Tempo de montagem
+        run: |
+          s=$(( $(date +%s) - $(cat /tmp/t0) ))
+          echo "### Banco de testes montado em ${s}s" >> "$GITHUB_STEP_SUMMARY"
+      - name: Log do restore (diagnóstico)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: banco-testes-restore-log
+          path: /tmp/restore.log
+          if-no-files-found: ignore
+
+  aplicar-pendentes:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Banco de testes ainda não montado? então só avisa
+        id: pronto
+        run: |
+          if [ -z "$TEST_DATABASE_URL" ] || echo "$TEST_DATABASE_URL" | grep -q "horsymhsinqcimflrtjo"; then
+            echo "::notice::TEST_DATABASE_URL ausente ou inválida; passo ignorado."; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if psql "$TEST_DATABASE_URL" -t -c "SELECT 1 FROM supabase_migrations.schema_migrations LIMIT 1" 2>/dev/null | grep -q 1; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Ledger de testes vazio: rode 'Montar banco de testes' manualmente primeiro."; echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: supabase/setup-cli@v1
+        if: steps.pronto.outputs.ok == 'true'
+        with:
+          version: 2.118.0
+      - name: Aplicar migrations pendentes no banco de testes
+        if: steps.pronto.outputs.ok == 'true'
+        run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
