@@ -28,8 +28,10 @@ jobs:
       group: demo-e2e
       cancel-in-progress: false
       queue: max
-    # 100: o veredito de produção NÃO pode desistir na fila da demo (espera até 60 min pela trava)
-    timeout-minutes: 100
+    # 40 min (CEO 06/10, regra e): a espera na fila demo-e2e é FORA do runner e não conta; dentro do job, até 12 min
+    # esperando a Vercel servir o commit + até 10 min pela trava. Preso além disso, o vigia-runs.yml cancela aos 45 e a
+    # fila de merge re-roda o run cancelado (regra a: cancelado não é vermelho).
+    timeout-minutes: 40
     env:
       PROD_BASE_URL: https://erp-psgestao.vercel.app
       COMMIT: ${{ github.event.workflow_run.head_sha }}
@@ -40,10 +42,10 @@ jobs:
           fetch-depth: 0
       # A migration já está no banco (este job só roda após o deploy-migrations verde); falta a Vercel servir o
       # código do MESMO commit (ou um posterior). /sw.js traz "ps-shell-<VERCEL_GIT_COMMIT_SHA>" (RD-78, #1819).
-      # Fail-closed (RD-51): sem confirmar o build em até ~20 min, o job falha em vez de julgar o build errado.
+      # Fail-closed (RD-51): sem confirmar o build em até ~12 min, o job falha em vez de julgar o build errado.
       - name: Esperar a produção servir o commit
         run: |
-          for i in $(seq 1 60); do
+          for i in $(seq 1 36); do
             servido=$(curl -fsS "$PROD_BASE_URL/sw.js" 2>/dev/null | grep -oE 'ps-shell-[0-9a-f]{7,40}' | head -1 | sed 's/^ps-shell-//')
             # commit mais novo que o checkout (outro merge no meio) → busca a main antes de comparar
             [ -n "$servido" ] && ! git cat-file -e "$servido^{commit}" 2>/dev/null && git fetch -q origin main
@@ -52,7 +54,7 @@ jobs:
             fi
             echo "tentativa $i: produção serve '${servido:-?}', esperando $COMMIT…"; sleep 20
           done
-          echo "::error::produção não passou a servir $COMMIT em ~20 min — não dá para julgar os @pos-migration"; exit 1
+          echo "::error::produção não passou a servir $COMMIT em ~12 min — não dá para julgar os @pos-migration"; exit 1
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -66,7 +68,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
-          TRAVA_DEMO_ESPERA_MIN: '60'
+          TRAVA_DEMO_ESPERA_MIN: '10'
         # sem teste @pos-migration no repo → nada a julgar (verde)
         run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration
       # Prints de produção (o CEO pede print e link em toda onda): sobem sempre, verde ou vermelho.
