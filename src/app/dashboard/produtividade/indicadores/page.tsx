@@ -25,8 +25,8 @@ export default function Page() {
 function Inner() {
   const { selInfo, sel } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
-  const [ate, setAte] = useState(iso(new Date()))
-  const [de, setDe] = useState(iso(new Date(Date.now() - 29 * 86400000)))
+  const [ate, setAte] = useState(() => iso(new Date()))
+  const [de, setDe] = useState(() => iso(new Date(new Date().getTime() - 29 * 86400000)))
   const [setor, setSetor] = useState('DESOSSA')
   const [r, setR] = useState<Resp | null>(null)
   const [erro, setErro] = useState<string | null>(null)
