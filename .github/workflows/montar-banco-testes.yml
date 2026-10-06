@@ -92,10 +92,16 @@ jobs:
           [ "$code" = 200 ] || [ "$code" = 201 ] || [ "$code" = 422 ] || exit 1
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -v bot_email="$PLAYWRIGHT_USER_EMAIL" -f scripts/banco-testes/semente.sql
           # a demo da produção é povoada por fn_demo_reset (se existir na cópia)
-          psql "$TEST_DATABASE_URL" -c "select public.fn_demo_reset('b0700000-0000-4000-a000-000000000003')" || echo "::warning::fn_demo_reset falhou na semente (ver log)"
+          # diagnóstico: mostra o erro REAL (mensagem, detalhe, contexto) como anotação, em vez de só "falhou"
+          if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('b0700000-0000-4000-a000-000000000003')" 2> demo-reset-erro.log; then
+            cat demo-reset-erro.log
+            echo "::warning title=fn_demo_reset falhou::$(tr '\n' ' ' < demo-reset-erro.log | cut -c1-900)"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: montar-banco-testes-log
-          path: restore-erros.log
+          path: |
+            restore-erros.log
+            demo-reset-erro.log
           if-no-files-found: ignore
