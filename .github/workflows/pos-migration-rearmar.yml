@@ -1,0 +1,54 @@
+name: Re-armar @pos-migration (run cancelado)
+
+# Esteira 06/10 (CEO "destravar a esteira", item 1): um run CANCELADO do aceitacao-pos-migration não é vermelho nem
+# verde — é "sem veredito". Este workflow re-dispara o veredito (workflow_dispatch na main) quando a ÚLTIMA migration
+# da main ainda não tem run verde do @pos-migration em commit que a contenha. Se já teve, não faz nada (libera).
+# Só dispara; nunca mergeia nem reverte.
+on:
+  workflow_run:
+    workflows: ['Aceitação @pos-migration (produção)']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: pos-migration-rearmar
+  cancel-in-progress: false
+
+jobs:
+  rearmar:
+    # só quando o run que acabou foi cancelado (ou manual)
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'cancelled'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Re-disparar se a última migration não tem run verde
+        run: |
+          set -euo pipefail
+          mig=$(git log -1 --format=%H -- supabase/migrations)
+          [ -n "$mig" ] || { echo "sem migration no histórico — nada a re-armar"; exit 0; }
+          echo "última migration da main: $mig"
+          # run em andamento/na fila: não duplica
+          ativo=$(gh api "repos/$REPO/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=20" \
+            --jq '[.workflow_runs[] | select(.status=="in_progress" or .status=="queued" or .status=="waiting")] | length')
+          if [ "$ativo" != "0" ]; then echo "já há $ativo run(s) em andamento — não re-dispara"; exit 0; fi
+          # algum run verde cujo commit contém a migration?
+          for sha in $(gh api "repos/$REPO/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&status=success&per_page=30" \
+              --jq '.workflow_runs[].head_sha'); do
+            git cat-file -e "$sha^{commit}" 2>/dev/null || continue
+            if git merge-base --is-ancestor "$mig" "$sha"; then
+              echo "run verde em $sha contém a migration — liberado, nada a fazer"; exit 0
+            fi
+          done
+          echo "nenhum run verde cobre $mig — re-disparando o @pos-migration na main"
+          gh api -X POST "repos/$REPO/actions/workflows/aceitacao-pos-migration.yml/dispatches" -f ref=main

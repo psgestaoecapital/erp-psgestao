@@ -175,3 +175,8 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Sempre com checks e aceitação verdes, `main` verde, dois testes e um merge por vez. É SENSÍVEL (exige "MERGE AUTORIZADO #NNNN"):
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
+
+# Esteira de merge (CEO 06/10) — run cancelado não é veredito
+- **Run CANCELADO do `@pos-migration` = "sem veredito", não vermelho.** O workflow `pos-migration-rearmar.yml` re-dispara o
+  `aceitacao-pos-migration.yml` (workflow_dispatch na main) quando a última migration da main ainda não teve run verde em
+  commit que a contenha; se já teve, libera. Não duplica run em andamento. Só dispara — nunca mergeia nem reverte.

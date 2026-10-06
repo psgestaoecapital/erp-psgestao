@@ -11,6 +11,9 @@ on:
     workflows: ['Deploy Migrations (Production)']
     types: [completed]
     branches: [main]
+  # Re-disparo (esteira 06/10): run CANCELADO não é veredito. O pos-migration-rearmar.yml chama este evento via REST
+  # quando a última migration da main ainda não teve run verde. Roda no HEAD da main (que contém a migration).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,7 +22,7 @@ permissions:
 jobs:
   producao:
     # só depois de um deploy de migrations VERDE (vermelho lá já é o alarme do próprio deploy-migrations)
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
     # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
@@ -32,11 +35,11 @@ jobs:
     timeout-minutes: 100
     env:
       PROD_BASE_URL: https://erp-psgestao.vercel.app
-      COMMIT: ${{ github.event.workflow_run.head_sha }}
+      COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
       # A migration já está no banco (este job só roda após o deploy-migrations verde); falta a Vercel servir o
       # código do MESMO commit (ou um posterior). /sw.js traz "ps-shell-<VERCEL_GIT_COMMIT_SHA>" (RD-78, #1819).
