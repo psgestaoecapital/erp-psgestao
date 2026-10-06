@@ -171,7 +171,7 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.fn_agente_mensagem_trg_acionar() FROM PUBLIC, anon, authenticated;
 
--- backfill: ao LIGAR a rotina de um agente de sócio, enfileira os chamados abertos do escopo
+-- backfill manual (nunca automático): enfileira os chamados abertos do escopo
 CREATE OR REPLACE FUNCTION public.fn_agente_escopo_backfill(p_agente text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -193,31 +193,10 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_agente_escopo_backfill(text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_agente_escopo_backfill(text) TO service_role;
 
-CREATE OR REPLACE FUNCTION public.fn__agente_rotina_ligou_backfill()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-DECLARE r record;
-BEGIN
-  IF NEW.aciona AND NOT OLD.aciona AND EXISTS (SELECT 1 FROM erp_agente_escopo WHERE agente = NEW.agente AND ativo) THEN
-    FOR r IN SELECT s.id FROM sugestoes s
-              WHERE s.status IN ('nova','em_analise','aceita','em_desenvolvimento')
-                AND public.fn__agente_escopo_chamado_i(NEW.agente, s.id)
-              ORDER BY s.numero LOOP
-      PERFORM public.fn__agente_enfileirar_chamado(r.id, 'backfill');
-    END LOOP;
-  END IF;
-  RETURN NULL;
-END;
-$function$;
-REVOKE ALL ON FUNCTION public.fn__agente_rotina_ligou_backfill() FROM PUBLIC, anon, authenticated;
-
+-- Sem backfill automático ao ligar a rotina (Eng. Chefe 05/10): a rodrigo-code já tem a fila dos 13 por aviso; rodar de novo duplicaria.
+-- fn_agente_escopo_backfill fica só como ação manual (serviço) para jordana-code/andre-code.
 DROP TRIGGER IF EXISTS trg_agente_rotina_ligou_backfill ON public.erp_agente_rotina;
-CREATE TRIGGER trg_agente_rotina_ligou_backfill
-  AFTER UPDATE OF aciona ON public.erp_agente_rotina
-  FOR EACH ROW EXECUTE FUNCTION public.fn__agente_rotina_ligou_backfill();
+DROP FUNCTION IF EXISTS public.fn__agente_rotina_ligou_backfill();
 
 -- 5) OK do sócio ----------------------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_agente_pedir_ok_socio(p_mensagem_id uuid, p_agente text, p_texto text)
