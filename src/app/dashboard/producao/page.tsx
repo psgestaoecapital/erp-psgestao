@@ -6,6 +6,7 @@ import { labelUsuario } from '@/lib/usuarioLabel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { ClienteBusca } from '@/components/pm/ClienteBusca'
 import { BriefingEditor } from '@/components/pm/BriefingEditor'
+import { CopiarJob, JobsParecidos, type ResultadoCopia } from '@/components/pm/CopiarJob'
 
 // Identidade Espresso (mesmos tokens do CRM Oportunidades / Financiamentos)
 const ESPRESSO = '#3D2314'
@@ -113,6 +114,8 @@ function ProducaoPageInner() {
   const [novaEtapa, setNovaEtapa] = useState<{ titulo: string; responsavel_id: string; data_prazo: string; horas_estimadas: string }>({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
   const [etapaBusy, setEtapaBusy] = useState<string | null>(null)
   const [maisDetalhesJob, setMaisDetalhesJob] = useState(false)
+  // "Copiar de um job pronto" (CEO 03/10): null = fechado; '' = busca; id = já na prévia desse job
+  const [copiar, setCopiar] = useState<string | null>(null)
 
   useEffect(() => { void loadCompanies() }, [])
   useEffect(() => { if (sel) void loadAll() }, [sel]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -195,6 +198,26 @@ function ProducaoPageInner() {
     if (res.error) { setToast(`Erro: ${res.error.message}`); return }
     setToast(editId ? 'Job ALTERADO.' : 'Job CRIADO.')
     setShowForm(null); setEditId(null); setForm({}); loadAll()
+  }
+  function abrirEdicaoJob(j: Job) {
+    setForm({
+      titulo: j.titulo, tipo: j.tipo, status: j.status, prioridade: j.prioridade,
+      cliente_id: j.cliente_id, responsavel_id: j.responsavel_id, responsavel_nome: j.responsavel_nome,
+      data_inicio: j.data_inicio, data_prazo: j.data_prazo, valor_job: j.valor_job,
+      horas_estimadas: j.horas_estimadas, percentual_comissao: j.percentual_comissao,
+      descricao: j.descricao,
+    })
+    setMaisDetalhesJob(false); setEditId(j.id); setShowForm('job')
+  }
+  // job criado a partir de um pronto: fecha o Novo Job e abre o job novo para revisar
+  async function aposCopiar(r: ResultadoCopia) {
+    setCopiar(null)
+    setToast(`Job ${r.numero ?? ''} criado a partir do ${r.origem_numero ?? 'job pronto'}${r.tarefas ? ` (${r.tarefas} tarefa${r.tarefas === 1 ? '' : 's'})` : ''}.`)
+    setShowForm(null); setEditId(null); setForm({})
+    await loadAll()
+    if (!r.job_id) return
+    const { data } = await supabase.from('agency_jobs').select('*').eq('id', r.job_id).maybeSingle()
+    if (data) abrirEdicaoJob(data as Job)
   }
   async function saveTimesheet() {
     const { data: { user } } = await supabase.auth.getUser()
@@ -396,16 +419,7 @@ function ProducaoPageInner() {
           clientes={clientes}
           responsaveis={responsaveis}
           onNovo={() => { setForm({ status: 'nao_iniciada', prioridade: 'normal' }); setEditId(null); setShowForm('job') }}
-          onEditar={(j) => {
-            setForm({
-              titulo: j.titulo, tipo: j.tipo, status: j.status, prioridade: j.prioridade,
-              cliente_id: j.cliente_id, responsavel_id: j.responsavel_id, responsavel_nome: j.responsavel_nome,
-              data_inicio: j.data_inicio, data_prazo: j.data_prazo, valor_job: j.valor_job,
-              horas_estimadas: j.horas_estimadas, percentual_comissao: j.percentual_comissao,
-              descricao: j.descricao,
-            })
-            setMaisDetalhesJob(false); setEditId(j.id); setShowForm('job')
-          }}
+          onEditar={abrirEdicaoJob}
           onEtapas={abrirEtapas}
           onExcluir={(j) => excluir('agency_jobs', j.id)}
         />
@@ -476,6 +490,15 @@ function ProducaoPageInner() {
       {showForm === 'job' && (
         <Modal titulo={editId ? 'Editar job' : 'Novo job'} onClose={() => { setShowForm(null); setEditId(null); setForm({}); setMaisDetalhesJob(false) }}>
           {/* #144 (Pdois · CEO 01/10): ordem do SIGA — Cliente → Peça/tipo → Título (grande) → Prazo → Responsável → Briefing */}
+          {!editId && (
+            <button type="button" onClick={() => setCopiar('')} data-testid="job-copiar-abrir" style={copiarBtn}>
+              <span style={{ fontSize: 16 }}>⧉</span>
+              <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left' }}>
+                <b style={{ fontSize: 13.5 }}>Copiar de um job pronto</b>
+                <span style={{ fontSize: 11.5, color: TEXTM, fontWeight: 400 }}>Busque um job parecido e aproveite briefing, peça e tarefas.</span>
+              </span>
+            </button>
+          )}
           <div style={{ display: 'grid', gap: 10, marginBottom: 10 }}>
             {/* Bloco 1 (CEO 02/10): cliente do cadastro da empresa (erp_clientes), com busca por nome/CNPJ */}
             <ClienteBusca empresa={sel} testId="job-cliente"
@@ -485,12 +508,13 @@ function ProducaoPageInner() {
             <Select label="Peça / tipo" testId="job-tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
               opts={[['', '— que peça vai ser feita —'], ...TIPOS_PECA]} />
             <label style={lbl}>
-              Título *
+              <span style={{ display: 'flex', alignItems: 'center' }}>Título *<AjudaCampo chave="pm.job.titulo" /></span>
               <textarea data-testid="job-titulo" rows={2} value={(form.titulo as string) ?? ''}
                 onChange={(e) => setForm({ ...form, titulo: e.target.value.replace(/\s*\n\s*/g, ' ') })}
                 placeholder="Ex.: Post Dia das Crianças — carrossel 3 cards"
                 style={{ ...inp, fontSize: 15, resize: 'vertical' }} />
             </label>
+            {!editId && <JobsParecidos empresa={sel} titulo={(form.titulo as string) ?? ''} onAbrir={(id) => setCopiar(id)} />}
           </div>
           <div style={grid2}>
             <Field label="Prazo" type="date" testId="job-prazo" v={form.data_prazo} on={(v) => setForm({ ...form, data_prazo: v })} />
@@ -636,6 +660,11 @@ function ProducaoPageInner() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {copiar !== null && sel && (
+        <CopiarJob empresa={sel} jobInicial={copiar || null} responsaveis={responsaveis}
+          onFechar={() => setCopiar(null)} onCopiado={(r) => { void aposCopiar(r) }} />
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}
@@ -915,6 +944,8 @@ function TimesheetTabela({
 
 // Peça/tipo do job (#144 · Pdois): as peças do dia a dia da agência primeiro, depois os projetos maiores.
 // agency_jobs.tipo é texto livre — as chaves antigas (site, video, arte…) continuam valendo.
+// A busca do "Copiar de um job pronto" (src/lib/pm/copiarJob.ts e fn_pm_peca_rotulo) usa as mesmas chaves — o gate
+// check-pm-copiar-job confere.
 const TIPOS_PECA: Array<[string, string]> = [
   ['post_rede_social', 'Post de rede social'], ['arte_avulsa', 'Arte avulsa'], ['capa_rede_social', 'Capa de rede social (Facebook, YouTube…)'],
   ['story', 'Story / Reels'], ['arte', 'Arte/Design'], ['social_media', 'Social Media (pacote)'], ['campanha', 'Campanha'],
@@ -1107,6 +1138,10 @@ const ordBtn: CSSProperties = {
 const etapasBtn: CSSProperties = {
   width: '100%', border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO,
   borderRadius: 6, padding: '6px 8px', fontSize: 12, fontWeight: 600, cursor: 'pointer', minHeight: 36,
+}
+const copiarBtn: CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10, width: '100%', marginBottom: 12, padding: '10px 12px', minHeight: 48,
+  border: `1px dashed ${DOURADO}`, borderRadius: 12, background: '#FFFCF5', color: ESPRESSO, cursor: 'pointer',
 }
 const maisDetalhesBtn: CSSProperties = {
   border: 'none', background: 'transparent', color: ESPRESSO, fontSize: 13, fontWeight: 600,

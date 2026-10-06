@@ -42,7 +42,7 @@ ok(!/from\("agency_(job_rodadas|aprovacoes|jobs)"\)\.(insert|update|upsert|delet
 for (const f of ['fn_pm_job_pedir_ajuste', 'fn_pm_job_aguardar', 'fn_pm_job_retomar', 'fn_pm_job_enviar_aprovacao', 'fn_pm_job_decidir_aprovacao'])
   ok(tela.includes(`"${f}"`), `tela usa ${f}`)
 const campos = (tela.match(/<(select|textarea|input)\b/g) ?? []).length
-const ajudas = (tela.match(/<Rotulo texto=/g) ?? []).length
+const ajudas = (tela.match(/<AjudaCampo chave="pm\.job\.(ajuste|aguardando|aprovacao\.prazo)/g) ?? []).length
 ok(campos === ajudas && campos >= 5, `todo campo do fluxo tem o "?" (${ajudas}/${campos})`)
 const pag = readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8')
 ok(/<JobFluxo key=\{aberto\.id\}/.test(pag) && /data-testid="pauta-selo-aprovacao"/.test(pag), 'Pauta: fluxo no job aberto e selo da aprovação na lista')
