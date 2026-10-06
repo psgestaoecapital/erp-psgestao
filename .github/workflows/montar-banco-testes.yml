@@ -1,0 +1,102 @@
+name: Montar banco de testes
+
+# CEO 06/10 (msg 21ada0b8): banco de testes separado (projeto erp-psgestao-testes), montado por CÓPIA DA ESTRUTURA da produção
+# (pg_dump --schema-only, só leitura, sem dados de cliente, sem Vault, sem jobs do cron) em vez de reaplicar as 2.000+ migrations.
+# Manual (workflow_dispatch). Depois de montado, migration nova da main aplica nos dois: produção pelo deploy-migrations;
+# testes pelo job "aplicar-novas" abaixo (roda quando o deploy-migrations conclui na main).
+# Nunca escreve na produção. O banco de testes é recriável: reexecutar com recriar=true zera e remonta.
+
+on:
+  workflow_dispatch:
+    inputs:
+      recriar:
+        description: 'Zerar o schema public do banco de testes antes de restaurar (true/false)'
+        default: 'false'
+  workflow_run:
+    workflows: ['Deploy Migrations (Production)']
+    types: [completed]
+    branches: [main]
+
+jobs:
+  montar:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      - name: Instalar psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Cronômetro (início)
+        run: echo "T0=$(date +%s)" >> "$GITHUB_ENV"
+      # Só leitura na produção: dump de ESTRUTURA. Sem --data-only, sem schemas auth/storage/vault/cron (o banco de testes já tem os seus).
+      - name: Dump da estrutura da produção (schema-only)
+        run: |
+          supabase link --project-ref horsymhsinqcimflrtjo
+          supabase db dump --linked --schema public -f estrutura-public.sql
+          supabase db dump --linked --data-only --schema supabase_migrations -f ledger.sql
+          wc -l estrutura-public.sql ledger.sql
+      - name: Zerar public no banco de testes (só se recriar=true)
+        if: ${{ github.event.inputs.recriar == 'true' }}
+        run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;"
+      - name: Restaurar estrutura no banco de testes
+        run: |
+          # sem ON_ERROR_STOP: registra o que falhar (extensão/dado só da produção) e segue; o resumo mostra a contagem
+          psql "$TEST_DATABASE_URL" -f estrutura-public.sql > restaurar.log 2>&1 || true
+          echo "erros: $(grep -c 'ERROR' restaurar.log || true)"
+          grep 'ERROR' restaurar.log | sort | uniq -c | sort -rn | head -40 || true
+      # Marca as migrations como aplicadas até a última da main (o dump do ledger traz as versões da produção).
+      - name: Marcar ledger de migrations
+        run: |
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE SCHEMA IF NOT EXISTS supabase_migrations; CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (version text PRIMARY KEY, statements text[], name text);"
+          psql "$TEST_DATABASE_URL" -f ledger.sql > ledger.log 2>&1 || true
+          psql "$TEST_DATABASE_URL" -Atc "SELECT count(*), max(version) FROM supabase_migrations.schema_migrations"
+      # Semente: usuário do Playwright (Auth do banco de testes, via service role). A empresa DEMO é semeada pelo passo seguinte.
+      - name: Semente — usuário do Playwright
+        env:
+          TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+          PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+        run: |
+          code=$(curl -s -o resp.json -w '%{http_code}' -X POST "$TEST_SUPABASE_URL/auth/v1/admin/users" \
+            -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"$PLAYWRIGHT_USER_EMAIL\",\"password\":\"$PLAYWRIGHT_USER_PASSWORD\",\"email_confirm\":true}")
+          echo "auth admin create user: HTTP $code (422 = já existe)"
+          [ "$code" = "200" ] || [ "$code" = "422" ]
+      - name: Tempo de montagem
+        run: |
+          s=$(( $(date +%s) - T0 ))
+          echo "### Banco de testes montado em ${s}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "Erros de restauração: $(grep -c ERROR restaurar.log || true) (ver log do passo)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: montar-banco-testes-logs
+          path: |
+            restaurar.log
+            ledger.log
+          if-no-files-found: ignore
+
+  # Migration nova na main: aplica também no banco de testes (produção já foi pelo deploy-migrations).
+  aplicar-novas:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      - run: supabase db push --db-url "$TEST_DATABASE_URL" --include-all
