@@ -21,10 +21,6 @@ const btnPri = "inline-flex items-center gap-1.5 rounded-lg bg-[#3D2314] px-3 py
 const cartao = "rounded-xl border border-[#3D2314]/10 bg-gradient-to-b from-white to-[#FAF7F2] p-3";
 const dataHora = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
-function Rotulo({ texto, ajuda }: { texto: string; ajuda: string }) {
-  return <span className="mb-1 flex items-center text-[11.5px] font-medium text-[#3D2314]/70">{texto}<AjudaCampo chave={ajuda} /></span>;
-}
-
 export function JobFluxo({ jobId, motivos, situacoes, onMudou }: {
   jobId: string; motivos: Opcao[]; situacoes: Opcao[]; onMudou: (codigo: string) => void;
 }) {
@@ -99,11 +95,11 @@ export function JobFluxo({ jobId, motivos, situacoes, onMudou }: {
         )}
         {form === "aguardar" && (
           <div className="mt-3 grid gap-2 sm:grid-cols-2" data-testid="job-form-aguardar">
-            <label><Rotulo texto="Aguardando quem" ajuda="pm.job.aguardando.de" />
+            <label><span className="mb-1 flex items-center text-[11.5px] font-medium text-[#3D2314]/70">Aguardando quem<AjudaCampo chave="pm.job.aguardando.de" /></span>
               <select className={inp} value={de} onChange={(e) => setDe(e.target.value)} data-testid="job-aguardar-de">
                 {Object.entries(QUEM_AGUARDA).map(([v, r]) => <option key={v} value={v}>{r}</option>)}
               </select></label>
-            <label><Rotulo texto="Motivo da espera" ajuda="pm.job.aguardando.motivo" />
+            <label><span className="mb-1 flex items-center text-[11.5px] font-medium text-[#3D2314]/70">Motivo da espera<AjudaCampo chave="pm.job.aguardando.motivo" /></span>
               <select className={inp} value={motivoSel} onChange={(e) => setMotivoEspera(e.target.value)} data-testid="job-aguardar-motivo">
                 {motivos.map((m) => <option key={m.valor} value={m.valor}>{m.rotulo}</option>)}
               </select></label>
@@ -139,7 +135,7 @@ export function JobFluxo({ jobId, motivos, situacoes, onMudou }: {
         )}
         {form === "aprovacao" && (
           <div className="mt-3 space-y-2" data-testid="job-form-aprovacao">
-            <label className="block"><Rotulo texto="Prazo da aprovação" ajuda="pm.job.aprovacao.prazo" />
+            <label className="block"><span className="mb-1 flex items-center text-[11.5px] font-medium text-[#3D2314]/70">Prazo da aprovação<AjudaCampo chave="pm.job.aprovacao.prazo" /></span>
               <input type="datetime-local" className={inp} value={prazo} onChange={(e) => setPrazo(e.target.value)} data-testid="job-aprovacao-prazo-input" />
               <span className="mt-0.5 block text-[11px] text-[#3D2314]/50">Em branco: prazo do cliente (padrão 2 dias úteis, às 18h).</span></label>
             <div className="flex gap-2">
@@ -167,10 +163,10 @@ export function JobFluxo({ jobId, motivos, situacoes, onMudou }: {
         </ol>
         {(form === "ajuste" || form === "reprovar") && (
           <div className="mt-3 space-y-2" data-testid="job-form-ajuste">
-            <label className="block"><Rotulo texto="O que ajustar" ajuda="pm.job.ajuste.motivo" />
+            <label className="block"><span className="mb-1 flex items-center text-[11.5px] font-medium text-[#3D2314]/70">O que ajustar<AjudaCampo chave="pm.job.ajuste.motivo" /></span>
               <textarea className={`${inp} min-h-[72px]`} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: trocar a foto da capa por uma mais clara" data-testid="job-ajuste-motivo" /></label>
             {form === "ajuste" && (
-              <label className="block"><Rotulo texto="Quem pediu" ajuda="pm.job.ajuste.quem" />
+              <label className="block"><span className="mb-1 flex items-center text-[11.5px] font-medium text-[#3D2314]/70">Quem pediu<AjudaCampo chave="pm.job.ajuste.quem" /></span>
                 <select className={inp} value={pedidoPor} onChange={(e) => setPedidoPor(e.target.value)} data-testid="job-ajuste-quem">
                   <option value="cliente">Cliente</option><option value="interno">Interno (equipe)</option>
                 </select></label>

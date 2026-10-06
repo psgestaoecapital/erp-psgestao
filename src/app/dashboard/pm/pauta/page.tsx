@@ -13,6 +13,8 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { ClienteBusca } from "@/components/pm/ClienteBusca";
 import { JobFluxo } from "@/components/pm/JobFluxo";
+import { JobComentarios } from "@/components/pm/JobComentarios";
+import { Cronometro } from "@/components/pm/Cronometro";
 import { exportarExcel, type Coluna } from "@/lib/export/relatorioLista";
 import {
   agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, prazoAprovacao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
@@ -191,10 +193,9 @@ export default function PautaPage() {
       setPrazos((ant) => (pag > 1 ? { ...ant, ...m } : m));
     } else if (pag === 1) setPrazos({});
   }, [empresa, filtrosAtivos, aba, agrup]);
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- recarrega a pauta quando filtro/aba/agrupamento mudam
   useEffect(() => { if (prefCarregada) { setSel(new Set()); void carregar(1); } }, [carregar, prefCarregada]);
 
-  // /dashboard/pm/pauta?job=<id> (ex.: "abrir o job" do Briefing) abre o job direto, sem mexer no filtro da pessoa
+  // /dashboard/pm/pauta?job=<id> ("abrir o job" do Briefing e link do Meu Dia) abre o job direto, sem mexer no filtro da pessoa
   const jobDoLink = useRef(false);
   useEffect(() => {
     if (!empresa || !prefCarregada || jobDoLink.current) return;
@@ -206,8 +207,9 @@ export default function PautaPage() {
       const numero = (j as { numero: string | null } | null)?.numero;
       const { data } = await supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: numero ? { codigo: numero } : {}, p_situacao: null, p_agrupar: "sem", p_pagina: 1, p_por_pagina: numero ? 20 : 500 });
       const it = ((data as Lista | null)?.itens ?? []).find((x) => x.id === id);
-      if (it) setAberto(it);
+      if (it) void abrirJob(it);
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- uma vez, depois da primeira carga
   }, [empresa, prefCarregada]);
 
   function aplicar(f: FiltrosPauta, visao: Visao | null = null) {
@@ -551,11 +553,13 @@ export default function PautaPage() {
               <dt className="text-[#3D2314]/60">Escopo</dt><dd>{seloEscopo(aberto) ?? "sem limite de ajustes"}</dd>
               {lista?.pode_ver_margem && <><dt className="text-[#3D2314]/60">Valor · margem</dt><dd>{brl(aberto.valor_job)} · {brl(aberto.margem)}</dd></>}
             </dl>
+            {userId && empresa && <div className="mt-3"><Cronometro key={`c-${aberto.id}`} empresa={empresa} userId={userId} jobFixo={{ id: aberto.id, codigo: aberto.codigo, titulo: aberto.titulo }} /></div>}
             <JobFluxo key={aberto.id} jobId={aberto.id} motivos={motivos} situacoes={situacoes}
               onMudou={(codigo) => { if (codigo) setAberto((a) => (a ? { ...a, codigo } : a)); void carregar(1); }} />
+            {empresa && <JobComentarios key={`k-${aberto.id}`} empresa={empresa} jobId={aberto.id} userId={userId} equipe={equipe} />}
             <div className="mt-3 flex gap-2">
               <Link className={btn} href={`/dashboard/producao`}>Abrir em Jobs</Link>
-              <Link className={btn} href={`/dashboard/pm/apontamento-horas?job=${aberto.id}`}><Play size={13} /> Cronômetro</Link>
+              <Link className={btn} href={`/dashboard/pm/apontamento-horas?job=${aberto.id}`}><Play size={13} /> Lançar horas à mão</Link>
             </div>
           </div>
         </div>
