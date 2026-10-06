@@ -11,7 +11,8 @@ test.describe('Caminho principal — fila de atendimento', () => {
   })
 
   test('buscar um chamado pelo número mostra o card com o status do banco', async ({ page }) => {
-    const [c] = await dbSelect<{ numero: number; titulo: string; status: string }>('sugestoes', `status=neq.arquivada&select=numero,titulo,status&order=numero.desc&limit=1`)
+    // ignora chamados de teste de outras specs rodando em paralelo (nascem 'nova' e só são arquivados no fim)
+    const [c] = await dbSelect<{ numero: number; titulo: string; status: string }>('sugestoes', `status=neq.arquivada&titulo=not.ilike.Aceita*&user_name=neq.${encodeURIComponent('robô aceitação')}&select=numero,titulo,status&order=numero.desc&limit=1`)
     expect(c, 'há chamados').toBeTruthy()
     await page.goto('/dashboard/atendimento')
     await aguardarConteudo(page)
