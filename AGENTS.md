@@ -175,3 +175,19 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Sempre com checks e aceitação verdes, `main` verde, dois testes e um merge por vez. É SENSÍVEL (exige "MERGE AUTORIZADO #NNNN"):
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
+
+# Regras de merge destravadas + fila de merge (CEO 06/10, "destravar a esteira")
+1. **Run `@pos-migration` CANCELADO não é vermelho.** O gate re-roda (`POST /actions/runs/<id>/rerun`) quando a última
+   migration da `main` ainda não teve run verde; se já teve, libera. Falha real continua bloqueando.
+2. **PR SEM arquivo em `supabase/migrations` não espera o `@pos-migration`**: exige gates + build/Vercel + aceitação da própria
+   área. O `@pos-migration` só bloqueia PR COM migration.
+3. **"MERGE AUTORIZADO #N" vale para o CONTEÚDO, não para o SHA.** O revisor grava no comentário
+   `MERGE AUTORIZADO #N` + `patch-id: <40 hex>` (`git diff origin/main...<head> | git patch-id --stable`). Atualizar com a
+   main mantém o patch-id (autorização vale); mudar o código da PR muda o patch-id (nova revisão).
+4. **Fila de merge própria** (`.github/workflows/fila-merge.yml`, `scripts/ci/fila-merge.mjs`; o merge queue do GitHub é pago, RD-42):
+   PR Ready com a label `fila-merge`, autorizada (regra 3, ou RD-94.1 categoria a) e verde → a fila atualiza com a main, espera
+   os checks, mergeia (squash, nunca auto-merge) **por ordem de chegada, uma por vez**, e comenta o resultado. Fica fora da fila
+   (com comentário) se faltar autorização, houver conflito ou check vermelho. Exige o secret `FILA_MERGE_TOKEN` e a variável
+   `FILA_AUTORIZADORES` (logins do revisor); com o `GITHUB_TOKEN` padrão o merge não dispararia o `deploy-migrations`.
+   Regras puras testadas em `scripts/gates/check-merge-gate.ts`.
+5. Comandos do `gh` que usam GraphQL (`gh pr list/view/merge`) falham na rede das sessões: use REST (`gh api repos/<repo>/...`).

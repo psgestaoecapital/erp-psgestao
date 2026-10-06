@@ -1,0 +1,46 @@
+name: Fila de merge
+
+# CEO 06/10: fila de merge própria (o merge queue do GitHub exige plano pago de organização, RD-42).
+# PR com a label "fila-merge", autorizada (comentário do revisor com patch-id, ou RD-94.1 só workflow/gates/docs) e verde:
+# atualiza com a main, espera os checks, mergeia por ordem de chegada, UMA por vez, e comenta o resultado.
+# Sem polling: reage a label, fim de aceitação/deploy e push na main. Nunca auto-merge (RD-94).
+# PRÉ-REQUISITO: secret FILA_MERGE_TOKEN (PAT/GitHub App com contents+pull-requests write e actions write). Com o
+# GITHUB_TOKEN padrão o merge/update-branch NÃO dispara os workflows seguintes (deploy-migrations não rodaria).
+# Variável de repositório FILA_AUTORIZADORES: logins (vírgula) cujo comentário "MERGE AUTORIZADO #N + patch-id" vale.
+on:
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: ['Aceitação (preview)', 'Aceitação @pos-migration (produção)', 'Deploy Migrations (Production)']
+    types: [completed]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fila-merge
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  fila:
+    if: github.event_name != 'pull_request_target' || github.event.label.name == 'fila-merge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # checkout da main (nunca do código da PR): o job só LÊ a PR via REST/git diff, não executa nada dela
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Processar a fila
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+          REPO: ${{ github.repository }}
+          AUTORIZADORES: ${{ vars.FILA_AUTORIZADORES }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "::error::secret FILA_MERGE_TOKEN ausente (GITHUB_TOKEN não dispara deploy-migrations)"; exit 1; fi
+          node scripts/ci/fila-merge.mjs
