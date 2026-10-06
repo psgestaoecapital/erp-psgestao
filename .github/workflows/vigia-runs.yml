@@ -1,0 +1,47 @@
+name: Vigia de runs presos
+
+# CEO 06/10 (regra e): os jobs de aceitação têm timeout de 40 min; este vigia cancela o run cujo job está EXECUTANDO
+# há mais de 45 min (runner perdido, timeout que não pegou) — um run preso trava a fila única da demo (demo-e2e) para
+# todo mundo. Job ESPERANDO a vez na fila (queued/waiting) não é preso e nunca é cancelado.
+# Run cancelado não é vermelho: o @pos-migration cancelado é re-rodado pela fila de merge (regra a).
+# Custo zero: repositório público (minutos do Actions gratuitos), ~10 s por rodada.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  vigia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      LIMITE_MIN: '45'
+      # workflows de e2e da demo (os que entram na fila demo-e2e) e a montagem do banco de testes
+      VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
+    steps:
+      - name: Cancelar run com job executando há mais de 45 min
+        run: |
+          set -euo pipefail
+          agora=$(date -u +%s); n=0
+          for wf in $VIGIADOS; do
+            for id in $(gh api "repos/$REPO/actions/workflows/$wf/runs?status=in_progress&per_page=50" --jq '.workflow_runs[].id'); do
+              # o job mais antigo em execução (started_at de job queued/waiting não conta)
+              ini=$(gh api "repos/$REPO/actions/runs/$id/jobs?filter=latest&per_page=100" \
+                --jq '[.jobs[] | select(.status == "in_progress") | .started_at] | min // empty')
+              [ -n "$ini" ] || continue
+              min=$(( (agora - $(date -u -d "$ini" +%s)) / 60 ))
+              [ "$min" -gt "$LIMITE_MIN" ] || continue
+              echo "::warning title=run preso cancelado::$wf run $id com job executando há $min min (> $LIMITE_MIN)"
+              echo "- $wf · run $id · $min min executando → cancelado" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null \
+                || gh api -X POST "repos/$REPO/actions/runs/$id/force-cancel" > /dev/null || true
+              n=$((n + 1))
+            done
+          done
+          echo "runs presos cancelados: $n"
