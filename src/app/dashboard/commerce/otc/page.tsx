@@ -631,13 +631,16 @@ function KanbanBoard({
       && (!q || (o.numero ?? '').toLowerCase().includes(q) || (o.cliente_nome ?? '').toLowerCase().includes(q))),
     [orcamentos, q],
   )
+  // #780 (cont.) · "Gerar Financeiro" é a ÚLTIMA ação: a coluna depende do STATUS, não da nota. Um pedido com NF-e
+  // emitida mas ainda não faturado continua em "A faturar" (pendente de Gerar Financeiro); só vai para "Faturado"
+  // quando status = 'faturado'. (Antes o nf_emitida movia o pedido cedo demais — a emissão de NF-e agora é pré-financeiro.)
   const colPed = useMemo(
-    () => pedidos.filter((p) => p.status !== 'faturado' && p.status !== 'cancelado' && p.status !== 'revertido' && !p.nf_emitida
+    () => pedidos.filter((p) => p.status !== 'faturado' && p.status !== 'cancelado' && p.status !== 'revertido'
       && (!q || (p.numero ?? '').toLowerCase().includes(q) || (p.cliente_nome ?? '').toLowerCase().includes(q))),
     [pedidos, q],
   )
   const colFat = useMemo(
-    () => pedidos.filter((p) => (p.status === 'faturado' || p.nf_emitida)
+    () => pedidos.filter((p) => p.status === 'faturado'
       && (!q || (p.numero ?? '').toLowerCase().includes(q) || (p.cliente_nome ?? '').toLowerCase().includes(q))),
     [pedidos, q],
   )
@@ -1534,7 +1537,10 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
           })()}
 
           {/* FEAT-NFE-PRODUTO-3-PRODUCAO-v1 · NF-e do produto · ambiente vem da config (producao) */}
-          {statusLocal === 'faturado' && (
+          {/* #780 (cont.) · NF-e do produto PRIMEIRO: emitir ANTES de "Gerar Financeiro", igual à NFS-e. Vale para
+              pedido NÃO cancelado e NÃO revertido (revisão Eng. Chefe: pedido que voltou a orçamento não emite NF-e).
+              O gate antigo 'faturado' só mostrava o card depois do financeiro — inverso do #780. */}
+          {statusLocal !== 'cancelado' && statusLocal !== 'revertido' && (
             <Card titulo="NF-E DO PRODUTO">
               <NFeCard companyId={ped.company_id} pedidoId={ped.id} />
             </Card>
@@ -1568,17 +1574,8 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                 {faturaResult?.erro && (
                   <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {faturaResult.erro}</p>
                 )}
-                {/* #780 · emissão de nota (NF-e) vem ANTES do financeiro — "Gerar Financeiro" é a última ação do fluxo */}
-                <p style={{ fontSize: 11, color: C.espressoL, margin: 0 }}>NF-e fica pra próxima onda.</p>
-                <button
-                  type="button"
-                  disabled
-                  title="Em desenvolvimento (Onda 3c)"
-                  style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.cream, color: C.espressoL, fontSize: 12, fontWeight: 600, cursor: 'not-allowed', alignSelf: 'flex-start' }}
-                >
-                  Emitir NF-e (em breve)
-                </button>
-                <hr style={{ border: 'none', borderTop: `1px solid ${C.borderL}`, margin: '4px 0' }} />
+                {/* #780 (cont.) · a emissão de NF-e saiu daqui: agora fica no card "NF-E DO PRODUTO" acima, emitida ANTES
+                    do financeiro (igual à NFS-e). "Gerar Financeiro" segue sendo a ÚLTIMA ação, standalone. */}
                 {/* #780 · última ação: gera os recebíveis + baixa de estoque (standalone p/ pedido sem nota) */}
                 <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
                   Gere os títulos a receber + baixa de estoque (produtos + BOM dos serviços) em 1 clique.
