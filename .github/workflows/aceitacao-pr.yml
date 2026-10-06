@@ -25,6 +25,7 @@ jobs:
       pull-requests: read
     outputs:
       rodar: ${{ steps.decide.outputs.rodar }}
+      vaga: ${{ steps.decide.outputs.vaga }}
     steps:
       - name: Decide e limpa a fila
         id: decide
@@ -63,6 +64,8 @@ jobs:
             done
           fi
           echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
+          # vaga 0..2 do banco de testes (o operador % não existe nas expressões do Actions)
+          echo "vaga=$(( ${{ github.run_number }} % 3 ))" >> "$GITHUB_OUTPUT"
 
   aceitacao:
     needs: triagem
@@ -80,7 +83,7 @@ jobs:
     # contra o banco de TESTES (segredos TEST_*), em até 3 vagas simultâneas, timeout 40 min. Sem a variável, tudo
     # como antes (produção, fila única demo-e2e). O CEO só liga depois de trocar o ambiente Preview da Vercel.
     concurrency:
-      group: ${{ vars.ACEITACAO_BANCO == 'testes' && format('aceitacao-testes-{0}', github.run_number % 3) || 'demo-e2e' }}
+      group: ${{ vars.ACEITACAO_BANCO == 'testes' && format('aceitacao-testes-{0}', needs.triagem.outputs.vaga) || 'demo-e2e' }}
       cancel-in-progress: false
       queue: max
     # 75 em produção (fila fora do runner); 40 no banco de testes
