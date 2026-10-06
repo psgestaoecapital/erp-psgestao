@@ -4,7 +4,7 @@
 //     erro 'zero_linhas', status 'falhou'.
 // (B) reimportação do Vinicius 01–11/09 com as 30 confirmações guardadas como histórico (caminho B do CEO).
 //     Prova (só leitura, Frioeste): 30 registros no histórico com o fim confirmado pela cliente; 22 pausas reais no
-//     lugar; nenhum dia de 01–11/09 "aguardando confirmação".
+//     lugar; nenhum dia "conforme" com pausas realizadas < devidas (pendente_confirmacao é legítimo desde a #2019).
 
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, obterSessionPayload, registrarJornada } from '../../support/api'
@@ -54,8 +54,12 @@ test.describe('NR-36 #107 · upload vazio falha com aviso + reparo do Vinicius c
       `select=duracao_seg&company_id=eq.${FRIOESTE}&cpf=eq.${VINICIUS}&data=gte.2026-09-01&data=lte.2026-09-11`)
     expect(pausas.length, 'pausas reais lidas do arquivo').toBe(22)
     expect(pausas.every(p => p.duracao_seg >= 15 * 60 && p.duracao_seg <= 30 * 60), 'pausas de 15–30 min').toBe(true)
-    const pend = await dbSelect<{ data: string }>('nr36_pausa_apurada',
-      `select=data&company_id=eq.${FRIOESTE}&cpf=eq.${VINICIUS}&data=gte.2026-09-01&data=lte.2026-09-11&status=eq.pendente_confirmacao`)
-    expect(pend, 'nenhum dia aguardando confirmação').toEqual([])
+    // Após a correção da apuração (#2019, reapuração de setembro 06/10, decisão do CEO 04/10): dias com pausas
+    // realizadas < devidas ficam pendente_confirmacao (RD-51) — o que não pode existir é dia "conforme" sem
+    // pausas suficientes, nem as confirmações guardadas se perderem (checadas acima).
+    const dias = await dbSelect<{ data: string; status: string; devido_min: number; realizado_min: number }>('nr36_pausa_apurada',
+      `select=data,status,devido_min,realizado_min&company_id=eq.${FRIOESTE}&cpf=eq.${VINICIUS}&data=gte.2026-09-01&data=lte.2026-09-11`)
+    expect(dias.length, 'dias apurados do Vinicius').toBeGreaterThan(0)
+    expect(dias.filter(d => d.status === 'conforme' && d.realizado_min < d.devido_min), 'nenhum conforme com pausa faltando').toEqual([])
   })
 })
