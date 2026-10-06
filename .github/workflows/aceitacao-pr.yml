@@ -8,9 +8,67 @@ on:
   deployment_status:
 
 jobs:
-  aceitacao:
-    # só preview com sucesso (ignora Production e estados pending/failure)
+  # Triagem barata (sem fila, ~10 s): decide se a aceitação pesada precisa rodar e limpa a fila (RD-42, minutos do Actions).
+  #  (1) cancela runs ANTIGOS da mesma PR que ainda esperam vez na fila demo-e2e (commit já superado);
+  #  (2) pula a aceitação quando o diff da PR (contra a main) só tem .md / workflow / AGENTS.md e nenhum spec em
+  #      e2e/jornadas/aceitacao — nada a testar, custo zero. Qualquer outro arquivo → roda normalmente.
+  triagem:
     if: >-
+      github.event.deployment_status.state == 'success' &&
+      !contains(github.event.deployment.environment, 'Production') &&
+      !contains(github.event.deployment.environment, 'production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    outputs:
+      rodar: ${{ steps.decide.outputs.rodar }}
+    steps:
+      - name: Decide e limpa a fila
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.deployment.sha }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          rodar=true
+          pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null || true)
+          if [ -n "$pr" ]; then
+            echo "PR aberta: #$pr"
+            # (2) só doc/workflow sem spec?
+            files=$(gh api "repos/$REPO/pulls/$pr/files" --paginate --jq '.[].filename' 2>/dev/null || true)
+            if [ -n "$files" ]; then
+              outros=$(echo "$files" | grep -vE '(\.md$|^\.github/workflows/|^AGENTS\.md$|^CLAUDE\.md$)' || true)
+              spec=$(echo "$files" | grep -E '^e2e/jornadas/aceitacao/' || true)
+              if [ -z "$outros" ] && [ -z "$spec" ]; then
+                rodar=false
+                echo "::notice::Diff só com .md/workflow e sem spec de aceitação: aceitação pulada (custo zero)."
+              fi
+            fi
+            # (1) cancela runs antigos da mesma PR ainda na fila
+            for st in queued pending waiting; do
+              for rid in $(gh api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=$st&per_page=50" --jq '.workflow_runs[].id' 2>/dev/null || true); do
+                [ "$rid" = "$RUN_ID" ] && continue
+                hsha=$(gh api "repos/$REPO/actions/runs/$rid" --jq '.head_sha' 2>/dev/null || true)
+                [ -z "$hsha" ] || [ "$hsha" = "$SHA" ] && continue
+                n=$(gh api "repos/$REPO/commits/$hsha/pulls" --jq "[.[] | select(.number == $pr)] | length" 2>/dev/null || echo 0)
+                if [ "$n" -gt 0 ]; then
+                  echo "cancelando run antigo $rid ($hsha) da PR #$pr"
+                  gh run cancel "$rid" -R "$REPO" || true
+                fi
+              done
+            done
+          fi
+          echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
+
+  aceitacao:
+    needs: triagem
+    # só preview com sucesso (ignora Production e estados pending/failure); triagem pode dispensar (diff só .md/workflow)
+    if: >-
+      needs.triagem.outputs.rodar == 'true' &&
       github.event.deployment_status.state == 'success' &&
       !contains(github.event.deployment.environment, 'Production') &&
       !contains(github.event.deployment.environment, 'production')
