@@ -1,0 +1,34 @@
+# Autorizado pelo CEO em 06/10/2026 17:38 (erp_contexto_projeto f08edfe1).
+# WHITELIST das tabelas GLOBAIS de referência copiadas (só DADOS) da PRODUÇÃO para o BANCO DE TESTES por
+# scripts/banco-testes/catalogos.sh, no workflow montar-banco-testes, antes do fn_demo_reset.
+# Regra: só tabela do schema public SEM coluna de dono (company_id/org_id/user_id e afins) e SEM dado pessoal.
+# O script recusa (na produção, lendo só o catálogo do Postgres) qualquer tabela daqui que tenha coluna de dono.
+# Proibido: auth, storage, vault, cron, logs, mensagens de agentes, contexto do projeto, backups (_bkp), histórico.
+# Ordem = dependência de chave estrangeira (pai antes do filho). Uma tabela por linha; '#' comenta.
+
+# Planos, módulos, features e telas (fn_demo_reset → fn_demo_garantir_plano precisa de plan_catalog: v15_revenda)
+module_subgrupos            # pai de module_catalog (FK)
+module_catalog
+plan_catalog
+plan_modules                # plano ↔ módulo (sem ela o plano não abre menu)
+feature_catalog
+system_screens
+screen_route_features
+
+# Papéis de acesso (RBAC) globais
+rbac_subgrupo_catalogo
+rbac_papel
+rbac_papel_acesso
+
+# Referência fiscal/geral usada pelas specs
+fiscal_codigo_catalogo      # LC 116 (200) e NBS (675)
+fiscal_correlacao_servico   # LC 116 ↔ NBS ↔ cClassTrib
+fiscal_lc116_exige_obra     # subitens da LC 116 que exigem obra
+fiscal_ncm_regras           # NCM ↔ CEST ↔ ST/monofásico
+fiscal_reforma_parametro    # alíquotas CBS/IBS por ano
+erp_gov_nfse_municipios     # municípios IBGE (adesão à NFS-e nacional)
+
+# FORA DE PROPÓSITO (06/10): fiscal_ibpt_aliquota (IBPT por NCM/UF) tem a coluna importado_por com o e-mail de quem
+# importou (dado pessoal) — pg_dump -t copia a tabela inteira, então ela NÃO entra. Nenhuma spec lê o conteúdo dela
+# (ibpt-empresa-token só a cita). Se o CEO quiser o IBPT no banco de testes, a cópia tem de ser por SELECT com essa
+# coluna em branco, não por pg_dump. erp_ibpt_item depende de erp_ibpt_tabela (que tem company_id): também fora.
