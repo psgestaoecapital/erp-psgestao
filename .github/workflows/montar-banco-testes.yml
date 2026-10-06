@@ -1,5 +1,10 @@
 name: Montar banco de testes
 
+# Autorizado pelo CEO em 06/10/2026 17:38 (erp_contexto_projeto f08edfe1): antes do fn_demo_reset, copia da PRODUÇÃO
+# para o BANCO DE TESTES só os DADOS das tabelas globais de referência da whitelist scripts/banco-testes/catalogos.txt
+# (sem company_id/org_id/user_id, sem dado pessoal), por pg_dump --data-only -t de cada tabela e psql no
+# TEST_DATABASE_URL. A trava abaixo continua recusando a produção como destino. Resolve: fn_demo_reset falhava porque
+# plan_catalog estava vazio no banco de testes (plan_id v15_revenda não existia).
 # CEO 06/10: aceitação das PRs sai da produção. Atalho (horas, não dias): copia a ESTRUTURA da produção (pg_dump
 # --schema-only, só leitura, sem dados de cliente, sem Vault, sem jobs do cron) para o projeto erp-psgestao-testes,
 # marca o ledger com todas as migrations do repo e planta a semente mínima (empresa DEMO + usuário do Playwright).
@@ -80,6 +85,31 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
         run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+      # Autorizado pelo CEO em 06/10/2026 17:38. Produção só leitura (catálogo do Postgres + pg_dump --data-only -t);
+      # o script repete as travas (destino nunca é a produção) e recusa tabela da lista com coluna de dono/dado pessoal.
+      - name: Catálogos globais da produção → banco de testes (whitelist, só dados)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # produção é Postgres 17 e o pg_dump precisa ser >= servidor (o runner traz o 16)
+          pgdg=/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+          [ -x "$pgdg" ] || sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo "$pgdg" -y > /dev/null
+          sudo apt-get install -y -qq postgresql-client-17 > /dev/null
+          export PG_DUMP=/usr/lib/postgresql/17/bin/pg_dump PSQL=/usr/lib/postgresql/17/bin/psql
+          # URL da produção pelo Session pooler (host/usuário da API de gestão; a senha é o segredo já existente)
+          pool=$(curl -fsS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            https://api.supabase.com/v1/projects/horsymhsinqcimflrtjo/config/database/pooler)
+          host=$(jq -r '[.[] | select(.database_type == "PRIMARY")][0].db_host // empty' <<< "$pool")
+          user=$(jq -r '[.[] | select(.database_type == "PRIMARY")][0].db_user // empty' <<< "$pool")
+          [ -n "$host" ] && [ -n "$user" ] || { echo "::error::não achei o pooler da produção na API de gestão"; exit 1; }
+          senha=$(jq -rn --arg s "$SUPABASE_DB_PASSWORD" '$s | @uri')
+          PROD_DATABASE_URL="postgresql://$user:$senha@$host:5432/postgres"
+          echo "::add-mask::$senha"
+          echo "::add-mask::$PROD_DATABASE_URL"
+          PROD_DATABASE_URL="$PROD_DATABASE_URL" scripts/banco-testes/catalogos.sh
       - name: Semente (usuário do Playwright no Auth + empresa DEMO)
         run: |
           set -euo pipefail
