@@ -65,3 +65,7 @@ AS $function$
      WHERE uc.user_id = auth.uid() AND uc.company_id = p_company_id
        AND uc.role IN ('owner', 'socio', 'diretor', 'gerente', 'financeiro', 'admin', 'adm', 'acesso_total', 'rh', 'rh_industrial'))
 $function$;
+
+-- Grants preservados (ACL viva: postgres, authenticated, service_role); anon fora.
+REVOKE ALL ON FUNCTION public.fn__mao_obra_pode_ver_individual(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn__mao_obra_pode_ver_individual(uuid) TO authenticated, service_role;
