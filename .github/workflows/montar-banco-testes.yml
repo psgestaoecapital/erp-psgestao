@@ -1,5 +1,10 @@
 name: Montar banco de testes
 
+# Autorizado pelo CEO em 06/10/2026 17:38 (erp_contexto_projeto f08edfe1): antes do fn_demo_reset, copia da PRODUÇÃO
+# para o BANCO DE TESTES só os DADOS das tabelas globais de referência da whitelist scripts/banco-testes/catalogos.txt
+# (sem company_id/org_id/user_id, sem dado pessoal), por pg_dump --data-only -t de cada tabela e psql no
+# TEST_DATABASE_URL. A trava abaixo continua recusando a produção como destino. Resolve: fn_demo_reset falhava porque
+# plan_catalog estava vazio no banco de testes (plan_id v15_revenda não existia).
 # CEO 06/10: aceitação das PRs sai da produção. Atalho (horas, não dias): copia a ESTRUTURA da produção (pg_dump
 # --schema-only, só leitura, sem dados de cliente, sem Vault, sem jobs do cron) para o projeto erp-psgestao-testes,
 # marca o ledger com todas as migrations do repo e planta a semente mínima (empresa DEMO + usuário do Playwright).
@@ -40,6 +45,17 @@ jobs:
           [ -n "$TEST_DATABASE_URL" ] || { echo "::error::TEST_DATABASE_URL ausente"; exit 1; }
           case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
           case "$TEST_DATABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado";; *) echo "::error::TEST_DATABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+      - name: Normaliza TEST_DATABASE_URL (psql lê string fora do formato URI como NOME DE BANCO e tenta o socket local)
+        run: |
+          u="$TEST_DATABASE_URL"
+          u="$(printf '%s' "$u" | sed -E "s/^[[:space:]]*(TEST_DATABASE_URL=)?//; s/^psql[[:space:]]+//" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
+          case "$u" in postgresql://*|postgres://*) ;; *) echo "::error::TEST_DATABASE_URL não começa com postgresql:// (começa com: ${u:0:12}). Cole a Connection string (Session pooler) inteira, sem aspas."; exit 1;; esac
+          case "$u" in *'[YOUR-PASSWORD]'*|*'[SENHA]'*) echo "::error::TEST_DATABASE_URL ainda tem o marcador [YOUR-PASSWORD]: troque pela senha real (sem os colchetes)"; exit 1;; esac
+          case "$u" in *pooler.supabase.com*) ;; *@db.*) echo "::error::TEST_DATABASE_URL usa o host db.* (conexão direta, IPv6) em vez do Session pooler (*.pooler.supabase.com)"; exit 1;; *) echo "::error::TEST_DATABASE_URL não contém pooler.supabase.com"; exit 1;; esac
+          echo "::add-mask::$u"
+          echo "TEST_DATABASE_URL=$u" >> "$GITHUB_ENV"
+          echo "URL normalizada: esquema ${u%%://*}, host $(printf '%s' "$u" | sed -E 's#^[^@]*@([^:/]+).*#\1#')"
+          psql "$u" -v ON_ERROR_STOP=1 -tAc 'select version()' | cut -c1-60
       - uses: supabase/setup-cli@v1
         with:
           version: 2.118.0
@@ -69,6 +85,31 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
         run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+      # Autorizado pelo CEO em 06/10/2026 17:38. Produção só leitura (catálogo do Postgres + pg_dump --data-only -t);
+      # o script repete as travas (destino nunca é a produção) e recusa tabela da lista com coluna de dono/dado pessoal.
+      - name: Catálogos globais da produção → banco de testes (whitelist, só dados)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # produção é Postgres 17 e o pg_dump precisa ser >= servidor (o runner traz o 16)
+          pgdg=/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+          [ -x "$pgdg" ] || sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo "$pgdg" -y > /dev/null
+          sudo apt-get install -y -qq postgresql-client-17 > /dev/null
+          export PG_DUMP=/usr/lib/postgresql/17/bin/pg_dump PSQL=/usr/lib/postgresql/17/bin/psql
+          # URL da produção pelo Session pooler (host/usuário da API de gestão; a senha é o segredo já existente)
+          pool=$(curl -fsS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            https://api.supabase.com/v1/projects/horsymhsinqcimflrtjo/config/database/pooler)
+          host=$(jq -r '[.[] | select(.database_type == "PRIMARY")][0].db_host // empty' <<< "$pool")
+          user=$(jq -r '[.[] | select(.database_type == "PRIMARY")][0].db_user // empty' <<< "$pool")
+          [ -n "$host" ] && [ -n "$user" ] || { echo "::error::não achei o pooler da produção na API de gestão"; exit 1; }
+          senha=$(jq -rn --arg s "$SUPABASE_DB_PASSWORD" '$s | @uri')
+          PROD_DATABASE_URL="postgresql://$user:$senha@$host:5432/postgres"
+          echo "::add-mask::$senha"
+          echo "::add-mask::$PROD_DATABASE_URL"
+          PROD_DATABASE_URL="$PROD_DATABASE_URL" scripts/banco-testes/catalogos.sh
       - name: Semente (usuário do Playwright no Auth + empresa DEMO)
         run: |
           set -euo pipefail
@@ -81,10 +122,16 @@ jobs:
           [ "$code" = 200 ] || [ "$code" = 201 ] || [ "$code" = 422 ] || exit 1
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -v bot_email="$PLAYWRIGHT_USER_EMAIL" -f scripts/banco-testes/semente.sql
           # a demo da produção é povoada por fn_demo_reset (se existir na cópia)
-          psql "$TEST_DATABASE_URL" -c "select public.fn_demo_reset('b0700000-0000-4000-a000-000000000003')" || echo "::warning::fn_demo_reset falhou na semente (ver log)"
+          # diagnóstico: mostra o erro REAL (mensagem, detalhe, contexto) como anotação, em vez de só "falhou"
+          if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('b0700000-0000-4000-a000-000000000003')" 2> demo-reset-erro.log; then
+            cat demo-reset-erro.log
+            echo "::warning title=fn_demo_reset falhou::$(tr '\n' ' ' < demo-reset-erro.log | cut -c1-900)"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: montar-banco-testes-log
-          path: restore-erros.log
+          path: |
+            restore-erros.log
+            demo-reset-erro.log
           if-no-files-found: ignore
