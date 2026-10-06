@@ -93,6 +93,20 @@ async function main() {
   const semAba = await lerPlanilhaContagem(new Uint8Array(await outro.xlsx.writeBuffer() as ArrayBuffer))
   ok(semAba.linhas.length === 0 && semAba.erros.length === 1 && /Contagem/.test(semAba.erros[0].mensagem), 'arquivo sem a aba Contagem é recusado com mensagem')
 
+  // ── planilha reordenada no Excel (id oculto fica para trás): código manda, id divergente é recusado
+  const emb = await gerarPlanilhaContagem({ ...base, cega: true, produtos: P })
+  const wsE = await abrir(emb)
+  const kE = chaves(wsE), cqE = kE.indexOf('quantidade_contada') + 1, cidE = kE.indexOf('id') + 1
+  const qs = [5, 6, 7]
+  ;[0, 1, 2].forEach((i) => wsE.getRow(PRIMEIRA_LINHA_DADOS + i).getCell(cqE).value = qs[i])
+  // simula ordenar só as colunas visíveis (inverte código/descrição/quantidade das linhas 0 e 2; id fica)
+  const g = (i: number, c: number) => wsE.getRow(PRIMEIRA_LINHA_DADOS + i).getCell(c)
+  for (const c of [1, 3, cqE]) { const t = g(0, c).value; g(0, c).value = g(2, c).value; g(2, c).value = t }
+  const volta = await lerPlanilhaContagem(new Uint8Array(await wsE.workbook.xlsx.writeBuffer() as ArrayBuffer))
+  const pvE = montarPrevia(volta, P)
+  ok(cidE > 0 && pvE.itens.length === 1 && pvE.itens[0].codigo === 'B-200' && pvE.erros.length === 2 && pvE.erros.every((e) => /id da linha/.test(e.mensagem)),
+    'planilha reordenada sem o id: só a linha cujo id confere entra; as desalinhadas são recusadas, sem ajuste')
+
   // ── tela: nada ajusta sem confirmação
   const modal = readFileSync('src/components/estoque/PlanilhaContagemInventario.tsx', 'utf8')
   ok(!/fechar_inventario|fn_movimentar_estoque|registrar_movimento_estoque|erp_estoque_movimentacoes/.test(modal), 'subida da planilha não ajusta estoque (sem fechar_inventario / movimentação)')

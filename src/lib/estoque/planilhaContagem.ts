@@ -7,7 +7,7 @@
 // do sistema. A tela mostra a prévia das diferenças; o inventário só é criado com as contagens depois de confirmar, e o
 // estoque só é ajustado no "Fechar inventário" (outra confirmação), pelo caminho que já existe (fechar_inventario).
 // Contrato: linha LINHA_CHAVES = chaves técnicas (cinza); dados a partir de PRIMEIRA_LINHA_DADOS. A coluna 'id' (uuid do
-// produto) fica oculta e é o que casa a linha com o produto; sem ela, casa pelo código.
+// produto) fica oculta e é o que casa a linha com o produto; o CÓDIGO é a chave e o id só confere (divergiu = linha recusada).
 
 import ExcelJS from 'exceljs'
 
@@ -235,7 +235,7 @@ export async function lerPlanilhaContagem(bytes: ArrayBuffer | Uint8Array): Prom
     const q = lerQuantidade(g('quantidade_contada'))
     if (q == null) { emBranco++; continue }
     if (Number.isNaN(q) || q < 0) { erros.push({ linha: r, mensagem: `Quantidade inválida em "${descricao || codigo}": use um número maior ou igual a zero.` }); continue }
-    const chave = id ?? `cod:${codigo}`
+    const chave = codigo ? `cod:${codigo}` : (id ?? '')
     if (vistos.has(chave)) { erros.push({ linha: r, mensagem: `"${descricao || codigo}" aparece de novo (já na linha ${vistos.get(chave)}). Some as quantidades numa linha só.` }); continue }
     vistos.set(chave, r)
     linhas.push({ linha: r, id, codigo, descricao, quantidade: q, observacao: texto(g('observacao')) })
@@ -271,21 +271,30 @@ const r2 = (n: number) => Math.round(n * 100) / 100
 /** Compara as contagens lidas com o saldo ATUAL do sistema. Produto que não é mais da empresa/ativo vira erro. */
 export function montarPrevia(leitura: LeituraContagem, produtos: ProdutoAtual[]): Previa {
   const porId = new Map(produtos.map((p) => [p.id, p]))
-  const porCodigo = new Map<string, ProdutoAtual | null>()
+  const porCodigo = new Map<string, ProdutoAtual[]>()
   for (const p of produtos) {
     const c = (p.codigo ?? '').trim()
     if (!c) continue
-    porCodigo.set(c, porCodigo.has(c) ? null : p) // código repetido no cadastro = ambíguo
+    porCodigo.set(c, [...(porCodigo.get(c) ?? []), p])
   }
   const erros: ErroContagem[] = [...leitura.erros]
   const itens: ItemPrevia[] = []
   const usados = new Set<string>()
   for (const l of leitura.linhas) {
-    let p = l.id ? porId.get(l.id) : undefined
-    if (!p && !l.id && l.codigo) {
-      const c = porCodigo.get(l.codigo)
-      if (c === null) { erros.push({ linha: l.linha, mensagem: `Código "${l.codigo}" repetido no cadastro — baixe a planilha de novo (ela identifica o produto sem depender do código).` }); continue }
-      p = c
+    // O CÓDIGO é a chave (CEO 06/10): a coluna id fica oculta e some do alcance de quem ordena a planilha no Excel,
+    // então pode vir desalinhada da linha. Se o id não é o do produto do código, recusa a linha — nunca ajusta.
+    let p: ProdutoAtual | undefined
+    if (l.codigo) {
+      const cands = porCodigo.get(l.codigo) ?? []
+      if (cands.length > 1) {
+        p = l.id ? cands.find((c) => c.id === l.id) : undefined
+        if (!p) { erros.push({ linha: l.linha, mensagem: `Código "${l.codigo}" repetido no cadastro — a linha não foi usada (id não confere com nenhum dos produtos).` }); continue }
+      } else if (cands.length === 1) {
+        p = cands[0]
+        if (l.id && l.id !== p.id) { erros.push({ linha: l.linha, mensagem: `Código "${l.codigo}": o id da linha não é o do produto — a planilha foi reordenada sem a coluna id. Linha recusada; baixe a planilha de novo.` }); continue }
+      }
+    } else if (l.id) {
+      p = porId.get(l.id)
     }
     if (!p) { erros.push({ linha: l.linha, mensagem: `"${l.descricao || l.codigo}" não é um produto ativo desta empresa.` }); continue }
     if (usados.has(p.id)) { erros.push({ linha: l.linha, mensagem: `"${p.nome}" aparece em mais de uma linha.` }); continue }
