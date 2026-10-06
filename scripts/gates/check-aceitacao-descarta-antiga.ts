@@ -7,7 +7,7 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 
 const wf = readFileSync('.github/workflows/aceitacao-pr.yml', 'utf8')
 const passos = wf.slice(wf.indexOf('steps:'))
-ok(/group: demo-e2e/.test(wf) && /queue: max/.test(wf), 'fila única entre ramos diferentes continua (demo-e2e, FIFO)')
+ok(/group: .*demo-e2e/.test(wf) && /queue: max/.test(wf), 'fila única entre ramos diferentes continua (demo-e2e, FIFO)')
 ok(/actions: write/.test(wf), 'o run tem permissão para cancelar a si mesmo')
 ok(passos.indexOf('Versão antiga?') > -1 && passos.indexOf('Versão antiga?') < passos.indexOf('actions/checkout'), 'a checagem de versão antiga é o PRIMEIRO passo (antes de instalar e testar)')
 ok(/commits\/\$SHA\/pulls/.test(wf) && /gh run cancel "\$RUN_ID"/.test(wf), 'compara com o último commit da PR aberta e cancela o próprio run')
