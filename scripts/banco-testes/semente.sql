@@ -22,4 +22,8 @@ INSERT INTO public.user_companies (user_id, company_id, role)
 SELECT u.id, 'b0700000-0000-4000-a000-000000000003', 'admin'
 FROM auth.users u WHERE lower(u.email) = lower(:'bot_email')
   ON CONFLICT (user_id, company_id) DO NOTHING;
+-- plan_catalog é DADO (o dump leva só estrutura): fn_demo_garantir_plano faz FK para o plano da demo (run #8: v15_revenda ausente).
+INSERT INTO public.plan_catalog (id, nome, max_usuarios, max_empresas, ativo, plan_group, billing_model, vertical, legacy)
+VALUES ('v15_revenda', 'Revenda de Veículos', 5, 1, true, 'recorrente_leve', 'mensal_fixo', 'revenda_veiculos', false)
+ON CONFLICT (id) DO NOTHING;
 COMMIT;
