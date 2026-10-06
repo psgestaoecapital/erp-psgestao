@@ -118,6 +118,9 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'regeneradas', v_regen, 'pendentes_no_periodo', v_pend,
                             'assinadas_intocadas', v_ass, 'recusadas_intocadas', v_rec, 'motivo', v_motivo);
 END $fn$;
+REVOKE ALL ON FUNCTION public.fn_nr36_ciencia_gerar(uuid, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_ciencia_gerar(uuid, date, text) TO authenticated, service_role;
+
 REVOKE ALL ON FUNCTION public.fn_nr36_ciencia_regenerar_servico(uuid, date, date, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_nr36_ciencia_regenerar_servico(uuid, date, date, text) TO service_role;
 
