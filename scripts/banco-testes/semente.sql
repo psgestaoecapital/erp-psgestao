@@ -9,10 +9,13 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.companies WHERE id = 'b0700000-0000-4000-a000-000000000003') THEN
     SELECT id INTO v_org FROM public.organizations LIMIT 1;
     IF v_org IS NULL THEN
-      INSERT INTO public.organizations (name) VALUES ('PS Gestão (testes)') RETURNING id INTO v_org;
+      INSERT INTO public.organizations (name, slug) VALUES ('PS Gestão (testes)', 'ps-gestao-testes')
+        ON CONFLICT DO NOTHING;
+      SELECT id INTO v_org FROM public.organizations ORDER BY (slug = 'ps-gestao-testes') DESC LIMIT 1;
     END IF;
     INSERT INTO public.companies (id, org_id, razao_social, nome_fantasia, is_demo, ambiente_tenant)
-    VALUES ('b0700000-0000-4000-a000-000000000003', v_org, 'Demonstração Revenda', 'Demonstração Revenda', true, 'producao');
+    VALUES ('b0700000-0000-4000-a000-000000000003', v_org, 'Demonstração Revenda', 'Demonstração Revenda', true, 'producao')
+    ON CONFLICT DO NOTHING;
   END IF;
 END $$;
 INSERT INTO public.user_companies (user_id, company_id, role)
