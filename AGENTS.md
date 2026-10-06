@@ -5,6 +5,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
 <!-- END:nextjs-agent-rules -->
 
 <!-- BEGIN:protocolo-sessao -->
+# Arquitetura de trabalho — documento vivo
+A arquitetura de trabalho (agentes, caixa, cofre, esteira de publicação, banco de testes) está no documento vivo:
+`SELECT conteudo_md FROM erp_documento_vertical WHERE vertical='infraestrutura' AND vigente;`
+Toda mudança de infraestrutura que você fizer, descreva no BOX para o Eng. Chefe gerar nova versão.
+
 # Protocolo de sessão OBRIGATÓRIO (Claude) — o CEO exige, não é opcional
 
 Este bloco é carregado em TODA sessão. Ele existe porque o handoff e as regras vivem
