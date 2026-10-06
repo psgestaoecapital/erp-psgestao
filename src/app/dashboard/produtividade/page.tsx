@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import IndicadoresProdutividade from '@/components/produtividade/IndicadoresProdutividade'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF',
@@ -60,6 +61,7 @@ function Inner() {
   const [configAberto, setConfigAberto] = useState(false)
   const [salAberto, setSalAberto] = useState(false)
   const [novoFluxo, setNovoFluxo] = useState(false)
+  const [aba, setAba] = useState<'cadastro' | 'indicadores'>('cadastro')
 
   const flash = useCallback((m: string) => { setMsg(m); setErro(null); window.setTimeout(() => setMsg(null), 3500) }, [])
   const flashErr = useCallback((m: string) => { setErro(m); try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* */ } window.setTimeout(() => setErro(null), 6000) }, [])
@@ -108,10 +110,27 @@ function Inner() {
   if (!companyId) return <Aviso texto="Selecione uma empresa específica no topo — o cadastro é por planta." />
   if (plants.length === 0) return <Aviso texto="Esta empresa não tem planta industrial cadastrada. Cadastre a planta antes." />
 
+  const abas = (
+    <div className="no-print" style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
+      {(['cadastro', 'indicadores'] as const).map((a) => (
+        <button key={a} onClick={() => setAba(a)} style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', border: `1px solid ${C.border}`, background: aba === a ? C.gold : C.white, color: aba === a ? C.white : C.esp }}>{a === 'cadastro' ? 'Cadastro' : 'Indicadores'}</button>
+      ))}
+    </div>
+  )
+  if (aba === 'indicadores') return (
+    <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
+      <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Indicadores</h1>
+      {abas}
+      <IndicadoresProdutividade companyId={companyId} />
+    </div>
+  )
+
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Cadastro por fluxo</h1>
+      {abas}
       <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>O fluxo é o contexto. Cada linha é um posto — clique para editar. O turno vem do ponto.</p>
 
       {msg && <div style={{ background: C.greenBg, color: C.green, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{msg}</div>}
