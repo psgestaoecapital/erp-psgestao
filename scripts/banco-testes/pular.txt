@@ -1,0 +1,2 @@
+# versão (timestamp do arquivo) + motivo. Só migrations que dependem de dado/extensão exclusivos da produção.
+# Exemplo: 20260101000000 depende de dado da produção

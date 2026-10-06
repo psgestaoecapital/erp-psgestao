@@ -1,0 +1,45 @@
+name: Montar banco de testes
+
+# CEO 06/10: banco de testes separado (erp-psgestao-testes, Free) para tirar a aceitação da produção.
+# Aplica TODAS as migrations do repo (scripts/banco-testes/montar.sh) e planta a semente (empresa DEMO + usuário
+# do Playwright). Roda manual e quando entra migration na main. NUNCA toca a produção (o script aborta se o ref bater).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['supabase/migrations/**', 'scripts/banco-testes/**']
+
+concurrency:
+  group: montar-banco-testes
+  cancel-in-progress: false
+
+jobs:
+  montar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - name: Aplicar migrations no banco de testes
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: scripts/banco-testes/montar.sh
+      - name: Semente (empresa DEMO + usuário do Playwright)
+        env:
+          TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+          PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+          PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+        run: npx tsx scripts/banco-testes/semente.ts
+      - name: Falhas de migration (para tratamento)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: banco-testes-falhas
+          path: banco-testes-falhas.tsv
+          if-no-files-found: ignore
