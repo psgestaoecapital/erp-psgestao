@@ -96,6 +96,8 @@ export default function DocumentosRecebidosPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<string>('todos')
+  // #1692 · abas: a tela abre na fila de trabalho; nota concluída sai dela e vai para "Concluídas"
+  const [aba, setAba] = useState<'a_concluir' | 'concluidas' | 'todas'>('a_concluir')
   const [busca, setBusca] = useState('')
   // Habilitacao DF-e por empresa · RPC valida cert A1 + token no vault + admin
   const [habilitado, setHabilitado] = useState<boolean | null>(null)
@@ -115,17 +117,20 @@ export default function DocumentosRecebidosPage() {
   // NFE-F0 · E1 · conclusão da nota (selo + filtro "a concluir")
   const [concluidas, setConcluidas] = useState<Record<string, string | null>>({})
 
-  async function carregar() {
+  // #1692 · silencioso = recarga depois de uma ação na nota: NÃO troca a lista pelo "Carregando…"
+  // (isso desmontava a nota aberta e a tela pulava para o meio a cada clique)
+  async function carregar(silencioso = false) {
     if (!empresaUnica) return
-    setLoading(true)
+    if (!silencioso) setLoading(true)
     setErro(null)
     const { data, error } = await supabase.rpc('fn_nfe_recebidas_listar', {
       p_company_id: empresaUnica,
-      // "a_concluir" é filtro do cliente (não é status do servidor)
-      p_status: (filtroStatus === 'todos' || filtroStatus === 'a_concluir') ? null : filtroStatus,
+      p_status: filtroStatus === 'todos' ? null : filtroStatus,
+      // #1692 · aba "Concluídas" pede só as concluídas ao servidor (não fica presa às 200 mais recentes)
+      p_situacao: aba === 'concluidas' ? 'concluida' : null,
       p_limit: 200,
     })
-    setLoading(false)
+    if (!silencioso) setLoading(false)
     if (error) { setErro(error.message); return }
     const r = data as ListaResp
     if (!r.ok) { setErro(r.erro ?? 'Erro ao carregar'); return }
@@ -171,7 +176,7 @@ export default function DocumentosRecebidosPage() {
     if (error || !r?.ok) { setErro('Não consegui solicitar o XML: ' + (error?.message ?? r?.erro ?? 'falhou')); return }
     setToast('Na fila da SEFAZ — o XML (itens) chega no próximo ciclo (até 30 min).')
     setTimeout(() => setToast(null), 6000)
-    void carregar()
+    void carregar(true)
   }
 
   // Teto de tentativas estourado, mas o XML pode ter sido liberado desde então (fornecedor emitiu, ou
@@ -186,14 +191,14 @@ export default function DocumentosRecebidosPage() {
     if (error || !r?.ok) { setErro('Não consegui reiniciar a busca do XML: ' + (error?.message ?? r?.erro ?? 'falhou')); return }
     setToast('Busca reiniciada — o XML (itens) chega no próximo ciclo da SEFAZ (até 30 min).')
     setTimeout(() => setToast(null), 6000)
-    void carregar()
+    void carregar(true)
   }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void carregar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empresaUnica, filtroStatus])
+  }, [empresaUnica, filtroStatus, aba])
 
   async function toggleAutoCiencia(novo: boolean) {
     if (!empresaUnica) return
@@ -362,7 +367,7 @@ export default function DocumentosRecebidosPage() {
     setProcessando((p) => ({ ...p, [nfeId]: false }))
     if (r.ok) {
       setToast(r.msg)
-      await carregar()
+      await carregar(true)
       setTimeout(() => setToast(null), 4000)
     } else {
       setErro(r.msg)
@@ -436,7 +441,7 @@ export default function DocumentosRecebidosPage() {
           ? '🚫 Nota recusada (Desconhecimento enviado à SEFAZ) — saiu do fluxo de lançamento.'
           : `✅ ${tipo === 'confirmacao' ? 'Confirmação' : 'Ciência'} registrada na SEFAZ.`
       )
-      await carregar()
+      await carregar(true)
       setTimeout(() => setToast(null), 4000)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro de rede')
@@ -448,15 +453,16 @@ export default function DocumentosRecebidosPage() {
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
     let base = lista
-    // E1 · "a concluir" = ainda não concluída (a fila de trabalho da Jordana)
-    if (filtroStatus === 'a_concluir') base = base.filter((n) => !concluidas[n.id])
+    // E1 · "a concluir" = ainda não concluída nem recusada (a fila de trabalho da Jordana) · #1692 aba "Concluídas"
+    if (aba === 'a_concluir') base = base.filter((n) => !concluidas[n.id] && n.status !== 'ignorada')
+    else if (aba === 'concluidas') base = base.filter((n) => !!concluidas[n.id])
     if (!q) return base
     return base.filter((n) =>
       (n.fornecedor ?? '').toLowerCase().includes(q) ||
       (n.cnpj ?? '').includes(q.replace(/\D/g, '')) ||
       (n.chave_acesso ?? '').includes(q.replace(/\D/g, ''))
     )
-  }, [lista, busca, filtroStatus, concluidas])
+  }, [lista, busca, aba, concluidas])
 
   if (!empresaUnica) {
     return (
@@ -577,6 +583,17 @@ export default function DocumentosRecebidosPage() {
         </header>
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
+          {/* #1692 · abas: concluída sai da fila de trabalho e fica só em "Concluídas" */}
+          <div className="px-4 pt-3 flex items-center gap-1 flex-wrap border-b border-[#3D2314]/10" role="tablist" aria-label="Situação das notas">
+            {([['a_concluir', 'A concluir'], ['concluidas', 'Concluídas'], ['todas', 'Todas']] as const).map(([k, rotulo]) => (
+              <button key={k} type="button" role="tab" aria-selected={aba === k} data-testid={`nfe-aba-${k}`}
+                onClick={() => setAba(k)}
+                className={'text-[12.5px] px-3 py-2 -mb-px border-b-2 font-medium min-h-[40px] ' +
+                  (aba === k ? 'border-[#C8941A] text-[#3D2314]' : 'border-transparent text-[#3D2314]/55 hover:text-[#3D2314]')}>
+                {rotulo}
+              </button>
+            ))}
+          </div>
           <div className="px-4 py-3 border-b border-[#3D2314]/10 flex items-center gap-2 flex-wrap">
             <Search size={15} className="text-[#3D2314]/50" />
             <input
@@ -592,7 +609,6 @@ export default function DocumentosRecebidosPage() {
               className="text-[12px] bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[#3D2314]"
             >
               <option value="todos">Todos os status</option>
-              <option value="a_concluir">A concluir (fila de trabalho)</option>
               <option value="resumo">Resumo</option>
               <option value="aguardando_xml">Aguardando SEFAZ</option>
               <option value="completa">Pronta</option>
@@ -621,7 +637,9 @@ export default function DocumentosRecebidosPage() {
             <div className="px-6 py-16 text-center">
               <FileText size={36} className="mx-auto mb-3 text-[#3D2314]/30" />
               <div className="text-[14px] text-[#3D2314] font-medium mb-1">
-                {lista.length === 0 ? 'Nenhuma nota recebida ainda' : 'Nenhuma nota para o filtro atual'}
+                {lista.length === 0 ? 'Nenhuma nota recebida ainda'
+                  : aba === 'a_concluir' && !busca.trim() ? 'Nenhuma nota a concluir — as concluídas estão na aba "Concluídas"'
+                  : 'Nenhuma nota para o filtro atual'}
               </div>
               {lista.length === 0 && (
                 <div className="text-[12px] text-[#3D2314]/65 max-w-md mx-auto">
@@ -640,7 +658,8 @@ export default function DocumentosRecebidosPage() {
                 const podeExpandir = n.status !== 'ignorada'
                 const isExpandido = !!expandido[n.id]
                 return (
-                  <div key={n.id} className="px-4 py-3 sm:px-5 sm:py-4">
+                  <div key={n.id} data-testid={`nfe-card-${n.id}`}
+                    className={'px-4 py-3 sm:px-5 sm:py-4 ' + (isExpandido ? 'bg-[#EFE4D3] border-l-4 border-[#C8941A]' : '')}>
                     <div className="flex items-start justify-between gap-3 flex-wrap">
                       <div className="flex-1 min-w-[220px]">
                         <div className="text-[13.5px] font-medium text-[#3D2314]">
@@ -756,7 +775,7 @@ export default function DocumentosRecebidosPage() {
                               {puxando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <RotateCcw size={11} />}
                               Tentar novamente
                             </button>
-                            <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar()} />
+                            <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar(true)} />
                           </>
                         ) : n.status === 'aguardando_xml' ? (
                           <span
@@ -813,7 +832,12 @@ export default function DocumentosRecebidosPage() {
                       <ItensNfeRecebida
                         nfeId={n.id}
                         companyId={empresaUnica}
-                        onChange={() => void carregar()}
+                        onChange={() => void carregar(true)}
+                        onConcluida={() => {
+                          setExpandido((p) => ({ ...p, [n.id]: false }))
+                          setToast(`✅ Nota ${n.numero ?? ''} de ${n.fornecedor ?? 'fornecedor'} concluída — agora está na aba "Concluídas".`)
+                          setTimeout(() => setToast(null), 6000)
+                        }}
                       />
                     )}
                   </div>

@@ -93,9 +93,16 @@ interface Props {
   nfeId: string
   companyId: string
   onChange?: () => void
+  // #1692 · a página tira a nota da fila "A concluir" e avisa
+  onConcluida?: () => void
 }
 
-export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
+// #1692 · item resolvido = destino decidido: "não movimenta" OU "vai para o estoque" já com produto
+function itemResolvido(it: { entra_estoque: boolean | null; produto_id: string | null }): boolean {
+  return it.entra_estoque === false || (it.entra_estoque === true && !!it.produto_id)
+}
+
+export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Props) {
   const [itens, setItens] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -127,9 +134,14 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const [fatorSalvo, setFatorSalvo] = useState<Record<string, number>>({})
   // §5 · contas bancárias da empresa (para escolher a conta que paga a parcela)
   const [contas, setContas] = useState<{ id: string; nome: string }[]>([])
+  // #1692 · itens recolhidos em uma linha (resolvidos já abrem recolhidos; o usuário abre/recolhe à vontade)
+  const [recolhido, setRecolhido] = useState<Record<string, boolean>>({})
+  const jaCarregou = useRef(false)
 
   const carregar = useCallback(async () => {
-    setLoading(true)
+    // #1692 · só a 1ª carga mostra "Carregando itens…"; as recargas depois de cada clique são silenciosas
+    // (trocar a lista pelo aviso fazia a tela pular para o meio a cada seleção)
+    if (!jaCarregou.current) setLoading(true)
     setErro(null)
     const { data, error } = await supabase.rpc('fn_nfe_item_depara_sugerir', {
       p_nfe_recebida_id: nfeId,
@@ -139,6 +151,10 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
     const r = data as SugerirResp | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao sugerir'); setItens([]); return }
     setItens(r.itens ?? [])
+    if (!jaCarregou.current) {
+      jaCarregou.current = true
+      setRecolhido(Object.fromEntries((r.itens ?? []).filter(itemResolvido).map((x) => [x.item_id, true])))
+    }
     // colunas do item (F0 cfop/categoria · F1 custo real · F2 recebido/motivo/fator/gera_financeiro)
     const { data: ex } = await supabase.from('erp_nfe_recebidas_itens')
       .select('id, cfop_entrada, categoria_codigo, custo_unitario_real, quantidade_recebida, divergencia_motivo, gera_financeiro, unidade').eq('nfe_recebida_id', nfeId)
@@ -247,7 +263,7 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
       return
     }
     setMsg(`✅ Nota concluída — ${r.estoque?.itens_movidos ?? 0} item(ns) no estoque · ${r.financeiro?.pagar_criadas ?? 0} conta(s) a pagar.`)
-    await carregar(); onChange?.()
+    await carregar(); onChange?.(); onConcluida?.()
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -444,6 +460,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const vaiEstoque = itens.filter((x) => x.entra_estoque === true).length
   const naoMovimenta = itens.filter((x) => x.entra_estoque === false).length
   const aDecidir = itens.filter((x) => x.entra_estoque == null).length
+  // #1692 · resolvidos × pendentes; parcelas só aparecem se algum item gera financeiro
+  const resolvidos = itens.filter(itemResolvido)
+  const geraAlgumFinanceiro = itens.some((x) => (extras[x.item_id]?.gera_financeiro ?? true) !== false)
 
   return (
     <div className="mt-3 space-y-2">
@@ -459,6 +478,16 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
         )}
         {aDecidir > 0 && (
           <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-[#FAEEDA] text-[#BA7517] font-medium">⚪ {aDecidir} a decidir</span>
+        )}
+        <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-white text-[#3D2314]/75 font-medium border border-[#3D2314]/10" data-testid="nfe-itens-resolvidos">
+          ✓ {resolvidos.length} de {itens.length} resolvido(s)
+        </span>
+        {resolvidos.some((x) => !recolhido[x.item_id]) && (
+          <button type="button" data-testid="nfe-recolher-resolvidos"
+            onClick={() => setRecolhido((m) => ({ ...m, ...Object.fromEntries(resolvidos.map((x) => [x.item_id, true])) }))}
+            className="text-[10.5px] px-2 py-0.5 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70 hover:bg-white">
+            Recolher os resolvidos
+          </button>
         )}
       </div>
       {/* §2 · lote: uma nota de uso/consumo vira dois toques */}
@@ -478,16 +507,36 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
             className="px-2 py-1 rounded-md border border-[#3D2314]/15 hover:bg-[#3D2314]/5 disabled:opacity-40">próximo →</button>
         </div>
       )}
-      {itens.map((it, i) => (
-        <div key={it.item_id} ref={(el) => { itemRefs.current[it.item_id] = el }}
+      {itens.map((it, i) => recolhido[it.item_id] ? (
+        // #1692 · item recolhido: uma linha só, com a situação e o botão para abrir
+        <div key={it.item_id} ref={(el) => { itemRefs.current[it.item_id] = el }} data-testid={`nfe-item-recolhido-${it.item_id}`}
+          className="rounded-lg border border-[#3D2314]/10 bg-white/70 px-3 py-1.5 flex items-center gap-2 text-[11.5px]">
+          <span className={'text-[10.5px] px-2 py-0.5 rounded-full font-medium ' + (itemResolvido(it) ? 'bg-[#E8F4DC] text-[#3F7012]' : 'bg-[#FAEEDA] text-[#BA7517]')}>
+            {itemResolvido(it) ? '✓ resolvido' : 'pendente'}
+          </span>
+          <span className="truncate flex-1 min-w-0 text-[#3D2314]">#{it.numero_item} {it.descricao}</span>
+          <span className="text-[10.5px] text-[#3D2314]/55 truncate max-w-[40%]">
+            {it.entra_estoque === false ? '🚫 não movimenta' : it.produto_nome ? `📦 ${it.produto_nome}` : ''}
+          </span>
+          <button type="button" onClick={() => setRecolhido((m) => ({ ...m, [it.item_id]: false }))}
+            className="text-[10.5px] px-2 py-0.5 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70 hover:bg-[#3D2314]/5">abrir</button>
+        </div>
+      ) : (
+        <div key={it.item_id} ref={(el) => { itemRefs.current[it.item_id] = el }} data-testid={`nfe-item-${it.item_id}`}
           className={
-            'rounded-lg border p-3 bg-[#FAF7F2]/40 ' +
+            'rounded-lg border p-3 bg-white ' +
             (i === idxAtual && itens.length > 1 ? 'border-[#C8941A] ring-1 ring-[#C8941A]/40' : 'border-[#3D2314]/10')
           }>
           <div className="flex justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <div className="text-[12.5px] font-medium text-[#3D2314] truncate">
-                {it.descricao}
+              <div className="flex items-center gap-2">
+                <div className="text-[12.5px] font-medium text-[#3D2314] truncate flex-1 min-w-0">
+                  {it.descricao}
+                </div>
+                {itemResolvido(it) && <span className="text-[10.5px] px-2 py-0.5 rounded-full font-medium bg-[#E8F4DC] text-[#3F7012]">✓ resolvido</span>}
+                <button type="button" title="Recolher este item em uma linha" data-testid={`nfe-recolher-${it.item_id}`}
+                  onClick={() => setRecolhido((m) => ({ ...m, [it.item_id]: true }))}
+                  className="text-[10.5px] px-2 py-0.5 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70 hover:bg-[#3D2314]/5">recolher</button>
               </div>
               <div className="text-[10.5px] text-[#3D2314]/60 mt-0.5">
                 cód {it.codigo_produto} · NCM {it.ncm ?? '—'} · CFOP {it.cfop ?? '—'}
@@ -802,7 +851,7 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
       ))}
 
       {/* NFE-F2 · E3 · parcelas (duplicatas do XML) — editar/refazer antes de gerar; a soma tem que bater */}
-      {!notaInfo?.lancado_pagar && (
+      {!notaInfo?.lancado_pagar && geraAlgumFinanceiro && (
         <ParcelasBlock parcelas={parcelas} valorNota={notaInfo?.valor_total ?? null} contas={contas}
           onRefazer={(n, venc) => void refazerParcelas(n, venc)}
           onSalvar={async (lista) => {
