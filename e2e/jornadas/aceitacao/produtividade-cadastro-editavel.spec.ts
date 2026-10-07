@@ -83,10 +83,10 @@ test.describe('Produtividade — Cadastro por fluxo editável', () => {
     await expect(page.getByTestId(`posto-${n}-capacidade-salvo`)).toBeVisible()
     expect(Number((await posto(`${TAG} alcatra`)).capacidade_hora)).toBe(420.5)
 
-    // lista: cargo
+    // busca: cargo (digita, a lista sugere; grava o escolhido)
     await t('cargo').click()
-    await page.getByTestId(`posto-${n}-cargo-campo`).selectOption(cargoId)
-    await page.getByTestId(`posto-${n}-cargo-campo`).blur()
+    await page.getByTestId(`posto-${n}-cargo-campo`).fill(`${TAG} cargo`)
+    await page.keyboard.press('Enter')
     await expect(page.getByTestId(`posto-${n}-cargo-salvo`)).toBeVisible()
     expect((await posto(`${TAG} alcatra`)).cargo_id).toBe(cargoId)
 
@@ -153,6 +153,42 @@ test.describe('Produtividade — Cadastro por fluxo editável', () => {
       const cartao = page.getByTestId(`ajuda-cartao-${k}`)
       for (const b of ['O que preencher', 'Para que serve no cálculo', 'Exemplo', 'Erro comum']) await expect(cartao.getByText(b, { exact: true })).toBeVisible()
       await page.keyboard.press('Escape')
+    }
+  })
+
+  test('cargo do posto lista as funções do ponto e, ao escolher, liga o cargo ao ponto', { tag: '@pos-migration' }, async ({ page }) => {
+    test.skip(!plantId, 'a demonstração Indústria não tem planta industrial ativa')
+    const setores = await dbSelect<{ id: string }>('prod_setor', `company_id=eq.${DEMO_IND}&plant_id=eq.${plantId}&select=id&limit=1`)
+    test.skip(setores.length === 0, 'a demonstração Indústria não tem setor')
+    const funcao = `${TAG} AJUDANTE PONTO`
+    const fontes = await dbSelect<{ id: string }>('prod_fonte_dados', `company_id=eq.${DEMO_IND}&plant_id=eq.${plantId}&tipo=eq.ponto&select=id&limit=1`)
+    let fonteCriada = ''
+    if (fontes.length === 0) {
+      const f = await dbInsert<{ id: string }[] | { id: string }>('prod_fonte_dados', { company_id: DEMO_IND, plant_id: plantId, tipo: 'ponto', nome: `${TAG} ponto` })
+      fonteCriada = (Array.isArray(f) ? f[0] : f)?.id ?? ''
+    }
+    const cpfs = [0, 1].map((i) => `${Date.now()}${i}`.slice(-11))
+    try {
+      for (const cpf of cpfs) await dbInsert('ind_ponto_colaborador', { company_id: DEMO_IND, plant_id: plantId, provider: 'e2e', cpf, nome: `${TAG} pessoa`, funcao })
+      await dbInsert('prod_fluxo', { company_id: DEMO_IND, plant_id: plantId, setor_id: setores[0].id, nome: `${TAG} fluxo cargo`, modo: 'compartilhado' })
+      await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_IND)
+      await page.goto('/dashboard/produtividade')
+      await aguardarConteudo(page)
+      // a função do ponto aparece na lista, com a contagem de pessoas (sem dado pessoal)
+      await expect(page.locator(`datalist option[value="${funcao} · 2"]`).first()).toBeAttached()
+      await page.getByTestId('posto-novo-atividade').fill(`${TAG} posto cargo`)
+      await page.getByTestId('posto-novo-cargo').fill(`${funcao} · 2`)
+      await page.getByTestId('posto-novo-salvar').click()
+      const p0 = await posto(`${TAG} posto cargo`)
+      const cg = await dbSelect<{ id: string }>('prod_cargo', `company_id=eq.${DEMO_IND}&plant_id=eq.${plantId}&nome=eq.${encodeURIComponent(funcao)}&select=id`)
+      expect(cg.length, 'prod_cargo criado a partir da função do ponto').toBe(1)
+      expect(p0.cargo_id).toBe(cg[0].id)
+      const v = await dbSelect<{ chave: string }>('prod_cargo_vinculo', `cargo_id=eq.${cg[0].id}&select=chave`)
+      expect(v.length, 'vínculo com o ponto gravado').toBeGreaterThan(0)
+      await expect(page.getByTestId('cargos-ponto-vinculados')).toContainText('ligada(s) a cargos')
+    } finally {
+      await dbDelete('ind_ponto_colaborador', `company_id=eq.${DEMO_IND}&funcao=eq.${encodeURIComponent(funcao)}`).catch(() => {})
+      if (fonteCriada) await dbDelete('prod_fonte_dados', `id=eq.${fonteCriada}`).catch(() => {})
     }
   })
 })

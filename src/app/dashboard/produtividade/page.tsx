@@ -7,7 +7,7 @@
 // resultado". Erros aparecem NA LINHA (nao so no topo). CRIOU/ALTEROU/EXCLUIU. Sem "0" no lugar
 // de ausencia — capacidade em branco = a medir.
 
-import { useCallback, useEffect, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -253,11 +253,71 @@ function ContextoFluxo({ fc, setores, flash, onMudou }: { fc: FluxoCompleto; set
 // ─────────── TABELA DE POSTOS ───────────
 type Foco = { tipo: 'turno' | 'novo'; n: number } | null
 
+// Cargos do posto = TODAS as funcoes do PONTO da planta (fonte unica, RD-65) + os prod_cargo ja cadastrados. Lista via
+// fn_prod_sugerir_cargos (so funcao + contagem, sem dado pessoal). Ao escolher: fn_prod_cargo_do_ponto_vincular reusa/cria o prod_cargo
+// e grava o vinculo com o ponto (prod_cargo_vinculo) — e assim que as horas do ponto passam a contar para o posto.
+const normCargo = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+type OpcaoCargo = { value: string; label: string; nome: string; doPonto: boolean }
+type CargosPonto = { opcoes: OpcaoCargo[]; vinculados: number | null; resolver: (valor: string) => Promise<{ id: string; erro?: string }> }
+function useCargosPonto(companyId: string, plantId: string, cargos: Opt[], flashErr: (m: string) => void): CargosPonto {
+  const [ponto, setPonto] = useState<{ nome: string; pessoas: number }[]>([])
+  const [vinculados, setVinculados] = useState<number | null>(null)
+  const carregar = useCallback(async () => {
+    const [{ data }, vinc] = await Promise.all([
+      supabase.rpc('fn_prod_sugerir_cargos', { p_company_id: companyId, p_plant_id: plantId }),
+      supabase.from('prod_cargo_vinculo').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('plant_id', plantId),
+    ])
+    const r = data as { ok?: boolean; itens?: { nome: string; pessoas: number }[] } | null
+    // mesma funcao com maiuscula/acento diferente = um item so (soma as pessoas; fica a grafia mais frequente)
+    const m = new Map<string, { nome: string; pessoas: number; top: number }>()
+    for (const it of r?.ok ? (r.itens ?? []) : []) {
+      const k = normCargo(it.nome); const a = m.get(k)
+      if (!a) m.set(k, { nome: it.nome, pessoas: it.pessoas, top: it.pessoas })
+      else { a.pessoas += it.pessoas; if (it.pessoas > a.top) { a.top = it.pessoas; a.nome = it.nome } }
+    }
+    setPonto([...m.values()].map(({ nome, pessoas }) => ({ nome, pessoas })))
+    setVinculados(vinc.error ? null : (vinc.count ?? 0))
+  }, [companyId, plantId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+  // liga ao ponto os prod_cargo que ja existem (idempotente: so insere o que falta)
+  useEffect(() => {
+    void (async () => { const { data } = await supabase.rpc('fn_prod_cargo_do_ponto_vincular', { p_company_id: companyId, p_plant_id: plantId, p_funcao: null }); if ((data as { vinculos_novos?: number } | null)?.vinculos_novos) void carregar() })()
+  }, [companyId, plantId, carregar])
+
+  const opcoes = useMemo<OpcaoCargo[]>(() => {
+    const porNorm = new Map(cargos.map((c) => [normCargo(c.nome), c]))
+    const out: OpcaoCargo[] = ponto.map((f) => {
+      const c = porNorm.get(normCargo(f.nome))
+      return { value: c ? c.id : `ponto:${f.nome}`, label: `${f.nome} · ${f.pessoas}`, nome: f.nome, doPonto: true }
+    })
+    const jaTem = new Set(out.map((o) => o.value))
+    for (const c of cargos) if (!jaTem.has(c.id)) out.push({ value: c.id, label: c.nome, nome: c.nome, doPonto: false })
+    return out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }, [ponto, cargos])
+
+  const resolver: CargosPonto['resolver'] = async (valor) => {
+    if (!valor) return { id: '' }
+    const o = opcoes.find((x) => x.value === valor)
+    if (!o || !o.doPonto) return { id: valor }
+    const { data, error } = await supabase.rpc('fn_prod_cargo_do_ponto_vincular', { p_company_id: companyId, p_plant_id: plantId, p_funcao: o.nome })
+    const r = data as { ok?: boolean; erro?: string; cargo_id?: string } | null
+    if (error || !r?.ok || !r.cargo_id) {
+      const msg = r?.erro === 'sem_fonte_ponto' ? 'Esta planta não tem o ponto conectado — conecte o ponto antes de escolher o cargo.' : r?.erro === 'funcao_nao_esta_no_ponto' ? 'Essa função não está mais no ponto. Atualize a página.' : (error?.message || 'Não consegui ligar o cargo ao ponto. Tente de novo.')
+      flashErr(msg); return { id: '', erro: msg }
+    }
+    void carregar()
+    return { id: r.cargo_id }
+  }
+  return { opcoes, vinculados, resolver }
+}
+
 function TabelaPostos({ fc, companyId, plantId, flash, flashErr, onMudou, foco }: {
   fc: FluxoCompleto; companyId: string; plantId: string; flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>; foco: Foco
 }) {
   // descricao_funcao nao vem em fn_prod_fluxo_completo: leitura a parte (so dos postos desta tela).
   const [descs, setDescs] = useState<Record<string, string>>({})
+  const cp = useCargosPonto(companyId, plantId, fc.listas.cargos, flashErr)
   const ids = fc.postos.map((p) => p.id).join(',')
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -277,6 +337,7 @@ function TabelaPostos({ fc, companyId, plantId, flash, flashErr, onMudou, foco }
   return (
     <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
       <div style={{ overflowX: 'auto' }}>
+        <div data-testid="cargos-ponto-vinculados" style={{ fontSize: 11.5, color: C.espM, padding: '6px 10px 0' }}>{cp.opcoes.filter((o) => o.doPonto).length} cargo(s) do ponto na lista · {cp.vinculados ?? '—'} função(ões) do ponto ligada(s) a cargos</div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
           <thead style={{ background: C.cream }}>
             <tr>
@@ -285,9 +346,9 @@ function TabelaPostos({ fc, companyId, plantId, flash, flashErr, onMudou, foco }
           </thead>
           <tbody>
             {fc.postos.map((p, i) => (
-              <LinhaPostoEditavel key={p.id} posto={p} descricao={descs[p.id] ?? ''} fc={fc} companyId={companyId} plantId={plantId} flash={flash} flashErr={flashErr} onMudou={onMudou} abrirTurno={i === 0 && foco?.tipo === 'turno' ? foco.n : 0} />
+              <LinhaPostoEditavel key={p.id} posto={p} descricao={descs[p.id] ?? ''} fc={fc} companyId={companyId} plantId={plantId} flash={flash} flashErr={flashErr} onMudou={onMudou} cp={cp} abrirTurno={i === 0 && foco?.tipo === 'turno' ? foco.n : 0} />
             ))}
-            <LinhaPosto novo fc={fc} companyId={companyId} plantId={plantId} setor_id={fc.fluxo.setor_id} flash={flash} flashErr={flashErr} onMudou={onMudou} />
+            <LinhaPosto novo fc={fc} companyId={companyId} plantId={plantId} setor_id={fc.fluxo.setor_id} flash={flash} flashErr={flashErr} onMudou={onMudou} cp={cp} />
           </tbody>
         </table>
       </div>
@@ -297,9 +358,9 @@ function TabelaPostos({ fc, companyId, plantId, flash, flashErr, onMudou, foco }
 
 // Linha de posto ja criada: cada valor edita no lugar (clique → campo → salva ao sair/Enter, Esc cancela). Toda gravacao manda a
 // linha INTEIRA para fn_prod_posto_salvar (a funcao regrava todos os campos da linha; mandar so um apagaria os outros).
-function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, abrirTurno }: {
+function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, abrirTurno, cp }: {
   posto: Posto; descricao: string; fc: FluxoCompleto; companyId: string; plantId: string;
-  flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>; abrirTurno: number
+  flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>; abrirTurno: number; cp: CargosPonto
 }) {
   const [mais, setMais] = useState(false)
   const [turnoOpen, setTurnoOpen] = useState(false)
@@ -390,7 +451,7 @@ function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, ab
   const tid = (c: string) => `posto-${n}-${c}`
   const lista = (xs: Opt[], campoNome: 'nome' | 'codigo' = 'nome') => xs.map((o) => ({ value: o.id, label: String(campoNome === 'codigo' ? (o.codigo ?? o.nome) : o.nome) }))
   const rot = (xs: { value: string; label: string }[]) => (v: string) => xs.find((o) => o.value === v)?.label ?? '—'
-  const cargos = lista(fc.listas.cargos), cats = lista(fc.listas.categorias), tipos = lista(fc.listas.tipos), unids = lista(fc.listas.unidades, 'codigo')
+  const cargos = cp.opcoes.map((o) => ({ value: o.value, label: o.label })), cats = lista(fc.listas.categorias), tipos = lista(fc.listas.tipos), unids = lista(fc.listas.unidades, 'codigo')
   const aloc = [{ value: 'fixa', label: 'pessoas fixas' }, { value: 'rotativa', label: 'pessoas rotativas' }]
 
   return (
@@ -398,7 +459,8 @@ function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, ab
       <tr data-testid={`posto-${n}`} style={{ borderTop: `1px solid ${C.cream}`, verticalAlign: 'top' }}>
         <Td><CelulaEditavel testid={tid('numero')} valor={posto.numero} obrigatorio onSalvar={(v) => gravar({ numero: v })} /></Td>
         <Td><CelulaEditavel testid={tid('atividade')} valor={posto.atividade} obrigatorio onSalvar={(v) => gravar({ atividade: v })} /></Td>
-        <Td><CelulaEditavel testid={tid('cargo')} tipo="lista" valor={base.cargo_id} opcoes={cargos} rotuloValor={rot(cargos)} onSalvar={(v) => gravar({ cargo_id: v })} /></Td>
+        <Td><CelulaEditavel testid={tid('cargo')} tipo="busca" valor={base.cargo_id} opcoes={cargos} vazio="— escolher" rotuloValor={(v) => (rot(cargos)(v).replace(/ · \d+$/, '') || '—')}
+          onSalvar={async (v) => { const r = await cp.resolver(v); return r.erro ? r.erro : gravar({ cargo_id: r.id }) }} /></Td>
         <Td>
           <button type="button" data-testid={tid('turno')} onClick={() => setTurnoOpen((v) => !v)} title={temHorario ? 'Turno e horário — clique para editar' : 'Sem quadro de turno — clique para definir'}
             style={{ ...inp, padding: '5px 6px', fontSize: 12.5, textAlign: 'left', cursor: 'pointer', color: temHorario ? C.esp : C.blue, fontStyle: temHorario ? 'normal' : 'italic' }}>
@@ -463,9 +525,9 @@ function rascunhoDe(p?: Posto): Rascunho {
   }
 }
 
-function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flashErr, onMudou }: {
+function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flashErr, onMudou, cp }: {
   posto?: Posto; novo?: boolean; fc: FluxoCompleto; companyId: string; plantId: string; setor_id: string;
-  flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>
+  flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>; cp: CargosPonto
 }) {
   // linha nova ja abre com a entrada mais comum do ponto (o turno vem pronto — SPEC §3).
   const [r, setR] = useState<Rascunho>(() => { const b = rascunhoDe(posto); if (novo && !b.hora_entrada && fc.sugestoes_turno[0]) b.hora_entrada = fc.sugestoes_turno[0].horario; return b })
@@ -473,6 +535,7 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
   const [turnoOpen, setTurnoOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [erroLinha, setErroLinha] = useState<string | null>(null)
+  const [cargoTexto, setCargoTexto] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   // reidrata quando o posto muda de fora (recarregar)
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -484,12 +547,15 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
   async function salvar() {
     if (!podeSalvar) { setErroLinha('A atividade é obrigatória.'); return }
     setBusy(true); setErroLinha(null)
+    const cg = await cp.resolver(r.cargo_id)
+    if (cg.erro) { setBusy(false); setErroLinha(cg.erro); return }
+    const cargoId = cg.id
     const { data: { user } } = await supabase.auth.getUser()
     const turno = (r.turno_id || r.hora_entrada || r.pessoas)
       ? { turno_id: r.turno_id || null, hora_entrada: r.hora_entrada || null, hora_saida: r.hora_saida || null, pessoas: r.pessoas || null }
       : null
     const dados: Record<string, unknown> = {
-      atividade: r.atividade.trim(), cargo_id: r.cargo_id || null, unidade_medida_id: r.unidade_medida_id || null,
+      atividade: r.atividade.trim(), cargo_id: cargoId || null, unidade_medida_id: r.unidade_medida_id || null,
       tipo_posto_id: r.tipo_posto_id || null, categoria_produto_id: r.categoria_produto_id || null,
       capacidade_hora: r.capacidade_hora || null, alocacao: r.alocacao,
       centro_custo: r.centro_custo || null, supervisor_nome: r.supervisor_nome || null, turno,
@@ -548,9 +614,11 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
           <input data-testid={novo ? 'posto-novo-atividade' : undefined} value={r.atividade} onChange={(e) => up({ atividade: e.target.value })} placeholder={novo ? 'nova atividade…' : ''} style={{ ...inp, padding: '5px 7px' }} />
         </Td>
         <Td>
-          <select value={r.cargo_id} onChange={(e) => up({ cargo_id: e.target.value })} style={cellSel}>
-            <option value="">—</option>{fc.listas.cargos.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
+          <input data-testid={novo ? 'posto-novo-cargo' : undefined} list={`cargos-${posto?.id ?? 'novo'}`} placeholder="cargo — digite para buscar" style={{ ...inp, padding: '5px 7px' }}
+            value={cargoTexto ?? (cp.opcoes.find((o) => o.value === r.cargo_id)?.label ?? '')}
+            onChange={(e) => { const t = e.target.value; setCargoTexto(t); const o = cp.opcoes.find((x) => x.label.toLowerCase() === t.trim().toLowerCase()); if (o) up({ cargo_id: o.value }); else if (!t.trim()) up({ cargo_id: '' }) }}
+            onBlur={() => setCargoTexto(null)} />
+          <datalist id={`cargos-${posto?.id ?? 'novo'}`}>{cp.opcoes.map((o) => <option key={o.value} value={o.label} />)}</datalist>
         </Td>
         <Td>
           <button type="button" onClick={() => setTurnoOpen((v) => !v)}

@@ -13,8 +13,8 @@ export type OpcaoCelula = { value: string; label: string }
 type Props = {
   testid: string
   valor: string
-  tipo?: 'texto' | 'numero' | 'hora' | 'lista' | 'longo'
-  opcoes?: OpcaoCelula[]            // tipo 'lista'
+  tipo?: 'texto' | 'numero' | 'hora' | 'lista' | 'longo' | 'busca'
+  opcoes?: OpcaoCelula[]            // tipo 'lista' e 'busca' (busca = digita e escolhe na sugestão)
   vazio?: string                    // o que mostrar quando não há valor
   rotuloValor?: (v: string) => string
   onSalvar: (novo: string) => Promise<string | null>
@@ -37,7 +37,12 @@ export function CelulaEditavel({ testid, valor, tipo = 'texto', opcoes, vazio = 
 
   async function gravar() {
     if (emCurso.current) return
-    const novo = rascunho.trim()
+    let novo = rascunho.trim()
+    if (tipo === 'busca') {   // o campo mostra o rótulo; grava o valor da opção escolhida
+      const achou = (opcoes ?? []).find((o) => o.label.toLowerCase() === novo.toLowerCase()) ?? ((opcoes ?? []).filter((o) => o.label.toLowerCase().includes(novo.toLowerCase())).length === 1 ? (opcoes ?? []).find((o) => o.label.toLowerCase().includes(novo.toLowerCase())) : undefined)
+      if (novo && !achou) { setErro('Escolha um item da lista: digite parte do nome e clique na sugestão.'); return }
+      novo = achou?.value ?? ''
+    }
     if (novo === valor.trim()) { setEditando(false); setErro(null); return }
     if (obrigatorio && !novo) { setErro('Este campo é obrigatório — digite um valor ou Esc para voltar.'); return }
     emCurso.current = true; setBusy(true); setErro(null)
@@ -46,7 +51,7 @@ export function CelulaEditavel({ testid, valor, tipo = 'texto', opcoes, vazio = 
     if (e) { setErro(e); return }   // continua em edição, com o que foi digitado
     setEditando(false); setSalvo(true)
   }
-  function cancelar() { cancelou.current = true; setRascunho(valor); setErro(null); setEditando(false) }
+  function cancelar() { cancelou.current = true; setRascunho(tipo === 'busca' ? '' : valor); setErro(null); setEditando(false) }
 
   const estilo: React.CSSProperties = { padding: '5px 7px', fontSize: 13, border: `1px solid ${erro ? C.red : C.gold}`, borderRadius: 7, background: C.white, color: C.esp, outline: 'none', width: largura ?? '100%', minWidth: 0 }
   const aoTeclar = (e: React.KeyboardEvent) => {
@@ -59,7 +64,7 @@ export function CelulaEditavel({ testid, valor, tipo = 'texto', opcoes, vazio = 
     const texto = valor ? (rotuloValor ? rotuloValor(valor) : valor) : null
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%' }}>
-        <button type="button" data-testid={testid} onClick={() => { setRascunho(valor); setErro(null); setEditando(true) }} title="Clique para editar"
+        <button type="button" data-testid={testid} onClick={() => { setRascunho(tipo === 'busca' ? (opcoes ?? []).find((o) => o.value === valor)?.label ?? '' : valor); setErro(null); setEditando(true) }} title="Clique para editar"
           style={{ border: '1px dashed transparent', background: 'transparent', cursor: 'text', padding: '3px 5px', margin: '-3px -5px', borderRadius: 6, textAlign: 'left', color: texto ? C.esp : C.espL, fontStyle: texto ? 'normal' : 'italic', fontSize: 13, maxWidth: '100%' }}
           onMouseEnter={(e) => { e.currentTarget.style.borderColor = C.border }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'transparent' }}>
           {texto ?? vazio}
@@ -75,6 +80,12 @@ export function CelulaEditavel({ testid, valor, tipo = 'texto', opcoes, vazio = 
           {!obrigatorio && <option value="">—</option>}
           {(opcoes ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
+      ) : tipo === 'busca' ? (
+        <>
+          <input ref={ref} data-testid={`${testid}-campo`} type="text" list={`${testid}-opcoes`} placeholder="digite para buscar…" value={rascunho} disabled={busy}
+            onChange={(e) => setRascunho(e.target.value)} onBlur={aoSair} onKeyDown={aoTeclar} style={estilo} />
+          <datalist id={`${testid}-opcoes`}>{(opcoes ?? []).map((o) => <option key={o.value} value={o.label} />)}</datalist>
+        </>
       ) : tipo === 'longo' ? (
         <textarea ref={ref} data-testid={`${testid}-campo`} value={rascunho} disabled={busy} rows={3} onChange={(e) => setRascunho(e.target.value)} onBlur={aoSair} onKeyDown={aoTeclar} style={estilo} />
       ) : (
