@@ -54,6 +54,7 @@ BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Sem sessão' USING errcode='42501'; END IF;
   SELECT id, company_id, status, bloqueado INTO v_p FROM public.erp_pagar WHERE id = p_id AND deleted_at IS NULL;
   IF NOT FOUND THEN RETURN jsonb_build_object('sucesso', false, 'erro', 'Conta a pagar não encontrada'); END IF;
+  PERFORM public.fn__guarda_empresa(v_p.company_id);
   IF NOT public.fn_pagar_usuario_master(v_p.company_id) THEN
     RAISE EXCEPTION 'Somente Master (sócio/gerente com nível Master) pode bloquear ou desbloquear pagamento' USING errcode='42501';
   END IF;
