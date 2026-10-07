@@ -1,4 +1,4 @@
-// Viagem V2 (fechamento) · migration 20261005210005 · @pos-migration. Na "Agência (P&M) - DEMO" (robô só em demonstração).
+// Viagem V2 (fechamento) · migration 20261007140005 · @pos-migration. Na "Agência (P&M) - DEMO" (robô só em demonstração).
 // Como o robô (as mesmas RPCs da tela): viagem inexistente não fecha; viagem sem lançamento não fecha; com um lançamento
 // fecha UMA vez, grava o evento 'viagem_fechada' (o GE cria o título — a viagem nunca lança financeiro) e fechada não recebe
 // lançamento nem fecha de novo. Se a demo não tiver obra/categoria, o teste se declara pulado (não afrouxa nada).

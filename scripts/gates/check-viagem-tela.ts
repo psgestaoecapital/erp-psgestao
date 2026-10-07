@@ -15,7 +15,7 @@ ok(resumoTexto(10) === 'Colaborador devolve à empresa' && resumoTexto(-1) === '
 const tela = readFileSync('src/app/dashboard/projetos/viagens/page.tsx', 'utf8')
 ok(/fn_viagem_lancamento_salvar/.test(tela) && /fn_viagem_fechar/.test(tela) && /fn_viagem_resumo/.test(tela), 'tela grava só pelas funções fn_viagem_*')
 ok(!/\.(insert|update|delete)\(/.test(tela) && !/contas_pagar|erp_pagar|fn_pagar/.test(tela), 'tela nunca grava tabela nem lança financeiro (fronteira GE)')
-const mig = readFileSync('supabase/migrations/20261005210005_viagem_fechamento_evento.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261007140005_viagem_fechamento_evento.sql', 'utf8')
 ok(/ENABLE ROW LEVEL SECURITY/.test(mig) && /REVOKE ALL ON public\.erp_viagem_evento FROM PUBLIC, anon/.test(mig) && /fn__guarda_empresa/.test(mig), 'migration: RLS, REVOKE anon e guarda de empresa')
 ok(!/DELETE\s+FROM/i.test(mig) && !/UPDATE\s+public\.(?!erp_viagem\s+SET)/i.test(mig), 'migration aditiva: sem DELETE e sem UPDATE em outra tabela')
 if (falhas) process.exit(1)
