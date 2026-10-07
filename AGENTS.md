@@ -66,6 +66,12 @@ no livro de intervenções e nos comentários de PR).
 <!-- END:protocolo-sessao -->
 
 <!-- BEGIN:provas-producao -->
+# Aba "Codes" da Central de Desenvolvimento (CEO 07/10 14:30) — toda PR diz qual Code a fez
+**Toda PR leva no corpo a linha `Code: <nome da rotina>`** (ex.: `Code: gilberto-desenv`; o mesmo identificador da caixa).
+O workflow `registrar-entrega.yml` grava cada PR aberta, pronta, publicada (merge) ou fechada em `erp_dev_entrega`, e a aba
+**Codes** de `/dashboard/dev` (rota `/dashboard/dev/codes`) mostra por Code, em tempo real: trabalhando agora, entregue nas
+últimas 24 h, em teste e fila. Sem a linha, o Code sai da caixa (`erp_agente_mensagem.pr_numero`) ou fica "não identificado".
+Carga inicial: rodar o `registrar-entrega.yml` à mão (workflow_dispatch, últimos 7 dias). Gate: `scripts/gates/check-aba-codes.ts`.
 # Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
 
 Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
@@ -196,6 +202,9 @@ testes, vermelho = corrigir em 1 h ou reverter."
   real (build pulado "Canceled by Ignored Build Step" não conta). Os checks `aceitacao`, `triagem` e `@pos-migration
   (informativo)` são **só informativos**: não seguram nem derrubam a PR.
 - **Via revisada** (PR COM `revisao-eng-chefe`): igual a antes — aceitação verde + `MERGE AUTORIZADO` pelo patch-id.
+- **Aceitação pesada só na via revisada (CEO 07/10):** a triagem do `aceitacao-pr.yml` dispensa a suíte (notice "via rápida:
+  julgada na aceitação da main") em PR sem a etiqueta e em commit sem PR aberta — esses runs não entram na fila
+  `aceitacao-testes`. Etiqueta posta depois → `aceitacao-etiqueta.yml` re-roda a aceitação do head (sem checkout da PR).
 - **Migration**: regra intacta (PR com migration espera o `@pos-migration` da anterior; vermelho em produção = reverter).
 - **Aceitação da main** (`.github/workflows/aceitacao-main.yml`): ao fim de cada "Montar banco de testes" na main, de hora
   em hora (rede de segurança: a agenda do GitHub descarta runs sob carga) e manual, a suíte roda contra a ponta
