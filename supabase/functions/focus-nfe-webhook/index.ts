@@ -47,6 +47,7 @@ interface FocusPayload {
   url_xml?: string
   caminho_xml_nota_fiscal?: string
   url_pdf?: string
+  url_danfse?: string
   caminho_danfse?: string
   caminho_danfe?: string
   chave_nfe?: string
@@ -64,6 +65,21 @@ function detectarTipo(p: FocusPayload): Tipo {
   if (p.codigo_verificacao) return "nfse"
   if (p.chave) return "nfe"
   return "unknown"
+}
+
+// #1881 (causa raiz do "Arquivo ainda não armazenado") — a Focus manda os caminhos de XML/PDF da NFS-e
+// RELATIVOS (ex.: "/arquivos/.../NFS...-nfse.xml"). Se gravarmos crus, o fiscal-storage-worker faz
+// fetch(url) direto, a URL relativa é inválida ("Invalid URL") e queima as 5 tentativas → nunca arquiva.
+// Normalizamos para absoluta ANTES de gravar, respeitando o ambiente da nota (mesma lógica do fullUrl()
+// do gov-nfse-consultar). Base por ambiente: producao → api.focusnfe.com.br; senão homologacao.
+function focusBase(ambiente: string | null): string {
+  return ambiente === "producao"
+    ? "https://api.focusnfe.com.br"
+    : "https://homologacao.focusnfe.com.br"
+}
+function urlAbsoluta(u: string | null | undefined, base: string): string | null {
+  if (!u) return null
+  return u.startsWith("/") ? `${base}${u}` : u
 }
 
 function constantTimeEqual(a: string, b: string): boolean {
@@ -107,23 +123,28 @@ Deno.serve(async (req: Request) => {
   const statusRecebido = String(payload.status ?? "")
   const tipo = detectarTipo(payload)
 
-  // Resolve company_id via provider_reference pra achar webhook_secret correto
+  // Resolve company_id via provider_reference pra achar webhook_secret correto.
+  // #1881: também lê o AMBIENTE da nota (producao/homologacao) — define a base para absolutizar as URLs.
   let companyId: string | null = null
+  let notaAmbiente: string | null = null
   if (tipo === "nfse") {
     const { data } = await sb
       .from("erp_nfse_emitidas")
-      .select("company_id")
+      .select("company_id, ambiente")
       .eq("provider_reference", providerReference)
       .maybeSingle()
     companyId = data?.company_id ?? null
+    notaAmbiente = (data as { ambiente?: string | null } | null)?.ambiente ?? null
   } else if (tipo === "nfe") {
     const { data } = await sb
       .from("erp_nfe_emitidas")
-      .select("company_id")
+      .select("company_id, ambiente")
       .eq("provider_reference", providerReference)
       .maybeSingle()
     companyId = data?.company_id ?? null
+    notaAmbiente = (data as { ambiente?: string | null } | null)?.ambiente ?? null
   }
+  const focusUrlBase = focusBase(notaAmbiente)
 
   // Fallback por CNPJ do prestador (resolvida pela provider_reference OU cnpj) — cobre a corrida em que o
   // aviso chega antes da nota estar indexada pela provider_reference. companies.cnpj é 14 dígitos.
@@ -186,8 +207,9 @@ Deno.serve(async (req: Request) => {
         p_motivo_rejeicao: payload.motivo ?? payload.mensagem_sefaz ?? null,
         p_numero: payload.numero ?? null,
         p_codigo_verificacao: payload.codigo_verificacao ?? null,
-        p_xml_url: payload.url_xml ?? payload.caminho_xml_nota_fiscal ?? null,
-        p_pdf_url: payload.url_pdf ?? payload.caminho_danfse ?? null,
+        // #1881: absolutiza (caminho relativo da Focus → URL completa) e inclui url_danfse (S3 público do DANFSE)
+        p_xml_url: urlAbsoluta(payload.url_xml ?? payload.caminho_xml_nota_fiscal ?? null, focusUrlBase),
+        p_pdf_url: urlAbsoluta(payload.url_pdf ?? payload.url_danfse ?? payload.caminho_danfse ?? null, focusUrlBase),
         p_provider_raw: payload,
       })
       resultado = (data as Record<string, unknown>) ?? { ok: true }
@@ -199,8 +221,9 @@ Deno.serve(async (req: Request) => {
         p_chave: payload.chave_nfe ?? payload.chave ?? null,
         p_numero: payload.numero ?? null,
         p_protocolo: payload.protocolo ?? null,
-        p_xml_url: payload.caminho_xml_nota_fiscal ?? payload.url_xml ?? null,
-        p_danfe_url: payload.caminho_danfe ?? payload.url_pdf ?? null,
+        // #1881: mesma absolutização (NF-e também pode vir com caminho relativo)
+        p_xml_url: urlAbsoluta(payload.caminho_xml_nota_fiscal ?? payload.url_xml ?? null, focusUrlBase),
+        p_danfe_url: urlAbsoluta(payload.caminho_danfe ?? payload.url_pdf ?? null, focusUrlBase),
         p_provider_raw: payload,
       })
       resultado = (data as Record<string, unknown>) ?? { ok: true }
