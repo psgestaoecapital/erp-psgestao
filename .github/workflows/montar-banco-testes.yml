@@ -123,10 +123,15 @@ jobs:
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -v bot_email="$PLAYWRIGHT_USER_EMAIL" -f scripts/banco-testes/semente.sql
           # a demo da produção é povoada por fn_demo_reset (se existir na cópia)
           # diagnóstico: mostra o erro REAL (mensagem, detalhe, contexto) como anotação, em vez de só "falhou"
-          if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('b0700000-0000-4000-a000-000000000003')" 2> demo-reset-erro.log; then
-            cat demo-reset-erro.log
-            echo "::warning title=fn_demo_reset falhou::$(tr '\n' ' ' < demo-reset-erro.log | cut -c1-900)"
-          fi
+          : > demo-reset-erro.log
+          for emp in b0700000-0000-4000-a000-000000000001 b0700000-0000-4000-a000-000000000002 b0700000-0000-4000-a000-000000000003 b0700000-0000-4000-a000-000000000004 b0700000-0000-4000-a000-000000000005 ded00000-0000-4000-a000-000000000001; do
+            if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('$emp')" 2> "demo-reset-$emp.log"; then
+              cat "demo-reset-$emp.log" | tee -a demo-reset-erro.log
+              echo "::warning title=fn_demo_reset falhou ($emp)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+            fi
+          done
+          # trava-demo liberada ao final da montagem (lease de run que falhou/cancelou não pode travar a próxima)
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "delete from public.e2e_trava" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
