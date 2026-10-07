@@ -196,6 +196,9 @@ testes, vermelho = corrigir em 1 h ou reverter."
   real (build pulado "Canceled by Ignored Build Step" não conta). Os checks `aceitacao`, `triagem` e `@pos-migration
   (informativo)` são **só informativos**: não seguram nem derrubam a PR.
 - **Via revisada** (PR COM `revisao-eng-chefe`): igual a antes — aceitação verde + `MERGE AUTORIZADO` pelo patch-id.
+- **Aceitação pesada só na via revisada (CEO 07/10):** a triagem do `aceitacao-pr.yml` dispensa a suíte (notice "via rápida:
+  julgada na aceitação da main") em PR sem a etiqueta e em commit sem PR aberta — esses runs não entram na fila
+  `aceitacao-testes`. Etiqueta posta depois → `aceitacao-etiqueta.yml` re-roda a aceitação do head (sem checkout da PR).
 - **Migration**: regra intacta (PR com migration espera o `@pos-migration` da anterior; vermelho em produção = reverter).
 - **Aceitação da main** (`.github/workflows/aceitacao-main.yml`): ao fim de cada "Montar banco de testes" na main, de hora
   em hora (rede de segurança: a agenda do GitHub descarta runs sob carga) e manual, a suíte roda contra a ponta
