@@ -1000,7 +1000,16 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
 
           <div style={{ gridColumn: '1 / -1', borderTop: '0.5px solid rgba(61,35,20,0.12)', paddingTop: 12, marginTop: 4 }}>
             {editando && ed.linha ? (
-              <SituacaoEdicao tipo="receber" linha={ed.linha} baixado={ed.baixado} />
+              <>
+                <SituacaoEdicao tipo="receber" linha={ed.linha} baixado={ed.baixado} />
+                {podeParcelarEdicao(ed.linha) && (
+                  <div data-testid="edicao-parcelar" style={{ marginTop: 8, fontSize: 12, color: 'rgba(61,35,20,0.7)' }}>
+                    Precisa dividir em parcelas ou mudar a forma (ex.: era PIX à vista e virou 2 boletos)?{' '}
+                    <a href={urlParcelarEdicao(ed.linha)} style={{ color: '#C8941A', fontWeight: 700 }}>Parcelar / mudar a forma de recebimento →</a>
+                    <div style={{ marginTop: 2 }}>Abre o Acerto já com este título marcado: ele vira as novas parcelas e fica registrado como renegociado (dá para desfazer).</div>
+                  </div>
+                )}
+              </>
             ) : origemConciliacao ? (
               <div style={{ background: '#DCFCE7', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: '0.5px solid rgba(22,163,74,0.35)' }}>
                 🔗 Esta receita CRIOU a partir de um movimento do extrato bancário.
@@ -1162,6 +1171,17 @@ const clienteBtnStyle: React.CSSProperties = {
   fontWeight: 500,
   whiteSpace: 'nowrap',
   cursor: 'pointer',
+}
+
+// #71 (02/10) · "lancei à vista no PIX e o cliente pediu 2x no boleto": o título aberto (sem acerto) vai para o
+// Acerto/Renegociação já marcado — mesmos critérios de fn_renegociacao_titulos_abertos (aberto/vencido, sem acerto).
+export function podeParcelarEdicao(linha: Record<string, unknown>): boolean {
+  return !linha.deleted_at && (linha.status === 'aberto' || linha.status === 'vencido') && linha.renegociacao_id == null
+}
+export function urlParcelarEdicao(linha: Record<string, unknown>): string {
+  const q = new URLSearchParams({ titulo: String(linha.id) })
+  if (linha.cliente_id) q.set('cliente', String(linha.cliente_id))
+  return `/dashboard/financeiro/renegociacao?${q.toString()}`
 }
 
 // #71 · campo travado na edição de título já baixado (valor/vencimento/conta)
