@@ -178,6 +178,15 @@ jobs:
             echo "### @pos-migration no preview: vermelho (informativo, não bloqueia) — veredito em produção após o merge" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+      # CEO 07/10: libera a trava da demo SEMPRE (cancelamento/timeout não rodam o global-teardown; a lease ficava até
+      # 25 min e a aceitação seguinte esperava sem rodar teste).
+      - name: Soltar a trava da demo (sempre)
+        if: always()
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/e2e-trava-soltar.ts
       # Sempre sobe o diagnóstico do global-setup (screenshots com/sem ps_allow_preview); relatório completo só na falha.
       - name: Upload diagnóstico do host (sempre)
         if: always()
