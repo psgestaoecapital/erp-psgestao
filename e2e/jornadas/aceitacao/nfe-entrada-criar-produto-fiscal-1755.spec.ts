@@ -90,4 +90,42 @@ test.describe('NF de entrada — produto criado do item leva os dados fiscais da
       expect(vinc.produto_id, 'item já vinculado ao produto novo').toBe(r.produto_id)
     }
   })
+
+  test('caso antigo: origem 0/vazia sem CEST nem CFOP de entrada fica como era; origens 3 e 5 não mudam', { tag: '@pos-migration' }, async () => {
+    const casos = [
+      // nacional, nota sem CEST, sem CFOP (o gatilho deixa o CFOP de entrada nulo) e sem unidade: origem 0, CEST/CFOP/unidade de compra nulos, unidade 'UN'
+      { item: { numero_item: 3, codigo_produto: `T1755C${RUN}`, descricao: `Parafuso teste ${RUN}`, ncm: '73181500', origem: '0' },
+        espera: { cest: null, origem: '0', cfop_compra: null, unidade: 'UN', unidade_compra: null } },
+      // origem vazia na nota: cai no padrão '0' (como antes)
+      { item: { numero_item: 4, codigo_produto: `T1755D${RUN}`, descricao: `Arruela teste ${RUN}`, ncm: '73182200', origem: '', unidade: 'UN' },
+        espera: { cest: null, origem: '0', cfop_compra: null, unidade: 'UN', unidade_compra: 'UN' } },
+      // nacional com conteúdo de importação > 40%: origem 3 passa igual
+      { item: { numero_item: 5, codigo_produto: `T1755E${RUN}`, descricao: `Bomba teste ${RUN}`, ncm: '84133090', origem: '3', cfop: '5102', unidade: 'PC' },
+        espera: { cest: null, origem: '3', cfop_compra: '1102', unidade: 'PC', unidade_compra: 'PC' } },
+      // nacional com conteúdo de importação <= 40%: origem 5 passa igual
+      { item: { numero_item: 6, codigo_produto: `T1755F${RUN}`, descricao: `Correia teste ${RUN}`, ncm: '40103900', origem: '5', cfop: '5102', unidade: 'PC' },
+        espera: { cest: null, origem: '5', cfop_compra: '1102', unidade: 'PC', unidade_compra: 'PC' } },
+    ]
+    for (const { item, espera } of casos) {
+      const it = await dbInsert<{ id: string }>('erp_nfe_recebidas_itens', {
+        ...item, nfe_recebida_id: nfeId, company_id: DEMO_COMERCIO, quantidade: 1, valor_unitario: 10, valor_total: 10,
+      })
+      const r = await rpcRobo<{ ok: boolean; erro?: string; produto_id?: string }>('fn_nfe_item_criar_produto', { p_item_id: it.id, p_dados: null })
+      expect(r.ok, `criar produto do item ${item.numero_item}: ${JSON.stringify(r)}`).toBe(true)
+      produtos.push(r.produto_id!)
+
+      const p = await produto(r.produto_id!)
+      expect(p.codigo).toBe(item.codigo_produto)
+      expect(p.ncm).toBe(item.ncm)
+      expect(p.cest, 'sem CEST na nota → cadastro sem CEST').toBeNull()
+      expect(p.origem, 'origem da mercadoria').toBe(espera.origem)
+      // o gatilho do item converte o CFOP da nota (5102) no de entrada (1102); sem CFOP fica nulo
+      const [gravado] = await dbSelect<{ cfop_entrada: string | null }>('erp_nfe_recebidas_itens', `id=eq.${it.id}&select=cfop_entrada`)
+      expect(gravado.cfop_entrada).toBe(espera.cfop_compra)
+      expect(p.cfop_compra, 'CFOP de compra').toBe(espera.cfop_compra)
+      expect(p.unidade).toBe(espera.unidade)
+      expect(p.unidade_compra).toBe(espera.unidade_compra)
+      expect(Number(p.preco_custo)).toBe(10)
+    }
+  })
 })
