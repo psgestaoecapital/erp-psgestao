@@ -21,8 +21,8 @@ const btnPri = "inline-flex items-center gap-1.5 rounded-lg bg-[#3D2314] px-3 py
 const cartao = "rounded-xl border border-[#3D2314]/10 bg-gradient-to-b from-white to-[#FAF7F2] p-3";
 const dataHora = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
-export function JobFluxo({ jobId, motivos, situacoes, onMudou }: {
-  jobId: string; motivos: Opcao[]; situacoes: Opcao[]; onMudou: (codigo: string) => void;
+export function JobFluxo({ jobId, motivos, situacoes, onMudou, onSituacao }: {
+  jobId: string; motivos: Opcao[]; situacoes: Opcao[]; onMudou: (codigo: string) => void; onSituacao?: (jobId: string, status: string) => void;
 }) {
   const [estado, setEstado] = useState<Estado | null>(null);
   const [rodadas, setRodadas] = useState<Rodada[]>([]);
@@ -62,6 +62,11 @@ export function JobFluxo({ jobId, motivos, situacoes, onMudou }: {
     setMsg({ ok: true, texto: sucesso(r) });
     await carregar();
     onMudou(r.codigo ?? "");
+    if (onSituacao) { // PM-T (2): avisa a nova situação para sugerir o cronômetro
+      const { data: j } = await supabase.from("agency_jobs").select("status").eq("id", jobId).maybeSingle();
+      const novo = (j as { status: string } | null)?.status;
+      if (novo) onSituacao(jobId, novo);
+    }
   }
 
   const motivoSel = motivoEspera || motivos[0]?.valor || "";
