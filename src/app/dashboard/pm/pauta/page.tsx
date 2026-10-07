@@ -17,8 +17,9 @@ import { JobComentarios } from "@/components/pm/JobComentarios";
 import { Cronometro } from "@/components/pm/Cronometro";
 import { BotaoPlay } from "@/components/pm/BotaoPlay";
 import { SugestaoCronometroAviso } from "@/components/pm/SugestaoCronometro";
-import { sugestaoCronometro, type SugestaoCronometro } from "@/lib/pm/cronometroAuto";
-import { lerCronometroAberto } from "@/lib/pm/cronometroGlobal";
+import { exigeApontamentoAoConcluir, sugestaoCronometro, type SugestaoCronometro } from "@/lib/pm/cronometroAuto";
+import { AvisoSemHoras } from "@/components/pm/AvisoSemHoras";
+import { lerCronometroAberto, totalHorasDoJob } from "@/lib/pm/cronometroGlobal";
 import { exportarExcel, type Coluna } from "@/lib/export/relatorioLista";
 import {
   agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, prazoAprovacao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
@@ -68,6 +69,7 @@ export default function PautaPage() {
   const { selInfo, companyIds } = useCompanyIds();
   const empresa = selInfo.tipo === "empresa" && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [semHorasJob, setSemHorasJob] = useState<string | null>(null);
   const [sugCron, setSugCron] = useState<{ jobId: string; sugestao: Exclude<SugestaoCronometro, null>; situacao: string } | null>(null);
   const [situacoes, setSituacoes] = useState<Opcao[]>([]);
   const [motivos, setMotivos] = useState<Opcao[]>([]);
@@ -560,12 +562,15 @@ export default function PautaPage() {
             </dl>
             {userId && empresa && <div className="mt-3"><Cronometro key={`c-${aberto.id}`} empresa={empresa} userId={userId} jobFixo={{ id: aberto.id, codigo: aberto.codigo, titulo: aberto.titulo }} /></div>}
             {sugCron && sugCron.jobId === aberto.id && userId && empresa && <SugestaoCronometroAviso empresa={empresa} userId={userId} jobId={sugCron.jobId} sugestao={sugCron.sugestao} situacao={sugCron.situacao} onFechar={() => setSugCron(null)} />}
+            {semHorasJob === aberto.id && <AvisoSemHoras jobId={aberto.id} onFechar={() => setSemHorasJob(null)} />}
             <JobFluxo key={aberto.id} jobId={aberto.id} motivos={motivos} situacoes={situacoes}
               onSituacao={async (id, status) => {
                 if (!userId) return;
                 const a = await lerCronometroAberto(userId);
                 const sug = sugestaoCronometro(status, id, a?.job_id ?? null);
                 setSugCron(sug ? { jobId: id, sugestao: sug, situacao: situacoes.find((x) => x.valor === status)?.rotulo ?? status } : null);
+                setSemHorasJob(null);
+                if (sug !== 'parar' && status === 'concluida' && exigeApontamentoAoConcluir(status, await totalHorasDoJob(id))) setSemHorasJob(id);
               }}
               onMudou={(codigo) => { if (codigo) setAberto((a) => (a ? { ...a, codigo } : a)); void carregar(1); }} />
             {empresa && <JobComentarios key={`k-${aberto.id}`} empresa={empresa} jobId={aberto.id} userId={userId} equipe={equipe} />}
