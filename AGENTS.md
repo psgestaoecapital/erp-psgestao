@@ -66,6 +66,12 @@ no livro de intervenções e nos comentários de PR).
 <!-- END:protocolo-sessao -->
 
 <!-- BEGIN:provas-producao -->
+# Aba "Codes" da Central de Desenvolvimento (CEO 07/10 14:30) — toda PR diz qual Code a fez
+**Toda PR leva no corpo a linha `Code: <nome da rotina>`** (ex.: `Code: gilberto-desenv`; o mesmo identificador da caixa).
+O workflow `registrar-entrega.yml` grava cada PR aberta, pronta, publicada (merge) ou fechada em `erp_dev_entrega`, e a aba
+**Codes** de `/dashboard/dev` (rota `/dashboard/dev/codes`) mostra por Code, em tempo real: trabalhando agora, entregue nas
+últimas 24 h, em teste e fila. Sem a linha, o Code sai da caixa (`erp_agente_mensagem.pr_numero`) ou fica "não identificado".
+Carga inicial: rodar o `registrar-entrega.yml` à mão (workflow_dispatch, últimos 7 dias). Gate: `scripts/gates/check-aba-codes.ts`.
 # Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
 
 Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
