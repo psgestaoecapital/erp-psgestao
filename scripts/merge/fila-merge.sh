@@ -3,8 +3,12 @@
 # pago de organização (RD-42); esta fila é um workflow gratuito, acordado por EVENTOS (sem polling).
 #
 # Entra na fila: PR aberta, Ready, base main, do próprio repositório, com a label `fila-merge` (posta pelo Code que
-# conferiu RD-94/94.1). Ordem: quem recebeu a label primeiro. UMA por vez: a 1ª da fila é atualizada com a main,
-# esperada e mergeada (squash, travado no SHA conferido); só então a próxima. Por execução, no máximo 1 merge.
+# conferiu RD-94/94.1). Ordem: quem recebeu a label primeiro. Por execução, no máximo 1 merge (squash, travado no SHA
+# conferido); o push na main dispara a próxima rodada.
+# SEM BLOQUEIO PELA CABEÇA (CEO 07/10): a PR que está atrás da main é atualizada (update-branch) e a PR cujos checks
+# ainda rodam fica esperando — e a rodada SEGUE para a próxima PR da fila (antes saía e uma PR lenta segurava todas).
+# Várias PRs podem ser atualizadas na mesma rodada. Ordem das migrations preservada: PR COM migration que fica para
+# trás (esperando a main, atualizando ou com checks rodando) segura as outras COM migration atrás dela; as SEM seguem.
 #
 #   (a) run CANCELADO do @pos-migration não é vermelho: re-roda; se a última migration da main já teve run verde, libera.
 #   (b) PR SEM migration não espera o @pos-migration: exige checks verdes + gates + Vercel + aceitação (preview).
@@ -170,17 +174,20 @@ for n in $fila; do
   atras=$(api "repos/$REPO/compare/main...$sha" --jq '.behind_by')
   if [ "$atras" -gt 0 ]; then
     if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
-      log "#$n estava $atras commit(s) atrás da main: atualizada; aguardando os checks do novo commit"
+      log "#$n estava $atras commit(s) atrás da main: atualizada; aguardando os checks do novo commit — segue para a próxima"
     else
       tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)"; continue
     fi
-    exit 0
+    [ "$com_migration" = 1 ] && so_sem_migration=1
+    continue
   fi
 
   c=$(estado_checks "$sha" "$via" "$so_docs")
   case "$c" in
     vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})"; continue;;
-    esperar:*) log "#$n aguardando: ${c#esperar:}"; exit 0;;
+    esperar:*) log "#$n aguardando: ${c#esperar:} — segue para a próxima"
+               [ "$com_migration" = 1 ] && so_sem_migration=1
+               continue;;
   esac
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
