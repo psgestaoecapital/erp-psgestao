@@ -170,6 +170,9 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   vez**: atualiza com a `main` (merge, sem reescrever histórico), espera os checks, confere a autorização (PR com
   `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido). Conflito, check vermelho ou autorização inválida →
   comenta o motivo e tira a label. PR com migration esperando a `main` não segura as PRs sem migration atrás dela.
+  **Sem bloqueio pela cabeça (CEO 07/10):** PR atrás da `main` é atualizada e PR com checks rodando fica esperando, mas a
+  rodada segue para as próximas (no máximo 1 merge por rodada; PR com migration para trás segura só as outras com
+  migration). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
   Precisa do segredo `FILA_MERGE_TOKEN` (PAT): merge com o `GITHUB_TOKEN` não dispara o `deploy-migrations`.
   Com a fila, o Code não roda `gh pr merge` à mão para PR que está nela.
 - **(e) Timeout de 40 min** nos jobs de aceitação (`aceitacao-pr`, `aceitacao-pos-migration`; a espera na fila
