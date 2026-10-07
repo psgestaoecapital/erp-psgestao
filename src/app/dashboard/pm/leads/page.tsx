@@ -60,9 +60,10 @@ function dataLead(l: { etapa_desde: string | null; criado_em: string }): string 
 type FormLead = {
   empresa: string; nome: string; contato_email: string; contato_telefone: string
   canal_contato: string; origem: string; valor_estimado: string; erp_cliente_id: string | null
+  observacoes: string
 }
 // erp_cliente_id: vínculo ao cadastro GE (erp_clientes) — NÃO agency_clientes. Corrige a FK do #1007.
-const FORM0: FormLead = { empresa: '', nome: '', contato_email: '', contato_telefone: '', canal_contato: '', origem: 'trafego_pago', valor_estimado: '', erp_cliente_id: null }
+const FORM0: FormLead = { empresa: '', nome: '', contato_email: '', contato_telefone: '', canal_contato: '', origem: 'trafego_pago', valor_estimado: '', erp_cliente_id: null, observacoes: '' }
 
 // PM-2 · proposta ligada ao lead. propMap (chip) usa só critérios FORTES (lead_id/erp_cliente_id);
 // o clique chama o resolvedor de cascata no servidor (fn_pm_proposta_do_lead), que é a autoridade.
@@ -295,6 +296,7 @@ export default function LeadsPage() {
         canal_contato: form.canal_contato.trim() || null, origem: form.origem,
         valor_estimado: form.valor_estimado || null,
         erp_cliente_id: form.erp_cliente_id, cliente_id: null, responsavel_id: uid,
+        observacoes: form.observacoes.trim() || null,
       },
     })
     setBusy(false)
@@ -633,6 +635,8 @@ export default function LeadsPage() {
               </button>
             </label>
             <label style={lbl}>Valor Total Estimado do Contrato (R$)<input style={inp} type="number" inputMode="decimal" value={form.valor_estimado} onChange={(e) => setForm({ ...form, valor_estimado: e.target.value })} /></label>
+            {/* #912 Pdois: observação já na criação (antes só dava para pôr editando o lead depois) */}
+            <label style={lbl}>Observações<textarea style={{ ...inp, minHeight: 64, resize: 'vertical', fontFamily: 'inherit' }} rows={3} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} data-testid="lead-observacoes" /></label>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
               <button onClick={() => setNovo(false)} style={btnGhost}>Cancelar</button>
