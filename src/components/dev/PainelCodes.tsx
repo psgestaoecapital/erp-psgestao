@@ -6,6 +6,7 @@
 // Realtime e a aba recarrega sozinha, sem recarregar a página. Regras puras em src/lib/dev/painelCodes.ts.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import MeuCode from '@/components/dev/MeuCode'
 import {
   CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, emAndamento, emTeste, entregues, estadoSessao, faixa,
   fila, hora, intervaloDia, quando, ultimaResposta,
@@ -123,6 +124,9 @@ export default function PainelCodes() {
           ● {f.frase}
         </div>
       )}
+
+      {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
+      <MeuCode />
 
       {dados && (
         <>
