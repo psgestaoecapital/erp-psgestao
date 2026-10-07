@@ -80,10 +80,14 @@ jobs:
     # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
     # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
     # Chave do banco de testes (CEO 06/10): com a variável de repositório ACEITACAO_BANCO=testes a aceitação roda
-    # contra o banco de TESTES (segredos TEST_*), em até 3 vagas simultâneas, timeout 40 min. Sem a variável, tudo
-    # como antes (produção, fila única demo-e2e). O CEO só liga depois de trocar o ambiente Preview da Vercel.
+    # contra o banco de TESTES (segredos TEST_*), timeout 40 min. Sem a variável, tudo como antes (produção, fila
+    # única demo-e2e). O CEO só liga depois de trocar o ambiente Preview da Vercel.
+    # CEO 07/10: UMA fila (FIFO, fora do runner) também no banco de testes. Com 3 grupos (vagas) e 1 trava no banco,
+    # 3 jobs rodavam e 2 esperavam a trava dentro do runner, gastando os 40 min / estourando os 15 min de espera
+    # ('[trava-demo] demo ocupada há mais de 15 min'). Os specs usam demos 001..005 fixas e fn_demo_reset é por demo:
+    # paralelismo real só com um banco de testes por vaga (decisão do CEO); até lá a vez é esperada na fila.
     concurrency:
-      group: ${{ vars.ACEITACAO_BANCO == 'testes' && format('aceitacao-testes-{0}', needs.triagem.outputs.vaga) || 'demo-e2e' }}
+      group: ${{ vars.ACEITACAO_BANCO == 'testes' && 'aceitacao-testes' || 'demo-e2e' }}
       cancel-in-progress: false
       queue: max
     # 40 min (CEO 06/10, regra e): a espera na fila demo-e2e é FORA do runner e não conta; preso além disso o
