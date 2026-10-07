@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
+import { ProdutoEstrutura, useProntidaoFluxo, type ItemProntidao } from '@/components/produtividade/ProdutoEstrutura'
 
 const ROTA = '/dashboard/produtividade'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -68,6 +69,8 @@ function Inner() {
   const [novoFluxo, setNovoFluxo] = useState(false)
   const [setoresOpt, setSetoresOpt] = useState<Opt[]>([])
   const [foco, setFoco] = useState<Foco>(null)
+  const [versao, setVersao] = useState(0)
+  const ctxPlanta = useMemo(() => (companyId && plantId ? { companyId, plantId } : null), [companyId, plantId])
 
   const flash = useCallback((m: string) => { setMsg(m); setErro(null); window.setTimeout(() => setMsg(null), 3500) }, [])
   const flashErr = useCallback((m: string) => { setErro(m); try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* */ } window.setTimeout(() => setErro(null), 6000) }, [])
@@ -121,7 +124,9 @@ function Inner() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregarFluxo() }, [carregarFluxo])
 
-  const recarregar = useCallback(async () => { await Promise.all([carregarFluxo(), carregarPlanta()]) }, [carregarFluxo, carregarPlanta])
+  const recarregar = useCallback(async () => { await Promise.all([carregarFluxo(), carregarPlanta()]); setVersao((v) => v + 1) }, [carregarFluxo, carregarPlanta])
+  // prontidao POR FLUXO (RD-58): origem, saidas, postos com turno, ponto e producao ligados
+  const prontFluxo = useProntidaoFluxo(ctxPlanta, fluxoId, fc ? fc.postos.filter((p) => p.quadro && (p.quadro.turno_id || p.quadro.hora_entrada)).length : 0, fc?.contexto.ponto ?? 0, fc?.contexto.producao.length ?? 0, versao)
 
   if (!companyId) return <Aviso texto="Selecione uma empresa específica no topo — o cadastro é por planta." />
   if (plants.length === 0) return <Aviso texto="Esta empresa não tem planta industrial cadastrada. Cadastre a planta antes." />
@@ -136,8 +141,14 @@ function Inner() {
       {msg && <div style={{ background: C.greenBg, color: C.green, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
 
-      {/* Faixa: o que falta para medir */}
-      {pront && <FaixaProntidao pront={pront} temPostos={(fc?.postos.length ?? 0) > 0} onIr={(tipo) => setFoco({ tipo, n: Date.now() })} />}
+      {/* Produto acabado no topo + arvore ate a origem (Onda 2) */}
+      <ProdutoEstrutura ctx={{ companyId, plantId: plantId!, flash, flashErr }} fluxos={fluxos} fluxoId={fluxoId} origemId={prontFluxo.origem} onMudou={() => setVersao((v) => v + 1)} />
+
+      {/* Faixa: o que falta para medir (planta + fluxo selecionado) */}
+      {pront && <FaixaProntidao pront={pront} fluxo={fluxoId ? prontFluxo : null} temPostos={(fc?.postos.length ?? 0) > 0} onIr={(tipo) => {
+        if (tipo === 'origem' || tipo === 'saidas') { document.querySelector('[data-testid="produto-estrutura"]')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return }
+        setFoco({ tipo, n: Date.now() })
+      }} />}
 
       {/* Seletor de planta + fluxo */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '14px 0 10px' }}>
@@ -187,8 +198,8 @@ function Inner() {
   )
 }
 
-function FaixaProntidao({ pront, temPostos, onIr }: { pront: Prontidao; temPostos: boolean; onIr: (tipo: 'turno' | 'novo') => void }) {
-  const ok = pront.pronto_para_medir
+function FaixaProntidao({ pront, fluxo, temPostos, onIr }: { pront: Prontidao; fluxo: { falta: ItemProntidao[]; pronto: boolean } | null; temPostos: boolean; onIr: (tipo: 'turno' | 'novo' | 'origem' | 'saidas') => void }) {
+  const ok = pront.pronto_para_medir && (fluxo ? fluxo.pronto : true)
   const t = pront.tem
   const temFrase = [
     t.vinculos_ponto > 0 ? `${t.vinculos_ponto} vínculo(s) de ponto` : null,
@@ -208,8 +219,13 @@ function FaixaProntidao({ pront, temPostos, onIr }: { pront: Prontidao; temPosto
     <div data-testid="faixa-prontidao" style={{ background: ok ? C.greenBg : C.amberBg, border: `1px solid ${ok ? C.green : C.amber}55`, borderRadius: 12, padding: '11px 14px', fontSize: 13, color: ok ? C.green : '#8A4B08' }}>
       {ok ? <b>Pronto para medir.</b> : (
         <>
-          <b>Ainda não dá para medir.</b>{pront.falta.length > 0 && ' Falta:'}
+          <b>Ainda não dá para medir.</b>{(pront.falta.length > 0 || (fluxo?.falta.length ?? 0) > 0) && ' Falta:'}
           <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+            {(fluxo?.falta ?? []).filter((i) => !(i.ir === 'turno' && pront.falta.includes('nenhum posto tem quadro de turno'))).map((i) => (
+              <li key={i.texto} data-testid="falta-fluxo">neste fluxo: {i.texto} {i.ir
+                ? <button type="button" data-testid={`falta-${i.ir}`} onClick={() => onIr(i.ir!)} style={{ background: 'none', border: 'none', padding: 0, color: C.blue, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}>→ {i.ir === 'origem' ? 'escolher o produto de origem' : i.ir === 'saidas' ? 'incluir as saídas na árvore' : 'definir o turno e horário'}</button>
+                : <span style={{ color: C.espM }}>→ peça pelo chamado a ligação do setor à fonte</span>}</li>
+            ))}
             {pront.falta.map((f) => {
               const d = destino(f)
               return (
