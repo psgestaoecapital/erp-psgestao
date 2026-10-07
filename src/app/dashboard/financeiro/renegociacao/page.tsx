@@ -100,12 +100,26 @@ function Criar({ companyId }: { companyId: string }) {
     })()
   }, [companyId])
 
-  async function buscar() {
+  async function buscar(cli: string = clienteId, preSel?: string) {
     setErro(null); setBuscou(false); setSel(new Set())
-    const { data, error } = await supabase.rpc('fn_renegociacao_titulos_abertos', { p_company: companyId, p_cliente: clienteId || null, p_conta: contaId || null })
+    const { data, error } = await supabase.rpc('fn_renegociacao_titulos_abertos', { p_company: companyId, p_cliente: cli || null, p_conta: contaId || null })
     if (error) { setErro(error.message); return }
-    setTitulos((data ?? []) as Titulo[]); setBuscou(true)
+    const lista = (data ?? []) as Titulo[]
+    setTitulos(lista); setBuscou(true)
+    if (preSel && lista.some((t) => t.id === preSel)) setSel(new Set([preSel]))
   }
+
+  // #71 (Jordana) · vindo do ✏️ Editar da receita ("Parcelar / mudar a forma"): ?titulo=<id>&cliente=<id>
+  // já busca os títulos do cliente com o título marcado — o acerto troca o título por N parcelas rastreáveis.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const titulo = q.get('titulo')
+    if (!titulo) return
+    const cli = q.get('cliente') ?? ''
+    setClienteId(cli)
+    void buscar(cli, titulo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId])
 
   const totalOrigem = useMemo(() => titulos.filter((t) => sel.has(t.id)).reduce((s, t) => s + Number(t.valor), 0), [titulos, sel])
   const totalGerado = useMemo(() => boletos.reduce((s, b) => s + (parseFloat((b.valor || '0').replace(',', '.')) || 0), 0), [boletos])
@@ -178,7 +192,7 @@ function Criar({ companyId }: { companyId: string }) {
           <select value={contaId} onChange={(e) => setContaId(e.target.value)} style={inp}>
             <option value="">— todas —</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </select></div>
-        <button onClick={buscar} style={btnG}>Buscar títulos abertos</button>
+        <button onClick={() => buscar()} style={btnG}>Buscar títulos abertos</button>
       </div>
 
       {buscou && (
