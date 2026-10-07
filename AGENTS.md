@@ -179,8 +179,8 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido). Conflito, check vermelho ou autorização inválida →
   comenta o motivo e tira a label. PR com migration esperando a `main` não segura as PRs sem migration atrás dela.
   **Sem bloqueio pela cabeça (CEO 07/10):** PR atrás da `main` é atualizada e PR com checks rodando fica esperando, mas a
-  rodada segue para as próximas (no máximo 1 merge por rodada; PR com migration para trás segura só as outras com
-  migration). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
+  rodada segue para as próximas (no máximo 1 merge por rodada). Só a PR com migration que espera a **main** (deploy ou
+  `@pos-migration` da anterior) segura as outras com migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
   Precisa do segredo `FILA_MERGE_TOKEN` (PAT): merge com o `GITHUB_TOKEN` não dispara o `deploy-migrations`.
   Com a fila, o Code não roda `gh pr merge` à mão para PR que está nela.
 - **(e) Timeout de 40 min** nos jobs de aceitação (`aceitacao-pr`, `aceitacao-pos-migration`; a espera na fila
@@ -197,7 +197,8 @@ testes, vermelho = corrigir em 1 h ou reverter."
   (informativo)` são **só informativos**: não seguram nem derrubam a PR.
 - **Via revisada** (PR COM `revisao-eng-chefe`): igual a antes — aceitação verde + `MERGE AUTORIZADO` pelo patch-id.
 - **Migration**: regra intacta (PR com migration espera o `@pos-migration` da anterior; vermelho em produção = reverter).
-- **Aceitação da main** (`.github/workflows/aceitacao-main.yml`): de hora em hora (e manual), a suíte roda contra a ponta
+- **Aceitação da main** (`.github/workflows/aceitacao-main.yml`): ao fim de cada "Montar banco de testes" na main, de hora
+  em hora (rede de segurança: a agenda do GitHub descarta runs sob carga) e manual, a suíte roda contra a ponta
   da `main` buildada no próprio runner e apontada para o **banco de testes** (nunca produção), na fila `aceitacao-testes`.
   Vermelho → issue **`main-vermelha`** (uma só, atualizada) com as PRs publicadas desde o último verde: **corrigir em 1 h
   ou reverter**. Verde → a issue fecha sozinha.
