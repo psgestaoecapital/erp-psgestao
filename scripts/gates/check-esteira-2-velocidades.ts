@@ -21,13 +21,19 @@ ok(/if \[ "\$via" = revisada \]; then\s*\n\s*acc=/.test(sh), '(a) aceitação s�
 ok(/test\("cancel\|ignor"; "i"\)\)\) then "pending"/.test(sh), '(a) Vercel só conta build real ("Canceled by Ignored Build Step" não é verde)')
 ok(/via=rapida\s*\n\s*jq -e --arg l "\$SENSIVEL" .* && via=revisada/.test(sh), '(a) a via sai da label revisao-eng-chefe')
 ok(/if \[ "\$via" = revisada \]; then\s*\n\s*a=\$\(autorizacao "\$n"\)/.test(sh), '(a) via revisada continua exigindo MERGE AUTORIZADO pelo patch-id')
-ok(/c=\$\(estado_checks "\$sha" "\$via"\)/.test(sh), '(a) o laço passa a via para estado_checks')
+ok(/c=\$\(estado_checks "\$sha" "\$via"( "\$so_docs")?\)/.test(sh), '(a) o laço passa a via para estado_checks')
 ok(/via rápida/.test(sh) && /via revisada/.test(sh) && /log "#\$n segue a /.test(sh), '(a) o log diz a via de cada PR')
 ok(/m=\$\(estado_main\)/.test(sh) && /so_sem_migration=1/.test(sh), '(a) regra de migration intacta (espera o @pos-migration da anterior)')
 
 // (b) aceitação da main
 const wf = ler('.github/workflows/aceitacao-main.yml')
 ok(/cron: '17 \* \* \* \*'/.test(wf) && /workflow_dispatch:/.test(wf), '(b) de hora em hora + manual')
+// 07/10: a agenda do GitHub descarta runs sob carga (0 runs em ~7 h) → também roda ao fim de cada montagem do banco de
+// testes na main, e a triagem pula a ponta da main já julgada
+ok(/workflow_run:\s*\n\s*workflows: \['Montar banco de testes'\]\s*\n\s*types: \[completed\]\s*\n\s*branches: \[main\]/.test(wf),
+  '(b) dispara também ao fim do "Montar banco de testes" na main (não depende só da agenda)')
+ok(/SHA=\$\(gh api "repos\/\$REPO\/commits\/main" --jq \.sha\)/.test(wf) && /if \[ "\$EVENTO" != workflow_dispatch \]/.test(wf),
+  '(b) triagem: ponta ATUAL da main já julgada → não roda de novo (manual roda sempre)')
 const job = wf.slice(wf.search(/^  aceitacao-main:\s*$/m))
 ok(/group: aceitacao-testes\s*\n\s*cancel-in-progress: false\s*\n\s*queue: max/.test(job), '(b) fila aceitacao-testes, FIFO, sem cancelar')
 ok(/\*horsymhsinqcimflrtjo\*\) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO/.test(job) && /\*hqjzqwsxrkewjjuyqeij\*\)/.test(job),
