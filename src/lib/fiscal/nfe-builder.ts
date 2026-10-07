@@ -1,6 +1,7 @@
 import type { NFeRequest, NFeProdutoItem } from './types'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
+import { enderecoComMunicipioOficial } from './municipioDestinatario'
 
 // UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
 const UFS_BR = new Set([
@@ -272,6 +273,15 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       'PAYLOAD_INVALIDO',
       'Forneca pedidoId OU erpReceberId+overrides.itens OU manual.itens'
     )
+  }
+
+  // #1679: município do destinatário pelo nome OFICIAL do IBGE (vale para os 3 caminhos — pedido, financeiro, manual).
+  destinatario = {
+    ...destinatario,
+    endereco: await enderecoComMunicipioOficial(destinatario.endereco, async (nome, uf) => {
+      const { data } = await supabaseAdmin.rpc('fn_municipio_por_nome_uf', { p_nome: nome, p_uf: uf })
+      return (Array.isArray(data) ? data[0] : data) ?? null
+    }),
   }
 
   // #jordana 26/09 · OS-2026-0179: o mesmo produto pode aparecer em 2+ itens (2 linhas de OLEO 80). A busca por id
