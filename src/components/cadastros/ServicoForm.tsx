@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { X, Save, Loader2, AlertCircle, Trash2 } from 'lucide-react'
+import { X, Save, Loader2, AlertCircle, Trash2, Copy } from 'lucide-react'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import CategoriaCombobox from '@/components/financeiro/CategoriaCombobox'
 import CatalogoFiscalCombobox from '@/components/comum/CatalogoFiscalCombobox'
@@ -49,8 +49,13 @@ export interface Servico {
 interface Props {
   companyId: string
   servico: Servico | null
+  // Clonar (duplicar): abre em modo NOVO pré-preenchido com os dados deste serviço (sem id/código — o código é
+  // gerado novo). Só vale quando `servico` é null; o save segue o caminho de insert, nunca de update.
+  clonarDe?: Servico | null
   onClose: () => void
   onSalvo: () => void
+  // Botão "Clonar" na ficha (modo edição): devolve o serviço aberto pra a página reabrir em modo clone.
+  onClonar?: (servico: Servico) => void
 }
 
 type Aba = 'servico' | 'federais' | 'produtos_utilizados' | 'reforma_trib'
@@ -60,7 +65,14 @@ const num = (v: string) => {
   return isNaN(n) ? 0 : n
 }
 
-export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Props) {
+// Sufixo "(cópia)" na descrição clonada, pra lembrar de editar antes de salvar.
+const comCopia = (s: string | null | undefined) => `${(s ?? '').trim()} (cópia)`.trim()
+
+export default function ServicoForm({ companyId, servico, clonarDe = null, onClose, onSalvo, onClonar }: Props) {
+  // Clone = abre como NOVO (servico null) porém pré-preenchido a partir de `clonarDe`. `base` é a fonte dos
+  // valores iniciais dos campos copiáveis; `servico` continua sendo a única fonte do "é edição?" (id, update).
+  const ehClone = !servico && !!clonarDe
+  const base = servico ?? clonarDe ?? null
   const [aba, setAba] = useState<Aba>('servico')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -71,42 +83,43 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
   const [regimeFiscal, setRegimeFiscal] = useState<string | null>(null)
 
   // Aba Servico
+  // Código NÃO é copiado no clone (base fica de fora): em modo criar/clone o efeito mais abaixo gera o próximo SRV.
   const [codigo, setCodigo] = useState(servico?.codigo ?? '')
-  const [descricaoResumida, setDescricaoResumida] = useState(servico?.descricao_resumida ?? '')
-  const [descricaoDetalhada, setDescricaoDetalhada] = useState(servico?.descricao_detalhada ?? '')
+  const [descricaoResumida, setDescricaoResumida] = useState(ehClone ? comCopia(base?.descricao_resumida) : (servico?.descricao_resumida ?? ''))
+  const [descricaoDetalhada, setDescricaoDetalhada] = useState(base?.descricao_detalhada ?? '')
   // Categoria agora é vínculo ao Plano de Contas (codigo). `categoria` (texto) fica só como
   // legado/denormalizado — a trigger no banco a sincroniza a partir do codigo escolhido.
-  const [categoria] = useState(servico?.categoria ?? '')
-  const [categoriaCodigo, setCategoriaCodigo] = useState(servico?.categoria_codigo ?? '')
-  const [codigoNbs, setCodigoNbs] = useState(servico?.codigo_nbs ?? '')
-  const [codigoServicoMun, setCodigoServicoMun] = useState(servico?.codigo_servico_municipio ?? '')
-  const [codigoLc116, setCodigoLc116] = useState(servico?.codigo_lc116 ?? '')
-  const [cnae, setCnae] = useState(servico?.cnae ?? '')
-  const [cnaeSec, setCnaeSec] = useState(servico?.cnae_secundario ?? '')
-  const [tipoTrib, setTipoTrib] = useState(servico?.tipo_tributacao ?? 'tributavel_municipio')
-  const [aliqIss, setAliqIss] = useState(String(servico?.aliquota_iss ?? '0'))
+  const [categoria] = useState(base?.categoria ?? '')
+  const [categoriaCodigo, setCategoriaCodigo] = useState(base?.categoria_codigo ?? '')
+  const [codigoNbs, setCodigoNbs] = useState(base?.codigo_nbs ?? '')
+  const [codigoServicoMun, setCodigoServicoMun] = useState(base?.codigo_servico_municipio ?? '')
+  const [codigoLc116, setCodigoLc116] = useState(base?.codigo_lc116 ?? '')
+  const [cnae, setCnae] = useState(base?.cnae ?? '')
+  const [cnaeSec, setCnaeSec] = useState(base?.cnae_secundario ?? '')
+  const [tipoTrib, setTipoTrib] = useState(base?.tipo_tributacao ?? 'tributavel_municipio')
+  const [aliqIss, setAliqIss] = useState(String(base?.aliquota_iss ?? '0'))
   // #32 · ISS no local da prestação (LC 116 art. 3o). Quando true, a alíquota vem do município da
   // execução (não deste campo fixo) — o campo de alíquota some para não mentir.
-  const [issLocal, setIssLocal] = useState(!!servico?.iss_no_local_prestacao)
-  const [issRetido, setIssRetido] = useState(!!servico?.iss_retido)
-  const [valorUnit, setValorUnit] = useState(String(servico?.valor_unitario ?? '0'))
-  const [pctDesc, setPctDesc] = useState(String(servico?.pct_desconto ?? '0'))
+  const [issLocal, setIssLocal] = useState(!!base?.iss_no_local_prestacao)
+  const [issRetido, setIssRetido] = useState(!!base?.iss_retido)
+  const [valorUnit, setValorUnit] = useState(String(base?.valor_unitario ?? '0'))
+  const [pctDesc, setPctDesc] = useState(String(base?.pct_desconto ?? '0'))
 
   // Aba Federais
-  const [aliqPis, setAliqPis] = useState(String(servico?.aliquota_pis ?? '0'));   const [retemPis, setRetemPis] = useState(!!servico?.retem_pis)
-  const [aliqCof, setAliqCof] = useState(String(servico?.aliquota_cofins ?? '0')); const [retemCof, setRetemCof] = useState(!!servico?.retem_cofins)
-  const [cstPisCofins, setCstPisCofins] = useState(servico?.cst_pis_cofins ?? '')
-  const [aliqIr, setAliqIr]  = useState(String(servico?.aliquota_ir ?? '0'));     const [retemIr, setRetemIr]   = useState(!!servico?.retem_ir)
-  const [aliqCsll, setAliqCsll] = useState(String(servico?.aliquota_csll ?? '0')); const [retemCsll, setRetemCsll] = useState(!!servico?.retem_csll)
-  const [aliqInss, setAliqInss] = useState(String(servico?.aliquota_inss ?? '0')); const [retemInss, setRetemInss] = useState(!!servico?.retem_inss)
+  const [aliqPis, setAliqPis] = useState(String(base?.aliquota_pis ?? '0'));   const [retemPis, setRetemPis] = useState(!!base?.retem_pis)
+  const [aliqCof, setAliqCof] = useState(String(base?.aliquota_cofins ?? '0')); const [retemCof, setRetemCof] = useState(!!base?.retem_cofins)
+  const [cstPisCofins, setCstPisCofins] = useState(base?.cst_pis_cofins ?? '')
+  const [aliqIr, setAliqIr]  = useState(String(base?.aliquota_ir ?? '0'));     const [retemIr, setRetemIr]   = useState(!!base?.retem_ir)
+  const [aliqCsll, setAliqCsll] = useState(String(base?.aliquota_csll ?? '0')); const [retemCsll, setRetemCsll] = useState(!!base?.retem_csll)
+  const [aliqInss, setAliqInss] = useState(String(base?.aliquota_inss ?? '0')); const [retemInss, setRetemInss] = useState(!!base?.retem_inss)
 
   // Aba Reforma Tributaria
-  const [rtCst, setRtCst] = useState(servico?.rt_cst ?? '')
-  const [rtClass, setRtClass] = useState(servico?.rt_classificacao_tributaria ?? '')
-  const [rtIndOp, setRtIndOp] = useState(servico?.rt_indicador_operacao ?? '')
-  const [rtIbsM, setRtIbsM] = useState(String(servico?.rt_aliquota_ibs_municipal ?? '0'))
-  const [rtIbsE, setRtIbsE] = useState(String(servico?.rt_aliquota_ibs_estadual ?? '0'))
-  const [rtCbs,  setRtCbs]  = useState(String(servico?.rt_aliquota_cbs ?? '0'))
+  const [rtCst, setRtCst] = useState(base?.rt_cst ?? '')
+  const [rtClass, setRtClass] = useState(base?.rt_classificacao_tributaria ?? '')
+  const [rtIndOp, setRtIndOp] = useState(base?.rt_indicador_operacao ?? '')
+  const [rtIbsM, setRtIbsM] = useState(String(base?.rt_aliquota_ibs_municipal ?? '0'))
+  const [rtIbsE, setRtIbsE] = useState(String(base?.rt_aliquota_ibs_estadual ?? '0'))
+  const [rtCbs,  setRtCbs]  = useState(String(base?.rt_aliquota_cbs ?? '0'))
 
   // Regime tributario da empresa (RT depende disso). Fonte única = companies.regime_tributario
   // (a migration normaliza; normalizo aqui também por segurança enquanto o deploy não roda).
@@ -255,11 +268,24 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
       <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
         <div className="px-5 py-4 border-b border-[#3D2314]/10 flex items-center justify-between sticky top-0 bg-white z-10">
           <h2 className="text-[15px] font-medium text-[#3D2314]">
-            {servico ? 'Editar Serviço' : 'Novo Serviço'}
+            {servico ? 'Editar Serviço' : ehClone ? 'Clonar Serviço' : 'Novo Serviço'}
           </h2>
-          <button onClick={onClose} className="text-[#3D2314]/60 hover:text-[#3D2314]">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-3">
+            {servico && onClonar && (
+              <button
+                type="button"
+                onClick={() => onClonar(servico)}
+                data-testid="servico-clonar-ficha"
+                className="text-[#C8941A] hover:text-[#A87810] flex items-center gap-1.5 text-[12.5px] font-medium"
+                title="Criar um novo serviço a partir deste"
+              >
+                <Copy size={15} /> Clonar
+              </button>
+            )}
+            <button onClick={onClose} className="text-[#3D2314]/60 hover:text-[#3D2314]">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="flex border-b border-[#3D2314]/10 px-5 sticky top-[57px] bg-white z-10 overflow-x-auto">
@@ -279,6 +305,16 @@ export default function ServicoForm({ companyId, servico, onClose, onSalvo }: Pr
         </div>
 
         <div className="p-5 space-y-4">
+          {ehClone && (
+            <div data-testid="servico-clone-aviso" className="flex items-start gap-2 p-3 rounded-lg bg-[#FBF4E4] border border-[#C8941A]/40 text-[12px] text-[#3D2314]">
+              <Copy size={14} className="mt-0.5 flex-shrink-0 text-[#C8941A]" />
+              <span>
+                Clonando a partir de <b>{clonarDe?.codigo ?? '—'}</b> — <b>{clonarDe?.descricao_resumida}</b>. Revise os
+                dados e salve; um <b>novo código</b> será gerado (os campos fiscais foram copiados). A lista de
+                <b> Produtos Utilizados</b> não é copiada — adicione-a depois de salvar.
+              </span>
+            </div>
+          )}
           {aba === 'servico' && (
             <>
               <Campo label="Código (interno · auto)" value={codigo} onChange={setCodigo} placeholder="ex: SRV00001" mono />

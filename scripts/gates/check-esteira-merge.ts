@@ -35,6 +35,14 @@ ok(/aceitacao-pos-migration\.yml\/runs\?branch=main&status=success/.test(sh) && 
   '(a) @pos-migration cancelado: libera se a última migration já teve verde, senão re-roda')
 ok(/if \[ "\$com_migration" = 1 \]; then\s*\n\s*m=\$\(estado_main\)/.test(sh), '(b) só PR com migration espera a main')
 
+// re-run pelo próprio GitHub (Eng. Chefe 07/10): a rede das sessões do Code não consegue POST /rerun
+ok(/Re-rodar aceitação cancelada/.test(vigia) && /FILA_MERGE_TOKEN/.test(vigia) && /\$tent" -gt 2/.test(vigia), 'vigia: re-roda aceitação cancelada com PAT, no máximo 2 vezes por SHA')
+ok(/head\.sha == /.test(vigia), 'vigia: só re-roda SHA ainda vigente (head de PR aberta ou main)')
+const cmd = ler('.github/workflows/comando-pr.yml')
+ok(/comment\.body == '\/re-rodar'/.test(cmd), 'comando-pr: só o comentário exato /re-rodar')
+ok(/admin\|maintain\|write/.test(cmd) && /collaborators\/\$AUTOR\/permission/.test(cmd), 'comando-pr: exige permissão write do autor')
+ok(!/actions\/checkout/.test(cmd) && !/\$\{\{ github\.event\.comment\.body \}\}/.test(cmd.replace(/if: >-[\s\S]*?runs-on/, '')), 'comando-pr: sem checkout e sem interpolar o comentário no shell')
+
 // banco de testes: catálogos globais
 const mbt = ler('.github/workflows/montar-banco-testes.yml')
 ok(/Autorizado pelo CEO em 06\/10\/2026 17:38/.test(mbt.slice(0, 600)), 'montar-banco-testes: autorização do CEO citada no topo')
