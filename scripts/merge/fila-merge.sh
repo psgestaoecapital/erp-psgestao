@@ -7,8 +7,10 @@
 # conferido); o push na main dispara a próxima rodada.
 # SEM BLOQUEIO PELA CABEÇA (CEO 07/10): a PR que está atrás da main é atualizada (update-branch) e a PR cujos checks
 # ainda rodam fica esperando — e a rodada SEGUE para a próxima PR da fila (antes saía e uma PR lenta segurava todas).
-# Várias PRs podem ser atualizadas na mesma rodada. Ordem das migrations preservada: PR COM migration que fica para
-# trás (esperando a main, atualizando ou com checks rodando) segura as outras COM migration atrás dela; as SEM seguem.
+# Várias PRs podem ser atualizadas na mesma rodada. Migration: só a PR com migration que espera a MAIN (deploy-migrations
+# ou @pos-migration da anterior, estado_main) segura as outras COM migration — uma migration por vez na main. PR com
+# migration que espera os PRÓPRIOS checks ou foi atualizada NÃO segura ninguém (incidente 07/10: a #2118, via revisada
+# esperando a aceitação, travou a #2133 e todas as PRs com migration por horas; o db push --include-all não exige ordem).
 #
 #   (a) run CANCELADO do @pos-migration não é vermelho: re-roda; se a última migration da main já teve run verde, libera.
 #   (b) PR SEM migration não espera o @pos-migration: exige checks verdes + gates + Vercel + aceitação (preview).
@@ -178,16 +180,13 @@ for n in $fila; do
     else
       tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)"; continue
     fi
-    [ "$com_migration" = 1 ] && so_sem_migration=1
     continue
   fi
 
   c=$(estado_checks "$sha" "$via" "$so_docs")
   case "$c" in
     vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})"; continue;;
-    esperar:*) log "#$n aguardando: ${c#esperar:} — segue para a próxima"
-               [ "$com_migration" = 1 ] && so_sem_migration=1
-               continue;;
+    esperar:*) log "#$n aguardando: ${c#esperar:} — segue para a próxima"; continue;;
   esac
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
