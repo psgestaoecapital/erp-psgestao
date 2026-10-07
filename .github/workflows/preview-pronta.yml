@@ -1,0 +1,72 @@
+name: Preview da PR pronta
+
+# CEO 07/10 (custo da Vercel): o Ignored Build Step (scripts/vercel-ignore.sh) não builda preview de PR em rascunho
+# nem de branch sem PR. Quando a PR fica PRONTA (sai de draft, ou nasce Ready depois do push), o head dela pode não ter
+# preview — e a aceitação (aceitacao-pr.yml) e a fila de merge dependem do deployment_status da Vercel. Este workflow
+# confere o status "Vercel" do head e, se ele não foi buildado (sem status ou cancelado pelo Ignored Build Step), cria
+# um commit VAZIO no ramo da PR (pela API, sem checkout) para a Vercel buildar.
+#  · PR só de .md/docs/.github: não precisa de preview (a fila de merge também não exige).
+#  · Se o head já tem preview (verde) ou um build real falhou, não faz nada.
+#  · Quem trabalha no ramo faz `git pull` antes do próximo push (o commit vazio entra no ramo).
+# Usa o FILA_MERGE_TOKEN (PAT): commit criado com o GITHUB_TOKEN não dispara os checks do Actions (gates).
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+concurrency:
+  group: preview-pronta-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    # só PR pronta, do próprio repositório, contra a main
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+      REPO: ${{ github.repository }}
+      N: ${{ github.event.pull_request.number }}
+      REF: ${{ github.event.pull_request.head.ref }}
+      SHA: ${{ github.event.pull_request.head.sha }}
+      ACAO: ${{ github.event.action }}
+    steps:
+      - name: Dispara o build do head se ele não tem preview
+        run: |
+          set -euo pipefail
+          [ -n "$GH_TOKEN" ] || { echo "::error::segredo FILA_MERGE_TOKEN ausente — não dá para disparar o preview"; exit 1; }
+          # mesma regra do scripts/vercel-ignore.mjs (SO_DOCS)
+          outros=$(gh api "repos/$REPO/pulls/$N/files" --paginate --jq '.[].filename' | grep -vE '(\.md$|^docs/|^\.github/)' || true)
+          [ -n "$outros" ] || { echo "PR #$N só muda .md/docs/.github: sem preview (a fila não exige)"; exit 0; }
+          # PR que acabou de nascer: dá tempo do build do push aparecer
+          [ "$ACAO" = ready_for_review ] || sleep 90
+          for i in $(seq 1 24); do
+            # se o ramo andou (push novo), o build desse push decide sozinho
+            atual=$(gh api "repos/$REPO/pulls/$N" --jq '.head.sha')
+            [ "$atual" = "$SHA" ] || { echo "head mudou ($SHA → $atual): o push novo já gera o preview"; exit 0; }
+            st=$(gh api "repos/$REPO/commits/$SHA/statuses?per_page=100" \
+              --jq '[.[] | select(.context | startswith("Vercel"))][0] | "\(.state)|\(.description // "")"' || true)
+            estado=${st%%|*}; desc=${st#*|}
+            echo "tentativa $i: status Vercel do head = ${estado:-<nenhum>} ${desc:+($desc)}"
+            case "$estado" in
+              # build IGNORADO aparece como success "Canceled by Ignored Build Step" (visto na #2117): não é preview
+              success) if grep -qiE 'cancel|ignor' <<< "$desc"; then echo "head foi pulado pelo Ignored Build Step"; break; fi
+                       echo "o head já tem preview: nada a fazer"; exit 0;;
+              failure|error) if ! grep -qiE 'cancel|ignor' <<< "$desc"; then echo "build real do head falhou: o próximo push corrige"; exit 0; fi; break;;
+              pending) sleep 30;;
+              *) break;;
+            esac
+          done
+          # commit vazio por cima do head (mesma árvore), avanço sem force
+          arvore=$(gh api "repos/$REPO/git/commits/$SHA" --jq '.tree.sha')
+          novo=$(gh api -X POST "repos/$REPO/git/commits" -f message="ci: preview da PR #$N pronta (commit vazio; o Ignored Build Step tinha pulado o head)" \
+            -f tree="$arvore" -f "parents[]=$SHA" --jq '.sha')
+          gh api -X PATCH "repos/$REPO/git/refs/heads/$REF" -f sha="$novo" -F force=false > /dev/null
+          echo "::notice::preview disparado para a PR #$N: commit vazio $novo sobre $SHA"
+          echo "PR #$N: commit vazio \`${novo:0:7}\` para a Vercel buildar o preview (head \`${SHA:0:7}\` não tinha preview)" >> "$GITHUB_STEP_SUMMARY"

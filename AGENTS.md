@@ -140,6 +140,14 @@ Gate novo = **um arquivo novo em `scripts/gates/`** (`.ts`, imports de `../../sr
 linha `build` do `package.json` — era a causa recorrente de conflito entre PRs em fila (e o gate
 `check-gates-por-pasta` quebra se alguém fizer). Rodar local: `npm run gates` (ou `npm run gates -- <trecho do nome>`).
 
+**Onde os gates rodam (CEO 07/10 — custo da Vercel):** a Vercel builda só `next build` (`vercel.json` › `buildCommand`);
+os gates rodam no workflow `.github/workflows/gates.yml` (check **`gates`**, grátis no Actions) em toda PR e na `main`,
+e a fila de merge exige esse check verde. Gate continua sendo só checagem estática (sem rede, banco ou variável da Vercel).
+**Preview só de PR pronta** (Ignored Build Step, `scripts/vercel-ignore.sh`): a Vercel NÃO builda branch sem PR, PR em
+rascunho, nem PR que só muda `.md`/`docs/`/`.github/`; a `main` sempre builda; consulta à API do GitHub que falha → builda.
+Ao sair de draft (ou abrir a PR Ready depois do push), o `preview-pronta.yml` cria um **commit vazio** no ramo para gerar
+o preview do head: **faça `git pull` antes do próximo push**. Abra a PR em draft e só marque Ready quando quiser a aceitação.
+
 # Chamados: o agente nunca forja identidade (CEO 04/10)
 
 Responder chamado exige usuário logado (`auth.uid()`), e a rotina/Code é conexão de serviço — não é usuário.
@@ -170,12 +178,32 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   vez**: atualiza com a `main` (merge, sem reescrever histórico), espera os checks, confere a autorização (PR com
   `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido). Conflito, check vermelho ou autorização inválida →
   comenta o motivo e tira a label. PR com migration esperando a `main` não segura as PRs sem migration atrás dela.
+  **Sem bloqueio pela cabeça (CEO 07/10):** PR atrás da `main` é atualizada e PR com checks rodando fica esperando, mas a
+  rodada segue para as próximas (no máximo 1 merge por rodada). Só a PR com migration que espera a **main** (deploy ou
+  `@pos-migration` da anterior) segura as outras com migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
   Precisa do segredo `FILA_MERGE_TOKEN` (PAT): merge com o `GITHUB_TOKEN` não dispara o `deploy-migrations`.
   Com a fila, o Code não roda `gh pr merge` à mão para PR que está nela.
 - **(e) Timeout de 40 min** nos jobs de aceitação (`aceitacao-pr`, `aceitacao-pos-migration`; a espera na fila
   `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
   **executando** há mais de 45 min; job esperando a vez na fila nunca é cancelado.
 - Gate: `scripts/gates/check-esteira-merge.ts`.
+
+## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
+Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta
+revisao-eng-chefe continua exigindo aceitação verde + MERGE AUTORIZADO; aceitação da main de hora em hora no banco de
+testes, vermelho = corrigir em 1 h ou reverter."
+- **Via rápida** (PR SEM `revisao-eng-chefe`): a fila de merge exige todos os checks verdes + preview da Vercel de build
+  real (build pulado "Canceled by Ignored Build Step" não conta). Os checks `aceitacao`, `triagem` e `@pos-migration
+  (informativo)` são **só informativos**: não seguram nem derrubam a PR.
+- **Via revisada** (PR COM `revisao-eng-chefe`): igual a antes — aceitação verde + `MERGE AUTORIZADO` pelo patch-id.
+- **Migration**: regra intacta (PR com migration espera o `@pos-migration` da anterior; vermelho em produção = reverter).
+- **Aceitação da main** (`.github/workflows/aceitacao-main.yml`): ao fim de cada "Montar banco de testes" na main, de hora
+  em hora (rede de segurança: a agenda do GitHub descarta runs sob carga) e manual, a suíte roda contra a ponta
+  da `main` buildada no próprio runner e apontada para o **banco de testes** (nunca produção), na fila `aceitacao-testes`.
+  Vermelho → issue **`main-vermelha`** (uma só, atualizada) com as PRs publicadas desde o último verde: **corrigir em 1 h
+  ou reverter**. Verde → a issue fecha sozinha.
+- **Volta ao normal** (aceitação obrigatória em toda PR) quando houver um banco de testes por vaga — decisão do CEO.
+- Gate: `scripts/gates/check-esteira-2-velocidades.ts`.
 
 # Velocidade e disciplina de sessão (CEO 04/10)
 - **(D) Uma sessão por agente (lease):** ao iniciar, chame `SELECT fn_agente_sessao_iniciar('<seu-identificador>', '<ref da sessão>');`.
@@ -200,3 +228,9 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Sempre com checks e aceitação verdes, `main` verde, dois testes e um merge por vez. É SENSÍVEL (exige "MERGE AUTORIZADO #NNNN"):
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
+
+# Re-rodar teste (Eng. Chefe 07/10)
+A rede da sessão do Code troca o token pelo da integração: `POST .../runs/<id>/rerun` dá 403 com qualquer token nosso.
+**Para re-rodar teste, comente `/re-rodar` na PR** (exatamente isso; autor com permissão write): o workflow `comando-pr.yml`
+re-roda a última aceitação do head da PR com `FILA_MERGE_TOKEN` e responde com o link do run. Além disso, o `vigia-runs.yml`
+re-roda sozinho a aceitação cancelada (timeout/espera de trava), no máximo 2 vezes por SHA.
