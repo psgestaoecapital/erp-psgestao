@@ -61,7 +61,7 @@ test.describe('P&M — copiar de um job pronto', () => {
     await dbInsertMany('agency_tarefas', [
       { company_id: DEMO_PM, job_id: origem, titulo: 'Redação', ordem: 0, status: 'concluida', responsavel_id: robo, data_prazo: dia(-9),
         horas_estimadas: 2, horas_realizadas: 3, checklist: [{ texto: 'Título', feito: true, feito_em: dia(-10) }, { texto: 'CTA', concluido: true }], anexos: [{ nome: 'ref.pdf' }] },
-      { company_id: DEMO_PM, job_id: origem, titulo: 'Arte', ordem: 1, status: 'concluida', data_prazo: dia(-8), horas_estimadas: 4, horas_realizadas: 4, checklist: [], anexos: [] },
+      { company_id: DEMO_PM, job_id: origem, titulo: 'Arte', ordem: 1, status: 'concluida', responsavel_id: null, data_prazo: dia(-8), horas_estimadas: 4, horas_realizadas: 4, checklist: [], anexos: [] },
     ])
     await dbInsert('agency_job_comentarios', { company_id: DEMO_PM, job_id: origem, texto: `Comentário do original ${MARCA}` })
   })
