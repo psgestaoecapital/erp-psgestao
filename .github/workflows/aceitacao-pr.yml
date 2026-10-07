@@ -86,8 +86,9 @@ jobs:
       group: ${{ vars.ACEITACAO_BANCO == 'testes' && format('aceitacao-testes-{0}', needs.triagem.outputs.vaga) || 'demo-e2e' }}
       cancel-in-progress: false
       queue: max
-    # 75 em produção (fila fora do runner); 40 no banco de testes
-    timeout-minutes: ${{ vars.ACEITACAO_BANCO == 'testes' && 40 || 75 }}
+    # 40 min (CEO 06/10, regra e): a espera na fila demo-e2e é FORA do runner e não conta; preso além disso o
+    # vigia-runs.yml cancela aos 45. A trava no banco (segunda guarda) espera no máximo 15 min.
+    timeout-minutes: 40
     # actions: write → o run pode cancelar a si mesmo quando a versão é antiga (passo "Versão antiga?")
     permissions:
       contents: read
@@ -147,7 +148,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
-          TRAVA_DEMO_ESPERA_MIN: '30'
+          TRAVA_DEMO_ESPERA_MIN: '15'
           # Só necessário se o preview tiver Deployment Protection (401 da Vercel): Settings › Deployment
           # Protection › "Protection Bypass for Automation" gera o segredo; o CEO cadastra no GitHub.
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
@@ -167,7 +168,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
-          TRAVA_DEMO_ESPERA_MIN: '30'
+          TRAVA_DEMO_ESPERA_MIN: '15'
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           if npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
