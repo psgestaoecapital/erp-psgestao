@@ -55,7 +55,9 @@ jobs:
             estado=${st%%|*}; desc=${st#*|}
             echo "tentativa $i: status Vercel do head = ${estado:-<nenhum>} ${desc:+($desc)}"
             case "$estado" in
-              success) echo "o head já tem preview: nada a fazer"; exit 0;;
+              # build IGNORADO aparece como success "Canceled by Ignored Build Step" (visto na #2117): não é preview
+              success) if grep -qiE 'cancel|ignor' <<< "$desc"; then echo "head foi pulado pelo Ignored Build Step"; break; fi
+                       echo "o head já tem preview: nada a fazer"; exit 0;;
               failure|error) if ! grep -qiE 'cancel|ignor' <<< "$desc"; then echo "build real do head falhou: o próximo push corrige"; exit 0; fi; break;;
               pending) sleep 30;;
               *) break;;
