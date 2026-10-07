@@ -140,6 +140,14 @@ Gate novo = **um arquivo novo em `scripts/gates/`** (`.ts`, imports de `../../sr
 linha `build` do `package.json` — era a causa recorrente de conflito entre PRs em fila (e o gate
 `check-gates-por-pasta` quebra se alguém fizer). Rodar local: `npm run gates` (ou `npm run gates -- <trecho do nome>`).
 
+**Onde os gates rodam (CEO 07/10 — custo da Vercel):** a Vercel builda só `next build` (`vercel.json` › `buildCommand`);
+os gates rodam no workflow `.github/workflows/gates.yml` (check **`gates`**, grátis no Actions) em toda PR e na `main`,
+e a fila de merge exige esse check verde. Gate continua sendo só checagem estática (sem rede, banco ou variável da Vercel).
+**Preview só de PR pronta** (Ignored Build Step, `scripts/vercel-ignore.sh`): a Vercel NÃO builda branch sem PR, PR em
+rascunho, nem PR que só muda `.md`/`docs/`/`.github/`; a `main` sempre builda; consulta à API do GitHub que falha → builda.
+Ao sair de draft (ou abrir a PR Ready depois do push), o `preview-pronta.yml` cria um **commit vazio** no ramo para gerar
+o preview do head: **faça `git pull` antes do próximo push**. Abra a PR em draft e só marque Ready quando quiser a aceitação.
+
 # Chamados: o agente nunca forja identidade (CEO 04/10)
 
 Responder chamado exige usuário logado (`auth.uid()`), e a rotina/Code é conexão de serviço — não é usuário.
