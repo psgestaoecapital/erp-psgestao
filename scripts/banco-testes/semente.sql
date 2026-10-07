@@ -61,6 +61,13 @@ CROSS JOIN public.companies c
 WHERE lower(u.email) = lower(:'bot_email') AND c.is_demo
 ON CONFLICT (user_id, company_id) DO UPDATE SET role = 'adm';
 
+-- public.users: tenant_user_roles.user_id referencia public.users(id), e no banco de testes o gatilho do auth.users não
+-- cria a linha (o role 'geral' do default viola users_role_check, então 'adm' é explícito)
+INSERT INTO public.users (id, full_name, email, role, is_robo)
+SELECT u.id, 'Robô Playwright (testes)', u.email, 'adm', true
+FROM auth.users u WHERE lower(u.email) = lower(:'bot_email')
+ON CONFLICT DO NOTHING;
+
 -- ... e CLIENT_OWNER ativo na ded0…001 (a única demo com tenant_user_roles na produção)
 INSERT INTO public.tenant_user_roles (user_id, company_id, role, is_active)
 SELECT u.id, 'ded00000-0000-4000-a000-000000000001', 'CLIENT_OWNER', true
