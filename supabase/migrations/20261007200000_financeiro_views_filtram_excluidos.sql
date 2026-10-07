@@ -172,3 +172,7 @@ BEGIN
   );
 END;
 $function$;
+
+-- Régua check:fn-guards (regra 1): registra no arquivo o que o banco já tem (anon sem EXECUTE; prova 07/10). Idempotente, sem efeito novo.
+REVOKE ALL ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid) TO authenticated, service_role;
