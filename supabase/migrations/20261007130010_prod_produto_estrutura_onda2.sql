@@ -297,16 +297,19 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'gravado', p_gravar, 'validas', v_ok, 'nao_casaram', v_erros, 'gravadas', v_gravadas);
 END $$;
 
-DO $$ DECLARE f text; BEGIN
-  FOREACH f IN ARRAY ARRAY[
-    'fn_prod_produto_listar(uuid,uuid,text,text,boolean)',
-    'fn_prod_produto_salvar(uuid,uuid,uuid,text,text,uuid,text,uuid,text)',
-    'fn_prod_produto_arquivar(uuid,uuid,boolean)',
-    'fn_prod_estrutura_listar(uuid,uuid,uuid,boolean)',
-    'fn_prod_estrutura_salvar(uuid,uuid,uuid,uuid,uuid,uuid,text,numeric,text,text,date,date)',
-    'fn_prod_estrutura_arquivar(uuid,uuid,boolean)',
-    'fn_prod_estrutura_colar(uuid,uuid,text,boolean)'] LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM PUBLIC, anon', f);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%s TO authenticated', f);
+REVOKE ALL ON FUNCTION public.fn_prod_produto_listar(uuid,uuid,text,text,boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_produto_listar(uuid,uuid,text,text,boolean) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_prod_produto_salvar(uuid,uuid,uuid,text,text,uuid,text,uuid,text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_produto_salvar(uuid,uuid,uuid,text,text,uuid,text,uuid,text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_prod_produto_arquivar(uuid,uuid,boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_produto_arquivar(uuid,uuid,boolean) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_prod_estrutura_listar(uuid,uuid,uuid,boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_estrutura_listar(uuid,uuid,uuid,boolean) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_prod_estrutura_salvar(uuid,uuid,uuid,uuid,uuid,uuid,text,numeric,text,text,date,date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_estrutura_salvar(uuid,uuid,uuid,uuid,uuid,uuid,text,numeric,text,text,date,date) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_prod_estrutura_arquivar(uuid,uuid,boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_estrutura_arquivar(uuid,uuid,boolean) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_prod_estrutura_colar(uuid,uuid,text,boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_estrutura_colar(uuid,uuid,text,boolean) TO authenticated, service_role;
   END LOOP;
 END $$;
