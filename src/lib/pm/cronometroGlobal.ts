@@ -15,8 +15,8 @@ export async function lerCronometroAberto(userId: string): Promise<CronometroAbe
 }
 
 // Para o aberto gravando as horas (mínimo 0,01 h). Devolve as horas ou o erro.
-export async function pararCronometro(aberto: CronometroAberto): Promise<{ horas?: number; erro?: string }> {
-  const fim = new Date()
+export async function pararCronometro(aberto: CronometroAberto, fimEm?: Date): Promise<{ horas?: number; erro?: string }> {
+  const fim = fimEm ?? new Date()
   const horas = horasDoCronometro(aberto.inicio_em, fim)
   const { error } = await supabase.from('agency_timesheet').update({ fim_em: fim.toISOString(), horas }).eq('id', aberto.id)
   if (error) return { erro: error.message }
@@ -38,4 +38,10 @@ export async function iniciarCronometro(empresa: string, userId: string, jobId: 
   if (error) return { erro: error.message }
   avisarCronometro()
   return {}
+}
+
+// PM-T (4c) · total de horas já apontadas no job (todas as pessoas); linha aberta conta como horas > 0 só se fechada.
+export async function totalHorasDoJob(jobId: string): Promise<number> {
+  const { data } = await supabase.from('agency_timesheet').select('horas').eq('job_id', jobId)
+  return (data ?? []).reduce((s: number, r: { horas: number | null }) => s + Number(r.horas ?? 0), 0)
 }
