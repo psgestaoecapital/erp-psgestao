@@ -18,11 +18,15 @@ const sh = readFileSync(SCRIPT, 'utf8')
 const laco = sh.slice(sh.indexOf('for n in $fila; do'))
 ok(/SEM BLOQUEIO PELA CABEÇA/.test(sh), 'comentário do topo explica a fila sem bloqueio pela cabeça')
 ok(/update-branch"[\s\S]*?\n\s*continue\n\s*fi/.test(laco), 'update-branch bem-sucedido → continue (segue para a próxima)')
-ok(/esperar:\*\)[^\n]*\n[\s\S]*?continue;;/.test(laco), '"esperar:*" do estado_checks → continue (segue para a próxima)')
+ok(/esperar:\*\)[^\n]*continue;;/.test(laco), '"esperar:*" do estado_checks → continue (segue para a próxima)')
 const exits = laco.match(/exit 0/g) ?? []
 ok(exits.length === 1 && /MERGEADA[\s\S]*?exit 0/.test(laco), 'no laço, o único exit 0 é depois do merge (no máximo 1 merge por rodada)')
-ok((laco.match(/\[ "\$com_migration" = 1 \] && so_sem_migration=1/g) ?? []).length >= 2,
-  'PR com migration que fica para trás (atualizando ou esperando) segura as outras COM migration')
+// incidente 07/10: a #2118 (migration, via revisada esperando a aceitação) travou a #2133 e todas as PRs com migration.
+// Só a PR com migration que espera a MAIN (estado_main) segura as outras com migration; esperar os próprios checks ou
+// ser atualizada não segura ninguém.
+ok(!/\[ "\$com_migration" = 1 \] && so_sem_migration=1/.test(laco) && (laco.match(/so_sem_migration=1/g) ?? []).length === 1
+  && /m=\$\(estado_main\)[\s\S]*?so_sem_migration=1; continue/.test(laco),
+  'só a PR com migration que espera a MAIN (estado_main) segura as outras com migration')
 
 // ── Parte 2: cenários de verdade contra um gh simulado ───────────────────────────────────────────────────────────────
 const tem = (bin: string) => spawnSync('sh', ['-c', `command -v ${bin}`]).status === 0
@@ -61,7 +65,7 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
 
     const R = 'repos/o/r'
     type Pr = { n: number; atras?: number; checksRodando?: boolean; migration?: boolean }
-    const rodar = (prs: Pr[]): { log: string; escritas: string[] } => {
+    const rodar = (prs: Pr[], mainOcupada = false): { log: string; escritas: string[] } => {
       rmSync(fx, { recursive: true, force: true }); execFileSync('mkdir', ['-p', fx])
       const put = (p: string, v: unknown) => writeFileSync(join(fx, `${p.replace(/[^A-Za-z0-9]/g, '_')}.json`), JSON.stringify(v))
       put(`${R}/issues?state=open&labels=fila-merge&per_page=100`, prs.map((p) => ({ number: p.n, pull_request: {} })))
@@ -73,10 +77,12 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         put(`${R}/compare/main...${sha[p.n]}`, { behind_by: p.atras ?? 0 })
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [
           { name: 'check_menu', status: p.checksRodando ? 'in_progress' : 'completed', conclusion: p.checksRodando ? null : 'success', details_url: '' },
-          { name: 'aceitacao', status: 'in_progress', conclusion: null, details_url: '' }] })
+          { name: 'aceitacao', status: 'in_progress', conclusion: null, details_url: '' },
+          { name: 'gates', status: 'completed', conclusion: 'success', details_url: '' }] })
         put(`${R}/commits/${sha[p.n]}/status`, { statuses: [{ context: 'Vercel', state: 'success', description: 'Deployment has completed' }] })
       })
-      put(`${R}/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1`, { workflow_runs: [{ id: 1, status: 'completed', conclusion: 'success' }] })
+      put(`${R}/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1`,
+        { workflow_runs: [{ id: 1, status: mainOcupada ? 'in_progress' : 'completed', conclusion: mainOcupada ? null : 'success' }] })
       put(`${R}/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=1`, { workflow_runs: [{ id: 2, status: 'completed', conclusion: 'success' }] })
       const r = spawnSync('bash', [SCRIPT], { cwd: w, encoding: 'utf8',
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FX: fx, GH_TOKEN: 'x', REPO: 'o/r', GITHUB_STEP_SUMMARY: '' } })
@@ -97,10 +103,13 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
     x = rodar([{ n: 1 }, { n: 2 }])
     ok(merges(x.escritas).join() === '1', 'cenário: duas prontas → só 1 merge por run (a 1ª)')
     x = rodar([{ n: 1, atras: 1, migration: true }, { n: 2, migration: true }, { n: 3 }])
-    ok(updates(x.escritas).join() === '1' && merges(x.escritas).join() === '3',
-      'cenário: migration atrás da main → a outra COM migration não passa à frente; a SEM migration é mergeada')
+    ok(updates(x.escritas).join() === '1' && merges(x.escritas).join() === '2',
+      'cenário: migration atrás da main é atualizada e não segura a outra COM migration (main livre → mergeada)')
     x = rodar([{ n: 1, checksRodando: true, migration: true }, { n: 2, migration: true }])
-    ok(merges(x.escritas).length === 0 && /espera a main/.test(x.log), 'cenário: migration com checks rodando → a outra COM migration espera')
+    ok(merges(x.escritas).join() === '2', 'cenário #2118/#2133: migration esperando os próprios checks → a outra COM migration é mergeada')
+    x = rodar([{ n: 1, migration: true }, { n: 2, migration: true }, { n: 3 }], true)
+    ok(merges(x.escritas).join() === '3' && /#2 tem migration: espera a main/.test(x.log),
+      'cenário: main ocupada (deploy-migrations rodando) → PRs com migration esperam; a SEM migration é mergeada')
   } finally {
     rmSync(raiz, { recursive: true, force: true })
   }

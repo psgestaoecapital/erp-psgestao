@@ -1,0 +1,33 @@
+name: Gates do build
+
+# CEO 07/10 (custo da Vercel): os ~94 gates de scripts/gates/ saíram do build da Vercel (vercel.json › buildCommand =
+# "next build") e rodam AQUI, de graça (repositório público), em toda PR e na main. Mesmo efeito de antes: um gate
+# vermelho deixa a PR vermelha (check "gates" — marcar como obrigatório na proteção da main). Os gates são checagens
+# estáticas (leem arquivos do repo, sem rede, banco ou variável de ambiente da Vercel): não precisam de segredo.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: gates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci
+      - name: Gates (scripts/gates/, todos — o mesmo que rodava dentro do build da Vercel)
+        run: npm run gates

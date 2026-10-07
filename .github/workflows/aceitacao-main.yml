@@ -8,9 +8,18 @@ name: Aceitação da main (banco de testes)
 # Onde roda: build da main (next build + next start) NO PRÓPRIO RUNNER, apontado para o BANCO DE TESTES (segredos
 # TEST_*), NUNCA para a produção (trava abaixo). Sem custo recorrente (repo público, Actions grátis) e sem segredo novo.
 # Mesma fila da aceitação no banco de testes (group aceitacao-testes, FIFO, sem cancelar): não disputa a demo.
+#
+# Disparo (07/10): a agenda do GitHub atrasa e DESCARTA runs em horário de carga — este workflow ficou ~7 h sem nenhum
+# run e o vigia de 10 min rodou 3 vezes em 13 h. Por isso ele roda também ao fim de cada "Montar banco de testes" na
+# main (que vem depois de todo deploy-migrations verde e já aplicou as migrations novas no banco de testes): todo
+# merge na main é julgado sem depender da agenda. A agenda de hora em hora fica como rede de segurança.
 on:
   schedule:
     - cron: '17 * * * *'
+  workflow_run:
+    workflows: ['Montar banco de testes']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,8 +28,9 @@ permissions:
   actions: read
 
 jobs:
-  # Triagem barata (fora da fila): a ponta da main já foi julgada (verde ou vermelho) num run agendado? Então não ocupa
-  # a fila de novo. workflow_dispatch roda sempre.
+  # Triagem barata (fora da fila): a ponta ATUAL da main já foi julgada (verde ou vermelho)? Então não ocupa a fila de
+  # novo — vale para a agenda e para o disparo pós-montagem (merges seguidos não enfileiram runs repetidos).
+  # workflow_dispatch roda sempre.
   decide:
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -31,11 +41,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
           EVENTO: ${{ github.event_name }}
         run: |
           rodar=true
-          if [ "$EVENTO" = schedule ]; then
+          SHA=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          echo "ponta da main: $SHA"
+          if [ "$EVENTO" != workflow_dispatch ]; then
             ja=$(gh api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" \
               --jq "[.workflow_runs[] | select(.head_sha == \"$SHA\" and (.conclusion == \"success\" or .conclusion == \"failure\"))] | length" || echo 0)
             [ "${ja:-0}" -gt 0 ] && { rodar=false; echo "::notice::main ${SHA:0:7} já julgada: sem novo run"; }
