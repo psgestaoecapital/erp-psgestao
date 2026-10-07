@@ -71,6 +71,15 @@ jobs:
           TRAVA_DEMO_ESPERA_MIN: '10'
         # sem teste @pos-migration no repo → nada a julgar (verde)
         run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration
+      # CEO 07/10: libera a trava da demo SEMPRE (cancelamento/timeout não rodam o global-teardown; a lease ficava até
+      # 25 min e a aceitação seguinte esperava sem rodar teste).
+      - name: Soltar a trava da demo (sempre)
+        if: always()
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/e2e-trava-soltar.ts
       # Prints de produção (o CEO pede print e link em toda onda): sobem sempre, verde ou vermelho.
       - name: Upload prints (sempre)
         if: always()
