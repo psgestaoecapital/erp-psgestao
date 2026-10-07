@@ -8,6 +8,7 @@ import { Play, Square, Timer } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { horasDoCronometro, horasTexto, relogio } from "@/lib/pm/meuDia";
+import { EVENTO_CRONOMETRO, avisarCronometro } from "@/lib/pm/cronometroGlobal";
 
 type Aberto = { id: string; job_id: string | null; inicio_em: string };
 export type JobCurto = { id: string; codigo: string; titulo: string | null };
@@ -33,7 +34,7 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
     } else setNomeJob("");
   }, [userId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- busca o cronômetro aberto desta pessoa
-  useEffect(() => { void carregar(); }, [carregar]);
+  useEffect(() => { void carregar(); window.addEventListener(EVENTO_CRONOMETRO, carregar); return () => window.removeEventListener(EVENTO_CRONOMETRO, carregar); }, [carregar]);
   useEffect(() => {
     if (!aberto) return;
     const t = setInterval(() => setAgora(Date.now()), 1000);
@@ -50,6 +51,7 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
     if (error) { setMsg(`Não foi possível parar: ${error.message}`); return false; }
     if (!silencioso) setMsg(`Parado — ${horasTexto(horas)} apontadas.`);
     setAberto(null);
+    avisarCronometro();
     onMudou?.();
     return true;
   }
@@ -68,6 +70,7 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
     if (error) { setMsg(`Não foi possível iniciar: ${error.message}`); return; }
     setMsg(null); setAgora(Date.now());
     await carregar();
+    avisarCronometro();
     onMudou?.();
   }
 
