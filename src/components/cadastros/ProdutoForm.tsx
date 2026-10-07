@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
-import { X, Save, Loader2 } from 'lucide-react'
+import { X, Save, Loader2, Copy } from 'lucide-react'
 
 export interface Produto {
   id: string
@@ -43,8 +43,13 @@ export interface Produto {
 interface Props {
   companyId: string
   produto: Produto | null
+  // Clonar (duplicar): abre em modo NOVO pré-preenchido com os dados deste produto (sem id/código). Só vale quando
+  // `produto` é null; o save segue o caminho de insert (POST), nunca de update (PATCH).
+  clonarDe?: Produto | null
   onClose: () => void
   onSalvo: () => void
+  // Botão "Clonar" na ficha (modo edição): devolve o produto aberto pra a página reabrir em modo clone.
+  onClonar?: (produto: Produto) => void
 }
 
 type Aba = 'basico' | 'fiscal' | 'precos'
@@ -52,43 +57,52 @@ type Aba = 'basico' | 'fiscal' | 'precos'
 // '' → NULL (não informado); 0 é valor válido
 const numOuNulo = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')) || 0)
 
-export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Props) {
+// Sufixo "(cópia)" no nome clonado, pra lembrar de editar antes de salvar.
+const comCopia = (s: string | null | undefined) => `${(s ?? '').trim()} (cópia)`.trim()
+
+export default function ProdutoForm({ companyId, produto, clonarDe = null, onClose, onSalvo, onClonar }: Props) {
   const [aba, setAba] = useState<Aba>('basico')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
+  // Clone = abre como NOVO (produto null) porém pré-preenchido a partir de `clonarDe`. `base` é a fonte dos valores
+  // iniciais; `produto` continua sendo a única fonte do "é edição?" (id, PATCH, defesa anti-apagar campo fiscal).
+  const ehClone = !produto && !!clonarDe
+  const base = produto ?? clonarDe ?? null
+
+  // Código NÃO é copiado no clone (produto não tem gerador automático): abre vazio e o usuário informa um novo.
   const [codigo, setCodigo] = useState(produto?.codigo ?? '')
-  const [nome, setNome] = useState(produto?.nome ?? '')
-  const [descricao, setDescricao] = useState(produto?.descricao ?? '')
-  const [unidade, setUnidade] = useState(produto?.unidade ?? 'UN')
-  const [localizacao, setLocalizacao] = useState(produto?.localizacao ?? '')
-  const [codigoBarras, setCodigoBarras] = useState(produto?.codigo_barras ?? '')
-  const [precoVenda, setPrecoVenda] = useState(String(produto?.preco_venda ?? '0'))
-  const [precoCusto, setPrecoCusto] = useState(String(produto?.preco_custo ?? '0'))
-  const [ncm, setNcm] = useState(produto?.ncm ?? '')
-  const [cest, setCest] = useState(produto?.cest ?? '')
+  const [nome, setNome] = useState(ehClone ? comCopia(base?.nome) : (produto?.nome ?? ''))
+  const [descricao, setDescricao] = useState(base?.descricao ?? '')
+  const [unidade, setUnidade] = useState(base?.unidade ?? 'UN')
+  const [localizacao, setLocalizacao] = useState(base?.localizacao ?? '')
+  const [codigoBarras, setCodigoBarras] = useState(base?.codigo_barras ?? '')
+  const [precoVenda, setPrecoVenda] = useState(String(base?.preco_venda ?? '0'))
+  const [precoCusto, setPrecoCusto] = useState(String(base?.preco_custo ?? '0'))
+  const [ncm, setNcm] = useState(base?.ncm ?? '')
+  const [cest, setCest] = useState(base?.cest ?? '')
   // CEO 30/09: sem CFOP suposto (antes abria com 5102). Vazio = a nota não sai; preencha aqui ou na edição em massa.
-  const [cfopVenda, setCfopVenda] = useState(produto?.cfop_venda ?? '')
-  const [cfopVendaFora, setCfopVendaFora] = useState(produto?.cfop_venda_interestadual ?? '')
-  const [origem, setOrigem] = useState(produto?.origem ?? '0')
+  const [cfopVenda, setCfopVenda] = useState(base?.cfop_venda ?? '')
+  const [cfopVendaFora, setCfopVendaFora] = useState(base?.cfop_venda_interestadual ?? '')
+  const [origem, setOrigem] = useState(base?.origem ?? '0')
   // CEO 29/09: nada de tributação suposta. Campo vazio fica vazio (NULL) — antes a ficha abria com CST 00 / PIS e
   // COFINS 01 / alíquotas 18-1,65-7,6 e GRAVAVA isso em qualquer produto sem cadastro fiscal só por salvar a ficha.
   // Produto sem CSOSN/CST não emite NF-e (nfe-validator) — preencha aqui ou em "Edição fiscal em massa".
-  const [cstIcms, setCstIcms] = useState(produto?.cst_icms ?? '')
-  const [aliquotaIcms, setAliquotaIcms] = useState(produto?.aliquota_icms != null ? String(produto.aliquota_icms) : '')
-  const [aliquotaIpi, setAliquotaIpi] = useState(String(produto?.aliquota_ipi ?? '0'))
-  const [cstPis, setCstPis] = useState(produto?.cst_pis ?? '')
-  const [aliquotaPis, setAliquotaPis] = useState(produto?.aliquota_pis != null ? String(produto.aliquota_pis) : '')
-  const [cstCofins, setCstCofins] = useState(produto?.cst_cofins ?? '')
-  const [aliquotaCofins, setAliquotaCofins] = useState(produto?.aliquota_cofins != null ? String(produto.aliquota_cofins) : '')
+  const [cstIcms, setCstIcms] = useState(base?.cst_icms ?? '')
+  const [aliquotaIcms, setAliquotaIcms] = useState(base?.aliquota_icms != null ? String(base.aliquota_icms) : '')
+  const [aliquotaIpi, setAliquotaIpi] = useState(String(base?.aliquota_ipi ?? '0'))
+  const [cstPis, setCstPis] = useState(base?.cst_pis ?? '')
+  const [aliquotaPis, setAliquotaPis] = useState(base?.aliquota_pis != null ? String(base.aliquota_pis) : '')
+  const [cstCofins, setCstCofins] = useState(base?.cst_cofins ?? '')
+  const [aliquotaCofins, setAliquotaCofins] = useState(base?.aliquota_cofins != null ? String(base.aliquota_cofins) : '')
   // CST 60/500 · ST retido (por unidade). '' = não informado (mantém NULL no banco).
-  const [vbcstRet, setVbcstRet] = useState(produto?.vbcst_ret != null ? String(produto.vbcst_ret) : '')
-  const [pst, setPst] = useState(produto?.pst != null ? String(produto.pst) : '')
-  const [vicmsSubstituto, setVicmsSubstituto] = useState(produto?.vicms_substituto != null ? String(produto.vicms_substituto) : '')
-  const [vicmsStRet, setVicmsStRet] = useState(produto?.vicms_st_ret != null ? String(produto.vicms_st_ret) : '')
+  const [vbcstRet, setVbcstRet] = useState(base?.vbcst_ret != null ? String(base.vbcst_ret) : '')
+  const [pst, setPst] = useState(base?.pst != null ? String(base.pst) : '')
+  const [vicmsSubstituto, setVicmsSubstituto] = useState(base?.vicms_substituto != null ? String(base.vicms_substituto) : '')
+  const [vicmsStRet, setVicmsStRet] = useState(base?.vicms_st_ret != null ? String(base.vicms_st_ret) : '')
   // Grupo comb (NCM 2710) · ANP. '' = não informado (mantém NULL no banco).
-  const [combAnpCodigo, setCombAnpCodigo] = useState(produto?.combustivel_codigo_anp != null ? String(produto.combustivel_codigo_anp) : '')
-  const [combAnpDescricao, setCombAnpDescricao] = useState(produto?.combustivel_descricao_anp ?? '')
+  const [combAnpCodigo, setCombAnpCodigo] = useState(base?.combustivel_codigo_anp != null ? String(base.combustivel_codigo_anp) : '')
+  const [combAnpDescricao, setCombAnpDescricao] = useState(base?.combustivel_descricao_anp ?? '')
   const ncmEhCombustivel = ncm.replace(/\D/g, '').startsWith('2710')
 
   async function salvar() {
@@ -160,11 +174,24 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
       <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
         <div className="px-5 py-4 border-b border-[#3D2314]/10 flex items-center justify-between sticky top-0 bg-white z-10">
           <h2 className="text-[15px] font-medium text-[#3D2314]">
-            {produto ? 'Editar Produto' : 'Novo Produto'}
+            {produto ? 'Editar Produto' : ehClone ? 'Clonar Produto' : 'Novo Produto'}
           </h2>
-          <button onClick={onClose} className="text-[#3D2314]/60 hover:text-[#3D2314]">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-3">
+            {produto && onClonar && (
+              <button
+                type="button"
+                onClick={() => onClonar(produto)}
+                data-testid="produto-clonar-ficha"
+                className="text-[#C8941A] hover:text-[#A87810] flex items-center gap-1.5 text-[12.5px] font-medium"
+                title="Criar um novo produto a partir deste"
+              >
+                <Copy size={15} /> Clonar
+              </button>
+            )}
+            <button onClick={onClose} className="text-[#3D2314]/60 hover:text-[#3D2314]">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="flex border-b border-[#3D2314]/10 px-5 sticky top-[57px] bg-white z-10">
@@ -185,6 +212,15 @@ export default function ProdutoForm({ companyId, produto, onClose, onSalvo }: Pr
         </div>
 
         <div className="p-5 space-y-4">
+          {ehClone && (
+            <div data-testid="produto-clone-aviso" className="flex items-start gap-2 p-3 rounded-lg bg-[#FBF4E4] border border-[#C8941A]/40 text-[12px] text-[#3D2314]">
+              <Copy size={14} className="mt-0.5 flex-shrink-0 text-[#C8941A]" />
+              <span>
+                Clonando a partir de <b>{clonarDe?.codigo}</b> — <b>{clonarDe?.nome}</b>. Revise os dados e salve (os
+                campos fiscais foram copiados). <b>Informe um novo código</b> — ele não é copiado.
+              </span>
+            </div>
+          )}
           {aba === 'basico' && (
             <>
               <Campo label="Codigo * (interno)" value={codigo} onChange={setCodigo} placeholder="ex: PROD-001" />

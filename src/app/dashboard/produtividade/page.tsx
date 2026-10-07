@@ -8,6 +8,7 @@
 // de ausencia — capacidade em branco = a medir.
 
 import { useCallback, useEffect, useState, Suspense } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
@@ -111,6 +112,7 @@ function Inner() {
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
+      <div style={{ display: 'flex', gap: 14, fontSize: 14, margin: '6px 0' }}><b style={{ borderBottom: `2px solid ${C.gold}` }}>Cadastro</b><Link href="/dashboard/produtividade/indicadores" style={{ color: C.espM }}>Indicadores</Link></div>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Cadastro por fluxo</h1>
       <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>O fluxo é o contexto. Cada linha é um posto — clique para editar. O turno vem do ponto.</p>
 

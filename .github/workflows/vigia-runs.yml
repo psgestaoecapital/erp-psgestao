@@ -1,0 +1,79 @@
+name: Vigia de runs presos
+
+# CEO 06/10 (regra e): os jobs de aceitação têm timeout de 40 min; este vigia cancela o run cujo job está EXECUTANDO
+# há mais de 45 min (runner perdido, timeout que não pegou) — um run preso trava a fila única da demo (demo-e2e) para
+# todo mundo. Job ESPERANDO a vez na fila (queued/waiting) não é preso e nunca é cancelado.
+# Run cancelado não é vermelho: o @pos-migration cancelado é re-rodado pela fila de merge (regra a).
+# Re-run automático (Eng. Chefe 07/10): a rede das sessões do Code troca o token pelo da integração e o POST /rerun dá 403,
+# então quem re-roda é o próprio GitHub. Aceitação (PR e @pos-migration) CANCELADA na última 1 h, cujo SHA ainda é o head
+# de uma PR aberta (ou a ponta da main), é re-rodada com FILA_MERGE_TOKEN — no máximo 2 re-runs por SHA (run_attempt <= 2).
+# Run de SHA superado (cancelado pela triagem) não entra. Re-run manual: comentar /re-rodar na PR (comando-pr.yml).
+# Custo zero: repositório público (minutos do Actions gratuitos), ~10 s por rodada.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  vigia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      LIMITE_MIN: '45'
+      # workflows de e2e da demo (os que entram na fila demo-e2e) e a montagem do banco de testes
+      VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
+    steps:
+      - name: Cancelar run com job executando há mais de 45 min
+        run: |
+          set -euo pipefail
+          agora=$(date -u +%s); n=0
+          for wf in $VIGIADOS; do
+            for id in $(gh api "repos/$REPO/actions/workflows/$wf/runs?status=in_progress&per_page=50" --jq '.workflow_runs[].id'); do
+              # o job mais antigo em execução (started_at de job queued/waiting não conta)
+              ini=$(gh api "repos/$REPO/actions/runs/$id/jobs?filter=latest&per_page=100" \
+                --jq '[.jobs[] | select(.status == "in_progress") | .started_at] | min // empty')
+              [ -n "$ini" ] || continue
+              min=$(( (agora - $(date -u -d "$ini" +%s)) / 60 ))
+              [ "$min" -gt "$LIMITE_MIN" ] || continue
+              echo "::warning title=run preso cancelado::$wf run $id com job executando há $min min (> $LIMITE_MIN)"
+              echo "- $wf · run $id · $min min executando → cancelado" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null \
+                || gh api -X POST "repos/$REPO/actions/runs/$id/force-cancel" > /dev/null || true
+              n=$((n + 1))
+            done
+          done
+          echo "runs presos cancelados: $n"
+
+      - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
+        env:
+          # PAT da fila; sem ele cai no token do job (que pode dar 403 e o passo só avisa)
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN || github.token }}
+        run: |
+          set -uo pipefail
+          desde=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)
+          main_sha=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null || true)
+          n=0
+          for wf in aceitacao-pr.yml aceitacao-pos-migration.yml; do
+            gh api "repos/$REPO/actions/workflows/$wf/runs?status=cancelled&created=>=$desde&per_page=30" \
+              --jq '.workflow_runs[] | "\(.id) \(.head_sha) \(.run_attempt)"' 2>/dev/null | while read -r id sha tent; do
+              [ -n "$id" ] || continue
+              if [ "$tent" -gt 2 ]; then echo "run $id: já re-rodado 2 vezes, não repete"; continue; fi
+              # há outro run mais novo do mesmo SHA/workflow (já re-rodado ou novo)? então este não é o último
+              ult=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$sha&per_page=1" --jq '.workflow_runs[0].id' 2>/dev/null || true)
+              [ "$ult" = "$id" ] || { echo "run $id: SHA $sha tem run mais novo ($ult), ignorado"; continue; }
+              # SHA ainda vale? head de PR aberta ou ponta da main
+              vale=$(gh api "repos/$REPO/commits/$sha/pulls" --jq "[.[] | select(.state == \"open\" and .head.sha == \"$sha\")] | length" 2>/dev/null || echo 0)
+              if [ "$vale" -eq 0 ] && [ "$sha" != "$main_sha" ]; then echo "run $id: SHA superado, ignorado"; continue; fi
+              if gh api -X POST "repos/$REPO/actions/runs/$id/rerun" > /dev/null 2>&1; then
+                echo "- $wf · run $id · cancelado → re-rodado (tentativa $((tent + 1)))" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "::warning title=re-run falhou::$wf run $id (FILA_MERGE_TOKEN ausente ou sem permissão Actions)"
+              fi
+            done
+          done
