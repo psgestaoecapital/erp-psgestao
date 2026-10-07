@@ -93,9 +93,21 @@ interface Props {
   nfeId: string
   companyId: string
   onChange?: () => void
+  // #1692 · avisa a tela quando a nota foi concluída (ela sai da fila "a concluir")
+  onConcluida?: () => void
 }
 
-export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
+// #1692 · item resolvido = destino decidido: não movimenta estoque, ou vai para o estoque já com produto
+export function itemResolvido(it: Pick<Item, 'entra_estoque' | 'produto_id'>): boolean {
+  return it.entra_estoque === false || (it.entra_estoque === true && !!it.produto_id)
+}
+
+// #1692 · parcelas só fazem sentido se algum item gera financeiro
+export function algumGeraFinanceiro(itemIds: string[], extras: Record<string, { gera_financeiro: boolean } | undefined>): boolean {
+  return itemIds.some((id) => extras[id]?.gera_financeiro !== false)
+}
+
+export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Props) {
   const [itens, setItens] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -127,14 +139,20 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const [fatorSalvo, setFatorSalvo] = useState<Record<string, number>>({})
   // §5 · contas bancárias da empresa (para escolher a conta que paga a parcela)
   const [contas, setContas] = useState<{ id: string; nome: string }[]>([])
+  // #1692 · itens recolhidos numa linha (o operador marca "resolvido"); fica só nesta tela/navegador
+  const [recolhidos, setRecolhidos] = useState<Record<string, boolean>>({})
+  // #1692 · só a 1ª carga mostra "Carregando itens…"; as recargas depois de cada clique são silenciosas
+  // (antes a lista inteira sumia e voltava e a tela pulava para o meio)
+  const carregouRef = useRef(false)
 
   const carregar = useCallback(async () => {
-    setLoading(true)
+    if (!carregouRef.current) setLoading(true)
     setErro(null)
     const { data, error } = await supabase.rpc('fn_nfe_item_depara_sugerir', {
       p_nfe_recebida_id: nfeId,
     })
     setLoading(false)
+    carregouRef.current = true
     if (error) { setErro(error.message); return }
     const r = data as SugerirResp | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao sugerir'); setItens([]); return }
@@ -247,7 +265,7 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
       return
     }
     setMsg(`✅ Nota concluída — ${r.estoque?.itens_movidos ?? 0} item(ns) no estoque · ${r.financeiro?.pagar_criadas ?? 0} conta(s) a pagar.`)
-    await carregar(); onChange?.()
+    await carregar(); onConcluida?.(); onChange?.()
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -444,6 +462,8 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
   const vaiEstoque = itens.filter((x) => x.entra_estoque === true).length
   const naoMovimenta = itens.filter((x) => x.entra_estoque === false).length
   const aDecidir = itens.filter((x) => x.entra_estoque == null).length
+  const resolvidos = itens.filter(itemResolvido)
+  const mostrarParcelas = algumGeraFinanceiro(itens.map((x) => x.item_id), extras)
 
   return (
     <div className="mt-3 space-y-2">
@@ -468,6 +488,19 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
           🚫 Marcar os {aDecidir} restantes como &quot;não movimenta estoque&quot;
         </button>
       )}
+      {/* #1692 · recolher de uma vez os itens já resolvidos (fica explícito o que falta) */}
+      {resolvidos.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#3D2314]/70">
+          <span>✓ {resolvidos.length} de {itens.length} resolvido(s)</span>
+          <button type="button" data-testid="nfe-recolher-resolvidos"
+            onClick={() => setRecolhidos((r) => ({ ...r, ...Object.fromEntries(resolvidos.map((x) => [x.item_id, true])) }))}
+            className="px-2 py-1 rounded-md border border-[#3D2314]/15 hover:bg-[#3D2314]/5">recolher resolvidos</button>
+          {Object.values(recolhidos).some(Boolean) && (
+            <button type="button" onClick={() => setRecolhidos({})}
+              className="px-2 py-1 rounded-md border border-[#3D2314]/15 hover:bg-[#3D2314]/5">abrir todos</button>
+          )}
+        </div>
+      )}
       {/* E4 · navegação item a item (viável com 40 itens) */}
       {itens.length > 1 && (
         <div className="flex items-center gap-2 text-[11px] text-[#3D2314]/70">
@@ -478,16 +511,38 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
             className="px-2 py-1 rounded-md border border-[#3D2314]/15 hover:bg-[#3D2314]/5 disabled:opacity-40">próximo →</button>
         </div>
       )}
-      {itens.map((it, i) => (
-        <div key={it.item_id} ref={(el) => { itemRefs.current[it.item_id] = el }}
+      {itens.map((it, i) => recolhidos[it.item_id] ? (
+        // #1692 · item recolhido: uma linha simples, com o destino e o produto; "abrir" volta ao card completo
+        <div key={it.item_id} ref={(el) => { itemRefs.current[it.item_id] = el }} data-testid={`nfe-item-recolhido-${it.item_id}`}
+          className="rounded-lg border border-[#3D2314]/10 bg-white px-3 py-1.5 flex items-center gap-2 text-[11.5px] text-[#3D2314]">
+          <span className={itemResolvido(it) ? 'text-[#3F7012] font-medium' : 'text-[#BA7517] font-medium'}>{itemResolvido(it) ? '✓' : '⚪'}</span>
+          <span className="truncate flex-1 min-w-0">#{it.numero_item} {it.descricao}</span>
+          <span className="text-[10.5px] text-[#3D2314]/55 truncate max-w-[40%]">
+            {it.entra_estoque === false ? 'não movimenta estoque' : it.produto_nome ? `📦 ${it.produto_nome}` : 'a decidir'}
+          </span>
+          <button type="button" onClick={() => setRecolhidos((r) => ({ ...r, [it.item_id]: false }))}
+            className="text-[10.5px] px-2 py-0.5 rounded-md border border-[#3D2314]/15 hover:bg-[#3D2314]/5">abrir</button>
+        </div>
+      ) : (
+        <div key={it.item_id} ref={(el) => { itemRefs.current[it.item_id] = el }} data-testid={`nfe-item-${it.item_id}`}
           className={
-            'rounded-lg border p-3 bg-[#FAF7F2]/40 ' +
+            'rounded-lg border p-3 bg-white ' +
             (i === idxAtual && itens.length > 1 ? 'border-[#C8941A] ring-1 ring-[#C8941A]/40' : 'border-[#3D2314]/10')
           }>
           <div className="flex justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <div className="text-[12.5px] font-medium text-[#3D2314] truncate">
-                {it.descricao}
+              <div className="flex items-center gap-2">
+                <div className="text-[12.5px] font-medium text-[#3D2314] truncate flex-1 min-w-0">
+                  {it.descricao}
+                </div>
+                {/* #1692 · marcar resolvido = recolher numa linha */}
+                <button type="button" data-testid={`nfe-recolher-${it.item_id}`}
+                  onClick={() => setRecolhidos((r) => ({ ...r, [it.item_id]: true }))}
+                  title={itemResolvido(it) ? 'Item resolvido — recolher numa linha' : 'Recolher este item numa linha (ainda falta decidir o destino)'}
+                  className={'shrink-0 text-[10.5px] px-2 py-0.5 rounded-md font-medium ' +
+                    (itemResolvido(it) ? 'bg-[#E8F4DC] text-[#3F7012] hover:brightness-95' : 'border border-[#3D2314]/15 text-[#3D2314]/60 hover:bg-[#3D2314]/5')}>
+                  {itemResolvido(it) ? '✓ Resolvido · recolher' : 'recolher'}
+                </button>
               </div>
               <div className="text-[10.5px] text-[#3D2314]/60 mt-0.5">
                 cód {it.codigo_produto} · NCM {it.ncm ?? '—'} · CFOP {it.cfop ?? '—'}
@@ -541,7 +596,7 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
                       </span>
                     )}
                     <label className="flex items-center gap-1 cursor-pointer">
-                      <input type="checkbox" checked={ex.gera_financeiro !== false} onChange={(e) => void conferir(it.item_id, { gera: e.target.checked })} /> gera financeiro
+                      <input type="checkbox" data-testid={`nfe-gera-fin-${it.item_id}`} checked={ex.gera_financeiro !== false} onChange={(e) => void conferir(it.item_id, { gera: e.target.checked })} /> gera financeiro
                     </label>
                     {/* E2 · fator de conversão (CX→UN) — pergunta uma vez, vale sempre */}
                     <span className="flex items-center gap-1" data-testid={`nfe-conversao-${it.item_id}`}>1 {ex.unidade || 'emb.'} da nota =
@@ -802,7 +857,8 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange }: Props) {
       ))}
 
       {/* NFE-F2 · E3 · parcelas (duplicatas do XML) — editar/refazer antes de gerar; a soma tem que bater */}
-      {!notaInfo?.lancado_pagar && (
+      {/* #1692 · parcelas só aparecem se algum item estiver marcado "gera financeiro" */}
+      {!notaInfo?.lancado_pagar && mostrarParcelas && (
         <ParcelasBlock parcelas={parcelas} valorNota={notaInfo?.valor_total ?? null} contas={contas}
           onRefazer={(n, venc) => void refazerParcelas(n, venc)}
           onSalvar={async (lista) => {
@@ -880,7 +936,7 @@ function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
   const brl = (n: number) => 'R$ ' + Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
   function patch(i: number, p: Partial<Parcela>) { setLista((a) => a.map((x, idx) => (idx === i ? { ...x, ...p } : x))) }
   return (
-    <div className="mt-3 rounded-lg border border-[#3D2314]/12 p-3 bg-white">
+    <div className="mt-3 rounded-lg border border-[#3D2314]/12 p-3 bg-white" data-testid="nfe-parcelas">
       <div className="text-[12px] font-medium text-[#3D2314] mb-2">🧾 Parcelas do financeiro <span className="text-[10.5px] text-[#3D2314]/55 font-normal">(edite antes de gerar; a soma tem que bater com a nota)</span></div>
       <div className="flex flex-wrap items-end gap-2 mb-2 text-[11px] text-[#3D2314]/70">
         <span className="flex items-center gap-1">refazer <input type="number" min="1" value={num} onChange={(e) => setNum(e.target.value)} className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5" />×</span>

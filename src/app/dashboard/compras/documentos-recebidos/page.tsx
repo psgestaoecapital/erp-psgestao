@@ -114,15 +114,19 @@ export default function DocumentosRecebidosPage() {
   const [puxando, setPuxando] = useState<Record<string, boolean>>({})   // NFE-4 · "Puxar XML" por nota
   // NFE-F0 · E1 · conclusão da nota (selo + filtro "a concluir")
   const [concluidas, setConcluidas] = useState<Record<string, string | null>>({})
+  // #1692 · abas: a tela inicial mostra só as notas a concluir; concluída vai para "Notas concluídas"
+  const [aba, setAba] = useState<'a_concluir' | 'concluidas'>('a_concluir')
 
-  async function carregar() {
+  // #1692 · `silencioso`: recarrega sem trocar a lista por "Carregando…". Antes, cada clique dentro da nota
+  // aberta (gera financeiro, recebido, vínculo…) recarregava com o spinner, a nota aberta era desmontada e
+  // remontada e a tela pulava de posição.
+  async function carregar(silencioso = false) {
     if (!empresaUnica) return
-    setLoading(true)
+    if (!silencioso) setLoading(true)
     setErro(null)
     const { data, error } = await supabase.rpc('fn_nfe_recebidas_listar', {
       p_company_id: empresaUnica,
-      // "a_concluir" é filtro do cliente (não é status do servidor)
-      p_status: (filtroStatus === 'todos' || filtroStatus === 'a_concluir') ? null : filtroStatus,
+      p_status: filtroStatus === 'todos' ? null : filtroStatus,
       p_limit: 200,
     })
     setLoading(false)
@@ -447,16 +451,16 @@ export default function DocumentosRecebidosPage() {
 
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    let base = lista
-    // E1 · "a concluir" = ainda não concluída (a fila de trabalho da Jordana)
-    if (filtroStatus === 'a_concluir') base = base.filter((n) => !concluidas[n.id])
+    // #1692 · aba "a concluir" (fila de trabalho) × "Notas concluídas"
+    const base = lista.filter((n) => (aba === 'concluidas') === !!concluidas[n.id])
     if (!q) return base
     return base.filter((n) =>
       (n.fornecedor ?? '').toLowerCase().includes(q) ||
       (n.cnpj ?? '').includes(q.replace(/\D/g, '')) ||
       (n.chave_acesso ?? '').includes(q.replace(/\D/g, ''))
     )
-  }, [lista, busca, filtroStatus, concluidas])
+  }, [lista, busca, aba, concluidas])
+  const qtdConcluidas = lista.filter((n) => !!concluidas[n.id]).length
 
   if (!empresaUnica) {
     return (
@@ -592,13 +596,24 @@ export default function DocumentosRecebidosPage() {
               className="text-[12px] bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[#3D2314]"
             >
               <option value="todos">Todos os status</option>
-              <option value="a_concluir">A concluir (fila de trabalho)</option>
               <option value="resumo">Resumo</option>
               <option value="aguardando_xml">Aguardando SEFAZ</option>
               <option value="completa">Pronta</option>
               <option value="lancada">Lançada</option>
               <option value="ignorada">Ignorada</option>
             </select>
+          </div>
+
+          {/* #1692 · abas: concluir a nota tira ela da fila de trabalho */}
+          <div className="px-4 pt-2 border-b border-[#3D2314]/10 flex items-end gap-1" role="tablist">
+            {([['a_concluir', 'A concluir', lista.length - qtdConcluidas], ['concluidas', 'Notas concluídas', qtdConcluidas]] as const).map(([v, rotulo, qtd]) => (
+              <button key={v} type="button" role="tab" aria-selected={aba === v} data-testid={`nfe-aba-${v}`}
+                onClick={() => setAba(v)}
+                className={'text-[12px] px-3 py-2 -mb-px border-b-2 font-medium ' +
+                  (aba === v ? 'border-[#C8941A] text-[#3D2314]' : 'border-transparent text-[#3D2314]/55 hover:text-[#3D2314]')}>
+                {rotulo} <span className="tabular-nums text-[#3D2314]/50">({qtd})</span>
+              </button>
+            ))}
           </div>
 
           {erro && (
@@ -621,7 +636,7 @@ export default function DocumentosRecebidosPage() {
             <div className="px-6 py-16 text-center">
               <FileText size={36} className="mx-auto mb-3 text-[#3D2314]/30" />
               <div className="text-[14px] text-[#3D2314] font-medium mb-1">
-                {lista.length === 0 ? 'Nenhuma nota recebida ainda' : 'Nenhuma nota para o filtro atual'}
+                {lista.length === 0 ? 'Nenhuma nota recebida ainda' : aba === 'a_concluir' && !busca.trim() ? 'Nenhuma nota a concluir' : 'Nenhuma nota para o filtro atual'}
               </div>
               {lista.length === 0 && (
                 <div className="text-[12px] text-[#3D2314]/65 max-w-md mx-auto">
@@ -640,7 +655,9 @@ export default function DocumentosRecebidosPage() {
                 const podeExpandir = n.status !== 'ignorada'
                 const isExpandido = !!expandido[n.id]
                 return (
-                  <div key={n.id} className="px-4 py-3 sm:px-5 sm:py-4">
+                  // #1692 · nota aberta com fundo mais escuro: fica claro o que pertence a ela
+                  <div key={n.id} data-testid={`nfe-recebida-${n.id}`}
+                    className={'px-4 py-3 sm:px-5 sm:py-4 ' + (isExpandido ? 'bg-[#F3E9DD] border-l-4 border-[#C8941A]' : '')}>
                     <div className="flex items-start justify-between gap-3 flex-wrap">
                       <div className="flex-1 min-w-[220px]">
                         <div className="text-[13.5px] font-medium text-[#3D2314]">
@@ -813,7 +830,12 @@ export default function DocumentosRecebidosPage() {
                       <ItensNfeRecebida
                         nfeId={n.id}
                         companyId={empresaUnica}
-                        onChange={() => void carregar()}
+                        onChange={() => void carregar(true)}
+                        onConcluida={() => {
+                          setExpandido((p) => ({ ...p, [n.id]: false }))
+                          setToast('✅ Nota concluída — ela está agora na aba "Notas concluídas".')
+                          setTimeout(() => setToast(null), 5000)
+                        }}
                       />
                     )}
                   </div>
