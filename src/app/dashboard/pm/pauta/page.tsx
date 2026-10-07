@@ -460,6 +460,7 @@ export default function PautaPage() {
                   <div key={it.id} data-ajuda="pm.pauta.selecao" data-testid={`pauta-linha-${it.numero}`} className="grid grid-cols-[auto_1fr] items-start gap-x-2 gap-y-1 px-2 py-2 text-[12.5px] md:grid-cols-[24px_70px_110px_1fr_160px_150px_90px_28px] md:items-center">
                     <input type="checkbox" className="print:hidden" aria-label={`selecionar ${it.codigo}`} checked={sel.has(it.id)} onChange={(e) => { const n = new Set(sel); if (e.target.checked) n.add(it.id); else n.delete(it.id); setSel(n); }} />
                     <span className={it.atrasado ? "text-[#791F1F]" : "text-[#3D2314]/70"}>{hora(it.data_prazo) || (it.data_prazo ? it.data_prazo.slice(8, 10) + "/" + it.data_prazo.slice(5, 7) : "—")}{it.atrasado && <span className="block text-[11px]">{textoAtraso(it.dias_atraso)}</span>}</span>
+                    <span className="inline-flex items-start gap-1">
                     <button className="text-left font-medium underline-offset-2 hover:underline" onClick={() => void abrirJob(it)} data-testid={`pauta-codigo-${it.numero}`}>
                       {it.codigo}
                       <span className="ml-1 inline-flex gap-0.5 align-middle text-[#3D2314]/50">
@@ -467,6 +468,8 @@ export default function PautaPage() {
                         {it.comentarios_novos > 0 && <span className="inline-flex items-center text-[#C8941A]" title={`${it.comentarios_novos} comentário(s) novo(s)`}><MessageCircle size={12} />{it.comentarios_novos}</span>}
                       </span>
                     </button>
+                    <button className="print:hidden text-[#3D2314]/50 hover:text-[#3D2314]" title="Copiar link do job" aria-label={`copiar link do job ${it.codigo}`} onClick={() => void copiarLinkJob(it.id)} data-testid={`pauta-copiar-link-${it.numero}`}><Link2 size={12} /></button>
+                    </span>
                     <span className="col-span-2 md:col-span-1">
                       {it.nota ? <span className="mr-1 inline-flex text-[#C8941A]" title={`nota ${it.nota}`}>{Array.from({ length: it.nota }).map((_, i) => <Star key={i} size={11} fill="currentColor" />)}</span> : null}
                       {it.titulo}
