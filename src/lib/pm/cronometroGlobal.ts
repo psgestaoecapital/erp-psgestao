@@ -15,8 +15,8 @@ export async function lerCronometroAberto(userId: string): Promise<CronometroAbe
 }
 
 // Para o aberto gravando as horas (mínimo 0,01 h). Devolve as horas ou o erro.
-export async function pararCronometro(aberto: CronometroAberto): Promise<{ horas?: number; erro?: string }> {
-  const fim = new Date()
+export async function pararCronometro(aberto: CronometroAberto, fimEm?: Date): Promise<{ horas?: number; erro?: string }> {
+  const fim = fimEm ?? new Date()
   const horas = horasDoCronometro(aberto.inicio_em, fim)
   const { error } = await supabase.from('agency_timesheet').update({ fim_em: fim.toISOString(), horas }).eq('id', aberto.id)
   if (error) return { erro: error.message }
