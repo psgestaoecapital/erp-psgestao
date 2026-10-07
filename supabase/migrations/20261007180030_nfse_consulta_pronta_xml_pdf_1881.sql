@@ -190,3 +190,8 @@ BEGIN
   );
 END;
 $function$;
+
+-- Guardas da função (check:fn-guards) — preservam exatamente o acesso vivo em produção (só service_role executa).
+-- ci-sem-guarda: fn_webhook_atualizar_nfse — webhook da Focus NFe (conexão service_role, sem usuário/empresa logada); o alvo é a ÚNICA nota do provider_reference recebido, autenticada no edge focus-nfe-webhook pelo token do webhook da empresa. Não há empresa de usuário a conferir.
+REVOKE ALL ON FUNCTION public.fn_webhook_atualizar_nfse(text, text, text, text, text, text, text, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_webhook_atualizar_nfse(text, text, text, text, text, text, text, jsonb) TO service_role;
