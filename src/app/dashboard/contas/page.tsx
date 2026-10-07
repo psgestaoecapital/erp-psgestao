@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 
@@ -11,6 +11,12 @@ const G="#22C55E",R="#EF4444",B="#3B82F6",Y="#F59E0B";
 const fmtR=(v:any)=>`R$ ${(Number(v)||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
 const fmtD=(v:string)=>v?new Date(v+'T00:00:00').toLocaleDateString("pt-BR"):'—';
 const hoje=()=>new Date().toISOString().slice(0,10);
+const STATUS_PENDENTE=["pendente","aberto"];
+function useDebounced<T>(v:T,ms:number):T{
+  const[d,setD]=useState(v);
+  useEffect(()=>{const t=setTimeout(()=>setD(v),ms);return()=>clearTimeout(t);},[v,ms]);
+  return d;
+}
 
 const STATUS_CFG:Record<string,{cor:string;label:string}>={
   pendente:  {cor:Y, label:"Pendente"},
@@ -40,80 +46,81 @@ export default function ContasPage(){
   const [showVencimento,setShowVencimento]=useState(false);
   const [novoVencimento,setNovoVencimento]=useState("");
   const [processando,setProcessando]=useState(false);
+  const [recarga,setRecarga]=useState(0);
 
+  const POR_PAG=100;
+  const [limite,setLimite]=useState(POR_PAG);
+  const [totalFiltrado,setTotalFiltrado]=useState(0);
+  const [totalEmpresa,setTotalEmpresa]=useState(0);
+  const [kpis,setKpis]=useState({aReceber:0,aPagar:0,atrasadoR:0,atrasadoP:0,totalPend:0,totalAtras:0});
+  const [erroCarga,setErroCarga]=useState("");
+  const idsKey=companyIds.join(',');
+  const buscaDeb=useDebounced(busca,300);
+
+  // Volta para a 1ª página quando muda empresa ou filtro
+  useEffect(()=>{setLimite(POR_PAG);},[idsKey,filtroTipo,filtroStatus,buscaDeb]);
+
+  // KPIs: calculados sobre TODOS os títulos pendentes da empresa (paginando o servidor), nunca sobre a lista carregada
   useEffect(()=>{
-    if(companyIds.length>0){
-      loadData();
-    }
-  },[companyIds.join(',')]); // Recarrega quando muda empresa
-
-  const loadData=async()=>{
     if(companyIds.length===0)return;
-    setLoading(true);
-    const hj=hoje();
-    
-    // Lançamentos (usa IN pra consolidar múltiplas empresas)
-    const{data:lancs}=await supabase
-      .from("v_lancamentos_consolidado")
-      .select("*")
-      .in("company_id",companyIds)
-      .order("data_vencimento",{ascending:true})
-      .limit(500);
-    
-    // Marca atrasados
-    const comStatus=(lancs||[]).map((l:any)=>{
-      if(['pendente','aberto'].includes(l.status)&&l.data_vencimento<hj){
-        return{...l,_status_calc:'atrasado'};
+    let vivo=true;
+    (async()=>{
+      const hj=hoje();
+      const acc={aReceber:0,aPagar:0,atrasadoR:0,atrasadoP:0,totalPend:0,totalAtras:0};
+      for(let pg=0;pg<100;pg++){
+        const{data,error}=await supabase.from("v_lancamentos_consolidado")
+          .select("id,tipo,valor_documento,data_vencimento")
+          .in("company_id",companyIds).in("status",STATUS_PENDENTE)
+          .order("id").range(pg*1000,pg*1000+999);
+        if(error){if(vivo)setErroCarga("❌ Erro ao calcular os totais: "+error.message);return;}
+        for(const l of data||[]){
+          const v=Number(l.valor_documento||0),rec=l.tipo==='receber',atr=!!l.data_vencimento&&l.data_vencimento<hj;
+          acc.totalPend++;
+          if(rec)acc.aReceber+=v;else acc.aPagar+=v;
+          if(atr){acc.totalAtras++;if(rec)acc.atrasadoR+=v;else acc.atrasadoP+=v;}
+        }
+        if((data||[]).length<1000)break;
       }
-      return{...l,_status_calc:l.status};
-    });
-    setLancamentos(comStatus);
-    
-    // Contas bancárias (tenta carregar, mas não falha se tabela não existir)
-    try{
-      const{data:bancos}=await supabase
-        .from("erp_banco_contas")
-        .select("*")
-        .in("company_id",companyIds)
-        .eq("ativo",true);
-      setContasBancarias(bancos||[]);
-    }catch{}
-    
-    setLoading(false);
-  };
+      const{count}=await supabase.from("v_lancamentos_consolidado").select("id",{count:"exact",head:true}).in("company_id",companyIds);
+      if(vivo){setKpis(acc);setTotalEmpresa(count||0);}
+    })();
+    return()=>{vivo=false;};
+  },[idsKey,recarga]);
 
-  const filtrados=useMemo(()=>{
-    let r=lancamentos;
-    if(filtroTipo!=='todos'){
-      if(filtroTipo==='receita')r=r.filter(l=>['receita','entrada','receber'].includes(l.tipo));
-      else r=r.filter(l=>['despesa','saida','pagar'].includes(l.tipo));
-    }
-    if(filtroStatus!=='todos'){
-      if(filtroStatus==='pendente')r=r.filter(l=>['pendente','aberto'].includes(l.status)&&l._status_calc!=='atrasado');
-      else if(filtroStatus==='atrasado')r=r.filter(l=>l._status_calc==='atrasado');
-      else r=r.filter(l=>l.status===filtroStatus);
-    }
-    if(busca.trim()){
-      const b=busca.toLowerCase();
-      r=r.filter(l=>
-        (l.descricao||'').toLowerCase().includes(b)||
-        (l.cliente_nome||'').toLowerCase().includes(b)||
-        (l.fornecedor_nome||'').toLowerCase().includes(b)
-      );
-    }
-    return r;
-  },[lancamentos,filtroTipo,filtroStatus,busca]);
+  // Lista: filtros aplicados NA consulta, paginada
+  useEffect(()=>{
+    if(companyIds.length===0)return;
+    let vivo=true;
+    (async()=>{
+      setLoading(true);setErroCarga("");
+      const hj=hoje();
+      let q=supabase.from("v_lancamentos_consolidado").select("*",{count:"exact"}).in("company_id",companyIds);
+      if(filtroTipo==='receita')q=q.eq("tipo","receber");
+      else if(filtroTipo==='despesa')q=q.eq("tipo","pagar");
+      if(filtroStatus==='pendente')q=q.in("status",STATUS_PENDENTE).gte("data_vencimento",hj);
+      else if(filtroStatus==='atrasado')q=q.in("status",STATUS_PENDENTE).lt("data_vencimento",hj);
+      else if(filtroStatus==='pago')q=q.in("status",["pago","recebido"]);
+      const b=buscaDeb.trim().replace(/[,()%*]/g,' ');
+      if(b)q=q.or(`descricao.ilike.%${b}%,nome_pessoa.ilike.%${b}%`);
+      const{data,count,error}=await q.order("data_vencimento",{ascending:filtroStatus!=='pago'}).order("id").range(0,limite-1);
+      if(!vivo)return;
+      if(error){setErroCarga("❌ Erro ao carregar os lançamentos: "+error.message);setLancamentos([]);setTotalFiltrado(0);setLoading(false);return;}
+      setLancamentos((data||[]).map((l:any)=>({
+        ...l,
+        valor:l.valor_documento,
+        _status_calc:STATUS_PENDENTE.includes(l.status)&&l.data_vencimento<hj?'atrasado':l.status,
+      })));
+      setTotalFiltrado(count||0);
+      setLoading(false);
+    })();
+    // Contas bancárias (não falha se a tabela não existir)
+    supabase.from("erp_banco_contas").select("*").in("company_id",companyIds).eq("ativo",true)
+      .then(({data}:any)=>{if(vivo)setContasBancarias(data||[]);},()=>{});
+    return()=>{vivo=false;};
+  },[idsKey,filtroTipo,filtroStatus,buscaDeb,limite,recarga]);
 
-  // KPIs
-  const kpis=useMemo(()=>{
-    const pend=lancamentos.filter(l=>['pendente','aberto'].includes(l.status));
-    const atras=pend.filter(l=>l._status_calc==='atrasado');
-    const aReceber=pend.filter(l=>['receita','entrada','receber'].includes(l.tipo)).reduce((s,l)=>s+Number(l.valor||0),0);
-    const aPagar=pend.filter(l=>['despesa','saida','pagar'].includes(l.tipo)).reduce((s,l)=>s+Number(l.valor||0),0);
-    const atrasadoR=atras.filter(l=>['receita','entrada','receber'].includes(l.tipo)).reduce((s,l)=>s+Number(l.valor||0),0);
-    const atrasadoP=atras.filter(l=>['despesa','saida','pagar'].includes(l.tipo)).reduce((s,l)=>s+Number(l.valor||0),0);
-    return{aReceber,aPagar,atrasadoR,atrasadoP,totalPend:pend.length,totalAtras:atras.length};
-  },[lancamentos]);
+  const loadData=()=>setRecarga(n=>n+1);
+  const filtrados=lancamentos;
 
   const toggleSel=(id:string)=>{
     const n=new Set(selecionados);
@@ -185,7 +192,7 @@ export default function ContasPage(){
       l.data_vencimento,
       l.tipo,
       l.descricao,
-      l.cliente_nome||l.fornecedor_nome||'',
+      l.nome_pessoa||'',
       l.valor,
       l.status,
     ]);
@@ -219,6 +226,8 @@ export default function ContasPage(){
       </div>
 
       {msg&&<div style={{background:msg.startsWith("✅")?G+"15":R+"15",border:`1px solid ${msg.startsWith("✅")?G:R}40`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:msg.startsWith("✅")?G:R,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
+
+      {erroCarga&&<div style={{background:R+"15",border:`1px solid ${R}40`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:R}}>{erroCarga}</div>}
 
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:10,marginBottom:16}}>
@@ -286,8 +295,8 @@ export default function ContasPage(){
           {filtrados.length===0?(
             <div style={{padding:40,textAlign:"center"}}>
               <div style={{fontSize:40,marginBottom:8}}>💼</div>
-              <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>Nenhum lançamento encontrado</div>
-              <div style={{fontSize:11,color:TXD}}>Ajuste os filtros ou importe dados do Omie/ContaAzul</div>
+              <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>{totalEmpresa===0?"Nenhum lançamento nesta empresa":"Nenhum lançamento para os filtros escolhidos"}</div>
+              <div style={{fontSize:11,color:TXD}} data-testid="contas-vazio">{totalEmpresa===0?"Importe dados do Omie/ContaAzul":`A empresa tem ${totalEmpresa} título(s); ajuste os filtros (status, tipo ou busca).`}</div>
             </div>
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
@@ -304,7 +313,7 @@ export default function ContasPage(){
               </tr></thead>
               <tbody>
                 {filtrados.map(l=>{
-                  const isReceita=['receita','entrada','receber'].includes(l.tipo);
+                  const isReceita=l.tipo==='receber';
                   const st=l._status_calc||l.status;
                   const cfg=STATUS_CFG[st]||STATUS_CFG.pendente;
                   const empNome=companies.find((c:any)=>c.id===l.company_id);
@@ -315,7 +324,7 @@ export default function ContasPage(){
                       </td>
                       <td style={{padding:"6px 8px",textAlign:"center",color:TXM,fontFamily:"var(--ps-font-mono,monospace)"}}>{fmtD(l.data_vencimento)}</td>
                       <td style={{padding:"6px 8px",color:TX,fontWeight:500}}>{l.descricao}</td>
-                      <td style={{padding:"6px 8px",color:TXM}}>{l.cliente_nome||l.fornecedor_nome||'—'}</td>
+                      <td style={{padding:"6px 8px",color:TXM}}>{l.nome_pessoa||'—'}</td>
                       {showCompanyColumn&&<td style={{padding:"6px 8px",color:TXM,fontSize:10}}>{empNome?.nome_fantasia||empNome?.razao_social||'—'}</td>}
                       <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:isReceita?G:R,fontFamily:"var(--ps-font-mono,monospace)"}}>
                         {isReceita?'+':'−'} {fmtR(l.valor)}
@@ -329,6 +338,13 @@ export default function ContasPage(){
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {!loading&&filtrados.length>0&&(
+        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:12,marginTop:10,fontSize:11,color:TXM}}>
+          <span data-testid="contas-mostrando">Mostrando {filtrados.length} de {totalFiltrado}</span>
+          {filtrados.length<totalFiltrado&&<button data-testid="contas-carregar-mais" onClick={()=>setLimite(n=>n+POR_PAG)} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${BD}`,background:"transparent",color:TX,cursor:"pointer",fontSize:11}}>Carregar mais</button>}
         </div>
       )}
 
