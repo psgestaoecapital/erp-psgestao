@@ -4,6 +4,7 @@
 // LGPD (03/10): custo/hora por pessoa só para quem vê salário, via fn_pm_equipe_custos (registra o acesso); a coluna
 // custo_hora não é lida direto. Quem não vê salário vê a equipe sem os valores e não cadastra/edita.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { COLUNAS_EQUIPE, carregarCustosEquipe } from '@/lib/pm/equipeCustos'
@@ -74,7 +75,10 @@ export default function EquipePage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Equipe</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Custo/hora por pessoa — a base do cálculo de margem.</p>
           </div>
-          {podeVer && <button onClick={() => setEdit({ ativo: true, jornada_horas_dia: 8 })} style={btnPri}>+ Novo membro</button>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link href="/dashboard/pm/equipe/papel" style={{ ...btnSec, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Papel na agência</Link>
+            {podeVer && <button onClick={() => setEdit({ ativo: true, jornada_horas_dia: 8 })} style={btnPri}>+ Novo membro</button>}
+          </div>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
