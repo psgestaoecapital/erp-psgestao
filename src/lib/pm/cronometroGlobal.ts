@@ -39,3 +39,9 @@ export async function iniciarCronometro(empresa: string, userId: string, jobId: 
   avisarCronometro()
   return {}
 }
+
+// PM-T (4c) · total de horas já apontadas no job (todas as pessoas); linha aberta conta como horas > 0 só se fechada.
+export async function totalHorasDoJob(jobId: string): Promise<number> {
+  const { data } = await supabase.from('agency_timesheet').select('horas').eq('job_id', jobId)
+  return (data ?? []).reduce((s: number, r: { horas: number | null }) => s + Number(r.horas ?? 0), 0)
+}
