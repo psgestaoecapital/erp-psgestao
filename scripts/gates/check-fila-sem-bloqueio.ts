@@ -73,7 +73,8 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         put(`${R}/compare/main...${sha[p.n]}`, { behind_by: p.atras ?? 0 })
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [
           { name: 'check_menu', status: p.checksRodando ? 'in_progress' : 'completed', conclusion: p.checksRodando ? null : 'success', details_url: '' },
-          { name: 'aceitacao', status: 'in_progress', conclusion: null, details_url: '' }] })
+          { name: 'aceitacao', status: 'in_progress', conclusion: null, details_url: '' },
+          { name: 'gates', status: 'completed', conclusion: 'success', details_url: '' }] })
         put(`${R}/commits/${sha[p.n]}/status`, { statuses: [{ context: 'Vercel', state: 'success', description: 'Deployment has completed' }] })
       })
       put(`${R}/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1`, { workflow_runs: [{ id: 1, status: 'completed', conclusion: 'success' }] })
