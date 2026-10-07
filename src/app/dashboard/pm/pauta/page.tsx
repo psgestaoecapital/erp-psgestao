@@ -215,6 +215,7 @@ export default function PautaPage() {
       const { data } = await supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: numero ? { codigo: numero } : {}, p_situacao: null, p_agrupar: "sem", p_pagina: 1, p_por_pagina: numero ? 20 : 500 });
       const it = ((data as Lista | null)?.itens ?? []).find((x) => x.id === id);
       if (it) void abrirJob(it);
+      else setAviso({ texto: "Não foi possível abrir este job: ele não existe ou você não tem acesso a esta empresa." });
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- uma vez, depois da primeira carga
   }, [empresa, prefCarregada]);
@@ -281,6 +282,13 @@ export default function PautaPage() {
     const r = data as { ok?: boolean; mensagem?: string; erro?: string; restaurados?: number } | null;
     if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível desfazer."); return; }
     setAviso({ texto: `Desfeito: ${r.restaurados ?? 0} job(s) voltaram como estavam.` }); void carregar(1);
+  }
+
+  // Pdois (Marciana, 07/10): link do job para mandar à equipe; quem abre precisa estar logado e na empresa (RLS)
+  async function copiarLinkJob(id: string) {
+    const url = `${window.location.origin}/dashboard/pm/pauta?job=${id}`;
+    try { await navigator.clipboard.writeText(url); setAviso({ texto: "Link do job copiado. Quem abrir precisa estar logado na empresa." }); }
+    catch { window.prompt("Copie o link do job:", url); }
   }
 
   async function abrirJob(it: ItemPauta) {
@@ -452,6 +460,7 @@ export default function PautaPage() {
                   <div key={it.id} data-ajuda="pm.pauta.selecao" data-testid={`pauta-linha-${it.numero}`} className="grid grid-cols-[auto_1fr] items-start gap-x-2 gap-y-1 px-2 py-2 text-[12.5px] md:grid-cols-[24px_70px_110px_1fr_160px_150px_90px_28px] md:items-center">
                     <input type="checkbox" className="print:hidden" aria-label={`selecionar ${it.codigo}`} checked={sel.has(it.id)} onChange={(e) => { const n = new Set(sel); if (e.target.checked) n.add(it.id); else n.delete(it.id); setSel(n); }} />
                     <span className={it.atrasado ? "text-[#791F1F]" : "text-[#3D2314]/70"}>{hora(it.data_prazo) || (it.data_prazo ? it.data_prazo.slice(8, 10) + "/" + it.data_prazo.slice(5, 7) : "—")}{it.atrasado && <span className="block text-[11px]">{textoAtraso(it.dias_atraso)}</span>}</span>
+                    <span className="inline-flex items-start gap-1">
                     <button className="text-left font-medium underline-offset-2 hover:underline" onClick={() => void abrirJob(it)} data-testid={`pauta-codigo-${it.numero}`}>
                       {it.codigo}
                       <span className="ml-1 inline-flex gap-0.5 align-middle text-[#3D2314]/50">
@@ -459,6 +468,8 @@ export default function PautaPage() {
                         {it.comentarios_novos > 0 && <span className="inline-flex items-center text-[#C8941A]" title={`${it.comentarios_novos} comentário(s) novo(s)`}><MessageCircle size={12} />{it.comentarios_novos}</span>}
                       </span>
                     </button>
+                    <button className="print:hidden text-[#3D2314]/50 hover:text-[#3D2314]" title="Copiar link do job" aria-label={`copiar link do job ${it.codigo}`} onClick={() => void copiarLinkJob(it.id)} data-testid={`pauta-copiar-link-${it.numero}`}><Link2 size={12} /></button>
+                    </span>
                     <span className="col-span-2 md:col-span-1">
                       {it.nota ? <span className="mr-1 inline-flex text-[#C8941A]" title={`nota ${it.nota}`}>{Array.from({ length: it.nota }).map((_, i) => <Star key={i} size={11} fill="currentColor" />)}</span> : null}
                       {it.titulo}
@@ -550,7 +561,7 @@ export default function PautaPage() {
       {aberto && (
         <div className="fixed inset-0 z-[120] flex justify-end bg-black/30 print:hidden" onClick={() => setAberto(null)}>
           <div className="h-full w-full overflow-y-auto bg-white p-4 sm:w-[480px]" onClick={(e) => e.stopPropagation()} data-testid="pauta-job">
-            <div className="mb-2 flex items-center justify-between"><h2 className="text-[16px] font-medium">{aberto.codigo} · {aberto.titulo}</h2><button onClick={() => setAberto(null)} aria-label="fechar"><X size={16} /></button></div>
+            <div className="mb-2 flex items-center justify-between"><h2 className="text-[16px] font-medium">{aberto.codigo} · {aberto.titulo}</h2><span className="flex items-center gap-2"><button className={btn} onClick={() => void copiarLinkJob(aberto.id)} data-testid="pauta-job-copiar-link"><Link2 size={13} /> Copiar link do job</button><button onClick={() => setAberto(null)} aria-label="fechar"><X size={16} /></button></span></div>
             <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-[13px]">
               <dt className="text-[#3D2314]/60">Cliente</dt><dd>{aberto.cliente ?? "—"}</dd>
               <dt className="text-[#3D2314]/60">Responsável</dt><dd>{aberto.responsavel ?? "—"}</dd>
