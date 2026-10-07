@@ -25,6 +25,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import { timingSafeEqual } from "node:crypto"
+import { focusUrlAbsoluta } from "../_shared/focusUrl.ts"
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -70,17 +71,9 @@ function detectarTipo(p: FocusPayload): Tipo {
 // #1881 (causa raiz do "Arquivo ainda não armazenado") — a Focus manda os caminhos de XML/PDF da NFS-e
 // RELATIVOS (ex.: "/arquivos/.../NFS...-nfse.xml"). Se gravarmos crus, o fiscal-storage-worker faz
 // fetch(url) direto, a URL relativa é inválida ("Invalid URL") e queima as 5 tentativas → nunca arquiva.
-// Normalizamos para absoluta ANTES de gravar, respeitando o ambiente da nota (mesma lógica do fullUrl()
-// do gov-nfse-consultar). Base por ambiente: producao → api.focusnfe.com.br; senão homologacao.
-function focusBase(ambiente: string | null): string {
-  return ambiente === "producao"
-    ? "https://api.focusnfe.com.br"
-    : "https://homologacao.focusnfe.com.br"
-}
-function urlAbsoluta(u: string | null | undefined, base: string): string | null {
-  if (!u) return null
-  return u.startsWith("/") ? `${base}${u}` : u
-}
+// Normalizamos para absoluta ANTES de gravar, pela base do AMBIENTE DA NOTA (_shared/focusUrl.ts, a mesma regra
+// do worker). Ambiente desconhecido → grava o caminho como veio (nunca adivinha homologação); o worker
+// absolutiza ao baixar, lendo o ambiente da nota naquele momento.
 
 function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false
@@ -125,6 +118,7 @@ Deno.serve(async (req: Request) => {
 
   // Resolve company_id via provider_reference pra achar webhook_secret correto.
   // #1881: também lê o AMBIENTE da nota (producao/homologacao) — define a base para absolutizar as URLs.
+  const tabelaNota = tipo === "nfse" ? "erp_nfse_emitidas" : tipo === "nfe" ? "erp_nfe_emitidas" : null
   let companyId: string | null = null
   let notaAmbiente: string | null = null
   if (tipo === "nfse") {
@@ -144,8 +138,6 @@ Deno.serve(async (req: Request) => {
     companyId = data?.company_id ?? null
     notaAmbiente = (data as { ambiente?: string | null } | null)?.ambiente ?? null
   }
-  const focusUrlBase = focusBase(notaAmbiente)
-
   // Fallback por CNPJ do prestador (resolvida pela provider_reference OU cnpj) — cobre a corrida em que o
   // aviso chega antes da nota estar indexada pela provider_reference. companies.cnpj é 14 dígitos.
   if (!companyId) {
@@ -153,6 +145,13 @@ Deno.serve(async (req: Request) => {
     if (cnpj.length === 14) {
       const { data } = await sb.from("companies").select("id").eq("cnpj", cnpj).maybeSingle()
       companyId = data?.id ?? null
+    }
+    // #1881 (ressalva do Eng. Chefe): achada só pelo CNPJ, a nota não deu o ambiente. Relê a nota (ela pode ter sido
+    // indexada nesse meio-tempo). Se continuar sem ambiente, as URLs ficam como vieram — o worker absolutiza depois.
+    if (companyId && tabelaNota && providerReference) {
+      const { data: nota } = await sb.from(tabelaNota).select("ambiente")
+        .eq("company_id", companyId).eq("provider_reference", providerReference).maybeSingle()
+      notaAmbiente = (nota as { ambiente?: string | null } | null)?.ambiente ?? null
     }
   }
 
@@ -208,8 +207,8 @@ Deno.serve(async (req: Request) => {
         p_numero: payload.numero ?? null,
         p_codigo_verificacao: payload.codigo_verificacao ?? null,
         // #1881: absolutiza (caminho relativo da Focus → URL completa) e inclui url_danfse (S3 público do DANFSE)
-        p_xml_url: urlAbsoluta(payload.url_xml ?? payload.caminho_xml_nota_fiscal ?? null, focusUrlBase),
-        p_pdf_url: urlAbsoluta(payload.url_pdf ?? payload.url_danfse ?? payload.caminho_danfse ?? null, focusUrlBase),
+        p_xml_url: focusUrlAbsoluta(payload.url_xml ?? payload.caminho_xml_nota_fiscal ?? null, notaAmbiente),
+        p_pdf_url: focusUrlAbsoluta(payload.url_pdf ?? payload.url_danfse ?? payload.caminho_danfse ?? null, notaAmbiente),
         p_provider_raw: payload,
       })
       resultado = (data as Record<string, unknown>) ?? { ok: true }
@@ -222,8 +221,8 @@ Deno.serve(async (req: Request) => {
         p_numero: payload.numero ?? null,
         p_protocolo: payload.protocolo ?? null,
         // #1881: mesma absolutização (NF-e também pode vir com caminho relativo)
-        p_xml_url: urlAbsoluta(payload.caminho_xml_nota_fiscal ?? payload.url_xml ?? null, focusUrlBase),
-        p_danfe_url: urlAbsoluta(payload.caminho_danfe ?? payload.url_pdf ?? null, focusUrlBase),
+        p_xml_url: focusUrlAbsoluta(payload.caminho_xml_nota_fiscal ?? payload.url_xml ?? null, notaAmbiente),
+        p_danfe_url: focusUrlAbsoluta(payload.caminho_danfe ?? payload.url_pdf ?? null, notaAmbiente),
         p_provider_raw: payload,
       })
       resultado = (data as Record<string, unknown>) ?? { ok: true }
