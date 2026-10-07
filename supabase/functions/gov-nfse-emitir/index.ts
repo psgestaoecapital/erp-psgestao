@@ -98,8 +98,10 @@ function isoBrasilia(): string {
   return `${y}-${m}-${d}T${hh}:${mm}:${ss}-03:00`
 }
 
+// #1944 · competência = dia de BRASÍLIA (o split do ISO em UTC virava o dia seguinte depois das 21h).
+// Edge inalcançável desde 23/09 (a emissão vai pela rota /api/fiscal/nfse/emitir), corrigida pelo mesmo critério (RD-71).
 function dataAtual(): string {
-  return new Date().toISOString().split("T")[0]
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date())
 }
 
 // FIX-NFSE-EMITIR-GRAVAR-RETORNO-v1 · extrai motivo de rejeicao da Focus
