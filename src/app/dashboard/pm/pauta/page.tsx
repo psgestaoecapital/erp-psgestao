@@ -15,6 +15,7 @@ import { ClienteBusca } from "@/components/pm/ClienteBusca";
 import { JobFluxo } from "@/components/pm/JobFluxo";
 import { JobComentarios } from "@/components/pm/JobComentarios";
 import { Cronometro } from "@/components/pm/Cronometro";
+import { BotaoPlay } from "@/components/pm/BotaoPlay";
 import { exportarExcel, type Coluna } from "@/lib/export/relatorioLista";
 import {
   agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, prazoAprovacao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
@@ -465,7 +466,7 @@ export default function PautaPage() {
                     <span className={it.atrasado ? "text-[#791F1F]" : ""}>{it.cliente ?? "—"}</span>
                     <span>{it.responsavel ?? "—"}</span>
                     <span className="text-right text-[11.5px]">{lista?.pode_ver_margem && it.margem != null ? <span className={it.margem < 0 ? "text-[#791F1F]" : "text-[#2F5A1F]"} title="margem do job">{brl(it.margem)}</span> : null}</span>
-                    <Link href={`/dashboard/pm/apontamento-horas?job=${it.id}`} className="print:hidden" title="cronômetro neste job" aria-label="cronômetro neste job"><Play size={14} /></Link>
+                    {empresa && <BotaoPlay empresa={empresa} userId={userId} jobId={it.id} rotulo={it.codigo} />}
                   </div>
                 );
               })}
