@@ -136,3 +136,7 @@ REVOKE ALL ON FUNCTION public.fn_pm_papel_agencia_definir(uuid, uuid, text) FROM
 GRANT EXECUTE ON FUNCTION public.fn_pm_papel_agencia_listar(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_pm_papel_agencia_simular(uuid, uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_pm_papel_agencia_definir(uuid, uuid, text) TO authenticated;
+
+-- fn_nr36_pode_subir: mesmo ACL que já está em produção (authenticated + service_role, sem anon).
+REVOKE ALL ON FUNCTION public.fn_nr36_pode_subir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_pode_subir(uuid) TO authenticated, service_role;
