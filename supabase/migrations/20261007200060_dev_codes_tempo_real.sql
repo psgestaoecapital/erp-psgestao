@@ -2,7 +2,8 @@
 -- Por Code: o que está sendo trabalhado AGORA (lease + mensagem em andamento), o que foi ENTREGUE (PR publicada, com
 -- hora e link) e o que está na FILA (mensagens novas). Visível só para a equipe PS — inclusive no Realtime.
 --
--- 1) fn_dev_painel_pode_ver(): quem é "equipe PS" para o painel = is_admin() OU membro ATIVO de ps_equipe_acesso.
+-- 1) fn_dev_painel_pode_ver(): quem é "equipe PS" para o painel = SOMENTE membro ATIVO de ps_equipe_acesso
+--    (fn_equipe_ps_ativa). Sem is_admin(): ele olha users.role (adm/acesso_total), que usuário de cliente pode ter (CEO 07/10).
 -- 2) erp_dev_entrega (NOVA): eventos das PRs (aberta|pronta|publicada|fechada), gravados pelo workflow
 --    registrar-entrega.yml com a service_role. Único por (pr_numero, evento, sha). RLS: SELECT só da equipe PS;
 --    INSERT/UPDATE só service_role; nada ao anon (RD-79).
@@ -14,17 +15,24 @@
 -- 5) system_screens (RD-50): rota /dashboard/dev/codes.
 
 -- ── 1) quem vê o painel ──────────────────────────────────────────────────────────────────────────────────────────
+-- ps_equipe_acesso tem RLS própria (só PS_ADMIN lê): as policies consultam por função SECURITY DEFINER
+CREATE OR REPLACE FUNCTION public.fn_equipe_ps_ativa() RETURNS boolean
+ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $function$
+  SELECT auth.uid() IS NOT NULL AND EXISTS (SELECT 1 FROM ps_equipe_acesso e WHERE e.user_id = auth.uid() AND e.ativo)
+$function$;
+REVOKE ALL ON FUNCTION public.fn_equipe_ps_ativa() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_equipe_ps_ativa() TO authenticated, service_role;
+COMMENT ON FUNCTION public.fn_equipe_ps_ativa() IS
+  'Equipe PS = membro ATIVO de ps_equipe_acesso (nunca users.role, que usuário de cliente pode ter). Base das policies da equipe PS.';
+
 CREATE OR REPLACE FUNCTION public.fn_dev_painel_pode_ver() RETURNS boolean
  LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $function$
-  SELECT auth.uid() IS NOT NULL AND (
-    public.is_admin()
-    OR EXISTS (SELECT 1 FROM public.ps_equipe_acesso e WHERE e.user_id = auth.uid() AND e.ativo)
-  )
+  SELECT public.fn_equipe_ps_ativa()
 $function$;
 REVOKE ALL ON FUNCTION public.fn_dev_painel_pode_ver() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_dev_painel_pode_ver() TO authenticated, service_role;
 COMMENT ON FUNCTION public.fn_dev_painel_pode_ver() IS
-  'Equipe PS para a aba Codes da Central de Desenvolvimento: is_admin() ou ps_equipe_acesso ativo. Usada nas policies e na tela.';
+  'Equipe PS para a aba Codes da Central de Desenvolvimento: SOMENTE ps_equipe_acesso ativo (fn_equipe_ps_ativa). Usada nas policies e na tela.';
 
 -- ── 2) erp_dev_entrega ───────────────────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.erp_dev_entrega (

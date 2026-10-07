@@ -1,5 +1,5 @@
 // Central de Desenvolvimento · aba "Codes" em tempo real (CEO 07/10 14:30). Migration 20261007200060 · @pos-migration.
-//   1) usuário de cliente (o robô: role operacional, fora de ps_equipe_acesso) é RECUSADO — 0 linhas pela REST e a aba
+//   1) usuário de cliente (o robô: fora de ps_equipe_acesso — o users.role não conta) é RECUSADO — 0 linhas pela REST e a aba
 //      mostra "Acesso restrito à equipe PS";
 //   2) equipe PS: a aba carrega e um evento NOVO em erp_dev_entrega aparece sem recarregar (Realtime com RLS);
 //   3) o script do workflow registrar-entrega grava "publicada" quando uma PR é mergeada (idempotente no re-run).
@@ -32,9 +32,9 @@ test.describe('Central de Desenvolvimento · aba Codes', () => {
   })
 
   test('usuário de cliente é recusado: não lê os dados e a aba mostra acesso restrito', { tag: '@pos-migration' }, async ({ page }) => {
-    const [robo] = await dbSelect<{ role: string }>('users', `id=eq.${ROBO}&select=role`)
+    // equipe PS = SOMENTE ps_equipe_acesso ativo (o users.role não conta: usuário de cliente pode ter adm/acesso_total)
     const naEquipe = await dbSelect<{ user_id: string }>('ps_equipe_acesso', `user_id=eq.${ROBO}&ativo=eq.true&select=user_id`)
-    test.skip(['adm', 'acesso_total'].includes(robo?.role ?? '') || naEquipe.length > 0, 'o robô é da equipe PS neste banco: não serve de usuário de cliente')
+    test.skip(naEquipe.length > 0, 'o robô está na equipe PS neste banco (outro teste em andamento): não serve de usuário de cliente')
     for (const t of ['erp_dev_entrega', 'erp_agente_sessao_lease', 'erp_agente_rotina']) {
       const r = await comoRobo(t, 'select=*&limit=5')
       expect(r.status, `${t}: leitura responde`).toBe(200)

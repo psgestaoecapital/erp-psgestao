@@ -39,8 +39,13 @@ async function main() {
   const policies = [...sql.matchAll(/CREATE POLICY (\w+) ON public\.(\w+)\s+FOR (\w+) TO (\w+) USING \(([^;]*)\);/g)]
   ok(policies.length === 4 && policies.every((p) => p[3] === 'SELECT' && p[4] === 'authenticated' && p[5].trim() === 'public.fn_dev_painel_pode_ver()'),
     `4 policies, todas SELECT da equipe PS (fn_dev_painel_pode_ver) — nenhuma de escrita (${policies.length})`)
-  ok(/auth\.uid\(\) IS NOT NULL AND \(\s*public\.is_admin\(\)\s*OR EXISTS \(SELECT 1 FROM public\.ps_equipe_acesso e WHERE e\.user_id = auth\.uid\(\) AND e\.ativo\)/.test(sql),
-    'equipe PS = is_admin() ou ps_equipe_acesso ativo')
+  // CEO 07/10: equipe PS = SOMENTE ps_equipe_acesso ativo. is_admin() olha users.role (adm/acesso_total), que usuário de
+  // cliente pode ter — não entra em nenhuma regra de acesso desta migration.
+  ok(/FUNCTION public\.fn_equipe_ps_ativa\(\) RETURNS boolean[\s\S]*?SELECT auth\.uid\(\) IS NOT NULL AND EXISTS \(SELECT 1 FROM ps_equipe_acesso e WHERE e\.user_id = auth\.uid\(\) AND e\.ativo\)\s*\$function\$;/.test(sql)
+    && /FUNCTION public\.fn_dev_painel_pode_ver\(\) RETURNS boolean[\s\S]*?AS \$function\$\s*SELECT public\.fn_equipe_ps_ativa\(\)\s*\$function\$;/.test(sql),
+    'equipe PS = SOMENTE ps_equipe_acesso ativo (fn_dev_painel_pode_ver → fn_equipe_ps_ativa)')
+  ok(!/is_admin\s*\(/.test(sql), 'sem is_admin() (users.role pode ser de usuário de cliente)')
+  ok(/REVOKE ALL ON FUNCTION public\.fn_equipe_ps_ativa\(\) FROM PUBLIC, anon;/.test(sql), 'fn_equipe_ps_ativa fechada ao anon')
   ok(/REVOKE ALL ON FUNCTION public\.fn_dev_painel_pode_ver\(\) FROM PUBLIC, anon;/.test(sql), 'fn_dev_painel_pode_ver fechada ao anon')
   const colsMsg = sql.match(/GRANT SELECT \(([^)]*)\)\s*ON TABLE public\.erp_agente_mensagem TO authenticated/)?.[1] ?? ''
   ok(!!colsMsg && !/\bcorpo\b|\bacionamento\b/.test(colsMsg) && /\bassunto\b/.test(colsMsg) && /\bpr_numero\b/.test(colsMsg),
