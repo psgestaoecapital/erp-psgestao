@@ -10,6 +10,12 @@
 #   (b) PR SEM migration não espera o @pos-migration: exige checks verdes + Vercel + aceitação (preview).
 #   (c) PR sensível (label revisao-eng-chefe) exige "MERGE AUTORIZADO #N — gilberto-revisor · patch-id <hex>" com o
 #       patch-id do CONTEÚDO atual (scripts/merge/patch-id.sh). Atualizar com a main mantém; mudar o código derruba.
+#   (e) ESTEIRA EM 2 VELOCIDADES (CEO 07/10 08:05 — TEMPORÁRIA, até haver um banco de testes por vaga):
+#       VIA RÁPIDA  = PR SEM a label revisao-eng-chefe: checks rápidos + preview (Vercel, build real) verdes; a
+#                     aceitação (checks aceitacao/triagem/@pos-migration informativo) é só informativa — não entra
+#                     em pendente/vermelho/cancelado e não é exigida. A aceitação da main roda de hora em hora
+#                     (aceitacao-main.yml, banco de testes): vermelho = corrigir em 1 h ou reverter.
+#       VIA REVISADA = PR COM revisao-eng-chefe: aceitação verde + MERGE AUTORIZADO pelo patch-id (como antes).
 #   (d) vermelho de verdade (conflito, check falho, autorização inválida) → comenta o motivo e tira a label.
 #
 # Uso: GH_TOKEN=<PAT> REPO=dono/repo scripts/merge/fila-merge.sh   (num checkout da main com histórico completo)
@@ -66,22 +72,31 @@ estado_main() {
   echo "esperar:@pos-migration da main $conc (run $id) sem verde depois da última migration — re-rodando"
 }
 
-# Verificação de checks do commit de cabeça. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
+# checks da aceitação: na VIA RÁPIDA são só informativos (não contam e não são exigidos)
+ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
+
+# Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 linhas pend verm canc acc vercel_ok vercel_ruim
+  local sha=$1 via=${2:-revisada} linhas pend verm canc acc vercel_ok vercel_ruim
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
+  # via rápida: tira a aceitação do cálculo de pendentes, vermelhos e cancelados
+  [ "$via" = rapida ] && linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas")
   pend=$(awk -F'\t' '$2 != "completed" {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
   verm=$(awk -F'\t' '$3 ~ /^(failure|timed_out|action_required|startup_failure|stale)$/ {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
   canc=$(awk -F'\t' '$3 == "cancelled" {print $4}' <<< "$linhas" | sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' | sort -u)
   [ -z "$verm" ] || { echo "vermelho:check vermelho: $verm"; return; }
   [ -z "$pend" ] || { echo "esperar:checks rodando: $pend"; return; }
   if [ -n "$canc" ]; then for id in $canc; do rerodar "$id" >&2; done; echo "esperar:check cancelado re-disparado"; return; fi
-  # aceitação (preview): tem de existir e estar verde (ou dispensada pela triagem)
-  acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
-  case "$acc" in success|skipped|neutral) ;; '') echo "esperar:aceitação (preview) ainda não rodou"; return;; *) echo "vermelho:aceitação $acc"; return;; esac
-  # Vercel (build com os gates): status de commit ou check-run cujo nome começa com Vercel
-  vercel_ok=$( { api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | select(.context | startswith("Vercel")) | .state'
+  # aceitação (preview): na via REVISADA tem de existir e estar verde (ou dispensada pela triagem)
+  if [ "$via" = revisada ]; then
+    acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
+    case "$acc" in success|skipped|neutral) ;; '') echo "esperar:aceitação (preview) ainda não rodou"; return;; *) echo "vermelho:aceitação $acc"; return;; esac
+  fi
+  # Vercel (preview): status de commit ou check-run cujo nome começa com Vercel — só build REAL conta como verde
+  # (build pulado aparece como success "Canceled by Ignored Build Step": conta como pendente)
+  vercel_ok=$( { api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | select(.context | startswith("Vercel"))
+                   | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end'
                  awk -F'\t' '$1 ~ /^Vercel/ {print $3}' <<< "$linhas"; } | sort -u)
   vercel_ruim=$(grep -vE '^(success)$' <<< "$vercel_ok" | grep -v '^$' || true)
   [ -n "$vercel_ok" ] || { echo "esperar:Vercel ainda não respondeu"; return; }
@@ -128,8 +143,13 @@ for n in $fila; do
   api "repos/$REPO/pulls/$n/files" --paginate --jq '.[].filename' | grep -q '^supabase/migrations/' && com_migration=1
   if [ "$so_sem_migration" = 1 ] && [ "$com_migration" = 1 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
 
+  # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
+  via=rapida
+  jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
+  log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')"
+
   # (c) sensível → autorização pelo conteúdo
-  if jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null; then
+  if [ "$via" = revisada ]; then
     a=$(autorizacao "$n")
     [ "$a" = ok ] || { tirar_da_fila "$n" "${a#vermelho:}"; continue; }
     log "#$n: autorização do gilberto-revisor confere com o conteúdo (patch-id)"
@@ -146,7 +166,7 @@ for n in $fila; do
     exit 0
   fi
 
-  c=$(estado_checks "$sha")
+  c=$(estado_checks "$sha" "$via")
   case "$c" in
     vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})"; continue;;
     esperar:*) log "#$n aguardando: ${c#esperar:}"; exit 0;;
@@ -163,8 +183,8 @@ for n in $fila; do
 
   # merge travado no SHA conferido (se alguém empurrou no meio, o GitHub recusa)
   if out=$(api -X PUT "repos/$REPO/pulls/$n/merge" -f merge_method=squash -f sha="$sha" -f commit_title="$titulo (#$n)" 2>&1); then
-    log "#$n MERGEADA (squash, ${sha:0:7})"
-    comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\`.$([ "$com_migration" = 1 ] && echo ' Tem migration: veredito no @pos-migration da main (vermelho = reverter).')"
+    log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada)"
+    comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida** (aceitação informativa; a aceitação da main roda de hora em hora)' || echo 'revisada**').$([ "$com_migration" = 1 ] && echo ' Tem migration: veredito no @pos-migration da main (vermelho = reverter).')"
     exit 0
   fi
   tirar_da_fila "$n" "o GitHub recusou o merge: $(tr '\n' ' ' <<< "$out" | cut -c1-300)"
