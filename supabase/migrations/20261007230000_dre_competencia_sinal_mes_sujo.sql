@@ -1,8 +1,9 @@
 -- DRE núcleo (todas as empresas) — msgs 32327000 + 5b12de3b (07/10), via revisada (revisao-eng-chefe), RD-53/54/91.
 -- (1) COMPETÊNCIA = COALESCE(data_competencia, data_emissao) em pagar E receber (blocos direto + receber do ramo Omie).
 --     Regime CAIXA (data_pagamento) já usava a data certa; ramo erp_lancamentos/Omie-pagar (view) segue por emissão (fora do escopo, relatado).
--- (2) SINAL: receita mapeada a NAO_OPER (ex.: 1.04 -> 9.2) era gravada positiva e o leitor SUBTRAI o grupo
---     NAO_OPER (fator -1) -> receita virava despesa. Passa a gravar NEGATIVO (subtraído duas vezes = soma).
+-- (2) SINAL (consolida a #2160): receita em NAO_OPER/RESULT_FIN (ex.: 1.04 -> 9.2) é SOMADA ao grupo que o leitor
+--     subtrai -> vira despesa. Corrigido num ÚNICO ponto, na APRESENTAÇÃO (fn_psgc_dre_horizontal e _dia, patch
+--     sobre a definição viva ao fim desta migration). O ETL grava como sempre (positivo): psgc_dre não muda de valor.
 -- (3) MÊS SUJO: o trigger enfileirava só o mês da emissão; agora enfileira também o mês da competência e o do
 --     pagamento, novos e antigos (OLD), em dre e fluxo.
 -- Idempotência: o DELETE do mês no topo da função limpa tudo antes dos INSERT ... ON CONFLICT somarem (provado no teste).
@@ -96,7 +97,7 @@ BEGIN
     FROM (
       SELECT cln.ln_id as ln_id_val, cln.ln_nome as ln_nome_val,
         COALESCE(pd.psgc_codigo, '1.4') as codigo_psgc,
-        CASE WHEN pd.dre_grupo = 'NAO_OPER' THEN -COALESCE(r.valor, 0) ELSE COALESCE(r.valor, 0) END as v, 1 as q
+        COALESCE(r.valor, 0) as v, 1 as q
       FROM erp_receber r
       LEFT JOIN LATERAL (
         SELECT pd.psgc_codigo, pc.dre_grupo FROM psgc_depara pd
@@ -206,7 +207,7 @@ BEGIN
            codigo_psgc, SUM(v), SUM(q), 'etl_receber_direto', 'competencia'
     FROM (
       SELECT COALESCE(dp.psgc_codigo, '1.4') AS codigo_psgc,
-             CASE WHEN dp.dre_grupo = 'NAO_OPER' THEN -r.valor ELSE r.valor END AS v, 1 AS q
+             r.valor AS v, 1 AS q
       FROM erp_receber r
       LEFT JOIN LATERAL (
         SELECT pd.psgc_codigo, pcx.dre_grupo FROM psgc_depara pd JOIN psgc_contas pcx ON pcx.codigo = pd.psgc_codigo
@@ -274,7 +275,7 @@ BEGIN
            codigo_psgc, SUM(v), SUM(q), 'etl_receber_caixa', 'caixa'
     FROM (
       SELECT COALESCE(dp.psgc_codigo, '1.4') AS codigo_psgc,
-             CASE WHEN dp.dre_grupo = 'NAO_OPER' THEN -r.valor ELSE r.valor END AS v, 1 AS q
+             r.valor AS v, 1 AS q
       FROM erp_receber r
       LEFT JOIN LATERAL (
         SELECT pd.psgc_codigo, pcx.dre_grupo FROM psgc_depara pd JOIN psgc_contas pcx ON pcx.codigo = pd.psgc_codigo
@@ -358,3 +359,25 @@ EXCEPTION WHEN OTHERS THEN
   RAISE WARNING 'Falha ao enfileirar recálculo PSGC: %', SQLERRM;
   RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END $function$;
+
+-- (2) SINAL na apresentação (era a #2160): receita (source *receber*) em NAO_OPER/RESULT_FIN entra com sinal invertido.
+-- Patch sobre a definição VIVA com asserção: falha alto se o texto esperado não existir. Só aqui — o ETL NÃO inverte.
+DO $mig$
+DECLARE
+  v_def text; v_new text;
+BEGIN
+  v_def := pg_get_functiondef('public.fn_psgc_dre_horizontal(uuid[],date,date,text)'::regprocedure);
+  v_new := replace(v_def,
+    E'SUM(d.valor) AS valor\n    FROM psgc_dre d\n',
+    E'SUM(CASE WHEN d.source ILIKE ''%receber%'' AND pcx.dre_grupo IN (''NAO_OPER'',''RESULT_FIN'') THEN -d.valor ELSE d.valor END) AS valor\n    FROM psgc_dre d\n    LEFT JOIN psgc_contas pcx ON pcx.codigo = d.psgc_codigo\n');
+  IF v_new = v_def THEN RAISE EXCEPTION 'patch A1 não aplicou'; END IF;
+  EXECUTE v_new;
+
+  v_def := pg_get_functiondef('public.fn_psgc_dre_horizontal_dia(uuid[],integer,integer,text)'::regprocedure);
+  v_new := replace(v_def,
+    E'COALESCE(r.valor,0) AS valor, r.company_id\n    FROM erp_receber r\n',
+    E'CASE WHEN COALESCE(best.psgc_codigo, ''1.4'') IN (SELECT codigo FROM psgc_contas WHERE dre_grupo IN (''NAO_OPER'',''RESULT_FIN'')) THEN -COALESCE(r.valor,0) ELSE COALESCE(r.valor,0) END AS valor, r.company_id\n    FROM erp_receber r\n');
+  IF v_new = v_def THEN RAISE EXCEPTION 'patch A2 não aplicou'; END IF;
+  EXECUTE v_new;
+END
+$mig$;
