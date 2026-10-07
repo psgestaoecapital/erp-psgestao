@@ -288,6 +288,12 @@ export function montarPrevia(leitura: LeituraContagem, produtos: ProdutoAtual[])
       p = c
     }
     if (!p) { erros.push({ linha: l.linha, mensagem: `"${l.descricao || l.codigo}" não é um produto ativo desta empresa.` }); continue }
+    // CÓDIGO é a chave: o id da linha tem de ser do mesmo produto do código. Divergiu (ex.: planilha ordenada só nas colunas
+    // visíveis, com a coluna id oculta ficando para trás) → recusa a linha e lista no relatório; nunca "ajusta" para outro produto.
+    if (l.id && l.codigo && (p.codigo ?? '').trim() !== l.codigo) {
+      erros.push({ linha: l.linha, mensagem: `Código "${l.codigo}" não confere com o id da linha (o id é do produto de código "${(p.codigo ?? '').trim() || 'sem código'}"). Linha recusada — nada foi ajustado; baixe a planilha de novo e não ordene só as colunas visíveis.` })
+      continue
+    }
     if (usados.has(p.id)) { erros.push({ linha: l.linha, mensagem: `"${p.nome}" aparece em mais de uma linha.` }); continue }
     usados.add(p.id)
     const sistema = r3(Number(p.estoque_atual ?? 0))

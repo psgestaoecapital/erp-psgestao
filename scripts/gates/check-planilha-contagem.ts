@@ -93,6 +93,28 @@ async function main() {
   const semAba = await lerPlanilhaContagem(new Uint8Array(await outro.xlsx.writeBuffer() as ArrayBuffer))
   ok(semAba.linhas.length === 0 && semAba.erros.length === 1 && /Contagem/.test(semAba.erros[0].mensagem), 'arquivo sem a aba Contagem é recusado com mensagem')
 
+  // ── bug FCR 06/10: id desalinhado do código (planilha reordenada só nas colunas visíveis) → recusa a linha, nunca ajusta
+  const cinco: (ProdutoContagem & { preco_custo_medio: number })[] = ['274', '1055', '300', '301', '302'].map((c, i) => ({
+    id: `e${i}000000-0000-4000-a000-00000000000${i}`, codigo: c, codigo_barras: null, nome: `Produto ${c}`, unidade: 'UN', localizacao: null, estoque_atual: 10, preco_custo_medio: 1,
+  }))
+  const exp5 = await abrir(await gerarPlanilhaContagem({ ...base, cega: true, produtos: cinco }))
+  const k5 = chaves(exp5), iId = k5.indexOf('id') + 1, iCod = k5.indexOf('codigo') + 1, iQ = k5.indexOf('quantidade_contada') + 1
+  ok(cinco.every((p, i) => String(exp5.getRow(PRIMEIRA_LINHA_DADOS + i).getCell(iId).value) === p.id && String(exp5.getRow(PRIMEIRA_LINHA_DADOS + i).getCell(iCod).value) === p.codigo),
+    'exportação: o id de cada linha é o do produto do código da linha (274, 1055, …)')
+  const volta = (ordem: number[]) => {
+    // reordena SÓ as colunas visíveis (o id oculto fica para trás), como o Excel faz ao ordenar uma seleção parcial
+    ordem.forEach((j, i) => { const rw = exp5.getRow(PRIMEIRA_LINHA_DADOS + i); rw.getCell(iCod).value = cinco[j].codigo; rw.getCell(iQ).value = 5 })
+    return exp5.workbook.xlsx.writeBuffer().then((b) => lerPlanilhaContagem(new Uint8Array(b as ArrayBuffer)))
+  }
+  for (let rodada = 1; rodada <= 2; rodada++) {
+    const l5 = await volta([2, 0, 4, 1, 3])
+    const p5 = montarPrevia(l5, cinco.map((p) => ({ ...p })))
+    ok(p5.itens.length === 0 && p5.erros.length === 5 && p5.erros.every((e) => /não confere com o id/.test(e.mensagem)),
+      `importação (rodada ${rodada}): 5 linhas com id divergente do código são recusadas e listadas, nenhuma entra`)
+  }
+  const certo = montarPrevia(await volta([0, 1, 2, 3, 4]), cinco.map((p) => ({ ...p })))
+  ok(certo.itens.length === 5 && certo.erros.length === 0, 'importação: id e código conferem → as 5 linhas entram')
+
   // ── tela: nada ajusta sem confirmação
   const modal = readFileSync('src/components/estoque/PlanilhaContagemInventario.tsx', 'utf8')
   ok(!/fechar_inventario|fn_movimentar_estoque|registrar_movimento_estoque|erp_estoque_movimentacoes/.test(modal), 'subida da planilha não ajusta estoque (sem fechar_inventario / movimentação)')
