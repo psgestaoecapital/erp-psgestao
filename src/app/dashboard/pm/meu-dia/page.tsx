@@ -5,6 +5,7 @@
 // Lê a mesma regra da Pauta (fn_pauta_listar com o atalho "meus"); nada de tabela nova. Todo campo tem o "?".
 
 import { BarraHorasHoje } from "@/components/pm/BarraHorasHoje";
+import { ResumoFimDia } from "@/components/pm/ResumoFimDia";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Sun, AtSign, History, StickyNote, Pin, PinOff, Archive, CalendarClock, ListChecks, AlertTriangle } from "lucide-react";
@@ -125,6 +126,7 @@ export default function MeuDiaPage() {
       <div className="grid gap-3 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
           {userId && <BarraHorasHoje empresa={empresa} userId={userId} />}
+          {userId && <ResumoFimDia empresa={empresa} userId={userId} />}
           {userId && <Cronometro empresa={empresa} userId={userId} jobs={jobsCrono} onMudou={() => void carregar()} />}
 
           <section className={cartao} data-testid="dia-para-hoje">
