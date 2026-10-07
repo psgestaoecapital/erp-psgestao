@@ -8,7 +8,7 @@
 --     (estrangeira adquirida no mercado interno) e 6 vira 7 — tabela A da origem da mercadoria (CST ICMS);
 --   • cfop_compra = CFOP de entrada já convertido (cfop_entrada) e unidade_compra = unidade da nota.
 -- Só a criação NOVA muda; produtos já existentes não são tocados aqui (acerto dos 149 da Gean é decisão à parte).
--- Mesma assinatura, mesma guarda de acesso, mesmos grants (CREATE OR REPLACE preserva).
+-- Mesma assinatura, mesma guarda de acesso, mesmos grants (reafirmados no fim, iguais aos de produção).
 
 CREATE OR REPLACE FUNCTION public.fn_nfe_item_criar_produto(p_item_id uuid, p_dados jsonb DEFAULT NULL::jsonb)
  RETURNS jsonb
@@ -71,3 +71,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'produto_id', v_novo, 'item_id', p_item_id, 'codigo', v_codigo, 'criado', true);
 END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_nfe_item_criar_produto(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nfe_item_criar_produto(uuid, jsonb) TO authenticated, service_role;
