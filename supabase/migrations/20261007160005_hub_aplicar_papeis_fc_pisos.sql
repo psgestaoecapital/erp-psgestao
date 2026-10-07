@@ -1,7 +1,7 @@
 -- ============================================================
 -- HUB · aplicar os papéis do Hub na FC PISOS E REVESTIMENTOS INDUSTRIAIS (só esta empresa)
 -- Decisão do CEO 06/10 (ctx "CEO 06/10: papéis do Hub na FC Pisos"). Depende do catálogo de papéis do Hub
--- (migration 20261007150005, PR #2142): sem os papéis hub_* esta migration ABORTA (nada é gravado pela metade).
+-- (migration 20261006180005, PR #2083): sem os papéis hub_* esta migration ABORTA (nada é gravado pela metade).
 -- Prova (RD-38, 07/10): a FC tem 0 linhas em user_scope e 0 em org_unidade; o papel da vertical vive em
 -- user_scope.papel_slug e só é lido por fn_acesso_efetivo — gravar NÃO retira nem concede tela hoje
 -- (menus e RLS seguem user_companies.role). Por isso user_companies.role NÃO é alterado aqui.
@@ -16,15 +16,15 @@ DECLARE
   v_org uuid; v_n int; v_antes_owner int; v_dep_owner int; v_rec record; v_teto text;
   v_map constant jsonb := jsonb_build_object(
     'diego@fcpisos.com','hub_gerente_obras', 'diego@fcpiso.com','hub_gerente_obras',
-    'ervimpaterno@gmail.com','hub_socio', 'administrativo@fcpisos.com','hub_administrativo',
+    'ervimpaterno@gmail.com','hub_socio', 'administrativo@fcpisos.com','hub_financeiro',
     'compras@fcpisos.com','hub_compras', 'deborad@fcpisos.com','hub_compras',
     'analuisa@fcpisos.com','hub_gerente_obras', 'raquel@fcpisos.com','hub_engenheiro');
 BEGIN
   SET LOCAL lock_timeout = '5s';
   SELECT count(*) INTO v_n FROM rbac_papel WHERE vertical = 'hub'
-    AND slug IN ('hub_socio','hub_gerente_obras','hub_engenheiro','hub_compras','hub_administrativo');
+    AND slug IN ('hub_socio','hub_gerente_obras','hub_engenheiro','hub_compras','hub_financeiro');
   IF v_n < 5 THEN
-    RAISE EXCEPTION 'Catálogo de papéis do Hub ausente (% de 5): publicar a migration 20261007150005 antes.', v_n;
+    RAISE EXCEPTION 'Catálogo de papéis do Hub ausente (% de 5): publicar a migration 20261006180005 antes.', v_n;
   END IF;
   IF EXISTS (SELECT 1 FROM user_scope WHERE company_id = v_fc) THEN
     RAISE EXCEPTION 'FC já tem user_scope: aplicação abortada para não sobrescrever (RD-36).';
