@@ -245,3 +245,9 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'eventos', COALESCE(v_eventos, '[]'::jsonb));
 END;
 $function$;
+
+-- Grants preservados (mesmo estado da produção: só authenticated e service_role executam).
+REVOKE ALL ON FUNCTION public.fn_fiscal_documentos(uuid, text, text, date, date, text, text, boolean, integer, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_fiscal_documentos(uuid, text, text, date, date, text, text, boolean, integer, integer) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_fiscal_documento_timeline(uuid, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_fiscal_documento_timeline(uuid, text, text) TO authenticated, service_role;
