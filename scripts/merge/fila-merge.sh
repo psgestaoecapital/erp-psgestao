@@ -11,7 +11,8 @@
 # trás (esperando a main, atualizando ou com checks rodando) segura as outras COM migration atrás dela; as SEM seguem.
 #
 #   (a) run CANCELADO do @pos-migration não é vermelho: re-roda; se a última migration da main já teve run verde, libera.
-#   (b) PR SEM migration não espera o @pos-migration: exige checks verdes + Vercel + aceitação (preview).
+#   (b) PR SEM migration não espera o @pos-migration: exige checks verdes + gates + Vercel + aceitação (preview).
+#       PR só de .md/docs/.github não tem preview (Ignored Build Step, CEO 07/10): exige só os checks + gates.
 #   (c) PR sensível (label revisao-eng-chefe) exige "MERGE AUTORIZADO #N — gilberto-revisor · patch-id <hex>" com o
 #       patch-id do CONTEÚDO atual (scripts/merge/patch-id.sh). Atualizar com a main mantém; mudar o código derruba.
 #   (e) ESTEIRA EM 2 VELOCIDADES (CEO 07/10 08:05 — TEMPORÁRIA, até haver um banco de testes por vaga):
@@ -81,7 +82,7 @@ ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} linhas pend verm canc acc vercel_ok vercel_ruim
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc vercel_ok vercel_ruim
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # via rápida: tira a aceitação do cálculo de pendentes, vermelhos e cancelados
@@ -92,6 +93,13 @@ estado_checks() {
   [ -z "$verm" ] || { echo "vermelho:check vermelho: $verm"; return; }
   [ -z "$pend" ] || { echo "esperar:checks rodando: $pend"; return; }
   if [ -n "$canc" ]; then for id in $canc; do rerodar "$id" >&2; done; echo "esperar:check cancelado re-disparado"; return; fi
+  # gates (scripts/gates/): saíram do build da Vercel para o workflow gates.yml (CEO 07/10) — têm de existir e estar
+  # verdes nas DUAS vias
+  case "$(awk -F'\t' '$1 == "gates" {print $3}' <<< "$linhas" | tail -1)" in
+    success) ;; '') echo "esperar:gates ainda não rodaram"; return;; *) echo "vermelho:gates não estão verdes"; return;;
+  esac
+  # PR só de .md/docs/.github não tem preview nem aceitação (Ignored Build Step): basta checks + gates
+  [ "$so_docs" = 1 ] && { echo ok; return; }
   # aceitação (preview): na via REVISADA tem de existir e estar verde (ou dispensada pela triagem)
   if [ "$via" = revisada ]; then
     acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
@@ -143,8 +151,11 @@ for n in $fila; do
   [ "$(jq -r .head.repo.full_name <<< "$pj")" = "$REPO" ] || { tirar_da_fila "$n" "PR de fork não entra na fila"; continue; }
   [ "$(jq -r .mergeable <<< "$pj")" != false ] || { tirar_da_fila "$n" "conflito com a main (resolva com merge da main no ramo)"; continue; }
 
-  com_migration=0
-  api "repos/$REPO/pulls/$n/files" --paginate --jq '.[].filename' | grep -q '^supabase/migrations/' && com_migration=1
+  com_migration=0; so_docs=0
+  arquivos=$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[].filename')
+  grep -q '^supabase/migrations/' <<< "$arquivos" && com_migration=1
+  # mesma regra do scripts/vercel-ignore.mjs: sem preview para PR só de .md/docs/.github
+  grep -qvE '(\.md$|^docs/|^\.github/)' <<< "$arquivos" || so_docs=1
   if [ "$so_sem_migration" = 1 ] && [ "$com_migration" = 1 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
 
   # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
@@ -171,7 +182,7 @@ for n in $fila; do
     continue
   fi
 
-  c=$(estado_checks "$sha" "$via")
+  c=$(estado_checks "$sha" "$via" "$so_docs")
   case "$c" in
     vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})"; continue;;
     esperar:*) log "#$n aguardando: ${c#esperar:} — segue para a próxima"
