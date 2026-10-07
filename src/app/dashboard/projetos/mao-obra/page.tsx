@@ -72,9 +72,7 @@ export default function MaoObraPage() {
   }
 
   async function baixarModelo() {
-    const { gerarModeloMaoObra } = await import("@/lib/hub/planilhaMaoObra");
-    const url = URL.createObjectURL(await gerarModeloMaoObra());
-    const a = document.createElement("a"); a.href = url; a.download = "MODELO_mao_de_obra_PS.xlsx"; a.click(); URL.revokeObjectURL(url);
+    const a = document.createElement("a"); a.href = "/api/mao-obra/modelo"; a.download = "MODELO_mao_de_obra_PS.xlsx"; a.click();
   }
 
   if (!companyId) {

@@ -48,4 +48,7 @@ ok(!/\.from\("(erp_mao_obra_custo|compliance_funcionarios)"\)\s*\.(insert|update
 ok(/fn_mao_obra_importacao_registrar/.test(modal), 'registra quem importou')
 const pg = readFileSync('src/app/dashboard/projetos/mao-obra/page.tsx', 'utf8')
 ok(/mao-obra-baixar-modelo/.test(pg) && /mao-obra-importar"/.test(pg) && /\{pode && \(\s*<div className="flex flex-wrap gap-2">/.test(pg), 'botões Baixar modelo / Importar planilha só para quem vê salário')
+const rota = readFileSync('src/app/api/mao-obra/modelo/route.ts', 'utf8')
+ok(/gerarModeloMaoObra/.test(rota) && !/supabase|createClient|auth/i.test(rota), 'link público do modelo: rota sem login e sem acesso a dado de cliente')
+ok(/\/api\/mao-obra\/modelo/.test(pg) && !/gerarModeloMaoObra/.test(pg), 'botão da tela usa a mesma rota (fonte única)')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
