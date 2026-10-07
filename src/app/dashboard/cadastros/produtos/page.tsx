@@ -9,7 +9,7 @@ import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModa
 import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy,
 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -69,6 +69,9 @@ export default function ProdutosPage() {
   // Modal edicao
   const [editando, setEditando] = useState<Produto | null>(null)
   const [novoAberto, setNovoAberto] = useState(false)
+  // Clonar: pré-preenche um NOVO produto a partir de um existente. Como a lista só traz colunas parciais (SELECT_COLS
+  // da view), precisa buscar a linha INTEIRA (select '*') antes — senão o clone perderia os campos fiscais.
+  const [clonando, setClonando] = useState<Produto | null>(null)
   const [importarFiscalAberto, setImportarFiscalAberto] = useState(false)
   // Pendências fiscais (SPED 0200): produtos sem tipo do item ou sem NCM — pro contador completar.
   const [pendencias, setPendencias] = useState<{ id: string; codigo: string; nome: string; tipo_item_sped: string | null; motivo: string }[]>([])
@@ -232,6 +235,16 @@ export default function ProdutosPage() {
     const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
     if (error || !data) { setErro(error?.message ?? 'Produto não encontrado'); return }
     setEditando(data as unknown as Produto)
+  }
+
+  // Clonar: busca a linha completa (igual abrirEdicao) e abre o form em modo NOVO pré-preenchido (clonarDe).
+  async function clonarProduto(id: string) {
+    if (!companyId) return
+    const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
+    if (error || !data) { setErro(error?.message ?? 'Produto não encontrado'); return }
+    setEditando(null)
+    setNovoAberto(false)
+    setClonando(data as unknown as Produto)
   }
 
   function toggleOrdem(coluna: OrdenarPor) {
@@ -680,7 +693,16 @@ export default function ProdutosPage() {
                         <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314] font-medium">
                           {fmtBRL(p.preco_venda as number | null | undefined)}
                         </td>
-                        <td className="px-4 py-2.5 text-right">
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => clonarProduto(p.id)}
+                            data-testid="produto-clonar"
+                            className="text-[#C8941A] hover:text-[#A87810] mr-3"
+                            title="Clonar (criar novo a partir deste)"
+                          >
+                            <Copy size={14} />
+                          </button>
                           <button
                             type="button"
                             onClick={() => abrirEdicao(p.id)}
@@ -731,15 +753,26 @@ export default function ProdutosPage() {
                       <div className="text-[13.5px] tabular-nums font-medium text-[#3D2314]">
                         {fmtBRL(p.preco_venda as number | null | undefined)}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => abrirEdicao(p.id)}
-                        data-testid="produto-editar"
-                        className="text-[#C8941A] hover:text-[#A87810]"
-                        title="Editar"
-                      >
-                        <Edit size={14} />
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => clonarProduto(p.id)}
+                          data-testid="produto-clonar-mobile"
+                          className="text-[#C8941A] hover:text-[#A87810]"
+                          title="Clonar"
+                        >
+                          <Copy size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicao(p.id)}
+                          data-testid="produto-editar"
+                          className="text-[#C8941A] hover:text-[#A87810]"
+                          title="Editar"
+                        >
+                          <Edit size={14} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -767,17 +800,22 @@ export default function ProdutosPage() {
           )}
         </div>
 
-        {(novoAberto || editando) && (
+        {(novoAberto || editando || clonando) && (
           <ProdutoForm
+            key={editando ? `edit-${editando.id}` : clonando ? `clone-${clonando.id}` : 'novo'}
             companyId={companyId}
             produto={editando}
+            clonarDe={clonando}
+            onClonar={(p) => { setEditando(null); setNovoAberto(false); setClonando(p) }}
             onClose={() => {
               setNovoAberto(false)
               setEditando(null)
+              setClonando(null)
             }}
             onSalvo={() => {
               setNovoAberto(false)
               setEditando(null)
+              setClonando(null)
               carregar(true)
             }}
           />
