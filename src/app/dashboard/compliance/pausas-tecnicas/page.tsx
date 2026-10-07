@@ -294,6 +294,19 @@ function AbaCiencia({ companyId }: { companyId: string }) {
     try { await rpc('fn_nr36_ciencia_gerar', { p_company_id: companyId, p_competencia: `${comp}-01`, p_cpf: l.cpf }); await carregar() }
     catch (e) { setErro((e as Error).message) } finally { setGerandoCpf(null) }
   }
+  const anexarAssinadoLinha = async (l: CienciaLinha, f: File | null) => {
+    if (!f || !l.id) return
+    setErro(''); setGerandoCpf(l.cpf)
+    try {
+      const path = `ciencia/${companyId}/${l.cpf}_${comp}_${Date.now()}.${(f.name.split('.').pop() || 'pdf')}`
+      const up = await supabase.storage.from('compliance-pausas').upload(path, f, { contentType: f.type || 'application/pdf', upsert: false })
+      if (up.error) throw up.error
+      const { data: pub } = supabase.storage.from('compliance-pausas').getPublicUrl(path)
+      const r = await rpc<{ ok: boolean; erro?: string }>('fn_nr36_ciencia_anexar_assinado', { p_id: l.id, p_arquivo_url: pub?.publicUrl || path })
+      if (r && r.ok === false) throw new Error(r.erro || 'Falha ao anexar.')
+      await carregar()
+    } catch (e) { setErro('Falha ao anexar o assinado: ' + (e as Error).message) } finally { setGerandoCpf(null) }
+  }
   const gerarLink = async (l: CienciaLinha) => {
     if (!l.id) return
     setErro('')
@@ -369,7 +382,9 @@ function AbaCiencia({ companyId }: { companyId: string }) {
                     {semDoc ? (l.situacao === 'sem_documento' && <span data-testid={`ciencia-gerar-${l.cpf}`}><BtnGhost onClick={() => gerarUm(l)}><RefreshCw size={13} /> {gerandoCpf === l.cpf ? 'Gerando…' : 'Gerar documento'}</BtnGhost></span>) : <>
                     <BtnGhost onClick={() => setVerDoc(l.id)}><FileText size={13} /> Ver/PDF</BtnGhost>{' '}
                     {l.status !== 'assinado' && <><BtnGhost onClick={() => gerarLink(l)}><Copy size={13} /> Link p/ assinar</BtnGhost>{' '}
-                    <BtnGhost onClick={() => recusar(l)}>Recusa</BtnGhost></>}
+                    <BtnGhost onClick={() => recusar(l)}>Recusa</BtnGhost>{' '}
+                    <label data-testid={`ciencia-anexar-${l.cpf}`} style={{ cursor: 'pointer', display: 'inline-block' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.gray}`, borderRadius: 6, padding: '4px 9px' }}><Upload size={13} /> {gerandoCpf === l.cpf ? 'Enviando…' : 'Anexar assinado'}</span>
+                      <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} disabled={gerandoCpf === l.cpf} onChange={e => { void anexarAssinadoLinha(l, e.target.files?.[0] || null); e.target.value = '' }} /></label></>}
                     {(l.status === 'assinado' || l.status === 'recusado') && l.desatualizado_em && <>{' '}<BtnGhost onClick={() => novaVersao(l)}><RefreshCw size={13} /> Nova versão</BtnGhost></>}
                     </>}
                   </td>
