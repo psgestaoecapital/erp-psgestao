@@ -6,9 +6,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { HardHat, Plus, Users, UserPlus, Link2, History, Lock, CheckCircle2, AlertTriangle, X } from "lucide-react";
+import { Download, FileUp, HardHat, Plus, Users, UserPlus, Link2, History, Lock, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabase } from "@/lib/supabase";
+import ImportarMaoObraModal from "@/components/projetos/ImportarMaoObraModal";
 import MaoObraCatalogoLegado from "@/components/projetos/MaoObraCatalogoLegado";
 import {
   calcularCustoMaoObra, chavesPadrao, encargosFolhaPct, fatorFolhaReoneracao, meiServicoObraPadrao, rpaInssPadrao, temComponenteComValor, valorMesComponente,
@@ -47,7 +48,7 @@ export default function MaoObraPage() {
   const [dados, setDados] = useState<Lista | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [modal, setModal] = useState<null | { tipo: "funcao"; f?: Funcao } | { tipo: "ficha"; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe } | { tipo: "encerrar"; item: ItemEquipe } | { tipo: "encargos" } | { tipo: "historico"; item: ItemEquipe } | { tipo: "unir"; f: Funcao }>(null);
+  const [modal, setModal] = useState<null | { tipo: "funcao"; f?: Funcao } | { tipo: "ficha"; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe } | { tipo: "encerrar"; item: ItemEquipe } | { tipo: "encargos" } | { tipo: "historico"; item: ItemEquipe } | { tipo: "unir"; f: Funcao } | { tipo: "importar" }>(null);
 
   const carregar = useCallback(async () => {
     if (!companyId) return;
@@ -70,6 +71,12 @@ export default function MaoObraPage() {
     setAviso(ok); setErro(null); await carregar(); return true;
   }
 
+  async function baixarModelo() {
+    const { gerarModeloMaoObra } = await import("@/lib/hub/planilhaMaoObra");
+    const url = URL.createObjectURL(await gerarModeloMaoObra());
+    const a = document.createElement("a"); a.href = url; a.download = "MODELO_mao_de_obra_PS.xlsx"; a.click(); URL.revokeObjectURL(url);
+  }
+
   if (!companyId) {
     return <div className="p-6 text-[13px] text-[#3D2314]/70">Escolha uma empresa no seletor para ver a mão de obra.</div>;
   }
@@ -84,6 +91,8 @@ export default function MaoObraPage() {
         </div>
         {pode && (
           <div className="flex flex-wrap gap-2">
+            <button className={btnSec} onClick={() => void baixarModelo()} data-testid="mao-obra-baixar-modelo"><Download size={14} /> Baixar modelo</button>
+            <button className={btnSec} onClick={() => setModal({ tipo: "importar" })} data-testid="mao-obra-importar"><FileUp size={14} /> Importar planilha</button>
             <button className={btnSec} onClick={() => setModal({ tipo: "funcao" })} data-testid="mao-obra-nova-funcao"><Plus size={14} /> Nova função</button>
             <button className={btnSec} onClick={() => setModal({ tipo: "ficha", modo: "perfil" })} data-testid="mao-obra-novo-perfil"><Users size={14} /> Novo perfil padrão</button>
             <button className={btnPri} onClick={() => setModal({ tipo: "ficha", modo: "pessoa" })} data-testid="mao-obra-novo-funcionario"><UserPlus size={14} /> Novo funcionário</button>
@@ -203,6 +212,7 @@ export default function MaoObraPage() {
       {aba === "lista" && <MaoObraCatalogoLegado />}
 
       {modal?.tipo === "funcao" && <ModalFuncao companyId={companyId} f={modal.f} onClose={() => setModal(null)} onSalvar={rpc} />}
+      {modal?.tipo === "importar" && <ImportarMaoObraModal companyId={companyId} funcoes={dados?.funcoes ?? []} equipe={dados?.equipe ?? []} onClose={() => setModal(null)} onConcluido={carregar} />}
       {modal?.tipo === "unir" && <ModalUnir f={modal.f} funcoes={funcoesAtivas} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "ficha" && enc && <ModalFicha companyId={companyId} modo={modal.modo} item={modal.item} funcoes={funcoesAtivas} encargos={enc} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "encerrar" && <ModalEncerrar item={modal.item} onClose={() => setModal(null)} onSalvar={rpc} />}
