@@ -82,6 +82,7 @@ DECLARE
   v_antes jsonb; v_min smallint; v_pri uuid; v_sub uuid; v_cats text[]; v_prods uuid[]; v_email text;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Sem sessão' USING ERRCODE = '42501'; END IF;
+  PERFORM public.fn__guarda_empresa(p_company_id);
   IF NOT public.fn_compras_alcada_usuario_master(p_company_id) THEN
     RAISE EXCEPTION 'Somente Master pode configurar a alçada de compras' USING ERRCODE = '42501';
   END IF;
