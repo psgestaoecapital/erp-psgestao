@@ -1,0 +1,138 @@
+name: Aceitação da main (banco de testes)
+
+# CEO 07/10 08:05 — esteira em 2 velocidades (TEMPORÁRIA, até haver um banco de testes por vaga): PR comum publica com
+# checks rápidos + preview verde e a aceitação dela é informativa; em troca, a suíte de aceitação roda DE HORA EM HORA
+# contra a ponta da main. Vermelho = corrigir em 1 h ou reverter (issue com a label main-vermelha, listando as PRs
+# publicadas desde o último verde). Verde = fecha a issue.
+#
+# Onde roda: build da main (next build + next start) NO PRÓPRIO RUNNER, apontado para o BANCO DE TESTES (segredos
+# TEST_*), NUNCA para a produção (trava abaixo). Sem custo recorrente (repo público, Actions grátis) e sem segredo novo.
+# Mesma fila da aceitação no banco de testes (group aceitacao-testes, FIFO, sem cancelar): não disputa a demo.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+jobs:
+  # Triagem barata (fora da fila): a ponta da main já foi julgada (verde ou vermelho) num run agendado? Então não ocupa
+  # a fila de novo. workflow_dispatch roda sempre.
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      rodar: ${{ steps.d.outputs.rodar }}
+    steps:
+      - id: d
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          EVENTO: ${{ github.event_name }}
+        run: |
+          rodar=true
+          if [ "$EVENTO" = schedule ]; then
+            ja=$(gh api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" \
+              --jq "[.workflow_runs[] | select(.head_sha == \"$SHA\" and (.conclusion == \"success\" or .conclusion == \"failure\"))] | length" || echo 0)
+            [ "${ja:-0}" -gt 0 ] && { rodar=false; echo "::notice::main ${SHA:0:7} já julgada: sem novo run"; }
+          fi
+          echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
+
+  aceitacao-main:
+    needs: decide
+    if: needs.decide.outputs.rodar == 'true'
+    runs-on: ubuntu-latest
+    # mesma fila FIFO da aceitação no banco de testes (aceitacao-pr.yml com ACEITACAO_BANCO=testes)
+    concurrency:
+      group: aceitacao-testes
+      cancel-in-progress: false
+      queue: max
+    # build (~5 min) + suíte inteira (~30 min); fora do vigia de 45 min de propósito
+    timeout-minutes: 60
+    env:
+      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      TEST_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+      TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Trava de segurança (nunca a produção)
+        run: |
+          [ -n "$TEST_SUPABASE_URL" ] && [ -n "$TEST_SUPABASE_ANON_KEY" ] && [ -n "$TEST_SUPABASE_SERVICE_ROLE_KEY" ] \
+            || { echo "::error::segredos TEST_SUPABASE_* ausentes"; exit 1; }
+          case "$TEST_SUPABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          case "$TEST_SUPABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado";; *) echo "::error::TEST_SUPABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci
+      - name: Build da main apontado para o banco de testes
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+        run: npx next build
+      - name: Sobe a main no runner (next start, porta 3000)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+        run: |
+          nohup npx next start -p 3000 > next-start.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS -o /dev/null http://localhost:3000/sw.js && { echo "app no ar em ${i}x2 s"; exit 0; }
+            sleep 2
+          done
+          cat next-start.log; echo "::error::a main não subiu em 2 min"; exit 1
+      - run: npx playwright install --with-deps chromium
+      - name: Suíte de aceitação contra a main (banco de testes)
+        id: suite
+        env:
+          PROD_BASE_URL: http://localhost:3000
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+          PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+          TRAVA_DEMO_ESPERA_MIN: '15'
+        # suíte inteira (inclui @pos-migration: o banco de testes recebe as migrations da main pelo montar-banco-testes)
+        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
+      - name: Soltar a trava da demo (sempre)
+        if: always()
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/e2e-trava-soltar.ts
+      # Vermelho → abre/atualiza UMA issue main-vermelha (PRs desde o último verde + run). Verde → fecha a issue aberta.
+      # Só API REST (gh api), nada de GraphQL. Run cancelado não mexe na issue.
+      - name: Issue main-vermelha (abre/atualiza no vermelho, fecha no verde)
+        if: success() || failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RESULTADO: ${{ steps.suite.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: scripts/merge/main-vermelha.sh
+      - name: Upload relatório (em caso de falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aceitacao-main-report
+          path: |
+            playwright-report/
+            test-results/
+            next-start.log
+          if-no-files-found: ignore
