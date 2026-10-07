@@ -2,7 +2,7 @@
 -- nem pelo Eng. Chefe. Faixa de migration 60. Etiqueta revisao-eng-chefe (permissão + LGPD).
 --
 -- 1) erp_agente_dono: qual usuário é dono de qual Code e com que remetente ("<socio>-chat") ele fala na caixa.
---    Leitura só da equipe PS (ps_equipe_acesso ativo); escrita só service_role. gilberto-* seguem com o eng_chefe.
+--    Leitura só da equipe PS (fn_equipe_ps_ativa, da aba Codes); escrita só service_role. gilberto-* seguem com o eng_chefe.
 -- 2) erp_agente_mensagem: aceita o remetente "<socio>-chat" — SÓ para o Code do próprio dono ativo, só tarefa, com
 --    enviado_por = o próprio remetente (gatilho). Para eng_chefe/ceo nada muda (Code de sócio segue só com aviso deles).
 -- 3) Acionamento: o corpo do fn_agente_acionar vai para fn__agente_acionar (interno, revogado de todos). O gatilho de
@@ -30,13 +30,7 @@ ALTER TABLE public.erp_agente_dono ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.erp_agente_dono FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.erp_agente_dono TO authenticated;
 GRANT ALL ON TABLE public.erp_agente_dono TO service_role;
--- ps_equipe_acesso tem RLS própria (só PS_ADMIN lê): a policy consulta por função SECURITY DEFINER
-CREATE OR REPLACE FUNCTION public.fn_equipe_ps_ativa() RETURNS boolean
- LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $function$
-  SELECT auth.uid() IS NOT NULL AND EXISTS (SELECT 1 FROM ps_equipe_acesso e WHERE e.user_id = auth.uid() AND e.ativo)
-$function$;
-REVOKE ALL ON FUNCTION public.fn_equipe_ps_ativa() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_equipe_ps_ativa() TO authenticated, service_role;
+-- equipe PS = fn_equipe_ps_ativa() (ps_equipe_acesso ativo), criada na migration da aba Codes (20261007200060)
 DROP POLICY IF EXISTS erp_agente_dono_sel_equipe_ps ON public.erp_agente_dono;
 CREATE POLICY erp_agente_dono_sel_equipe_ps ON public.erp_agente_dono FOR SELECT TO authenticated
   USING (public.fn_equipe_ps_ativa());
