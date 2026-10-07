@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { Cronometro, type JobCurto } from "@/components/pm/Cronometro";
+import { BotaoPlay } from "@/components/pm/BotaoPlay";
 import { prazoAprovacao, textoAtraso, type ItemPauta } from "@/lib/pm/pauta";
 import { juntarAcoes, partesComMencao, type Acao, type Pessoa } from "@/lib/pm/meuDia";
 
@@ -103,6 +104,7 @@ export default function MeuDiaPage() {
     <li className="flex items-center gap-2 py-1.5 text-[13px]" data-testid={`dia-job-${it.numero}`}>
       <Link href={`/dashboard/pm/pauta?job=${it.id}`} className="shrink-0 rounded-md bg-[#3D2314]/8 px-1.5 py-0.5 text-[12px] font-semibold hover:bg-[#C8941A]/20">{it.codigo}</Link>
       <span className="min-w-0 flex-1 truncate">{it.titulo}<span className="block truncate text-[11px] text-[#3D2314]/55">{it.cliente ?? ""}{it.atrasado ? ` · atrasado ${textoAtraso(it.dias_atraso)}` : ""}</span></span>
+      {userId && <BotaoPlay empresa={empresa} userId={userId} jobId={it.id} rotulo={it.codigo} />}
     </li>
   );
 

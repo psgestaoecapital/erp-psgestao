@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ServicoForm, { type Servico } from '@/components/cadastros/ServicoForm'
-import { Briefcase, Plus, Search, Edit, Loader2 } from 'lucide-react'
+import { Briefcase, Plus, Search, Edit, Loader2, Copy } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,6 +37,9 @@ export default function ServicosPage() {
 
   const [editando, setEditando] = useState<Servico | null>(null)
   const [novoAberto, setNovoAberto] = useState(false)
+  // Clonar: a lista traz '*' (SELECT_COLS), então o próprio registro da linha já tem todos os campos p/ pré-preencher.
+  const [clonando, setClonando] = useState<Servico | null>(null)
+  const abrirClone = (s: Servico) => { setEditando(null); setNovoAberto(false); setClonando(s) }
 
   const offsetRef = useRef(0)
 
@@ -208,7 +211,16 @@ export default function ServicosPage() {
                         <td className="px-4 py-2.5 font-mono text-[12px] text-stone-500">{s.codigo_lc116 ?? '—'}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{fmtPct(s.aliquota_iss)}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314] font-medium">{fmtBRL(s.valor_unitario)}</td>
-                        <td className="px-4 py-2.5 text-right">
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => abrirClone(s)}
+                            data-testid="servico-clonar"
+                            className="text-[#C8941A] hover:text-[#A87810] mr-3"
+                            title="Clonar (criar novo a partir deste)"
+                          >
+                            <Copy size={14} />
+                          </button>
                           <button
                             type="button"
                             onClick={() => setEditando(s)}
@@ -244,14 +256,25 @@ export default function ServicosPage() {
                     </div>
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                       <div className="text-[13.5px] tabular-nums font-medium text-[#3D2314]">{fmtBRL(s.valor_unitario)}</div>
-                      <button
-                        type="button"
-                        onClick={() => setEditando(s)}
-                        className="text-[#C8941A] hover:text-[#A87810]"
-                        title="Editar"
-                      >
-                        <Edit size={14} />
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => abrirClone(s)}
+                          data-testid="servico-clonar-mobile"
+                          className="text-[#C8941A] hover:text-[#A87810]"
+                          title="Clonar"
+                        >
+                          <Copy size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditando(s)}
+                          className="text-[#C8941A] hover:text-[#A87810]"
+                          title="Editar"
+                        >
+                          <Edit size={14} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -275,17 +298,22 @@ export default function ServicosPage() {
           )}
         </div>
 
-        {(novoAberto || editando) && (
+        {(novoAberto || editando || clonando) && (
           <ServicoForm
+            key={editando ? `edit-${editando.id}` : clonando ? `clone-${clonando.id}` : 'novo'}
             companyId={companyId}
             servico={editando}
+            clonarDe={clonando}
+            onClonar={(s) => abrirClone(s)}
             onClose={() => {
               setNovoAberto(false)
               setEditando(null)
+              setClonando(null)
             }}
             onSalvo={() => {
               setNovoAberto(false)
               setEditando(null)
+              setClonando(null)
               carregar(true)
             }}
           />
