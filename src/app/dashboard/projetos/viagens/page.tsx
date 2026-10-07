@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { resumoTexto, validarLancamento, type LancamentoForm } from '@/lib/viagem/tela'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
@@ -102,14 +103,14 @@ export default function ViagensPage() {
 
       {nova && !aberta && (
         <div className="mb-4 grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
-          <input className={campo} placeholder="Colaborador" onChange={(e) => setForm({ ...form, colaborador_nome: e.target.value })} />
-          <input className={campo} placeholder="Placa" onChange={(e) => setForm({ ...form, placa: e.target.value })} />
-          <select className={campo} onChange={(e) => setForm({ ...form, obra_id: e.target.value })} defaultValue=""><option value="">Obra principal…</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select>
-          <label className="text-xs">Saída<input type="date" className={campo} onChange={(e) => setForm({ ...form, periodo_inicio: e.target.value })} /></label>
-          <label className="text-xs">Volta<input type="date" className={campo} onChange={(e) => setForm({ ...form, periodo_fim: e.target.value })} /></label>
-          <label className="text-xs">Adiantamento (5.01)<input inputMode="decimal" className={campo} onChange={(e) => setForm({ ...form, adiantamento: e.target.value.replace(',', '.') })} /></label>
-          <input className={campo} placeholder="Origem" onChange={(e) => setForm({ ...form, origem: e.target.value })} />
-          <input className={campo} placeholder="Destino" onChange={(e) => setForm({ ...form, destino: e.target.value })} />
+          <Campo rotulo="Colaborador" ajuda="projetos.viagem.colaborador"><input className={campo} placeholder="Colaborador" onChange={(e) => setForm({ ...form, colaborador_nome: e.target.value })} /></Campo>
+          <Campo rotulo="Placa" ajuda="projetos.viagem.placa"><input className={campo} placeholder="Placa" onChange={(e) => setForm({ ...form, placa: e.target.value })} /></Campo>
+          <Campo rotulo="Obra principal" ajuda="projetos.viagem.obra_principal"><select className={campo} onChange={(e) => setForm({ ...form, obra_id: e.target.value })} defaultValue=""><option value="">Obra principal…</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
+          <Campo rotulo="Saída" ajuda="projetos.viagem.saida"><input type="date" className={campo} onChange={(e) => setForm({ ...form, periodo_inicio: e.target.value })} /></Campo>
+          <Campo rotulo="Volta" ajuda="projetos.viagem.volta"><input type="date" className={campo} onChange={(e) => setForm({ ...form, periodo_fim: e.target.value })} /></Campo>
+          <Campo rotulo="Adiantamento (5.01)" ajuda="projetos.viagem.adiantamento"><input inputMode="decimal" className={campo} onChange={(e) => setForm({ ...form, adiantamento: e.target.value.replace(',', '.') })} /></Campo>
+          <Campo rotulo="Origem" ajuda="projetos.viagem.origem"><input className={campo} placeholder="Origem" onChange={(e) => setForm({ ...form, origem: e.target.value })} /></Campo>
+          <Campo rotulo="Destino" ajuda="projetos.viagem.destino"><input className={campo} placeholder="Destino" onChange={(e) => setForm({ ...form, destino: e.target.value })} /></Campo>
           <div className="flex gap-2"><button disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-white" style={{ background: ESP }} onClick={criar}>Abrir viagem</button><button className="text-sm underline" onClick={() => setNova(false)}>Cancelar</button></div>
         </div>
       )}
@@ -138,15 +139,15 @@ export default function ViagensPage() {
             {lancs.length === 0 && <li className="text-sm opacity-60">Sem lançamentos.</li>}</ul>
           {aberta.status === 'aberta' && (lf ? (
             <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }}>
-              <select className={campo} value={lf.tipo} onChange={(e) => setLf({ ...lf, tipo: e.target.value as LancamentoForm['tipo'] })}><option value="despesa">Despesa</option><option value="abastecimento">Abastecimento</option></select>
-              <input type="date" className={campo} value={lf.data} onChange={(e) => setLf({ ...lf, data: e.target.value })} />
-              <input className={campo} placeholder="Fornecedor" value={lf.fornecedor_nome} onChange={(e) => setLf({ ...lf, fornecedor_nome: e.target.value })} />
-              <input inputMode="decimal" className={campo} placeholder="Valor" value={lf.valor} onChange={(e) => setLf({ ...lf, valor: e.target.value.replace(',', '.') })} />
-              <select className={campo} value={lf.categoria} onChange={(e) => setLf({ ...lf, categoria: e.target.value })}><option value="">Categoria…</option>{cats.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.descricao}</option>)}</select>
-              <select className={campo} value={lf.forma_pagamento} onChange={(e) => setLf({ ...lf, forma_pagamento: e.target.value })}>{FORMAS_PAGAMENTO_VIAGEM.map((f) => <option key={f.codigo} value={f.codigo}>{f.rotulo}</option>)}</select>
-              <select className={campo} value={lf.obra_id} onChange={(e) => setLf({ ...lf, obra_id: e.target.value })}>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select>
-              <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={lf.pago_colaborador} onChange={(e) => setLf({ ...lf, pago_colaborador: e.target.checked })} />Pago pelo colaborador</label>
-              {lf.tipo === 'abastecimento' && <><input inputMode="decimal" className={campo} placeholder="Litros" value={lf.litros} onChange={(e) => setLf({ ...lf, litros: e.target.value.replace(',', '.') })} /><input inputMode="decimal" className={campo} placeholder="Hodômetro" value={lf.hodometro} onChange={(e) => setLf({ ...lf, hodometro: e.target.value.replace(',', '.') })} /></>}
+              <Campo rotulo="Tipo do lançamento" ajuda="projetos.viagem.lanc_tipo"><select className={campo} value={lf.tipo} onChange={(e) => setLf({ ...lf, tipo: e.target.value as LancamentoForm['tipo'] })}><option value="despesa">Despesa</option><option value="abastecimento">Abastecimento</option></select></Campo>
+              <Campo rotulo="Data do cupom" ajuda="projetos.viagem.lanc_data"><input type="date" className={campo} value={lf.data} onChange={(e) => setLf({ ...lf, data: e.target.value })} /></Campo>
+              <Campo rotulo="Fornecedor" ajuda="projetos.viagem.lanc_fornecedor"><input className={campo} placeholder="Fornecedor" value={lf.fornecedor_nome} onChange={(e) => setLf({ ...lf, fornecedor_nome: e.target.value })} /></Campo>
+              <Campo rotulo="Valor" ajuda="projetos.viagem.lanc_valor"><input inputMode="decimal" className={campo} placeholder="Valor" value={lf.valor} onChange={(e) => setLf({ ...lf, valor: e.target.value.replace(',', '.') })} /></Campo>
+              <Campo rotulo="Categoria" ajuda="projetos.viagem.lanc_categoria"><select className={campo} value={lf.categoria} onChange={(e) => setLf({ ...lf, categoria: e.target.value })}><option value="">Categoria…</option>{cats.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.descricao}</option>)}</select></Campo>
+              <Campo rotulo="Forma de pagamento" ajuda="projetos.viagem.lanc_forma"><select className={campo} value={lf.forma_pagamento} onChange={(e) => setLf({ ...lf, forma_pagamento: e.target.value })}>{FORMAS_PAGAMENTO_VIAGEM.map((f) => <option key={f.codigo} value={f.codigo}>{f.rotulo}</option>)}</select></Campo>
+              <Campo rotulo="Obra deste cupom" ajuda="projetos.viagem.lanc_obra"><select className={campo} value={lf.obra_id} onChange={(e) => setLf({ ...lf, obra_id: e.target.value })}>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
+              <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={lf.pago_colaborador} onChange={(e) => setLf({ ...lf, pago_colaborador: e.target.checked })} />Pago pelo colaborador<AjudaCampo chave="projetos.viagem.lanc_pago_colaborador" /></label>
+              {lf.tipo === 'abastecimento' && <><Campo rotulo="Litros" ajuda="projetos.viagem.lanc_litros"><input inputMode="decimal" className={campo} placeholder="Litros" value={lf.litros} onChange={(e) => setLf({ ...lf, litros: e.target.value.replace(',', '.') })} /></Campo><Campo rotulo="Hodômetro" ajuda="projetos.viagem.lanc_hodometro"><input inputMode="decimal" className={campo} placeholder="Hodômetro" value={lf.hodometro} onChange={(e) => setLf({ ...lf, hodometro: e.target.value.replace(',', '.') })} /></Campo></>}
               <div className="flex gap-2 sm:col-span-4"><button disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-white" style={{ background: ESP }} onClick={lancar}>Lançar e novo</button><button className="text-sm underline" onClick={() => setLf(null)}>Fechar formulário</button></div>
             </div>
           ) : (
@@ -157,4 +158,9 @@ export default function ViagensPage() {
       )}
     </div>
   )
+}
+
+// todo campo do Hub tem o "?" (AjudaCampo) ao lado do rótulo — CEO 01/10; o gate check-ajuda-campo reprova campo sem ajuda
+function Campo({ rotulo, ajuda, children }: { rotulo: string; ajuda: string; children: React.ReactNode }) {
+  return <label className="flex flex-col gap-1 text-xs"><span>{rotulo}<AjudaCampo chave={ajuda} /></span>{children}</label>
 }
