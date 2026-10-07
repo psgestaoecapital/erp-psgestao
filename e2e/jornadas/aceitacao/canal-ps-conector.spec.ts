@@ -1,4 +1,4 @@
-// Canal PS · PR B (CEO 07/10 16:20) — conector MCP do ERP (/api/mcp) para a Claude do sócio. Migration 20261007220060.
+// Canal PS · PR B (CEO 07/10 16:20) — conector MCP do ERP (/api/mcp) para a Claude do sócio. Migration 20261008000160.
 //   1) chamada sem login: recusada (401 com o endereço dos metadados OAuth) — roda em qualquer ambiente;
 //   2) ferramenta inexistente: recusada (-32602) — como usuário logado;
 //   3) "Rodrigo" lista só a carteira dele (e não lê chamado de fora);
