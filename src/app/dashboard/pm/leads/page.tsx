@@ -68,6 +68,9 @@ const FORM0: FormLead = { empresa: '', nome: '', contato_email: '', contato_tele
 // PM-2 · proposta ligada ao lead. propMap (chip) usa só critérios FORTES (lead_id/erp_cliente_id);
 // o clique chama o resolvedor de cascata no servidor (fn_pm_proposta_do_lead), que é a autoridade.
 type PropRef = { id: string; titulo: string; status: string; valor_total: number | null; lead_id: string | null; erp_cliente_id: string | null }
+// #57/#59 · no lead o contrato é só comunicação: mostra a situação que está no contrato da Gestão Empresarial.
+const SITUACAO_CONTRATO: Record<string, string> = { solicitado: 'solicitado', em_elaboracao: 'em elaboração', aguardando_info: 'aguardando informação', em_revisao: 'em revisão', aguardando_aprovacao: 'aguardando aprovação', ativo: 'ativo' }
+function situacaoContrato(st: string | null | undefined) { return SITUACAO_CONTRATO[st ?? ''] ?? (st ?? '—') }
 // #59 PDOIS · contrato de fee por cliente (erp_contratos.cliente_id = lead.erp_cliente_id) → "Ver contrato".
 type ContratoRef = { id: string; numero: string | null; status: string | null }
 type PropCascata = { id: string; titulo: string; status: string; valor_total: number | null; criterio: string }
@@ -548,7 +551,7 @@ export default function LeadsPage() {
                             // #59 PDOIS · no fechamento (Ganho/Perda) o contrato é a AÇÃO PRINCIPAL, ao lado de Excluir.
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
                               {ct
-                                ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato{ct.numero ? ` nº ${ct.numero}` : ''}</button>
+                                ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato{ct.numero ? ` nº ${ct.numero}` : ''} · {situacaoContrato(ct.status)}</button>
                                 : <button disabled={busy} onClick={() => setSolicitarCli({ cliId: l.erp_cliente_id })} style={chip(DOURADO)}>🧾 Solicitar contrato</button>}
                               <button disabled={busy} onClick={() => void excluirLead(l)} style={chip(RED)}>🗑 Excluir</button>
                             </div>
@@ -563,7 +566,7 @@ export default function LeadsPage() {
                               <button disabled={busy} onClick={() => void proposta(l)} style={chip(ESPRESSO)}>📄 Proposta</button>
                               {/* #59 PDOIS · botão de contrato VISÍVEL no rodapé (não mais escondido no ⋯). */}
                               {ct
-                                ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato</button>
+                                ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato · {situacaoContrato(ct.status)}</button>
                                 : <button disabled={busy} onClick={() => setSolicitarCli({ cliId: l.erp_cliente_id })} style={chip(DOURADO)}>🧾 Solicitar contrato</button>}
                               <button onClick={() => setEditando(l)} style={chip('#2F5AA8')}>✏️ Editar</button>
                               <button onClick={() => setMenuLead(menuLead === l.id ? null : l.id)} title="Mais ações" style={{ ...chip(TEXTM), fontWeight: 700 }}>⋯</button>
