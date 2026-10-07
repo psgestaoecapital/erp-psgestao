@@ -168,6 +168,10 @@ export default function NFSeEmitirGovModal({
   const [valor, setValor] = useState(valorSeed)
   const [codigoTrib, setCodigoTrib] = useState(codTribSeed)
   const [aliquota, setAliquota] = useState(aliquotaSeed)
+  // Informações complementares (dados adicionais da nota): CNO da obra + dados bancários + complementos de
+  // controle entre cliente e fornecedor. O backend injeta em "informações complementares" e concatena com o
+  // bloco da Lei 12.741 — aqui é só texto livre. O CNO é puxado automático da obra (effect abaixo), editável.
+  const [observacoes, setObservacoes] = useState('')
   const [fase, setFase] = useState<Fase>('form')
   const [resultado, setResultado] = useState<EmitirResp | null>(null)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
@@ -228,6 +232,20 @@ export default function NFSeEmitirGovModal({
     })()
     return () => { vivo = false }
   }, [aberto, obraIdEff])
+  // CNO automático: com obra vinculada/selecionada (obraIdEff) que tenha CNO, pré-preenche as informações
+  // complementares com "CNO: <cno>" — editável. Só preenche quando o campo está vazio (não sobrescreve o que o
+  // usuário já digitou). Obra sem CNO → campo fica como está. Fonte: projetos_obras.cno.
+  useEffect(() => {
+    if (!aberto || !obraIdEff) return
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('projetos_obras').select('cno').eq('id', obraIdEff).maybeSingle()
+      if (!vivo) return
+      const cno = (data as { cno?: string | null } | null)?.cno?.trim()
+      if (cno) setObservacoes((prev) => (prev.trim() === '' ? `CNO: ${cno}` : prev))
+    })()
+    return () => { vivo = false }
+  }, [aberto, obraIdEff])
   const mostrarObra = !obraId && (permitirObra || exigeObra)
 
   // #32/#35 · servico_id efetivo: o que veio do pedido/OS (prop) OU o escolhido aqui no modal.
@@ -285,6 +303,7 @@ export default function NFSeEmitirGovModal({
     setValor(valorSeed)
     setCodigoTrib(codTribSeed)
     setAliquota(aliquotaSeed)
+    setObservacoes('')
     setGerarFinMedicao(true)
     setFase('form')
     setResultado(null)
@@ -604,6 +623,9 @@ export default function NFSeEmitirGovModal({
           codigoServicoTributacao: codigoTrib.trim() || undefined,
           obraId: obraIdFinal || undefined,
           tipoRetencaoIss: issRetidoCadastro ? 2 : 1,
+          // Informações complementares (CNO + dados bancários + complementos). A rota injeta nas infos
+          // complementares da nota e concatena com o bloco da Lei 12.741 (não sobrescreve).
+          observacoes: observacoes.trim() || undefined,
           // #339 · retenções desta nota (a rota aplica sobre o cadastro e registra o ajuste no histórico)
           ...(servicoIdEff && retNota ? { retencoesNota: retNota } : {}),
         }
@@ -675,6 +697,8 @@ export default function NFSeEmitirGovModal({
           servico_id: servicoIdEff,
           obra_id: obraIdFinal,
           municipio_prestacao_ibge: munIbgeFinal || undefined,
+          // Informações complementares (CNO + dados bancários + complementos) — consistência com o caminho Focus.
+          observacoes: observacoes.trim() || undefined,
           servico: {
             descricao: descricao.trim(),
             valor: valorNum,
@@ -969,6 +993,22 @@ export default function NFSeEmitirGovModal({
                     </label>
                   )}
                 </div>
+                <label className="block">
+                  <span className="block text-[11px] text-[#3D2314]/60 mb-1">
+                    Informações complementares (dados adicionais da nota)
+                  </span>
+                  <textarea
+                    value={observacoes}
+                    onChange={(e) => setObservacoes(e.target.value)}
+                    placeholder="Ex.: CNO da obra, dados bancários, observações de controle entre cliente e fornecedor…"
+                    rows={3}
+                    data-testid="nfse-observacoes"
+                    className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
+                  />
+                  <span className="block text-[11px] text-[#3D2314]/55 mt-1">
+                    Entra nas informações complementares da nota. O CNO da obra é puxado automático quando houver — e pode ser editado.
+                  </span>
+                </label>
                 {/* #32 · quando o ISS é devido no município da execução, a alíquota é buscada de lá. */}
                 {!empresaSimples && issInfo && (
                   <p className="text-[11px] text-[#234D08] bg-[#EAF3DE] border border-[#3B6D11]/25 rounded-md px-2.5 py-1.5">
