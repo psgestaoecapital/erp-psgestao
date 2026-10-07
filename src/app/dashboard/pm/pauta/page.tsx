@@ -215,6 +215,7 @@ export default function PautaPage() {
       const { data } = await supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: numero ? { codigo: numero } : {}, p_situacao: null, p_agrupar: "sem", p_pagina: 1, p_por_pagina: numero ? 20 : 500 });
       const it = ((data as Lista | null)?.itens ?? []).find((x) => x.id === id);
       if (it) void abrirJob(it);
+      else setAviso({ texto: "Não foi possível abrir este job: ele não existe ou você não tem acesso a esta empresa." });
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- uma vez, depois da primeira carga
   }, [empresa, prefCarregada]);
@@ -281,6 +282,13 @@ export default function PautaPage() {
     const r = data as { ok?: boolean; mensagem?: string; erro?: string; restaurados?: number } | null;
     if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível desfazer."); return; }
     setAviso({ texto: `Desfeito: ${r.restaurados ?? 0} job(s) voltaram como estavam.` }); void carregar(1);
+  }
+
+  // Pdois (Marciana, 07/10): link do job para mandar à equipe; quem abre precisa estar logado e na empresa (RLS)
+  async function copiarLinkJob(id: string) {
+    const url = `${window.location.origin}/dashboard/pm/pauta?job=${id}`;
+    try { await navigator.clipboard.writeText(url); setAviso({ texto: "Link do job copiado. Quem abrir precisa estar logado na empresa." }); }
+    catch { window.prompt("Copie o link do job:", url); }
   }
 
   async function abrirJob(it: ItemPauta) {
@@ -550,7 +558,7 @@ export default function PautaPage() {
       {aberto && (
         <div className="fixed inset-0 z-[120] flex justify-end bg-black/30 print:hidden" onClick={() => setAberto(null)}>
           <div className="h-full w-full overflow-y-auto bg-white p-4 sm:w-[480px]" onClick={(e) => e.stopPropagation()} data-testid="pauta-job">
-            <div className="mb-2 flex items-center justify-between"><h2 className="text-[16px] font-medium">{aberto.codigo} · {aberto.titulo}</h2><button onClick={() => setAberto(null)} aria-label="fechar"><X size={16} /></button></div>
+            <div className="mb-2 flex items-center justify-between"><h2 className="text-[16px] font-medium">{aberto.codigo} · {aberto.titulo}</h2><span className="flex items-center gap-2"><button className={btn} onClick={() => void copiarLinkJob(aberto.id)} data-testid="pauta-job-copiar-link"><Link2 size={13} /> Copiar link do job</button><button onClick={() => setAberto(null)} aria-label="fechar"><X size={16} /></button></span></div>
             <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-[13px]">
               <dt className="text-[#3D2314]/60">Cliente</dt><dd>{aberto.cliente ?? "—"}</dd>
               <dt className="text-[#3D2314]/60">Responsável</dt><dd>{aberto.responsavel ?? "—"}</dd>
