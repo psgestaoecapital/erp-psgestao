@@ -95,3 +95,6 @@ BEGIN
     'aviso', CASE WHEN v_resp IS NULL THEN 'sem responsável financeiro único (0 ou >1) — defina manualmente' ELSE NULL END);
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_contrato_solicitar(uuid, uuid, jsonb, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contrato_solicitar(uuid, uuid, jsonb, date, text) TO authenticated, service_role;
