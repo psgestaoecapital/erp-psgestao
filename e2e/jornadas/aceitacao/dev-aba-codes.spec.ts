@@ -35,14 +35,11 @@ test.describe('Central de Desenvolvimento · aba Codes', () => {
     // equipe PS = SOMENTE ps_equipe_acesso ativo (o users.role não conta: usuário de cliente pode ter adm/acesso_total)
     const naEquipe = await dbSelect<{ user_id: string }>('ps_equipe_acesso', `user_id=eq.${ROBO}&ativo=eq.true&select=user_id`)
     test.skip(naEquipe.length > 0, 'o robô está na equipe PS neste banco (outro teste em andamento): não serve de usuário de cliente')
-    // só as colunas liberadas ao logado (erp_agente_rotina abre agente/aciona/atualizado_em — "select=*" pede também a
-    // observacao, que segue fechada, e o PostgREST recusa a consulta inteira; foi o vermelho do @pos-migration da #2161)
-    for (const [t, cols] of [['erp_dev_entrega', '*'], ['erp_agente_sessao_lease', '*'], ['erp_agente_rotina', 'agente,aciona,atualizado_em']] as const) {
-      const r = await comoRobo(t, `select=${cols}&limit=5`)
+    for (const t of ['erp_dev_entrega', 'erp_agente_sessao_lease', 'erp_agente_rotina']) {
+      const r = await comoRobo(t, 'select=*&limit=5')
       expect(r.status, `${t}: leitura responde`).toBe(200)
       expect(r.linhas, `${t}: nenhuma linha para o cliente`).toEqual([])
     }
-    expect((await comoRobo('erp_agente_rotina', 'select=observacao&limit=1')).status, 'observacao da rotina segue fechada').toBeGreaterThanOrEqual(400)
     const msg = await comoRobo('erp_agente_mensagem', 'select=id,assunto&limit=5')
     expect(msg.linhas, 'caixa dos agentes: nenhuma linha para o cliente').toEqual([])
 
