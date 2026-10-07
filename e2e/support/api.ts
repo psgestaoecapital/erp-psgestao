@@ -182,7 +182,17 @@ export async function veiculoIdPorModelo(modelo: string): Promise<string> {
 }
 
 // ── Sessão do bot (mesmo login real da tela) → payload p/ localStorage sb-<ref>-auth-token ────────────
+// Uma sessão por processo (reaproveitada entre specs/chamadas): login a cada chamada estourava o rate limit do Auth.
+let sessaoCache: { payload: string; expiraEm: number } | null = null
 export async function obterSessionPayload(): Promise<string> {
+  if (sessaoCache && sessaoCache.expiraEm - 120 > Date.now() / 1000) return sessaoCache.payload
+  const payload = await entrarComoBot()
+  const exp = (JSON.parse(payload) as { expires_at?: number }).expires_at ?? 0
+  sessaoCache = { payload, expiraEm: exp }
+  return payload
+}
+
+async function entrarComoBot(): Promise<string> {
   const authClient = createClient(SUPABASE_URL, ANON_KEY, { auth: { autoRefreshToken: false, persistSession: false } })
   const { data, error } = await authClient.auth.signInWithPassword({ email: BOT_EMAIL, password: BOT_PASSWORD })
   if (error || !data?.session) throw new Error(`login do bot falhou: ${error?.message || 'sem session'}`)
@@ -192,4 +202,17 @@ export async function obterSessionPayload(): Promise<string> {
     expires_at: s.expires_at, token_type: s.token_type, user: s.user,
     provider_token: null, provider_refresh_token: null,
   })
+}
+
+// RPC como o robô (JWT real, auth.uid() preenchido) — para funções com guarda de acesso, que recusam service_role.
+export async function rpcComoRobo<T = unknown>(fn: string, args: Record<string, unknown>): Promise<{ status: number; corpo: T | null; texto: string }> {
+  const token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  })
+  const texto = await r.text()
+  let corpo: T | null = null
+  try { corpo = texto ? (JSON.parse(texto) as T) : null } catch { /* corpo não-JSON: fica só o texto */ }
+  return { status: r.status, corpo, texto }
 }
