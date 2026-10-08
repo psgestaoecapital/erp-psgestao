@@ -208,8 +208,9 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
 // Composição do saldo (chamados #23 Julia / #25 Jordana) — explica de onde vem o número:
 // por conta, saldo inicial (na SUA data) + recebido − pago = saldo. E mostra a DATA que o cálculo
 // USA hoje — se divergir da data da conta, a própria tela mostra o bug (fix per-conta vem depois).
-type CompConta = { nome: string; saldo_inicial: number; data_saldo_inicial: string | null; data_diverge_do_calculo: boolean; tem_assinatura?: boolean; janela_subtraida?: number; recebido: number; pago: number; saldo: number }
-type Composicao = { ok?: boolean; data_efetiva_calculo_atual: string | null; contas: CompConta[]; sem_conta: { recebido: number; pago: number }; total_saldo_inicial: number; total_recebido: number; total_pago: number; saldo_composto: number; total_janela_subtraida?: number; saldo_gerencial_atual: number }
+type CompConta = { nome: string; saldo_inicial: number; data_saldo_inicial: string | null; data_diverge_do_calculo: boolean; tem_assinatura?: boolean; janela_subtraida?: number; recebido: number; pago: number; transf_entrada?: number; transf_saida?: number; saldo: number }
+type CompTransf = { id: string; data: string; valor: number; origem: string; destino: string; conta_na_saida: boolean; conta_na_entrada: boolean }
+type Composicao = { ok?: boolean; data_efetiva_calculo_atual: string | null; contas: CompConta[]; sem_conta: { recebido: number; pago: number }; total_saldo_inicial: number; total_recebido: number; total_pago: number; total_transferencias_entrada?: number; total_transferencias_saida?: number; transferencias?: CompTransf[]; saldo_composto: number; total_janela_subtraida?: number; saldo_gerencial_atual: number }
 const dBR = (s: string | null) => s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—'
 
 function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClose: () => void }) {
@@ -228,7 +229,7 @@ function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClo
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 20, width: 'min(620px,100%)', maxHeight: '90vh', overflowY: 'auto', color: COLORS.espresso }}>
         <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>Como o saldo é composto</div>
-        <div style={{ fontSize: 12.5, color: COLORS.cinza, marginBottom: 14 }}>Por conta: saldo inicial (na data dele) + recebido − pago = saldo. É assim que o número do topo é calculado.</div>
+        <div style={{ fontSize: 12.5, color: COLORS.cinza, marginBottom: 14 }}>Por conta: saldo inicial (na data dele) + recebido − pago + transferências recebidas − transferências enviadas = saldo. É assim que o número do topo é calculado.</div>
         {loading ? <div style={{ fontSize: 13, color: COLORS.cinza }}>Carregando…</div>
           : !c?.ok ? <div style={{ fontSize: 13, color: COLORS.cinza }}>Sem dados de saldo para esta empresa.</div>
           : (
@@ -249,6 +250,8 @@ function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClo
                       {fmt(a.saldo_inicial)} <span style={{ color: COLORS.cinza }}>em {dBR(a.data_saldo_inicial)}</span>
                       {' · '}<span style={{ color: COLORS.verde }}>+ {fmt(a.recebido)} recebido</span>
                       {' · '}<span style={{ color: COLORS.vermelho }}>− {fmt(a.pago)} pago</span>
+                      {!!a.transf_entrada && <>{' · '}<span style={{ color: COLORS.verde }}>+ {fmt(a.transf_entrada)} transf. recebida</span></>}
+                      {!!a.transf_saida && <>{' · '}<span style={{ color: COLORS.vermelho }}>− {fmt(a.transf_saida)} transf. enviada</span></>}
                       {' = '}<b>{fmt(a.saldo)}</b>
                     </div>
                     {!!a.janela_subtraida && Math.abs(a.janela_subtraida) > 0.005 && (
@@ -262,6 +265,18 @@ function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClo
                   <div style={{ border: `1px dashed ${COLORS.linha}`, borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: COLORS.cinza }}>
                     <b>Sem conta atribuída</b> · + {fmt(c.sem_conta.recebido)} recebido · − {fmt(c.sem_conta.pago)} pago
                     <div style={{ fontSize: 11, marginTop: 2 }}>Títulos liquidados sem conta bancária definida — não dá pra atribuir a uma conta.</div>
+                  </div>
+                )}
+                {!!c.transferencias?.length && (
+                  <div data-testid="saldo-composicao-transferencias" style={{ border: `1px solid ${COLORS.linha}`, borderRadius: 10, padding: '10px 12px', fontSize: 12.5 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>Transferências entre contas</div>
+                    {c.transferencias.map((t) => (
+                      <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '3px 0', fontVariantNumeric: 'tabular-nums' }}>
+                        <span>{dBR(t.data)} · {t.origem} → {t.destino}</span>
+                        <b>{fmt(t.valor)}</b>
+                      </div>
+                    ))}
+                    <div style={{ fontSize: 11, color: COLORS.cinza, marginTop: 4 }}>Sai da conta de origem e entra na de destino. Transferência anterior à data do saldo inicial de uma conta já está dentro desse saldo e não conta de novo nela.</div>
                   </div>
                 )}
               </div>
