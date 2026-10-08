@@ -5,6 +5,7 @@
 // leitura só da equipe PS (RLS fn_dev_painel_pode_ver, vale também no Realtime). Qualquer mudança nas 3 primeiras chega pelo
 // Realtime e a aba recarrega sozinha, sem recarregar a página. Regras puras em src/lib/dev/painelCodes.ts.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
 import MeuCode from '@/components/dev/MeuCode'
 import {
@@ -308,7 +309,7 @@ function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: st
   return (
     <div data-testid="codes-linha-tempo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, marginTop: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-        <span style={{ fontWeight: 700 }}>Publicações do dia</span>
+        <span style={{ fontWeight: 700 }}>Publicações do dia</span><AjudaCampo chave="dev.codes.filtro_data" rota="/dashboard/dev/codes" />
         <input data-testid="codes-filtro-data" type="date" value={dia} max={diaSP(agora)} onChange={(e) => e.target.value && setDia(e.target.value)}
           style={{ border: `1px solid ${BD}`, borderRadius: 8, padding: '4px 8px', color: ESP, background: OFF, fontFamily: 'inherit' }} />
       </div>
