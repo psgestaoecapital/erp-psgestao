@@ -46,6 +46,12 @@ if (!temFerramentas()) {
     x = rodar([{ n: 1, migration: true }, { n: 2, migration: true }, { n: 3 }], true)
     ok(merges(x.escritas).join() === '3' && /#2 tem migration: espera a main/.test(x.log),
       'cenário: main ocupada (deploy-migrations rodando) → PRs com migration esperam; a SEM migration é mergeada')
+    // incidente 08/10 (#2239): versão da migration recalculada na hora do merge — main tem 20261008160000
+    x = rodar([{ n: 1, migration: true, migVersao: '20261008140005' }])
+    ok(merges(x.escritas).length === 0 && /ao menos|versão ≤|MAIOR que 20261008160000/.test(x.log),
+      'cenário: migration com versão ABAIXO da última da main → não é publicada (aviso pede renumerar)')
+    x = rodar([{ n: 1, migration: true, migVersao: '20261008160100' }])
+    ok(merges(x.escritas).join() === '1', 'cenário: migration com versão ACIMA da última da main → publicada')
   })
 }
 

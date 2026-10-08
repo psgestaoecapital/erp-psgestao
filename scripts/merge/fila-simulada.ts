@@ -14,6 +14,7 @@ export type PrSimulada = {
   atras?: number
   checksRodando?: boolean
   migration?: boolean
+  migVersao?: string           // versão de 14 dígitos do arquivo de migration (padrão: nome sem versão)
   draft?: boolean
   labels?: string[]            // padrão: ['fila-merge'] (como antes da etiqueta opcional)
   comentarios?: string[]       // corpos de comentários já existentes na PR
@@ -28,7 +29,8 @@ export function comFilaSimulada<T>(fn: (rodar: (prs: PrSimulada[], mainOcupada?:
     const o = join(raiz, 'o'); const w = join(raiz, 'w')
     execFileSync('git', ['init', '-q', '-b', 'main', o])
     for (const [k, v] of [['user.email', 'g@g'], ['user.name', 'gate']]) git(o, 'config', k, v)
-    writeFileSync(join(o, 'a'), 'a\n'); git(o, 'add', '.'); git(o, 'commit', '-qm', 'base')
+    writeFileSync(join(o, 'a'), 'a\n')
+    execFileSync('mkdir', ['-p', join(o, 'supabase', 'migrations')]); writeFileSync(join(o, 'supabase', 'migrations', '20261008160000_base.sql'), '-- base\n'); git(o, 'add', '.'); git(o, 'commit', '-qm', 'base')
     const sha: Record<number, string> = {}
     for (const n of [1, 2, 3, 4]) {
       git(o, 'checkout', '-q', '-b', `pr${n}`, 'main'); writeFileSync(join(o, `f${n}`), `${n}\n`)
@@ -65,7 +67,7 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         put(`${R}/issues/${p.n}/comments`, (p.comentarios ?? []).map((body) => ({ body })))
         put(`${R}/pulls/${p.n}`, { number: p.n, title: `PR ${p.n}`, draft: !!p.draft, mergeable: true, base: { ref: 'main' },
           head: { sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: labels.map((name) => ({ name })) })
-        put(`${R}/pulls/${p.n}/files`, [{ filename: p.migration ? `supabase/migrations/${p.n}.sql` : `src/${p.n}.ts` }])
+        put(`${R}/pulls/${p.n}/files`, [{ filename: p.migration ? `supabase/migrations/${p.migVersao ?? p.n}${p.migVersao ? '_x' : ''}.sql` : `src/${p.n}.ts` }])
         put(`${R}/compare/main...${sha[p.n]}`, { behind_by: p.atras ?? 0 })
         const acc = p.aceitacao ?? 'in_progress'
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [

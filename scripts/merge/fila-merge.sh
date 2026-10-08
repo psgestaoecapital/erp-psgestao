@@ -155,6 +155,25 @@ autorizacao() {
   echo ok
 }
 
+# (f) Versão da migration (CEO 08/10, incidente da #2239): o `supabase db push` recusa migration local ANTERIOR à última
+# aplicada, e o check da PR é antigo (calculado quando ela abriu). Recalcula NA HORA do merge: cada migration NOVA da PR
+# precisa ter versão MAIOR que a última da main (origin/main acabou de ser buscada; com o deploy verde, = produção).
+# Ecoa: ok | vermelho:<motivo>
+versao_migration_ok() {
+  local n=$1 arquivos=$2 ult f v
+  ult=$(git ls-tree --name-only origin/main supabase/migrations/ | sed 's|.*/||' | grep -oE '^[0-9]{14}' | sort | tail -1)
+  [ -n "$ult" ] || { echo ok; return; }
+  while read -r f; do
+    case "$f" in supabase/migrations/*) ;; *) continue;; esac
+    git cat-file -e "origin/main:$f" 2> /dev/null && continue   # já existe na main (arquivo da PR = mesma versão)
+    v=$(basename "$f" | grep -oE '^[0-9]{14}') || continue
+    if [ "$v" \< "$ult" ] || [ "$v" = "$ult" ]; then
+      echo "vermelho:a migration $(basename "$f") tem versão ≤ à última da main ($ult) — o db push recusaria. Renumere para uma versão MAIOR que $ult (faixa do agente), atualize com a main e empurre"; return
+    fi
+  done <<< "$arquivos"
+  echo ok
+}
+
 git fetch -q origin main
 echo "## Fila de merge" >> "$SUMARIO"
 
@@ -237,6 +256,8 @@ for n in $fila; do
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
   if [ "$com_migration" = 1 ]; then
+    vm=$(versao_migration_ok "$n" "$arquivos")
+    [ "$vm" = ok ] || { tirar_da_fila "$n" "${vm#vermelho:}" "$sha"; continue; }
     m=$(estado_main)
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
