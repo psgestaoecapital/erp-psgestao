@@ -23,6 +23,7 @@ export default function ApontamentoHorasPage() {
   const [membros, setMembros] = useState<MembroOpt[]>([])
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [loading, setLoading] = useState(true)
+  const [podeVerCusto, setPodeVerCusto] = useState(false)
   const [jobSel, setJobSel] = useState(''); const [membroSel, setMembroSel] = useState('')
   const [horasManual, setHorasManual] = useState(''); const [desc, setDesc] = useState('')
   const [rodando, setRodando] = useState<number | null>(null); const [tick, setTick] = useState(0)
@@ -35,10 +36,18 @@ export default function ApontamentoHorasPage() {
     const [j, e, t, c] = await Promise.all([
       supabase.from('agency_jobs').select('id, titulo, numero').eq('company_id', empresa).order('created_at', { ascending: false }),
       supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
-      supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, custo_total, user_id').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
+      supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, user_id').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
       carregarCustosEquipe(supabase, empresa),
     ])
-    setJobs((j.data ?? []) as JobOpt[]); setLinhas((t.data ?? []) as Linha[])
+    // LGPD (20261005180000): custo por apontamento é custo por pessoa — só quem vê salário recebe (fn_pm_timesheet_custos)
+    const custosTs = new Map<string, number>()
+    if (c.podeVer) {
+      const { data: cs } = await supabase.rpc('fn_pm_timesheet_custos', { p_company_id: empresa, p_limite: 500 })
+      for (const r of (cs ?? []) as { id: string; custo_total: number | null }[]) custosTs.set(r.id, Number(r.custo_total ?? 0))
+    }
+    setPodeVerCusto(c.podeVer)
+    setJobs((j.data ?? []) as JobOpt[])
+    setLinhas(((t.data ?? []) as Omit<Linha, 'custo_total'>[]).map((l) => ({ ...l, custo_total: custosTs.get(l.id) ?? null })))
     setMembros(((e.data ?? []) as { id: string; nome: string }[]).map((m) => ({ ...m, custo_hora: c.custos.get(m.id) ?? null })))
     setLoading(false)
   }
@@ -46,7 +55,6 @@ export default function ApontamentoHorasPage() {
   useEffect(() => { if (!toast) return; const x = setTimeout(() => setToast(null), 3000); return () => clearTimeout(x) }, [toast])
   useEffect(() => () => { if (timer.current) clearInterval(timer.current) }, [])
 
-  const custoHora = useMemo(() => Number(membros.find((m) => m.id === membroSel)?.custo_hora ?? 0), [membros, membroSel])
   const totalHorasMes = useMemo(() => linhas.reduce((s, l) => s + Number(l.horas ?? 0), 0), [linhas])
   const custoMes = useMemo(() => linhas.reduce((s, l) => s + Number(l.custo_total ?? 0), 0), [linhas])
 
@@ -70,20 +78,20 @@ export default function ApontamentoHorasPage() {
   async function gravar(horas: number) {
     if (!empresa || !jobSel) { setToast('Escolha o job.'); return }
     setBusy(true)
-    // user_id é obrigatório; custo_total é coluna GERADA (horas × custo_hora) — não enviar.
+    // custo_total é coluna GERADA e custo_hora não é gravável pelo logado (LGPD): o servidor preenche.
     // fim_em setado = entrada concluída (o índice único é só p/ timer aberto: fim_em IS NULL).
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setBusy(false); setToast('Sessão expirada, entre de novo.'); return }
     const fim = new Date(); const ini = new Date(fim.getTime() - horas * 3_600_000)
-    const custoPrev = Number((horas * custoHora).toFixed(2))
-    const { error } = await supabase.from('agency_timesheet').insert({
-      company_id: empresa, job_id: jobSel, user_id: user.id, data: fim.toISOString().slice(0, 10),
-      horas, descricao: desc || null, custo_hora: custoHora || null,
-      inicio_em: ini.toISOString(), fim_em: fim.toISOString(),
+    // o custo/hora da pessoa é resolvido no servidor (fn_pm_timesheet_apontar); quem não vê salário apontou sem ver o valor
+    const { data: ap, error } = await supabase.rpc('fn_pm_timesheet_apontar', {
+      p_company_id: empresa, p_job_id: jobSel, p_membro_id: membroSel || null, p_data: fim.toISOString().slice(0, 10),
+      p_horas: horas, p_descricao: desc || null, p_inicio: ini.toISOString(), p_fim: fim.toISOString(),
     })
     setBusy(false)
     if (error) { setToast(`Erro: ${error.message}`); return }
-    setHorasManual(''); setDesc(''); setToast(`Apontamento CRIADO · ${horas}h${custoHora ? ` · ${brl(custoPrev)}` : ''}`); void carregar()
+    setHorasManual(''); setDesc(''); const custoAp = (ap as { custo_total?: number | null } | null)?.custo_total
+    setToast(`Apontamento CRIADO · ${horas}h${custoAp ? ` · ${brl(Number(custoAp))}` : ''}`); void carregar()
   }
 
   const elapsed = rodando != null ? Math.floor((Date.now() - rodando) / 1000) : 0
@@ -129,7 +137,7 @@ export default function ApontamentoHorasPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
           <Kpi l="Horas (últimas)" v={totalHorasMes.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} />
-          <Kpi l="Custo apontado" v={brl(custoMes)} />
+          {podeVerCusto && <Kpi l="Custo apontado" v={brl(custoMes)} />}
           <Kpi l="Lançamentos" v={String(linhas.length)} />
         </div>
 
@@ -139,14 +147,14 @@ export default function ApontamentoHorasPage() {
           ) : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 520 }}>
-                <thead style={{ background: OFFWHITE }}><tr><Th>Data</Th><Th>Job</Th><Th>Horas</Th><Th>Custo</Th><Th>Descrição</Th></tr></thead>
+                <thead style={{ background: OFFWHITE }}><tr><Th>Data</Th><Th>Job</Th><Th>Horas</Th>{podeVerCusto && <Th>Custo</Th>}<Th>Descrição</Th></tr></thead>
                 <tbody>
                   {linhas.map((l) => (
                     <tr key={l.id} style={{ borderTop: `1px solid ${BORDA}` }}>
                       <Td>{l.data}</Td>
                       <Td>{jobs.find((j) => j.id === l.job_id)?.titulo ?? '—'}</Td>
                       <Td>{Number(l.horas).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}h</Td>
-                      <Td style={{ color: GREEN, fontWeight: 600 }}>{brl(Number(l.custo_total ?? 0))}</Td>
+                      {podeVerCusto && <Td style={{ color: GREEN, fontWeight: 600 }}>{brl(Number(l.custo_total ?? 0))}</Td>}
                       <Td style={{ color: TEXTM }}>{l.descricao ?? ''}</Td>
                     </tr>
                   ))}

@@ -34,12 +34,12 @@ export default function MargemJobPage() {
     setLoading(true)
     Promise.all([
       supabase.from('agency_jobs').select('id, titulo, numero, valor_job, custo_estimado, status, cliente_id').eq('company_id', empresa),
-      supabase.from('agency_timesheet').select('job_id, horas, custo_hora, custo_total').eq('company_id', empresa),
+      supabase.rpc('fn_pm_job_custos', { p_company_id: empresa }), // agregado por job; ninguém lê custo/hora por pessoa direto (LGPD)
       supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa),
       supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
       carregarCustosEquipe(supabase, empresa),
     ]).then(([j, t, c, m, custos]) => {
-      setJobs((j.data ?? []) as Job[]); setTs((t.data ?? []) as ApontamentoMargem[]); setClientes((c.data ?? []) as Cli[])
+      setJobs((j.data ?? []) as Job[]); setTs(((t.data ?? []) as { job_id: string; horas: number; tem_custo: boolean; custo_total: number }[]).map((r) => ({ job_id: r.job_id, horas: Number(r.horas), tem_custo: r.tem_custo, custo_total: Number(r.custo_total) })) as ApontamentoMargem[]); setClientes((c.data ?? []) as Cli[])
       setPodeVer(custos.podeVer)
       setMembros(((m.data ?? []) as { id: string; nome: string }[]).map((x) => ({ ...x, custo_hora: custos.custos.get(x.id) ?? null })))
       setLoading(false)
