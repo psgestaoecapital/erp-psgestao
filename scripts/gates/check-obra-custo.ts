@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const sql = readFileSync('supabase/migrations/20261008140005_obras_custo_resultado.sql', 'utf8').replace(/--[^\n]*/g, '')
+const sql = readFileSync('supabase/migrations/20261008160100_obras_custo_resultado.sql', 'utf8').replace(/--[^\n]*/g, '')
 
 ok(/CREATE OR REPLACE FUNCTION public\.fn_obras_custo\(p_company_ids uuid\[\]\)/.test(sql), 'fn_obras_custo(p_company_ids uuid[])')
 ok(/i\.excluido_em IS NULL/.test(sql) && /v\.excluido_em IS NULL/.test(sql), 'item/viagem excluído não conta')
