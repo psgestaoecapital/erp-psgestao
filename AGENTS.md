@@ -262,3 +262,20 @@ re-roda sozinho a aceitação cancelada (timeout/espera de trava), no máximo 2 
 **Não marque uma mensagem como concluída enquanto houver PRÓXIMO**: deixe em `em_andamento` ou abra a continuação na própria
 caixa. O despertador só acorda Code com tarefa aberta; concluir com item pendente deixa o Code parado.
 Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
+# Regras de tela RD-95 e RD-96 (CEO 08/10, inegociáveis) — valem para TODOS os Codes
+
+- **RD-95 — "?" em tudo.** Todo campo, coluna editável, filtro, indicador e ação de toda tela tem o "?" no padrão da tela de
+  Mão de obra: `<AjudaCampo chave="…" />` lendo `erp_ajuda_campo` pela chave (o que preencher, para que serve, como entra no
+  cálculo, exemplo, erro comum), em linguagem do usuário, abrindo sem sair da tela e no celular. **Tela sem "?" não é entregue.**
+  Guia do componente: `docs/design-system/ajuda-campo.md`. Gate: `scripts/gates/check-ajuda-campo-pr.ts` (tela nova sem "?"
+  ou alterada com mais campos sem "?" reprova a PR). Cobertura: `npm run relatorio:ajuda-campo`.
+- **RD-96 — nunca copiar concorrente.** Nem leiaute, ordem de menu, nomes, textos ou fluxo de outro sistema (Sienge, Procore,
+  Omie…). Design system PS ultra premium: tipografia legível com hierarquia clara, espaçamento generoso, visivelmente melhor e
+  mais fácil. Mapeamento de concorrente serve para cobrir **capacidade**, não para imitar a tela.
+- **Checklist de revisão de PR de tela** (marque no corpo da PR):
+  1. Todo campo/coluna editável/filtro/indicador/ação novo ou alterado tem "?" e a chave existe no banco (migration com o texto).
+  2. Os cinco blocos do "?" foram escritos para o usuário final, sem jargão técnico.
+  3. O "?" abre no celular (bottom sheet) e não tira o usuário da tela.
+  4. Tarefa principal em até 3 toques (RD-83), testada como usuário real.
+  5. A tela aparece no menu ou na aba do usuário (entrega escondida não conta como entregue).
+  6. Nada copiado de concorrente; hierarquia tipográfica e espaçamento no padrão PS.

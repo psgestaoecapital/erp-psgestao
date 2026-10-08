@@ -16,6 +16,7 @@
     "check:modelo-cadastros": "tsx scripts/gates/check-modelo-cadastros.ts",
     "check:retencoes-nfse": "tsx scripts/gates/check-retencoes-nfse.ts",
     "gates": "tsx scripts/rodar-gates.ts",
+    "relatorio:ajuda-campo": "tsx scripts/relatorios/cobertura-ajuda-campo.ts",
     "auditor:run": "tsx scripts/auditor-playwright.ts",
     "check:menu": "tsx scripts/check-menu-rotas.ts",
     "check:fn-guards": "tsx scripts/check-fn-guards.ts",

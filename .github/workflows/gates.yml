@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # o gate check-ajuda-campo-pr compara a PR com o pai (main) do commit de merge
       - uses: actions/setup-node@v4
         with:
           node-version: 22
