@@ -268,7 +268,8 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
   padrão `src/components/ajuda/AjudaCampo.tsx` (`<AjudaCampo chave="..." />`, padrão da tela de Mão de obra). O texto vem do banco
   (`erp_ajuda_campo`, lido por `fn_ajuda_campo_listar` numa chamada por tela): o que preencher, para que serve no cálculo, exemplo,
   erro comum — em linguagem do usuário, abre sem sair da tela e no celular (bottom sheet). Chave nova = linha nova em `erp_ajuda_campo`
-  (migration). Tela sem "?" não é entregue. Gate atual: `scripts/gates/check-ajuda-campo.ts` (Hub).
+  (migration). Tela sem "?" não é entregue. Gates: `scripts/gates/check-ajuda-campo.ts` (Hub, lista PENDENTES que só diminui) e `scripts/gates/check-ajuda-campo-telas-alteradas.ts` (qualquer
+  `.tsx` novo ou alterado na PR em `src/app/dashboard` e `src/components` com campo sem "?" reprova). Cobertura por vertical: `npx tsx scripts/relatorio-cobertura-ajuda.ts [--telas]`.
 - **RD-96 — nunca copiar concorrente.** Nada de leiaute, ordem de menu, nomes, textos ou fluxo de outro produto (Sienge, Procore etc.).
   Design system PS ultra premium: tipografia legível com hierarquia clara, espaçamento generoso, visivelmente melhor e mais fácil.
 - **Checklist de revisão de PR de tela:** (1) todo campo/filtro/indicador/ação tem "?" com chave existente no banco; (2) tarefa principal
