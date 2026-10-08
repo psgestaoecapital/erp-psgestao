@@ -50,12 +50,22 @@ export default function PainelProjetos() {
     (async () => {
       try {
         const supabase = supabaseBrowser();
-        const { data } = await supabase
-          .from("v_projetos_resumo_empresa")
-          .select("*")
-          .eq("company_id", companyId)
-          .maybeSingle();
-        if (!cancel) setResumo((data as any) || null);
+        const [{ data: v }, { data: k }, { count: propostas }] = await Promise.all([
+          supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
+          supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
+          supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
+        ]);
+        const kp = (k as any) || {};
+        if (!cancel) {
+          setResumo({
+            obras_ativas: Number(kp.em_andamento ?? 0),
+            propostas_pendentes: propostas ?? 0,
+            valor_orcamento_ativo: Number(kp.valor_em_andamento ?? 0),
+            margem_media_pct: 0,
+            pagar_aberto: Number((v as any)?.contas_pagar_abertas ?? 0),
+            receber_aberto: Number((v as any)?.contas_receber_abertas ?? 0),
+          });
+        }
       } catch {
         if (!cancel) setResumo(null);
       }
@@ -124,13 +134,10 @@ export default function PainelProjetos() {
           <KpiPrincipal label="Obras ativas" valor={String(resumo?.obras_ativas ?? 0)} />
           <KpiPrincipal label="Propostas pendentes" valor={String(resumo?.propostas_pendentes ?? 0)} />
           <KpiPrincipal
-            label="Orçamento ativo"
+            label="Valor das obras em andamento"
             valor={fmtBRL(resumo?.valor_orcamento_ativo ?? 0)}
           />
-          <KpiPrincipal
-            label="Margem média"
-            valor={`${(resumo?.margem_media_pct ?? 0).toFixed(1)}%`}
-          />
+          <KpiPrincipal label="Margem média" valor="—" />
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
