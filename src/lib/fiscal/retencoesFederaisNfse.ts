@@ -105,31 +105,75 @@ export function calcularRetencoesFederais(valorServico: number, s: ServicoTribut
 
 // IBS/CBS (grupo IBSCBS da DPS): CST, cClassTrib e cIndOp (6 dígitos, tabela do Anexo C — E0901) são obrigatórios.
 // Sem cIndOp válido o grupo NÃO vai (a nota sai, com aviso) — nunca adivinhar o código.
+// #1944 · o cadastro pode ter o cIndOp gravado da correlação antiga como número decimal ("100301.0", "20201.0" sem o
+// zero da frente). normalizarCIndOp devolve os 6 dígitos (100301, 020201) sem mexer no dado do cliente; qualquer
+// outro formato → null (não vai).
+export function normalizarCIndOp(c: string | null | undefined): string | null {
+  const t = String(c ?? '').trim()
+  if (/^\d{6}$/.test(t)) return t
+  const m = /^(\d{4,6})\.0+$/.exec(t)
+  return m ? m[1].padStart(6, '0') : null
+}
 export function codigoIndicadorOperacaoValido(c: string | null | undefined): boolean {
-  return /^\d{6}$/.test(String(c ?? '').trim())
+  return normalizarCIndOp(c) != null
 }
 
 export type ReformaNfse = NonNullable<NFSeRequest['reforma']>
 export interface ServicoIbsCbs { rt_cst?: string | null; rt_classificacao_tributaria?: string | null; rt_indicador_operacao?: string | null }
 
-// IBS/CBS do CADASTRO DO SERVIÇO quando a empresa não configurou (a config da empresa manda). Usada pela rota e pela
-// prova do #286 (gabarito NF 418) — a mesma regra nos dois lugares. finNFSe/indFinal/indDest: 0 quando a empresa não
-// definiu (finNFSe 0 = NFS-e regular, único valor; 0/0 como na NF 418 autorizada).
+const txt = (v: string | null | undefined) => { const t = String(v ?? '').trim(); return t || null }
+
+// #1944 (OK do CEO 07/10 16:55 · "IBS/CBS só quando cadastrado") — UMA regra, usada pela rota e pela prova do #286
+// (gabarito NF 418). O grupo IBS/CBS vai SOMENTE COMPLETO: CST e cClassTrib (do serviço; na falta, da Configuração
+// Fiscal da empresa) e cIndOp (só existe no cadastro do serviço). Faltou qualquer um → NENHUMA chave da Reforma vai
+// (a nota sai como antes da Reforma, com aviso) — antes, o CST da empresa ia sem cIndOp e a nota reprovava (E0901).
+// finNFSe/indFinal/indDest: da empresa; 0 quando não definiu (finNFSe 0 = NFS-e regular; 0/0 como na NF 418 autorizada).
+// Fontes (RD-72): cronograma RFB/CGIBS e cartilha do Portal da NFS-e — até 31/12/2026 a ausência do grupo não impede
+// a autorização; para o Simples, obrigatório a partir de 01/01/2027 (validarIbsCbsObrigatorio, ainda DESLIGADA).
 export function reformaIbsCbsDoServico(empresa: ReformaNfse | undefined, sv: ServicoIbsCbs | null | undefined): { reforma: ReformaNfse | undefined; aviso: string | null } {
-  if (empresa?.ibsCbsCst || !sv?.rt_cst || !sv.rt_classificacao_tributaria) return { reforma: empresa, aviso: null }
-  if (!codigoIndicadorOperacaoValido(sv.rt_indicador_operacao)) {
-    return { reforma: empresa, aviso: 'IBS/CBS não vai nesta nota: falta o código indicador da operação (cIndOp) no cadastro do serviço.' }
+  const cst = txt(sv?.rt_cst) ?? txt(empresa?.ibsCbsCst)
+  const cClassTrib = txt(sv?.rt_classificacao_tributaria) ?? txt(empresa?.ibsCbsClassifTrib)
+  const cIndOp = normalizarCIndOp(sv?.rt_indicador_operacao)
+  if (!cst && !cClassTrib && !cIndOp) return { reforma: undefined, aviso: null }   // nada cadastrado: emite como antes, sem aviso
+  const falta = faltasIbsCbs({ cst, cClassTrib, cIndOp })
+  if (falta.length) {
+    return { reforma: undefined, aviso: `IBS/CBS não vai nesta nota: falta ${falta.join(', ')} no cadastro do serviço.` }
   }
   return {
     reforma: {
       finalidadeEmissao: empresa?.finalidadeEmissao ?? 0,
       consumidorFinal: empresa?.consumidorFinal ?? 0,
       indicadorDestinatario: empresa?.indicadorDestinatario ?? 0,
-      ibsCbsCst: String(sv.rt_cst), ibsCbsClassifTrib: String(sv.rt_classificacao_tributaria),
-      codigoIndicadorOperacao: String(sv.rt_indicador_operacao).trim(),
+      ibsCbsCst: cst, ibsCbsClassifTrib: cClassTrib, codigoIndicadorOperacao: cIndOp,
     },
     aviso: null,
   }
+}
+
+function faltasIbsCbs(g: { cst: string | null; cClassTrib: string | null; cIndOp: string | null }): string[] {
+  const f: string[] = []
+  if (!g.cst) f.push('o CST do IBS/CBS')
+  if (!g.cClassTrib) f.push('a classificação tributária (cClassTrib)')
+  if (!g.cIndOp) f.push('o código indicador da operação (cIndOp, 6 dígitos)')
+  return f
+}
+
+// #1944 · validação que passa a EXIGIR o grupo IBS/CBS das empresas do Simples Nacional a partir de 01/01/2027
+// (cronograma RFB/CGIBS; cartilha do Portal da NFS-e). PRONTA e DESLIGADA: ligar = trocar EXIGIR_IBS_CBS_SIMPLES para
+// true por PR (decisão do CEO). dataEmissaoBR = data da nota em America/Sao_Paulo (AAAA-MM-DD).
+export const EXIGIR_IBS_CBS_SIMPLES = false
+export const IBS_CBS_SIMPLES_OBRIGATORIO_DESDE = '2027-01-01'
+export function validarIbsCbsObrigatorio(p: {
+  optanteSimples: boolean; dataEmissaoBR: string; reforma: ReformaNfse | undefined; ligada?: boolean
+}): string | null {
+  const ligada = p.ligada ?? EXIGIR_IBS_CBS_SIMPLES
+  if (!ligada || !p.optanteSimples || p.dataEmissaoBR < IBS_CBS_SIMPLES_OBRIGATORIO_DESDE) return null
+  const falta = faltasIbsCbs({
+    cst: txt(p.reforma?.ibsCbsCst), cClassTrib: txt(p.reforma?.ibsCbsClassifTrib), cIndOp: normalizarCIndOp(p.reforma?.codigoIndicadorOperacao),
+  })
+  return falta.length
+    ? `Desde ${IBS_CBS_SIMPLES_OBRIGATORIO_DESDE.split('-').reverse().join('/')} a NFS-e do Simples Nacional exige o grupo IBS/CBS. Falta ${falta.join(', ')} no cadastro do serviço (Cadastros › Serviços).`
+    : null
 }
 
 // ISS retido pelo tomador/intermediário (tpRetISSQN 2/3): valor × alíquota da nota, em centavos. Sem retenção (1) ou
