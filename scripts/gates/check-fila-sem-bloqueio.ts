@@ -46,6 +46,9 @@ if (!temFerramentas()) {
     x = rodar([{ n: 1, migration: true }, { n: 2, migration: true }, { n: 3 }], true)
     ok(merges(x.escritas).join() === '3' && /#2 tem migration: espera a main/.test(x.log),
       'cenário: main ocupada (deploy-migrations rodando) → PRs com migration esperam; a SEM migration é mergeada')
+    x = rodar([{ n: 1, migration: true, migrationBaixa: true }, { n: 2, migration: true }])
+    ok(merges(x.escritas).join() === '2' && /migration com versão NÃO maior que a última da main/.test(x.log),
+      'cenário 08/10: migration com versão abaixo da última da main (recalculada na hora) sai da fila; a outra COM migration válida é mergeada')
   })
 }
 
