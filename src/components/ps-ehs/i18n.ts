@@ -20,6 +20,7 @@ const DICT = {
   'status.atencao': { pt: 'Atenção', en: 'Attention', es: 'Atención' },
   'status.critico': { pt: 'Crítico', en: 'Critical', es: 'Crítico' },
   'status.neutro': { pt: 'Sem dados', en: 'No data', es: 'Sin datos' },
+  'cockpit.papel': { pt: 'Papel', en: 'Role', es: 'Rol' },
   'timeline.titulo': { pt: 'Linha do tempo', en: 'Timeline', es: 'Línea de tiempo' },
   'passo.de': { pt: 'Passo', en: 'Step', es: 'Paso' },
   'passo.voltar': { pt: 'Voltar', en: 'Back', es: 'Volver' },
