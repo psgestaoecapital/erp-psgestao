@@ -12,6 +12,7 @@
 // conferir na 1ª consulta real (KGF). Guardamos a resposta crua junto no cache para essa conferência.
 
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { dataBrasil } from './dataBrasil'
 import { credencialEmpresa } from '@/lib/credenciais/servidor'
 
 export const IBPT_API = 'https://apidoni.ibpt.org.br/api/v1'
@@ -112,7 +113,7 @@ export async function gravarCacheIbpt(companyId: string, c: ConsultaIbpt, d: Res
 // Cache → (token) API → null. null = use a tabela genérica. Nunca lança: a nota nunca trava por causa do IBPT.
 export async function aliquotaIbptEmpresa(companyId: string, cnpj: string, c: ConsultaIbpt): Promise<(RespostaIbpt & { origem: 'cache' | 'api' }) | null> {
   try {
-    const hoje = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10)
+    const hoje = dataBrasil()   // #1944 · dia de Brasília (regra única)
     const { data: cache } = await supabaseAdmin.from('erp_ibpt_cache')
       .select('codigo, uf, ex, descricao, nacional, importado, estadual, municipal, tipo_ibpt, versao, vigencia_inicio, vigencia_fim, chave, fonte')
       .eq('company_id', companyId).eq('tipo', c.tipo).eq('codigo', c.codigo).eq('ex', c.ex ?? 0).eq('uf', c.uf.toUpperCase())

@@ -294,6 +294,19 @@ function AbaCiencia({ companyId }: { companyId: string }) {
     try { await rpc('fn_nr36_ciencia_gerar', { p_company_id: companyId, p_competencia: `${comp}-01`, p_cpf: l.cpf }); await carregar() }
     catch (e) { setErro((e as Error).message) } finally { setGerandoCpf(null) }
   }
+  const anexarAssinadoLinha = async (l: CienciaLinha, f: File | null) => {
+    if (!f || !l.id) return
+    setErro(''); setGerandoCpf(l.cpf)
+    try {
+      const path = `ciencia/${companyId}/${l.cpf}_${comp}_${Date.now()}.${(f.name.split('.').pop() || 'pdf')}`
+      const up = await supabase.storage.from('compliance-pausas').upload(path, f, { contentType: f.type || 'application/pdf', upsert: false })
+      if (up.error) throw up.error
+      const { data: pub } = supabase.storage.from('compliance-pausas').getPublicUrl(path)
+      const r = await rpc<{ ok: boolean; erro?: string }>('fn_nr36_ciencia_anexar_assinado', { p_id: l.id, p_arquivo_url: pub?.publicUrl || path })
+      if (r && r.ok === false) throw new Error(r.erro || 'Falha ao anexar.')
+      await carregar()
+    } catch (e) { setErro('Falha ao anexar o assinado: ' + (e as Error).message) } finally { setGerandoCpf(null) }
+  }
   const gerarLink = async (l: CienciaLinha) => {
     if (!l.id) return
     setErro('')
@@ -369,7 +382,9 @@ function AbaCiencia({ companyId }: { companyId: string }) {
                     {semDoc ? (l.situacao === 'sem_documento' && <span data-testid={`ciencia-gerar-${l.cpf}`}><BtnGhost onClick={() => gerarUm(l)}><RefreshCw size={13} /> {gerandoCpf === l.cpf ? 'Gerando…' : 'Gerar documento'}</BtnGhost></span>) : <>
                     <BtnGhost onClick={() => setVerDoc(l.id)}><FileText size={13} /> Ver/PDF</BtnGhost>{' '}
                     {l.status !== 'assinado' && <><BtnGhost onClick={() => gerarLink(l)}><Copy size={13} /> Link p/ assinar</BtnGhost>{' '}
-                    <BtnGhost onClick={() => recusar(l)}>Recusa</BtnGhost></>}
+                    <BtnGhost onClick={() => recusar(l)}>Recusa</BtnGhost>{' '}
+                    <label data-testid={`ciencia-anexar-${l.cpf}`} style={{ cursor: 'pointer', display: 'inline-block' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.gray}`, borderRadius: 6, padding: '4px 9px' }}><Upload size={13} /> {gerandoCpf === l.cpf ? 'Enviando…' : 'Anexar assinado'}</span>
+                      <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} disabled={gerandoCpf === l.cpf} onChange={e => { void anexarAssinadoLinha(l, e.target.files?.[0] || null); e.target.value = '' }} /></label></>}
                     {(l.status === 'assinado' || l.status === 'recusado') && l.desatualizado_em && <>{' '}<BtnGhost onClick={() => novaVersao(l)}><RefreshCw size={13} /> Nova versão</BtnGhost></>}
                     </>}
                   </td>
@@ -801,6 +816,21 @@ function AbaHistorico({ companyId }: { companyId: string }) {
   }, [companyId, ini, fim])
   useEffect(() => { void carregar() }, [carregar])
 
+  // #1641: reimportar o relatório do mesmo dia não pode duplicar nem exigir ajuste manual — o upload novo SUBSTITUI o antigo
+  // (fn_nr36_upload_substituir estorna as pausas do antigo, mantém arquivo/hash e reapura o período dele).
+  const [substituindo, setSubstituindo] = useState<string | null>(null)
+  const substituir = async (novo: UploadRow, antigoId: string) => {
+    const antigo = rows.find(r => r.id === antigoId)
+    if (!antigo) return
+    if (!window.confirm(`As pausas do arquivo "${antigo.arquivo_nome}" serão removidas da apuração e substituídas pelas de "${novo.arquivo_nome}". O arquivo antigo continua guardado no Histórico. Confirmar?`)) return
+    setSubstituindo(novo.id); setErro('')
+    try {
+      const r = await rpc<{ ok: boolean; erro?: string }>('fn_nr36_upload_substituir', { p_upload_id_novo: novo.id, p_upload_id_antigo: antigoId, p_motivo: 'Reimportado para substituir (chamado #1641)' })
+      if (!r.ok) throw new Error(r.erro === 'sem_permissao' ? 'Você não tem permissão para substituir uploads.' : (r.erro || 'Falha ao substituir.'))
+      await carregar()
+    } catch (e) { setErro((e as Error).message) } finally { setSubstituindo(null) }
+  }
+
   const baixar = async (u: UploadRow) => {
     if (!u.arquivo_path) { alert('Sem arquivo original registrado.'); return }
     const { data, error } = await supabase.storage.from('compliance-pausas').createSignedUrl(u.arquivo_path, 60)
@@ -834,7 +864,15 @@ function AbaHistorico({ companyId }: { companyId: string }) {
                     : u.status === 'pendente' ? <span style={{ color: C.amber }}>não processado — reenvie</span>
                     : <span style={{ color: C.green }}>{u.status}</span>}</td>
                   <td style={{ ...td(), fontFamily: 'monospace', fontSize: 10.5, color: C.gray }} title={u.arquivo_hash}>{u.arquivo_hash?.slice(0, 10)}…</td>
-                  <td style={td()}>{u.arquivo_path && <BtnGhost onClick={() => void baixar(u)}><Download size={13} /> Baixar</BtnGhost>}</td>
+                  <td style={td()}>
+                    {u.arquivo_path && <BtnGhost onClick={() => void baixar(u)}><Download size={13} /> Baixar</BtnGhost>}
+                    {u.status === 'processado' && rows.some(o => o.id !== u.id && o.status === 'processado') && (
+                      <select aria-label={`Substituir um upload por ${u.arquivo_nome}`} disabled={substituindo === u.id} value="" onChange={e => { if (e.target.value) void substituir(u, e.target.value) }} style={{ ...inp(), marginTop: 6, maxWidth: 170 }}>
+                        <option value="">{substituindo === u.id ? 'Substituindo…' : 'Substituir outro por este…'}</option>
+                        {rows.filter(o => o.id !== u.id && o.status === 'processado').map(o => <option key={o.id} value={o.id}>{o.arquivo_nome} ({fmtData(o.periodo_inicio)}–{fmtData(o.periodo_fim)})</option>)}
+                      </select>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

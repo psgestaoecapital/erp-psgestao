@@ -66,6 +66,12 @@ no livro de intervenções e nos comentários de PR).
 <!-- END:protocolo-sessao -->
 
 <!-- BEGIN:provas-producao -->
+# Aba "Codes" da Central de Desenvolvimento (CEO 07/10 14:30) — toda PR diz qual Code a fez
+**Toda PR leva no corpo a linha `Code: <nome da rotina>`** (ex.: `Code: gilberto-desenv`; o mesmo identificador da caixa).
+O workflow `registrar-entrega.yml` grava cada PR aberta, pronta, publicada (merge) ou fechada em `erp_dev_entrega`, e a aba
+**Codes** de `/dashboard/dev` (rota `/dashboard/dev/codes`) mostra por Code, em tempo real: trabalhando agora, entregue nas
+últimas 24 h, em teste e fila. Sem a linha, o Code sai da caixa (`erp_agente_mensagem.pr_numero`) ou fica "não identificado".
+Carga inicial: rodar o `registrar-entrega.yml` à mão (workflow_dispatch, últimos 7 dias). Gate: `scripts/gates/check-aba-codes.ts`.
 # Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
 
 Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
@@ -111,6 +117,10 @@ quebrou em 31/08–01/09/2026 (10 órfãos de SIC-F1/DEMO-F1/NF-e/estoque).
 
 ## Aceitação que depende de migration → tag `@pos-migration` (CEO 26/09)
 
+Banco de testes (CEO 06/10 17:38): o `montar-banco-testes` copia da produção só os DADOS das tabelas globais da
+whitelist `scripts/banco-testes/catalogos.txt` (sem coluna de dono, sem dado pessoal) antes do `fn_demo_reset`.
+Tabela nova de referência global que as specs precisem → acrescente na whitelist (o script recusa se tiver dono).
+
 O preview da PR roda o código novo contra o banco ATUAL: a migration só entra no merge. Teste de aceitação que só
 passa com a migration aplicada leva `{ tag: '@pos-migration' }`. No preview ele roda **informativo** (não bloqueia,
 `aceitacao-pr.yml`); o **veredito** é o `aceitacao-pos-migration.yml`, em produção, logo após o `deploy-migrations`.
@@ -136,6 +146,14 @@ Gate novo = **um arquivo novo em `scripts/gates/`** (`.ts`, imports de `../../sr
 linha `build` do `package.json` — era a causa recorrente de conflito entre PRs em fila (e o gate
 `check-gates-por-pasta` quebra se alguém fizer). Rodar local: `npm run gates` (ou `npm run gates -- <trecho do nome>`).
 
+**Onde os gates rodam (CEO 07/10 — custo da Vercel):** a Vercel builda só `next build` (`vercel.json` › `buildCommand`);
+os gates rodam no workflow `.github/workflows/gates.yml` (check **`gates`**, grátis no Actions) em toda PR e na `main`,
+e a fila de merge exige esse check verde. Gate continua sendo só checagem estática (sem rede, banco ou variável da Vercel).
+**Preview só de PR pronta** (Ignored Build Step, `scripts/vercel-ignore.sh`): a Vercel NÃO builda branch sem PR, PR em
+rascunho, nem PR que só muda `.md`/`docs/`/`.github/`; a `main` sempre builda; consulta à API do GitHub que falha → builda.
+Ao sair de draft (ou abrir a PR Ready depois do push), o `preview-pronta.yml` cria um **commit vazio** no ramo para gerar
+o preview do head: **faça `git pull` antes do próximo push**. Abra a PR em draft e só marque Ready quando quiser a aceitação.
+
 # Chamados: o agente nunca forja identidade (CEO 04/10)
 
 Responder chamado exige usuário logado (`auth.uid()`), e a rotina/Code é conexão de serviço — não é usuário.
@@ -151,6 +169,64 @@ O Code PODE mergear uma PR com `gh pr merge` (nunca auto-merge) somente quando: 
 `eng_chefe` com "MERGE AUTORIZADO #NNNN" para essa PR; (2) a PR está Ready, atualizada com a main, com todos os checks e
 a aceitação verdes; (3) nenhum `deploy-migrations` ou `aceitacao-pos-migration` está em andamento ou vermelho na main.
 Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve no caso real; vermelho = reverter na hora.
+
+## Regras de merge da esteira (CEO 06/10, proposta do Rodrigo · `erp_contexto_projeto` 5c30d735) — ajustam a RD-94
+- **(a) Run CANCELADO do `@pos-migration` não é vermelho.** Se a última migration da `main` já teve um run verde, a
+  `main` está liberada; se não teve, o gate (a fila de merge) re-roda o run cancelado e espera. Vermelho é só `failure`.
+- **(b) PR SEM migration não espera o `@pos-migration`** nem o `deploy-migrations`: exige gates + build/Vercel + aceitação
+  (preview) verdes. A condição (3) da RD-94 vale só para PR **com** arquivo em `supabase/migrations/`.
+- **(c) A autorização vale pelo CONTEÚDO, não pelo SHA.** O `gilberto-revisor` autoriza com
+  `MERGE AUTORIZADO #NNNN — gilberto-revisor · patch-id <40 hex>`, onde o patch-id sai de `scripts/merge/patch-id.sh NNNN`
+  (diff da PR contra o merge-base com a `main`). Atualizar com a `main` mantém o patch-id e a autorização; mudar o código
+  da PR muda o patch-id e exige nova revisão. Autorização sem patch-id não vale para a fila.
+- **(d) Fila de merge** (`.github/workflows/fila-merge.yml` + `scripts/merge/fila-merge.sh`, sem polling): a fila pega
+  **toda PR Ready** (não-draft) na `main` em ordem de entrada, **uma por vez**: atualiza com a `main` (merge, sem
+  reescrever histórico), espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado
+  no SHA conferido). Conflito, check vermelho ou autorização inválida → comenta o motivo **uma vez por commit** (e tira a
+  label `fila-merge`, se houver); a PR volta a ser avaliada sozinha no próximo commit.
+  **Fila sem etiqueta (CEO 08/10 08:15, "ok fila sem etiqueta"):** a label **`fila-merge` é OPCIONAL** (continua aceita;
+  a hora em que foi posta conta como entrada). **PR Ready + checks obrigatórios verdes = publicada.** Quer abrir PR sem
+  publicar? Abra em **draft** (draft nunca entra) ou ponha a label **`nao-publicar`** (a fila pula e comenta o motivo
+  uma única vez). A PR com `revisao-eng-chefe` continua exigindo `MERGE AUTORIZADO #N — gilberto-revisor · patch-id`
+  do conteúdo atual, e as migrations seguem as regras de sempre (uma por vez, esperando a `main`). Gate:
+  `scripts/gates/check-fila-sem-etiqueta.ts` (draft, `nao-publicar`, revisada sem autorização, comum verde sem etiqueta).
+  Como a fila olha todas as PRs Ready a cada rodada, ela lê os dados da própria lista de PRs e tem **válvula de cota**:
+  com menos de 1000 chamadas restantes no PAT (`FILA_MERGE_TOKEN`, o mesmo do `/re-rodar`), a rodada é adiada. PR com migration esperando a `main` não segura as PRs sem migration atrás dela.
+  **Sem bloqueio pela cabeça (CEO 07/10):** PR atrás da `main` é atualizada e PR com checks rodando fica esperando, mas a
+  rodada segue para as próximas (no máximo 1 merge por rodada). Só a PR com migration que espera a **main** (deploy ou
+  `@pos-migration` da anterior) segura as outras com migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
+  Precisa do segredo `FILA_MERGE_TOKEN` (PAT): merge com o `GITHUB_TOKEN` não dispara o `deploy-migrations`.
+  Com a fila, o Code não roda `gh pr merge` à mão para PR que está nela.
+- **(e) Timeout de 40 min** nos jobs de aceitação (`aceitacao-pr`, `aceitacao-pos-migration`; a espera na fila
+  `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
+  **executando** há mais de 45 min; job esperando a vez na fila nunca é cancelado.
+- Gate: `scripts/gates/check-esteira-merge.ts`.
+- **Revisor por evento (CEO 07/10):** `.github/workflows/acionar-revisor.yml` (`pull_request_target` labeled/synchronize/ready_for_review, só PR Ready do repo com `revisao-eng-chefe`) acorda a rotina do `gilberto-revisor` em minutos (espera 120 s; rajada = 1 acionamento por PR; não aciona se a PR já tem `MERGE AUTORIZADO` com o patch-id atual). Sem checkout da PR. Segredos `REVISOR_ROTINA_URL`/`REVISOR_ROTINA_TOKEN`; ausentes = `::warning`, nunca falha a PR. Gate: `scripts/gates/check-acionar-revisor.ts`.
+- **O que conta como autorização do `gilberto-revisor` (Eng. Chefe 08/10):** autorização própria = comentário cuja
+  PRIMEIRA linha é exatamente `MERGE AUTORIZADO #<n> — gilberto-revisor · patch-id <40 hex>`. Comentário com a marca
+  escondida da fila ou que comece com `Fila de merge:` NUNCA conta como autorização nem como revisão já feita (todos os
+  comentários saem da mesma conta do GitHub; o aviso da fila cita o texto e o patch-id, e não é do revisor). Ao procurar
+  "comentário meu com este patch-id", confira a primeira linha — não basta o texto aparecer no corpo.
+
+## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
+Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta
+revisao-eng-chefe continua exigindo aceitação verde + MERGE AUTORIZADO; aceitação da main de hora em hora no banco de
+testes, vermelho = corrigir em 1 h ou reverter."
+- **Via rápida** (PR SEM `revisao-eng-chefe`): a fila de merge exige todos os checks verdes + preview da Vercel de build
+  real (build pulado "Canceled by Ignored Build Step" não conta). Os checks `aceitacao`, `triagem` e `@pos-migration
+  (informativo)` são **só informativos**: não seguram nem derrubam a PR.
+- **Via revisada** (PR COM `revisao-eng-chefe`): igual a antes — aceitação verde + `MERGE AUTORIZADO` pelo patch-id.
+- **Aceitação pesada só na via revisada (CEO 07/10):** a triagem do `aceitacao-pr.yml` dispensa a suíte (notice "via rápida:
+  julgada na aceitação da main") em PR sem a etiqueta e em commit sem PR aberta — esses runs não entram na fila
+  `aceitacao-testes`. Etiqueta posta depois → `aceitacao-etiqueta.yml` re-roda a aceitação do head (sem checkout da PR).
+- **Migration**: regra intacta (PR com migration espera o `@pos-migration` da anterior; vermelho em produção = reverter).
+- **Aceitação da main** (`.github/workflows/aceitacao-main.yml`): ao fim de cada "Montar banco de testes" na main, de hora
+  em hora (rede de segurança: a agenda do GitHub descarta runs sob carga) e manual, a suíte roda contra a ponta
+  da `main` buildada no próprio runner e apontada para o **banco de testes** (nunca produção), na fila `aceitacao-testes`.
+  Vermelho → issue **`main-vermelha`** (uma só, atualizada) com as PRs publicadas desde o último verde: **corrigir em 1 h
+  ou reverter**. Verde → a issue fecha sozinha.
+- **Volta ao normal** (aceitação obrigatória em toda PR) quando houver um banco de testes por vaga — decisão do CEO.
+- Gate: `scripts/gates/check-esteira-2-velocidades.ts`.
 
 # Velocidade e disciplina de sessão (CEO 04/10)
 - **(D) Uma sessão por agente (lease):** ao iniciar, chame `SELECT fn_agente_sessao_iniciar('<seu-identificador>', '<ref da sessão>');`.
@@ -175,3 +251,27 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Sempre com checks e aceitação verdes, `main` verde, dois testes e um merge por vez. É SENSÍVEL (exige "MERGE AUTORIZADO #NNNN"):
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
+
+# Re-rodar teste (Eng. Chefe 07/10)
+A rede da sessão do Code troca o token pelo da integração: `POST .../runs/<id>/rerun` dá 403 com qualquer token nosso.
+**Para re-rodar teste, comente `/re-rodar` na PR** (exatamente isso; autor com permissão write): o workflow `comando-pr.yml`
+re-roda a última aceitação do head da PR com `FILA_MERGE_TOKEN` e responde com o link do run. Além disso, o `vigia-runs.yml`
+re-roda sozinho a aceitação cancelada (timeout/espera de trava), no máximo 2 vezes por SHA.
+
+# Mensagem da caixa só vira `concluida` quando a lista acabar (Eng. Chefe 08/10) — vale para TODOS os Codes
+**Não marque uma mensagem como concluída enquanto houver PRÓXIMO**: deixe em `em_andamento` ou abra a continuação na própria
+caixa. O despertador só acorda Code com tarefa aberta; concluir com item pendente deixa o Code parado.
+Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
+
+# Regras de tela RD-95 e RD-96 (CEO 08/10) — obrigatórias para TODOS os Codes
+- **RD-95 — "?" em todo campo.** Todo campo, coluna editável, filtro, indicador e ação de toda tela tem o "?" do componente
+  padrão `src/components/ajuda/AjudaCampo.tsx` (`<AjudaCampo chave="..." />`, padrão da tela de Mão de obra). O texto vem do banco
+  (`erp_ajuda_campo`, lido por `fn_ajuda_campo_listar` numa chamada por tela): o que preencher, para que serve no cálculo, exemplo,
+  erro comum — em linguagem do usuário, abre sem sair da tela e no celular (bottom sheet). Chave nova = linha nova em `erp_ajuda_campo`
+  (migration). Tela sem "?" não é entregue. Gates: `scripts/gates/check-ajuda-campo.ts` (Hub, lista PENDENTES que só diminui) e `scripts/gates/check-ajuda-campo-telas-alteradas.ts` (qualquer
+  `.tsx` novo ou alterado na PR em `src/app/dashboard` e `src/components` com campo sem "?" reprova). Cobertura por vertical: `npx tsx scripts/relatorio-cobertura-ajuda.ts [--telas]`.
+- **RD-96 — nunca copiar concorrente.** Nada de leiaute, ordem de menu, nomes, textos ou fluxo de outro produto (Sienge, Procore etc.).
+  Design system PS ultra premium: tipografia legível com hierarquia clara, espaçamento generoso, visivelmente melhor e mais fácil.
+- **Checklist de revisão de PR de tela:** (1) todo campo/filtro/indicador/ação tem "?" com chave existente no banco; (2) tarefa principal
+  em até 3 toques; (3) a tela aparece no menu do banco e em `system_screens` (entrega só conta se o usuário a enxerga); (4) nomes e
+  fluxo próprios, nada decalcado de concorrente; (5) funciona no celular; (6) teste do caminho principal como usuário real.

@@ -11,8 +11,9 @@ import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
+import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 import { enderecoFiscalDoCliente, filtroDocumentoCliente, type ClienteEndereco } from '@/lib/fiscal/tomadorEndereco'
-import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -533,7 +534,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             }
             let aliqMunic: number | null = null
             if (muniPrest.length === 7 && lc116) {
-              const hoje = new Date().toISOString().slice(0, 10)
+              const hoje = dataBrasil()   // #1944 · vigência no dia de Brasília
               const { data: issRows } = await supabaseAdmin
                 .from('fiscal_iss_municipio')
                 .select('aliquota, vigencia_inicio, vigencia_fim')
@@ -625,8 +626,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           if (_optanteSN && (nfseReq.regimeApuracaoSN ?? 1) === 1) {
             const tpRet = nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1)
             const issRetido = tpRet === 2 || tpRet === 3
-            const bsb = new Date(Date.now() - 3 * 60 * 60 * 1000)  // competência = mês de Brasília (igual ao data_competencia da nota)
-            const compIso = `${bsb.getUTCFullYear()}-${String(bsb.getUTCMonth() + 1).padStart(2, '0')}-01`
+            const diaBR = dataBrasil()  // competência = mês de Brasília (igual ao data_competencia da nota) · #1944
+            const compIso = `${diaBR.slice(0, 7)}-01`
             const { data: aliq } = await supabaseAdmin
               .from('erp_fiscal_aliquota_sn')
               .select('aliquota')
@@ -636,7 +637,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             if (aliq?.aliquota == null) {
               if (issRetido) {
                 // ISS retido: a alíquota é obrigatória na nota (o tomador retém sobre ela) → bloqueia sem chutar.
-                const mm = `${String(bsb.getUTCMonth() + 1).padStart(2, '0')}/${bsb.getUTCFullYear()}`
+                const mm = `${diaBR.slice(5, 7)}/${diaBR.slice(0, 4)}`
                 return NextResponse.json({ ok: false, mensagem: `Informe a alíquota de ISS do Simples de ${mm} na Configuração Fiscal antes de emitir (ISS retido pelo tomador).` }, { status: 400 })
               }
               // ISS não retido: segue sem pAliq (E0625) — nota autorizada normalmente.
@@ -644,6 +645,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
               nfseReq.aliquotaISSSN = Number(aliq.aliquota)
             }
           }
+          // #1944 · IBS/CBS só COMPLETO (reformaIbsCbsDoServico): a config da empresa sozinha não vai mais — sem o
+          // cadastro do serviço (cIndOp só existe lá) a nota sai sem o grupo, como antes da Reforma.
+          const reformaEmpresa = nfseReq.reforma
+          nfseReq.reforma = undefined
           // codigo_nbs do serviço (opcional — só enviado se preenchido) + #286: tributos federais do cadastro
           if (body.servicoId) {
             const { data: sv } = await supabaseAdmin
@@ -671,14 +676,21 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
                 }
               }
               if (ret.apuracaoPropria) nfseReq.apuracaoPisCofins = ret.apuracaoPropria
-              // IBS/CBS do CADASTRO DO SERVIÇO quando a empresa não configurou: grupo IBSCBS exige CST, cClassTrib
-              // e cIndOp (6 díg., Anexo C — E0901). Sem cIndOp válido o grupo NÃO vai (aviso); nunca adivinhar.
+              // #1944 · grupo IBSCBS só completo: CST e cClassTrib (serviço; na falta, empresa) e cIndOp (6 díg., Anexo C
+              // — E0901, só do serviço). Incompleto → nenhuma chave da Reforma (aviso); nunca adivinhar.
               {
-                const ib = reformaIbsCbsDoServico(nfseReq.reforma, sv as ServicoIbsCbs)
+                const ib = reformaIbsCbsDoServico(reformaEmpresa, sv as ServicoIbsCbs)
                 nfseReq.reforma = ib.reforma
                 if (ib.aviso) avisosTributos.push(ib.aviso)
               }
             }
+          }
+          // #1944 · Simples Nacional: grupo IBS/CBS obrigatório a partir de 01/01/2027 — validação PRONTA e DESLIGADA
+          // (EXIGIR_IBS_CBS_SIMPLES em retencoesFederaisNfse.ts; ligar é decisão do CEO, por PR).
+          {
+            const optanteSN = nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3
+            const msgIbs = validarIbsCbsObrigatorio({ optanteSimples: optanteSN, dataEmissaoBR: dataBrasil(), reforma: nfseReq.reforma })
+            if (msgIbs) return NextResponse.json({ ok: false, mensagem: msgIbs }, { status: 400 })
           }
           // Guard XSD (RD-51): o layout nacional EXIGE cMun (IBGE) e nro do tomador. Sem eles o Focus rejeita
           // no XSD. Bloqueia ANTES de enviar, com mensagem clara — não deixa virar erro fiscal obscuro.

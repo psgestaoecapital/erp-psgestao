@@ -12,6 +12,10 @@ jobs:
   #  (1) cancela runs ANTIGOS da mesma PR que ainda esperam vez na fila demo-e2e (commit já superado);
   #  (2) pula a aceitação quando o diff da PR (contra a main) só tem .md / workflow / AGENTS.md e nenhum spec em
   #      e2e/jornadas/aceitacao — nada a testar, custo zero. Qualquer outro arquivo → roda normalmente.
+  #  (3) ESTEIRA EM 2 VELOCIDADES (CEO 07/10): a suíte pesada só roda na VIA REVISADA (PR com a etiqueta
+  #      revisao-eng-chefe). PR sem a etiqueta (via rápida) e commit sem PR aberta: aceitação DISPENSADA (o job
+  #      aceitacao fica skipped e NÃO entra na fila aceitacao-testes) — a via rápida é julgada na aceitação da main.
+  #      Etiqueta posta depois → aceitacao-etiqueta.yml re-roda este run e a triagem lê a etiqueta de novo.
   triagem:
     if: >-
       github.event.deployment_status.state == 'success' &&
@@ -37,8 +41,17 @@ jobs:
         run: |
           rodar=true
           pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null || true)
-          if [ -n "$pr" ]; then
+          if [ -z "$pr" ]; then
+            rodar=false
+            echo "::notice::commit sem PR aberta: aceitação dispensada (julgada na aceitação da main)"
+          else
             echo "PR aberta: #$pr"
+            # (3) via rápida (sem revisao-eng-chefe): aceitação dispensada; etiqueta lida AGORA (re-run após etiquetar)
+            revisada=$(gh api "repos/$REPO/pulls/$pr" --jq '[.labels[].name] | index("revisao-eng-chefe") != null' 2>/dev/null || echo true)
+            if [ "$revisada" != true ]; then
+              rodar=false
+              echo "::notice::via rápida: julgada na aceitação da main (PR #$pr sem a etiqueta revisao-eng-chefe)"
+            fi
             # (2) só doc/workflow sem spec?
             files=$(gh api "repos/$REPO/pulls/$pr/files" --paginate --jq '.[].filename' 2>/dev/null || true)
             if [ -n "$files" ]; then
@@ -80,14 +93,19 @@ jobs:
     # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
     # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
     # Chave do banco de testes (CEO 06/10): com a variável de repositório ACEITACAO_BANCO=testes a aceitação roda
-    # contra o banco de TESTES (segredos TEST_*), em até 3 vagas simultâneas, timeout 40 min. Sem a variável, tudo
-    # como antes (produção, fila única demo-e2e). O CEO só liga depois de trocar o ambiente Preview da Vercel.
+    # contra o banco de TESTES (segredos TEST_*), timeout 40 min. Sem a variável, tudo como antes (produção, fila
+    # única demo-e2e). O CEO só liga depois de trocar o ambiente Preview da Vercel.
+    # CEO 07/10: UMA fila (FIFO, fora do runner) também no banco de testes. Com 3 grupos (vagas) e 1 trava no banco,
+    # 3 jobs rodavam e 2 esperavam a trava dentro do runner, gastando os 40 min / estourando os 15 min de espera
+    # ('[trava-demo] demo ocupada há mais de 15 min'). Os specs usam demos 001..005 fixas e fn_demo_reset é por demo:
+    # paralelismo real só com um banco de testes por vaga (decisão do CEO); até lá a vez é esperada na fila.
     concurrency:
-      group: ${{ vars.ACEITACAO_BANCO == 'testes' && format('aceitacao-testes-{0}', needs.triagem.outputs.vaga) || 'demo-e2e' }}
+      group: ${{ vars.ACEITACAO_BANCO == 'testes' && 'aceitacao-testes' || 'demo-e2e' }}
       cancel-in-progress: false
       queue: max
-    # 75 em produção (fila fora do runner); 40 no banco de testes
-    timeout-minutes: ${{ vars.ACEITACAO_BANCO == 'testes' && 40 || 75 }}
+    # 40 min (CEO 06/10, regra e): a espera na fila demo-e2e é FORA do runner e não conta; preso além disso o
+    # vigia-runs.yml cancela aos 45. A trava no banco (segunda guarda) espera no máximo 15 min.
+    timeout-minutes: 40
     # actions: write → o run pode cancelar a si mesmo quando a versão é antiga (passo "Versão antiga?")
     permissions:
       contents: read
@@ -140,6 +158,7 @@ jobs:
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
       - name: Jornadas de aceitação contra o preview
+        timeout-minutes: 30
         env:
           PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
           SUPABASE_URL: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_URL || secrets.SUPABASE_URL }}
@@ -147,7 +166,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
-          TRAVA_DEMO_ESPERA_MIN: '30'
+          TRAVA_DEMO_ESPERA_MIN: '15'
           # Só necessário se o preview tiver Deployment Protection (401 da Vercel): Settings › Deployment
           # Protection › "Protection Bypass for Automation" gera o segredo; o CEO cadastra no GitHub.
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
@@ -158,6 +177,7 @@ jobs:
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
       - name: Aceitação @pos-migration (informativo — não bloqueia)
+        timeout-minutes: 15
         if: success() || failure()
         continue-on-error: true
         env:
@@ -167,7 +187,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_ANON_KEY || secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
-          TRAVA_DEMO_ESPERA_MIN: '30'
+          TRAVA_DEMO_ESPERA_MIN: '15'
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           if npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
@@ -177,6 +197,15 @@ jobs:
             echo "### @pos-migration no preview: vermelho (informativo, não bloqueia) — veredito em produção após o merge" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+      # CEO 07/10: libera a trava da demo SEMPRE (cancelamento/timeout não rodam o global-teardown; a lease ficava até
+      # 25 min e a aceitação seguinte esperava sem rodar teste).
+      - name: Soltar a trava da demo (sempre)
+        if: always()
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/e2e-trava-soltar.ts
       # Sempre sobe o diagnóstico do global-setup (screenshots com/sem ps_allow_preview); relatório completo só na falha.
       - name: Upload diagnóstico do host (sempre)
         if: always()
