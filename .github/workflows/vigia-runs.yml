@@ -27,7 +27,10 @@ jobs:
       REPO: ${{ github.repository }}
       LIMITE_MIN: '45'
       # workflows de e2e da demo (os que entram na fila demo-e2e) e a montagem do banco de testes
-      VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
+      VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml aceitacao-main.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
+      # zumbi (Eng. Chefe 08/10): run de aceitação EM ANDAMENTO há mais de 90 min (idade do run, não do job) é cancelado
+      LIMITE_RUN_MIN: '90'
+      ACEITACOES: aceitacao-pr.yml aceitacao-pos-migration.yml aceitacao-main.yml
     steps:
       - name: Cancelar run com job executando há mais de 45 min
         run: |
@@ -49,6 +52,25 @@ jobs:
             done
           done
           echo "runs presos cancelados: $n"
+
+      # Zumbi 08/10: a Aceitação (preview) #1080 ficou "In progress" ~15 h segurando o grupo aceitacao-testes, e nenhum timeout
+      # pegou. Teto pela IDADE do run (run_started_at), independente do estado dos jobs: > 90 min em andamento = cancela com aviso.
+      - name: Cancelar aceitação em andamento há mais de 90 min (zumbi)
+        run: |
+          set -uo pipefail
+          agora=$(date -u +%s); n=0
+          for wf in $ACEITACOES; do
+            gh api "repos/$REPO/actions/workflows/$wf/runs?status=in_progress&per_page=50" \
+              --jq '.workflow_runs[] | "\(.id) \(.run_started_at) \(.head_sha)"' 2>/dev/null | while read -r id ini sha; do
+              [ -n "$id" ] && [ -n "$ini" ] || continue
+              min=$(( (agora - $(date -u -d "$ini" +%s)) / 60 ))
+              [ "$min" -gt "$LIMITE_RUN_MIN" ] || continue
+              echo "::warning title=aceitação zumbi cancelada::$wf run $id (head ${sha:0:7}) em andamento há $min min (> $LIMITE_RUN_MIN)"
+              echo "- $wf · run $id · em andamento há $min min → cancelado (zumbi)" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null \
+                || gh api -X POST "repos/$REPO/actions/runs/$id/force-cancel" > /dev/null || true
+            done
+          done
 
       # Esteira travada 08/10: 6+ runs da "Aceitação da main" de SHAs antigos esperavam horas na fila aceitacao-testes
       # e, ao chegar a vez, cada um só ia dizer "ponta já julgada". Run ESPERANDO (pending/queued) de SHA que não é mais a
