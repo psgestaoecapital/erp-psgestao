@@ -37,6 +37,8 @@ const PROXIMOS: Record<string, { s: string; l: string }[]> = {
 }
 
 export default function ObrasPage() {
+  const [abrirCockpit, setAbrirCockpit] = useState(false)
+  useEffect(() => { setAbrirCockpit(new URLSearchParams(window.location.search).get('abrir') === 'cockpit') }, [])
   const { companyIds } = useCompanyIds()
   const [kpis, setKpis] = useState<Kpis | null>(null)
   const [obras, setObras] = useState<Obra[]>([])
@@ -93,6 +95,7 @@ export default function ObrasPage() {
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>Hub · Construção</div>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 6px' }}>Obras</h1>
         <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="link-resultado-obra" style={{ display: 'inline-block', margin: '0 0 14px', fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>Ver resultado por obra</Link>
+        {abrirCockpit && <div data-testid="dica-cockpit" style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 12, background: '#FFF8E6', color: ESP, border: `0.5px solid ${LINE}` }}>Escolha a obra e toque em <b>Abrir cockpit</b>.</div>}
 
         {msg && <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 12, background: msg.startsWith('Erro') ? '#FBEAEA' : '#EAF5EE', color: msg.startsWith('Erro') ? VERM : VERDE, border: `0.5px solid ${LINE}` }}>{msg}</div>}
 
@@ -190,7 +193,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
         <button onClick={() => onAbrir(o)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${GOLD}`, background: '#FBF4E4', color: '#A57A15' }}>
           Ver escopo
         </button>
-        <Link href={`/dashboard/projetos/obras/${o.id}/cockpit?area=hub`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#fff', color: ESP, textDecoration: 'none' }}>Cockpit</Link>
+        <Link href={`/dashboard/projetos/obras/${o.id}/cockpit?area=hub`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#fff', color: ESP, textDecoration: 'none' }}>Abrir cockpit</Link>
         <Link href={`/dashboard/projetos/obras/${o.id}/linha-do-tempo?area=hub`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#fff', color: ESP, textDecoration: 'none' }}>
           Linha do tempo
         </Link>

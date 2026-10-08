@@ -153,6 +153,14 @@ export default function PainelProjetos() {
       </section>
 
       {/* ROADMAP */}
+      <section data-testid="novidades-hub" className="mt-10 rounded-xl border border-[#3D2314]/10 bg-white p-5">
+        <h2 className="text-lg font-semibold text-[#3D2314]">Novidades do Hub</h2>
+        <ul className="mt-3 space-y-2 text-sm">
+          <li><Link href="/dashboard/projetos/obras/resultado?area=hub" className="font-semibold text-[#3D2314] underline">Resultado por obra</Link> — receita, custo e margem de cada obra e do consolidado.</li>
+          <li><Link href="/dashboard/projetos/obras?abrir=cockpit" className="font-semibold text-[#3D2314] underline">Cockpit da obra</Link> — avanço, custo, margem, prazo e pendências do dia.</li>
+        </ul>
+      </section>
+
       <section id="roadmap" className="mt-16">
         <div className="mb-6 flex flex-wrap items-center gap-3">
           <SectionLabel>Roadmap de construção</SectionLabel>
