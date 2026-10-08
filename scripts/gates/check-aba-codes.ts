@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  CODES_LINHA_FINAL, CODES_PRINCIPAIS, emTeste, estadoSessao, faixa, fila, intervaloDia,
+  CODES_LINHA_FINAL, CODES_PRINCIPAIS, emTeste, esteira, resumoCode, estadoSessao, faixa, fila, intervaloDia,
   type Entrega, type Lease, type Mensagem,
 } from '../../src/lib/dev/painelCodes'
 
@@ -180,6 +180,25 @@ async function main() {
   ok(existsSync('src/app/dashboard/dev/codes/page.tsx') && /export \{ default \} from '\.\.\/page'/.test(ler('src/app/dashboard/dev/codes/page.tsx')),
     'rota /dashboard/dev/codes é a mesma Central')
   ok(/Code: <nome da rotina>/.test(ler('AGENTS.md')), 'AGENTS.md: toda PR leva a linha "Code: <nome da rotina>"')
+
+  // (6) topo da aba (CEO 08/10): faixa da esteira e resumo por Code — RD-83
+  {
+    const ag = new Date('2026-10-08T15:00:00-03:00')
+    const min = (m: number) => new Date(ag.getTime() - m * 60_000).toISOString()
+    const msg = (id: string, para: string, status: string, m: number): Mensagem =>
+      ({ id, para, assunto: `assunto ${id}`, status, pr_numero: null, resposta: null, criado_em: min(m), atualizado_em: min(m) })
+    const lease = (agente: string, m: number): Lease => ({ agente, sessao_ref: 's', iniciada_em: min(m + 5), renovada_em: min(m) })
+    const base = { entregas: [] as Entrega[], agora: ag }
+    const r = (code: string, msgs: Mensagem[], leases: Lease[]) => resumoCode({ ...base, code, msgs, leases })
+    ok(r('gilberto-desenv', [], [lease('gilberto-desenv', 2)]).status === 'trabalhando', 'RD-83: sessão ativa → Trabalhando')
+    ok(r('jordana-code', [msg('a', 'jordana-code', 'nova', 20)], []).status === 'travado', 'RD-83: nova não lida há 20 min → Travado')
+    const antiga = r('rodrigo-code', [msg('b', 'rodrigo-code', 'recebida', 30 * 60)], [])
+    ok(antiga.status === 'dormindo' && antiga.filaAntiga === 1 && antiga.fila === 0, 'RD-83: recebida > 24 h vira fila antiga, nunca Travado')
+    ok(r('gilberto-produto', [msg('c', 'gilberto-produto', 'nova', 5)], []).status === 'dormindo', 'nova há 5 min ainda não é Travado')
+    ok(esteira({ ...base, entregas: [{ id: 1, pr_numero: 1, titulo: 't', code: 'x', evento: 'publicada', via: 'rapida', sha: 'a', url: null, ocorrido_em: min(10) }] }).cor === 'verde', 'esteira verde: publicou na última hora')
+    ok(esteira({ ...base }).cor === 'amarela', 'esteira amarela: sem publicação há mais de 1 h')
+    ok(esteira({ ...base, mainVerde: false }).cor === 'vermelha' && esteira({ ...base, testeParadoMin: 100 }).cor === 'vermelha', 'esteira vermelha: main vermelha ou teste parado > 90 min')
+  }
 
   if (falhas) { console.error(`\ncheck-aba-codes: ${falhas} falha(s)`); process.exit(1) }
   console.log('\nAba Codes: ok')
