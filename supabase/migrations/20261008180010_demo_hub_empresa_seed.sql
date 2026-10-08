@@ -30,6 +30,7 @@ WHERE EXISTS (SELECT 1 FROM public.users x WHERE x.id = u.id)
   AND NOT EXISTS (SELECT 1 FROM public.user_companies uc
                   WHERE uc.user_id = u.id AND uc.company_id = 'b0700000-0000-4000-a000-000000000006');
 
+-- ci-sem-guarda: fn_gold_hub_seed_reparar — só a empresa de demonstração fixa do Hub (is_demo); sem GRANT a usuário, roda pelo fn_demo_reset (service_role)
 CREATE OR REPLACE FUNCTION public.fn_gold_hub_seed_reparar(p_company_id uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
