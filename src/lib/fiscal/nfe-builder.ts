@@ -333,14 +333,13 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
         }
       : undefined
 
-    // Grupo comb (NT 2016/002): item cujo NCM é de combustível/lubrificante (começa com 2710) exige
-    // cProdANP + descANP (do cadastro do produto) e UFCons (UF do destinatário na emissão). Sem eles a
-    // SEFAZ rejeita o grupo comb; o nfe-validator barra antes, no padrão do 232/938. Só monta quando é 2710.
-    const ncmDigits = (prod.ncm ?? '').replace(/\D/g, '')
-    const ehCombustivel = ncmDigits.startsWith('2710')
-    const comb = ehCombustivel
+    // Grupo comb (NT 2016/002 · #1755): só monta quando o produto tem código ANP (cProdANP) no cadastro —
+    // o NCM 2710 sozinho não obriga (aditivo/lubrificante fora da tabela SIMP sai sem o grupo, como a NF
+    // 394.102 da Black Prime autorizada pela SEFAZ). Com código: cProdANP + descANP (cadastro) e UFCons (UF
+    // do destinatário na emissão); o nfe-validator barra antes se faltar a descANP.
+    const comb = prod.combustivel_codigo_anp != null
       ? {
-          cProdANP: prod.combustivel_codigo_anp != null ? Number(prod.combustivel_codigo_anp) : undefined,
+          cProdANP: Number(prod.combustivel_codigo_anp),
           descANP: prod.combustivel_descricao_anp || undefined,
           // UFCons = UF do consumo (destinatário). "EX" quando exterior (sem UF nacional).
           ufCons: destinatario.endereco?.uf ? destinatario.endereco.uf.toUpperCase() : undefined,
