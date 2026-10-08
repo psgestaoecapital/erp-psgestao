@@ -14,6 +14,7 @@ export type PrSimulada = {
   atras?: number
   checksRodando?: boolean
   migration?: boolean
+  migrationBaixa?: boolean     // versão da migration NÃO maior que a última da main (incidente 08/10)
   draft?: boolean
   labels?: string[]            // padrão: ['fila-merge'] (como antes da etiqueta opcional)
   comentarios?: string[]       // corpos de comentários já existentes na PR
@@ -65,7 +66,8 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         put(`${R}/issues/${p.n}/comments`, (p.comentarios ?? []).map((body) => ({ body })))
         put(`${R}/pulls/${p.n}`, { number: p.n, title: `PR ${p.n}`, draft: !!p.draft, mergeable: true, base: { ref: 'main' },
           head: { sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: labels.map((name) => ({ name })) })
-        put(`${R}/pulls/${p.n}/files`, [{ filename: p.migration ? `supabase/migrations/${p.n}.sql` : `src/${p.n}.ts` }])
+        put(`${R}/pulls/${p.n}/files`, [{ status: 'added', filename: p.migration ? `supabase/migrations/${(p.migrationBaixa ? 20261001000000 : 20261009000000) + p.n}_m.sql` : `src/${p.n}.ts` }])
+        put(`${R}/git/trees/main:supabase/migrations`, { tree: [{ path: '20261008150005_ultima.sql' }, { path: 'README.md' }] })
         put(`${R}/compare/main...${sha[p.n]}`, { behind_by: p.atras ?? 0 })
         const acc = p.aceitacao ?? 'in_progress'
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [
