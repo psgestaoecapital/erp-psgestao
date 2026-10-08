@@ -1,8 +1,9 @@
 name: Fila de merge
 
 # CEO 06/10 (regras de merge a–d, proposta do Rodrigo · erp_contexto_projeto 5c30d735). O merge queue do GitHub exige
-# plano pago de organização (RD-42); no lugar, esta fila própria: PR com a label `fila-merge`, autorizada e verde, é
-# atualizada com a main e mergeada EM ORDEM, uma por vez. Lógica e regras em scripts/merge/fila-merge.sh.
+# plano pago de organização (RD-42); no lugar, esta fila própria: TODA PR Ready (não-draft) na main, verde (e, se for
+# revisao-eng-chefe, autorizada pelo patch-id) é atualizada com a main e mergeada EM ORDEM, uma por vez. A label
+# `fila-merge` é OPCIONAL (CEO 08/10 08:15); a label `nao-publicar` tira a PR da fila. Regras em scripts/merge/fila-merge.sh.
 # Sem polling: acorda por evento (label, push na PR, comentário de autorização, fim de CI/aceitação/deploy, Vercel,
 # push na main). Cada rodada reavalia a fila do zero (idempotente); a concorrência deixa no máximo 1 rodada pendente.
 #
@@ -10,7 +11,7 @@ name: Fila de merge
 # OBRIGATÓRIO: merge e update-branch feitos com o GITHUB_TOKEN não disparam os workflows da main (deploy-migrations!).
 on:
   pull_request_target:
-    types: [labeled, synchronize, ready_for_review]
+    types: [opened, reopened, labeled, unlabeled, synchronize, ready_for_review]
   issue_comment:
     types: [created]
   workflow_run:
@@ -38,7 +39,7 @@ jobs:
   fila:
     # filtros baratos: só acorda quando o evento pode mudar o estado da fila
     if: >-
-      (github.event_name != 'pull_request_target' || contains(github.event.pull_request.labels.*.name, 'fila-merge')) &&
+      (github.event_name != 'pull_request_target' || (!github.event.pull_request.draft && github.event.pull_request.base.ref == 'main')) &&
       (github.event_name != 'issue_comment' || (github.event.issue.pull_request && contains(github.event.comment.body, 'MERGE AUTORIZADO'))) &&
       (github.event_name != 'status' || (startsWith(github.event.context, 'Vercel') && github.event.state != 'pending'))
     runs-on: ubuntu-latest
