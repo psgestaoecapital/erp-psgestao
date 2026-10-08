@@ -179,11 +179,19 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   `MERGE AUTORIZADO #NNNN — gilberto-revisor · patch-id <40 hex>`, onde o patch-id sai de `scripts/merge/patch-id.sh NNNN`
   (diff da PR contra o merge-base com a `main`). Atualizar com a `main` mantém o patch-id e a autorização; mudar o código
   da PR muda o patch-id e exige nova revisão. Autorização sem patch-id não vale para a fila.
-- **(d) Fila de merge** (`.github/workflows/fila-merge.yml` + `scripts/merge/fila-merge.sh`, sem polling): o Code que
-  conferiu a RD-94/94.1 põe a label **`fila-merge`** na PR (Ready). A fila pega as PRs em ordem de entrada, **uma por
-  vez**: atualiza com a `main` (merge, sem reescrever histórico), espera os checks, confere a autorização (PR com
-  `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido). Conflito, check vermelho ou autorização inválida →
-  comenta o motivo e tira a label. PR com migration esperando a `main` não segura as PRs sem migration atrás dela.
+- **(d) Fila de merge** (`.github/workflows/fila-merge.yml` + `scripts/merge/fila-merge.sh`, sem polling): a fila pega
+  **toda PR Ready** (não-draft) na `main` em ordem de entrada, **uma por vez**: atualiza com a `main` (merge, sem
+  reescrever histórico), espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado
+  no SHA conferido). Conflito, check vermelho ou autorização inválida → comenta o motivo **uma vez por commit** (e tira a
+  label `fila-merge`, se houver); a PR volta a ser avaliada sozinha no próximo commit.
+  **Fila sem etiqueta (CEO 08/10 08:15, "ok fila sem etiqueta"):** a label **`fila-merge` é OPCIONAL** (continua aceita;
+  a hora em que foi posta conta como entrada). **PR Ready + checks obrigatórios verdes = publicada.** Quer abrir PR sem
+  publicar? Abra em **draft** (draft nunca entra) ou ponha a label **`nao-publicar`** (a fila pula e comenta o motivo
+  uma única vez). A PR com `revisao-eng-chefe` continua exigindo `MERGE AUTORIZADO #N — gilberto-revisor · patch-id`
+  do conteúdo atual, e as migrations seguem as regras de sempre (uma por vez, esperando a `main`). Gate:
+  `scripts/gates/check-fila-sem-etiqueta.ts` (draft, `nao-publicar`, revisada sem autorização, comum verde sem etiqueta).
+  Como a fila olha todas as PRs Ready a cada rodada, ela lê os dados da própria lista de PRs e tem **válvula de cota**:
+  com menos de 1000 chamadas restantes no PAT (`FILA_MERGE_TOKEN`, o mesmo do `/re-rodar`), a rodada é adiada. PR com migration esperando a `main` não segura as PRs sem migration atrás dela.
   **Sem bloqueio pela cabeça (CEO 07/10):** PR atrás da `main` é atualizada e PR com checks rodando fica esperando, mas a
   rodada segue para as próximas (no máximo 1 merge por rodada). Só a PR com migration que espera a **main** (deploy ou
   `@pos-migration` da anterior) segura as outras com migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
@@ -193,6 +201,7 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
   **executando** há mais de 45 min; job esperando a vez na fila nunca é cancelado.
 - Gate: `scripts/gates/check-esteira-merge.ts`.
+- **Revisor por evento (CEO 07/10):** `.github/workflows/acionar-revisor.yml` (`pull_request_target` labeled/synchronize/ready_for_review, só PR Ready do repo com `revisao-eng-chefe`) acorda a rotina do `gilberto-revisor` em minutos (espera 120 s; rajada = 1 acionamento por PR; não aciona se a PR já tem `MERGE AUTORIZADO` com o patch-id atual). Sem checkout da PR. Segredos `REVISOR_ROTINA_URL`/`REVISOR_ROTINA_TOKEN`; ausentes = `::warning`, nunca falha a PR. Gate: `scripts/gates/check-acionar-revisor.ts`.
 
 ## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
 Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta
