@@ -32,7 +32,7 @@ export default function ResultadoObrasPage() {
     setLoading(true); setErro('')
     try {
       const { data, error } = await comPrazo(
-        () => supabase.from('v_obra_resultado').select('*').in('company_id', companyIds).order('numero', { ascending: false }),
+        async () => await supabase.from('v_obra_resultado').select('*').in('company_id', companyIds).order('numero', { ascending: false }),
         { ms: 8000, tentativas: 1, label: 'v_obra_resultado' },
       )
       if (error) { setErro(error.message); return }
