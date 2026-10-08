@@ -262,3 +262,26 @@ re-roda sozinho a aceitação cancelada (timeout/espera de trava), no máximo 2 
 **Não marque uma mensagem como concluída enquanto houver PRÓXIMO**: deixe em `em_andamento` ou abra a continuação na própria
 caixa. O despertador só acorda Code com tarefa aberta; concluir com item pendente deixa o Code parado.
 Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
+
+# Regras de tela RD-95 e RD-96 (CEO 08/10) — inegociáveis, valem para TODOS os Codes
+**RD-95 — "?" em tudo.** Todo campo, coluna editável, filtro, indicador e ação de toda tela tem o "?" no padrão da tela de
+Mão de obra (`/dashboard/projetos/mao-obra`): cartão com *o que preencher · para que serve / como entra no cálculo · exemplo ·
+erro comum*, em linguagem do usuário, que abre sem sair da tela e vira bottom sheet no celular. **Tela sem "?" não é entregue.**
+- Componente padrão: `<AjudaCampo chave="vertical.tela.campo" />` (`src/components/ajuda/AjudaCampo.tsx`), ao lado do rótulo
+  (ou `<Campo ajuda="…">`). Os textos vêm de `erp_ajuda_campo` pela chave (uma chamada por tela, `fn_ajuda_campo_listar`),
+  editáveis sem deploy; cada abertura é gravada em `erp_ajuda_uso`. Seed dos textos em migration (INSERT ... `erp_ajuda_campo`,
+  ver `20261003110000_pm_copiar_job.sql`). A chave sem texto no banco não vale.
+- Gate: `scripts/gates/check-rd95-tela-nova.ts` reprova a PR cujo `.tsx` de tela (`src/app/dashboard`, `src/components`) NOVO
+  tem campo sem "?", ou cujas linhas ACRESCENTADAS em arquivo alterado criam campo sem "?". No Hub vale também o
+  `check-ajuda-campo.ts` (chave existe no banco). Análise compartilhada: `src/lib/dev/ajudaCampoAnalise.ts`.
+- Cobertura/dívida: `npx tsx scripts/relatorio-cobertura-ajuda.ts` (telas e campos sem "?" por vertical; `--json`).
+**RD-96 — nunca copiar concorrente.** Nada de leiaute, ordem de menu, nomes, textos ou fluxo de tela de concorrente (Sienge,
+Procore etc.). Design system PS ultra premium: tipografia legível com hierarquia clara, espaçamento generoso, visivelmente
+melhor e mais fácil; tarefa principal em até 3 toques.
+**Checklist de revisão de PR de tela** (marque no corpo da PR):
+1. Todo campo/coluna editável/filtro/indicador/ação tem "?" com chave existente no banco (RD-95).
+2. O "?" abre sem sair da tela e funciona no celular.
+3. Nenhum leiaute, nome, ordem de menu ou texto copiado de concorrente (RD-96).
+4. Hierarquia tipográfica clara, espaçamento generoso, tokens do design system PS.
+5. Tarefa principal em até 3 toques; a tela aparece no menu/aba do usuário e em `system_screens`.
+6. Teste RD-83 como usuário real da empresa.
