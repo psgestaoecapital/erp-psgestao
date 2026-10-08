@@ -112,10 +112,10 @@ export const DASHBOARD_MENU_GROUPS: MenuGroup[] = [
   },
   {
     id: 'compliance',
-    label: 'Compliance',
+    label: 'PS EHS',
     icon: Shield,
     items: [
-      { label: 'Painel Compliance', href: '/dashboard/compliance', icon: Shield, status: 'pronto' },
+      { label: 'Painel PS EHS', href: '/dashboard/compliance', icon: Shield, status: 'pronto' },
       { label: 'Calendário Legal IA', href: '/dashboard/compliance/calendario', icon: Calendar, status: 'pronto' },
       { label: 'Funcionários', href: '/dashboard/compliance/funcionarios', icon: UserCheck, status: 'pronto' },
       { label: 'Prestadores', href: '/dashboard/compliance/prestadores', icon: HardHat, status: 'pronto' },
