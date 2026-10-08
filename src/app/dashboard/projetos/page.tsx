@@ -126,6 +126,21 @@ export default function PainelProjetos() {
         </div>
       </section>
 
+      {/* NOVIDADES DO HUB */}
+      <section className="mt-10" data-testid="novidades-hub">
+        <SectionLabel>Novidades do Hub</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Link href="/dashboard/projetos/obras/resultado" className="rounded-xl border border-[#3D2314]/10 bg-white p-4 hover:border-[#C8941A]">
+            <div className="text-sm font-semibold text-[#3D2314]">Resultado por obra</div>
+            <div className="mt-1 text-xs text-[#3D2314]/60">Receita, custo, previsto × realizado e margem de cada obra.</div>
+          </Link>
+          <Link href="/dashboard/projetos/obras/cockpit" className="rounded-xl border border-[#3D2314]/10 bg-white p-4 hover:border-[#C8941A]">
+            <div className="text-sm font-semibold text-[#3D2314]">Cockpit da obra</div>
+            <div className="mt-1 text-xs text-[#3D2314]/60">Avanço, custo, margem, prazo e pendências do dia.</div>
+          </Link>
+        </div>
+      </section>
+
       {/* INDICADORES */}
       <section className="mt-16">
         <SectionLabel>Indicadores</SectionLabel>
