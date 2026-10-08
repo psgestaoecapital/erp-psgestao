@@ -57,7 +57,7 @@ export default function PropostasHubPage() {
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '12px 16px', flex: '1 1 160px' }
   return (
-    <div style={{ background: BG, color: ESP, padding: 20, minHeight: '100%' }}>
+    <div data-testid="hub-propostas" style={{ background: BG, color: ESP, padding: 20, minHeight: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Propostas</h1>
