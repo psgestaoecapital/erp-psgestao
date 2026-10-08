@@ -179,6 +179,8 @@ test.describe('Produtividade — Cadastro por fluxo editável', () => {
       await page.getByTestId('posto-novo-atividade').fill(`${TAG} posto cargo`)
       await page.getByTestId('posto-novo-cargo').fill(`${funcao} · 2`)
       await page.getByTestId('posto-novo-salvar').click()
+      // salvar = resolver cargo (RPC) → posto (RPC): só depois a linha nova é limpa; ler o banco antes disso é corrida
+      await expect(page.getByTestId('posto-novo-atividade'), 'salvou (linha nova limpa)').toHaveValue('', { timeout: 20_000 })
       const p0 = await posto(`${TAG} posto cargo`)
       const cg = await dbSelect<{ id: string }>('prod_cargo', `company_id=eq.${DEMO_IND}&plant_id=eq.${plantId}&nome=eq.${encodeURIComponent(funcao)}&select=id`)
       expect(cg.length, 'prod_cargo criado a partir da função do ponto').toBe(1)
