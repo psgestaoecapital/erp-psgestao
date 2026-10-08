@@ -275,3 +275,11 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
 - **Checklist de revisão de PR de tela:** (1) todo campo/filtro/indicador/ação tem "?" com chave existente no banco; (2) tarefa principal
   em até 3 toques; (3) a tela aparece no menu do banco e em `system_screens` (entrega só conta se o usuário a enxerga); (4) nomes e
   fluxo próprios, nada decalcado de concorrente; (5) funciona no celular; (6) teste do caminho principal como usuário real.
+
+# Sessões de rotina não prendem o CEO (Eng. Chefe 08/10) — vale para TODOS os Codes
+1. **Não use `subscribe_pr_activity` nem `unsubscribe_pr_activity`**: os eventos de PR já chegam pela fila de merge, pelo
+   despertador e pelo `acionar-revisor`. Cada chamada vira um pedido de autorização no celular do CEO.
+2. **Toda sessão termina sem trabalho pendente sem dono.** Alteração não publicada vira branch empurrada + PR em rascunho
+   com a label `nao-publicar` — nunca a pergunta "push / PR / discard" ao CEO.
+3. **Nunca deixe pergunta aberta ao CEO numa sessão de rotina.** Dúvida vai para a caixa (`fn_agente_mensagem_responder`) e
+   a sessão encerra.
