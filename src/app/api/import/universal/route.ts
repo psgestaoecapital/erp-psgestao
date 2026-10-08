@@ -601,34 +601,43 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // user_id do token (audit trail não aceita user_id vindo do form)
-      const userIdParam = guarda.userId;
-
-      const { data: dispatchResult, error: dispatchErr } = await sb.rpc(
-        "fn_import_universal_dispatch",
-        {
-          p_tipo: "planilha_modelo_ps",
-          p_company_id: companyId,
-          p_user_id: userIdParam,
-          p_arquivo_nome: file.name,
-          p_records: records,
-        }
-      );
-      if (dispatchErr) {
-        return NextResponse.json(
-          { error: `Dispatch falhou: ${dispatchErr.message}` },
-          { status: 500 }
-        );
-      }
-      const r = (dispatchResult ?? {}) as {
-        importacao_id?: string;
-        total?: number;
-        inseridos?: number;
-        duplicados?: number;
-        erros?: number;
-        lista_erros?: Array<{ linha: number; descricao?: string; erro: string }>;
-        status?: string;
+      // #1738: um único RPC com a planilha inteira estourava o statement_timeout (1295 linhas). Em lotes o tempo de cada
+      // chamada fica curto; a função é idempotente (ON CONFLICT DO NOTHING pelo import_hash), então refazer é seguro.
+      type DispatchLote = {
+        importacao_id?: string; total?: number; inseridos?: number; duplicados?: number; erros?: number;
+        lista_erros?: Array<{ linha: number; descricao?: string; erro: string }>; status?: string;
       };
+      const TAM_LOTE = 150;
+      const r: DispatchLote = { inseridos: 0, duplicados: 0, erros: 0, lista_erros: [] };
+      for (let ini = 0; ini < records.length; ini += TAM_LOTE) {
+        const { data: lote, error: dispatchErr } = await sb.rpc(
+          "fn_import_universal_dispatch",
+          {
+            p_tipo: "planilha_modelo_ps",
+            p_company_id: companyId,
+            p_user_id: guarda.userId, // audit trail não aceita user_id vindo do form
+            p_arquivo_nome: file.name,
+            p_records: records.slice(ini, ini + TAM_LOTE),
+          }
+        );
+        if (dispatchErr) {
+          return NextResponse.json(
+            {
+              error: `Dispatch falhou: ${dispatchErr.message}`,
+              jaGravadas: r.inseridos,
+              dica: "As linhas já gravadas não duplicam: pode enviar a mesma planilha de novo para completar.",
+            },
+            { status: 500 }
+          );
+        }
+        const l = (lote ?? {}) as DispatchLote;
+        r.importacao_id = r.importacao_id ?? l.importacao_id;
+        r.inseridos = (r.inseridos ?? 0) + (l.inseridos ?? 0);
+        r.duplicados = (r.duplicados ?? 0) + (l.duplicados ?? 0);
+        r.erros = (r.erros ?? 0) + (l.erros ?? 0);
+        for (const e of l.lista_erros ?? []) r.lista_erros!.push({ ...e, linha: (e.linha ?? 0) + ini });
+      }
+      r.status = (r.erros ?? 0) > 0 && (r.inseridos ?? 0) === 0 ? "falhou" : (r.erros ?? 0) > 0 ? "parcial" : "concluido";
 
       const totalReceber = records.filter((rec) => rec.tipo === "receber").length;
       const totalPagar = records.filter((rec) => rec.tipo === "pagar").length;
