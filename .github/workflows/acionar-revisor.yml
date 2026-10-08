@@ -1,0 +1,82 @@
+name: Acionar revisor
+
+# CEO 07/10 14:50 e 19:30: o gilberto-revisor age por EVENTO (minutos), não só de hora em hora, e nada depende de merge manual.
+# PR Ready, do próprio repositório, com a etiqueta revisao-eng-chefe (posta, nova versão do ramo ou saída de rascunho) →
+# acorda a rotina do revisor. Roda o código da main (pull_request_target): o checkout é o da BASE, nunca o da PR; a PR só é
+# lida como dado (git fetch + diff para o patch-id, sem checkout e sem executar nada dela).
+#  · rajada de eventos na mesma PR = 1 acionamento (concurrency cancela o anterior; espera 120 s antes de acionar);
+#  · se a PR já tem "MERGE AUTORIZADO #N — gilberto-revisor · patch-id <hex>" com o patch-id do conteúdo atual, não aciona;
+#  · segredos REVISOR_ROTINA_URL / REVISOR_ROTINA_TOKEN ausentes = ::warning com o passo a passo, sem falhar a PR.
+on:
+  pull_request_target:
+    types: [labeled, synchronize, ready_for_review]
+
+# um grupo por PR: PR diferente não cancela o acionamento da outra
+concurrency:
+  group: acionar-revisor-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  acionar:
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'revisao-eng-chefe') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'revisao-eng-chefe')
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      N: ${{ github.event.pull_request.number }}
+      EVENTO: ${{ github.event.action }}
+      REVISOR_ROTINA_URL: ${{ secrets.REVISOR_ROTINA_URL }}
+      REVISOR_ROTINA_TOKEN: ${{ secrets.REVISOR_ROTINA_TOKEN }}
+    steps:
+      - name: Checkout da main (nunca da PR)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+
+      - name: Esperar a rajada acabar
+        run: sleep 120
+
+      - name: Acionar o revisor
+        run: |
+          set -uo pipefail
+          if [ -z "${REVISOR_ROTINA_URL:-}" ] || [ -z "${REVISOR_ROTINA_TOKEN:-}" ]; then
+            echo "::warning title=Revisor sem rotina configurada::Faltam os segredos REVISOR_ROTINA_URL e/ou REVISOR_ROTINA_TOKEN. Passo a passo: (1) em claude.ai/code/routines abra a rotina do gilberto-revisor e gere o gatilho de API (URL + token); (2) no GitHub: Settings > Secrets and variables > Actions > New repository secret, crie REVISOR_ROTINA_URL (a URL do disparo) e REVISOR_ROTINA_TOKEN (o token); (3) re-rode este workflow ou ponha a etiqueta de novo. Sem eles o revisor segue só pela agenda horária."
+            exit 0
+          fi
+          # a PR ainda está aberta, Ready e com a etiqueta? (o evento pode ter ficado velho durante a espera)
+          estado=$(gh api "repos/$REPO/pulls/$N" --jq '[.state, .draft, ([.labels[].name] | index("revisao-eng-chefe") != null)] | @tsv')
+          read -r st draft sens <<< "$estado"
+          if [ "$st" != "open" ] || [ "$draft" = "true" ] || [ "$sens" != "true" ]; then
+            echo "PR #$N não está mais aberta/Ready/com revisao-eng-chefe ($estado): nada a acionar"; exit 0
+          fi
+          # já autorizada para o conteúdo atual?
+          pid=$(bash scripts/merge/patch-id.sh "$N" 2>/dev/null || true)
+          corpo=$(gh api "repos/$REPO/issues/$N/comments" --paginate \
+            --jq "[.[] | select(.body | test(\"MERGE AUTORIZADO #$N([^0-9]|\$)\"))] | last | .body // empty" 2>/dev/null || true)
+          pid_aut=$(grep -oE 'patch-id[: ]+[0-9a-f]{40}' <<< "$corpo" | tail -1 | grep -oE '[0-9a-f]{40}' || true)
+          if [ -n "$pid" ] && [ -n "$pid_aut" ] && [ "$pid" = "$pid_aut" ]; then
+            echo "PR #$N já tem MERGE AUTORIZADO para o patch-id atual ($pid): não aciona"; exit 0
+          fi
+          corpo_json=$(jq -cn --arg t "PR #$N com revisao-eng-chefe aguardando revisão (evento $EVENTO)." '{text: $t}')
+          code=$(curl -sS -o /tmp/resp.txt -w '%{http_code}' --max-time 30 -X POST "$REVISOR_ROTINA_URL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $REVISOR_ROTINA_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$corpo_json" || echo 000)
+          if [ "${code:0:1}" = "2" ]; then
+            echo "revisor acionado para a PR #$N (HTTP $code)"
+          else
+            echo "::warning title=Acionamento do revisor falhou::HTTP $code ao acionar o revisor para a PR #$N; a rotina horária cobre."
+          fi
