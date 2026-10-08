@@ -27,7 +27,10 @@ jobs:
       REPO: ${{ github.repository }}
       LIMITE_MIN: '45'
       # workflows de e2e da demo (os que entram na fila demo-e2e) e a montagem do banco de testes
-      VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
+      VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml aceitacao-main.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
+      # zumbi (Eng. Chefe 08/10): run de aceitação EM ANDAMENTO há mais de 90 min (idade do run, não do job) é cancelado
+      LIMITE_RUN_MIN: '90'
+      ACEITACOES: aceitacao-pr.yml aceitacao-pos-migration.yml aceitacao-main.yml
     steps:
       - name: Cancelar run com job executando há mais de 45 min
         run: |
@@ -49,6 +52,64 @@ jobs:
             done
           done
           echo "runs presos cancelados: $n"
+
+      # Zumbi 08/10: a Aceitação (preview) #1080 ficou "In progress" ~15 h segurando o grupo aceitacao-testes, e nenhum timeout
+      # pegou. Teto pela IDADE do run (run_started_at), independente do estado dos jobs: > 90 min em andamento = cancela com aviso.
+      - name: Cancelar aceitação em andamento há mais de 90 min (zumbi)
+        run: |
+          set -uo pipefail
+          agora=$(date -u +%s); n=0
+          for wf in $ACEITACOES; do
+            gh api "repos/$REPO/actions/workflows/$wf/runs?status=in_progress&per_page=50" \
+              --jq '.workflow_runs[] | "\(.id) \(.run_started_at) \(.head_sha)"' 2>/dev/null | while read -r id ini sha; do
+              [ -n "$id" ] && [ -n "$ini" ] || continue
+              min=$(( (agora - $(date -u -d "$ini" +%s)) / 60 ))
+              [ "$min" -gt "$LIMITE_RUN_MIN" ] || continue
+              echo "::warning title=aceitação zumbi cancelada::$wf run $id (head ${sha:0:7}) em andamento há $min min (> $LIMITE_RUN_MIN)"
+              echo "- $wf · run $id · em andamento há $min min → cancelado (zumbi)" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null \
+                || gh api -X POST "repos/$REPO/actions/runs/$id/force-cancel" > /dev/null || true
+            done
+          done
+
+      # Esteira travada 08/10: 6+ runs da "Aceitação da main" de SHAs antigos esperavam horas na fila aceitacao-testes
+      # e, ao chegar a vez, cada um só ia dizer "ponta já julgada". Run ESPERANDO (pending/queued) de SHA que não é mais a
+      # ponta da main está superado: cancela (o da ponta atual fica). Run executando nunca é tocado aqui.
+      - name: Cancelar aceitação da main superada (esperando a fila, SHA que não é a ponta)
+        run: |
+          set -uo pipefail
+          main_sha=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null || true)
+          [ -n "$main_sha" ] || { echo "sem SHA da main, nada a fazer"; exit 0; }
+          n=0
+          for st in pending queued waiting; do
+            for linha in $(gh api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?status=$st&per_page=50" \
+              --jq ".workflow_runs[] | select(.head_sha != \"$main_sha\") | .id" 2>/dev/null); do
+              echo "- aceitacao-main · run $linha · SHA superado, esperando a fila → cancelado" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$linha/cancel" > /dev/null || true
+              n=$((n + 1))
+            done
+          done
+          echo "aceitação da main superada cancelada: $n"
+
+      # Esteira travada 08/10 (Eng. Chefe): a FIFO aceitacao-testes ficou atrás de ~25 aceitações de preview de heads
+      # superados. Run de aceitação de PR ESPERANDO a vez (pending/queued/waiting) cujo SHA não é mais o head da PR, ou
+      # cuja PR fechou/virou draft, está superado: cancela. Usa o GITHUB_TOKEN do job (actions: write). Run executando
+      # nunca é tocado aqui.
+      - name: Cancelar aceitação de preview superada (esperando a fila; SHA que não é mais o head, PR fechada ou draft)
+        run: |
+          set -uo pipefail
+          n=0
+          for st in pending queued waiting; do
+            gh api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=$st&per_page=100" \
+              --jq '.workflow_runs[] | "\(.id) \(.head_sha)"' 2>/dev/null | while read -r id sha; do
+              [ -n "$id" ] || continue
+              vale=$(gh api "repos/$REPO/commits/$sha/pulls" \
+                --jq '[.[] | select(.state == "open" and .draft == false and .head.sha == "'"$sha"'")] | length' 2>/dev/null || echo erro)
+              [ "$vale" = 0 ] || continue
+              echo "- aceitacao-pr · run $id · SHA ${sha:0:7} superado/PR fechada ou draft, esperando a fila → cancelado" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null || true
+            done
+          done
 
       - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
         env:
