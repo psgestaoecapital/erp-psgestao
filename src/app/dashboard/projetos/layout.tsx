@@ -20,6 +20,8 @@ import {
   TrendingUp,
   Settings,
   Smartphone,
+  LineChart,
+  Compass,
   type LucideIcon,
 } from "lucide-react";
 
@@ -48,6 +50,8 @@ const TECNICO: Tab[] = [
 const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras",          label: "Obras",          icon: Construction, key: "9" },
   { href: "/dashboard/projetos/acompanhamento", label: "Acompanhamento", icon: TrendingUp,   key: "0" },
+  { href: "/dashboard/projetos/obras/resultado", label: "Resultado",      icon: LineChart,    key: "r" },
+  { href: "/dashboard/projetos/obras/cockpit",   label: "Cockpit",        icon: Compass,      key: "k" },
 ];
 
 const CONFIG: Tab = {
@@ -80,6 +84,11 @@ function TabLink({ tab, isActive }: { tab: Tab; isActive: boolean }) {
 function isActiveTab(tab: Tab, pathname: string | null): boolean {
   if (!pathname) return false;
   if (tab.href === "/dashboard/projetos") return pathname === tab.href;
+  if (tab.href === "/dashboard/projetos/obras") {
+    if (pathname.startsWith("/dashboard/projetos/obras/resultado")) return false;
+    if (pathname.startsWith("/dashboard/projetos/obras/cockpit") || /\/obras\/[^/]+\/cockpit/.test(pathname)) return false;
+  }
+  if (tab.href === "/dashboard/projetos/obras/cockpit") return /\/obras\/(cockpit|[^/]+\/cockpit)/.test(pathname);
   return pathname.startsWith(tab.href);
 }
 
