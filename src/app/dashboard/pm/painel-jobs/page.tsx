@@ -8,6 +8,7 @@ import { BarChart3, Filter, Save, Trash2, FileDown, FileSpreadsheet, Sparkles } 
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import {
   CABECALHO_FLUXO, SITUACOES, contarFiltroPainel, filtrarJobs, graficos, indicadores, legado, limparFiltroPainel, linhaParaArray, linhasFluxo, resumoParaIA,
   type Barra, type FiltroPainel, type Hora, type JobPainel, type Nomes, type Rodada,
@@ -51,7 +52,7 @@ function GraficoBarras({ titulo, dados, cor = "#3D2314" }: { titulo: string; dad
 }
 
 export default function PainelJobsPage() {
-  const { selInfo, companyIds } = useCompanyIds();
+  const { selInfo, companyIds, loading: carregandoEmpresa, companies } = useCompanyIds();
   const empresa = selInfo.tipo === "empresa" && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null);
   const [jobs, setJobs] = useState<JobPainel[]>([]);
   const [rodadas, setRodadas] = useState<Rodada[]>([]);
@@ -157,7 +158,7 @@ export default function PainelJobsPage() {
     setGerando(false);
   }
 
-  if (!empresa) return <div className="p-8 text-[#6b5444]">Selecione uma empresa no topo.</div>;
+  if (!empresa) return <EmpresaNaoResolvida carregando={carregandoEmpresa} temEmpresa={companies.length > 0} tela="o Painel de Jobs" />;
 
   const cartoes: { r: string; v: string; d?: string }[] = [
     { r: "Total de jobs", v: fmt(ind.total) },
@@ -186,6 +187,21 @@ export default function PainelJobsPage() {
         </header>
 
         {erro && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-[13px] text-red-800">{erro}</div>}
+        {/* RD-51 (Pdois 07/10): número zerado nunca calado — diz se a empresa não tem job ou se o filtro esconde todos */}
+        {!carregando && !erro && jobs.length === 0 && (
+          <div className="mb-3 rounded-lg border border-[#C8941A]/40 bg-[#FAEEDA] p-3 text-[13px]" role="status" data-testid="painel-sem-jobs">
+            A empresa ainda não tem jobs cadastrados — o painel se preenche quando a Pauta tiver jobs.
+          </div>
+        )}
+        {!carregando && !erro && jobs.length > 0 && visiveis.length === 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-[#C8941A]/40 bg-[#FAEEDA] p-3 text-[13px]" role="status" data-testid="painel-filtro-escondendo">
+            <span>A empresa tem {jobs.length} job(s), mas nenhum passa no filtro{nLegado === jobs.length && !filtro.incluir_legado ? " (todos são encerrados de legado, fora dos números por padrão)" : ""}.</span>
+            <button className="rounded-lg bg-[#3D2314] px-3 py-1.5 text-[12.5px] font-medium text-white" data-testid="painel-limpar-filtro"
+              onClick={() => { const f = nLegado === jobs.length ? { incluir_legado: true } : {}; setFiltro(f); setRascunho(f); }}>
+              {nLegado === jobs.length && !filtro.incluir_legado ? "Incluir os encerrados" : "Limpar filtro"}
+            </button>
+          </div>
+        )}
 
         {filtroAberto && (
           <section className={cartao + " mb-4 print:hidden"}>
