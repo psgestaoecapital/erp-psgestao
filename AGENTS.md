@@ -257,3 +257,8 @@ A rede da sessão do Code troca o token pelo da integração: `POST .../runs/<id
 **Para re-rodar teste, comente `/re-rodar` na PR** (exatamente isso; autor com permissão write): o workflow `comando-pr.yml`
 re-roda a última aceitação do head da PR com `FILA_MERGE_TOKEN` e responde com o link do run. Além disso, o `vigia-runs.yml`
 re-roda sozinho a aceitação cancelada (timeout/espera de trava), no máximo 2 vezes por SHA.
+
+# Mensagem da caixa só vira `concluida` quando a lista acabar (Eng. Chefe 08/10) — vale para TODOS os Codes
+**Não marque uma mensagem como concluída enquanto houver PRÓXIMO**: deixe em `em_andamento` ou abra a continuação na própria
+caixa. O despertador só acorda Code com tarefa aberta; concluir com item pendente deixa o Code parado.
+Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
