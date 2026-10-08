@@ -42,8 +42,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           EVENTO: ${{ github.event_name }}
+          WR_CONCLUSAO: ${{ github.event.workflow_run.conclusion }}
         run: |
           rodar=true
+          # disparo pós-montagem só vale se o "Montar banco de testes" terminou VERDE (senão o banco pode estar velho)
+          if [ "$EVENTO" = workflow_run ] && [ "$WR_CONCLUSAO" != success ]; then
+            echo "::notice::Montar banco de testes terminou '$WR_CONCLUSAO': sem aceitação da main neste disparo"
+            echo "rodar=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           SHA=$(gh api "repos/$REPO/commits/main" --jq .sha)
           echo "ponta da main: $SHA"
           if [ "$EVENTO" != workflow_dispatch ]; then
@@ -69,36 +75,65 @@ jobs:
       TEST_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
       TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
     steps:
+      # 1º passo, JÁ DENTRO da fila (CEO 07/10): a espera na fila aceitacao-testes pode levar horas e a main anda nesse
+      # meio-tempo. Se a ponta ATUAL da main já tem run concluído (verde/vermelho) ou outro run em andamento, encerra com
+      # aviso sem rodar a suíte; senão julga exatamente essa ponta (o checkout e o build usam o SHA daqui).
+      - name: Ponta da main já julgada? (encerra sem rodar)
+        id: ja
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          sha=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          outros=$(gh api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&per_page=30" --jq \
+            "[.workflow_runs[] | select(.id != $RUN_ID and .head_sha == \"$sha\" and
+              ((.status == \"completed\" and (.conclusion == \"success\" or .conclusion == \"failure\")) or .status == \"in_progress\"))] | length")
+          if [ "${outros:-0}" -gt 0 ]; then
+            echo "::notice::ponta da main ${sha:0:7} já julgada (ou em julgamento) por outro run: encerrado sem rodar a suíte"
+            echo "pular=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "julgando a ponta da main ${sha:0:7}"
+            echo "pular=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Trava de segurança (nunca a produção)
+        if: steps.ja.outputs.pular == 'false'
         run: |
           [ -n "$TEST_SUPABASE_URL" ] && [ -n "$TEST_SUPABASE_ANON_KEY" ] && [ -n "$TEST_SUPABASE_SERVICE_ROLE_KEY" ] \
             || { echo "::error::segredos TEST_SUPABASE_* ausentes"; exit 1; }
           case "$TEST_SUPABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
           case "$TEST_SUPABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado";; *) echo "::error::TEST_SUPABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
       - uses: actions/checkout@v4
+        if: steps.ja.outputs.pular == 'false'
         with:
-          ref: main
+          ref: ${{ steps.ja.outputs.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
+        if: steps.ja.outputs.pular == 'false'
         with:
           node-version: 22
           cache: 'npm'
-      - run: npm ci
+      - if: steps.ja.outputs.pular == 'false'
+        run: npm ci
       - name: Build da main apontado para o banco de testes
+        if: steps.ja.outputs.pular == 'false'
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+          VERCEL_GIT_COMMIT_SHA: ${{ steps.ja.outputs.sha }}
         run: npx next build
       - name: Sobe a main no runner (next start, porta 3000)
+        if: steps.ja.outputs.pular == 'false'
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+          VERCEL_GIT_COMMIT_SHA: ${{ steps.ja.outputs.sha }}
         run: |
           nohup npx next start -p 3000 > next-start.log 2>&1 &
           for i in $(seq 1 60); do
@@ -106,8 +141,11 @@ jobs:
             sleep 2
           done
           cat next-start.log; echo "::error::a main não subiu em 2 min"; exit 1
-      - run: npx playwright install --with-deps chromium
+      - if: steps.ja.outputs.pular == 'false'
+        run: npx playwright install --with-deps chromium
       - name: Suíte de aceitação contra a main (banco de testes)
+        timeout-minutes: 45
+        if: steps.ja.outputs.pular == 'false'
         id: suite
         env:
           PROD_BASE_URL: http://localhost:3000
@@ -120,7 +158,7 @@ jobs:
         # suíte inteira (inclui @pos-migration: o banco de testes recebe as migrations da main pelo montar-banco-testes)
         run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
       - name: Soltar a trava da demo (sempre)
-        if: always()
+        if: steps.ja.outputs.pular == 'false' && (always())
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
@@ -129,16 +167,16 @@ jobs:
       # Vermelho → abre/atualiza UMA issue main-vermelha (PRs desde o último verde + run). Verde → fecha a issue aberta.
       # Só API REST (gh api), nada de GraphQL. Run cancelado não mexe na issue.
       - name: Issue main-vermelha (abre/atualiza no vermelho, fecha no verde)
-        if: success() || failure()
+        if: steps.ja.outputs.pular == 'false' && (success() || failure())
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ steps.ja.outputs.sha }}
           RESULTADO: ${{ steps.suite.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: scripts/merge/main-vermelha.sh
       - name: Upload relatório (em caso de falha)
-        if: failure()
+        if: steps.ja.outputs.pular == 'false' && (failure())
         uses: actions/upload-artifact@v4
         with:
           name: aceitacao-main-report

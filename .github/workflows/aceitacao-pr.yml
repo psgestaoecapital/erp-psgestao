@@ -12,6 +12,10 @@ jobs:
   #  (1) cancela runs ANTIGOS da mesma PR que ainda esperam vez na fila demo-e2e (commit já superado);
   #  (2) pula a aceitação quando o diff da PR (contra a main) só tem .md / workflow / AGENTS.md e nenhum spec em
   #      e2e/jornadas/aceitacao — nada a testar, custo zero. Qualquer outro arquivo → roda normalmente.
+  #  (3) ESTEIRA EM 2 VELOCIDADES (CEO 07/10): a suíte pesada só roda na VIA REVISADA (PR com a etiqueta
+  #      revisao-eng-chefe). PR sem a etiqueta (via rápida) e commit sem PR aberta: aceitação DISPENSADA (o job
+  #      aceitacao fica skipped e NÃO entra na fila aceitacao-testes) — a via rápida é julgada na aceitação da main.
+  #      Etiqueta posta depois → aceitacao-etiqueta.yml re-roda este run e a triagem lê a etiqueta de novo.
   triagem:
     if: >-
       github.event.deployment_status.state == 'success' &&
@@ -37,8 +41,17 @@ jobs:
         run: |
           rodar=true
           pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null || true)
-          if [ -n "$pr" ]; then
+          if [ -z "$pr" ]; then
+            rodar=false
+            echo "::notice::commit sem PR aberta: aceitação dispensada (julgada na aceitação da main)"
+          else
             echo "PR aberta: #$pr"
+            # (3) via rápida (sem revisao-eng-chefe): aceitação dispensada; etiqueta lida AGORA (re-run após etiquetar)
+            revisada=$(gh api "repos/$REPO/pulls/$pr" --jq '[.labels[].name] | index("revisao-eng-chefe") != null' 2>/dev/null || echo true)
+            if [ "$revisada" != true ]; then
+              rodar=false
+              echo "::notice::via rápida: julgada na aceitação da main (PR #$pr sem a etiqueta revisao-eng-chefe)"
+            fi
             # (2) só doc/workflow sem spec?
             files=$(gh api "repos/$REPO/pulls/$pr/files" --paginate --jq '.[].filename' 2>/dev/null || true)
             if [ -n "$files" ]; then
@@ -145,6 +158,7 @@ jobs:
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
       - name: Jornadas de aceitação contra o preview
+        timeout-minutes: 30
         env:
           PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
           SUPABASE_URL: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_URL || secrets.SUPABASE_URL }}
@@ -163,6 +177,7 @@ jobs:
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
       - name: Aceitação @pos-migration (informativo — não bloqueia)
+        timeout-minutes: 15
         if: success() || failure()
         continue-on-error: true
         env:

@@ -1,6 +1,6 @@
 // src/app/dashboard/projetos/page.tsx
 // Painel inicial premium do Hub Projetos
-// Estrutura: Hero centralizado + Indicadores + Roadmap horizontal
+// Estrutura: Hero centralizado + Indicadores + Próximos passos
 
 "use client";
 
@@ -19,14 +19,10 @@ interface ResumoEmpresa {
   receber_aberto: number;
 }
 
-const FASES = [
-  { num: 0, label: "Fundação",     atual: true  },
-  { num: 1, label: "Cadastros",    atual: false },
-  { num: 2, label: "CRM Obra",     atual: false },
-  { num: 3, label: "Engenharia",   atual: false },
-  { num: 4, label: "Precificação", atual: false },
-  { num: 5, label: "Propostas",    atual: false },
-  { num: 6, label: "Acompanhar",   atual: false },
+const PASSOS = [
+  { href: "/dashboard/projetos/oportunidades", titulo: "1. Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
+  { href: "/dashboard/projetos/obras", titulo: "2. Obras", texto: "Acompanhe escopo, status e fiscal de cada obra." },
+  { href: "/dashboard/projetos/obras/resultado", titulo: "3. Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
 ];
 
 function fmtBRL(v: number) {
@@ -40,6 +36,7 @@ export default function PainelProjetos() {
   const empresaNome = empresa?.nome_fantasia || empresa?.razao_social || "—";
 
   const [resumo, setResumo] = useState<ResumoEmpresa | null>(null);
+  const [erro, setErro] = useState(false);
 
   useEffect(() => {
     if (!companyId) {
@@ -47,17 +44,28 @@ export default function PainelProjetos() {
       return;
     }
     let cancel = false;
+    setErro(false);
     (async () => {
       try {
         const supabase = supabaseBrowser();
-        const { data } = await supabase
-          .from("v_projetos_resumo_empresa")
-          .select("*")
-          .eq("company_id", companyId)
-          .maybeSingle();
-        if (!cancel) setResumo((data as any) || null);
+        const [{ data: v }, { data: k }, { count: propostas }] = await Promise.all([
+          supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
+          supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
+          supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
+        ]);
+        const kp = (k as any) || {};
+        if (!cancel) {
+          setResumo({
+            obras_ativas: Number(kp.em_andamento ?? 0),
+            propostas_pendentes: propostas ?? 0,
+            valor_orcamento_ativo: Number(kp.valor_em_andamento ?? 0),
+            margem_media_pct: 0,
+            pagar_aberto: Number((v as any)?.contas_pagar_abertas ?? 0),
+            receber_aberto: Number((v as any)?.contas_receber_abertas ?? 0),
+          });
+        }
       } catch {
-        if (!cancel) setResumo(null);
+        if (!cancel) { setResumo(null); setErro(true); }
       }
     })();
     return () => { cancel = true; };
@@ -107,12 +115,12 @@ export default function PainelProjetos() {
             Configurar BDI da empresa
             <ArrowRight size={14} />
           </Link>
-          <a
-            href="#roadmap"
+          <Link
+            href="/dashboard/projetos/oportunidades"
             className="text-sm text-[#3D2314]/60 hover:text-[#3D2314]"
           >
-            Ver roadmap completo
-          </a>
+            Abrir o funil de oportunidades
+          </Link>
         </div>
       </section>
 
@@ -120,16 +128,12 @@ export default function PainelProjetos() {
       <section className="mt-16">
         <SectionLabel>Indicadores</SectionLabel>
 
-        <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-3">
           <KpiPrincipal label="Obras ativas" valor={String(resumo?.obras_ativas ?? 0)} />
           <KpiPrincipal label="Propostas pendentes" valor={String(resumo?.propostas_pendentes ?? 0)} />
           <KpiPrincipal
-            label="Orçamento ativo"
+            label="Valor das obras em andamento"
             valor={fmtBRL(resumo?.valor_orcamento_ativo ?? 0)}
-          />
-          <KpiPrincipal
-            label="Margem média"
-            valor={`${(resumo?.margem_media_pct ?? 0).toFixed(1)}%`}
           />
         </div>
 
@@ -145,45 +149,27 @@ export default function PainelProjetos() {
         </div>
       </section>
 
-      {/* ROADMAP */}
-      <section id="roadmap" className="mt-16">
-        <div className="mb-6 flex flex-wrap items-center gap-3">
-          <SectionLabel>Roadmap de construção</SectionLabel>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#C8941A]/15 px-2.5 py-1 text-xs font-medium text-[#C8941A]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#C8941A]" />
-            Fase 0 ativa · próximas liberadas após Onda 7
-          </span>
-        </div>
-        <div className="rounded-xl border border-[#3D2314]/8 bg-white p-6 shadow-sm">
-          <div className="relative flex items-start justify-between">
-            {/* Linha conectora absoluta */}
-            <div className="absolute left-3 right-3 top-3 h-px bg-[#3D2314]/15" />
-            {FASES.map((fase) => (
-              <div
-                key={fase.num}
-                className="relative flex flex-1 flex-col items-center text-center"
-              >
-                <div
-                  className={`relative z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
-                    fase.atual
-                      ? "bg-[#C8941A] text-white shadow-sm"
-                      : "border border-[#3D2314]/20 bg-white text-[#3D2314]/40"
-                  }`}
-                >
-                  {fase.num}
-                </div>
-                <div
-                  className={`mt-2 text-xs ${
-                    fase.atual
-                      ? "font-medium text-[#3D2314]"
-                      : "text-[#3D2314]/60"
-                  }`}
-                >
-                  {fase.label}
-                </div>
-              </div>
-            ))}
-          </div>
+      {erro && (
+        <p role="alert" className="mt-4 rounded-lg border border-[#3D2314]/12 bg-white p-3 text-sm text-[#3D2314]/70">
+          Não foi possível carregar os indicadores agora. Atualize a página; se persistir, avise o suporte.
+        </p>
+      )}
+      {!erro && resumo && resumo.obras_ativas === 0 && resumo.propostas_pendentes === 0 && (
+        <p className="mt-4 rounded-lg border border-[#3D2314]/12 bg-white p-3 text-sm text-[#3D2314]/70">
+          Zero não é erro: ainda não há obra em andamento nem proposta pendente nesta empresa. Comece cadastrando uma oportunidade no funil — ela vira proposta e depois obra.
+        </p>
+      )}
+
+      {/* PRÓXIMOS PASSOS */}
+      <section className="mt-16">
+        <SectionLabel>Por onde começar</SectionLabel>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+          {PASSOS.map((p) => (
+            <Link key={p.href} href={p.href} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
+              <div className="text-sm font-medium text-[#3D2314]">{p.titulo}</div>
+              <div className="mt-1 text-xs text-[#3D2314]/60">{p.texto}</div>
+            </Link>
+          ))}
         </div>
       </section>
     </main>

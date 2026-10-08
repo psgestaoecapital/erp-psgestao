@@ -66,6 +66,12 @@ no livro de intervenções e nos comentários de PR).
 <!-- END:protocolo-sessao -->
 
 <!-- BEGIN:provas-producao -->
+# Aba "Codes" da Central de Desenvolvimento (CEO 07/10 14:30) — toda PR diz qual Code a fez
+**Toda PR leva no corpo a linha `Code: <nome da rotina>`** (ex.: `Code: gilberto-desenv`; o mesmo identificador da caixa).
+O workflow `registrar-entrega.yml` grava cada PR aberta, pronta, publicada (merge) ou fechada em `erp_dev_entrega`, e a aba
+**Codes** de `/dashboard/dev` (rota `/dashboard/dev/codes`) mostra por Code, em tempo real: trabalhando agora, entregue nas
+últimas 24 h, em teste e fila. Sem a linha, o Code sai da caixa (`erp_agente_mensagem.pr_numero`) ou fica "não identificado".
+Carga inicial: rodar o `registrar-entrega.yml` à mão (workflow_dispatch, últimos 7 dias). Gate: `scripts/gates/check-aba-codes.ts`.
 # Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
 
 Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
@@ -173,11 +179,19 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   `MERGE AUTORIZADO #NNNN — gilberto-revisor · patch-id <40 hex>`, onde o patch-id sai de `scripts/merge/patch-id.sh NNNN`
   (diff da PR contra o merge-base com a `main`). Atualizar com a `main` mantém o patch-id e a autorização; mudar o código
   da PR muda o patch-id e exige nova revisão. Autorização sem patch-id não vale para a fila.
-- **(d) Fila de merge** (`.github/workflows/fila-merge.yml` + `scripts/merge/fila-merge.sh`, sem polling): o Code que
-  conferiu a RD-94/94.1 põe a label **`fila-merge`** na PR (Ready). A fila pega as PRs em ordem de entrada, **uma por
-  vez**: atualiza com a `main` (merge, sem reescrever histórico), espera os checks, confere a autorização (PR com
-  `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido). Conflito, check vermelho ou autorização inválida →
-  comenta o motivo e tira a label. PR com migration esperando a `main` não segura as PRs sem migration atrás dela.
+- **(d) Fila de merge** (`.github/workflows/fila-merge.yml` + `scripts/merge/fila-merge.sh`, sem polling): a fila pega
+  **toda PR Ready** (não-draft) na `main` em ordem de entrada, **uma por vez**: atualiza com a `main` (merge, sem
+  reescrever histórico), espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado
+  no SHA conferido). Conflito, check vermelho ou autorização inválida → comenta o motivo **uma vez por commit** (e tira a
+  label `fila-merge`, se houver); a PR volta a ser avaliada sozinha no próximo commit.
+  **Fila sem etiqueta (CEO 08/10 08:15, "ok fila sem etiqueta"):** a label **`fila-merge` é OPCIONAL** (continua aceita;
+  a hora em que foi posta conta como entrada). **PR Ready + checks obrigatórios verdes = publicada.** Quer abrir PR sem
+  publicar? Abra em **draft** (draft nunca entra) ou ponha a label **`nao-publicar`** (a fila pula e comenta o motivo
+  uma única vez). A PR com `revisao-eng-chefe` continua exigindo `MERGE AUTORIZADO #N — gilberto-revisor · patch-id`
+  do conteúdo atual, e as migrations seguem as regras de sempre (uma por vez, esperando a `main`). Gate:
+  `scripts/gates/check-fila-sem-etiqueta.ts` (draft, `nao-publicar`, revisada sem autorização, comum verde sem etiqueta).
+  Como a fila olha todas as PRs Ready a cada rodada, ela lê os dados da própria lista de PRs e tem **válvula de cota**:
+  com menos de 1000 chamadas restantes no PAT (`FILA_MERGE_TOKEN`, o mesmo do `/re-rodar`), a rodada é adiada. PR com migration esperando a `main` não segura as PRs sem migration atrás dela.
   **Sem bloqueio pela cabeça (CEO 07/10):** PR atrás da `main` é atualizada e PR com checks rodando fica esperando, mas a
   rodada segue para as próximas (no máximo 1 merge por rodada). Só a PR com migration que espera a **main** (deploy ou
   `@pos-migration` da anterior) segura as outras com migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
@@ -187,6 +201,12 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
   **executando** há mais de 45 min; job esperando a vez na fila nunca é cancelado.
 - Gate: `scripts/gates/check-esteira-merge.ts`.
+- **Revisor por evento (CEO 07/10):** `.github/workflows/acionar-revisor.yml` (`pull_request_target` labeled/synchronize/ready_for_review, só PR Ready do repo com `revisao-eng-chefe`) acorda a rotina do `gilberto-revisor` em minutos (espera 120 s; rajada = 1 acionamento por PR; não aciona se a PR já tem `MERGE AUTORIZADO` com o patch-id atual). Sem checkout da PR. Segredos `REVISOR_ROTINA_URL`/`REVISOR_ROTINA_TOKEN`; ausentes = `::warning`, nunca falha a PR. Gate: `scripts/gates/check-acionar-revisor.ts`.
+- **O que conta como autorização do `gilberto-revisor` (Eng. Chefe 08/10):** autorização própria = comentário cuja
+  PRIMEIRA linha é exatamente `MERGE AUTORIZADO #<n> — gilberto-revisor · patch-id <40 hex>`. Comentário com a marca
+  escondida da fila ou que comece com `Fila de merge:` NUNCA conta como autorização nem como revisão já feita (todos os
+  comentários saem da mesma conta do GitHub; o aviso da fila cita o texto e o patch-id, e não é do revisor). Ao procurar
+  "comentário meu com este patch-id", confira a primeira linha — não basta o texto aparecer no corpo.
 
 ## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
 Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta
@@ -196,6 +216,9 @@ testes, vermelho = corrigir em 1 h ou reverter."
   real (build pulado "Canceled by Ignored Build Step" não conta). Os checks `aceitacao`, `triagem` e `@pos-migration
   (informativo)` são **só informativos**: não seguram nem derrubam a PR.
 - **Via revisada** (PR COM `revisao-eng-chefe`): igual a antes — aceitação verde + `MERGE AUTORIZADO` pelo patch-id.
+- **Aceitação pesada só na via revisada (CEO 07/10):** a triagem do `aceitacao-pr.yml` dispensa a suíte (notice "via rápida:
+  julgada na aceitação da main") em PR sem a etiqueta e em commit sem PR aberta — esses runs não entram na fila
+  `aceitacao-testes`. Etiqueta posta depois → `aceitacao-etiqueta.yml` re-roda a aceitação do head (sem checkout da PR).
 - **Migration**: regra intacta (PR com migration espera o `@pos-migration` da anterior; vermelho em produção = reverter).
 - **Aceitação da main** (`.github/workflows/aceitacao-main.yml`): ao fim de cada "Montar banco de testes" na main, de hora
   em hora (rede de segurança: a agenda do GitHub descarta runs sob carga) e manual, a suíte roda contra a ponta
@@ -234,3 +257,8 @@ A rede da sessão do Code troca o token pelo da integração: `POST .../runs/<id
 **Para re-rodar teste, comente `/re-rodar` na PR** (exatamente isso; autor com permissão write): o workflow `comando-pr.yml`
 re-roda a última aceitação do head da PR com `FILA_MERGE_TOKEN` e responde com o link do run. Além disso, o `vigia-runs.yml`
 re-roda sozinho a aceitação cancelada (timeout/espera de trava), no máximo 2 vezes por SHA.
+
+# Mensagem da caixa só vira `concluida` quando a lista acabar (Eng. Chefe 08/10) — vale para TODOS os Codes
+**Não marque uma mensagem como concluída enquanto houver PRÓXIMO**: deixe em `em_andamento` ou abra a continuação na própria
+caixa. O despertador só acorda Code com tarefa aberta; concluir com item pendente deixa o Code parado.
+Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
