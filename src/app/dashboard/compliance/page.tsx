@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtData } from '@/lib/psgc-tokens'
+import { useEhsLang } from '@/lib/ehs/useEhsLang'
+import { EhsAtalho, EhsHeader, EhsLangSwitch, EhsStatusCard, EhsStatusPill, type EhsStatus } from '@/components/ehs/ui'
 
 const C = {
   espresso: '#3D2314',
@@ -25,6 +27,8 @@ const C = {
   grayBg: '#efece6',
 }
 
+const STATUS_COR: Record<string, EhsStatus> = { valido: 'verde', vencendo: 'amarelo', vencido: 'vermelho', nao_emitido: 'cinza' }
+
 type Alerta = {
   documento_id: string
   funcionario_id: string
@@ -37,6 +41,7 @@ type Alerta = {
 
 export default function ComplianceDashboardPage() {
   const { companyIds, selInfo } = useCompanyIds()
+  const { lang, setLang, t } = useEhsLang()
   const [loading, setLoading] = useState(true)
   const [zipModalAberto, setZipModalAberto] = useState(false)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
@@ -120,42 +125,40 @@ export default function ComplianceDashboardPage() {
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px' }}>
-        <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
-          <div>
-            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
-              Compliance
-            </p>
-            <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>
-              Hub de Compliance
-            </h1>
-            <p style={{ margin: 0, fontSize: 14, color: C.muted }}>
-              Documentação de funcionários e empresa, com alertas de validade.
-            </p>
-          </div>
-          {empresaUnica && (
+        <EhsHeader
+          marca={t('marca')}
+          subtitulo={t('marca.sub')}
+          titulo={t('painel.titulo')}
+          desc={t('painel.desc')}
+          acoes={
+            <>
+              <EhsLangSwitch lang={lang} onChange={setLang} rotulo={t('idioma')} />
+              {empresaUnica && (
             <button
               onClick={() => setZipModalAberto(true)}
-              style={{ padding: '10px 16px', borderRadius: 8, border: 'none', backgroundColor: C.gold, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              style={{ minHeight: 48, padding: '10px 16px', borderRadius: 8, border: 'none', backgroundColor: C.gold, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
-              📦 Gerar ZIP
+              📦 {t('painel.zip')}
             </button>
           )}
-        </header>
+            </>
+          }
+        />
 
         {/* Cards */}
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
-          <MetricCard label="Funcionários ativos" valor={totalFuncionarios} cor={C.espresso} loading={loading} />
-          <MetricCard label="Vencendo (10 dias)" valor={docsVencendo} cor={C.amber} loading={loading} />
-          <MetricCard label="Vencidos" valor={docsVencidos} cor={C.red} loading={loading} />
-          <MetricCard label="% em dia" valor={`${pctEmDia}%`} cor={C.green} loading={loading} />
+          <EhsStatusCard rotulo={t('card.funcionarios')} valor={totalFuncionarios} carregando={loading} />
+          <EhsStatusCard rotulo={t('card.vencendo')} valor={docsVencendo} status="amarelo" carregando={loading} />
+          <EhsStatusCard rotulo={t('card.vencidos')} valor={docsVencidos} status="vermelho" carregando={loading} />
+          <EhsStatusCard rotulo={t('card.emdia')} valor={`${pctEmDia}%`} status="verde" carregando={loading} />
         </section>
 
         {/* Atalhos */}
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
-          <AtalhoCard href="/dashboard/compliance/funcionarios" titulo="Funcionários" desc="Cadastro e documentos" />
-          <AtalhoCard href="/dashboard/compliance/empresa" titulo="Documentos da Empresa" desc="Certidões, alvarás, INSS" />
-          <AtalhoCard href="/dashboard/compliance/matriz" titulo="Matriz de Conformidade" desc="Grid funcionários × documentos" />
-          <AtalhoCard href="/dashboard/compliance/funcionarios" titulo="Upload rápido" desc="Subir um documento" />
+          <EhsAtalho href="/dashboard/compliance/funcionarios" titulo={t('atalho.funcionarios')} desc={t('atalho.funcionarios.desc')} />
+          <EhsAtalho href="/dashboard/compliance/empresa" titulo={t('atalho.empresa')} desc={t('atalho.empresa.desc')} />
+          <EhsAtalho href="/dashboard/compliance/matriz" titulo={t('atalho.matriz')} desc={t('atalho.matriz.desc')} />
+          <EhsAtalho href="/dashboard/compliance/funcionarios" titulo={t('atalho.upload')} desc={t('atalho.upload.desc')} />
         </section>
 
         {/* Alertas urgentes */}
@@ -169,29 +172,29 @@ export default function ComplianceDashboardPage() {
         >
           <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.borderLt}` }}>
             <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, margin: 0 }}>
-              Alertas mais urgentes
+              {t('alertas.titulo')}
             </h2>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: C.muted }}>
-              10 documentos obrigatórios com menor prazo
+              {t('alertas.desc')}
             </p>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLt }}>
-                  <Th>Funcionário</Th>
-                  <Th>Documento</Th>
-                  <Th>Validade</Th>
-                  <Th>Dias</Th>
-                  <Th>Status</Th>
+                  <Th>{t('col.funcionario')}</Th>
+                  <Th>{t('col.documento')}</Th>
+                  <Th>{t('col.validade')}</Th>
+                  <Th>{t('col.dias')}</Th>
+                  <Th>{t('col.status')}</Th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
-                  <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>
+                  <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: C.muted }}>{t('carregando')}</td></tr>
                 )}
                 {!loading && alertas.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum documento vencido ou vencendo. 🎉</td></tr>
+                  <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: C.muted }}>{t('alertas.vazio')} 🎉</td></tr>
                 )}
                 {alertas.map((a: Alerta, i: number) => (
                   <tr key={a.documento_id || `${a.funcionario_id}-${a.tipo_nome}-${i}`} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
@@ -203,7 +206,7 @@ export default function ComplianceDashboardPage() {
                     <Td>{a.tipo_nome}</Td>
                     <Td mono>{fmtData(a.data_validade)}</Td>
                     <Td mono>{a.dias_para_vencer == null ? '—' : a.dias_para_vencer}</Td>
-                    <Td><StatusBadge status={a.status_final} /></Td>
+                    <Td><EhsStatusPill status={STATUS_COR[a.status_final] ?? 'cinza'} texto={STATUS_COR[a.status_final] ? t(`status.${a.status_final}`) : a.status_final} /></Td>
                   </tr>
                 ))}
               </tbody>
@@ -426,60 +429,6 @@ function GerarZipModal({
         </div>
       </div>
     </div>
-  )
-}
-
-function MetricCard({ label, valor, cor, loading }: { label: string; valor: number | string; cor: string; loading: boolean }) {
-  return (
-    <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
-      <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.55, margin: 0 }}>{label}</p>
-      <p style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 0', color: cor }}>
-        {loading ? '…' : valor}
-      </p>
-    </div>
-  )
-}
-
-function AtalhoCard({ href, titulo, desc }: { href: string; titulo: string; desc: string }) {
-  return (
-    <Link href={href} style={{ textDecoration: 'none', color: C.ink }}>
-      <div
-        style={{
-          backgroundColor: 'white',
-          borderRadius: 12,
-          padding: '18px 20px',
-          boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)',
-          transition: 'transform 0.15s, box-shadow 0.15s',
-          cursor: 'pointer',
-        }}
-        onMouseEnter={(e: any) => {
-          e.currentTarget.style.transform = 'translateY(-2px)'
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(61, 35, 20, 0.1)'
-        }}
-        onMouseLeave={(e: any) => {
-          e.currentTarget.style.transform = 'translateY(0)'
-          e.currentTarget.style.boxShadow = '0 1px 3px rgba(61, 35, 20, 0.06)'
-        }}
-      >
-        <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, color: C.espresso }}>{titulo}</div>
-        <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{desc}</div>
-      </div>
-    </Link>
-  )
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; fg: string; label: string; dot: string }> = {
-    valido: { bg: C.greenBg, fg: C.green, label: 'Válido', dot: '🟢' },
-    vencendo: { bg: C.amberBg, fg: C.amber, label: 'Vencendo', dot: '🟡' },
-    vencido: { bg: C.redBg, fg: C.red, label: 'Vencido', dot: '🔴' },
-    nao_emitido: { bg: C.grayBg, fg: C.gray, label: 'Não emitido', dot: '⚫' },
-  }
-  const s = map[status] || { bg: C.grayBg, fg: C.gray, label: status, dot: '⚫' }
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, backgroundColor: s.bg, color: s.fg }}>
-      {s.dot} {s.label}
-    </span>
   )
 }
 
