@@ -18,6 +18,8 @@ import {
   HardHat,
   Construction,
   TrendingUp,
+  BarChart3,
+  Compass,
   Settings,
   Smartphone,
   type LucideIcon,
@@ -48,6 +50,8 @@ const TECNICO: Tab[] = [
 const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras",          label: "Obras",          icon: Construction, key: "9" },
   { href: "/dashboard/projetos/acompanhamento", label: "Acompanhamento", icon: TrendingUp,   key: "0" },
+  { href: "/dashboard/projetos/obras/resultado", label: "Resultado",     icon: BarChart3,    key: "r" },
+  { href: "/dashboard/projetos/obras?destino=cockpit", label: "Cockpit", icon: Compass,      key: "k" },
 ];
 
 const CONFIG: Tab = {
@@ -79,8 +83,13 @@ function TabLink({ tab, isActive }: { tab: Tab; isActive: boolean }) {
 
 function isActiveTab(tab: Tab, pathname: string | null): boolean {
   if (!pathname) return false;
-  if (tab.href === "/dashboard/projetos") return pathname === tab.href;
-  return pathname.startsWith(tab.href);
+  const base = tab.href.split("?")[0];
+  if (base === "/dashboard/projetos") return pathname === base;
+  if (base === "/dashboard/projetos/obras") {
+    return pathname === base || (pathname.startsWith(base + "/") && !pathname.startsWith(base + "/resultado") && !pathname.endsWith("/cockpit") && tab.label === "Obras");
+  }
+  if (tab.label === "Cockpit") return pathname.endsWith("/cockpit");
+  return pathname.startsWith(base);
 }
 
 export default function ProjetosLayout({ children }: { children: React.ReactNode }) {

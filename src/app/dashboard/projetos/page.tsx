@@ -160,6 +160,21 @@ export default function PainelProjetos() {
         </p>
       )}
 
+      {/* NOVIDADES DO HUB */}
+      <section className="mt-16" data-testid="novidades-hub">
+        <SectionLabel>Novidades do Hub</SectionLabel>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Link href="/dashboard/projetos/obras/resultado" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm hover:border-[#C8941A]">
+            <div className="text-sm font-medium text-[#3D2314]">Resultado por obra</div>
+            <div className="mt-1 text-xs text-[#3D2314]/60">Receita, custo e margem de cada obra, previsto × realizado.</div>
+          </Link>
+          <Link href="/dashboard/projetos/obras?destino=cockpit" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm hover:border-[#C8941A]">
+            <div className="text-sm font-medium text-[#3D2314]">Cockpit da obra</div>
+            <div className="mt-1 text-xs text-[#3D2314]/60">Avanço, custo, margem, prazo e pendências do dia — escolha a obra.</div>
+          </Link>
+        </div>
+      </section>
+
       {/* PRÓXIMOS PASSOS */}
       <section className="mt-16">
         <SectionLabel>Por onde começar</SectionLabel>
