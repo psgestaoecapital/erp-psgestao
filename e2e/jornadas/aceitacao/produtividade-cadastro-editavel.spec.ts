@@ -11,7 +11,13 @@ const TAG = `E2E ${Date.now()}`
 type Posto = { id: string; numero: string; atividade: string; capacidade_hora: number | null; centro_custo: string | null; cargo_id: string | null; ativo: boolean }
 
 async function posto(atividade: string): Promise<Posto> {
-  const l = await dbSelect<Posto>('prod_posto', `company_id=eq.${DEMO_IND}&atividade=eq.${encodeURIComponent(atividade)}&select=id,numero,atividade,capacidade_hora,centro_custo,cargo_id,ativo`)
+  // o salvar da tela é assíncrono (resolve o cargo e depois chama a RPC): espera o posto aparecer antes de conferir (corrida vista na main 08/10)
+  let l: Posto[] = []
+  for (let i = 0; i < 20; i++) {
+    l = await dbSelect<Posto>('prod_posto', `company_id=eq.${DEMO_IND}&atividade=eq.${encodeURIComponent(atividade)}&select=id,numero,atividade,capacidade_hora,centro_custo,cargo_id,ativo`)
+    if (l.length > 0) break
+    await new Promise((r) => setTimeout(r, 500))
+  }
   expect(l.length, `posto "${atividade}" no banco`).toBe(1)
   return l[0]
 }
