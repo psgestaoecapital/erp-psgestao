@@ -25,6 +25,7 @@ const DICT = {
   'passo.voltar': { pt: 'Voltar', en: 'Back', es: 'Volver' },
   'passo.avancar': { pt: 'Avançar', en: 'Next', es: 'Siguiente' },
   'passo.previa': { pt: 'Prévia do documento', en: 'Document preview', es: 'Vista previa del documento' },
+  'painel.fechar': { pt: 'Fechar', en: 'Close', es: 'Cerrar' },
   'campo.voz': { pt: 'Falar', en: 'Speak', es: 'Hablar' },
   'campo.foto': { pt: 'Foto', en: 'Photo', es: 'Foto' },
   'campo.qr': { pt: 'Ler QR', en: 'Scan QR', es: 'Leer QR' },
