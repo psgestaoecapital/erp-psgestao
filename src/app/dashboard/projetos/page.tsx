@@ -25,6 +25,11 @@ const PASSOS = [
   { href: "/dashboard/projetos/obras/resultado", titulo: "3. Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
 ];
 
+const NOVIDADES = [
+  { href: "/dashboard/projetos/obras/resultado", titulo: "Resultado por obra", texto: "Receita, custo, margem e previsto × realizado de cada obra, com CSV." },
+  { href: "/dashboard/projetos/obras/cockpit", titulo: "Cockpit da obra", texto: "Avanço, custo, margem, prazo e pendências do dia — escolha a obra e abra." },
+];
+
 function fmtBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -121,6 +126,19 @@ export default function PainelProjetos() {
           >
             Abrir o funil de oportunidades
           </Link>
+        </div>
+      </section>
+
+      {/* NOVIDADES DO HUB */}
+      <section className="mt-4" data-testid="novidades-hub">
+        <SectionLabel>Novidades do Hub</SectionLabel>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {NOVIDADES.map((n) => (
+            <Link key={n.href} href={n.href} className="rounded-xl border border-[#3D2314]/10 bg-white p-4 transition-colors hover:border-[#C8941A]">
+              <div className="text-sm font-semibold text-[#3D2314]">{n.titulo}</div>
+              <div className="mt-1 text-xs text-[#3D2314]/60">{n.texto}</div>
+            </Link>
+          ))}
         </div>
       </section>
 
