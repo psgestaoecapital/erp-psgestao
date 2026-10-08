@@ -256,13 +256,13 @@ for n in $fila; do
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
   if [ "$com_migration" = 1 ]; then
-    vm=$(versao_migration_ok "$n" "$arquivos")
-    [ "$vm" = ok ] || { tirar_da_fila "$n" "${vm#vermelho:}" "$sha"; continue; }
     m=$(estado_main)
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
       so_sem_migration=1; continue
     fi
+    vm=$(versao_migration_ok "$n" "$arquivos")
+    [ "$vm" = ok ] || { tirar_da_fila "$n" "${vm#vermelho:}" "$sha"; continue; }
   fi
 
   # merge travado no SHA conferido (se alguém empurrou no meio, o GitHub recusa)
