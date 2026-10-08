@@ -12,5 +12,10 @@ ok(reg > 0 && upd > reg, 'rota: grava data_competencia (dataBrasil) logo depois 
 ok(/update\(\{ data_competencia: dataBrasil\(\) \}\)\s*\.eq\('id', registroId\)\s*\.is\('data_competencia', null\)/.test(rota),
   'rota: só preenche se estiver vazia (nunca sobrescreve)')
 
+const mig = readFileSync('supabase/migrations/20261008140000_backfill_data_competencia_nfse_603_pdois.sql', 'utf8')
+ok(/WHERE id = 'ddfe9b1f-[0-9a-f-]+'/.test(mig) && /numero::text = '603'/.test(mig), 'backfill: 1 linha, por id + número 603')
+ok(/data_competencia IS NULL/.test(mig) && /America\/Sao_Paulo/.test(mig), 'backfill: idempotente (só vazia) e data da emissão em Brasília')
+ok(!/\bDELETE\b/i.test(mig), 'backfill: sem DELETE')
+
 if (falhas) { console.error(`\ncheck-nfse-data-competencia: ${falhas} falha(s)`); process.exit(1) }
 console.log('\ncheck-nfse-data-competencia: ok')
