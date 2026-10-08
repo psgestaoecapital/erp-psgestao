@@ -72,6 +72,9 @@ export default function TopNavDropdown({ group }: Props) {
         >
           <div className="px-3 py-2 text-[10px] text-[#3D2314]/55 tracking-[0.8px] font-medium uppercase">
             {group.label}
+            {group.subtitulo && (
+              <div className="normal-case tracking-normal text-[11px] text-[#3D2314]/45 mt-0.5">{group.subtitulo}</div>
+            )}
           </div>
           {group.items.map((item) => {
             const ItemIcon = item.icon

@@ -23,6 +23,7 @@ export interface MenuItem {
 export interface MenuGroup {
   id: string
   label: string
+  subtitulo?: string
   icon: LucideIcon
   items: MenuItem[]
 }
@@ -112,10 +113,11 @@ export const DASHBOARD_MENU_GROUPS: MenuGroup[] = [
   },
   {
     id: 'compliance',
-    label: 'Compliance',
+    label: 'PS EHS',
+    subtitulo: 'Saúde, Segurança e Meio Ambiente',
     icon: Shield,
     items: [
-      { label: 'Painel Compliance', href: '/dashboard/compliance', icon: Shield, status: 'pronto' },
+      { label: 'Painel PS EHS', href: '/dashboard/compliance', icon: Shield, status: 'pronto' },
       { label: 'Calendário Legal IA', href: '/dashboard/compliance/calendario', icon: Calendar, status: 'pronto' },
       { label: 'Funcionários', href: '/dashboard/compliance/funcionarios', icon: UserCheck, status: 'pronto' },
       { label: 'Prestadores', href: '/dashboard/compliance/prestadores', icon: HardHat, status: 'pronto' },
