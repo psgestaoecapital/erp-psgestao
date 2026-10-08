@@ -242,6 +242,14 @@ for n in $fila; do
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
       so_sem_migration=1; continue
     fi
+    # Régua de versão NA HORA do merge (incidente 08/10: #2239 entrou com 20261008140005 abaixo da 150005 já aplicada e o
+    # `db push` recusou — deploy vermelho por horas). Recalcula a última migration da main agora (não usa o check antigo
+    # da PR). Com o deploy-migrations verde (estado_main livre), a última da main = a última aplicada em produção.
+    ult_main=$(api "repos/$REPO/git/trees/main:supabase/migrations" | jq -r '[.tree[].path | select(test("^[0-9]{14}_")) | .[0:14]] | max')
+    baixas=$(api "repos/$REPO/pulls/$n/files" --paginate | jq -r --arg u "$ult_main" '.[] | select(.status == "added" and (.filename | test("^supabase/migrations/[0-9]{14}_"))) | .filename | ltrimstr("supabase/migrations/") | select(.[0:14] <= $u)')
+    if [ -n "$baixas" ]; then
+      tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
+    fi
   fi
 
   # merge travado no SHA conferido (se alguém empurrou no meio, o GitHub recusa)
