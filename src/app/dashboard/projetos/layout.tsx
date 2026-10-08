@@ -18,6 +18,8 @@ import {
   HardHat,
   Construction,
   TrendingUp,
+  Gauge,
+  Scale,
   Settings,
   Smartphone,
   type LucideIcon,
@@ -48,6 +50,8 @@ const TECNICO: Tab[] = [
 const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras",          label: "Obras",          icon: Construction, key: "9" },
   { href: "/dashboard/projetos/acompanhamento", label: "Acompanhamento", icon: TrendingUp,   key: "0" },
+  { href: "/dashboard/projetos/obras/resultado",  label: "Resultado por obra", icon: Scale,   key: "r" },
+  { href: "/dashboard/projetos/obras/cockpit",    label: "Cockpit da obra",    icon: Gauge,   key: "k" },
 ];
 
 const CONFIG: Tab = {
@@ -80,6 +84,11 @@ function TabLink({ tab, isActive }: { tab: Tab; isActive: boolean }) {
 function isActiveTab(tab: Tab, pathname: string | null): boolean {
   if (!pathname) return false;
   if (tab.href === "/dashboard/projetos") return pathname === tab.href;
+  // "Obras" não acende junto com as telas irmãs Resultado e Cockpit
+  if (tab.href === "/dashboard/projetos/obras") {
+    return pathname.startsWith(tab.href) && !pathname.startsWith("/dashboard/projetos/obras/resultado") && !/\/cockpit(\/|$)/.test(pathname);
+  }
+  if (tab.href === "/dashboard/projetos/obras/cockpit") return /\/obras\/[^/]+\/cockpit|\/obras\/cockpit/.test(pathname);
   return pathname.startsWith(tab.href);
 }
 
