@@ -123,6 +123,7 @@ export default function PainelCodes() {
 
       {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
       {resumos.length > 0 && <ResumoPorCode itens={resumos} agora={agora} />}
+      {dados && <LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} />}
 
       {dados && (
         <>
@@ -133,7 +134,6 @@ export default function PainelCodes() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {CODES_LINHA_FINAL.map((c) => <CartaoCode key={c} code={c} dados={dados} agora={agora} compacto />)}
           </div>
-          <LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} />
         </>
       )}
     </div>
@@ -301,8 +301,9 @@ function CartaoCode({ code, dados, agora, compacto }: { code: string; dados: Dad
 }
 
 function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: string; setDia: (d: string) => void; agora: Date }) {
+  const [todas, setTodas] = useState(false)
   return (
-    <div data-testid="codes-linha-tempo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, marginTop: 16 }}>
+    <div data-testid="codes-linha-tempo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         <span style={{ fontWeight: 700 }}>Publicações do dia</span>
         <input data-testid="codes-filtro-data" type="date" value={dia} max={diaSP(agora)} onChange={(e) => e.target.value && setDia(e.target.value)}
@@ -310,8 +311,8 @@ function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: st
       </div>
       {itens.length === 0 ? <Vazio t="nenhuma publicação neste dia" /> : (
         <ol style={{ listStyle: 'none', margin: 0, padding: 0, borderLeft: `2px solid ${DOU}` }}>
-          {itens.map((e) => (
-            <li key={e.id} data-testid={`linha-tempo-${e.pr_numero}`} style={{ position: 'relative', padding: '4px 0 4px 12px', fontSize: 13, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {itens.map((e, i) => (
+            <li key={e.id} className={!todas && i >= 8 ? 'hidden md:flex' : undefined} data-testid={`linha-tempo-${e.pr_numero}`} style={{ position: 'relative', padding: '4px 0 4px 12px', fontSize: 13, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <span style={{ position: 'absolute', left: -5, top: 10, width: 8, height: 8, borderRadius: 8, background: DOU }} />
               <span style={{ color: TXM, minWidth: 40 }}>{hora(e.ocorrido_em)}</span>
               <span style={{ fontWeight: 600 }}>{e.code}</span>
@@ -320,6 +321,12 @@ function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: st
             </li>
           ))}
         </ol>
+      )}
+      {itens.length > 8 && !todas && (
+        <button type="button" data-testid="codes-ver-todas" className="md:hidden" onClick={() => setTodas(true)}
+          style={{ marginTop: 8, border: `1px solid ${BD}`, borderRadius: 8, padding: '4px 10px', background: OFF, color: ESP, fontSize: 12 }}>
+          ver todas ({itens.length})
+        </button>
       )}
     </div>
   )
