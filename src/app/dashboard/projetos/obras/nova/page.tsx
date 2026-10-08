@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import CepEndereco from '@/components/comum/CepEndereco'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
@@ -41,8 +42,10 @@ export default function NovaObraPage() {
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 8 }}>Hub · Obra</div>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, color: ESP, margin: '2px 0 14px' }}>Nova obra</h1>
         <div style={{ display: 'grid', gap: 10 }}>
-          <input data-testid="nova-obra-cliente" style={campo} placeholder="Cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} />
-          <input data-testid="nova-obra-nome" style={campo} placeholder="Nome da obra (opcional — usa o endereço)" value={nome} onChange={(e) => setNome(e.target.value)} />
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Cliente<AjudaCampo chave="projetos.obra_nova.cliente" /></span>
+          <input data-testid="nova-obra-cliente" style={campo} placeholder="Cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} /></label>
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Nome da obra<AjudaCampo chave="projetos.obra_nova.nome" /></span>
+          <input data-testid="nova-obra-nome" style={campo} placeholder="Nome da obra (opcional — usa o endereço)" value={nome} onChange={(e) => setNome(e.target.value)} /></label>
           <CepEndereco value={end} onChange={(p) => setEnd((s) => ({ ...s, ...p }))} />
           {erro && <div role="alert" data-testid="nova-obra-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 10, fontSize: 13 }}>{erro}</div>}
           <button data-testid="nova-obra-salvar" disabled={busy} onClick={() => void salvar()}
