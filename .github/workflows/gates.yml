@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # check-ajuda-campo-alterados compara com o merge-base da main
       - uses: actions/setup-node@v4
         with:
           node-version: 22

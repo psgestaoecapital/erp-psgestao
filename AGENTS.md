@@ -262,3 +262,27 @@ re-roda sozinho a aceitação cancelada (timeout/espera de trava), no máximo 2 
 **Não marque uma mensagem como concluída enquanto houver PRÓXIMO**: deixe em `em_andamento` ou abra a continuação na própria
 caixa. O despertador só acorda Code com tarefa aberta; concluir com item pendente deixa o Code parado.
 Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
+
+# Regras de tela RD-95 e RD-96 (CEO 08/10, inegociáveis) — valem para TODOS os Codes
+**RD-95 — todo campo tem o "?".** Todo campo, coluna editável, filtro, indicador e ação de toda tela tem o "?" no padrão da
+Mão de obra (`<AjudaCampo chave="vertical.tela.campo" />`, `src/components/ajuda/AjudaCampo.tsx`): os 4 blocos fixos
+**O que preencher · Para que serve no cálculo (como entra) · Exemplo · Erro comum**, em linguagem do usuário, abrindo sem
+sair da tela e no celular (bottom sheet). Os textos vivem no banco (`erp_ajuda_campo`, editáveis sem deploy); a tela lê todos de
+uma vez por rota (`fn_ajuda_campo_listar`) e cada abertura vira uso (`fn_ajuda_campo_uso`). Chave nova = seed **aditivo** em migration
+(`INSERT … ON CONFLICT DO NOTHING`). **Tela sem "?" não é entregue.**
+**RD-96 — nunca copiar tela de concorrente** (leiaute, ordem de menu, nomes, textos, fluxo). Design system PS ultra premium:
+tipografia legível com hierarquia clara, espaçamento generoso, visivelmente melhor e mais fácil; tarefa principal em até 3 toques.
+
+**Checklist de revisão de PR de tela** (o autor marca antes de abrir Ready; o revisor confere):
+1. Cada `input/select/textarea`, coluna editável, filtro, indicador e botão de ação tem `<AjudaCampo>` (ou `ajuda=` no `<Campo>`).
+2. Cada chave existe em `erp_ajuda_campo` (seed na migration da PR) com os 4 blocos preenchidos — sem texto genérico.
+3. O "?" abre no celular e não tira o usuário da tela.
+4. Nada de leiaute, menu, nomes ou textos copiados de concorrente (Sienge, Procore, Trevo…); referência vira requisito, não cópia.
+5. Linguagem do usuário (nada de nome de coluna ou jargão técnico); hierarquia e espaçamento do design system PS.
+6. A tela aparece no menu ou na aba do usuário (só conta como ENTREGUE se o usuário chega nela) e em `system_screens`.
+7. Teste RD-83 como usuário real, caminho principal em até 3 toques.
+
+**Gates:** `check-ajuda-campo` (Hub e P&M: campo sem "?" e chave inexistente no banco) e `check-ajuda-campo-alterados` (qualquer vertical:
+arquivo de tela NOVO sem "?" falha; arquivo ALTERADO não pode aumentar o número de campos sem "?" em relação à main).
+**Cobertura:** `npx tsx scripts/relatorio-ajuda-campo.ts [--telas]` lista telas e campos sem "?" por vertical (guia da varredura;
+a lista só deve diminuir). A lógica de detecção é compartilhada em `scripts/gates/_ajuda-campo-lib.ts`.
