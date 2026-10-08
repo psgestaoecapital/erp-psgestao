@@ -158,6 +158,7 @@ jobs:
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
       - name: Jornadas de aceitação contra o preview
+        timeout-minutes: 30
         env:
           PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
           SUPABASE_URL: ${{ vars.ACEITACAO_BANCO == 'testes' && secrets.TEST_SUPABASE_URL || secrets.SUPABASE_URL }}
@@ -176,6 +177,7 @@ jobs:
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
       - name: Aceitação @pos-migration (informativo — não bloqueia)
+        timeout-minutes: 15
         if: success() || failure()
         continue-on-error: true
         env:
