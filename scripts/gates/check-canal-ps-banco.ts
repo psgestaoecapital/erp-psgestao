@@ -1,5 +1,5 @@
 // Gate (CEO 07/10 16:20) — Canal PS · PR A (banco e regras): a Claude de cada sócio pede direto ao Code do PRÓPRIO sócio.
-// Sem rede. Lê a migration 20261008000060 e a tela:
+// Sem rede. Lê a migration 20261008210060 e a tela:
 //  (1) erp_agente_dono com RLS (leitura equipe PS, escrita service_role, nada ao anon) e a carga do CEO;
 //  (2) caixa aceita "<socio>-chat" só para o Code do próprio dono ativo — para eng_chefe/ceo nada afrouxa;
 //  (3) fn_agente_pedido_enviar: guarda do dono ativo, destino nunca por parâmetro, carteira (mesma fonte dos chamados em
@@ -12,7 +12,7 @@ let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 const ler = (p: string) => readFileSync(p, 'utf8')
 
-const sql = ler('supabase/migrations/20261008000060_agente_canal_socio.sql').replace(/--[^\n]*/g, '')
+const sql = ler('supabase/migrations/20261008210060_agente_canal_socio.sql').replace(/--[^\n]*/g, '')
 const fn = (nome: string) => {
   const i = sql.indexOf(`FUNCTION public.${nome}(`)
   if (i < 0) return ''
