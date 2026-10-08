@@ -18,6 +18,8 @@ import {
   HardHat,
   Construction,
   TrendingUp,
+  Gauge,
+  Scale,
   Settings,
   Smartphone,
   type LucideIcon,
@@ -48,6 +50,8 @@ const TECNICO: Tab[] = [
 const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras",          label: "Obras",          icon: Construction, key: "9" },
   { href: "/dashboard/projetos/acompanhamento", label: "Acompanhamento", icon: TrendingUp,   key: "0" },
+  { href: "/dashboard/projetos/obras/cockpit",   label: "Cockpit da obra", icon: Gauge,       key: "c" },
+  { href: "/dashboard/projetos/obras/resultado", label: "Resultado por obra", icon: Scale,    key: "r" },
 ];
 
 const CONFIG: Tab = {

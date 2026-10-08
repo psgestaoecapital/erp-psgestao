@@ -190,7 +190,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
         <button onClick={() => onAbrir(o)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${GOLD}`, background: '#FBF4E4', color: '#A57A15' }}>
           Ver escopo
         </button>
-        <Link href={`/dashboard/projetos/obras/${o.id}/cockpit?area=hub`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#fff', color: ESP, textDecoration: 'none' }}>Cockpit</Link>
+        <Link href={`/dashboard/projetos/obras/${o.id}/cockpit?area=hub`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#fff', color: ESP, textDecoration: 'none' }} data-testid="abrir-cockpit">Abrir cockpit</Link>
         <Link href={`/dashboard/projetos/obras/${o.id}/linha-do-tempo?area=hub`} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#fff', color: ESP, textDecoration: 'none' }}>
           Linha do tempo
         </Link>
