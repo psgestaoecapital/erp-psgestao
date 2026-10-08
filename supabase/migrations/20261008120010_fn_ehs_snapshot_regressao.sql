@@ -6,11 +6,11 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
+SET statement_timeout = '15s'
 AS $$
 DECLARE
   r jsonb;
 BEGIN
-  SET LOCAL statement_timeout = '15s';
   SELECT jsonb_build_object(
     'company_id', p_company_id,
     'funcionarios', (SELECT jsonb_build_object('total', count(*), 'ativos', count(*) FILTER (WHERE ativo),
