@@ -1,7 +1,7 @@
 -- FC Pisos · Virada 01/11 · integração estoque × obra, passo 1 (decisão CEO 06/10, ctx 9f84074b).
 -- Liga o insumo do Hub (m16_insumos, empresa de serviço) ao produto do estoque (erp_produtos, empresa de produto do
 -- mesmo grupo) e entrega o custo vivo: CUSTO MÉDIO do produto, ou o MAIOR entre médio e última compra (opção por vínculo).
--- Aditiva: tabela nova (RLS por empresa, REVOKE anon, sem DELETE) + função nova. Nada existente é alterado.
+-- Aditiva: tabela nova (RLS por empresa, REVOKE anon, sem DELETE, escrita só pela função) + função nova. Nada existente é alterado.
 -- Quem vincula precisa ter acesso às DUAS empresas (serviço e produto); a função lê o custo com a mesma guarda.
 
 CREATE TABLE IF NOT EXISTS public.hub_insumo_produto (
@@ -23,10 +23,10 @@ CREATE INDEX IF NOT EXISTS hub_insumo_produto_prod_idx ON public.hub_insumo_prod
 ALTER TABLE public.hub_insumo_produto ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.hub_insumo_produto FROM PUBLIC, anon, authenticated;
 DROP POLICY IF EXISTS hub_insumo_produto_empresa ON public.hub_insumo_produto;
-CREATE POLICY hub_insumo_produto_empresa ON public.hub_insumo_produto FOR ALL TO authenticated
-  USING (company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin())
-  WITH CHECK (company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin());
-GRANT SELECT, INSERT, UPDATE ON public.hub_insumo_produto TO authenticated;
+-- Escrita SÓ pela fn_hub_insumo_vincular (guarda das duas empresas): INSERT direto aceitaria insumo de outra empresa.
+CREATE POLICY hub_insumo_produto_empresa ON public.hub_insumo_produto FOR SELECT TO authenticated
+  USING (company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin());
+GRANT SELECT ON public.hub_insumo_produto TO authenticated;
 GRANT ALL ON public.hub_insumo_produto TO service_role;
 
 -- Vincular (ou trocar o vínculo) do insumo a um produto do estoque do grupo.
