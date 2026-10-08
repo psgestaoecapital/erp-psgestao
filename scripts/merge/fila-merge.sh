@@ -2,9 +2,11 @@
 # Fila de merge própria (CEO 06/10, regras a–d · erp_contexto_projeto 5c30d735). O merge queue do GitHub exige plano
 # pago de organização (RD-42); esta fila é um workflow gratuito, acordado por EVENTOS (sem polling).
 #
-# Entra na fila: PR aberta, Ready, base main, do próprio repositório, com a label `fila-merge` (posta pelo Code que
-# conferiu RD-94/94.1). Ordem: quem recebeu a label primeiro. Por execução, no máximo 1 merge (squash, travado no SHA
-# conferido); o push na main dispara a próxima rodada.
+# Entra na fila (CEO 08/10 08:15, "ok fila sem etiqueta"): TODA PR aberta, NÃO-draft (Ready), base main, do próprio
+# repositório, com todos os checks obrigatórios verdes. A label `fila-merge` virou OPCIONAL (continua aceita: a hora
+# em que foi posta conta como entrada na fila). A label `nao-publicar` tira a PR da fila (a fila comenta o motivo UMA vez). Ordem: hora em que a PR
+# entrou (label fila-merge; senão a última vez que ficou Ready; senão a criação). Por execução, no máximo 1 merge
+# (squash, travado no SHA conferido); o push na main dispara a próxima rodada.
 # SEM BLOQUEIO PELA CABEÇA (CEO 07/10): a PR que está atrás da main é atualizada (update-branch) e a PR cujos checks
 # ainda rodam fica esperando — e a rodada SEGUE para a próxima PR da fila (antes saía e uma PR lenta segurava todas).
 # Várias PRs podem ser atualizadas na mesma rodada. Migration: só a PR com migration que espera a MAIN (deploy-migrations
@@ -23,13 +25,15 @@
 #                     em pendente/vermelho/cancelado e não é exigida. A aceitação da main roda de hora em hora
 #                     (aceitacao-main.yml, banco de testes): vermelho = corrigir em 1 h ou reverter.
 #       VIA REVISADA = PR COM revisao-eng-chefe: aceitação verde + MERGE AUTORIZADO pelo patch-id (como antes).
-#   (d) vermelho de verdade (conflito, check falho, autorização inválida) → comenta o motivo e tira a label.
+#   (d) vermelho de verdade (conflito, check falho, autorização inválida) → comenta o motivo UMA vez por commit (marca
+#       escondida no comentário) e tira a label se houver; a PR volta a ser avaliada sozinha no próximo commit.
 #
 # Uso: GH_TOKEN=<PAT> REPO=dono/repo scripts/merge/fila-merge.sh   (num checkout da main com histórico completo)
 # GH_TOKEN precisa ser um PAT: merge feito com o GITHUB_TOKEN NÃO dispara o deploy-migrations na main.
 set -euo pipefail
 : "${GH_TOKEN:?GH_TOKEN (PAT) ausente}" "${REPO:?REPO ausente}"
 LABEL='fila-merge'
+NAO_PUBLICAR='nao-publicar'
 SENSIVEL=revisao-eng-chefe
 RODAPE=$'\n\n<sub>fila-merge · '"${RUN_URL:-local}"'</sub>'
 SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
@@ -37,12 +41,30 @@ SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 api() { gh api -H 'Accept: application/vnd.github+json' "$@"; }
 log() { echo "$*"; echo "- $*" >> "$SUMARIO"; }
 comentar() { api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null; }
+# comentários da PR lidos UMA vez por rodada (cada corpo numa linha, em JSON) — a fila agora olha todas as PRs Ready
+TMPF=$(mktemp -d); trap 'rm -rf "$TMPF"' EXIT
+comentarios() {
+  [ -f "$TMPF/c-$1" ] || api "repos/$REPO/issues/$1/comments" --paginate --jq '.[].body | @json' > "$TMPF/c-$1"
+  cat "$TMPF/c-$1"
+}
+# comenta só se a marca escondida <!-- fila:CHAVE --> ainda não está na PR (a fila roda a cada evento: sem spam)
+comentar_uma_vez() {
+  local n=$1 chave=$2 texto=$3
+  if comentarios "$n" | grep -qF "<!-- fila:$chave -->"; then return 0; fi
+  comentar "$n" "$texto
+<!-- fila:$chave -->"
+  printf '%s\n' "\"<!-- fila:$chave -->\"" >> "$TMPF/c-$n"
+}
+# vermelho de verdade: comenta o motivo uma vez por commit + motivo e tira a label (se houver). Sem a label a PR
+# continua candidata (a etiqueta é opcional): volta a ser avaliada sozinha no próximo commit.
 tirar_da_fila() {
-  log "#$1 saiu da fila: $2"
-  comentar "$1" "🚫 **Fila de merge:** #$1 saiu da fila — $2
+  local n=$1 motivo=$2 sha=${3:-} chave
+  chave="v-${sha:0:12}-$(printf '%s' "$motivo" | md5sum | cut -c1-8)"
+  log "#$n fora desta rodada: $motivo"
+  comentar_uma_vez "$n" "$chave" "🚫 **Fila de merge:** #$n não foi publicada — $motivo
 
-Corrija e recoloque a label \`$LABEL\`."
-  api -X DELETE "repos/$REPO/issues/$1/labels/$LABEL" > /dev/null 2>&1 || true
+Corrija e empurre o commit: a fila avalia de novo sozinha (a label \`$LABEL\` é opcional). Para a fila ignorar esta PR, use a label \`$NAO_PUBLICAR\`."
+  api -X DELETE "repos/$REPO/issues/$n/labels/$LABEL" > /dev/null 2>&1 || true
 }
 
 # re-roda um run cancelado (no máximo até a 3ª tentativa, para não girar em falso)
@@ -122,36 +144,58 @@ autorizacao() {
   local n=$1 pid corpo pid_aut
   git fetch -q origin "pull/$n/head:refs/fila/pr-$n" --force
   pid=$(git diff "$(git merge-base origin/main "refs/fila/pr-$n")" "refs/fila/pr-$n" | git patch-id --stable | cut -d' ' -f1)
-  corpo=$(api "repos/$REPO/issues/$n/comments" --paginate \
-    --jq "[.[] | select(.body | test(\"MERGE AUTORIZADO #$n([^0-9]|\$)\"))] | last | .body // empty")
-  [ -n "$corpo" ] || { echo "vermelho:PR sensível ($SENSIVEL) sem comentário \"MERGE AUTORIZADO #$n — gilberto-revisor · patch-id …\""; return; }
+  # só vale comentário cuja PRIMEIRA linha é exatamente a autorização do revisor; aviso da fila (marca escondida ou
+  # "Fila de merge:") cita o texto mas nunca conta (todos os comentários saem da mesma conta do GitHub)
+  corpo=$(comentarios "$n" | jq -rs --arg re "^MERGE AUTORIZADO #$n — gilberto-revisor · patch-id [0-9a-f]{40}[ \\t\\r]*\$" \
+    '[.[] | select((contains("<!-- fila:") | not) and (startswith("Fila de merge:") | not) and (split("\n")[0] | test($re)))] | last // empty | split("\n")[0]')
+  [ -n "$corpo" ] || { echo "vermelho:PR sensível ($SENSIVEL) sem a autorização do revisor para o conteúdo atual"; return; }
   pid_aut=$(grep -oE 'patch-id[: ]+[0-9a-f]{40}' <<< "$corpo" | tail -1 | grep -oE '[0-9a-f]{40}' || true)
-  [ -n "$pid_aut" ] || { echo "vermelho:a autorização não traz patch-id — o revisor repete com \`scripts/merge/patch-id.sh $n\` (atual: $pid)"; return; }
-  [ "$pid_aut" = "$pid" ] || { echo "vermelho:o conteúdo mudou depois da autorização (patch-id autorizado $pid_aut ≠ atual $pid) — exige nova revisão"; return; }
+  [ -n "$pid_aut" ] || { echo "vermelho:a autorização do revisor não traz o identificador do conteúdo — o revisor repete após rodar \`scripts/merge/patch-id.sh $n\`"; return; }
+  [ "$pid_aut" = "$pid" ] || { echo "vermelho:o conteúdo mudou depois da autorização do revisor — exige nova revisão"; return; }
   echo ok
 }
 
 git fetch -q origin main
 echo "## Fila de merge" >> "$SUMARIO"
 
-# fila em ordem de entrada (hora da última label fila-merge)
-fila=$(for n in $(api "repos/$REPO/issues?state=open&labels=$LABEL&per_page=100" --jq '.[] | select(.pull_request) | .number'); do
-  t=$(api "repos/$REPO/issues/$n/events?per_page=100" --paginate \
-      --jq ".[] | select(.event == \"labeled\" and .label.name == \"$LABEL\") | .created_at" | tail -1)
-  echo "${t:-9999} $n"
-done | sort | awk '{print $2}')
+# Válvula da cota da API (CEO 08/10): a fila agora olha TODAS as PRs Ready a cada rodada e o mesmo PAT serve o
+# /re-rodar e o vigia. Com pouca cota, a rodada não roda (o próximo evento depois da renovação retoma) — nunca esgota.
+COTA_MINIMA=${COTA_MINIMA:-1000}
+cota=$(api rate_limit --jq '.resources.core.remaining' 2> /dev/null || echo 99999)
+if [ "${cota:-0}" -lt "$COTA_MINIMA" ]; then log "cota da API baixa ($cota < $COTA_MINIMA): rodada adiada até a renovação"; exit 0; fi
+
+# candidatas: TODA PR aberta, não-draft, na main, do próprio repositório (a label fila-merge é opcional). Draft e PR de
+# outro repositório ficam de fora em silêncio. Ordem de entrada: label fila-merge; senão a última vez que ficou Ready;
+# senão a criação da PR.
+# A lista já traz draft, labels, SHA e título: sem uma chamada por PR para isso (cota da API).
+api "repos/$REPO/pulls?state=open&base=main&per_page=100" --paginate \
+    --jq ".[] | select(.draft == false and .head.repo.full_name == \"$REPO\") | tojson" > "$TMPF/lista"
+fila=$(while read -r linha; do
+    n=$(jq -r .number <<< "$linha"); t=
+    if jq -e --arg l "$LABEL" '.labels | map(.name) | index($l)' <<< "$linha" > /dev/null; then
+      t=$(api "repos/$REPO/issues/$n/events?per_page=100" --paginate \
+          --jq ".[] | select(.event == \"labeled\" and .label.name == \"$LABEL\") | .created_at" | tail -1)
+    fi
+    echo "${t:-$(jq -r .created_at <<< "$linha")} $n"
+  done < "$TMPF/lista" | sort | awk '{print $2}')
 [ -n "$fila" ] || { log "fila vazia"; exit 0; }
 log "fila: $(echo $fila | sed 's/\([0-9]*\)/#\1/g')"
 
 so_sem_migration=0
 for n in $fila; do
-  pj=$(api "repos/$REPO/pulls/$n")
-  [ "$(jq -r .mergeable <<< "$pj")" = null ] && { sleep 5; pj=$(api "repos/$REPO/pulls/$n"); }
+  pj=$(jq -c --argjson n "$n" 'select(.number == $n)' "$TMPF/lista")
   sha=$(jq -r .head.sha <<< "$pj"); titulo=$(jq -r .title <<< "$pj")
-  [ "$(jq -r .draft <<< "$pj")" = false ] || { tirar_da_fila "$n" "está em rascunho (draft); a fila só aceita PR Ready"; continue; }
-  [ "$(jq -r .base.ref <<< "$pj")" = main ] || { tirar_da_fila "$n" "a base não é a main"; continue; }
-  [ "$(jq -r .head.repo.full_name <<< "$pj")" = "$REPO" ] || { tirar_da_fila "$n" "PR de fork não entra na fila"; continue; }
-  [ "$(jq -r .mergeable <<< "$pj")" != false ] || { tirar_da_fila "$n" "conflito com a main (resolva com merge da main no ramo)"; continue; }
+  # draft (pode ter virado draft depois da lista), outra base ou fork: fora, em silêncio
+  [ "$(jq -r .draft <<< "$pj")" = false ] || { log "#$n é rascunho (draft): fora da fila"; continue; }
+  [ "$(jq -r .base.ref <<< "$pj")" = main ] || { log "#$n não é para a main: fora da fila"; continue; }
+  [ "$(jq -r .head.repo.full_name <<< "$pj")" = "$REPO" ] || { log "#$n é de fork: fora da fila"; continue; }
+  # nao-publicar: a fila pula a PR e avisa UMA vez (CEO 08/10)
+  if jq -e --arg l "$NAO_PUBLICAR" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null; then
+    log "#$n tem a label $NAO_PUBLICAR: pulada"
+    comentar_uma_vez "$n" "$NAO_PUBLICAR" "⏸️ **Fila de merge:** #$n tem a label \`$NAO_PUBLICAR\` — a fila não publica esta PR. Tire a label quando ela puder ser publicada."
+    continue
+  fi
+  # conflito: a lista não traz o mergeable; aparece no update-branch (PR atrás da main) ou na recusa do merge
 
   com_migration=0; so_docs=0
   arquivos=$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[].filename')
@@ -168,9 +212,17 @@ for n in $fila; do
   # (c) sensível → autorização pelo conteúdo
   if [ "$via" = revisada ]; then
     a=$(autorizacao "$n")
-    [ "$a" = ok ] || { tirar_da_fila "$n" "${a#vermelho:}"; continue; }
+    [ "$a" = ok ] || { tirar_da_fila "$n" "${a#vermelho:}" "$sha"; continue; }
     log "#$n: autorização do gilberto-revisor confere com o conteúdo (patch-id)"
   fi
+
+  # checks ANTES de atualizar com a main (CEO 08/10, fila sem etiqueta): só a PR verde é atualizada — a vermelha
+  # recebe o aviso e fica como está (sem empurrar merge da main no ramo de quem ainda não acabou a PR).
+  c=$(estado_checks "$sha" "$via" "$so_docs")
+  case "$c" in
+    vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
+    esperar:*) log "#$n aguardando: ${c#esperar:} — segue para a próxima"; continue;;
+  esac
 
   # atrás da main → atualiza (merge da main no ramo, sem reescrever histórico) e espera os checks do novo commit
   atras=$(api "repos/$REPO/compare/main...$sha" --jq '.behind_by')
@@ -178,16 +230,10 @@ for n in $fila; do
     if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
       log "#$n estava $atras commit(s) atrás da main: atualizada; aguardando os checks do novo commit — segue para a próxima"
     else
-      tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)"; continue
+      tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"; continue
     fi
     continue
   fi
-
-  c=$(estado_checks "$sha" "$via" "$so_docs")
-  case "$c" in
-    vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})"; continue;;
-    esperar:*) log "#$n aguardando: ${c#esperar:} — segue para a próxima"; continue;;
-  esac
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
   if [ "$com_migration" = 1 ]; then
@@ -195,6 +241,14 @@ for n in $fila; do
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
       so_sem_migration=1; continue
+    fi
+    # Régua de versão NA HORA do merge (incidente 08/10: #2239 entrou com 20261008140005 abaixo da 150005 já aplicada e o
+    # `db push` recusou — deploy vermelho por horas). Recalcula a última migration da main agora (não usa o check antigo
+    # da PR). Com o deploy-migrations verde (estado_main livre), a última da main = a última aplicada em produção.
+    ult_main=$(api "repos/$REPO/git/trees/main:supabase/migrations" | jq -r '[.tree[].path | select(test("^[0-9]{14}_")) | .[0:14]] | max')
+    baixas=$(api "repos/$REPO/pulls/$n/files" --paginate | jq -r --arg u "$ult_main" '.[] | select(.status == "added" and (.filename | test("^supabase/migrations/[0-9]{14}_"))) | .filename | ltrimstr("supabase/migrations/") | select(.[0:14] <= $u)')
+    if [ -n "$baixas" ]; then
+      tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
     fi
   fi
 
@@ -204,6 +258,6 @@ for n in $fila; do
     comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida** (aceitação informativa; a aceitação da main roda de hora em hora)' || echo 'revisada**').$([ "$com_migration" = 1 ] && echo ' Tem migration: veredito no @pos-migration da main (vermelho = reverter).')"
     exit 0
   fi
-  tirar_da_fila "$n" "o GitHub recusou o merge: $(tr '\n' ' ' <<< "$out" | cut -c1-300)"
+  tirar_da_fila "$n" "o GitHub recusou o merge: $(tr '\n' ' ' <<< "$out" | cut -c1-300)" "$sha"
 done
 log "nenhuma PR pronta para merge nesta rodada"
