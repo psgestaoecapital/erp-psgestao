@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
+import TomadorEnderecoPendente from '@/components/fiscal/TomadorEnderecoPendente'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@/components/comum/BlocoObraFiscal'
 import { aplicarRetencoesNota, calcularRetencoesFederais, MSG_EXIGE_SERVICO_NFSE, retencoesNotaDoCadastro, retencoesNotaIguais, sugerirRetencoesNota, TRIBUTOS_RETENCAO, type RetencoesNota, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 import { conferirMedicaoEscopo, brl as brlEscopo, type ItemEscopo } from '@/lib/fiscal/medicaoEscopoObra'
@@ -885,6 +886,8 @@ export default function NFSeEmitirGovModal({
                   </div>
                 )}
                 {buscaDocMsg && <div className="text-[11px] text-[#3D2314]/60">{buscaDocMsg}</div>}
+                {/* caixa jordana-code 25fac6b6 (4) · tomador do cadastro sem IBGE/número: pede o CEP (ou cidade) aqui e grava no cliente */}
+                <TomadorEnderecoPendente companyId={companyId} documento={tomDoc} />
               </fieldset>
 
               <fieldset className="space-y-3 border-t border-[#3D2314]/10 pt-4">

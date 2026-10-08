@@ -225,7 +225,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         if (filtro) {
           const { data: cli } = await supabaseAdmin.from('erp_clientes')
             .select('logradouro, endereco, numero, complemento, bairro, cidade, uf, cep, codigo_ibge_municipio')
-            .eq('company_id', body.companyId).or(filtro).limit(1).maybeSingle()
+            .eq('company_id', body.companyId).not('ativo', 'is', false).or(filtro).limit(1).maybeSingle()  // inativado (duplicata) nunca
           const end = enderecoFiscalDoCliente(cli as ClienteEndereco | null)
           if (end) nfseReq.tomador = { ...nfseReq.tomador, endereco: end }
         }
