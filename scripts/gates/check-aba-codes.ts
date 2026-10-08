@@ -200,8 +200,26 @@ async function main() {
     ok(esteira({ ...base, mainVerde: false }).cor === 'vermelha' && esteira({ ...base, testeParadoMin: 100 }).cor === 'vermelha', 'esteira vermelha: main vermelha ou teste parado > 90 min')
   }
 
+  await esteiraChecks()
   if (falhas) { console.error(`\ncheck-aba-codes: ${falhas} falha(s)`); process.exit(1) }
   console.log('\nAba Codes: ok')
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
+
+// ── (6) esteira: teste da main e fila de testes (CEO 08/10) ──────────────────────────────────────────────────────────
+async function esteiraChecks() {
+  const mig = readdirSync('supabase/migrations').find((f) => f.endsWith('_dev_esteira_status.sql'))
+  const q = (mig ? ler(join('supabase/migrations', mig)) : '').replace(/--[^\n]*/g, '')
+  ok(!!mig && /^\d{12}05_/.test(mig), 'esteira: migration na faixa 05')
+  ok(/ENABLE ROW LEVEL SECURITY/.test(q) && /REVOKE ALL ON TABLE public\.erp_dev_esteira_status FROM PUBLIC, anon, authenticated/.test(q)
+    && /FOR SELECT TO authenticated USING \(public\.fn_dev_painel_pode_ver\(\)\)/.test(q) && !/TO anon/.test(q), 'esteira: RLS, sem anon, leitura só equipe PS')
+  const wf = existsSync('.github/workflows/registrar-esteira.yml') ? ler('.github/workflows/registrar-esteira.yml') : ''
+  ok(/workflow_run:/.test(wf) && !/pull_request_target/.test(wf) && !/ref: \$\{\{ github\.event\.workflow_run/.test(wf), 'esteira: workflow_run, checkout só da main')
+  const { veredito } = await import('../dev/registrar-esteira.mjs')
+  ok(veredito([{ status: 'completed', conclusion: 'cancelled' }, { status: 'completed', conclusion: 'failure', html_url: 'u' }])?.verde === false, 'esteira: cancelado é ignorado, failure = vermelho')
+  ok(veredito([{ status: 'completed', conclusion: 'success' }])?.verde === true && veredito([]) === null, 'esteira: success = verde; sem run = sem dado')
+  ok(esteira({ entregas: [], agora: new Date(), mainVerde: false, filaTestes: 3 }).cor === 'vermelha', 'esteira: main vermelha deixa a faixa vermelha')
+  const pt = ler('src/components/dev/PainelCodes.tsx')
+  ok(pt.indexOf('<LinhaDoTempo') < pt.indexOf('CartaoCode key') && /erp_dev_esteira_status/.test(pt) && /ver todas/.test(pt), 'tela: publicações do dia acima dos cartões, assina a esteira, "ver todas" no celular')
+}

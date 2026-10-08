@@ -20,7 +20,7 @@ const COLS_ENTREGA = 'id,pr_numero,titulo,code,evento,via,sha,url,ocorrido_em'
 const COLS_MSG = 'id,para,assunto,status,pr_numero,resposta,arquivada,criado_em,atualizado_em'
 const FILA_VISIVEL = 6
 
-type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[] }
+type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[]; mainVerde: boolean | null; filaTestes: number | null }
 
 export default function PainelCodes() {
   const [pode, setPode] = useState<boolean | null>(null)
@@ -44,7 +44,7 @@ export default function PainelCodes() {
   const carregar = useCallback(async () => {
     const desde = new Date(Date.now() - 14 * 864e5).toISOString()
     const { de, ate } = intervaloDia(diaRef.current)
-    const [ent, abertas, resp, leases, rotinas, linha] = await Promise.all([
+    const [ent, abertas, resp, leases, rotinas, linha, estat] = await Promise.all([
       supabase.from('erp_dev_entrega').select(COLS_ENTREGA).gte('ocorrido_em', desde).order('ocorrido_em', { ascending: false }).limit(3000),
       supabase.from('erp_agente_mensagem').select(COLS_MSG).in('para', CODES_PAINEL as string[]).not('arquivada', 'is', true)
         .in('status', ['nova', 'recebida', 'em_andamento']).order('criado_em', { ascending: true }).limit(5000),
@@ -54,6 +54,7 @@ export default function PainelCodes() {
       supabase.from('erp_agente_rotina').select('agente,aciona'),
       supabase.from('erp_dev_entrega').select(COLS_ENTREGA).eq('evento', 'publicada').gte('ocorrido_em', de).lt('ocorrido_em', ate)
         .order('ocorrido_em', { ascending: false }).limit(500),
+      supabase.from('erp_dev_esteira_status').select('chave,verde,quantidade'),
     ])
     const falha = [ent, abertas, resp, leases, rotinas, linha].find((r) => r.error)?.error
     if (falha) { setErro(falha.message); return }
@@ -64,6 +65,8 @@ export default function PainelCodes() {
       leases: (leases.data ?? []) as Lease[],
       rotinas: (rotinas.data ?? []) as Rotina[],
       linhaTempo: (linha.data ?? []) as Entrega[],
+      mainVerde: (estat.data ?? []).find((x: { chave: string }) => x.chave === 'main')?.verde ?? null,
+      filaTestes: (estat.data ?? []).find((x: { chave: string }) => x.chave === 'fila')?.quantidade ?? null,
     })
     const n = new Date()
     setAtualizado(n); setAgora(n)
@@ -79,6 +82,7 @@ export default function PainelCodes() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_dev_entrega' }, () => agendar())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_agente_mensagem' }, () => agendar())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_agente_sessao_lease' }, () => agendar())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_dev_esteira_status' }, () => agendar())
       .subscribe((st) => setAoVivo(st === 'SUBSCRIBED'))
     return () => { if (timer) clearTimeout(timer); void supabase.removeChannel(ch) }
   }, [pode, carregar])
@@ -93,7 +97,7 @@ export default function PainelCodes() {
   const trocarDia = (d: string) => { diaRef.current = d; setDia(d); void carregar() }
 
   const f = useMemo(() => (dados ? faixa({ entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, agora }) : null), [dados, agora])
-  const est = useMemo(() => (dados ? esteira({ entregas: dados.entregas, agora }) : null), [dados, agora])
+  const est = useMemo(() => (dados ? esteira({ entregas: dados.entregas, agora, mainVerde: dados.mainVerde, filaTestes: dados.filaTestes }) : null), [dados, agora])
   const resumos = useMemo(
     () => (dados ? CODES_PAINEL.map((code) => resumoCode({ code, entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, rotinas: dados.rotinas, agora })) : []),
     [dados, agora],
@@ -123,6 +127,7 @@ export default function PainelCodes() {
 
       {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
       {resumos.length > 0 && <ResumoPorCode itens={resumos} agora={agora} />}
+      {dados && <LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} />}
 
       {dados && (
         <>
@@ -133,7 +138,6 @@ export default function PainelCodes() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {CODES_LINHA_FINAL.map((c) => <CartaoCode key={c} code={c} dados={dados} agora={agora} compacto />)}
           </div>
-          <LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} />
         </>
       )}
     </div>
@@ -300,9 +304,12 @@ function CartaoCode({ code, dados, agora, compacto }: { code: string; dados: Dad
   )
 }
 
+const LINHA_CELULAR = 8
+
 function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: string; setDia: (d: string) => void; agora: Date }) {
+  const [todas, setTodas] = useState(false)
   return (
-    <div data-testid="codes-linha-tempo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, marginTop: 16 }}>
+    <div data-testid="codes-linha-tempo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         <span style={{ fontWeight: 700 }}>Publicações do dia</span>
         <input data-testid="codes-filtro-data" type="date" value={dia} max={diaSP(agora)} onChange={(e) => e.target.value && setDia(e.target.value)}
@@ -310,8 +317,8 @@ function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: st
       </div>
       {itens.length === 0 ? <Vazio t="nenhuma publicação neste dia" /> : (
         <ol style={{ listStyle: 'none', margin: 0, padding: 0, borderLeft: `2px solid ${DOU}` }}>
-          {itens.map((e) => (
-            <li key={e.id} data-testid={`linha-tempo-${e.pr_numero}`} style={{ position: 'relative', padding: '4px 0 4px 12px', fontSize: 13, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {itens.map((e, i) => (
+            <li key={e.id} data-testid={`linha-tempo-${e.pr_numero}`} className={!todas && i >= LINHA_CELULAR ? 'hidden md:flex' : 'flex'} style={{ position: 'relative', padding: '4px 0 4px 12px', fontSize: 13, gap: 6, flexWrap: 'wrap' }}>
               <span style={{ position: 'absolute', left: -5, top: 10, width: 8, height: 8, borderRadius: 8, background: DOU }} />
               <span style={{ color: TXM, minWidth: 40 }}>{hora(e.ocorrido_em)}</span>
               <span style={{ fontWeight: 600 }}>{e.code}</span>
@@ -320,6 +327,12 @@ function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: st
             </li>
           ))}
         </ol>
+      )}
+      {itens.length > LINHA_CELULAR && (
+        <button type="button" data-testid="codes-ver-todas" className="md:hidden" onClick={() => setTodas((v) => !v)}
+          style={{ marginTop: 8, border: 'none', background: 'none', color: DOU, fontWeight: 700, fontSize: 13, cursor: 'pointer', padding: 0 }}>
+          {todas ? 'ver menos' : `ver todas (${itens.length})`}
+        </button>
       )}
     </div>
   )
