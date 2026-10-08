@@ -22,5 +22,10 @@ if (arq) {
   ok(/ON DELETE RESTRICT/.test(sql), 'produto do estoque não some com o vínculo')
 }
 
+const tela = readFileSync('src/app/dashboard/projetos/insumos/page.tsx', 'utf8')
+ok(/fn_insumo_vincular_produto/.test(tela) && /fn_insumo_custo_vivo/.test(tela), 'tela de insumos chama as funções de vínculo e custo vivo')
+ok(/data-testid="insumo-vincular"/.test(tela) && /data-testid="modal-vinculo-estoque"/.test(tela), 'tela de insumos tem o botão e o modal de vínculo')
+ok(/fn_projetos_atualizar_preco_insumo/.test(tela) && /fn_projetos_deletar_insumo/.test(tela), 'caminho principal da tela (preço e exclusão) preservado')
+
 if (falhas > 0) { console.error(`\n[check-hub-insumo-vinculo] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-hub-insumo-vinculo] vínculo insumo × produto conferido.')

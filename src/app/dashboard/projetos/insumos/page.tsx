@@ -4,7 +4,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Package, Pencil, Trash2, TrendingUp, Upload, Plus, Search } from "lucide-react";
+import { Link2, Package, Pencil, Trash2, TrendingUp, Upload, Plus, Search } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
@@ -88,6 +88,62 @@ export default function InsumosPage() {
 
   // Importar
   const [importando, setImportando] = useState(false);
+
+  // Vínculo com o estoque do grupo (Hub FC · passo 1): custo vivo do produto
+  const [modalVinculo, setModalVinculo] = useState<Insumo | null>(null);
+  const [vincBusca, setVincBusca] = useState("");
+  const [vincProdutos, setVincProdutos] = useState<{ id: string; nome: string; preco_custo_medio: number | null; estoque_atual: number | null }[]>([]);
+  const [vincProduto, setVincProduto] = useState("");
+  const [vincModo, setVincModo] = useState<"medio" | "maior">("medio");
+  const [vincAtual, setVincAtual] = useState<string | null>(null);
+  const [salvandoVinculo, setSalvandoVinculo] = useState(false);
+
+  async function abrirVinculo(i: Insumo) {
+    setModalVinculo(i);
+    setVincBusca("");
+    setVincProdutos([]);
+    setVincProduto("");
+    setVincModo("medio");
+    setVincAtual(null);
+    const { data } = await supabaseBrowser().rpc("fn_insumo_custo_vivo", { p_insumo: i.id });
+    if (data?.ok && data.origem === "estoque") {
+      setVincAtual(`${data.produto} · ${fmtBRL(data.custo)} (${data.modo_custo === "maior" ? "maior custo" : "custo médio"}) · saldo ${data.saldo}`);
+      setVincProduto(data.produto_id);
+      setVincModo(data.modo_custo);
+    }
+  }
+
+  async function buscarProdutos() {
+    const q = vincBusca.trim();
+    if (q.length < 2) return;
+    const { data } = await supabaseBrowser()
+      .from("erp_produtos")
+      .select("id, nome, preco_custo_medio, estoque_atual")
+      .ilike("nome", `%${q}%`)
+      .limit(20);
+    setVincProdutos((data as any[]) || []);
+  }
+
+  async function salvarVinculo() {
+    if (!modalVinculo || !vincProduto) return;
+    setSalvandoVinculo(true);
+    try {
+      const { data, error } = await supabaseBrowser().rpc("fn_insumo_vincular_produto", {
+        p_insumo: modalVinculo.id,
+        p_produto: vincProduto,
+        p_modo: vincModo,
+      });
+      if (error) throw error;
+      if (data && data.ok === false) throw new Error(data.erro || "Não foi possível vincular");
+      setAviso(`Insumo "${modalVinculo.name}" vinculado ao estoque`);
+      setTimeout(() => setAviso(null), 4000);
+      setModalVinculo(null);
+    } catch (e: any) {
+      setErro(e.message || "Falha ao vincular");
+    } finally {
+      setSalvandoVinculo(false);
+    }
+  }
 
   const carregar = useCallback(async () => {
     if (!companyId) {
@@ -459,6 +515,14 @@ export default function InsumosPage() {
         <TrendingUp size={14} />
       </button>
       <button
+        onClick={() => abrirVinculo(i)}
+        className="rounded-lg p-1.5 text-[#3D2314]/60 hover:bg-[#3D2314]/5 hover:text-[#3D2314]"
+        title="Vincular ao estoque"
+        data-testid="insumo-vincular"
+      >
+        <Link2 size={14} />
+      </button>
+      <button
         onClick={() => abrirEditar(i)}
         className="rounded-lg p-1.5 text-[#3D2314]/60 hover:bg-[#3D2314]/5 hover:text-[#3D2314]"
         title="Editar"
@@ -701,6 +765,73 @@ export default function InsumosPage() {
                 className="flex-1 rounded-lg bg-[#3D2314] py-2 text-sm font-semibold text-[#FAF7F2] disabled:opacity-50"
               >
                 {salvandoPreco ? "Salvando…" : "Atualizar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal vínculo com o estoque */}
+      {modalVinculo && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#3D2314]/60 p-4"
+          onClick={() => setModalVinculo(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="modal-vinculo-estoque"
+          >
+            <h3 className="mb-1 text-lg font-semibold text-[#3D2314]">Vincular ao estoque</h3>
+            <p className="mb-3 text-sm text-[#3D2314]/60">
+              {modalVinculo.name} · custo do insumo {fmtBRL(modalVinculo.current_cost)}
+            </p>
+            {vincAtual && (
+              <p className="mb-3 rounded-lg bg-[#C8941A]/10 p-3 text-xs text-[#3D2314]/70">Vínculo atual: {vincAtual}</p>
+            )}
+            <div className="mb-2 flex gap-2">
+              <input
+                value={vincBusca}
+                onChange={(e) => setVincBusca(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && buscarProdutos()}
+                placeholder="Buscar produto do estoque…"
+                className="w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+              />
+              <button onClick={buscarProdutos} className="rounded-lg bg-[#FAF7F2] px-3 text-sm text-[#3D2314]">Buscar</button>
+            </div>
+            {vincProdutos.length > 0 && (
+              <select
+                value={vincProduto}
+                onChange={(e) => setVincProduto(e.target.value)}
+                className="mb-3 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm"
+              >
+                <option value="">Selecione…</option>
+                {vincProdutos.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nome} · médio {fmtBRL(p.preco_custo_medio)} · saldo {p.estoque_atual ?? 0}
+                  </option>
+                ))}
+              </select>
+            )}
+            <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">Custo a usar</label>
+            <select
+              value={vincModo}
+              onChange={(e) => setVincModo(e.target.value as "medio" | "maior")}
+              className="mb-4 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm"
+            >
+              <option value="medio">Custo médio do estoque</option>
+              <option value="maior">Maior custo (médio × última compra)</option>
+            </select>
+            <div className="flex gap-2">
+              <button onClick={() => setModalVinculo(null)} className="flex-1 rounded-lg bg-[#FAF7F2] py-2 text-sm text-[#3D2314]">
+                Cancelar
+              </button>
+              <button
+                onClick={salvarVinculo}
+                disabled={!vincProduto || salvandoVinculo}
+                className="flex-1 rounded-lg bg-[#3D2314] py-2 text-sm font-semibold text-[#FAF7F2] disabled:opacity-50"
+              >
+                {salvandoVinculo ? "Salvando…" : "Vincular"}
               </button>
             </div>
           </div>
