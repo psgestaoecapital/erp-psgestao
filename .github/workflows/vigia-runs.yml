@@ -50,6 +50,25 @@ jobs:
           done
           echo "runs presos cancelados: $n"
 
+      # Esteira travada 08/10: 6+ runs da "Aceitação da main" de SHAs antigos esperavam horas na fila aceitacao-testes
+      # e, ao chegar a vez, cada um só ia dizer "ponta já julgada". Run ESPERANDO (pending/queued) de SHA que não é mais a
+      # ponta da main está superado: cancela (o da ponta atual fica). Run executando nunca é tocado aqui.
+      - name: Cancelar aceitação da main superada (esperando a fila, SHA que não é a ponta)
+        run: |
+          set -uo pipefail
+          main_sha=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null || true)
+          [ -n "$main_sha" ] || { echo "sem SHA da main, nada a fazer"; exit 0; }
+          n=0
+          for st in pending queued waiting; do
+            for linha in $(gh api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?status=$st&per_page=50" \
+              --jq ".workflow_runs[] | select(.head_sha != \"$main_sha\") | .id" 2>/dev/null); do
+              echo "- aceitacao-main · run $linha · SHA superado, esperando a fila → cancelado" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$linha/cancel" > /dev/null || true
+              n=$((n + 1))
+            done
+          done
+          echo "aceitação da main superada cancelada: $n"
+
       - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
         env:
           # PAT da fila; sem ele cai no token do job (que pode dar 403 e o passo só avisa)
