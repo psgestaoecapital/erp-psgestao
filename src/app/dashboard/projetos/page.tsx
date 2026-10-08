@@ -25,6 +25,11 @@ const PASSOS = [
   { href: "/dashboard/projetos/obras/resultado", titulo: "3. Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
 ];
 
+const NOVIDADES = [
+  { href: "/dashboard/projetos/obras/resultado", titulo: "Resultado por obra", texto: "Receita, custo direto, rateio e margem de cada obra, previsto × realizado." },
+  { href: "/dashboard/projetos/obras/cockpit", titulo: "Cockpit da obra", texto: "Avanço, custo, margem, prazo e pendências do dia numa tela só." },
+];
+
 function fmtBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -159,6 +164,19 @@ export default function PainelProjetos() {
           Zero não é erro: ainda não há obra em andamento nem proposta pendente nesta empresa. Comece cadastrando uma oportunidade no funil — ela vira proposta e depois obra.
         </p>
       )}
+
+      {/* NOVIDADES DO HUB */}
+      <section className="mt-16" data-testid="novidades-hub">
+        <SectionLabel>Novidades do Hub</SectionLabel>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          {NOVIDADES.map((p) => (
+            <Link key={p.href} href={p.href} className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm hover:border-[#C8941A]">
+              <div className="text-sm font-medium text-[#3D2314]">{p.titulo}</div>
+              <div className="mt-1 text-xs text-[#3D2314]/60">{p.texto}</div>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       {/* PRÓXIMOS PASSOS */}
       <section className="mt-16">
