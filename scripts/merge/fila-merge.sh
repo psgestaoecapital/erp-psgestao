@@ -145,10 +145,10 @@ autorizacao() {
   git fetch -q origin "pull/$n/head:refs/fila/pr-$n" --force
   pid=$(git diff "$(git merge-base origin/main "refs/fila/pr-$n")" "refs/fila/pr-$n" | git patch-id --stable | cut -d' ' -f1)
   corpo=$(comentarios "$n" | jq -rs --arg re "MERGE AUTORIZADO #$n([^0-9]|\$)" '[.[] | select(test($re))] | last // empty')
-  [ -n "$corpo" ] || { echo "vermelho:PR sensível ($SENSIVEL) sem comentário \"MERGE AUTORIZADO #$n — gilberto-revisor · patch-id …\""; return; }
+  [ -n "$corpo" ] || { echo "vermelho:PR sensível ($SENSIVEL) sem a autorização do revisor para o conteúdo atual"; return; }
   pid_aut=$(grep -oE 'patch-id[: ]+[0-9a-f]{40}' <<< "$corpo" | tail -1 | grep -oE '[0-9a-f]{40}' || true)
-  [ -n "$pid_aut" ] || { echo "vermelho:a autorização não traz patch-id — o revisor repete com \`scripts/merge/patch-id.sh $n\` (atual: $pid)"; return; }
-  [ "$pid_aut" = "$pid" ] || { echo "vermelho:o conteúdo mudou depois da autorização (patch-id autorizado $pid_aut ≠ atual $pid) — exige nova revisão"; return; }
+  [ -n "$pid_aut" ] || { echo "vermelho:a autorização do revisor não traz o identificador do conteúdo — o revisor repete após rodar \`scripts/merge/patch-id.sh $n\`"; return; }
+  [ "$pid_aut" = "$pid" ] || { echo "vermelho:o conteúdo mudou depois da autorização do revisor — exige nova revisão"; return; }
   echo ok
 }
 
