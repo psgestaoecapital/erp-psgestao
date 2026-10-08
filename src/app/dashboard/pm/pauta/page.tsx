@@ -10,6 +10,7 @@ import Link from "next/link";
 import { Filter, Printer, Download, Trash2, RotateCcw, Play, Paperclip, Link2, MessageCircle, Star, X, Undo2, Sparkles, ListChecks, Copy, Users, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { ClienteBusca } from "@/components/pm/ClienteBusca";
 import { JobFluxo } from "@/components/pm/JobFluxo";
@@ -22,7 +23,7 @@ import { AvisoSemHoras } from "@/components/pm/AvisoSemHoras";
 import { lerCronometroAberto, totalHorasDoJob } from "@/lib/pm/cronometroGlobal";
 import { exportarExcel, type Coluna } from "@/lib/export/relatorioLista";
 import {
-  agrupar, atalhosVisiveis, contarFiltros, limparFiltros, linkVisao, prazoAprovacao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
+  agrupar, atalhosVisiveis, contarFiltros, descreverFiltros, limparFiltros, linkVisao, prazoAprovacao, seloEscopo, textoAguardando, textoAtraso, visaoDaUrl,
   AGRUPAMENTOS, PRIORIDADES, POR_PAGINA, type Agrupar, type Atalho, type FiltrosPauta, type ItemPauta,
 } from "@/lib/pm/pauta";
 
@@ -66,7 +67,7 @@ function Multi({ texto, ajuda, itens, valor, onChange, testid, primeiro }: { tex
 }
 
 export default function PautaPage() {
-  const { selInfo, companyIds } = useCompanyIds();
+  const { selInfo, companyIds, loading: carregandoEmpresa, companies } = useCompanyIds();
   const empresa = selInfo.tipo === "empresa" && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null);
   const [userId, setUserId] = useState<string | null>(null);
   const [semHorasJob, setSemHorasJob] = useState<string | null>(null);
@@ -107,6 +108,8 @@ export default function PautaPage() {
   const [nomesCli, setNomesCli] = useState<Record<string, string>>({});
   // a empresa tem algum job? (Pauta vazia de verdade × filtro sem resultado)
   const [temJob, setTemJob] = useState<boolean | null>(null);
+  // o filtro em uso veio da preferência guardada (última visita)? a tela avisa — a pessoa pode não lembrar dele
+  const [daPreferencia, setDaPreferencia] = useState(false);
   // PM-B: visão em uso (vem do menu ou do link ?visao=…) — o link abre a mesma visão para quem a pode ver
   const [visaoAtual, setVisaoAtual] = useState<Visao | null>(null);
 
@@ -130,8 +133,9 @@ export default function PautaPage() {
         supabase.rpc("fn_acessos_pode_gerir", { p_company_id: empresa }),
         uid ? supabase.from("agency_pauta_preferencia").select("filtros, agrupar, aba").eq("company_id", empresa).eq("user_id", uid).maybeSingle() : Promise.resolve({ data: null }),
       ]);
-      const { count: nJobs } = await supabase.from("agency_jobs").select("id", { count: "exact", head: true }).eq("company_id", empresa);
-      if (vivo) setTemJob((nJobs ?? 0) > 0);
+      const { count: nJobs, error: eJobs } = await supabase.from("agency_jobs").select("id", { count: "exact", head: true }).eq("company_id", empresa);
+      // erro na contagem = "não sei" (null), nunca "a pauta está vazia" (RD-51)
+      if (vivo) setTemJob(eJobs ? null : (nJobs ?? 0) > 0);
       if (!vivo) return;
       setUserId(uid);
       if (op.error) { setErro(op.error.message); return; }
@@ -151,12 +155,15 @@ export default function PautaPage() {
       setVisoes((vi.data ?? []) as Visao[]);
       setPodeGerir(!!pg.data);
       const pref = pr.data as { filtros: FiltrosPauta; agrupar: Agrupar; aba: string | null } | null;
-      if (pref) { setFiltros(pref.filtros ?? {}); setRascunho(pref.filtros ?? {}); setAgrup(pref.agrupar ?? "prazo"); setAba(pref.aba ?? "todas"); }
+      if (pref) {
+        setFiltros(pref.filtros ?? {}); setRascunho(pref.filtros ?? {}); setAgrup(pref.agrupar ?? "prazo"); setAba(pref.aba ?? "todas");
+        setDaPreferencia(Object.keys(limparFiltros(pref.filtros ?? {})).length > 0 || (pref.aba ?? "todas") !== "todas");
+      }
       // link da visão salva: abre direto a visão (vale mais que a preferência guardada)
       const idLink = visaoDaUrl(window.location.search);
       if (idLink) {
         const v = ((vi.data ?? []) as Visao[]).find((x) => x.id === idLink);
-        if (v) { setFiltros(v.filtros ?? {}); setRascunho(v.filtros ?? {}); setAba("todas"); setVisaoAtual(v); }
+        if (v) { setFiltros(v.filtros ?? {}); setRascunho(v.filtros ?? {}); setAba("todas"); setVisaoAtual(v); setDaPreferencia(false); }
         else setAvisoLink("Este link é de uma visão que não existe mais ou que não foi compartilhada com você. Peça a quem mandou para compartilhar com a equipe.");
       }
       setPrefCarregada(true);
@@ -215,6 +222,7 @@ export default function PautaPage() {
       const { data } = await supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: numero ? { codigo: numero } : {}, p_situacao: null, p_agrupar: "sem", p_pagina: 1, p_por_pagina: numero ? 20 : 500 });
       const it = ((data as Lista | null)?.itens ?? []).find((x) => x.id === id);
       if (it) void abrirJob(it);
+      else setAviso({ texto: "Não foi possível abrir este job: ele não existe ou você não tem acesso a esta empresa." });
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- uma vez, depois da primeira carga
   }, [empresa, prefCarregada]);
@@ -222,7 +230,7 @@ export default function PautaPage() {
   function aplicar(f: FiltrosPauta, visao: Visao | null = null) {
     const limpo = limparFiltros(f);
     setFiltros(limpo); setRascunho(limpo); setPainel(false);
-    setVisaoAtual(visao); setAvisoLink(null);
+    setVisaoAtual(visao); setAvisoLink(null); setDaPreferencia(false);
     // a barra de endereço acompanha: com visão, o endereço já é o link dela; sem visão, volta ao endereço limpo
     window.history.replaceState(null, "", visao ? `?visao=${visao.id}` : window.location.pathname);
     void salvarPreferencia(limpo, agrup, aba);
@@ -240,6 +248,12 @@ export default function PautaPage() {
     const nova = { ...v, compartilhada: true };
     setVisoes((xs) => xs.map((x) => (x.id === v.id ? nova : x))); setVisaoAtual(nova);
     setAviso({ texto: `Visão "${v.nome}" agora é da equipe — o link funciona para todos.` });
+  }
+  // "Mostrar todos": tira filtro, atalho e aba de uma vez (e guarda assim para a próxima visita)
+  function mostrarTodos() {
+    setFiltros({}); setRascunho({}); setPainel(false); setVisaoAtual(null); setAvisoLink(null); setDaPreferencia(false); setAba("todas");
+    window.history.replaceState(null, "", window.location.pathname);
+    void salvarPreferencia({}, agrup, "todas");
   }
   function trocarAtalho(a: Atalho) { aplicar({ ...filtros, atalho: filtros.atalho === a ? undefined : a }); }
   function trocarAba(a: string) { setAba(a); void salvarPreferencia(filtros, agrup, a); }
@@ -283,6 +297,13 @@ export default function PautaPage() {
     setAviso({ texto: `Desfeito: ${r.restaurados ?? 0} job(s) voltaram como estavam.` }); void carregar(1);
   }
 
+  // Pdois (Marciana, 07/10): link do job para mandar à equipe; quem abre precisa estar logado e na empresa (RLS)
+  async function copiarLinkJob(id: string) {
+    const url = `${window.location.origin}/dashboard/pm/pauta?job=${id}`;
+    try { await navigator.clipboard.writeText(url); setAviso({ texto: "Link do job copiado. Quem abrir precisa estar logado na empresa." }); }
+    catch { window.prompt("Copie o link do job:", url); }
+  }
+
   async function abrirJob(it: ItemPauta) {
     setAberto(it);
     if (empresa && userId) {
@@ -311,11 +332,18 @@ export default function PautaPage() {
     await exportarExcel({ titulo: "Pauta de Jobs", empresa: selInfo.nome, filtros: `${contarFiltros(filtros)} filtro(s)${aba !== "todas" ? ` · aba ${nomeSit.get(aba) ?? aba}` : ""}`, emitidoEmISO: new Date().toISOString() }, cols, todos);
   }
 
-  if (!empresa) return <div className="p-6 text-[13px] text-[#3D2314]/70">Escolha uma empresa no seletor para ver a pauta.</div>;
+  if (!empresa) return <EmpresaNaoResolvida carregando={carregandoEmpresa} temEmpresa={companies.length > 0} tela="a Pauta" />;
   const itens = lista?.itens ?? [];
   const grupos_ = agrupar(itens, agrup);
   const naLixeira = !!filtros.lixeira;
   const nFiltros = contarFiltros(filtros);
+  const nomesFiltro = {
+    clientes: Object.fromEntries(clientes.map((c) => [c.id, c.nome])), responsaveis: Object.fromEntries(equipe.map((c) => [c.id, c.nome])),
+    grupos: Object.fromEntries(grupos.map((c) => [c.id, c.nome])), campanhas: Object.fromEntries(campanhas.map((c) => [c.id, c.nome])),
+    fees: Object.fromEntries(fees.map((c) => [c.id, c.nome])), servicos: Object.fromEntries(servicos.map((c) => [c.id, c.nome])),
+  };
+  const abaRotulo = aba === "todas" ? null : (situacoes.find((x) => x.valor === aba)?.rotulo ?? aba);
+  const filtroEmUso = descreverFiltros(filtros, nomesFiltro, abaRotulo);
   const r = rascunho;
   const setR = (p: Partial<FiltrosPauta>) => setRascunho((x) => ({ ...x, ...p }));
   const campanhasVis = campanhas.filter((c) => (!r.clientes?.length || r.clientes.includes(c.cliente_id ?? "")));
@@ -413,6 +441,16 @@ export default function PautaPage() {
         })}
       </nav>
 
+      {/* RD-51: o filtro em uso fica sempre à vista, em palavras, com "Mostrar todos" (Pdois/Marciana 07/10: o filtro
+          guardado da última visita escondia o único job e a pauta parecia vazia) */}
+      {filtroEmUso.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-[#C8941A]/40 bg-[#FAEEDA] px-3 py-2 text-[12.5px] print:hidden" data-testid="pauta-filtro-ativo">
+          <span className="font-medium">Filtro aplicado{daPreferencia ? " (guardado da sua última visita)" : ""}:</span>
+          {filtroEmUso.map((t) => <span key={t} className="rounded-full bg-white px-2 py-0.5" data-testid="pauta-filtro-item">{t}</span>)}
+          <button className={`${btn} ml-auto`} onClick={mostrarTodos} data-testid="pauta-mostrar-todos">Mostrar todos</button>
+        </div>
+      )}
+
       {/* barra de ações em massa */}
       <div className="flex flex-wrap items-center gap-2 text-[12.5px] print:hidden">
         <label className="flex items-center gap-1.5">
@@ -441,7 +479,17 @@ export default function PautaPage() {
             <div className="mt-2 flex items-center justify-center text-[12px] text-[#3D2314]/55">como funciona<AjudaCampo chave="pm.pauta.vazia" /></div>
           </div>
         )}
-        {!itens.length && !carregando && temJob !== false && <div className="rounded-md border border-dashed border-[#3D2314]/20 p-6 text-center text-[13px] text-[#3D2314]/60">Nenhum job com esse filtro.</div>}
+        {!itens.length && !carregando && temJob !== false && (filtroEmUso.length > 0 ? (
+          <div className="rounded-xl border border-[#C8941A]/50 bg-white p-5 text-center text-[13.5px]" role="status" data-testid="pauta-filtro-escondendo">
+            <div className="font-medium">{temJob ? "A pauta tem jobs, mas nenhum passa no filtro aplicado" : "Nenhum job passa no filtro aplicado"}{daPreferencia ? " (guardado da sua última visita)" : ""}.</div>
+            <div className="mt-1 text-[#3D2314]/70">{filtroEmUso.join(" · ")}</div>
+            <button className="mt-3 rounded-lg bg-[#3D2314] px-4 py-2 text-[13px] font-medium text-white" onClick={mostrarTodos} data-testid="pauta-vazia-mostrar-todos">Mostrar todos os jobs</button>
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-[#3D2314]/20 p-6 text-center text-[13px] text-[#3D2314]/60" data-testid="pauta-sem-resultado">
+            {temJob === null ? "Não consegui confirmar se a empresa tem jobs (falha ao contar). Recarregue a página; se continuar, avise o suporte." : "Nenhum job para mostrar."}
+          </div>
+        ))}
         {grupos_.map((g, gi) => (
           <section key={`${g.grupo}-${gi}`} className="break-inside-avoid">
             {g.grupo && <h2 className={`mb-1 text-[12.5px] font-medium ${g.grupo === "Atrasados" ? "text-[#791F1F]" : "text-[#3D2314]/70"}`} data-testid="pauta-grupo">{g.grupo} · {g.itens.length}</h2>}
@@ -452,6 +500,7 @@ export default function PautaPage() {
                   <div key={it.id} data-ajuda="pm.pauta.selecao" data-testid={`pauta-linha-${it.numero}`} className="grid grid-cols-[auto_1fr] items-start gap-x-2 gap-y-1 px-2 py-2 text-[12.5px] md:grid-cols-[24px_70px_110px_1fr_160px_150px_90px_28px] md:items-center">
                     <input type="checkbox" className="print:hidden" aria-label={`selecionar ${it.codigo}`} checked={sel.has(it.id)} onChange={(e) => { const n = new Set(sel); if (e.target.checked) n.add(it.id); else n.delete(it.id); setSel(n); }} />
                     <span className={it.atrasado ? "text-[#791F1F]" : "text-[#3D2314]/70"}>{hora(it.data_prazo) || (it.data_prazo ? it.data_prazo.slice(8, 10) + "/" + it.data_prazo.slice(5, 7) : "—")}{it.atrasado && <span className="block text-[11px]">{textoAtraso(it.dias_atraso)}</span>}</span>
+                    <span className="inline-flex items-start gap-1">
                     <button className="text-left font-medium underline-offset-2 hover:underline" onClick={() => void abrirJob(it)} data-testid={`pauta-codigo-${it.numero}`}>
                       {it.codigo}
                       <span className="ml-1 inline-flex gap-0.5 align-middle text-[#3D2314]/50">
@@ -459,6 +508,8 @@ export default function PautaPage() {
                         {it.comentarios_novos > 0 && <span className="inline-flex items-center text-[#C8941A]" title={`${it.comentarios_novos} comentário(s) novo(s)`}><MessageCircle size={12} />{it.comentarios_novos}</span>}
                       </span>
                     </button>
+                    <button className="print:hidden text-[#3D2314]/50 hover:text-[#3D2314]" title="Copiar link do job" aria-label={`copiar link do job ${it.codigo}`} onClick={() => void copiarLinkJob(it.id)} data-testid={`pauta-copiar-link-${it.numero}`}><Link2 size={12} /></button>
+                    </span>
                     <span className="col-span-2 md:col-span-1">
                       {it.nota ? <span className="mr-1 inline-flex text-[#C8941A]" title={`nota ${it.nota}`}>{Array.from({ length: it.nota }).map((_, i) => <Star key={i} size={11} fill="currentColor" />)}</span> : null}
                       {it.titulo}
@@ -550,7 +601,7 @@ export default function PautaPage() {
       {aberto && (
         <div className="fixed inset-0 z-[120] flex justify-end bg-black/30 print:hidden" onClick={() => setAberto(null)}>
           <div className="h-full w-full overflow-y-auto bg-white p-4 sm:w-[480px]" onClick={(e) => e.stopPropagation()} data-testid="pauta-job">
-            <div className="mb-2 flex items-center justify-between"><h2 className="text-[16px] font-medium">{aberto.codigo} · {aberto.titulo}</h2><button onClick={() => setAberto(null)} aria-label="fechar"><X size={16} /></button></div>
+            <div className="mb-2 flex items-center justify-between"><h2 className="text-[16px] font-medium">{aberto.codigo} · {aberto.titulo}</h2><span className="flex items-center gap-2"><button className={btn} onClick={() => void copiarLinkJob(aberto.id)} data-testid="pauta-job-copiar-link"><Link2 size={13} /> Copiar link do job</button><button onClick={() => setAberto(null)} aria-label="fechar"><X size={16} /></button></span></div>
             <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-[13px]">
               <dt className="text-[#3D2314]/60">Cliente</dt><dd>{aberto.cliente ?? "—"}</dd>
               <dt className="text-[#3D2314]/60">Responsável</dt><dd>{aberto.responsavel ?? "—"}</dd>

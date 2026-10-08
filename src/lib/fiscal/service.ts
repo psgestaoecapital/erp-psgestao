@@ -113,19 +113,19 @@ export async function createFiscalService(
   // no Vault (focus_token_vault_id), NAO em api_key_encrypted. A emissao lia so a coluna
   // legada (vazia) -> "api_key nao encontrada" mesmo com o token salvo. Agora: usa a
   // coluna legada se houver; senao obtem o token do Vault via fn_fiscal_obter_token.
+  // #1944 · o COFRE manda: usa o token do Vault; a coluna legada (base64) só se o cofre estiver vazio.
   let apiKey: string
-  if (configRow.api_key_encrypted) {
+  const { data: tok } = await supabaseAdmin.rpc('fn_fiscal_obter_token', {
+    p_company_id: companyId,
+    p_ambiente: configAmbiente,
+  })
+  const tokStr = typeof tok === 'string' ? tok.trim() : ''
+  if (tokStr.length >= 8) {
+    apiKey = tokStr
+  } else if (configRow.api_key_encrypted) {
     apiKey = decryptApiKey(configRow.api_key_encrypted)
   } else {
-    const { data: tok, error: tokErr } = await supabaseAdmin.rpc('fn_fiscal_obter_token', {
-      p_company_id: companyId,
-      p_ambiente: configAmbiente,
-    })
-    const tokStr = typeof tok === 'string' ? tok.trim() : ''
-    if (tokErr || tokStr.length < 8) {
-      throw new FiscalError('API_KEY_INVALIDA', 'api_key Focus NFe nao encontrada')
-    }
-    apiKey = tokStr
+    throw new FiscalError('API_KEY_INVALIDA', 'api_key Focus NFe nao encontrada')
   }
 
   const { data: company, error: companyErr } = await supabaseAdmin
