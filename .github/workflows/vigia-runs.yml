@@ -69,6 +69,26 @@ jobs:
           done
           echo "aceitação da main superada cancelada: $n"
 
+      # Esteira travada 08/10 (Eng. Chefe): a FIFO aceitacao-testes ficou atrás de ~25 aceitações de preview de heads
+      # superados. Run de aceitação de PR ESPERANDO a vez (pending/queued/waiting) cujo SHA não é mais o head da PR, ou
+      # cuja PR fechou/virou draft, está superado: cancela. Usa o GITHUB_TOKEN do job (actions: write). Run executando
+      # nunca é tocado aqui.
+      - name: Cancelar aceitação de preview superada (esperando a fila; SHA que não é mais o head, PR fechada ou draft)
+        run: |
+          set -uo pipefail
+          n=0
+          for st in pending queued waiting; do
+            gh api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=$st&per_page=100" \
+              --jq '.workflow_runs[] | "\(.id) \(.head_sha)"' 2>/dev/null | while read -r id sha; do
+              [ -n "$id" ] || continue
+              vale=$(gh api "repos/$REPO/commits/$sha/pulls" \
+                --jq '[.[] | select(.state == "open" and .draft == false and .head.sha == "'"$sha"'")] | length' 2>/dev/null || echo erro)
+              [ "$vale" = 0 ] || continue
+              echo "- aceitacao-pr · run $id · SHA ${sha:0:7} superado/PR fechada ou draft, esperando a fila → cancelado" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null || true
+            done
+          done
+
       - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
         env:
           # PAT da fila; sem ele cai no token do job (que pode dar 403 e o passo só avisa)
