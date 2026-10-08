@@ -18,6 +18,8 @@ import {
   HardHat,
   Construction,
   TrendingUp,
+  BarChart3,
+  Compass,
   Settings,
   Smartphone,
   type LucideIcon,
@@ -48,6 +50,8 @@ const TECNICO: Tab[] = [
 const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras",          label: "Obras",          icon: Construction, key: "9" },
   { href: "/dashboard/projetos/acompanhamento", label: "Acompanhamento", icon: TrendingUp,   key: "0" },
+  { href: "/dashboard/projetos/obras/resultado", label: "Resultado",      icon: BarChart3,    key: "r" },
+  { href: "/dashboard/projetos/obras/cockpit",   label: "Cockpit",        icon: Compass,      key: "k" },
 ];
 
 const CONFIG: Tab = {
@@ -80,7 +84,9 @@ function TabLink({ tab, isActive }: { tab: Tab; isActive: boolean }) {
 function isActiveTab(tab: Tab, pathname: string | null): boolean {
   if (!pathname) return false;
   if (tab.href === "/dashboard/projetos") return pathname === tab.href;
-  return pathname.startsWith(tab.href);
+  if (!pathname.startsWith(tab.href)) return false;
+  // aba mais específica vence (Resultado/Cockpit moram sob /obras)
+  return !ALL_TABS.some((t) => t.href.length > tab.href.length && pathname.startsWith(t.href));
 }
 
 export default function ProjetosLayout({ children }: { children: React.ReactNode }) {
