@@ -77,3 +77,89 @@ export function EhsBotaoCampo({ children, onClick }: { children: ReactNode; onCl
     </button>
   )
 }
+
+export type EhsPasso = { titulo: string; conteudo: ReactNode }
+
+/** Assistente passo a passo com prévia do documento ao lado (empilha no celular). */
+export function EhsAssistente({ passos, passoAtual, onMudar, previa, idioma = 'pt' }: {
+  passos: EhsPasso[]
+  passoAtual: number
+  onMudar: (i: number) => void
+  previa: ReactNode
+  idioma?: EhsIdioma
+}) {
+  const p = passos[passoAtual]
+  if (!p) return null
+  return (
+    <div data-testid="ehs-assistente" style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+      <section style={{ flex: '1 1 340px', minWidth: 0 }}>
+        <p data-testid="ehs-assistente-passo" style={{ margin: 0, fontSize: 12, fontWeight: 700, color: EHS.marca }}>
+          {tEhs('passo.de', idioma)} {passoAtual + 1}/{passos.length}
+        </p>
+        <h2 style={{ fontSize: 22, margin: '4px 0 12px', color: EHS.tinta }}>{p.titulo}</h2>
+        {p.conteudo}
+        <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+          <button type="button" disabled={passoAtual === 0} onClick={() => onMudar(passoAtual - 1)}
+            style={{ minHeight: EHS.alvoToque, padding: '0 20px', fontSize: 16, borderRadius: 14, border: `1px solid ${EHS.borda}`, background: EHS.superficie, color: EHS.tinta }}>
+            {tEhs('passo.voltar', idioma)}
+          </button>
+          <button type="button" disabled={passoAtual === passos.length - 1} onClick={() => onMudar(passoAtual + 1)}
+            style={{ minHeight: EHS.alvoToque, padding: '0 20px', fontSize: 16, fontWeight: 700, borderRadius: 14, border: 'none', background: EHS.marca, color: '#fff' }}>
+            {tEhs('passo.avancar', idioma)}
+          </button>
+        </div>
+      </section>
+      <aside data-testid="ehs-assistente-previa" aria-label={tEhs('passo.previa', idioma)}
+        style={{ flex: '1 1 300px', minWidth: 0, background: EHS.superficie, border: `1px solid ${EHS.borda}`, borderRadius: 12, padding: 18 }}>
+        <h3 style={{ fontSize: 12, margin: '0 0 8px', color: EHS.suave, textTransform: 'uppercase', letterSpacing: 1 }}>{tEhs('passo.previa', idioma)}</h3>
+        {previa}
+      </aside>
+    </div>
+  )
+}
+
+/** Painel lateral de edição: edita sem sair da tela. */
+export function EhsPainelLateral({ aberto, titulo, onFechar, children, idioma = 'pt' }: {
+  aberto: boolean
+  titulo: string
+  onFechar: () => void
+  children: ReactNode
+  idioma?: EhsIdioma
+}) {
+  if (!aberto) return null
+  return (
+    <div data-testid="ehs-painel-lateral" role="dialog" aria-modal="true" aria-label={titulo}
+      style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(480px, 100vw)', background: EHS.superficie, borderLeft: `1px solid ${EHS.borda}`, boxShadow: '-8px 0 24px rgba(20,33,28,.12)', padding: 24, overflowY: 'auto', zIndex: 60 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ fontSize: 20, margin: 0, color: EHS.tinta }}>{titulo}</h2>
+        <button type="button" onClick={onFechar} aria-label={tEhs('painel.fechar', idioma)}
+          style={{ minHeight: 44, minWidth: 44, border: `1px solid ${EHS.borda}`, borderRadius: 10, background: EHS.superficie, fontSize: 18 }}>×</button>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+/** Ficha viva: dados à esquerda, linha do tempo à direita. */
+export function EhsFichaViva({ titulo, status, dados, eventos, idioma = 'pt' }: {
+  titulo: string
+  status: EhsStatus
+  dados: { rotulo: string; valor: ReactNode }[]
+  eventos: EhsEventoLinha[]
+  idioma?: EhsIdioma
+}) {
+  return (
+    <div data-testid="ehs-ficha-viva" style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+      <section style={{ flex: '2 1 320px', minWidth: 0 }}>
+        <h2 style={{ fontSize: 22, margin: '0 0 4px', color: EHS.tinta }}>{titulo}</h2>
+        <span style={{ fontSize: 12, color: COR[status].fg, background: COR[status].bg, padding: '2px 10px', borderRadius: 999 }}>{tEhs(`status.${status}`, idioma)}</span>
+        <dl style={{ margin: '16px 0 0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+          {dados.map((d, i) => (
+            <div key={i}><dt style={{ fontSize: 12, color: EHS.suave }}>{d.rotulo}</dt><dd style={{ margin: 0, fontSize: 15, color: EHS.tinta }}>{d.valor}</dd></div>
+          ))}
+        </dl>
+      </section>
+      <div style={{ flex: '1 1 240px', minWidth: 0 }}><EhsLinhaDoTempo eventos={eventos} idioma={idioma} /></div>
+    </div>
+  )
+}

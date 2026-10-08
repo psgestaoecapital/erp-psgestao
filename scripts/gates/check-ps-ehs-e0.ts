@@ -14,3 +14,9 @@ else {
 for (const c of ehsChaves()) for (const l of EHS_IDIOMAS) if (!tEhs(c, l).trim()) erros.push(`tradução vazia: ${c}/${l}`)
 if (erros.length) { console.error('check-ps-ehs-e0 FALHOU:\n' + erros.join('\n')); process.exit(1) }
 console.log('check-ps-ehs-e0 ok')
+// D.6: componentes do design system presentes
+import { readFileSync } from 'node:fs'
+const src = readFileSync('src/components/ps-ehs/componentes.tsx', 'utf8')
+for (const c of ['EhsCabecalho', 'EhsCartaoStatus', 'EhsLinhaDoTempo', 'EhsBotaoCampo', 'EhsAssistente', 'EhsPainelLateral', 'EhsFichaViva']) {
+  if (!src.includes(`export function ${c}`)) { console.error(`check-ps-ehs-e0 FALHOU: componente ${c} ausente`); process.exit(1) }
+}
