@@ -95,7 +95,7 @@ $function$;
 COMMENT ON FUNCTION public.fn_nfse_auto_consultar_pendentes IS
   '#1881 · dispara consulta Focus em NFS-e processando, autorizada-sem-XML (7d) e autorizada-sem-PDF (48h). Cap 50.';
 
-REVOKE ALL ON FUNCTION public.fn_nfse_auto_consultar_pendentes() FROM anon;
+REVOKE ALL ON FUNCTION public.fn_nfse_auto_consultar_pendentes() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_nfse_auto_consultar_pendentes() TO service_role;
 
 -- Cadência 15 → 5 min (idempotente: desagenda antes se já existir).
