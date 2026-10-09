@@ -8,6 +8,8 @@
 
 export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-chamados', 'gilberto-produto', 'jordana-code', 'rodrigo-code'] as const
 export const CODES_LINHA_FINAL = ['gilberto-revisor', 'eng-chefe-auto'] as const
+// Quem acorda por agenda (hora cheia) e não pela caixa: nunca aparece como "Dormindo" (CEO 09/10)
+export const CODES_COM_AGENDA: readonly string[] = ['eng-chefe-auto', 'gilberto-revisor']
 export const CODES_PAINEL: readonly string[] = [...CODES_PRINCIPAIS, ...CODES_LINHA_FINAL]
 
 export const LEASE_MIN = 12
@@ -23,7 +25,7 @@ export type Entrega = {
 }
 export type Mensagem = {
   id: string; para: string; assunto: string | null; status: string; pr_numero: number | null
-  resposta: string | null; arquivada?: boolean | null; criado_em: string; atualizado_em: string | null
+  resposta: string | null; enviado_por?: string | null; arquivada?: boolean | null; criado_em: string; atualizado_em: string | null
 }
 export type Lease = { agente: string; sessao_ref: string | null; iniciada_em: string; renovada_em: string }
 export type Rotina = { agente: string; aciona: boolean }
@@ -162,7 +164,7 @@ export function esteira(p: { entregas: Entrega[]; agora: Date; mainVerde?: boole
   return { cor, ultimaPub: ult ? new Date(ult) : null, prontas: emTeste(p.entregas, null).filter((x) => x.pronta).length, mainVerde, filaTestes: p.filaTestes ?? null }
 }
 
-export type StatusCode = 'trabalhando' | 'travado' | 'esperando' | 'dormindo'
+export type StatusCode = 'trabalhando' | 'travado' | 'esperando' | 'agendado' | 'dormindo'
 export type ResumoCode = {
   code: string; status: StatusCode; desde: Date | null; fazendo: string
   fila: number; filaAntiga: number; emTeste: number; entreguesHoje: number; rotinaLigada: boolean | null
@@ -178,7 +180,7 @@ export function resumoCode(p: { code: string; entregas: Entrega[]; msgs: Mensage
   const travada = todas.some((m) => m.status === 'nova' && t(m.criado_em) < ag - TRAVADO_MIN * MIN)
   const teste = emTeste(p.entregas, code)
   const andando = emAndamento(p.msgs, code)[0]
-  const status: StatusCode = sessao.ativa ? 'trabalhando' : travada ? 'travado' : teste.length > 0 ? 'esperando' : 'dormindo'
+  const status: StatusCode = sessao.ativa ? 'trabalhando' : travada ? 'travado' : teste.length > 0 ? 'esperando' : CODES_COM_AGENDA.includes(code) ? 'agendado' : 'dormindo'
   const ultEntrega = entregues(p.entregas, code, agora, 30 * DIA)[0]
   const fazendo = andando?.assunto
     || (teste[0] ? `PR #${teste[0].pr_numero} · ${teste[0].titulo}` : ultEntrega ? `entregou #${ultEntrega.pr_numero} · ${ultEntrega.titulo}` : 'sem atividade recente')
@@ -189,4 +191,10 @@ export function resumoCode(p: { code: string; entregas: Entrega[]; msgs: Mensage
     entreguesHoje: p.entregas.filter((e) => e.evento === 'publicada' && e.code === code && diaSP(new Date(e.ocorrido_em)) === hoje).length,
     rotinaLigada: p.rotinas?.find((r) => r.agente === code)?.aciona ?? null,
   }
+}
+
+/** Mensagens de coordenação enviadas pelo eng-chefe-auto (ele escreve na caixa dos outros, não recebe), últimas 24 h. */
+export function enviadasPorAuto(msgs: Mensagem[], agora: Date): Mensagem[] {
+  return msgs.filter((m) => (m.enviado_por ?? '').startsWith('eng-chefe-auto') && t(m.criado_em) > agora.getTime() - DIA)
+    .sort((a, b) => t(b.criado_em) - t(a.criado_em))
 }
