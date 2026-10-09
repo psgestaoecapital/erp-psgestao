@@ -20,6 +20,18 @@ ok(/cron: '\*\/10 \* \* \* \*'/.test(vigia) && /LIMITE_MIN: '45'/.test(vigia), '
 ok(/select\(\.status == "in_progress"\)/.test(vigia), 'vigia: só conta job EXECUTANDO (esperar na fila não é preso)')
 ok(/aceitacao-pr\.yml/.test(vigia) && /aceitacao-pos-migration\.yml/.test(vigia), 'vigia: cobre as duas aceitações')
 
+// zumbi (Eng. Chefe 08/10): teto de 90 min pela idade do run + timeout explícito no job e no step longo
+ok(/LIMITE_RUN_MIN: '90'/.test(vigia) && /Cancelar aceitação em andamento há mais de 90 min/.test(vigia) && /run_started_at/.test(vigia),
+  'vigia: run de aceitação em andamento há > 90 min (idade do run) é cancelado com aviso')
+ok(/ACEITACOES: aceitacao-pr\.yml aceitacao-pos-migration\.yml aceitacao-main\.yml/.test(vigia), 'vigia: zumbi cobre aceitação do preview, pós-migration e da main')
+ok(/VIGIADOS:[^\n]*aceitacao-main\.yml/.test(vigia), 'vigia: job executando há > 45 min também vale para a aceitação da main')
+for (const [f, step] of [['aceitacao-pr.yml', 'Jornadas de aceitação contra o preview'], ['aceitacao-pos-migration.yml', 'Aceitação @pos-migration contra produção'], ['aceitacao-main.yml', 'Suíte de aceitação contra a main']]) {
+  const wf = ler(`.github/workflows/${f}`)
+  const i = wf.indexOf(`- name: ${step}`)
+  ok(i > 0 && /^\s+timeout-minutes: \d+\s*$/m.test(wf.slice(i, i + 200)), `${f}: step longo "${step}" com timeout-minutes próprio`)
+}
+ok(/^    timeout-minutes: 60\s*$/m.test(ler('.github/workflows/aceitacao-main.yml')), 'aceitacao-main.yml: job com timeout-minutes explícito')
+
 // (a)–(d) fila de merge
 const fila = ler('.github/workflows/fila-merge.yml')
 const sh = ler('scripts/merge/fila-merge.sh')

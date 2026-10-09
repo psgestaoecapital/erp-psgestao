@@ -6,6 +6,10 @@ import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtData } from '@/lib/psgc-tokens'
+import { EhsCabecalho } from '@/components/ps-ehs/componentes'
+import { EhsCockpit, type EhsPapel } from '@/components/ps-ehs/cockpit'
+import { EHS } from '@/components/ps-ehs/tokens'
+import { tEhs } from '@/components/ps-ehs/i18n'
 
 const C = {
   espresso: '#3D2314',
@@ -48,6 +52,7 @@ export default function ComplianceDashboardPage() {
     setTimeout(() => setToast(null), 3500)
   }
 
+  const [papel, setPapel] = useState<EhsPapel>('gestor')
   const [totalFuncionarios, setTotalFuncionarios] = useState(0)
   const [docsVencendo, setDocsVencendo] = useState(0)
   const [docsVencidos, setDocsVencidos] = useState(0)
@@ -120,35 +125,30 @@ export default function ComplianceDashboardPage() {
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px' }}>
-        <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
-          <div>
-            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
-              Compliance
-            </p>
-            <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>
-              Hub de Compliance
-            </h1>
-            <p style={{ margin: 0, fontSize: 14, color: C.muted }}>
-              Documentação de funcionários e empresa, com alertas de validade.
-            </p>
-          </div>
-          {empresaUnica && (
+        <EhsCabecalho
+          titulo="Hub PS EHS"
+          descricao={tEhs('ehs.painel.descricao')}
+          acoes={empresaUnica ? (
             <button
               onClick={() => setZipModalAberto(true)}
-              style={{ padding: '10px 16px', borderRadius: 8, border: 'none', backgroundColor: C.gold, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              style={{ alignSelf: 'flex-start', padding: '10px 16px', borderRadius: 8, border: 'none', backgroundColor: EHS.marca, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               📦 Gerar ZIP
             </button>
-          )}
-        </header>
+          ) : undefined}
+        />
 
-        {/* Cards */}
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
-          <MetricCard label="Funcionários ativos" valor={totalFuncionarios} cor={C.espresso} loading={loading} />
-          <MetricCard label="Vencendo (10 dias)" valor={docsVencendo} cor={C.amber} loading={loading} />
-          <MetricCard label="Vencidos" valor={docsVencidos} cor={C.red} loading={loading} />
-          <MetricCard label="% em dia" valor={`${pctEmDia}%`} cor={C.green} loading={loading} />
-        </section>
+        {/* Cockpit por papel — os quatro indicadores seguem todos visíveis; o papel muda foco e prioridade */}
+        <EhsCockpit
+          papel={papel}
+          onPapel={setPapel}
+          indicadores={[
+            { id: 'func', rotulo: 'Funcionários ativos', valor: loading ? '…' : totalFuncionarios, status: 'neutro' },
+            { id: 'vencendo', rotulo: 'Vencendo (10 dias)', valor: loading ? '…' : docsVencendo, status: docsVencendo > 0 ? 'atencao' : 'ok' },
+            { id: 'vencidos', rotulo: 'Vencidos', valor: loading ? '…' : docsVencidos, status: docsVencidos > 0 ? 'critico' : 'ok' },
+            { id: 'emdia', rotulo: '% em dia', valor: loading ? '…' : `${pctEmDia}%`, status: pctEmDia >= 90 ? 'ok' : pctEmDia >= 70 ? 'atencao' : 'critico' },
+          ]}
+        />
 
         {/* Atalhos */}
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
