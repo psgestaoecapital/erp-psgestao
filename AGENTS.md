@@ -207,6 +207,12 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   escondida da fila ou que comece com `Fila de merge:` NUNCA conta como autorização nem como revisão já feita (todos os
   comentários saem da mesma conta do GitHub; o aviso da fila cita o texto e o patch-id, e não é do revisor). Ao procurar
   "comentário meu com este patch-id", confira a primeira linha — não basta o texto aparecer no corpo.
+- **Renumeração automática de migration na fila (Eng. Chefe 09/10):** a fila, ao pegar PR com migration nova de versão NÃO
+  maior que a última da `main` (recalculada na hora), **renomeia o arquivo** (commit no ramo da PR via API: versão nova =
+  timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente) e comenta o que mudou, em vez de recusar. O commit
+  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): o patch-id muda, então o revisor precisa autorizar de
+  novo** — a fila tira e recoloca a etiqueta para acordá-lo. Se outro arquivo da PR cita a versão antiga (gate/spec que lê a
+  migration pelo nome), a fila NÃO renumera: recusa como antes e quem fez a PR corrige. Gate: `check-fila-sem-bloqueio.ts`.
 
 ## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
 Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta

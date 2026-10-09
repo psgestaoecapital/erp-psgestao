@@ -47,8 +47,10 @@ if (!temFerramentas()) {
     ok(merges(x.escritas).join() === '3' && /#2 tem migration: espera a main/.test(x.log),
       'cenário: main ocupada (deploy-migrations rodando) → PRs com migration esperam; a SEM migration é mergeada')
     x = rodar([{ n: 1, migration: true, migrationBaixa: true }, { n: 2, migration: true }])
-    ok(merges(x.escritas).join() === '2' && /migration com versão NÃO maior que a última da main/.test(x.log),
-      'cenário 08/10: migration com versão abaixo da última da main (recalculada na hora) sai da fila; a outra COM migration válida é mergeada')
+    ok(merges(x.escritas).join() === '2' && /renumerada\(s\) pela fila/.test(x.log)
+      && x.escritas.some((l) => /^PUT repos\/o\/r\/contents\/supabase\/migrations\/\d{14}_m\.sql .*branch=pr1/.test(l))
+      && x.escritas.some((l) => /^DELETE repos\/o\/r\/contents\/supabase\/migrations\/20261001000001_m\.sql/.test(l)),
+      'cenário 09/10: migration com versão abaixo da última da main (recalculada na hora) é RENUMERADA pela fila (commit no ramo); a outra COM migration válida é mergeada')
   })
 }
 
