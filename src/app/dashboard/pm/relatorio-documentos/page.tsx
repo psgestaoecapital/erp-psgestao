@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FileDown, FileSpreadsheet, Settings2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import { COLUNAS, MAX_COLUNAS, colunasValidas, deContrato, dePropostas, filtrarDocs, linhasCsv, totais, type Documento, type FiltroDoc } from "@/lib/pm/relatorioDocumentos";
 
@@ -69,7 +70,7 @@ export default function RelatorioDocumentosPage() {
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "relatorio-documentos.csv"; a.click(); URL.revokeObjectURL(a.href);
   };
 
-  if (!carregandoEmpresa && !empresa) return <EmpresaNaoResolvida />;
+  if (carregandoEmpresa || !empresa) return <EmpresaNaoResolvida carregando={carregandoEmpresa} temEmpresa={companyIds.length > 0} tela="o Relatório de Documentos" />;
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
       <header className="flex flex-wrap items-center justify-between gap-2">
@@ -86,12 +87,12 @@ export default function RelatorioDocumentosPage() {
 
       {config && (
         <div className="rounded-2xl border border-[#3D2314]/10 bg-white p-4 print:hidden">
-          <p className="mb-2 text-[12px] text-[#6b5444]">Escolha até {MAX_COLUNAS} colunas ({colunas.length} marcadas).</p>
+          <p className="mb-2 flex items-center text-[12px] text-[#6b5444]">Escolha até {MAX_COLUNAS} colunas ({colunas.length} marcadas).<AjudaCampo chave="pm.relatorio_documentos.colunas" /></p>
           <div className="flex flex-wrap gap-3">
             {COLUNAS.map((c) => (
               <label key={c.chave} className="flex items-center gap-1 text-[13px] text-[#3D2314]">
                 <input type="checkbox" checked={colunas.includes(c.chave as string)} onChange={(e) => salvarColunas(e.target.checked ? [...colunas, c.chave as string] : colunas.filter((k) => k !== c.chave))} />
-                {c.rotulo}
+                {c.rotulo}<AjudaCampo chave="pm.relatorio_documentos.colunas" />
               </label>
             ))}
           </div>
@@ -99,15 +100,15 @@ export default function RelatorioDocumentosPage() {
       )}
 
       <div className="flex flex-wrap gap-2 print:hidden">
-        <select className={campo} value={filtro.tipo ?? ""} onChange={(e) => setFiltro({ ...filtro, tipo: (e.target.value || undefined) as FiltroDoc["tipo"] })} aria-label="Tipo">
+        <span className="inline-flex items-center"><select className={campo} value={filtro.tipo ?? ""} onChange={(e) => setFiltro({ ...filtro, tipo: (e.target.value || undefined) as FiltroDoc["tipo"] })} aria-label="Tipo">
           <option value="">Fee e orçamento</option><option value="fee">Só fee</option><option value="orcamento">Só orçamento</option>
-        </select>
-        <select className={campo} value={filtro.clientes?.[0] ?? ""} onChange={(e) => setFiltro({ ...filtro, clientes: e.target.value ? [e.target.value] : undefined })} aria-label="Cliente">
+        </select><AjudaCampo chave="pm.relatorio_documentos.tipo" /></span>
+        <span className="inline-flex items-center"><select className={campo} value={filtro.clientes?.[0] ?? ""} onChange={(e) => setFiltro({ ...filtro, clientes: e.target.value ? [e.target.value] : undefined })} aria-label="Cliente">
           <option value="">Todos os clientes</option>
           {Object.entries(clientes).sort((a, b) => a[1].localeCompare(b[1])).map(([id, n]) => <option key={id} value={id}>{n}</option>)}
-        </select>
-        <input type="date" className={campo} value={filtro.de ?? ""} onChange={(e) => setFiltro({ ...filtro, de: e.target.value || undefined })} aria-label="De" />
-        <input type="date" className={campo} value={filtro.ate ?? ""} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value || undefined })} aria-label="Até" />
+        </select><AjudaCampo chave="pm.relatorio_documentos.cliente" /></span>
+        <span className="inline-flex items-center"><input type="date" className={campo} value={filtro.de ?? ""} onChange={(e) => setFiltro({ ...filtro, de: e.target.value || undefined })} aria-label="De" /><AjudaCampo chave="pm.relatorio_documentos.de" /></span>
+        <span className="inline-flex items-center"><input type="date" className={campo} value={filtro.ate ?? ""} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value || undefined })} aria-label="Até" /><AjudaCampo chave="pm.relatorio_documentos.ate" /></span>
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-[13px]">
