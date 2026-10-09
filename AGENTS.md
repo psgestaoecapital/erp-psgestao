@@ -195,10 +195,14 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   (diff da PR contra o merge-base com a `main`). Atualizar com a `main` mantém o patch-id e a autorização; mudar o código
   da PR muda o patch-id e exige nova revisão. Autorização sem patch-id não vale para a fila.
 - **(d) Fila de merge** (`.github/workflows/fila-merge.yml` + `scripts/merge/fila-merge.sh`, sem polling): a fila pega
-  **toda PR Ready** (não-draft) na `main` em ordem de entrada, **uma por vez**: atualiza com a `main` (merge, sem
-  reescrever histórico), espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado
-  no SHA conferido). Conflito, check vermelho ou autorização inválida → comenta o motivo **uma vez por commit** (e tira a
-  label `fila-merge`, se houver); a PR volta a ser avaliada sozinha no próximo commit.
+  **toda PR Ready** (não-draft) na `main` em ordem de entrada: atualiza com a `main` (merge, sem reescrever histórico),
+  espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido).
+  **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6);
+  **PR COM migration continua UMA por rodada** e encerra a rodada (a próxima migration espera o deploy + `@pos-migration`
+  da `main`). O "atrás da main" é medido contra a `main` do **início da rodada**, para a PR já em dia no começo não virar
+  "atrás" sozinha quando a fila mergeia outras à frente dela no mesmo lote. Conflito, check vermelho ou autorização
+  inválida → comenta o motivo **uma vez por commit** (e tira a label `fila-merge`, se houver); a PR volta a ser avaliada
+  sozinha no próximo commit.
   **Fila sem etiqueta (CEO 08/10 08:15, "ok fila sem etiqueta"):** a label **`fila-merge` é OPCIONAL** (continua aceita;
   a hora em que foi posta conta como entrada). **PR Ready + checks obrigatórios verdes = publicada.** Quer abrir PR sem
   publicar? Abra em **draft** (draft nunca entra) ou ponha a label **`nao-publicar`** (a fila pula e comenta o motivo
@@ -208,8 +212,9 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   Como a fila olha todas as PRs Ready a cada rodada, ela lê os dados da própria lista de PRs e tem **válvula de cota**:
   com menos de 1000 chamadas restantes no PAT (`FILA_MERGE_TOKEN`, o mesmo do `/re-rodar`), a rodada é adiada. PR com migration esperando a `main` não segura as PRs sem migration atrás dela.
   **Sem bloqueio pela cabeça (CEO 07/10):** PR atrás da `main` é atualizada e PR com checks rodando fica esperando, mas a
-  rodada segue para as próximas (no máximo 1 merge por rodada). Só a PR com migration que espera a **main** (deploy ou
-  `@pos-migration` da anterior) segura as outras com migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
+  rodada segue para as próximas (PRs sem migration publicam em lote na mesma rodada, até `LOTE_MAX`; migration = 1 por
+  rodada). Só a PR com migration que espera a **main** (deploy ou `@pos-migration` da anterior) segura as outras com
+  migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
   Precisa do segredo `FILA_MERGE_TOKEN` (PAT): merge com o `GITHUB_TOKEN` não dispara o `deploy-migrations`.
   Com a fila, o Code não roda `gh pr merge` à mão para PR que está nela.
 - **(e) Timeout de 40 min** nos jobs de aceitação (`aceitacao-pr`, `aceitacao-pos-migration`; a espera na fila
