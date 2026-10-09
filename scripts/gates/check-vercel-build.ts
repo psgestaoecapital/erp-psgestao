@@ -25,7 +25,7 @@ ok(/\$1 == "gates"/.test(fila) && /esperar:gates ainda não rodaram/.test(fila),
 ok(/so_docs=1/.test(fila), 'fila de merge: PR só de docs não espera preview')
 
 const pronta = ler('.github/workflows/preview-pronta.yml')
-ok(/types: \[opened, reopened, ready_for_review\]/.test(pronta), 'preview-pronta: dispara ao abrir/reabrir/sair de draft')
+ok(/types: \[opened, reopened, ready_for_review, synchronize\]/.test(pronta), 'preview-pronta: dispara ao abrir/reabrir/sair de draft/push (synchronize)')
 ok(/success\) if grep -qiE 'cancel\|ignor'/.test(pronta), 'preview-pronta: success "Canceled by Ignored Build Step" não conta como preview')
 ok(/test\("cancel\|ignor"; "i"\)/.test(fila), 'fila de merge: build ignorado não conta como Vercel verde')
 ok(/secrets\.FILA_MERGE_TOKEN/.test(pronta) && /-F force=false/.test(pronta), 'preview-pronta: commit vazio com PAT, sem force')
