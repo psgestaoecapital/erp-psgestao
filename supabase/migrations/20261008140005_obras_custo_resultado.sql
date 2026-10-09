@@ -5,6 +5,8 @@
 --   viagens    = lançamentos de viagem da obra (sem excluídos);
 --   realizado  = compras + viagens;  resultado = faturado (fn_obras_receita) − realizado, calculado na tela.
 -- Mesma guarda de fn_obras_receita: a empresa tem de ser do usuário.
+-- O tipo de retorno muda (lancado/pago/a_pagar/titulos -> previsto/compras/viagens): sem chamador no app (conferido), então recria.
+DROP FUNCTION IF EXISTS public.fn_obras_custo(uuid[]);
 CREATE OR REPLACE FUNCTION public.fn_obras_custo(p_company_ids uuid[])
  RETURNS TABLE(obra_id uuid, previsto numeric, compras numeric, viagens numeric)
  LANGUAGE sql
