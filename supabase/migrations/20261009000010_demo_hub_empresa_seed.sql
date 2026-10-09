@@ -144,9 +144,9 @@ BEGIN
     RETURNING id INTO v_obra;
     FOR j IN 1..2 LOOP
       INSERT INTO projetos_obra_item (company_id, obra_id, servico_id, ordem, descricao, unidade, quantidade_contratada,
-                                      preco_unitario, custo_unitario_previsto, bdi_percentual, valor_contratado, quantidade_medida)
+                                      preco_unitario, custo_unitario_previsto, bdi_percentual, quantidade_medida)
       SELECT c, v_obra, s.id, j, s.nome, s.unidade, q.qtd, round(s.custo_unitario_total*1.35,2), s.custo_unitario_total, 20,
-             round(q.qtd*s.custo_unitario_total*1.35,2), round(q.qtd * (ARRAY[50,40,30,100])[i] / 100.0, 2)
+             round(q.qtd * (ARRAY[50,40,30,100])[i] / 100.0, 2)
       FROM projetos_servicos s, (SELECT (100 + i*40 + j*25)::numeric qtd) q
       WHERE s.id = v_srv[((i+j-2) % 4) + 1];
     END LOOP;
