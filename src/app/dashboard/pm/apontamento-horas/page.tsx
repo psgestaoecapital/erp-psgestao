@@ -3,10 +3,14 @@
 // custo_hora (agency_equipe). Escopo por company_id (RD-45). Tema Espresso.
 // LGPD (03/10): o custo/hora por pessoa vem de fn_pm_equipe_custos (só para quem vê salário); os demais apontam as
 // horas sem ver o custo de ninguém — o apontamento sai sem custo/hora e a Margem avisa.
+// 1 toque (onda 2 da P&M da Pdois, Parte S, atrito 18): o link "Lançar horas"/"apontar" (?job=) já abre com o job
+// escolhido e os atalhos +15 min/+30 min/+1 h/+2 h gravam direto, sem digitar.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { carregarCustosEquipe } from '@/lib/pm/equipeCustos'
+import { ATALHOS_HORAS, jobDoLink } from '@/lib/pm/apontamentoRapido'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'
@@ -38,7 +42,9 @@ export default function ApontamentoHorasPage() {
       supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, custo_total, user_id, etapa_tipo').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
       carregarCustosEquipe(supabase, empresa),
     ])
-    setJobs((j.data ?? []) as JobOpt[]); setLinhas((t.data ?? []) as Linha[])
+    const lista = (j.data ?? []) as JobOpt[]
+    setJobs(lista); setLinhas((t.data ?? []) as Linha[])
+    setJobSel((atual) => atual || jobDoLink(window.location.search, lista))
     setMembros(((e.data ?? []) as { id: string; nome: string }[]).map((m) => ({ ...m, custo_hora: c.custos.get(m.id) ?? null })))
     setLoading(false)
   }
@@ -103,26 +109,40 @@ export default function ApontamentoHorasPage() {
 
         <section style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 14, padding: 16, marginBottom: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 10 }}>
-            <label style={lbl}>Job
-              <select style={inp} value={jobSel} onChange={(e) => setJobSel(e.target.value)}>
+            <label style={lbl}><span>Job <AjudaCampo chave="pm.apontamento.job" /></span>
+              <select data-testid="apont-job" style={inp} value={jobSel} onChange={(e) => setJobSel(e.target.value)}>
                 <option value="">Selecione…</option>
                 {jobs.map((j) => <option key={j.id} value={j.id}>{j.titulo}</option>)}
               </select>
             </label>
-            <label style={lbl}>Responsável
+            <label style={lbl}><span>Responsável <AjudaCampo chave="pm.apontamento.responsavel" /></span>
               <select style={inp} value={membroSel} onChange={(e) => setMembroSel(e.target.value)}>
                 <option value="">—</option>
                 {membros.map((m) => <option key={m.id} value={m.id}>{m.nome}{m.custo_hora != null ? ` · ${brl(Number(m.custo_hora))}/h` : ''}</option>)}
               </select>
             </label>
           </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }} data-testid="apont-atalhos">
+            <span style={{ fontSize: 12, color: TEXTM }}>1 toque <AjudaCampo chave="pm.apontamento.atalho" /></span>
+            {ATALHOS_HORAS.map((a) => (
+              <button key={a.horas} type="button" disabled={busy || !jobSel || rodando != null} onClick={() => void gravar(a.horas)}
+                data-testid={`apont-atalho-${a.horas}`} style={{ ...btnSec, fontWeight: 700, opacity: !jobSel ? 0.5 : 1 }}>{a.rotulo}</button>
+            ))}
+          </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
+            <AjudaCampo chave="pm.apontamento.cronometro" />
             {rodando == null
               ? <button onClick={iniciar} style={btnPri}>▶ Iniciar cronômetro</button>
               : <><span style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtT(elapsed)}</span><button onClick={parar} style={btnStop}>■ Parar e gravar</button></>}
             <span style={{ color: TEXTM }}>ou</span>
-            <input type="number" placeholder="horas" style={{ ...inp, width: 100 }} value={horasManual} onChange={(e) => setHorasManual(e.target.value)} />
-            <input placeholder="descrição" style={{ ...inp, flex: 1, minWidth: 140 }} value={desc} onChange={(e) => setDesc(e.target.value)} />
+            <label style={{ ...lbl, flexDirection: 'row', alignItems: 'center' }}>
+              <input type="number" placeholder="horas" style={{ ...inp, width: 100 }} value={horasManual} onChange={(e) => setHorasManual(e.target.value)} />
+              <AjudaCampo chave="pm.apontamento.horas" />
+            </label>
+            <label style={{ ...lbl, flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 160 }}>
+              <input placeholder="descrição" style={{ ...inp, flex: 1, minWidth: 140 }} value={desc} onChange={(e) => setDesc(e.target.value)} />
+              <AjudaCampo chave="pm.apontamento.descricao" />
+            </label>
             <button disabled={busy} onClick={gravarManual} style={btnSec}>+ Manual</button>
           </div>
         </section>
