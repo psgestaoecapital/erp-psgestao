@@ -72,6 +72,21 @@ O workflow `registrar-entrega.yml` grava cada PR aberta, pronta, publicada (merg
 **Codes** de `/dashboard/dev` (rota `/dashboard/dev/codes`) mostra por Code, em tempo real: trabalhando agora, entregue nas
 últimas 24 h, em teste e fila. Sem a linha, o Code sai da caixa (`erp_agente_mensagem.pr_numero`) ou fica "não identificado".
 Carga inicial: rodar o `registrar-entrega.yml` à mão (workflow_dispatch, últimos 7 dias). Gate: `scripts/gates/check-aba-codes.ts`.
+# Canal PS — a Claude do sócio fala com o Code do PRÓPRIO sócio (CEO 07/10 16:20)
+O sócio dono de um Code (`erp_agente_dono`: jordana-code → `jordana-chat`, rodrigo-code → `rodrigo-chat`; andre-code e
+stephany-code ainda inativos) pede direto ao SEU Code, sem passar pelo CEO nem pelo Eng. Chefe, por
+`fn_agente_pedido_enviar` (logado no ERP — aba Codes › "Meu Code" ou a Claude dele pelo Canal PS). O destino é sempre o
+Code do próprio dono; empresa/chamado só da carteira dele; 30 pedidos/hora; tudo em `audit_log_global`.
+**Regra para os Codes de sócio** (vale junto com a "Caixa de mensagens" acima):
+1. Mensagem com `de` = remetente-chat do **seu próprio** dono (ex.: `rodrigo-chat` na caixa do `rodrigo-code`) é **tarefa da
+   carteira dele**, igual às do `eng_chefe`. O banco já recusa remetente-chat de outro sócio; se aparecer, recuse.
+2. Responda na própria mensagem com `fn_agente_mensagem_responder`, no formato **ENTREGUE / EM TESTE / PRÓXIMO** e, quando
+   houver cliente, o **rascunho da resposta ao cliente** (o envio ao cliente segue a regra dos chamados — nunca direto).
+3. Pedido de empresa **fora da carteira** do dono → `recusada`, explicando (o banco já barra na entrada; confira de novo).
+4. Recurso de **núcleo** (permissão/RLS/views, fiscal, financeiro de cliente, LGPD, NR-36, Wealth/CVM) só com `requer_ok_ceo`
+   **aprovado** (`pode_executar` = true na `fn_agente_caixa`). Sem o OK, só leia e aguarde.
+5. **Regras de merge INALTERADAS**: fila de merge, patch-id, `gilberto-revisor`, RD-94/94.1, etiqueta `revisao-eng-chefe`.
+Gate: `scripts/gates/check-canal-ps-banco.ts`.
 # Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
 
 Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
