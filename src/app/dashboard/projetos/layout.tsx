@@ -21,6 +21,8 @@ import {
   Settings,
   Smartphone,
   Tag,
+  BarChart3,
+  Gauge,
   type LucideIcon,
 } from "lucide-react";
 
@@ -50,6 +52,8 @@ const TECNICO: Tab[] = [
 const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras",          label: "Obras",          icon: Construction, key: "9" },
   { href: "/dashboard/projetos/acompanhamento", label: "Acompanhamento", icon: TrendingUp,   key: "0" },
+  { href: "/dashboard/projetos/obras/resultado", label: "Resultado",      icon: BarChart3,    key: "" },
+  { href: "/dashboard/projetos/cockpit",         label: "Cockpit",        icon: Gauge,        key: "" },
 ];
 
 const CONFIG: Tab = {
@@ -82,6 +86,12 @@ function TabLink({ tab, isActive }: { tab: Tab; isActive: boolean }) {
 function isActiveTab(tab: Tab, pathname: string | null): boolean {
   if (!pathname) return false;
   if (tab.href === "/dashboard/projetos") return pathname === tab.href;
+  // Cockpit de uma obra (/obras/[id]/cockpit) e Resultado têm aba própria: "Obras" não acende nelas.
+  const ehCockpit = /^\/dashboard\/projetos\/obras\/[^/]+\/cockpit/.test(pathname);
+  if (tab.href === "/dashboard/projetos/cockpit") return pathname.startsWith(tab.href) || ehCockpit;
+  if (tab.href === "/dashboard/projetos/obras") {
+    return pathname.startsWith(tab.href) && !ehCockpit && !pathname.startsWith("/dashboard/projetos/obras/resultado");
+  }
   return pathname.startsWith(tab.href);
 }
 
