@@ -58,7 +58,7 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
       const put = (p: string, v: unknown) => writeFileSync(join(fx, `${p.replace(/[^A-Za-z0-9]/g, '_')}.json`), JSON.stringify(v))
       put(`${R}/pulls?state=open&base=main&per_page=100`, prs.map((p, i) => ({
         number: p.n, title: `PR ${p.n}`, draft: !!p.draft, created_at: `2026-10-07T09:0${i}:00Z`, base: { ref: 'main' },
-        head: { sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: (p.labels ?? ['fila-merge']).map((name) => ({ name })) })))
+        head: { ref: `pr${p.n}`, sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: (p.labels ?? ['fila-merge']).map((name) => ({ name })) })))
       prs.forEach((p, i) => {
         const labels = p.labels ?? ['fila-merge']
         put(`${R}/issues/${p.n}/events?per_page=100`, labels.includes('fila-merge')
@@ -66,7 +66,9 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         put(`${R}/issues/${p.n}/comments`, (p.comentarios ?? []).map((body) => ({ body })))
         put(`${R}/pulls/${p.n}`, { number: p.n, title: `PR ${p.n}`, draft: !!p.draft, mergeable: true, base: { ref: 'main' },
           head: { sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: labels.map((name) => ({ name })) })
-        put(`${R}/pulls/${p.n}/files`, [{ status: 'added', filename: p.migration ? `supabase/migrations/${(p.migrationBaixa ? 20261001000000 : 20261009000000) + p.n}_m.sql` : `src/${p.n}.ts` }])
+        const arq = p.migration ? `${(p.migrationBaixa ? 20261001000000 : 20261009000000) + p.n}_m.sql` : ''
+        put(`${R}/pulls/${p.n}/files`, [{ status: 'added', filename: p.migration ? `supabase/migrations/${arq}` : `src/${p.n}.ts` }])
+        if (arq) put(`${R}/contents/supabase/migrations/${arq}?ref=pr${p.n}`, { content: 'c2VsZWN0IDE7Cg==', sha: 'abc123' })
         put(`${R}/git/trees/main:supabase/migrations`, { tree: [{ path: '20261008150005_ultima.sql' }, { path: 'README.md' }] })
         put(`${R}/compare/main...${sha[p.n]}`, { behind_by: p.atras ?? 0 })
         const acc = p.aceitacao ?? 'in_progress'
