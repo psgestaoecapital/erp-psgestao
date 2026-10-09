@@ -1,6 +1,7 @@
--- Hub · DEMO própria da área (CEO 08/10, auditoria run 476: nota 40 porque a demo usada, Comércio (GE), não tinha dado de Hub).
--- Empresa b0700000-0000-4000-a000-000000000006 "Construção (Hub) - DEMO": is_demo, plano v15_hub_t1 (R$ 0, fora do MRR),
--- acesso do robô e do CEO, e demo_por_area('hub') e ('hub_construcao') apontando para ela (a GE volta a ser só GE).
+-- Hub · seed da DEMO (CEO 08/10, auditoria run 476). A empresa "Construtora Modelo - DEMO" (b0700000-…-0006), os planos, o
+-- acesso e o demo_por_area já vieram na #2265 (20261008180010); esta migration SÓ cria a função de seed.
+-- NÃO é executada na migration: ela zera o Hub da demo, e o CEO está preenchendo essa empresa pela tela.
+-- Rodar sob demanda (service_role): SELECT fn_gold_hub_seed_reparar('b0700000-0000-4000-a000-000000000006');
 --
 -- fn_gold_hub_seed_reparar(company): seed determinístico e AUTO-RESETÁVEL (padrão fn_gold_sst_seed_reparar). Só age na
 -- empresa 006 e só se is_demo. Dados anônimos, no formato de Tryo/FC/R.R:
@@ -8,27 +9,6 @@
 --  • 4 clientes fictícios; 5 oportunidades (2 ganhas que viraram obra, 1 em proposta, 1 em negociação, 1 prospecção);
 --  • 4 obras (3 em andamento, 1 concluída) com itens contratados, medição e % de conclusão.
 -- Compras, viagens e medições fiscais ficam para a próxima fatia (tabelas dependem de estoque/NFS-e da demo).
-
-INSERT INTO public.companies (id, org_id, razao_social, nome_fantasia, is_demo, ambiente_tenant, cnpj, restrita_ps_admin, uf_fiscal)
-VALUES ('b0700000-0000-4000-a000-000000000006', 'c830f980-9be9-40c1-bb46-584cdc92dd65',
-        'Demonstração Construção e Acabamentos LTDA', 'Construção (Hub) - DEMO',
-        true, 'auditoria', '55500000000223', false, 'SC')
-ON CONFLICT (id) DO UPDATE SET
-  razao_social = EXCLUDED.razao_social, nome_fantasia = EXCLUDED.nome_fantasia,
-  is_demo = true, ambiente_tenant = 'auditoria', restrita_ps_admin = false, cnpj = EXCLUDED.cnpj;
-
-INSERT INTO public.tenant_subscriptions (company_id, plan_id, status, monthly_price_brl, billing_cycle, tier, observacao)
-SELECT 'b0700000-0000-4000-a000-000000000006', 'v15_hub_t1', 'active', 0, 'monthly', 'T1', 'Demonstração do Hub · CEO 08/10'
-WHERE NOT EXISTS (SELECT 1 FROM public.tenant_subscriptions
-  WHERE company_id = 'b0700000-0000-4000-a000-000000000006' AND plan_id = 'v15_hub_t1');
-
-INSERT INTO public.user_companies (user_id, company_id, role)
-SELECT u.id, 'b0700000-0000-4000-a000-000000000006', u.papel
-FROM (VALUES ('74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa'::uuid, 'adm'),
-             ('4a3b3c86-e1a0-412c-9d0b-ac22f35c2abb'::uuid, 'acesso_total')) AS u(id, papel)
-WHERE EXISTS (SELECT 1 FROM public.users x WHERE x.id = u.id)
-  AND NOT EXISTS (SELECT 1 FROM public.user_companies uc
-                  WHERE uc.user_id = u.id AND uc.company_id = 'b0700000-0000-4000-a000-000000000006');
 
 -- ci-sem-guarda: fn_gold_hub_seed_reparar — só a empresa de demonstração fixa do Hub (is_demo); sem GRANT a usuário, roda pelo fn_demo_reset (service_role)
 CREATE OR REPLACE FUNCTION public.fn_gold_hub_seed_reparar(p_company_id uuid)
@@ -178,10 +158,3 @@ END
 $function$;
 
 REVOKE ALL ON FUNCTION public.fn_gold_hub_seed_reparar(uuid) FROM PUBLIC, anon, authenticated;
-
-SELECT public.fn_gold_hub_seed_reparar('b0700000-0000-4000-a000-000000000006');
-
-INSERT INTO public.demo_por_area (area, company_id) VALUES ('hub', 'b0700000-0000-4000-a000-000000000006')
-ON CONFLICT (area) DO UPDATE SET company_id = EXCLUDED.company_id;
-INSERT INTO public.demo_por_area (area, company_id) VALUES ('hub_construcao', 'b0700000-0000-4000-a000-000000000006')
-ON CONFLICT (area) DO UPDATE SET company_id = EXCLUDED.company_id;
