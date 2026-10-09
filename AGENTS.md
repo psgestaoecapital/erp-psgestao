@@ -206,7 +206,14 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   PRIMEIRA linha é exatamente `MERGE AUTORIZADO #<n> — gilberto-revisor · patch-id <40 hex>`. Comentário com a marca
   escondida da fila ou que comece com `Fila de merge:` NUNCA conta como autorização nem como revisão já feita (todos os
   comentários saem da mesma conta do GitHub; o aviso da fila cita o texto e o patch-id, e não é do revisor). Ao procurar
-  "comentário meu com este patch-id", confira a primeira linha — não basta o texto aparecer no corpo.
+  "comentário meu com este patch-id", confira a primeira linha — não basta o texto aparecer no corpo. O revisor pode pôr a justificativa depois de `:` na mesma linha
+  (logo após o hash) ou na linha seguinte; texto colado ao hash sem `:`/espaço, ou hash com mais de 40 hex, não vale.
+- **Renumeração automática de migration na fila (Eng. Chefe 09/10):** a fila, ao pegar PR com migration nova de versão NÃO
+  maior que a última da `main` (recalculada na hora), **renomeia o arquivo** (commit no ramo da PR via API: versão nova =
+  timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente) e comenta o que mudou, em vez de recusar. O commit
+  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): o patch-id muda, então o revisor precisa autorizar de
+  novo** — a fila tira e recoloca a etiqueta para acordá-lo. Se outro arquivo da PR cita a versão antiga (gate/spec que lê a
+  migration pelo nome), a fila NÃO renumera: recusa como antes e quem fez a PR corrige. Gate: `check-fila-sem-bloqueio.ts`.
 
 ## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
 Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta
@@ -257,3 +264,29 @@ A rede da sessão do Code troca o token pelo da integração: `POST .../runs/<id
 **Para re-rodar teste, comente `/re-rodar` na PR** (exatamente isso; autor com permissão write): o workflow `comando-pr.yml`
 re-roda a última aceitação do head da PR com `FILA_MERGE_TOKEN` e responde com o link do run. Além disso, o `vigia-runs.yml`
 re-roda sozinho a aceitação cancelada (timeout/espera de trava), no máximo 2 vezes por SHA.
+
+# Mensagem da caixa só vira `concluida` quando a lista acabar (Eng. Chefe 08/10) — vale para TODOS os Codes
+**Não marque uma mensagem como concluída enquanto houver PRÓXIMO**: deixe em `em_andamento` ou abra a continuação na própria
+caixa. O despertador só acorda Code com tarefa aberta; concluir com item pendente deixa o Code parado.
+Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
+
+# Regras de tela RD-95 e RD-96 (CEO 08/10) — obrigatórias para TODOS os Codes
+- **RD-95 — "?" em todo campo.** Todo campo, coluna editável, filtro, indicador e ação de toda tela tem o "?" do componente
+  padrão `src/components/ajuda/AjudaCampo.tsx` (`<AjudaCampo chave="..." />`, padrão da tela de Mão de obra). O texto vem do banco
+  (`erp_ajuda_campo`, lido por `fn_ajuda_campo_listar` numa chamada por tela): o que preencher, para que serve no cálculo, exemplo,
+  erro comum — em linguagem do usuário, abre sem sair da tela e no celular (bottom sheet). Chave nova = linha nova em `erp_ajuda_campo`
+  (migration). Tela sem "?" não é entregue. Gates: `scripts/gates/check-ajuda-campo.ts` (Hub, lista PENDENTES que só diminui) e `scripts/gates/check-ajuda-campo-telas-alteradas.ts` (qualquer
+  `.tsx` novo ou alterado na PR em `src/app/dashboard` e `src/components` com campo sem "?" reprova). Cobertura por vertical: `npx tsx scripts/relatorio-cobertura-ajuda.ts [--telas]`.
+- **RD-96 — nunca copiar concorrente.** Nada de leiaute, ordem de menu, nomes, textos ou fluxo de outro produto (Sienge, Procore etc.).
+  Design system PS ultra premium: tipografia legível com hierarquia clara, espaçamento generoso, visivelmente melhor e mais fácil.
+- **Checklist de revisão de PR de tela:** (1) todo campo/filtro/indicador/ação tem "?" com chave existente no banco; (2) tarefa principal
+  em até 3 toques; (3) a tela aparece no menu do banco e em `system_screens` (entrega só conta se o usuário a enxerga); (4) nomes e
+  fluxo próprios, nada decalcado de concorrente; (5) funciona no celular; (6) teste do caminho principal como usuário real.
+
+# Sessões de rotina não prendem o CEO (Eng. Chefe 08/10) — vale para TODOS os Codes
+1. **Não use `subscribe_pr_activity` nem `unsubscribe_pr_activity`**: os eventos de PR já chegam pela fila de merge, pelo
+   despertador e pelo `acionar-revisor`. Cada chamada vira um pedido de autorização no celular do CEO.
+2. **Toda sessão termina sem trabalho pendente sem dono.** Alteração não publicada vira branch empurrada + PR em rascunho
+   com a label `nao-publicar` — nunca a pergunta "push / PR / discard" ao CEO.
+3. **Nunca deixe pergunta aberta ao CEO numa sessão de rotina.** Dúvida vai para a caixa (`fn_agente_mensagem_responder`) e
+   a sessão encerra.

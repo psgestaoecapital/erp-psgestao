@@ -46,6 +46,8 @@ interface ResultadoDispatch {
   importacao_id?: string
 }
 
+const LOTE_IMPORT = 150
+
 function fmtBRL(v: number): string {
   return Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -310,16 +312,35 @@ export default function ImportLoteXlsxCard({ companyId }: { companyId: string })
           import_hash: null,
         }))
 
-    const { data, error } = await supabase.rpc('fn_import_universal_dispatch', {
-      p_tipo: 'planilha_modelo_ps',
-      p_company_id: companyId,
-      p_user_id: userId,
-      p_arquivo_nome: arquivoNome || `import_${tipo}.xlsx`,
-      p_records: records,
-    })
+    // Lotes de LOTE_IMPORT linhas: uma chamada só com planilha grande (>1000 linhas)
+    // estoura o statement_timeout do banco (chamado #1738). A RPC é idempotente
+    // (ON CONFLICT no hash), então repetir a importação nunca duplica.
+    const agregado: ResultadoDispatch = { total: 0, inseridos: 0, duplicados: 0, erros: 0, lista_erros: [] }
+    for (let i = 0; i < records.length; i += LOTE_IMPORT) {
+      const { data, error } = await supabase.rpc('fn_import_universal_dispatch', {
+        p_tipo: 'planilha_modelo_ps',
+        p_company_id: companyId,
+        p_user_id: userId,
+        p_arquivo_nome: arquivoNome || `import_${tipo}.xlsx`,
+        p_records: records.slice(i, i + LOTE_IMPORT),
+      })
+      if (error) {
+        setLoading(false)
+        const feitas = agregado.inseridos! + agregado.duplicados!
+        setErro(`${error.message}${feitas > 0 ? ` — ${feitas} linhas já foram gravadas; envie a planilha de novo, o que já entrou não duplica.` : ''}`)
+        return
+      }
+      const r = (data ?? {}) as ResultadoDispatch
+      agregado.total! += r.total ?? 0
+      agregado.inseridos! += r.inseridos ?? 0
+      agregado.duplicados! += r.duplicados ?? 0
+      agregado.erros! += r.erros ?? 0
+      agregado.importacao_id ??= r.importacao_id
+      for (const e of r.lista_erros ?? []) agregado.lista_erros!.push({ ...e, linha: (e.linha ?? 0) + i })
+    }
+    agregado.status = agregado.erros! > 0 ? (agregado.inseridos! > 0 ? 'parcial' : 'falhou') : 'concluido'
     setLoading(false)
-    if (error) { setErro(error.message); return }
-    setResultado(data as ResultadoDispatch)
+    setResultado(agregado)
     setPasso('resultado')
   }
 

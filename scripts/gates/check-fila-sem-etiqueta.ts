@@ -50,7 +50,7 @@ if (!temFerramentas()) {
     ok(merges(x.escritas).length === 0 && comentariosEm(x.escritas, 1).length === 0, '2) nao-publicar: na rodada seguinte não comenta de novo')
     // 3) revisada sem autorização não publica (aceitação verde, checks verdes)
     x = rodar([{ n: 1, labels: ['revisao-eng-chefe'], aceitacao: 'success' }])
-    ok(merges(x.escritas).length === 0 && comentariosEm(x.escritas, 1).some((l) => /MERGE AUTORIZADO/.test(l)),
+    ok(merges(x.escritas).length === 0 && comentariosEm(x.escritas, 1).some((l) => /sem a autorização do revisor/.test(l)),
       '3) revisao-eng-chefe sem "MERGE AUTORIZADO" pelo patch-id não publica')
     // 4) comum, pronta e verde, SEM etiqueta → publica
     x = rodar([{ n: 1, labels: [] }])
