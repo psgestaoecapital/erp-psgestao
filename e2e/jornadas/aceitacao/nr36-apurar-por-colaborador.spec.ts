@@ -45,6 +45,10 @@ test.describe('Apuração por colaborador — reapurar um não reapura os outros
     const regras = await dbSelect<{ id: string }>('nr36_pausa_regra', `company_id=eq.${DEMO_SST}&tipo=eq.termica_253&select=id`)
     if (regras.length === 0) { await comoRobo('fn_nr36_regra_seed_padrao', { p_company_id: DEMO_SST }); criouRegra = true }
     for (const c of colabs) {
+      // resto de execução anterior cancelada/estourada no mesmo dia (o dia cicla a cada 6 h): limpa antes de inserir
+      await dbDelete('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${c.cpf}&data=eq.${DIA}`).catch(() => {})
+      await dbDelete('ind_ponto_pausa', `company_id=eq.${DEMO_SST}&cpf=eq.${c.cpf}&data=eq.${DIA}`).catch(() => {})
+      await dbDelete('ind_ponto_dia', `company_id=eq.${DEMO_SST}&cpf=eq.${c.cpf}&data=eq.${DIA}`).catch(() => {})
       await comoRobo('fn_nr36_elegivel_set', { p_company_id: DEMO_SST, p_colaborador_id: c.id, p_tipo: 'termica_253', p_ativo: true })
       await dbInsert('ind_ponto_dia', {
         company_id: DEMO_SST, cpf: c.cpf, data: DIA, shift: '04:00-09:00 10:10-13:50', worked_seconds: 31200, total_pontos: 4, tem_ajuste: false,
