@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { authFetch } from '@/lib/authFetch';
 import PainelCodes from '@/components/dev/PainelCodes';
+import { Icone } from '@/components/ui/Icone';
 
 // Identidade PS (RD visual): Espresso #3D2314 (estrutura/texto) · Off-white #FAF7F2 (fundos) · Dourado #C8941A (destaques).
 // (Antes a Central estava invertida — fundo escuro. Corrigido para o padrão claro. Verde/amarelo/vermelho ficam só nas 3 barras (performance), em tons com contraste sobre off-white.)
@@ -89,15 +90,15 @@ export default function DevPage() {
       {/* Seletor das duas telas irmãs (Central de Desenvolvimento) + Ferramentas do dev */}
       <div style={{ display:'flex', gap:8, background:C.card, borderBottom:`1px solid ${BD}`, padding:'8px 12px', flexWrap:'wrap' }}>
         {([
-          {id:'leitura',label:'📊 Leitura e diagnóstico'},
-          {id:'desenvolvimento',label:'📄 Desenvolvimento'},
-          ...(podeCodes || view==='codes' ? [{id:'codes' as const,label:'🤖 Codes'}] : []),
+          {id:'leitura',label:'Leitura e diagnóstico',icone:'leitura' as const},
+          {id:'desenvolvimento',label:'Desenvolvimento',icone:'documento' as const},
+          ...(podeCodes || view==='codes' ? [{id:'codes' as const,label:'Codes',icone:'codes' as const}] : []),
           // 'Ferramentas do dev' fica fora do seletor (porta ?dev=ferramentas) — utilitário técnico.
-          ...(view==='ferramentas' ? [{id:'ferramentas' as const,label:'🛠 Ferramentas do dev'}] : []),
+          ...(view==='ferramentas' ? [{id:'ferramentas' as const,label:'Ferramentas do dev',icone:'ferramentas' as const}] : []),
         ] as const).map(v=>(
           <button key={v.id} data-testid={`central-aba-${v.id}`} onClick={()=>setView(v.id)}
             style={{ background:view===v.id?`linear-gradient(135deg,${GO},${GOL})`:'transparent', color:view===v.id?ONGOLD:C.f, border:`1px solid ${view===v.id?'transparent':BD}`, padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
-            {v.label}
+            <span style={{display:'inline-flex',alignItems:'center',gap:6}}><Icone nome={v.icone} />{v.label}</span>
           </button>
         ))}
       </div>
