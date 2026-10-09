@@ -57,6 +57,7 @@ export default function EngenhariaPage() {
   const [itensGerados, setItensGerados] = useState<ItemGerado[]>([])
   const [bom, setBom] = useState<BomRow[]>([])
   const [addAberto, setAddAberto] = useState(false)
+  const [novoAberto, setNovoAberto] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -115,10 +116,11 @@ export default function EngenhariaPage() {
   }
 
   // Passo 1 · novo take-off manual (sem DWG). fn_takeoff_planta_salvar aceita arquivo 'manual'.
-  const novoTakeoff = async () => {
+  const novoTakeoff = async (nomeDigitado: string) => {
     if (!companyId) return
-    const nome = window.prompt('Nome do projeto / take-off:')?.trim()
+    const nome = nomeDigitado.trim()
     if (!nome) return
+    setNovoAberto(false)
     setBusy(true); setErro(null); setMsg(null)
     try {
       const { data, error } = await supabase.rpc('fn_takeoff_planta_salvar', {
@@ -248,7 +250,7 @@ export default function EngenhariaPage() {
                 <option value="">— novo ou selecione um existente —</option>
                 {plantas.map((p) => <option key={p.id} value={p.id}>{p.nome} · {p.status}</option>)}
               </select>
-              <button onClick={novoTakeoff} disabled={busy} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: busy ? 0.6 : 1 }}>
+              <button onClick={() => setNovoAberto(true)} disabled={busy} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: busy ? 0.6 : 1 }}>
                 <Plus size={15} /> Novo
               </button>
             </div>
@@ -392,6 +394,7 @@ export default function EngenhariaPage() {
         </section>
       )}
 
+      {novoAberto && <NovoTakeoffModal onFechar={() => setNovoAberto(false)} onSalvar={novoTakeoff} busy={busy} />}
       {addAberto && <AmbienteModal onFechar={() => setAddAberto(false)} onSalvar={adicionarAmbiente} busy={busy} />}
     </div>
   )
@@ -438,6 +441,25 @@ function AmbienteModal({ onFechar, onSalvar, busy }: {
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Substitui o window.prompt nativo (bloqueia a aba e congela testes/automação): nome digitado num modal da própria tela.
+function NovoTakeoffModal({ onFechar, onSalvar, busy }: { onFechar: () => void; onSalvar: (nome: string) => void; busy: boolean }) {
+  const [nome, setNome] = useState('')
+  return (
+    <div onClick={onFechar} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); onSalvar(nome) }} className="bg-[#FAF7F2] rounded-2xl border border-[#E7DECF] w-full max-w-md p-5" style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
+        <h3 className="text-lg font-semibold text-[#3D2314] mb-1">Novo take-off</h3>
+        <p className="text-[11px] mb-4" style={{ color: ESP60 }}>Dê um nome ao projeto. Depois você adiciona os ambientes e os serviços.</p>
+        <label className="block text-[11px] font-medium mb-1" style={{ color: ESP60 }}>Nome do projeto / take-off *</label>
+        <input autoFocus aria-label="Nome do take-off" className="w-full rounded-xl border border-[#E7DECF] bg-white p-2 text-sm text-[#3D2314]" value={nome} onChange={(e) => setNome(e.target.value)} placeholder='ex: "Sala comercial 01"' />
+        <div className="flex justify-end gap-2 mt-4">
+          <button type="button" onClick={onFechar} disabled={busy} className="px-4 py-2 rounded-xl text-sm border border-[#E7DECF] text-[#3D2314]">Cancelar</button>
+          <button type="submit" disabled={busy || !nome.trim()} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: (busy || !nome.trim()) ? 0.6 : 1 }}>{busy ? 'Criando…' : 'Criar'}</button>
+        </div>
+      </form>
     </div>
   )
 }
