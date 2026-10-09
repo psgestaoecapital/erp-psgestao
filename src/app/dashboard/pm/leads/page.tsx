@@ -195,9 +195,15 @@ export default function LeadsPage() {
     }
     setReunioesMap(rm)
     // #97/#98 · tarefas da empresa (RLS por empresa) → por lead e "Minhas tarefas"
-    const { data: tfs } = await supabase.from('agency_lead_tarefa').select(SELECT_TAREFA)
-      .eq('company_id', empresa).order('data').order('hora', { nullsFirst: true })
-    setTarefas((tfs ?? []) as Tarefa[])
+    // A fazer vem inteiro; o histórico (feita/cancelada) só as 500 mais recentes. Numa consulta só, o teto de 1000 linhas
+    // da API cortava as tarefas a fazer de datas futuras quando o histórico crescia ("Minhas tarefas" sumia com a nova).
+    const [{ data: aFazer }, { data: historico }] = await Promise.all([
+      supabase.from('agency_lead_tarefa').select(SELECT_TAREFA)
+        .eq('company_id', empresa).eq('situacao', 'a_fazer').order('data').order('hora', { nullsFirst: true }),
+      supabase.from('agency_lead_tarefa').select(SELECT_TAREFA)
+        .eq('company_id', empresa).neq('situacao', 'a_fazer').order('data', { ascending: false }).limit(500),
+    ])
+    setTarefas([...(aFazer ?? []), ...(historico ?? [])] as Tarefa[])
     setLoading(false)
   }, [empresa])
 
