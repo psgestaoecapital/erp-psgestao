@@ -1,5 +1,5 @@
 // Jordana (BPO · Gean / ProPlay #23, OK do CEO 07/10): o saldo por conta não lia as transferências entre contas —
-// o dinheiro ficava "parado" na origem e faltava no destino. Migration 20261008120020 (@pos-migration): saldo da conta =
+// o dinheiro ficava "parado" na origem e faltava no destino. Migration 20261009232520 (@pos-migration): saldo da conta =
 // saldo inicial + recebido − pago + transferências recebidas − enviadas (da data do saldo inicial da conta em diante),
 // e o "Como é composto?" lista as transferências. RD-83: transferência de 100 entre duas contas move o saldo das duas e
 // não muda o total. Na Demonstração Comércio (GE), com duas contas de teste; a composição é lida COMO O ROBÔ (logado);
