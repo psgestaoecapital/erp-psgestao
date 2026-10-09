@@ -56,8 +56,46 @@ Todo estado existe e é desenhado: vazio (explica o que falta e oferece a ação
 ## 7. Consistência com o design system PS (15)
 Componentes padrão (botão, cartão, modal, `AjudaCampo` "?" em todo campo — RD-95), cantos, sombras e cores iguais às demais telas; mesmo lugar para título, ações primárias (canto superior direito) e filtros; textos em português simples, sem jargão; tarefa principal em até 3 toques. **Baixa:** botão de estilo próprio, modal fora do padrão, campo sem "?".
 
+## Notas de concorrência (CEO 09/10) — duas notas 0–100 ao lado da nota visual
+Entram no C do PDCA, por tela, junto com as 7 dimensões acima (que continuam somando 100). Não se somam à nota visual:
+saem como **nota de originalidade** e **nota de diferenciais**, cada uma com a lista de pontos que a baixaram.
+A base de comparação são as partes de **mapeamento** dos documentos vivos da vertical (`erp_documento_vertical`:
+Sienge, Procore, Trevo etc.) e os **diferenciais PS** listados no blueprint da mesma vertical.
+
+### A. Originalidade × concorrentes mapeados (0–100)
+Compare a tela com cada sistema mapeado, em quatro eixos (25 pontos cada): **ordem do menu**, **nomes** (telas, campos,
+botões), **leiaute** (disposição de blocos, tabelas, abas) e **fluxo** (sequência de passos da tarefa principal).
+- Eixo 100% igual ao mapeado (mesma ordem, mesmos nomes, mesmo leiaute ou mesmo fluxo) = **0 no eixo e tela REPROVADA
+  no PDCA** (RD-96), qualquer que seja a nota visual. O auditor cita o ponto exato e o que mudar.
+- Semelhança parcial (2 de 4 elementos coincidem) = 10 a 15 no eixo; só o conceito comum do domínio (ex.: "medição") = 25.
+- Termo técnico do setor ou exigência legal (NFS-e, SINAPI, NR-36) não conta como cópia; a **apresentação** dele conta.
+- **Alta (85+):** nomes próprios em português simples, tarefa principal em ≤ 3 toques por um caminho diferente do concorrente.
+  **Baixa (< 50):** mesmo nome de menu e mesma ordem de abas do concorrente.
+
+### B. Diferenciais PS presentes e visíveis (0–100)
+Para a tarefa da tela, liste os diferenciais PS do blueprint da vertical; cada um vale partes iguais dos 100.
+Por diferencial: **100%** se presente **e visível** sem rolagem em 1366 px ou a 1 toque; **50%** se presente mas escondido
+(menu secundário, aba sem destaque); **0** se ausente. Diferencial que existe no banco mas não aparece no menu ou na aba do
+usuário conta **0** (entrega só vale se o usuário enxerga). Sem diferencial cadastrado no blueprint → o auditor registra
+"blueprint sem diferencial para esta tarefa" como sugestão, sem nota.
+- **Alta:** diferencial no primeiro bloco da tela, com "?" (RD-95). **Baixa:** diferencial só em relatório que ninguém abre.
+
+### C. Paridade de função (verificação, sem nota própria)
+Lista do que os concorrentes têm **naquela tarefa** e o que a tela PS não cobre. Lacuna de função reconhecida pelo CEO
+como obrigatória vira item de **reprovação**; as demais viram sugestão.
+
+### D. Sugestões à frente
+O auditor propõe melhorias em quatro eixos: **facilidade de uso**, **produtividade do usuário**, **redução de custo
+para o cliente** e **vantagem sobre os concorrentes**, cada uma com **impacto estimado** (alto/médio/baixo e a conta
+resumida). Gravadas no banco de sugestões (motor do `gilberto-chamados`; status sugerida/aprovada/recusada/virou onda);
+o CEO prioriza e as aprovadas viram ondas.
+
+### Formato de saída por tela
+`{ nota_visual, nota_originalidade, nota_diferenciais, reprovada, pontos_descontados[{elemento, largura, motivo}],
+paridade_lacunas[], sugestoes[{eixo, texto, impacto}] }`
+
 ## Exemplos de calibragem
-- **92:** Resultado por obra — cartões de margem em grade proporcional, ícones lucide, estados vazios com ação, 390 px em 1 coluna.
+- **92 (visual; originalidade 90, diferenciais 80):** Resultado por obra — cartões de margem em grade proporcional, ícones lucide, estados vazios com ação, 390 px em 1 coluna.
 - **71:** tela correta e legível, mas com 4 emojis nas abas e 40% da área em branco em 1920.
 - **38:** tabela de 14 colunas que estoura a página em 390 px, fonte 10 px, emojis como ícones, sem estado vazio.
 
