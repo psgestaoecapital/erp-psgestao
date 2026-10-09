@@ -66,10 +66,10 @@ JOIN (VALUES
   ('hub-cliente-ate-resultado',3,'Gerar proposta com itens','/dashboard/projetos/propostas','salvar proposta','proposta com total'),
   ('hub-cliente-ate-resultado',4,'Marcar ganha e abrir obra','/dashboard/projetos/oportunidades','marcar ganha','obra criada'),
   ('hub-cliente-ate-resultado',5,'Lançar compra da obra','/dashboard/projetos/obras','lançar compra','compra somada ao custo'),
-  ('hub-cliente-ate-resultado',6,'Ver resultado da obra','/dashboard/projetos/resultado','abrir resultado','receita, custo e margem batendo'),
+  ('hub-cliente-ate-resultado',6,'Ver resultado da obra','/dashboard/projetos/obras/resultado','abrir resultado','receita, custo e margem batendo'),
   ('ge-pagar-ate-dre',1,'Lançar conta a pagar','/dashboard/financeiro/pagar','salvar lançamento','título em aberto'),
   ('ge-pagar-ate-dre',2,'Baixar o título','/dashboard/financeiro/pagar','baixar','título pago'),
   ('ge-pagar-ate-dre',3,'Conciliar com o extrato','/dashboard/financeiro/conciliacao','conciliar','item conciliado'),
-  ('ge-pagar-ate-dre',4,'Conferir na DRE','/dashboard/financeiro/dre','abrir DRE','despesa refletida no período')
+  ('ge-pagar-ate-dre',4,'Conferir na DRE','/dashboard/financeiro/dre-consolidado','abrir DRE','despesa refletida no período')
 ) AS p(cod,ordem,passo,rota,acao,deve) ON j.codigo = p.cod
 ON CONFLICT (jornada_id, ordem) DO NOTHING;
