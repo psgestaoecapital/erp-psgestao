@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Settings,
   Smartphone,
+  Calculator,
   type LucideIcon,
 } from "lucide-react";
 
@@ -43,6 +44,7 @@ const TECNICO: Tab[] = [
   { href: "/dashboard/projetos/catalogo",       label: "Catálogo",    icon: BookOpenText, key: "6" },
   { href: "/dashboard/projetos/insumos",        label: "Insumos",     icon: Package,      key: "7" },
   { href: "/dashboard/projetos/mao-obra",       label: "Mão de obra", icon: HardHat,      key: "8" },
+  { href: "/dashboard/projetos/calculadora",    label: "Calculadora", icon: Calculator,   key: "c" },
 ];
 
 const EXECUCAO: Tab[] = [
