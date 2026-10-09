@@ -1636,6 +1636,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
         tomadorTipo={nfseDados?.tomador?.tipo ?? undefined}
         tomadorNome={nfseDados?.tomador?.nome ?? undefined}
         tomadorEmail={nfseDados?.tomador?.email ?? undefined}
+        tomadorClienteId={ped.cliente_id ?? undefined}
         descricaoServico={nfseSeed?.descricao}
         codigoServicoMunicipio={nfseSeed?.codigoServicoMunicipio}
         codigoLC116={nfseSeed?.codigoLC116}
