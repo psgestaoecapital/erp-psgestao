@@ -5,8 +5,10 @@
 // leitura só da equipe PS (RLS fn_dev_painel_pode_ver, vale também no Realtime). Qualquer mudança nas 3 primeiras chega pelo
 // Realtime e a aba recarrega sozinha, sem recarregar a página. Regras puras em src/lib/dev/painelCodes.ts.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
 import GraficosCodes from './GraficosCodes'
+import MeuCode from '@/components/dev/MeuCode'
 import {
   CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, entregues, estadoSessao, faixa,
   esteira, fila, hora, intervaloDia, quando, resumoCode, ultimaResposta, type StatusCode,
@@ -125,6 +127,9 @@ export default function PainelCodes() {
       <GraficosCodes />
       {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
       {resumos.length > 0 && <ResumoPorCode itens={resumos} agora={agora} />}
+
+      {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
+      <MeuCode />
 
       {dados && (
         <>
@@ -306,7 +311,7 @@ function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: st
   return (
     <div data-testid="codes-linha-tempo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, marginTop: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-        <span style={{ fontWeight: 700 }}>Publicações do dia</span>
+        <span style={{ fontWeight: 700 }}>Publicações do dia</span><AjudaCampo chave="dev.codes.filtro_data" rota="/dashboard/dev/codes" />
         <input data-testid="codes-filtro-data" type="date" value={dia} max={diaSP(agora)} onChange={(e) => e.target.value && setDia(e.target.value)}
           style={{ border: `1px solid ${BD}`, borderRadius: 8, padding: '4px 8px', color: ESP, background: OFF, fontFamily: 'inherit' }} />
       </div>
