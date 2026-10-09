@@ -11,7 +11,7 @@ name: Preview da PR pronta
 # Usa o FILA_MERGE_TOKEN (PAT): commit criado com o GITHUB_TOKEN não dispara os checks do Actions (gates).
 on:
   pull_request_target:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, synchronize]
 
 concurrency:
   group: preview-pronta-${{ github.event.pull_request.number }}
@@ -40,6 +40,10 @@ jobs:
       - name: Dispara o build do head se ele não tem preview
         run: |
           set -euo pipefail
+          # synchronize (CEO/Eng. Chefe 09/10): o merge da main / renumeração feita pela fila também é push no ramo; o
+          # Ignored Build Step pulava esse head e a PR ficava sem preview. Não encadeia: o commit vazio deste workflow não re-dispara.
+          msg=$(gh api "repos/$REPO/git/commits/$SHA" --jq '.message' | head -1)
+          case "$msg" in "ci: preview da PR #"*) echo "head é o commit vazio de preview: nada a fazer"; exit 0;; esac
           [ -n "$GH_TOKEN" ] || { echo "::error::segredo FILA_MERGE_TOKEN ausente — não dá para disparar o preview"; exit 1; }
           # mesma regra do scripts/vercel-ignore.mjs (SO_DOCS)
           outros=$(gh api "repos/$REPO/pulls/$N/files" --paginate --jq '.[].filename' | grep -vE '(\.md$|^docs/|^\.github/)' || true)
