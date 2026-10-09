@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { COLUNAS_EQUIPE, carregarCustosEquipe } from '@/lib/pm/equipeCustos'
+import { resumirPrevia, type PapelPrevia } from '@/lib/pm/papelAgencia'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const RED = '#7A1F1F'
@@ -26,6 +27,9 @@ export default function EquipePage() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [podeVer, setPodeVer] = useState(false)
+  const [papeis, setPapeis] = useState<{ slug: string; nome: string }[]>([])
+  const [papelSel, setPapelSel] = useState('')
+  const [previa, setPrevia] = useState<PapelPrevia | null>(null)
 
   const carregar = async () => {
     if (!empresa) { setMembros([]); setLoading(false); return }
@@ -37,6 +41,24 @@ export default function EquipePage() {
     setPodeVer(c.podeVer)
     setMembros(((data ?? []) as Omit<Membro, 'custo_hora'>[]).map((m) => ({ ...m, custo_hora: c.custos.get(m.id) ?? null })))
     setLoading(false)
+  }
+  useEffect(() => {
+    void supabase.from('rbac_papel').select('slug,nome').eq('vertical', 'pm').neq('slug', 'pm_cliente').order('nome')
+      .then(({ data }) => setPapeis((data ?? []) as { slug: string; nome: string }[]))
+  }, [])
+  async function verPrevia(userId: string, slug: string) {
+    if (!empresa || !slug) { setPrevia(null); return }
+    const { data, error } = await supabase.rpc('fn_pm_papel_agencia_previa', { p_company: empresa, p_user: userId, p_slug: slug })
+    setPrevia(error ? { ok: false, erro: error.message } : (data as PapelPrevia))
+  }
+  async function aplicarPapel() {
+    if (!empresa || !edit?.user_id || !papelSel) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_pm_papel_agencia_aplicar', { p_company: empresa, p_user: edit.user_id, p_slug: papelSel })
+    setBusy(false)
+    const r = data as PapelPrevia | null
+    if (error || !r?.ok) { setToast(`Erro: ${error?.message ?? r?.erro ?? 'falha'}`); return }
+    setToast('Papel na agência GRAVADO.'); setPrevia(null)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
@@ -99,7 +121,7 @@ export default function EquipePage() {
                     <div style={{ textAlign: 'right', minWidth: 110 }}>
                       <div style={{ fontWeight: 700, color: m.custo_hora ? ESPRESSO : RED }}>{m.custo_hora ? `${brl(Number(m.custo_hora))}/h` : 'sem custo/h'}</div>
                     </div>
-                    <button onClick={() => setEdit(m)} style={btnSec}>Editar</button>
+                    <button onClick={() => { setEdit(m); setPapelSel(''); setPrevia(null) }} style={btnSec}>Editar</button>
                   </>}
                 </div>
               ))}
@@ -123,6 +145,22 @@ export default function EquipePage() {
             <label style={{ ...lbl, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={edit.ativo ?? true} onChange={(e) => setEdit({ ...edit, ativo: e.target.checked })} /> Ativo
             </label>
+            {edit.id && edit.user_id && (
+              <div data-testid="papel-agencia" style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${BORDA}` }}>
+                <label style={lbl}>Papel na agência
+                  <select style={inp} value={papelSel} onChange={(e) => { setPapelSel(e.target.value); void verPrevia(edit.user_id!, e.target.value) }}>
+                    <option value="">— escolher —</option>
+                    {papeis.map((p) => <option key={p.slug} value={p.slug}>{p.nome}</option>)}
+                  </select>
+                </label>
+                {previa && (
+                  <ul style={{ fontSize: 12, color: TEXTM, margin: '8px 0 0', paddingLeft: 18 }}>
+                    {resumirPrevia(previa).map((l, i) => <li key={i}>{l}</li>)}
+                  </ul>
+                )}
+                {previa?.ok && <button disabled={busy} onClick={aplicarPapel} style={{ ...btnSec, marginTop: 8 }}>Aplicar papel</button>}
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
               <button onClick={() => setEdit(null)} style={btnGhost}>Cancelar</button>
               <button disabled={busy} onClick={salvar} style={btnPri}>{busy ? 'Salvando…' : (edit.id ? 'SALVAR' : 'CRIAR')}</button>
