@@ -6,6 +6,12 @@
 --          alertas_pendentes_para_ceo); (2) sino do ERP → erp_notificacao_usuario; (3) e-mail → fn_enviar_email.
 --      Um alerta por episódio (erp_dev_main_teste.alertado_em); ao ficar verde, o alerta é resolvido e zerado.
 
+-- Regularização posterior (check-fn-guards): a #2346 (20261009174300) fez CREATE OR REPLACE de
+-- fn_auditor_matriz_consultar sem repetir o REVOKE no arquivo, o que reprova o check_fn_guards em TODA PR (a régua
+-- varre todas as migrations >= cutoff) e travava a fila. A função já é só postgres/service_role no banco (anon nunca
+-- teve acesso); este REVOKE é idempotente e regulariza a violação estática pela versão mais nova (regra documentada).
+REVOKE ALL ON FUNCTION public.fn_auditor_matriz_consultar(bigint) FROM PUBLIC, anon;
+
 -- ── (4a) Tabela de status (uma linha) ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.erp_dev_main_teste (
   id            smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -30,7 +36,7 @@ CREATE OR REPLACE FUNCTION public.fn_dev_main_teste_set(
   p_verde boolean, p_spec text DEFAULT NULL, p_run_id bigint DEFAULT NULL,
   p_run_url text DEFAULT NULL, p_head_sha text DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
--- ci-sem-guarda: writer de status de CI, só service_role (REVOKE abaixo)
+-- ci-sem-guarda: fn_dev_main_teste_set — status global de CI (tabela de 1 linha, sem company_id); escrita só service_role
 BEGIN
   INSERT INTO erp_dev_main_teste AS m (id, verde, desde, spec_falha, run_id, run_url, head_sha, alertado_em, atualizado_em)
   VALUES (1, p_verde, now(), p_spec, p_run_id, p_run_url, p_head_sha, NULL, now())
@@ -57,7 +63,7 @@ GRANT EXECUTE ON FUNCTION public.fn_dev_main_teste_set(boolean,text,bigint,text,
 -- ── (4b) Alerta: @pos-migration da main vermelho há > 30 min e ainda não avisado neste episódio ────────────────────
 CREATE OR REPLACE FUNCTION public.fn_dev_main_teste_alerta()
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
--- ci-sem-guarda: rotina de alerta interno (pg_cron), sem GRANT a usuário
+-- ci-sem-guarda: fn_dev_main_teste_alerta — rotina interna de alerta (pg_cron), sem parâmetro e só service_role
 DECLARE
   m        RECORD;
   v_ceo    uuid := '4a3b3c86-e1a0-412c-9d0b-ac22f35c2abb';  -- conta CEO (gilberto.paravizi@gmail.com)
