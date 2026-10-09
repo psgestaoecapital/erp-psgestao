@@ -230,6 +230,11 @@ Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via r
 }
 
 so_sem_migration=0
+# Teto de PRs "da vez" em PREPARO ao mesmo tempo (CEO 09/10): atualizar com a main dispara preview/aceitação (~3 min/PR).
+# Sem teto, a fila atualizava TODA PR verde atrás da main a cada push → dezenas de builds por publicação. Agora prepara só
+# as próximas N da ordem; as demais esperam a vez (sem build) até uma da frente mergear. NÃO muda quem mergeia (1/rodada).
+ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-2}
+em_preparo=0
 for n in $fila; do
   pj=$(jq -c --argjson n "$n" 'select(.number == $n)' "$TMPF/lista")
   sha=$(jq -r .head.sha <<< "$pj"); titulo=$(jq -r .title <<< "$pj")
@@ -269,14 +274,19 @@ for n in $fila; do
   c=$(estado_checks "$sha" "$via" "$so_docs")
   case "$c" in
     vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
-    esperar:*) log "#$n aguardando: ${c#esperar:} — segue para a próxima"; continue;;
+    esperar:*) [ "${c#esperar:}" = 'gates ainda não rodaram' ] || em_preparo=$((em_preparo + 1)); log "#$n aguardando: ${c#esperar:} — segue para a próxima"; continue;;
   esac
 
-  # atrás da main → atualiza (merge da main no ramo, sem reescrever histórico) e espera os checks do novo commit
+  # atrás da main → atualiza (merge da main no ramo, sem reescrever histórico), MAS só as próximas ATUALIZA_NA_VEZ da
+  # ordem; as demais esperam a vez (sem disparar preview/aceitação agora). Cada publicação gera ~N builds, não um por PR.
   atras=$(api "repos/$REPO/compare/main...$sha" --jq '.behind_by')
   if [ "$atras" -gt 0 ]; then
+    if [ "$em_preparo" -ge "$ATUALIZA_NA_VEZ" ]; then
+      log "#$n está $atras atrás da main, mas já há $em_preparo PR(s) da vez em preparo (teto $ATUALIZA_NA_VEZ): espera a vez — sem build agora"; continue
+    fi
+    em_preparo=$((em_preparo + 1))
     if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
-      log "#$n estava $atras commit(s) atrás da main: atualizada; aguardando os checks do novo commit — segue para a próxima"
+      log "#$n estava $atras commit(s) atrás da main: atualizada (vaga $em_preparo/$ATUALIZA_NA_VEZ); aguardando os checks do novo commit — segue para a próxima"
     else
       tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"; continue
     fi
