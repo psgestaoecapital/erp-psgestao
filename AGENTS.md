@@ -72,6 +72,21 @@ O workflow `registrar-entrega.yml` grava cada PR aberta, pronta, publicada (merg
 **Codes** de `/dashboard/dev` (rota `/dashboard/dev/codes`) mostra por Code, em tempo real: trabalhando agora, entregue nas
 últimas 24 h, em teste e fila. Sem a linha, o Code sai da caixa (`erp_agente_mensagem.pr_numero`) ou fica "não identificado".
 Carga inicial: rodar o `registrar-entrega.yml` à mão (workflow_dispatch, últimos 7 dias). Gate: `scripts/gates/check-aba-codes.ts`.
+# Canal PS — a Claude do sócio fala com o Code do PRÓPRIO sócio (CEO 07/10 16:20)
+O sócio dono de um Code (`erp_agente_dono`: jordana-code → `jordana-chat`, rodrigo-code → `rodrigo-chat`; andre-code e
+stephany-code ainda inativos) pede direto ao SEU Code, sem passar pelo CEO nem pelo Eng. Chefe, por
+`fn_agente_pedido_enviar` (logado no ERP — aba Codes › "Meu Code" ou a Claude dele pelo Canal PS). O destino é sempre o
+Code do próprio dono; empresa/chamado só da carteira dele; 30 pedidos/hora; tudo em `audit_log_global`.
+**Regra para os Codes de sócio** (vale junto com a "Caixa de mensagens" acima):
+1. Mensagem com `de` = remetente-chat do **seu próprio** dono (ex.: `rodrigo-chat` na caixa do `rodrigo-code`) é **tarefa da
+   carteira dele**, igual às do `eng_chefe`. O banco já recusa remetente-chat de outro sócio; se aparecer, recuse.
+2. Responda na própria mensagem com `fn_agente_mensagem_responder`, no formato **ENTREGUE / EM TESTE / PRÓXIMO** e, quando
+   houver cliente, o **rascunho da resposta ao cliente** (o envio ao cliente segue a regra dos chamados — nunca direto).
+3. Pedido de empresa **fora da carteira** do dono → `recusada`, explicando (o banco já barra na entrada; confira de novo).
+4. Recurso de **núcleo** (permissão/RLS/views, fiscal, financeiro de cliente, LGPD, NR-36, Wealth/CVM) só com `requer_ok_ceo`
+   **aprovado** (`pode_executar` = true na `fn_agente_caixa`). Sem o OK, só leia e aguarde.
+5. **Regras de merge INALTERADAS**: fila de merge, patch-id, `gilberto-revisor`, RD-94/94.1, etiqueta `revisao-eng-chefe`.
+Gate: `scripts/gates/check-canal-ps-banco.ts`.
 # Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
 
 Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
@@ -206,7 +221,14 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   PRIMEIRA linha é exatamente `MERGE AUTORIZADO #<n> — gilberto-revisor · patch-id <40 hex>`. Comentário com a marca
   escondida da fila ou que comece com `Fila de merge:` NUNCA conta como autorização nem como revisão já feita (todos os
   comentários saem da mesma conta do GitHub; o aviso da fila cita o texto e o patch-id, e não é do revisor). Ao procurar
-  "comentário meu com este patch-id", confira a primeira linha — não basta o texto aparecer no corpo.
+  "comentário meu com este patch-id", confira a primeira linha — não basta o texto aparecer no corpo. O revisor pode pôr a justificativa depois de `:` na mesma linha
+  (logo após o hash) ou na linha seguinte; texto colado ao hash sem `:`/espaço, ou hash com mais de 40 hex, não vale.
+- **Renumeração automática de migration na fila (Eng. Chefe 09/10):** a fila, ao pegar PR com migration nova de versão NÃO
+  maior que a última da `main` (recalculada na hora), **renomeia o arquivo** (commit no ramo da PR via API: versão nova =
+  timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente) e comenta o que mudou, em vez de recusar. O commit
+  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): o patch-id muda, então o revisor precisa autorizar de
+  novo** — a fila tira e recoloca a etiqueta para acordá-lo. Se outro arquivo da PR cita a versão antiga (gate/spec que lê a
+  migration pelo nome), a fila NÃO renumera: recusa como antes e quem fez a PR corrige. Gate: `check-fila-sem-bloqueio.ts`.
 
 ## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
 Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta
@@ -262,3 +284,24 @@ re-roda sozinho a aceitação cancelada (timeout/espera de trava), no máximo 2 
 **Não marque uma mensagem como concluída enquanto houver PRÓXIMO**: deixe em `em_andamento` ou abra a continuação na própria
 caixa. O despertador só acorda Code com tarefa aberta; concluir com item pendente deixa o Code parado.
 Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
+
+# Regras de tela RD-95 e RD-96 (CEO 08/10) — obrigatórias para TODOS os Codes
+- **RD-95 — "?" em todo campo.** Todo campo, coluna editável, filtro, indicador e ação de toda tela tem o "?" do componente
+  padrão `src/components/ajuda/AjudaCampo.tsx` (`<AjudaCampo chave="..." />`, padrão da tela de Mão de obra). O texto vem do banco
+  (`erp_ajuda_campo`, lido por `fn_ajuda_campo_listar` numa chamada por tela): o que preencher, para que serve no cálculo, exemplo,
+  erro comum — em linguagem do usuário, abre sem sair da tela e no celular (bottom sheet). Chave nova = linha nova em `erp_ajuda_campo`
+  (migration). Tela sem "?" não é entregue. Gates: `scripts/gates/check-ajuda-campo.ts` (Hub, lista PENDENTES que só diminui) e `scripts/gates/check-ajuda-campo-telas-alteradas.ts` (qualquer
+  `.tsx` novo ou alterado na PR em `src/app/dashboard` e `src/components` com campo sem "?" reprova). Cobertura por vertical: `npx tsx scripts/relatorio-cobertura-ajuda.ts [--telas]`.
+- **RD-96 — nunca copiar concorrente.** Nada de leiaute, ordem de menu, nomes, textos ou fluxo de outro produto (Sienge, Procore etc.).
+  Design system PS ultra premium: tipografia legível com hierarquia clara, espaçamento generoso, visivelmente melhor e mais fácil.
+- **Checklist de revisão de PR de tela:** (1) todo campo/filtro/indicador/ação tem "?" com chave existente no banco; (2) tarefa principal
+  em até 3 toques; (3) a tela aparece no menu do banco e em `system_screens` (entrega só conta se o usuário a enxerga); (4) nomes e
+  fluxo próprios, nada decalcado de concorrente; (5) funciona no celular; (6) teste do caminho principal como usuário real.
+
+# Sessões de rotina não prendem o CEO (Eng. Chefe 08/10) — vale para TODOS os Codes
+1. **Não use `subscribe_pr_activity` nem `unsubscribe_pr_activity`**: os eventos de PR já chegam pela fila de merge, pelo
+   despertador e pelo `acionar-revisor`. Cada chamada vira um pedido de autorização no celular do CEO.
+2. **Toda sessão termina sem trabalho pendente sem dono.** Alteração não publicada vira branch empurrada + PR em rascunho
+   com a label `nao-publicar` — nunca a pergunta "push / PR / discard" ao CEO.
+3. **Nunca deixe pergunta aberta ao CEO numa sessão de rotina.** Dúvida vai para a caixa (`fn_agente_mensagem_responder`) e
+   a sessão encerra.

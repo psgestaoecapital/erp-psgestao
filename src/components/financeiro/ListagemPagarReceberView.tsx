@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { selecionarTodas } from '@/lib/selecionarTodas'
 import MarcarPagoModal from './MarcarPagoModal'
 import MarcarPagoLoteModal from './MarcarPagoLoteModal'
 import EmitirNFSeButton from './EmitirNFSeButton'
@@ -251,22 +252,32 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       return
     }
     let alive = true
+    // Chamado #2138 (Pdois): as 3 leituras são da empresa inteira e o PostgREST corta em 1000 linhas.
+    // Com 1009 títulos, o que foi alterado por último (NF emitida, boleto registrado) ia para o fim
+    // da tabela e ficava de fora: a tela perdia o cliente e o boleto daquele título e mostrava
+    // "⚠ Gerar boleto" com o cadastro completo. Lê em páginas, com ordem determinística.
     Promise.all([
-      supabase
+      selecionarTodas<{ id: string; erp_receber_id: string | null; status: 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'; pdf_url: string | null; xml_url: string | null }>((de, ate) => supabase
         .from('erp_nfse_emitidas')
         .select('id, erp_receber_id, status, pdf_url, xml_url')
         .eq('company_id', companyId)
-        .not('erp_receber_id', 'is', null),
-      supabase
+        .not('erp_receber_id', 'is', null)
+        .order('id')
+        .range(de, ate)),
+      selecionarTodas<{ erp_receber_id: string | null; status: 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'; numero: string | null; danfe_url: string | null; xml_url: string | null; motivo_rejeicao: string | null }>((de, ate) => supabase
         .from('erp_nfe_emitidas')
         .select('erp_receber_id, status, numero, danfe_url, xml_url, motivo_rejeicao')
         .eq('company_id', companyId)
         .not('erp_receber_id', 'is', null)
-        .order('criado_em', { ascending: false }),
-      supabase
+        .order('criado_em', { ascending: false })
+        .order('id')
+        .range(de, ate)),
+      selecionarTodas<{ id: string; cliente_id: string | null; boleto_status: string | null; boleto_nosso_numero: string | null; boleto_linha_digitavel: string | null; boleto_codigo_barras: string | null; boleto_qr_code: string | null; boleto_url: string | null }>((de, ate) => supabase
         .from('erp_receber')
         .select('id, cliente_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_codigo_barras, boleto_qr_code, boleto_url')
-        .eq('company_id', companyId),
+        .eq('company_id', companyId)
+        .order('id')
+        .range(de, ate)),
       listarProvidersBoleto(companyId),
       supabase
         .from('companies')
