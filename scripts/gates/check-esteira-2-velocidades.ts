@@ -36,7 +36,7 @@ ok(/SHA=\$\(gh api "repos\/\$REPO\/commits\/main" --jq \.sha\)/.test(wf) && /if 
   '(b) triagem: ponta ATUAL da main já julgada → não roda de novo (manual roda sempre)')
 const job = wf.slice(wf.search(/^  aceitacao-main:\s*$/m))
 ok(/group: aceitacao-testes\s*\n\s*cancel-in-progress: false\s*\n\s*queue: max/.test(job), '(b) fila aceitacao-testes, FIFO, sem cancelar')
-ok(/\*horsymhsinqcimflrtjo\*\) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO/.test(job) && /\*hqjzqwsxrkewjjuyqeij\*\)/.test(job),
+ok(/\*horsymhsinqcimflrtjo\*\) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO/.test(job) && /\*xjzqndnvjkdjyisuklpy\*\)/.test(job),
   '(b) trava: recusa a produção e exige o projeto de testes')
 ok(!/secrets\.(SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|NEXT_PUBLIC_SUPABASE_ANON_KEY|SUPABASE_ACCESS_TOKEN|SUPABASE_DB_PASSWORD)\b/.test(wf),
   '(b) nenhum segredo da produção no workflow (só TEST_*)')
