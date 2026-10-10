@@ -256,6 +256,7 @@ BEGIN
   -- trava os dois cadastros e confere de novo (duas unificações simultâneas do mesmo par esperam uma a outra)
   PERFORM 1 FROM public.erp_clientes WHERE id IN (p_principal, p_duplicado) ORDER BY id FOR UPDATE;
   SELECT * INTO v FROM public.fn__cliente_unificar_validar(p_principal, p_duplicado);
+  PERFORM public.fn__guarda_empresa(v.o_company);  -- guarda padrão da empresa do registro (check:fn-guards)
   SELECT to_jsonb(c) INTO antes FROM public.erp_clientes c WHERE c.id = p_duplicado;
 
   BEGIN
