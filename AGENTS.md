@@ -326,3 +326,12 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
    com a label `nao-publicar` — nunca a pergunta "push / PR / discard" ao CEO.
 3. **Nunca deixe pergunta aberta ao CEO numa sessão de rotina.** Dúvida vai para a caixa (`fn_agente_mensagem_responder`) e
    a sessão encerra.
+
+# Despertador econômico (CEO 08/10) — vale para TODOS os Codes
+- Mensagem nova aciona na hora (gatilho de envio). Redisparo só se nada mudou há 30 min, com recuo 30 min → 1 h → 2 h → 4 h
+  (teto) e no máximo 6 redisparos seguidos sem progresso, depois alerta ao Eng. Chefe. Progresso = resposta nova ou mensagem atualizada.
+- **Sessão acordada trabalha a fila em sequência até acabar ou bater o limite de tempo — nunca uma tarefa por sessão.**
+- Travou esperando algo externo (revisor, CEO, outra PR)? Antes de encerrar:
+  `SELECT fn_agente_mensagem_aguardar('<id>', '<seu-identificador>', '<motivo>');` — o despertador não redispara enquanto valer;
+  a marca cai sozinha quando status, resposta ou PR da mensagem mudam (ou com motivo vazio).
+- Sessões abertas nas últimas 24 h por agente: `fn_agente_sessoes_24h()`.
