@@ -27,8 +27,14 @@ jobs:
       REPO: ${{ github.repository }}
       LIMITE_MIN: '45'
       # workflows de e2e da demo (os que entram na fila demo-e2e) e a montagem do banco de testes
-      VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
+      VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml aceitacao-main.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
+      # zumbi (Eng. Chefe 08/10): run de aceitação EM ANDAMENTO há mais de 90 min (idade do run, não do job) é cancelado
+      LIMITE_RUN_MIN: '90'
+      ACEITACOES: aceitacao-pr.yml aceitacao-pos-migration.yml aceitacao-main.yml
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
       - name: Cancelar run com job executando há mais de 45 min
         run: |
           set -euo pipefail
@@ -49,6 +55,51 @@ jobs:
             done
           done
           echo "runs presos cancelados: $n"
+
+      # Zumbi 08/10: a Aceitação (preview) #1080 ficou "In progress" ~15 h segurando o grupo aceitacao-testes, e nenhum timeout
+      # pegou. Teto pela IDADE do run (run_started_at), independente do estado dos jobs: > 90 min em andamento = cancela com aviso.
+      - name: Cancelar aceitação em andamento há mais de 90 min (zumbi)
+        run: |
+          set -uo pipefail
+          agora=$(date -u +%s); n=0
+          for wf in $ACEITACOES; do
+            gh api "repos/$REPO/actions/workflows/$wf/runs?status=in_progress&per_page=50" \
+              --jq '.workflow_runs[] | "\(.id) \(.run_started_at) \(.head_sha)"' 2>/dev/null | while read -r id ini sha; do
+              [ -n "$id" ] && [ -n "$ini" ] || continue
+              min=$(( (agora - $(date -u -d "$ini" +%s)) / 60 ))
+              [ "$min" -gt "$LIMITE_RUN_MIN" ] || continue
+              echo "::warning title=aceitação zumbi cancelada::$wf run $id (head ${sha:0:7}) em andamento há $min min (> $LIMITE_RUN_MIN)"
+              echo "- $wf · run $id · em andamento há $min min → cancelado (zumbi)" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null \
+                || gh api -X POST "repos/$REPO/actions/runs/$id/force-cancel" > /dev/null || true
+            done
+          done
+
+      # Esteira travada 08/10: 6+ runs da "Aceitação da main" de SHAs antigos esperavam horas na fila aceitacao-testes
+      # e, ao chegar a vez, cada um só ia dizer "ponta já julgada". Run ESPERANDO (pending/queued) de SHA que não é mais a
+      # ponta da main está superado: cancela (o da ponta atual fica). Run executando nunca é tocado aqui.
+      - name: Cancelar aceitação da main superada (esperando a fila, SHA que não é a ponta)
+        run: |
+          set -uo pipefail
+          main_sha=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null || true)
+          [ -n "$main_sha" ] || { echo "sem SHA da main, nada a fazer"; exit 0; }
+          n=0
+          for st in pending queued waiting; do
+            for linha in $(gh api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?status=$st&per_page=50" \
+              --jq ".workflow_runs[] | select(.head_sha != \"$main_sha\") | .id" 2>/dev/null); do
+              echo "- aceitacao-main · run $linha · SHA superado, esperando a fila → cancelado" >> "$GITHUB_STEP_SUMMARY"
+              gh api -X POST "repos/$REPO/actions/runs/$linha/cancel" > /dev/null || true
+              n=$((n + 1))
+            done
+          done
+          echo "aceitação da main superada cancelada: $n"
+
+      # Esteira travada 08/10 (Eng. Chefe) + 2h na fila 10/10 (CEO): run de aceitação de PR que ocupa a vaga única à toa —
+      # PR mergeada/fechada, ou SHA superado/órfão (não é head de PR aberta nem a ponta da main) — é cancelado. AGORA
+      # inclui os runs status=in_progress presos na fila de concorrência (job sem step): era onde eles ficavam 2h até o
+      # zumbi matar aos 90 min. A versão VIVA de PR aberta e o run da main nunca são tocados (scripts/merge/aceitacao-prune.sh).
+      - name: Liberar vaga (cancela aceitação de PR morta / SHA superado — inclui presos na fila)
+        run: scripts/merge/aceitacao-prune.sh || true
 
       - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
         env:
