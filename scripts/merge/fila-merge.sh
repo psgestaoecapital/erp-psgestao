@@ -42,10 +42,23 @@ RODAPE=$'\n\n<sub>fila-merge · '"${RUN_URL:-local}"'</sub>'
 SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 api() { gh api -H 'Accept: application/vnd.github+json' "$@"; }
-log() { echo "$*"; echo "- $*" >> "$SUMARIO"; }
+# Observabilidade (CEO 10/10): toda linha "#<pr> ..." também vai p/ o snapshot que a fila grava no fim (flush_estado).
+log() { echo "$*"; echo "- $*" >> "$SUMARIO"; case "$*" in \#[0-9]*) [ -n "${TMPF:-}" ] && printf '%s\n' "$*" >> "$TMPF/estado" 2>/dev/null || true;; esac; }
+# Grava "por que cada PR está presa" em erp_esteira_pr_estado (a aba /dashboard/dev lê). No trap EXIT: roda sempre, mesmo
+# quando a rodada encerra num `exit 0` após um merge. Guardado: sem SUPABASE_URL/SERVICE_KEY, é no-op (nunca quebra a fila).
+flush_estado() {
+  [ -n "${TMPF:-}" ] && [ -f "$TMPF/estado" ] || return 0
+  [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || return 0
+  local payload
+  payload=$(ESTADO_FILE="$TMPF/estado" RUN_URL="${RUN_URL:-}" python3 scripts/merge/esteira-estado-json.py 2>/dev/null) || return 0
+  [ -n "$payload" ] || return 0
+  curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_esteira_pr_estado_gravar" \
+    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+    -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 || true
+}
 comentar() { api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null; }
 # comentários da PR lidos UMA vez por rodada (cada corpo numa linha, em JSON) — a fila agora olha todas as PRs Ready
-TMPF=$(mktemp -d); trap 'rm -rf "$TMPF"' EXIT
+TMPF=$(mktemp -d); trap 'flush_estado; rm -rf "$TMPF"' EXIT
 comentarios() {
   [ -f "$TMPF/c-$1" ] || api "repos/$REPO/issues/$1/comments" --paginate --jq '.[].body | @json' > "$TMPF/c-$1"
   cat "$TMPF/c-$1"
