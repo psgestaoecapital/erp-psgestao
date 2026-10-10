@@ -250,6 +250,22 @@ testes, vermelho = corrigir em 1 h ou reverter."
 - **Volta ao normal** (aceitação obrigatória em toda PR) quando houver um banco de testes por vaga — decisão do CEO.
 - Gate: `scripts/gates/check-esteira-2-velocidades.ts`.
 
+# Quarentena de spec @pos-migration (CEO 10/10) — para spec que segura a fila SEM ser regressão da PR
+Um spec do `@pos-migration` da main que falha de forma instável/ambiental segura a fila (nenhuma PR com migration
+publica enquanto o @pos está vermelho). A quarentena tira esse spec da EXECUÇÃO — **nunca apaga o arquivo** —, datado,
+com motivo e com tarefa ao Code dono, para a fila voltar sem mascarar regressão de verdade. **Duas travas, sempre:**
+1. **Sem relação com a PR:** só entra em quarentena se, no run em que COMEÇOU a falhar (1º vermelho), a PR daquele head
+   **não tocou a área do spec** (área do nome do arquivo × arquivos da PR). Tocou → é **regressão da PR**: NÃO quarentena,
+   **segura a fila** (corrige/reverte a culpada, como no run 323/#2300 e no 311/#2358).
+2. **Críticos nunca entram** (sempre seguram a fila): `financeiro`, `fiscal`/NF-e/NFS-e, permissões/`RLS`/`guarda`/RBAC,
+   `NR-36`, `LGPD`, `Wealth`/CVM.
+Mecânica: registro vivo em `e2e/quarentena.ts` (o Playwright lê em `testIgnore`); o detector
+`scripts/merge/quarentena-detectar.ts` roda no `aceitacao-pos-migration.yml` on-failure e, quando um spec qualifica
+(2× seguidas + as duas travas), abre uma PR **via rápida** (só `e2e/quarentena.ts`, sem migration) que a fila publica
+mesmo com o @pos vermelho → @pos volta ao verde. Registro/alerta ao CEO/Eng. Chefe em `erp_quarentena_spec` /
+`fn_quarentena_registrar` (canal do briefing). Sai da quarentena quando o Code dono conserta (remove a entrada).
+Gate: `scripts/gates/check-quarentena.ts`.
+
 # Velocidade e disciplina de sessão (CEO 04/10)
 - **(D) Uma sessão por agente (lease):** ao iniciar, chame `SELECT fn_agente_sessao_iniciar('<seu-identificador>', '<ref da sessão>');`.
   Se vier `ocupado`, **encerre sem fazer nada**. O lease é renovado a cada `fn_agente_mensagem_responder` e expira sozinho
