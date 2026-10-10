@@ -22,10 +22,10 @@ const aceit = wf.slice(wf.indexOf('\n  aceitacao:'))
 ok(/group: \$\{\{ vars\.ACEITACAO_BANCO == 'testes' && 'aceitacao-testes' \|\| 'demo-e2e' \}\}/.test(aceit)
   && /queue: max/.test(aceit) && !/cancel-in-progress: true/.test(aceit),
   'serialização entre PRs intacta (grupo demo-e2e/aceitacao-testes, queue:max, sem cancel-in-progress) — um banco só')
-// Parte B (já existente): triagem cancela runs ANTIGOS da MESMA PR (SHA superado)
+// Parte B (CEO 10/10): a triagem libera a vaga chamando o prune compartilhado (cancela PR morta / SHA superado)
 const tri = wf.slice(wf.indexOf('  triagem:'), wf.indexOf('  aceitacao:'))
-ok(/cancela runs antigos da mesma PR/.test(tri) && /gh run cancel "\$rid"/.test(tri) && /status=\$st/.test(tri),
-  'Parte B: triagem cancela os runs antigos (SHA superado) da MESMA PR, deixando só o commit atual')
+ok(/- name: Liberar vaga/.test(tri) && /scripts\/merge\/aceitacao-prune\.sh/.test(tri),
+  'Parte B: triagem libera a vaga via aceitacao-prune.sh (PR morta / SHA superado), sem esperar os 90 min')
 
 // ── Parte 2: decisão pura ────────────────────────────────────────────────────────────────────────────────────────
 const SPECS = [
