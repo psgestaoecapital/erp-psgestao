@@ -12,7 +12,7 @@ import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/typ
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
-import { enderecoFiscalDoCliente, filtroDocumentoCliente, type ClienteEndereco } from '@/lib/fiscal/tomadorEndereco'
+import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
 import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
@@ -46,6 +46,8 @@ interface EmitirNFSeBody {
       cnpj?: string
       cpf?: string
       email?: string
+      // cliente da OS/venda (ou o escolhido na tela): é ELE o tomador, nunca outro cadastro com o mesmo CNPJ
+      clienteId?: string
     }
   }
   overrides?: {
@@ -162,6 +164,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     }
 
     let nfseReq: NFSeRequest
+    // cadastro do cliente usado como tomador na emissão avulsa — a mensagem de cadastro incompleto diz QUAL é
+    let cadastroTomadorUsado: string | null = null
     // IBPT por empresa: fonte dos tributos aproximados que foi na nota ('ibpt_empresa' | 'tabela_generica')
     let ibptFonte: 'ibpt_empresa' | 'tabela_generica' | null = null
     const { data: cfgIbpt } = await supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas')
@@ -219,16 +223,36 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         },
         tomador: body.manual.tomador,
       }
-      // NFS-e avulsa: a tela manda só nome + documento; o endereço (exigido no leiaute nacional) vem do cadastro de
-      // clientes DESTA empresa, pelo documento. O e-mail não é copiado — só vai se a tela mandar.
+      // NFS-e avulsa: a tela manda só nome + documento (+ o cliente da OS/venda); o endereço (exigido no leiaute
+      // nacional) vem do cadastro de clientes DESTA empresa. O e-mail não é copiado — só vai se a tela mandar.
+      // Qual cadastro (caixa jordana-code 3352399e, OS-2026-0198): o cliente da operação manda; sem ele, só ATIVOS pelo
+      // documento; dois ativos com o mesmo CNPJ → a tela pede para escolher (escolherCadastroTomador).
+      const { clienteId, ...tomadorNota } = body.manual.tomador
+      nfseReq.tomador = tomadorNota
       if (!nfseReq.tomador.endereco) {
-        const filtro = filtroDocumentoCliente(nfseReq.tomador.cnpj ?? nfseReq.tomador.cpf)
+        const docTom = nfseReq.tomador.cnpj ?? nfseReq.tomador.cpf
+        const filtro = filtroCadastroTomador(docTom, clienteId)
         if (filtro) {
-          const { data: cli } = await supabaseAdmin.from('erp_clientes')
-            .select('logradouro, endereco, numero, complemento, bairro, cidade, uf, cep, codigo_ibge_municipio')
-            .eq('company_id', body.companyId).not('ativo', 'is', false).or(filtro).limit(1).maybeSingle()  // inativado (duplicata) nunca
-          const end = enderecoFiscalDoCliente(cli as ClienteEndereco | null)
-          if (end) nfseReq.tomador = { ...nfseReq.tomador, endereco: end }
+          const { data: cands } = await supabaseAdmin.from('erp_clientes').select(CAMPOS_CADASTRO_TOMADOR)
+            .eq('company_id', body.companyId).or(filtro).limit(20)
+          const escolha = escolherCadastroTomador((cands ?? []) as CadastroTomador[], docTom, clienteId)
+          if (escolha.tipo === 'ambiguo') {
+            return NextResponse.json({
+              ok: false,
+              tomadorAmbiguo: true,
+              candidatos: escolha.candidatos.map((c) => ({
+                id: c.id, nome: nomeCadastro(c), cidade: c.cidade ?? null, uf: c.uf ?? null,
+                enderecoCompleto: enderecoFiscalDoCliente(c) !== null,
+              })),
+              mensagem: `Há ${escolha.candidatos.length} cadastros ativos com este CNPJ/CPF nesta empresa. Escolha qual é o tomador desta nota (e depois unifique os cadastros em Clientes).`,
+            }, { status: 409 })
+          }
+          if (escolha.tipo === 'cliente') {
+            const c = escolha.cliente
+            cadastroTomadorUsado = nomeCadastro(c) + (c.cidade ? ` · ${c.cidade}${c.uf ? '/' + c.uf : ''}` : ' · sem cidade') + (c.ativo === false ? ' · INATIVO' : '')
+            const end = enderecoFiscalDoCliente(escolha.cliente)
+            if (end) nfseReq.tomador = { ...nfseReq.tomador, endereco: end }
+          }
         }
       }
     } else {
@@ -702,7 +726,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             return NextResponse.json({
               ok: false,
               mensagem: 'Complete o cadastro fiscal do tomador antes de emitir a NFS-e nacional: ' +
-                faltando.join(' e ') + '. Edite o cliente em Clientes, informe o CEP (traz o IBGE) e o número, e emita de novo.',
+                faltando.join(' e ') + (cadastroTomadorUsado ? ` (cadastro usado: ${cadastroTomadorUsado})` : '') +
+                '. Edite o cliente em Clientes, informe o CEP (traz o IBGE) e o número, e emita de novo.',
             }, { status: 400 })
           }
         }
