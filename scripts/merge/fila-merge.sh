@@ -5,8 +5,11 @@
 # Entra na fila (CEO 08/10 08:15, "ok fila sem etiqueta"): TODA PR aberta, NÃO-draft (Ready), base main, do próprio
 # repositório, com todos os checks obrigatórios verdes. A label `fila-merge` virou OPCIONAL (continua aceita: a hora
 # em que foi posta conta como entrada na fila). A label `nao-publicar` tira a PR da fila (a fila comenta o motivo UMA vez). Ordem: hora em que a PR
-# entrou (label fila-merge; senão a última vez que ficou Ready; senão a criação). Por execução, no máximo 1 merge
-# (squash, travado no SHA conferido); o push na main dispara a próxima rodada.
+# entrou (label fila-merge; senão a última vez que ficou Ready; senão a criação). LOTE (CEO 09/10): numa mesma rodada a
+# fila publica VÁRIAS PRs SEM migration (squash, cada uma travada no seu SHA conferido), até o teto LOTE_MAX; PR COM
+# migration é sempre UMA por rodada e encerra a rodada (a próxima espera o deploy + @pos-migration da main). O `atras` é
+# medido contra a main do INÍCIO da rodada (MAIN0): uma PR em dia no começo segue publicável mesmo depois de a fila ter
+# mergeado outras à frente dela nesta rodada (sem rebuild só porque a main andou no próprio lote).
 # SEM BLOQUEIO PELA CABEÇA (CEO 07/10): a PR que está atrás da main é atualizada (update-branch) e a PR cujos checks
 # ainda rodam fica esperando — e a rodada SEGUE para a próxima PR da fila (antes saía e uma PR lenta segurava todas).
 # Várias PRs podem ser atualizadas na mesma rodada. Migration: só a PR com migration que espera a MAIN (deploy-migrations
@@ -156,6 +159,8 @@ autorizacao() {
 }
 
 git fetch -q origin main
+MAIN0=$(git rev-parse origin/main)   # main do INÍCIO da rodada: o `atras` é medido contra ela, não contra a main viva
+                                     # (que muda a cada merge do lote). Assim a PR em dia no começo não vira "atrás" sozinha.
 echo "## Fila de merge" >> "$SUMARIO"
 
 # Válvula da cota da API (CEO 08/10): a fila agora olha TODAS as PRs Ready a cada rodada e o mesmo PAT serve o
@@ -230,6 +235,15 @@ Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via r
 }
 
 so_sem_migration=0
+# Teto de PRs "da vez" em PREPARO ao mesmo tempo (CEO 09/10): atualizar com a main dispara preview/aceitação (~3 min/PR).
+# Sem teto, a fila atualizava TODA PR verde atrás da main a cada push → dezenas de builds por publicação. Agora prepara só
+# as próximas N da ordem; as demais esperam a vez (sem build) até uma da frente mergear.
+ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-2}
+em_preparo=0
+# LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada (corta runs/builds de publicação). PR COM migration
+# é UMA por rodada e encerra a rodada. merges = quantas já saíram no lote; LOTE_MAX = teto por rodada (teto de risco).
+LOTE_MAX=${LOTE_MAX:-6}
+merges=0
 for n in $fila; do
   pj=$(jq -c --argjson n "$n" 'select(.number == $n)' "$TMPF/lista")
   sha=$(jq -r .head.sha <<< "$pj"); titulo=$(jq -r .title <<< "$pj")
@@ -250,7 +264,9 @@ for n in $fila; do
   grep -q '^supabase/migrations/' <<< "$arquivos" && com_migration=1
   # mesma regra do scripts/vercel-ignore.mjs: sem preview para PR só de .md/docs/.github
   grep -qvE '(\.md$|^docs/|^\.github/)' <<< "$arquivos" || so_docs=1
-  if [ "$so_sem_migration" = 1 ] && [ "$com_migration" = 1 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
+  # PR COM migration não vai nesta rodada se outra migration já espera a main (so_sem_migration) OU já houve merge no lote
+  # (merges>0: a main acabou de mudar — a migration vai na próxima rodada, contra a main já assentada/verde).
+  if { [ "$so_sem_migration" = 1 ] || [ "$merges" -gt 0 ]; } && [ "$com_migration" = 1 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
 
   # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
   via=rapida
@@ -269,14 +285,19 @@ for n in $fila; do
   c=$(estado_checks "$sha" "$via" "$so_docs")
   case "$c" in
     vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
-    esperar:*) log "#$n aguardando: ${c#esperar:} — segue para a próxima"; continue;;
+    esperar:*) [ "${c#esperar:}" = 'gates ainda não rodaram' ] || em_preparo=$((em_preparo + 1)); log "#$n aguardando: ${c#esperar:} — segue para a próxima"; continue;;
   esac
 
-  # atrás da main → atualiza (merge da main no ramo, sem reescrever histórico) e espera os checks do novo commit
-  atras=$(api "repos/$REPO/compare/main...$sha" --jq '.behind_by')
+  # atrás da main → atualiza (merge da main no ramo, sem reescrever histórico), MAS só as próximas ATUALIZA_NA_VEZ da
+  # ordem; as demais esperam a vez (sem disparar preview/aceitação agora). Cada publicação gera ~N builds, não um por PR.
+  atras=$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')
   if [ "$atras" -gt 0 ]; then
+    if [ "$em_preparo" -ge "$ATUALIZA_NA_VEZ" ]; then
+      log "#$n está $atras atrás da main, mas já há $em_preparo PR(s) da vez em preparo (teto $ATUALIZA_NA_VEZ): espera a vez — sem build agora"; continue
+    fi
+    em_preparo=$((em_preparo + 1))
     if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
-      log "#$n estava $atras commit(s) atrás da main: atualizada; aguardando os checks do novo commit — segue para a próxima"
+      log "#$n estava $atras commit(s) atrás da main: atualizada (vaga $em_preparo/$ATUALIZA_NA_VEZ); aguardando os checks do novo commit — segue para a próxima"
     else
       tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"; continue
     fi
@@ -304,11 +325,22 @@ for n in $fila; do
     fi
   fi
 
-  # merge travado no SHA conferido (se alguém empurrou no meio, o GitHub recusa)
+  # merge travado no SHA conferido (se alguém empurrou no meio, o GitHub recusa). O GitHub faz o 3-way contra a main VIVA:
+  # PR sem migration que só está "atrás" das outras deste lote (não conflitante) é mergeada; conflito real → recusa abaixo.
   if out=$(api -X PUT "repos/$REPO/pulls/$n/merge" -f merge_method=squash -f sha="$sha" -f commit_title="$titulo (#$n)" 2>&1); then
-    log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada)"
-    comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida** (aceitação informativa; a aceitação da main roda de hora em hora)' || echo 'revisada**').$([ "$com_migration" = 1 ] && echo ' Tem migration: veredito no @pos-migration da main (vermelho = reverter).')"
-    exit 0
+    if [ "$com_migration" = 1 ]; then
+      # migration: UMA por rodada — publica e ENCERRA a rodada (a próxima migration espera o deploy + @pos-migration)
+      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: uma por rodada"
+      comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration: veredito no @pos-migration da main (vermelho = reverter)."
+      exit 0
+    fi
+    # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada. A aceitação da via rápida é informativa e a
+    # aceitação da main (de hora em hora, banco de testes) é a rede de segurança; teto LOTE_MAX por rodada.
+    merges=$((merges + 1))
+    log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — lote $merges/$LOTE_MAX"
+    comentar "$n" "✅ **Fila de merge:** mergeada (squash, lote) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida** (aceitação informativa; a aceitação da main roda de hora em hora)' || echo 'revisada**')."
+    if [ "$merges" -ge "$LOTE_MAX" ]; then log "teto do lote ($LOTE_MAX) atingido nesta rodada: as próximas seguem na próxima rodada"; exit 0; fi
+    continue
   fi
   tirar_da_fila "$n" "o GitHub recusou o merge: $(tr '\n' ' ' <<< "$out" | cut -c1-300)" "$sha"
 done
