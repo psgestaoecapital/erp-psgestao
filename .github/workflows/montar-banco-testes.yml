@@ -43,6 +43,12 @@ jobs:
       - name: Trava de segurança (nunca aponta para a produção)
         run: |
           [ -n "$TEST_DATABASE_URL" ] || { echo "::error::TEST_DATABASE_URL ausente"; exit 1; }
+          # normaliza o segredo (espaço/CR/aspas coladas) e deixa a forma na tela, sem a senha
+          url=$(printf '%s' "$TEST_DATABASE_URL" | tr -d '\r\n' | sed -e 's/^[[:space:]"'"'"']*//' -e 's/[[:space:]"'"'"']*$//')
+          echo "TEST_DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "forma do segredo: $(printf '%s' "$url" | sed -E 's#(://[^:/@]*):[^@]*@#\1:***@#')"
+          case "$url" in postgres://*|postgresql://*) ;; *) echo "::error::TEST_DATABASE_URL não começa com postgresql:// (começa com '${url:0:12}')"; exit 1;; esac
+          case "$url" in *"[YOUR-PASSWORD]"*|*"[PASSWORD]"*) echo "::error::TEST_DATABASE_URL ainda tem o placeholder de senha"; exit 1;; esac
           case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
           case "$TEST_DATABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado";; *) echo "::error::TEST_DATABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
       - name: Normaliza TEST_DATABASE_URL (psql lê string fora do formato URI como NOME DE BANCO e tenta o socket local)
