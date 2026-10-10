@@ -19,9 +19,9 @@ ok(/ACEITACAO_ALVO=\$alvo/.test(wf) && (wf.match(/\$\{ACEITACAO_ALVO:-e2e\/jorna
 ok(!/npx playwright test e2e\/jornadas\/aceitacao --project/.test(wf), 'nenhum run roda a suíte inteira fixa (sempre pelo alvo)')
 // serialização entre PRs intacta: grupo demo-e2e/aceitacao-testes, FIFO, nunca cancel-in-progress:true
 const aceit = wf.slice(wf.indexOf('\n  aceitacao:'))
-ok(/group: \$\{\{ vars\.ACEITACAO_BANCO == 'testes' && 'aceitacao-testes' \|\| 'demo-e2e' \}\}/.test(aceit)
+ok(/group: \$\{\{ vars\.ACEITACAO_BANCO == 'testes' &&[^\n]*aceitacao-testes[^\n]*'demo-e2e' \}\}/.test(aceit)
   && /queue: max/.test(aceit) && !/cancel-in-progress: true/.test(aceit),
-  'serialização entre PRs intacta (grupo demo-e2e/aceitacao-testes, queue:max, sem cancel-in-progress) — um banco só')
+  'serialização entre PRs intacta (grupo demo-e2e/aceitacao-testes por vaga, queue:max, sem cancel-in-progress)')
 // Parte B (CEO 10/10): a triagem libera a vaga chamando o prune compartilhado (cancela PR morta / SHA superado)
 const tri = wf.slice(wf.indexOf('  triagem:'), wf.indexOf('  aceitacao:'))
 ok(/- name: Liberar vaga/.test(tri) && /scripts\/merge\/aceitacao-prune\.sh/.test(tri),
