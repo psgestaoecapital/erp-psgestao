@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase'
 import GraficosCodes from './GraficosCodes'
 import MeuCode from '@/components/dev/MeuCode'
 import {
-  CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, entregues, estadoSessao, faixa,
+  CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, enviadasPorAuto, entregues, estadoSessao, faixa,
   esteira, fila, hora, intervaloDia, quando, resumoCode, ultimaResposta, type StatusCode,
   type Entrega, type Lease, type Mensagem, type Rotina,
 } from '@/lib/dev/painelCodes'
@@ -20,7 +20,7 @@ const ESP = '#3D2314', OFF = '#FAF7F2', DOU = '#C8941A', BRANCO = '#FFFFFF', BD 
 const VERDE = '#166534', VERDE_BG = '#DCFCE7', VERM = '#B91C1C', VERM_BG = '#FEE2E2'
 
 const COLS_ENTREGA = 'id,pr_numero,titulo,code,evento,via,sha,url,ocorrido_em'
-const COLS_MSG = 'id,para,assunto,status,pr_numero,resposta,arquivada,criado_em,atualizado_em'
+const COLS_MSG = 'id,para,assunto,status,pr_numero,resposta,enviado_por,arquivada,criado_em,atualizado_em'
 const FILA_VISIVEL = 6
 
 type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[] }
@@ -154,6 +154,7 @@ const COR_STATUS: Record<StatusCode, { bg: string; fg: string; ico: string; nome
   trabalhando: { bg: VERDE_BG, fg: VERDE, ico: '●', nome: 'Trabalhando', ajuda: 'Tem sessão ativa (renovada há menos de 12 min).' },
   travado: { bg: VERM_BG, fg: VERM, ico: '■', nome: 'Travado', ajuda: 'Tem mensagem NOVA sem leitura há mais de 15 min e nenhuma sessão aberta.' },
   esperando: { bg: '#FEF3C7', fg: '#92400E', ico: '◐', nome: 'Esperando', ajuda: 'Sem sessão, mas tem PR em teste ou aguardando autorização.' },
+  agendado: { bg: OFF, fg: DOU, ico: '◷', nome: 'Agendado', ajuda: 'Trabalha fora da caixa e acorda na hora cheia (agenda); não está parado.' },
   dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão e nada novo esperando; acorda ao receber mensagem (ou na próxima hora cheia, para quem tem agenda).' },
 }
 
@@ -229,6 +230,7 @@ function CartaoCode({ code, dados, agora, compacto }: { code: string; dados: Dad
   const teste = emTeste(dados.entregas, code)
   const filaCode = fila(dados.msgs, code)
   const rotina = dados.rotinas.find((r) => r.agente === code)
+  const enviadas = code === 'eng-chefe-auto' ? enviadasPorAuto(dados.msgs, agora) : []
 
   return (
     <div data-testid={`card-code-${code}`} style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, minWidth: 0 }}>
@@ -262,6 +264,23 @@ function CartaoCode({ code, dados, agora, compacto }: { code: string; dados: Dad
             title={resp.resposta ?? ''}>última resposta ({quando(resp.atualizado_em ?? resp.criado_em, agora)}): {resp.resposta}</div>
         )}
       </div>
+
+      {code === 'eng-chefe-auto' && (
+        <Bloco titulo="Mensagens enviadas · 24 h" testid="card-auto-enviadas">
+          {enviadas.length === 0 ? <Vazio t="nenhuma mensagem de coordenação nas últimas 24 h" /> : (
+            <>
+              {enviadas.slice(0, FILA_VISIVEL).map((m) => (
+                <div key={m.id} style={{ fontSize: 13, display: 'flex', gap: 6, minWidth: 0 }}>
+                  <span style={{ color: TXM, flexShrink: 0 }}>{quando(m.criado_em, agora)}</span>
+                  <b style={{ flexShrink: 0 }}>{m.para}</b>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.assunto || 'sem assunto'}</span>
+                </div>
+              ))}
+              {enviadas.length > FILA_VISIVEL && <Vazio t={`e mais ${enviadas.length - FILA_VISIVEL}`} />}
+            </>
+          )}
+        </Bloco>
+      )}
 
       {/* (2) Entregue · 24 h */}
       <Bloco titulo="Entregue · 24 h" testid={`card-entregue-${code}`}>
