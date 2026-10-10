@@ -16,6 +16,7 @@ export async function gerarModeloMaoObra(): Promise<Blob> {
     '4) Mensal: Salário base é o mensal. Hora/Diária/Produção/m²: informe o valor da hora, da diária ou da unidade em "Valor por unidade".',
     '5) Quem já está cadastrado (mesmo CPF) é atualizado com nova vigência — nunca duplicado. As fichas entram "não conferidas" até você conferir na tela.',
     '6) Não inclua RG, CTPS, data de nascimento nem dados de sócios/pró-labore: essas colunas são ignoradas.',
+    '7) Horas extras (opcional, últimas colunas): média de horas por mês a 50% e a 100%. O valor da hora é o salário ÷ 220 × (1 + adicional); os reflexos (DSR, 13º, férias, encargos, rescisão) usam os % da aba de encargos. Planilhas sem essas colunas continuam valendo.',
   ].forEach((t, i) => { const c = leia.getCell(i + 1, 1); c.value = t; c.alignment = { wrapText: true, vertical: 'top' }; if (i === 0) c.font = { bold: true, size: 14 } })
 
   const enc = wb.addWorksheet(ABA_ENC)

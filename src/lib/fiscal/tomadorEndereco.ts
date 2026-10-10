@@ -44,3 +44,14 @@ export function enderecoFiscalDoCliente(c: ClienteEndereco | null | undefined): 
   if (comp) e.complemento = comp
   return e
 }
+
+// O que falta no cadastro para o endereço fiscal do tomador (mesma regra de enderecoFiscalDoCliente). Lista vazia =
+// cadastro pronto para a NFS-e nacional. A tela de emissão usa isto para pedir CEP/cidade ali mesmo e gravar no cliente.
+export function pendenciasEnderecoTomador(c: ClienteEndereco | null | undefined): string[] {
+  if (!c) return []
+  const p: string[] = []
+  if (dig(c.codigo_ibge_municipio).length !== 7) p.push('código IBGE do município')
+  if (!String(c.logradouro || c.endereco || '').trim()) p.push('logradouro')
+  if (!String(c.numero ?? '').trim()) p.push('número')
+  return p
+}
