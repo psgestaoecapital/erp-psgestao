@@ -19,6 +19,11 @@ VALUES ('v15_ecommerce', 'E-commerce', 5, 1,
         true, 'recorrente_leve', 'mensal_fixo', 'ecommerce', 'basic', false)
 ON CONFLICT (id) DO NOTHING;
 
+-- Pai da FK module_catalog_subgrupo_fkey: sem ele, banco novo/restore quebra com 23503 (incidente 10/10; produção corrigida à mão).
+INSERT INTO public.module_subgrupos (id, label, ativo, ordem)
+VALUES ('ecommerce', 'E-commerce', true, 30)
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO public.module_catalog (id, nome, grupo, icone, rota, ordem, ativo, descricao, is_shared, legacy, subgrupo, prioridade, rbac_isento, rbac_isento_motivo)
 VALUES
  ('ecommerce_inicio',   'E-commerce · O que fazer hoje', 'ecommerce', 'ShoppingCart', '/dashboard/ecommerce',                          300, true, 'Cockpit da vertical: pedidos a separar, anúncios com problema, perguntas, repasses e ruptura.', false, false, 'ecommerce', 'alta',  true, 'EC0: página informativa sem dado nem ação; as telas com dado (EC1+) entram com RBAC próprio'),

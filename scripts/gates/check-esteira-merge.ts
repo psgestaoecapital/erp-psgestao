@@ -63,6 +63,7 @@ ok(iCat > 0 && iReset > iCat, 'montar-banco-testes: cópia dos catálogos ANTES 
 ok(mbt.indexOf('Trava de segurança') < iCat, 'montar-banco-testes: a trava contra a produção vem antes da cópia')
 const cat = ler('scripts/banco-testes/catalogos.sh')
 ok(/\*"\$PROD_REF"\*\) erro "TEST_DATABASE_URL aponta para a PRODUÇÃO/.test(cat), 'catalogos.sh: recusa a produção como destino')
+ok(/ACEITACAO_VAGA:-0\}" = 0/.test(cat) && /\*pooler\.supabase\.com\*\) ;;/.test(cat) && /\*"\$TEST_REF"\*\) ;;/.test(cat), 'catalogos.sh: vaga 0 exige o banco de testes conhecido; vaga > 0 aceita Session pooler (nunca a produção)')
 ok(/--data-only/.test(cat) && /-t "public\.\$t"/.test(cat), 'catalogos.sh: pg_dump --data-only -t de cada tabela')
 const tabelas = ler('scripts/banco-testes/catalogos.txt').split('\n').map((l) => l.replace(/#.*/, '').trim()).filter(Boolean)
 ok(tabelas.includes('plan_catalog'), 'whitelist: plan_catalog (o fn_demo_reset precisa do v15_revenda)')
