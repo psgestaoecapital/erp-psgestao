@@ -9,22 +9,30 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { filtroDocumentoCliente, pendenciasEnderecoTomador, type ClienteEndereco } from '@/lib/fiscal/tomadorEndereco'
+import {
+  CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro,
+  pendenciasEnderecoTomador, type CadastroTomador, type EscolhaTomador,
+} from '@/lib/fiscal/tomadorEndereco'
 
 const ROTA_AJUDA = '/dashboard/fiscal/nfse/tomador-endereco'
 const dig = (s: string | null | undefined) => String(s ?? '').replace(/\D/g, '')
 
-type Cliente = ClienteEndereco & { id: string }
+type Cliente = CadastroTomador
 type Form = { cep: string; logradouro: string; numero: string; bairro: string; cidade: string; uf: string; ibge: string }
 
 interface Props {
   companyId: string
   documento: string            // CNPJ/CPF do tomador (com ou sem máscara)
+  // caixa jordana-code 3352399e (OS-2026-0198): o cliente da OS/venda é o tomador — nunca outro cadastro com o mesmo
+  // CNPJ. Sem ele, só ativos pelo documento; dois ativos → a pessoa escolhe aqui (onEscolher) e a emissão usa o escolhido.
+  clienteId?: string | null
+  onEscolher?: (clienteId: string) => void
   onPendente?: (pendente: boolean) => void
 }
 
-export default function TomadorEnderecoPendente({ companyId, documento, onPendente }: Props) {
+export default function TomadorEnderecoPendente({ companyId, documento, clienteId, onEscolher, onPendente }: Props) {
   const [cliente, setCliente] = useState<Cliente | null>(null)
+  const [ambiguos, setAmbiguos] = useState<Cliente[]>([])
   const [f, setF] = useState<Form>({ cep: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '', ibge: '' })
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'aviso' | 'erro'; texto: string } | null>(null)
   const [ocupado, setOcupado] = useState(false)
@@ -32,16 +40,18 @@ export default function TomadorEnderecoPendente({ companyId, documento, onPenden
   const doc = dig(documento)
 
   useEffect(() => {
-    setCliente(null); setGravado(false); setMsg(null)
-    const filtro = filtroDocumentoCliente(doc)
+    setCliente(null); setAmbiguos([]); setGravado(false); setMsg(null)
+    const filtro = filtroCadastroTomador(doc, clienteId)
     if (!companyId || !filtro) return
     let vivo = true
     const t = setTimeout(async () => {
-      const { data } = await supabase.from('erp_clientes')
-        .select('id, logradouro, endereco, numero, complemento, bairro, cidade, uf, cep, codigo_ibge_municipio')
-        .eq('company_id', companyId).not('ativo', 'is', false).or(filtro).limit(1).maybeSingle()
+      const { data } = await supabase.from('erp_clientes').select(CAMPOS_CADASTRO_TOMADOR)
+        .eq('company_id', companyId).or(filtro).limit(20)
       if (!vivo) return
-      const c = (data as Cliente | null) ?? null
+      // a MESMA regra da rota de emissão (escolherCadastroTomador)
+      const escolha: EscolhaTomador<Cliente> = escolherCadastroTomador((data ?? []) as Cliente[], doc, clienteId)
+      if (escolha.tipo === 'ambiguo') { setAmbiguos(escolha.candidatos); return }
+      const c = escolha.tipo === 'cliente' ? escolha.cliente : null
       setCliente(c)
       if (c) setF({
         cep: c.cep ?? '', logradouro: c.logradouro || c.endereco || '', numero: c.numero ?? '', bairro: c.bairro ?? '',
@@ -49,13 +59,51 @@ export default function TomadorEnderecoPendente({ companyId, documento, onPenden
       })
     }, 300)
     return () => { vivo = false; clearTimeout(t) }
-  }, [companyId, doc])
+  }, [companyId, doc, clienteId])
 
   const pendencias = cliente && !gravado ? pendenciasEnderecoTomador(cliente) : []
-  const pendente = pendencias.length > 0
+  const pendente = pendencias.length > 0 || ambiguos.length > 0
   useEffect(() => { onPendente?.(pendente) }, [pendente, onPendente])
+
+  // dois (ou mais) cadastros ATIVOS com o mesmo CNPJ/CPF e nenhum é o cliente da operação: não chuta, pede a escolha
+  if (ambiguos.length > 0) {
+    return (
+      <div data-testid="nfse-tomador-escolher" className="rounded-md border border-[#B45309]/30 bg-[#FFF8EC] p-3 space-y-2">
+        <div className="flex items-start gap-1 text-[12px] text-[#3D2314]">
+          <span><strong>Há {ambiguos.length} cadastros ativos com este documento.</strong> Escolha qual é o tomador desta nota
+          (depois unifique os cadastros em Clientes).</span>
+          <AjudaCampo chave="fiscal.nfse.tomador.escolher" rota={ROTA_AJUDA} />
+        </div>
+        <div className="space-y-1.5">
+          {ambiguos.map((c) => (
+            <button key={c.id} type="button" data-testid="nfse-tomador-opcao" onClick={() => onEscolher?.(c.id)}
+              className="w-full text-left rounded-md border border-[#3D2314]/15 bg-white px-3 py-2 text-[12.5px] text-[#3D2314] hover:bg-[#3D2314]/5">
+              <strong>{nomeCadastro(c)}</strong>
+              <span className="text-[#3D2314]/60"> · {c.cidade ? `${c.cidade}${c.uf ? '/' + c.uf : ''}` : 'sem cidade'} · {enderecoFiscalDoCliente(c) ? 'endereço completo' : 'endereço incompleto'}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // qual cadastro a emissão usa — a pessoa confere que é o cliente certo (e não um duplicado)
+  const usado = cliente ? (
+    <div data-testid="nfse-tomador-cadastro-usado" className="flex items-center gap-1 text-[11.5px] text-[#3D2314]/70">
+      <span>Cadastro usado: <strong className="text-[#3D2314]">{nomeCadastro(cliente)}</strong>
+        {' · '}{cliente.cidade ? `${cliente.cidade}${cliente.uf ? '/' + cliente.uf : ''}` : 'sem cidade'}
+        {cliente.ativo === false ? ' · INATIVO' : ''}</span>
+      <AjudaCampo chave="fiscal.nfse.tomador.cadastro_usado" rota={ROTA_AJUDA} />
+    </div>
+  ) : null
+
   if (!pendente) {
-    return gravado ? <div data-testid="nfse-tomador-endereco-gravado" className="text-[11.5px] text-[#1E6B3A]">Endereço gravado no cadastro do cliente — pode emitir.</div> : null
+    return (
+      <>
+        {usado}
+        {gravado && <div data-testid="nfse-tomador-endereco-gravado" className="text-[11.5px] text-[#1E6B3A]">Endereço gravado no cadastro do cliente — pode emitir.</div>}
+      </>
+    )
   }
 
   async function ibgeOficial(cod: string, uf: string): Promise<boolean> {
@@ -126,6 +174,7 @@ export default function TomadorEnderecoPendente({ companyId, documento, onPenden
 
   return (
     <div data-testid="nfse-tomador-endereco-pendente" className="rounded-md border border-[#B45309]/30 bg-[#FFF8EC] p-3 space-y-2.5">
+      {usado}
       <div className="text-[12px] text-[#3D2314]">
         <strong>Falta no cadastro do tomador:</strong> {pendencias.join(', ')}. A NFS-e nacional exige. Informe o CEP
         (ou cidade e UF) e grave — fica salvo no cliente para as próximas notas.
