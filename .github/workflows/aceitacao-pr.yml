@@ -9,7 +9,7 @@ on:
 
 jobs:
   # Triagem barata (sem fila, ~10 s): decide se a aceitação pesada precisa rodar e limpa a fila (RD-42, minutos do Actions).
-  #  (1) cancela runs ANTIGOS da mesma PR que ainda esperam vez na fila demo-e2e (commit já superado);
+  #  (1) libera a vaga única (passo "Liberar vaga"): cancela runs de aceitação de PR mergeada/fechada ou SHA superado/órfão;
   #  (2) pula a aceitação quando o diff da PR (contra a main) só tem .md / workflow / AGENTS.md e nenhum spec em
   #      e2e/jornadas/aceitacao — nada a testar, custo zero. Qualquer outro arquivo → roda normalmente.
   #  (3) ESTEIRA EM 2 VELOCIDADES (CEO 07/10): a suíte pesada só roda na VIA REVISADA (PR com a etiqueta
@@ -22,7 +22,7 @@ jobs:
       !contains(github.event.deployment.environment, 'Production') &&
       !contains(github.event.deployment.environment, 'production')
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     permissions:
       contents: read
       actions: write
@@ -31,6 +31,19 @@ jobs:
       rodar: ${{ steps.decide.outputs.rodar }}
       vaga: ${{ steps.decide.outputs.vaga }}
     steps:
+      # Código confiável da main (só para rodar o prune; a PR nunca é executada aqui).
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      # (CEO 10/10) Libera a vaga ÚNICA: cancela na hora os runs de aceitação que a ocupam à toa (PR mergeada/fechada ou
+      # SHA superado/órfão). Não mexe no SHA desta rodada (SELF_SHA), na versão viva de PR aberta, nem na serialização.
+      - name: Liberar vaga (cancela aceitação de PR morta / SHA superado)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SELF_RUN_ID: ${{ github.run_id }}
+          SELF_SHA: ${{ github.event.deployment.sha }}
+        run: scripts/merge/aceitacao-prune.sh || true
       - name: Decide e limpa a fila
         id: decide
         env:
@@ -62,19 +75,9 @@ jobs:
                 echo "::notice::Diff só com .md/workflow e sem spec de aceitação: aceitação pulada (custo zero)."
               fi
             fi
-            # (1) cancela runs antigos da mesma PR ainda na fila
-            for st in queued pending waiting; do
-              for rid in $(gh api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=$st&per_page=50" --jq '.workflow_runs[].id' 2>/dev/null || true); do
-                [ "$rid" = "$RUN_ID" ] && continue
-                hsha=$(gh api "repos/$REPO/actions/runs/$rid" --jq '.head_sha' 2>/dev/null || true)
-                [ -z "$hsha" ] || [ "$hsha" = "$SHA" ] && continue
-                n=$(gh api "repos/$REPO/commits/$hsha/pulls" --jq "[.[] | select(.number == $pr)] | length" 2>/dev/null || echo 0)
-                if [ "$n" -gt 0 ]; then
-                  echo "cancelando run antigo $rid ($hsha) da PR #$pr"
-                  gh run cancel "$rid" -R "$REPO" || true
-                fi
-              done
-            done
+            # (1) a limpeza da fila (runs de PR morta / SHA superado) é feita pelo passo "Liberar vaga" acima
+            #     (scripts/merge/aceitacao-prune.sh), que cobre a mesma PR superada E as PRs mergeadas/fechadas/órfãs.
+            :
           fi
           echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
           # vaga 0..2 do banco de testes (o operador % não existe nas expressões do Actions)
@@ -124,10 +127,18 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           heads=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.state == "open") | .head.sha] | join(" ")' 2>/dev/null || true)
+          main_head=$(gh api "repos/$REPO/commits/main" --jq '.sha' 2>/dev/null || true)
           echo "commit testado: $SHA"
           echo "último commit das PRs abertas que contêm este commit: ${heads:-<nenhuma PR aberta>}"
           if [ -n "$heads" ] && ! echo " $heads " | grep -q " $SHA "; then
             echo "::notice::Versão antiga ($SHA): a PR já está em $heads. Teste descartado para liberar a fila."
+            gh run cancel "$RUN_ID" -R "$REPO"
+            sleep 120
+            exit 1
+          elif [ -z "$heads" ] && [ -n "$main_head" ] && [ "$SHA" != "$main_head" ]; then
+            # (CEO 10/10) sem PR aberta para este SHA e não é a cabeça da main → PR mergeada/fechada ou SHA órfão:
+            # versão morta. Não ocupa 40 min da vaga única — descarta ao pegar o runner.
+            echo "::notice::Versão morta ($SHA): sem PR aberta e fora da main. Teste descartado para liberar a fila."
             gh run cancel "$RUN_ID" -R "$REPO"
             sleep 120
             exit 1
@@ -143,6 +154,32 @@ jobs:
         run: npm ci
       - name: Install Playwright browser (chromium)
         run: npx playwright install --with-deps chromium
+      # PARTE A (CEO 10/10, sessão interativa): encurta o run rodando só as jornadas da ÁREA tocada pela PR. Fallback
+      # OBRIGATÓRIO à suíte COMPLETA quando a PR toca núcleo/compartilhado (migration, .sql/RLS/policy/grant/view/
+      # SECURITY DEFINER/guarda, fiscal, componentes/libs compartilhados, .github/**) ou quando não dá para mapear a
+      # área com segurança. NUNCA pula. A serialização entre PRs (grupo demo-e2e/aceitacao-testes) NÃO muda.
+      - name: Escopo da aceitação (área da PR; fallback = tudo)
+        id: escopo
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.deployment.sha }}
+        run: |
+          d=$(npx tsx scripts/merge/escopo-aceitacao.ts || echo '{"full":true,"specs":[],"motivo":"erro no escopo — roda tudo"}')
+          echo "escopo (json): $d"
+          full=$(printf '%s' "$d" | jq -r '.full')
+          motivo=$(printf '%s' "$d" | jq -r '.motivo')
+          if [ "$full" = "false" ]; then
+            alvo=$(printf '%s' "$d" | jq -r '.specs | join(" ")')
+            n=$(printf '%s' "$d" | jq -r '.specs | length')
+            echo "::notice title=Aceitação escopada::$n jornada(s) — $motivo"
+            echo "### Aceitação escopada: $n jornada(s) — $motivo" >> "$GITHUB_STEP_SUMMARY"
+          else
+            alvo="e2e/jornadas/aceitacao"
+            echo "::notice title=Aceitação completa (fallback)::$motivo"
+            echo "### Aceitação completa (fallback) — $motivo" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "ACEITACAO_ALVO=$alvo" >> "$GITHUB_ENV"
       # Prova no log (RD-38): de onde veio a URL que o robô abre. environment_url = URL do deployment
       # (*.vercel.app); target_url = página de inspeção na vercel.com (não serve como base do app).
       - name: URL do preview (diagnóstico)
@@ -173,7 +210,7 @@ jobs:
         # --pass-with-no-tests: PR sem .spec.ts em aceitacao/ (hotfix, infra, docs) passa; PR com spec e julgada pelo spec.
         # A obrigacao de trazer o spec e do processo (RD-78), nao de um check que quebra por ausencia. Sem isto, a propria PR-I
         # (que nao traz spec) ficaria vermelha para sempre e o check nunca poderia ser obrigatorio.
-        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep-invert @pos-migration
+        run: npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=celular --pass-with-no-tests --grep-invert @pos-migration
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
       - name: Aceitação @pos-migration (informativo — não bloqueia)
@@ -190,7 +227,7 @@ jobs:
           TRAVA_DEMO_ESPERA_MIN: '15'
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
-          if npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
+          if npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=celular --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
             echo "### @pos-migration no preview: verde" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=@pos-migration (informativo)::vermelho no preview — esperado se a migration da PR ainda não entrou. Veredito: aceitacao-pos-migration em produção, logo após o merge."
