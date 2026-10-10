@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const sql = readFileSync('supabase/migrations/20261010170010_ecommerce_ec0_esqueleto.sql', 'utf8').replace(/--[^\n]*/g, '')
+const sql = readFileSync('supabase/migrations/20261010171010_ecommerce_ec0_esqueleto.sql', 'utf8').replace(/--[^\n]*/g, '')
 const pagina = readFileSync('src/app/dashboard/ecommerce/page.tsx', 'utf8')
 const ID = "'b0700000-0000-4000-a000-000000000007'"
 
