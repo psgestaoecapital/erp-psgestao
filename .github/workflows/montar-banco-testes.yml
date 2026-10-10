@@ -73,7 +73,7 @@ jobs:
           case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
           # vaga 0 = o projeto erp-psgestao-testes conhecido; vaga > 0 = qualquer banco do Session pooler que NÃO seja a produção
           if [ "${ACEITACAO_VAGA:-0}" = 0 ]; then
-            case "$TEST_DATABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado (vaga 0)";; *) echo "::error::TEST_DATABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+            case "$TEST_DATABASE_URL" in *xjzqndnvjkdjyisuklpy*) echo "banco de testes confirmado (vaga 0)";; *) echo "::error::TEST_DATABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
           else
             case "$TEST_DATABASE_URL" in *pooler.supabase.com*) echo "banco de testes extra confirmado (vaga ${ACEITACAO_VAGA}, pooler não-produção)";; *) echo "::error::vaga ${ACEITACAO_VAGA}: TEST_DATABASE_URL precisa ser Session pooler (*.pooler.supabase.com)"; exit 1;; esac
           fi
