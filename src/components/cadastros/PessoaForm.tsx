@@ -20,7 +20,7 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import FornecedorContatosCard from './FornecedorContatosCard'
-import { buscarCNPJ } from '@/lib/cadastros/buscarCNPJ'
+import { consultarCNPJ } from '@/lib/cadastros/buscarCNPJ'
 import { buscarCEP } from '@/lib/cadastros/buscarCEP'
 import { deveConferirDuplicidade } from '@/lib/cadastros/duplicidadeDocumento'
 
@@ -151,12 +151,17 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
     }
     setBuscandoCNPJ(true)
     setErro(null)
-    const dados = await buscarCNPJ(cnpjCpf)
+    const r = await consultarCNPJ(cnpjCpf)
     setBuscandoCNPJ(false)
-    if (!dados) {
+    if (r.status === 'indisponivel') {
+      setErro('Consulta externa indisponível — preencha manualmente ou tente de novo em instantes')
+      return
+    }
+    if (r.status !== 'ok') {
       setErro('CNPJ não encontrado na Receita Federal — preencha manualmente')
       return
     }
+    const dados = r.dados
     setRazaoSocial(dados.razao_social)
     if (!nomeFantasia) setNomeFantasia(dados.nome_fantasia || dados.razao_social)
     if (dados.email && !email) setEmail(dados.email)
