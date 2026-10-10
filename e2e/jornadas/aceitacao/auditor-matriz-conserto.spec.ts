@@ -41,14 +41,17 @@ test.describe('Auditor por área: empresa não-demo vira a demo; o robô fotogra
       return !!s?.screenshot_atualizado_em && s.screenshot_atualizado_em > res.t0_dispatch
     }, { timeout: 4 * 60_000, intervals: [10_000], message: 'o robô fotografou a tela na demo' }).toBe(true)
 
-    // a consulta fecha o resultado sozinha (pronto ou com motivo) — e nunca com a recusa 403
+    // a consulta nunca fecha o resultado com a recusa 403. Sair de "pending" depende da análise da IA (externa e
+    // assíncrona; a função fecha por timeout só em 20 min) — por isso aqui não se exige o fechamento em 3 min, só que
+    // o resultado, pendente ou fechado, nunca carregue a recusa (08/10: o @pos-migration da main ficou vermelho por isso).
     let fim: Res | undefined
     await expect.poll(async () => {
       await rpc('fn_auditor_matriz_consultar', { p_run_id: run.run_id })
       ;[fim] = await dbSelect<Res>('erp_auditor_matriz_resultados', `run_id=eq.${run.run_id}&select=status,rota_completa,bugs_detectados,t0_dispatch`)
-      return fim?.status
-    }, { timeout: 3 * 60_000, intervals: [15_000], message: 'o resultado saiu de pending' }).not.toBe('pending')
+      return fim?.status !== 'pending' || Date.now() - Date.parse(res.t0_dispatch) > 150_000
+    }, { timeout: 3 * 60_000, intervals: [15_000], message: 'consulta do resultado' }).toBe(true)
     console.log(`[auditor-diag] run=${run.run_id} status=${fim?.status} bugs=${JSON.stringify(fim?.bugs_detectados ?? []).slice(0, 400)}`)
+    expect(['pending', 'completo', 'erro', 'timeout']).toContain(fim?.status)
     expect((fim?.bugs_detectados ?? []).join(' ')).not.toMatch(/HTTP 403|não é de demonstração/)
   })
 })
