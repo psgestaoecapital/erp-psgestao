@@ -87,6 +87,13 @@ Code do próprio dono; empresa/chamado só da carteira dele; 30 pedidos/hora; tu
    **aprovado** (`pode_executar` = true na `fn_agente_caixa`). Sem o OK, só leia e aguarde.
 5. **Regras de merge INALTERADAS**: fila de merge, patch-id, `gilberto-revisor`, RD-94/94.1, etiqueta `revisao-eng-chefe`.
 Gate: `scripts/gates/check-canal-ps-banco.ts`.
+**Conector da Claude do sócio** (PR B): servidor MCP do próprio ERP em `/api/mcp` (Streamable HTTP, sem estado), login
+OAuth do **próprio usuário** do ERP (Supabase Auth como servidor de autorização; consentimento em `/oauth/consent`). Sem chave
+de serviço e sem SQL livre: as 6 ferramentas (meus_chamados, ler_chamado, enviar_tarefa_ao_meu_code, respostas_do_meu_code,
+minhas_prs, pedir_ok_ceo) só chamam RPCs com guarda, como o usuário; cada chamada fica em `erp_canal_ps_chamada` (limite
+20/min e 200/h por pessoa). Configuração (uma vez, no painel do Supabase): Authentication › **OAuth Server** ligado,
+"Authorization path" = `/oauth/consent` e registro dinâmico de clientes permitido. Passo a passo para o sócio: aba Codes ›
+"Conectar a minha Claude". Gate: `scripts/gates/check-canal-ps-conector.ts`.
 # Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
 
 Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
