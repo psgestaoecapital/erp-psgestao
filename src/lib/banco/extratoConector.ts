@@ -3,7 +3,8 @@
 // para eles só gera erro. Sem conector, o extrato entra por OFX (Conciliação › Inbox › Importar OFX).
 // Módulo puro (sem imports de servidor) para poder ser usado nas telas. Gate: scripts/check-sicredi-erro-claro.ts.
 
-export const EXTRATO_COM_CONECTOR: readonly string[] = ['sicoob']
+// Banco do Brasil (#1736): API Extratos v1 (src/lib/banco/extrato/bb.ts).
+export const EXTRATO_COM_CONECTOR: readonly string[] = ['sicoob', 'bb']
 
 export function temConectorExtrato(provider: string | null | undefined): boolean {
   return !!provider && EXTRATO_COM_CONECTOR.includes(provider)
