@@ -6,6 +6,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { quando } from '@/lib/dev/painelCodes'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/dev/codes'
 
 const ESP = '#3D2314', OFF = '#FAF7F2', DOU = '#C8941A', BRANCO = '#FFFFFF', BD = '#E7DED3', TXM = '#6B5D4F'
 const REPO = 'https://github.com/psgestaoecapital/erp-psgestao/pull/'
@@ -74,18 +77,25 @@ export default function MeuCode() {
       {meus.ativo && (
         <div data-testid="meu-code-form" style={{ display: 'grid', gap: 8, marginTop: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: TXM, textTransform: 'uppercase', letterSpacing: 0.5 }}>Pedir ao meu Code</div>
+          <div style={{ display: 'grid', gap: 4 }}><span style={{ fontSize: 12, color: TXM }}>Assunto</span><AjudaCampo chave="dev.meu_code.assunto" rota={ROTA} />
           <input data-testid="meu-code-assunto" placeholder="Assunto" value={assunto} maxLength={200} onChange={(e) => setAssunto(e.target.value)} style={campo} />
+          </div>
+          <div style={{ display: 'grid', gap: 4 }}><span style={{ fontSize: 12, color: TXM }}>O que o Code deve fazer</span><AjudaCampo chave="dev.meu_code.texto" rota={ROTA} />
           <textarea data-testid="meu-code-texto" placeholder="O que o Code deve fazer" value={texto} rows={4} onChange={(e) => setTexto(e.target.value)} style={{ ...campo, resize: 'vertical' }} />
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div style={{ display: 'grid', gap: 4 }}><span style={{ fontSize: 12, color: TXM }}>Chamado nº (opcional)</span><AjudaCampo chave="dev.meu_code.chamado" rota={ROTA} />
             <input data-testid="meu-code-chamado" placeholder="Chamado nº (opcional)" inputMode="numeric" value={chamado} onChange={(e) => setChamado(e.target.value)} style={campo} />
+            </div>
+            <div style={{ display: 'grid', gap: 4 }}><span style={{ fontSize: 12, color: TXM }}>Empresa da carteira (opcional)</span><AjudaCampo chave="dev.meu_code.empresa" rota={ROTA} />
             <select data-testid="meu-code-empresa" value={empresa} onChange={(e) => setEmpresa(e.target.value)} style={campo}>
               <option value="">Empresa da carteira (opcional)</option>
               {(meus.carteira ?? []).map((c) => <option key={c.company_id} value={c.company_id}>{c.nome}</option>)}
-            </select>
+            </select></div>
           </div>
           <label style={{ fontSize: 13, display: 'flex', gap: 8, alignItems: 'center' }}>
             <input data-testid="meu-code-nucleo" type="checkbox" checked={nucleo} onChange={(e) => setNucleo(e.target.checked)} />
-            Mexe no núcleo (permissão, RLS, fiscal…): espera o OK do CEO antes de ir ao Code
+            Mexe no núcleo (permissão, RLS, fiscal…): espera o OK do CEO antes de ir ao Code <AjudaCampo chave="dev.meu_code.nucleo" rota={ROTA} />
           </label>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <button data-testid="meu-code-enviar" disabled={enviando || !assunto.trim() || !texto.trim()} onClick={() => void enviar()}

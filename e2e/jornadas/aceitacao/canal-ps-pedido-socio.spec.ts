@@ -1,5 +1,5 @@
 // Canal PS · PR A (CEO 07/10 16:20) — o sócio pede direto ao SEU Code pela fn_agente_pedido_enviar, logado (RD-82/83).
-// Migration 20261008000060 · @pos-migration. Cenários do CEO:
+// Migration 20261009010060 · @pos-migration. Cenários do CEO:
 //   1) "Rodrigo" envia para o rodrigo-code: ok, mensagem de rodrigo-chat (tarefa) e a rotina é acionada;
 //   2) "Rodrigo" com empresa da carteira da Jordana: recusado, com mensagem que ensina;
 //   3) pedido de núcleo: fica esperando o OK do CEO, sem acionar;
