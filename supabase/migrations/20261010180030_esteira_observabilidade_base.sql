@@ -54,6 +54,8 @@ CREATE POLICY erp_esteira_vigia_acao_sel_ps ON public.erp_esteira_vigia_acao
 -- ── Writer (service_role): regrava o snapshot inteiro a cada run da fila ──────────────────────────────────────────────
 -- p_estados = jsonb array de {pr, via, estado, motivo, tem_migration, checks}. Upsert de cada um e REMOVE as PRs que
 -- não vieram no snapshot (saíram da fila / mergearam). Idempotente. Só service_role.
+-- ci-sem-guarda: fn_esteira_pr_estado_gravar — erp_esteira_pr_estado é meta da esteira (números de PR), SEM company_id e
+-- sem dado de cliente; escrita fechada à service_role (REVOKE anon/authenticated), então não há empresa a conferir.
 CREATE OR REPLACE FUNCTION public.fn_esteira_pr_estado_gravar(p_run_url text, p_estados jsonb)
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $$
 DECLARE v_prs integer[];
