@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 const tela = readFileSync('src/app/dashboard/os/page.tsx', 'utf8')
-const mig = readFileSync('supabase/migrations/20261009235030_os_nova_cliente_inline_ajuda.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261010130030_os_nova_cliente_inline_ajuda.sql', 'utf8')
 
 ok(tela.includes("rpc('fn_cliente_criar_inline'"), 'usa fn_cliente_criar_inline')
 ok(tela.includes('+ Cadastrar novo cliente'), 'botão "+ Cadastrar novo cliente"')
