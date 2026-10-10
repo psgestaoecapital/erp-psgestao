@@ -20,6 +20,7 @@ import {
   TrendingUp,
   Settings,
   Smartphone,
+  Tag,
   BarChart3,
   Gauge,
   type LucideIcon,
@@ -37,6 +38,7 @@ const COMERCIAL: Tab[] = [
   { href: "/dashboard/projetos/clientes",       label: "Clientes",    icon: Users,           key: "2" },
   { href: "/dashboard/projetos/visitas",        label: "Visitas",     icon: MapPin,          key: "3" },
   { href: "/dashboard/projetos/propostas",      label: "Propostas",   icon: FileSignature,   key: "4" },
+  { href: "/dashboard/projetos/tabelas-preco",  label: "Tabela de preço", icon: Tag,         key: "t" },
   { href: "/dashboard/projetos/instalar-app",   label: "Instalar app", icon: Smartphone,     key: "i" },
 ];
 
