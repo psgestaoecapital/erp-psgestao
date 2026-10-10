@@ -1,4 +1,4 @@
-// Gate (CEO 07/10, DRE núcleo): a migration 20261007230000 mantém (1) competência = COALESCE(data_competencia, data_emissao)
+// Gate (CEO 07/10, DRE núcleo): a migration 20261010120000 mantém (1) competência = COALESCE(data_competencia, data_emissao)
 // nos blocos de pagar/receber DIRETO e no receber do ramo Omie, (2) sinal da receita não-op corrigido só na apresentação
 // (ETL inalterado), (3) trigger que marca emissão, competência e pagamento, no estado novo e no antigo. Sem rede.
 import { readFileSync } from 'node:fs'
@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const sql = readFileSync('supabase/migrations/20261007230000_dre_competencia_sinal_mes_sujo.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261010120000_dre_competencia_sinal_mes_sujo.sql', 'utf8')
 const fn = sql.slice(sql.indexOf('fn_psgc_recalcular_dre_mes'), sql.indexOf('trg_psgc_enfileirar_lancamento()'))
 const trg = sql.slice(sql.indexOf('trg_psgc_enfileirar_lancamento()'))
 
