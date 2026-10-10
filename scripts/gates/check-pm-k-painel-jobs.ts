@@ -55,7 +55,9 @@ ok(/ENABLE ROW LEVEL SECURITY/.test(mig) && /REVOKE ALL ON public\.agency_painel
 ok(!/\bDELETE\b|\bTRUNCATE\b|DROP\s+(TABLE|COLUMN|CONSTRAINT)/i.test(mig.replace(/--.*$/gm, '').replace(/ON DELETE CASCADE/g, '')) && /GRANT UPDATE \(nome, filtros, excluido_em\)/.test(mig), 'migration aditiva, sem DELETE/DROP, exclusão lógica')
 const tela = readFileSync('src/app/dashboard/pm/painel-jobs/page.tsx', 'utf8')
 ok(!/\.insert\(|\.update\(|\.delete\(/.test(tela.replace(/agency_painel_opcao"\)\.(insert|update)/g, '')), 'tela só grava as opções salvas (nada de financeiro nem de job)')
-ok(/excluido_em: new Date\(\)\.toISOString\(\)/.test(tela) && /window\.print\(\)/.test(tela) && /xlsx/.test(tela), 'apagar opção é lógico; PDF e Excel')
+ok(/excluido_em: new Date\(\)\.toISOString\(\)/.test(tela) && /exportarPDF\(/.test(tela) && /xlsx/.test(tela), 'apagar opção é lógico; PDF e Excel')
+// Mapeamento P&M 10/10: o PDF por window.print() abria o diálogo modal e congelava a aba. PDF é arquivo gerado (pdf-lib).
+ok(!/window\.print\s*\(/.test(tela), 'Painel de Jobs não chama window.print() (diálogo modal congelava o navegador)')
 const api = readFileSync('src/app/api/pm/painel/insights/route.ts', 'utf8')
 ok(/aiGuardedCall/.test(api) && /Bearer /.test(api) && /ia_painel_insights/.test(api), 'insights: autenticado e dentro do teto de IA')
 
