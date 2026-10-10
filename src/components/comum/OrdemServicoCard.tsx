@@ -9,8 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'   // chamado #20 §2.4 · "Gerar financeiro"
-import EmitirNFSeOSButton from '@/components/comum/EmitirNFSeOSButton'   // chamado #20 Fase 2 · NFS-e (serviços) da OS
-import EmitirNFeOSButton from '@/components/comum/EmitirNFeOSButton'   // chamado #20 Fase 3 · NF-e (peças) da OS
+import NotaDaOS from '@/components/comum/NotaDaOS'   // #20 Fases 2/3 (emitir NFS-e/NF-e da OS) + #2167 (nota emitida = verde + PDF)
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
 
@@ -974,14 +973,17 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                 OS via pedido emite pelo fluxo do pedido (DrawerPedido), não aqui. */}
             {!os.pedido_id && (
               <>
-                <EmitirNFSeOSButton
+                {/* #2167: nota já emitida fica verde e abre o PDF (NotaDaOS) */}
+                <NotaDaOS
+                  tipo="nfse"
                   osId={os.id}
                   companyId={os.company_id}
                   buttonStyle={btnSec}
                   onEmitida={() => onFlash?.('NFS-e enviada — o status atualiza sozinho em Notas Fiscais.')}
                 />
                 {/* #20 Fase 3 · NF-e de peça (produto). Só peça de catálogo com NCM entra; texto livre fica de fora. */}
-                <EmitirNFeOSButton
+                <NotaDaOS
+                  tipo="nfe"
                   osId={os.id}
                   companyId={os.company_id}
                   buttonStyle={btnSec}
