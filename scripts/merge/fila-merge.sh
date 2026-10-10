@@ -144,11 +144,14 @@ autorizacao() {
   local n=$1 pid corpo pid_aut
   git fetch -q origin "pull/$n/head:refs/fila/pr-$n" --force
   pid=$(git diff "$(git merge-base origin/main "refs/fila/pr-$n")" "refs/fila/pr-$n" | git patch-id --stable | cut -d' ' -f1)
-  corpo=$(comentarios "$n" | jq -rs --arg re "MERGE AUTORIZADO #$n([^0-9]|\$)" '[.[] | select(test($re))] | last // empty')
-  [ -n "$corpo" ] || { echo "vermelho:PR sensível ($SENSIVEL) sem comentário \"MERGE AUTORIZADO #$n — gilberto-revisor · patch-id …\""; return; }
+  # só vale comentário cuja PRIMEIRA linha é exatamente a autorização do revisor; aviso da fila (marca escondida ou
+  # "Fila de merge:") cita o texto mas nunca conta (todos os comentários saem da mesma conta do GitHub)
+  corpo=$(comentarios "$n" | jq -rs --arg re "^MERGE AUTORIZADO #$n — gilberto-revisor · patch-id [0-9a-f]{40}([ \\t\\r]*|[:\\s].*)\$" \
+    '[.[] | select((contains("<!-- fila:") | not) and (startswith("Fila de merge:") | not) and (split("\n")[0] | test($re)))] | last // empty | split("\n")[0]')
+  [ -n "$corpo" ] || { echo "vermelho:PR sensível ($SENSIVEL) sem a autorização do revisor para o conteúdo atual"; return; }
   pid_aut=$(grep -oE 'patch-id[: ]+[0-9a-f]{40}' <<< "$corpo" | tail -1 | grep -oE '[0-9a-f]{40}' || true)
-  [ -n "$pid_aut" ] || { echo "vermelho:a autorização não traz patch-id — o revisor repete com \`scripts/merge/patch-id.sh $n\` (atual: $pid)"; return; }
-  [ "$pid_aut" = "$pid" ] || { echo "vermelho:o conteúdo mudou depois da autorização (patch-id autorizado $pid_aut ≠ atual $pid) — exige nova revisão"; return; }
+  [ -n "$pid_aut" ] || { echo "vermelho:a autorização do revisor não traz o identificador do conteúdo — o revisor repete após rodar \`scripts/merge/patch-id.sh $n\`"; return; }
+  [ "$pid_aut" = "$pid" ] || { echo "vermelho:o conteúdo mudou depois da autorização do revisor — exige nova revisão"; return; }
   echo ok
 }
 
@@ -177,6 +180,54 @@ fila=$(while read -r linha; do
   done < "$TMPF/lista" | sort | awk '{print $2}')
 [ -n "$fila" ] || { log "fila vazia"; exit 0; }
 log "fila: $(echo $fila | sed 's/\([0-9]*\)/#\1/g')"
+
+# próxima versão de migration > $1 (piso), com os 2 últimos dígitos $2 (faixa do agente); timestamp do momento (UTC)
+proxima_versao() {
+  local piso=$1 ss=$2 t cand
+  t=$(date -u +%s)
+  while :; do
+    cand="$(date -u -d "@$t" +%Y%m%d%H%M)$ss"
+    [ "$cand" -gt "$piso" ] && break
+    t=$((t + 60))
+  done
+  echo "$cand"
+}
+
+# Renomeia (commit no ramo da PR, pela API de conteúdo) as migrations NOVAS da PR com versão <= a última da main.
+# Retorna 0 se renumerou (a PR segue no próximo commit) e 1 se não pôde (quem chama recusa como antes). Não renumera se
+# outro arquivo da PR cita a versão antiga (gate/spec que lê a migration pelo nome): aí a decisão é de quem fez a PR.
+renumerar_migrations() {
+  local n=$1 pj=$2 ult=$3 baixas=$4 via=$5 ref piso f v rest novo c b64 fsha lista=''
+  ref=$(jq -r .head.ref <<< "$pj"); piso=$ult
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    v=${f:0:14}
+    if api "repos/$REPO/pulls/$n/files" --paginate | jq -e --arg v "$v" --arg f "supabase/migrations/$f" '.[] | select(.filename != $f and ((.patch // "") | contains($v)))' > /dev/null; then
+      log "#$n: outro arquivo da PR cita a versão $v: não renumero sozinha"; return 1
+    fi
+  done <<< "$baixas"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    v=${f:0:14}; rest=${f:15}
+    novo=$(proxima_versao "$piso" "${v:12:2}"); piso=$novo
+    c=$(api "repos/$REPO/contents/supabase/migrations/$f?ref=$ref") || return 1
+    b64=$(jq -r .content <<< "$c" | tr -d '\n'); fsha=$(jq -r .sha <<< "$c")
+    { [ -n "$b64" ] && [ "$fsha" != null ]; } || return 1
+    api -X PUT "repos/$REPO/contents/supabase/migrations/${novo}_$rest" -f message="fila: renumera migration $v para $novo (acima da última da main $ult)" -f content="$b64" -f branch="$ref" > /dev/null || return 1
+    api -X DELETE "repos/$REPO/contents/supabase/migrations/$f" -f message="fila: remove migration $v (renumerada para $novo)" -f sha="$fsha" -f branch="$ref" > /dev/null || return 1
+    lista="$lista
+- \`${v}_$rest\` → \`${novo}_$rest\`"
+  done <<< "$baixas"
+  log "#$n: migration(s) renumerada(s) pela fila"
+  comentar "$n" "🔢 **Fila de merge:** a migration desta PR estava com versão NÃO maior que a última da main (\`$ult\`); renumerei sozinha (commit no ramo, conteúdo idêntico):$lista
+
+Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: o patch-id mudou — o gilberto-revisor precisa autorizar de novo (a etiqueta \`$SENSIVEL\` é tirada e recolocada para acordá-lo).")"
+  if [ "$via" = revisada ]; then
+    api -X DELETE "repos/$REPO/issues/$n/labels/$SENSIVEL" > /dev/null 2>&1 || true
+    api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
+  fi
+  return 0
+}
 
 so_sem_migration=0
 for n in $fila; do
@@ -238,6 +289,18 @@ for n in $fila; do
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
       so_sem_migration=1; continue
+    fi
+    # Régua de versão NA HORA do merge (incidente 08/10: #2239 entrou com 20261008140005 abaixo da 150005 já aplicada e o
+    # `db push` recusou — deploy vermelho por horas). Recalcula a última migration da main agora (não usa o check antigo
+    # da PR). Com o deploy-migrations verde (estado_main livre), a última da main = a última aplicada em produção.
+    ult_main=$(api "repos/$REPO/git/trees/main:supabase/migrations" | jq -r '[.tree[].path | select(test("^[0-9]{14}_")) | .[0:14]] | max')
+    baixas=$(api "repos/$REPO/pulls/$n/files" --paginate | jq -r --arg u "$ult_main" '.[] | select(.status == "added" and (.filename | test("^supabase/migrations/[0-9]{14}_"))) | .filename | ltrimstr("supabase/migrations/") | select(.[0:14] <= $u)')
+    if [ -n "$baixas" ]; then
+      # Renumeração AUTOMÁTICA (Eng. Chefe 09/10): em vez de recusar, a fila renomeia a(s) migration(s) da PR com um commit
+      # no ramo dela (versão nova = timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente). O commit roda
+      # os checks de novo; PR revisada precisa de NOVA autorização do revisor (o patch-id muda).
+      if renumerar_migrations "$n" "$pj" "$ult_main" "$baixas" "$via"; then continue; fi
+      tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — não consegui renumerar sozinha; renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
     fi
   fi
 
