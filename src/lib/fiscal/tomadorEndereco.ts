@@ -55,3 +55,60 @@ export function pendenciasEnderecoTomador(c: ClienteEndereco | null | undefined)
   if (!String(c.numero ?? '').trim()) p.push('número')
   return p
 }
+
+// ── Qual cadastro é o tomador (caixa jordana-code 3352399e — OS-2026-0198 Gean → FC Pisos) ─────────────────────────
+// A Gean tinha DOIS cadastros com o CNPJ da FC Pisos: o ativo (só dígitos, endereço e IBGE completos) e um inativo
+// (CNPJ com pontuação, sem endereço). A emissão avulsa procurava pelo documento com limit(1) e podia pegar o inativo:
+// "falta o IBGE" com o cliente certo completo. Regra única para a rota e para a tela:
+//   1) o cliente da OS/venda (clienteId) é SEMPRE o tomador — desde que o documento da nota seja o dele (se a pessoa
+//      trocou o CNPJ na tela, a nota é para outro tomador e vale a busca do item 2);
+//   2) sem ele, busca pelo documento só entre os ATIVOS (comparando só dígitos, as duas colunas);
+//   3) mais de um ativo com o mesmo documento → não chuta: a tela pede para escolher (e unificar os cadastros).
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export type CadastroTomador = ClienteEndereco & {
+  id: string; ativo?: boolean | null; razao_social?: string | null; nome_fantasia?: string | null
+  cnpj_cpf?: string | null; cpf_cnpj?: string | null
+}
+
+export type EscolhaTomador<T extends CadastroTomador = CadastroTomador> =
+  | { tipo: 'cliente'; cliente: T; origem: 'cliente_da_operacao' | 'documento' }
+  | { tipo: 'ambiguo'; candidatos: T[] }
+  | { tipo: 'nenhum' }
+
+export function documentoDoCadastro(c: Pick<CadastroTomador, 'cnpj_cpf' | 'cpf_cnpj'>): string[] {
+  return [dig(c.cnpj_cpf), dig(c.cpf_cnpj)].filter((d) => d.length === 11 || d.length === 14)
+}
+
+export function escolherCadastroTomador<T extends CadastroTomador>(
+  candidatos: T[], documento: string | null | undefined, clienteId?: string | null,
+): EscolhaTomador<T> {
+  const doc = dig(documento)
+  const doDoc = (c: T) => documentoDoCadastro(c).includes(doc)
+  if (clienteId) {
+    const daOperacao = candidatos.find((c) => c.id === clienteId)
+    if (daOperacao && (!doc || doDoc(daOperacao))) return { tipo: 'cliente', cliente: daOperacao, origem: 'cliente_da_operacao' }
+  }
+  if (doc.length !== 11 && doc.length !== 14) return { tipo: 'nenhum' }
+  const ativos = candidatos.filter((c) => c.ativo !== false && doDoc(c))
+  if (ativos.length === 1) return { tipo: 'cliente', cliente: ativos[0], origem: 'documento' }
+  if (ativos.length > 1) return { tipo: 'ambiguo', candidatos: ativos }
+  return { tipo: 'nenhum' }
+}
+
+// Filtro PostgREST (.or) que traz o cliente da operação (por id) E os cadastros com o documento — a escolha é feita
+// depois por escolherCadastroTomador. Id fora do formato UUID é ignorado (nunca entra cru na sintaxe do filtro).
+export function filtroCadastroTomador(documento: string | null | undefined, clienteId?: string | null): string | null {
+  const partes: string[] = []
+  if (clienteId && UUID_RE.test(clienteId)) partes.push(`id.eq.${clienteId}`)
+  const porDoc = filtroDocumentoCliente(documento)
+  if (porDoc) partes.push(porDoc)
+  return partes.length ? partes.join(',') : null
+}
+
+export const CAMPOS_CADASTRO_TOMADOR =
+  'id, ativo, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, logradouro, endereco, numero, complemento, bairro, cidade, uf, cep, codigo_ibge_municipio'
+
+export function nomeCadastro(c: Pick<CadastroTomador, 'razao_social' | 'nome_fantasia'>): string {
+  return String(c.razao_social || c.nome_fantasia || 'Cliente sem nome').trim()
+}
