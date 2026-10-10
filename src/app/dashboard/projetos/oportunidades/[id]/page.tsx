@@ -185,16 +185,17 @@ export default function OportunidadeFichaPage() {
     if (!op) return
     let motivo: string | null = null
     if (nova === 'perdido') {
-      const m = prompt('Motivo da perda (opcional):', '')
+      const m = prompt('Motivo da perda (obrigatório):', '')
       if (m === null) return
-      motivo = m || null
+      if (!m.trim()) { setToast('Informe o motivo da perda para mover a oportunidade.'); return }
+      motivo = m.trim()
     }
     const { data, error } = await supabase.rpc('fn_crm_mover_etapa', {
       p_id: op.id, p_etapa: nova, p_motivo_perda: motivo,
     })
     if (error) { setToast(`Erro: ${error.message}`); return }
     const r = data as { ok?: boolean; erro?: string } | null
-    if (r && r.ok === false) { setToast(`Erro: ${r.erro ?? 'falha'}`); return }
+    if (r && r.ok === false) { setToast(r.erro === 'motivo_obrigatorio' ? 'Informe o motivo da perda.' : `Erro: ${r.erro ?? 'falha'}`); return }
     setToast(`Etapa ALTERADA para ${etapaCfg(nova).l}.`)
     reload()
   }
