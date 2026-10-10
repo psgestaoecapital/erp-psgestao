@@ -32,6 +32,9 @@ jobs:
       LIMITE_RUN_MIN: '90'
       ACEITACOES: aceitacao-pr.yml aceitacao-pos-migration.yml aceitacao-main.yml
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
       - name: Cancelar run com job executando há mais de 45 min
         run: |
           set -euo pipefail
@@ -91,25 +94,12 @@ jobs:
           done
           echo "aceitação da main superada cancelada: $n"
 
-      # Esteira travada 08/10 (Eng. Chefe): a FIFO aceitacao-testes ficou atrás de ~25 aceitações de preview de heads
-      # superados. Run de aceitação de PR ESPERANDO a vez (pending/queued/waiting) cujo SHA não é mais o head da PR, ou
-      # cuja PR fechou/virou draft, está superado: cancela. Usa o GITHUB_TOKEN do job (actions: write). Run executando
-      # nunca é tocado aqui.
-      - name: Cancelar aceitação de preview superada (esperando a fila; SHA que não é mais o head, PR fechada ou draft)
-        run: |
-          set -uo pipefail
-          n=0
-          for st in pending queued waiting; do
-            gh api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=$st&per_page=100" \
-              --jq '.workflow_runs[] | "\(.id) \(.head_sha)"' 2>/dev/null | while read -r id sha; do
-              [ -n "$id" ] || continue
-              vale=$(gh api "repos/$REPO/commits/$sha/pulls" \
-                --jq '[.[] | select(.state == "open" and .draft == false and .head.sha == "'"$sha"'")] | length' 2>/dev/null || echo erro)
-              [ "$vale" = 0 ] || continue
-              echo "- aceitacao-pr · run $id · SHA ${sha:0:7} superado/PR fechada ou draft, esperando a fila → cancelado" >> "$GITHUB_STEP_SUMMARY"
-              gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null || true
-            done
-          done
+      # Esteira travada 08/10 (Eng. Chefe) + 2h na fila 10/10 (CEO): run de aceitação de PR que ocupa a vaga única à toa —
+      # PR mergeada/fechada, ou SHA superado/órfão (não é head de PR aberta nem a ponta da main) — é cancelado. AGORA
+      # inclui os runs status=in_progress presos na fila de concorrência (job sem step): era onde eles ficavam 2h até o
+      # zumbi matar aos 90 min. A versão VIVA de PR aberta e o run da main nunca são tocados (scripts/merge/aceitacao-prune.sh).
+      - name: Liberar vaga (cancela aceitação de PR morta / SHA superado — inclui presos na fila)
+        run: scripts/merge/aceitacao-prune.sh || true
 
       - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
         env:
