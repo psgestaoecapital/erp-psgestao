@@ -30,6 +30,7 @@ BEGIN
   IF NOT COALESCE(v_cfg.cap_boleto, false) THEN
     RETURN jsonb_build_object('ok', false, 'erro', 'este banco nao esta habilitado para boleto'); END IF;
 
+  PERFORM public.fn__guarda_empresa(p_company_id);
   UPDATE public.erp_banco_provider_config SET boleto_responsavel = false
    WHERE company_id = p_company_id AND boleto_responsavel AND id <> p_config_id;
   UPDATE public.erp_banco_provider_config SET boleto_responsavel = true
