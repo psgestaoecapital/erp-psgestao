@@ -37,7 +37,10 @@ const fila = ler('.github/workflows/fila-merge.yml')
 const sh = ler('scripts/merge/fila-merge.sh')
 ok(/GH_TOKEN: \$\{\{ secrets\.FILA_MERGE_TOKEN \}\}/.test(fila) && !/GH_TOKEN: \$\{\{ github\.token \}\}/.test(fila),
   'fila: merge com PAT (FILA_MERGE_TOKEN), nunca com o GITHUB_TOKEN')
-ok(!/cron:/.test(fila), 'fila: sem polling (só eventos)')
+// CEO 10/10: a fila ganhou um tick periódico (rede de segurança) ALÉM dos eventos — event-driven fica quieto entre
+// eventos e o backlog parava. Mantém todos os gatilhos de evento e adiciona um cron de 15 min que varre o backlog.
+ok(/cron: '\*\/15 \* \* \* \*'/.test(fila) && /pull_request_target:/.test(fila) && /workflow_run:/.test(fila) && /workflow_dispatch:/.test(fila),
+  'fila: tick periódico (cron 15 min) + todos os gatilhos de evento mantidos')
 ok(/group: fila-merge/.test(fila) && /cancel-in-progress: false/.test(fila), 'fila: uma rodada por vez')
 ok(/ref: main/.test(fila), 'fila: roda o código da main (o da PR nunca é executado)')
 ok(/merge_method=squash -f sha="\$sha"/.test(sh), 'fila: merge squash travado no SHA conferido')
