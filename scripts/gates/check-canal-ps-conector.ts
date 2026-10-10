@@ -93,7 +93,7 @@ async function main() {
   ok(((await enviar({ method: 'resources/list' })) as R).error?.code === -32601, 'método fora do escopo → -32601')
 
   // ── (4) migration ───────────────────────────────────────────────────────────────────────────────────────────────
-  const sql = ler('supabase/migrations/20261008000160_canal_ps_conector.sql').replace(/--[^\n]*/g, '')
+  const sql = ler('supabase/migrations/20261010010060_canal_ps_conector.sql').replace(/--[^\n]*/g, '')
   ok(/ALTER TABLE public\.erp_canal_ps_chamada ENABLE ROW LEVEL SECURITY/.test(sql) && /REVOKE ALL ON TABLE public\.erp_canal_ps_chamada FROM PUBLIC, anon, authenticated/.test(sql)
     && !/GRANT (INSERT|UPDATE|DELETE|ALL)[^;]*erp_canal_ps_chamada TO (anon|authenticated)/.test(sql), 'registro: RLS, grava só pelas RPCs')
   ok(/v_min >= 20 OR v_hora >= 200/.test(sql) && /pg_advisory_xact_lock/.test(sql), 'limite de uso por usuário (20/min, 200/h), sem corrida')
