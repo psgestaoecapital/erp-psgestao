@@ -102,6 +102,20 @@ jobs:
           else
             echo "::warning::commit $COMMIT sem PR associada — avise o CEO manualmente"
           fi
+      # Quarentena automática (CEO 10/10): se um spec falhou 2x seguidas no @pos da main, SEM relação com a PR do 1º
+      # vermelho e não-crítico, o detector abre uma PR (via rápida, só e2e/quarentena.ts) que o tira da execução — a
+      # fila publica mesmo com o @pos vermelho e o @pos volta ao verde. Crítico/regressão → só alerta, segura a fila.
+      # continue-on-error: nunca muda o veredito VERMELHO deste job; usa o PAT para a PR disparar os checks.
+      - name: Quarentena de spec @pos (sem relação com a PR, 2x seguidas)
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/merge/quarentena-detectar.ts
       - name: Upload relatório (em caso de falha)
         if: failure()
         uses: actions/upload-artifact@v4
