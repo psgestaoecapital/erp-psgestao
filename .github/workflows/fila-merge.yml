@@ -60,4 +60,8 @@ jobs:
           GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Observabilidade (CEO 10/10): grava "por que cada PR está presa" em erp_esteira_pr_estado (produção, onde a aba
+          # /dashboard/dev lê). Ausentes → flush_estado é no-op; a fila nunca quebra por causa disto.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: scripts/merge/fila-merge.sh

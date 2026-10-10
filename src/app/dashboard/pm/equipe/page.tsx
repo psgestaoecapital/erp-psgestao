@@ -3,10 +3,13 @@
 // Escopo por company_id (RD-45). Tema Espresso. Reusa o padrão de Leads/Propostas.
 // LGPD (03/10): custo/hora por pessoa só para quem vê salário, via fn_pm_equipe_custos (registra o acesso); a coluna
 // custo_hora não é lida direto. Quem não vê salário vê a equipe sem os valores e não cadastra/edita.
+// Onda 3 da P&M da Pdois: "Carga × capacidade" (horas de cada pessoa na janela × jornada), em src/components/pm/CargaEquipe.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { COLUNAS_EQUIPE, carregarCustosEquipe } from '@/lib/pm/equipeCustos'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CargaEquipe } from '@/components/pm/CargaEquipe'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const RED = '#7A1F1F'
@@ -26,6 +29,7 @@ export default function EquipePage() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [podeVer, setPodeVer] = useState(false)
+  const [versao, setVersao] = useState(0) // recarrega a carga quando a equipe muda (jornada)
 
   const carregar = async () => {
     if (!empresa) { setMembros([]); setLoading(false); return }
@@ -36,7 +40,7 @@ export default function EquipePage() {
     ])
     setPodeVer(c.podeVer)
     setMembros(((data ?? []) as Omit<Membro, 'custo_hora'>[]).map((m) => ({ ...m, custo_hora: c.custos.get(m.id) ?? null })))
-    setLoading(false)
+    setLoading(false); setVersao((v) => v + 1)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
@@ -82,6 +86,8 @@ export default function EquipePage() {
           <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} />
         </div>
 
+        <CargaEquipe empresa={empresa} versao={versao} />
+
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
           : membros.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>
@@ -111,17 +117,17 @@ export default function EquipePage() {
         <div style={overlay} onClick={() => setEdit(null)}>
           <div style={modal} onClick={(e) => e.stopPropagation()}>
             <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 12px' }}>{edit.id ? 'Editar membro' : 'Novo membro'}</h2>
-            <label style={lbl}>Nome *<input style={inp} value={edit.nome ?? ''} onChange={(e) => setEdit({ ...edit, nome: e.target.value })} /></label>
+            <label style={lbl}><span style={rot}>Nome *<AjudaCampo chave="pm.equipe.nome" /></span><input style={inp} value={edit.nome ?? ''} onChange={(e) => setEdit({ ...edit, nome: e.target.value })} /></label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <label style={lbl}>Cargo<input style={inp} value={edit.cargo ?? ''} onChange={(e) => setEdit({ ...edit, cargo: e.target.value })} /></label>
-              <label style={lbl}>Setor<input style={inp} value={edit.setor ?? ''} onChange={(e) => setEdit({ ...edit, setor: e.target.value })} /></label>
+              <label style={lbl}><span style={rot}>Cargo<AjudaCampo chave="pm.equipe.cargo" /></span><input style={inp} value={edit.cargo ?? ''} onChange={(e) => setEdit({ ...edit, cargo: e.target.value })} /></label>
+              <label style={lbl}><span style={rot}>Setor<AjudaCampo chave="pm.equipe.setor" /></span><input style={inp} value={edit.setor ?? ''} onChange={(e) => setEdit({ ...edit, setor: e.target.value })} /></label>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <label style={lbl}>Custo/hora (R$)<input type="number" style={inp} value={edit.custo_hora ?? ''} onChange={(e) => setEdit({ ...edit, custo_hora: e.target.value === '' ? null : Number(e.target.value) })} /></label>
-              <label style={lbl}>Jornada (h/dia)<input type="number" style={inp} value={edit.jornada_horas_dia ?? 8} onChange={(e) => setEdit({ ...edit, jornada_horas_dia: Number(e.target.value) })} /></label>
+              <label style={lbl}><span style={rot}>Custo/hora (R$)<AjudaCampo chave="pm.equipe.custo_hora" /></span><input type="number" style={inp} value={edit.custo_hora ?? ''} onChange={(e) => setEdit({ ...edit, custo_hora: e.target.value === '' ? null : Number(e.target.value) })} /></label>
+              <label style={lbl}><span style={rot}>Jornada (h/dia)<AjudaCampo chave="pm.equipe.jornada" /></span><input type="number" style={inp} value={edit.jornada_horas_dia ?? 8} onChange={(e) => setEdit({ ...edit, jornada_horas_dia: Number(e.target.value) })} /></label>
             </div>
             <label style={{ ...lbl, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" checked={edit.ativo ?? true} onChange={(e) => setEdit({ ...edit, ativo: e.target.checked })} /> Ativo
+              <input type="checkbox" checked={edit.ativo ?? true} onChange={(e) => setEdit({ ...edit, ativo: e.target.checked })} /> Ativo<AjudaCampo chave="pm.equipe.ativo" />
             </label>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
               <button onClick={() => setEdit(null)} style={btnGhost}>Cancelar</button>
@@ -144,6 +150,7 @@ function Kpi({ l, v }: { l: string; v: string }) {
   )
 }
 const inp: CSSProperties = { border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, minHeight: 40, background: '#fff', color: ESPRESSO }
+const rot: CSSProperties = { display: 'inline-flex', alignItems: 'center' }
 const lbl: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: TEXTM, marginTop: 8 }
 const btnPri: CSSProperties = { border: 'none', background: DOURADO, color: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 700, minHeight: 42 }
 const btnGhost: CSSProperties = { border: `1px solid ${BORDA}`, background: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', minHeight: 42 }
