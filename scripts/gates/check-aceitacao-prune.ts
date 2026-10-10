@@ -19,9 +19,9 @@ ok(/- name: Liberar vaga[\s\S]*?scripts\/merge\/aceitacao-prune\.sh/.test(pr) &&
 ok(/scripts\/merge\/aceitacao-prune\.sh/.test(vig), 'vigia: chama o mesmo prune (rede de segurança a cada 10 min)')
 ok(/Versão morta[\s\S]*?gh run cancel "\$RUN_ID"/.test(pr) && /\[ -z "\$heads" \] && \[ -n "\$main_head" \] && \[ "\$SHA" != "\$main_head" \]/.test(pr),
   '"Versão antiga?": cancela também a versão MORTA (sem PR aberta e fora da main) antes de rodar 40 min')
-ok(/group: \$\{\{ vars\.ACEITACAO_BANCO == 'testes' && 'aceitacao-testes' \|\| 'demo-e2e' \}\}/.test(pr)
+ok(/group: \$\{\{ vars\.ACEITACAO_BANCO == 'testes' &&[^\n]*aceitacao-testes[^\n]*'demo-e2e' \}\}/.test(pr)
   && /cancel-in-progress: false/.test(pr) && /timeout-minutes: 40/.test(pr),
-  'NÃO mexe: serialização (demo-e2e/aceitacao-testes), cancel-in-progress:false, timeout-minutes:40')
+  'NÃO mexe: serialização (demo-e2e/aceitacao-testes por vaga), cancel-in-progress:false, timeout-minutes:40')
 // o prune protege a versão viva e o SHA próprio
 const sh = readFileSync('scripts/merge/aceitacao-prune.sh', 'utf8')
 ok(/state==/.test(sh) && /head\.sha==/.test(sh) && /hsha/.test(sh)
