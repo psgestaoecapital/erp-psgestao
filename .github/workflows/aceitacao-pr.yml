@@ -143,6 +143,32 @@ jobs:
         run: npm ci
       - name: Install Playwright browser (chromium)
         run: npx playwright install --with-deps chromium
+      # PARTE A (CEO 10/10, sessão interativa): encurta o run rodando só as jornadas da ÁREA tocada pela PR. Fallback
+      # OBRIGATÓRIO à suíte COMPLETA quando a PR toca núcleo/compartilhado (migration, .sql/RLS/policy/grant/view/
+      # SECURITY DEFINER/guarda, fiscal, componentes/libs compartilhados, .github/**) ou quando não dá para mapear a
+      # área com segurança. NUNCA pula. A serialização entre PRs (grupo demo-e2e/aceitacao-testes) NÃO muda.
+      - name: Escopo da aceitação (área da PR; fallback = tudo)
+        id: escopo
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.deployment.sha }}
+        run: |
+          d=$(npx tsx scripts/merge/escopo-aceitacao.ts || echo '{"full":true,"specs":[],"motivo":"erro no escopo — roda tudo"}')
+          echo "escopo (json): $d"
+          full=$(printf '%s' "$d" | jq -r '.full')
+          motivo=$(printf '%s' "$d" | jq -r '.motivo')
+          if [ "$full" = "false" ]; then
+            alvo=$(printf '%s' "$d" | jq -r '.specs | join(" ")')
+            n=$(printf '%s' "$d" | jq -r '.specs | length')
+            echo "::notice title=Aceitação escopada::$n jornada(s) — $motivo"
+            echo "### Aceitação escopada: $n jornada(s) — $motivo" >> "$GITHUB_STEP_SUMMARY"
+          else
+            alvo="e2e/jornadas/aceitacao"
+            echo "::notice title=Aceitação completa (fallback)::$motivo"
+            echo "### Aceitação completa (fallback) — $motivo" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "ACEITACAO_ALVO=$alvo" >> "$GITHUB_ENV"
       # Prova no log (RD-38): de onde veio a URL que o robô abre. environment_url = URL do deployment
       # (*.vercel.app); target_url = página de inspeção na vercel.com (não serve como base do app).
       - name: URL do preview (diagnóstico)
@@ -173,7 +199,7 @@ jobs:
         # --pass-with-no-tests: PR sem .spec.ts em aceitacao/ (hotfix, infra, docs) passa; PR com spec e julgada pelo spec.
         # A obrigacao de trazer o spec e do processo (RD-78), nao de um check que quebra por ausencia. Sem isto, a propria PR-I
         # (que nao traz spec) ficaria vermelha para sempre e o check nunca poderia ser obrigatorio.
-        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep-invert @pos-migration
+        run: npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=celular --pass-with-no-tests --grep-invert @pos-migration
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
       - name: Aceitação @pos-migration (informativo — não bloqueia)
@@ -190,7 +216,7 @@ jobs:
           TRAVA_DEMO_ESPERA_MIN: '15'
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
-          if npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
+          if npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=celular --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
             echo "### @pos-migration no preview: verde" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=@pos-migration (informativo)::vermelho no preview — esperado se a migration da PR ainda não entrou. Veredito: aceitacao-pos-migration em produção, logo após o merge."
