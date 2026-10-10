@@ -104,7 +104,7 @@ jobs:
           [ -n "$TEST_SUPABASE_URL" ] && [ -n "$TEST_SUPABASE_ANON_KEY" ] && [ -n "$TEST_SUPABASE_SERVICE_ROLE_KEY" ] \
             || { echo "::error::segredos TEST_SUPABASE_* ausentes"; exit 1; }
           case "$TEST_SUPABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
-          case "$TEST_SUPABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado";; *) echo "::error::TEST_SUPABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+          case "$TEST_SUPABASE_URL" in *xjzqndnvjkdjyisuklpy*) echo "banco de testes confirmado";; *) echo "::error::TEST_SUPABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
       - uses: actions/checkout@v4
         if: steps.ja.outputs.pular == 'false'
         with:
