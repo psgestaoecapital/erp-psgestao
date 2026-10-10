@@ -16,7 +16,7 @@ ok(/contains\("<!-- fila:"\) \| not/.test(bloco) && /startswith\("Fila de merge:
 if (spawnSync('sh', ['-c', 'command -v jq']).status === 0) {
   const n = 7
   const pid = 'a'.repeat(40)
-  const re = `^MERGE AUTORIZADO #${n} — gilberto-revisor · patch-id [0-9a-f]{40}[ \\t\\r]*$`
+  const re = `^MERGE AUTORIZADO #${n} — gilberto-revisor · patch-id [0-9a-f]{40}([ \\t\\r]*|[:\\s].*)$`
   const filtro = '[.[] | select((contains("<!-- fila:") | not) and (startswith("Fila de merge:") | not) and (split("\\n")[0] | test($re)))] | last // empty | split("\\n")[0]'
   const roda = (corpos: string[]) =>
     spawnSync('jq', ['-rs', '--arg', 're', re, filtro], { input: corpos.map((c) => JSON.stringify(c)).join('\n') }).stdout.toString().trim()
@@ -26,6 +26,9 @@ if (spawnSync('sh', ['-c', 'command -v jq']).status === 0) {
   ok(roda([`Fila de merge: MERGE AUTORIZADO #${n} — gilberto-revisor · patch-id ${pid}`]) === '', 'jq: texto iniciado por "Fila de merge:" não vale')
   ok(roda([`oi\n${boa}`]) === '', 'jq: autorização fora da primeira linha não vale')
   ok(roda([`${boa.split('\n')[0]}\n<!-- fila:x -->`]) === '', 'jq: comentário com marca escondida não vale')
+  const comJust = `MERGE AUTORIZADO #${n} — gilberto-revisor · patch-id ${pid}: só adiciona função de log`
+  ok(roda([comJust]) === comJust, 'jq: justificativa depois de ":" na mesma linha vale')
+  ok(roda([`MERGE AUTORIZADO #${n} — gilberto-revisor · patch-id ${pid}ab`]) === '', 'jq: hash com mais de 40 hex não vale')
   ok(roda([`MERGE AUTORIZADO #${n}0 — gilberto-revisor · patch-id ${pid}`]) === '', 'jq: outro número de PR não vale')
 } else console.log('… cenários jq pulados (jq ausente)')
 

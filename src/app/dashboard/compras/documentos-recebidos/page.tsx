@@ -14,6 +14,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { ItensNfeRecebida } from './_components/ItensNfeRecebida'
 import { UploadXmlRecebidaButton } from '@/components/fiscal/UploadXmlRecebidaButton'
+import { UploadXmlLoteRecebidas } from '@/components/fiscal/UploadXmlLoteRecebidas'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 interface Linha {
   id: string
@@ -510,6 +512,7 @@ export default function DocumentosRecebidosPage() {
                     className="cursor-pointer"
                   />
                   Dar ciência automática
+                  <AjudaCampo chave="compras.docs_recebidos.auto_ciencia" />
                 </label>
               </div>
             )}
@@ -555,6 +558,8 @@ export default function DocumentosRecebidosPage() {
             </button>
             {/* nfe-recebida-upload-xml · sobe o XML do fornecedor sem esperar a SEFAZ (cria a nota se preciso) */}
             <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar()} />
+            {/* GF4 · vários XMLs (ou .zip) de uma vez, pela mesma função do envio de um arquivo */}
+            <UploadXmlLoteRecebidas companyId={empresaUnica} onDone={() => void carregar()} />
             <button
               type="button"
               onClick={() => void buscarAgora()}
@@ -603,6 +608,7 @@ export default function DocumentosRecebidosPage() {
               placeholder="Buscar por fornecedor, CNPJ ou chave..."
               className="flex-1 text-[13px] outline-none bg-transparent text-[#3D2314] min-w-[200px]"
             />
+            <AjudaCampo chave="compras.docs_recebidos.busca" />
             <select
               value={filtroStatus}
               onChange={(e) => setFiltroStatus(e.target.value)}
@@ -615,6 +621,7 @@ export default function DocumentosRecebidosPage() {
               <option value="lancada">Lançada</option>
               <option value="ignorada">Ignorada</option>
             </select>
+            <AjudaCampo chave="compras.docs_recebidos.filtro_status" />
           </div>
 
           {erro && (

@@ -92,6 +92,7 @@ export default function ObrasPage() {
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>Hub · Construção</div>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 6px' }}>Obras</h1>
+        <Link href="/dashboard/projetos/obras/nova?area=hub" data-testid="link-nova-obra" style={{ display: 'inline-block', margin: '0 14px 14px 0', fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>+ Nova obra</Link>
         <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="link-resultado-obra" style={{ display: 'inline-block', margin: '0 0 14px', fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>Ver resultado por obra</Link>
 
         {msg && <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 12, background: msg.startsWith('Erro') ? '#FBEAEA' : '#EAF5EE', color: msg.startsWith('Erro') ? VERM : VERDE, border: `0.5px solid ${LINE}` }}>{msg}</div>}
@@ -155,7 +156,13 @@ function Coluna({ titulo, cor, obras, receita, onStatus, busy, onAbrir, onFiscal
     <div>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: cor, fontWeight: 700, marginBottom: 8 }}>{titulo} · {obras.length}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {obras.length === 0 ? <div style={{ fontSize: 12, color: MUT, fontStyle: 'italic' }}>—</div> :
+        {obras.length === 0 ? (
+          <div data-testid={`obras-coluna-vazia-${titulo}`} style={{ fontSize: 12.5, color: MUT, lineHeight: 1.5, border: `0.5px dashed ${LINE}`, borderRadius: 10, padding: 14 }}>
+            {titulo === 'Em andamento'
+              ? <>Nenhuma obra em andamento. A obra nasce quando uma proposta é aprovada — <Link href="/dashboard/projetos/propostas" style={{ color: ESP, fontWeight: 600 }}>abra as Propostas</Link> e aprove a próxima.</>
+              : <>Nenhuma obra {titulo.toLowerCase()} por enquanto.</>}
+          </div>
+        ) :
           obras.map((o) => <ObraCard key={o.id} o={o} receita={receita ? (receita[o.id] ?? null) : undefined} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} onFiscal={onFiscal} />)}
       </div>
     </div>

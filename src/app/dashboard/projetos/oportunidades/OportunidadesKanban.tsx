@@ -171,6 +171,7 @@ export default function OportunidadesKanban({
           .from('erp_crm_oportunidade')
           .select('etapa, valor_estimado')
           .eq('company_id', companyId)
+          .is('deleted_at', null)
           .in('etapa', ['ganho', 'perdido']),
         supabase.rpc('fn_crm_tempo_etapa', { p_company_id: companyId }),
         supabase.rpc('fn_crm_quem_moveu', { p_company_id: companyId }),
