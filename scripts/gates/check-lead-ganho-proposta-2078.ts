@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const mig = readFileSync('supabase/migrations/20261008180020_lead_ganho_reusa_proposta_do_lead.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261010190020_lead_ganho_reusa_proposta_do_lead.sql', 'utf8')
 const iLead = mig.indexOf('lead_id=p_lead_id AND deleted_at IS NULL')
 const iInsert = mig.indexOf('INSERT INTO agency_propostas')
 ok(iLead > 0 && iInsert > iLead, 'procura a proposta do lead antes de criar outra')

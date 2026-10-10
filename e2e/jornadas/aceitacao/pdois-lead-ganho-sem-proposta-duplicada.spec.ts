@@ -1,6 +1,6 @@
 // #2078 Pdois: ganhar o lead que já tem proposta criava uma 2ª proposta zerada ("Proposta — <empresa>").
 // Na Agência (P&M) - DEMO: (1) lead com proposta de R$ 1.850 → ganhar devolve ESSA proposta, ligada ao cliente, e
-// não nasce outra; (2) lead sem proposta → ganhar continua gerando uma. Depende da migration 20261008180020.
+// não nasce outra; (2) lead sem proposta → ganhar continua gerando uma. Depende da migration 20261010190020.
 // Limpeza sem apagar (RD-30): propostas e leads vão para a lixeira.
 
 import { test, expect } from '../../support/fixtures'
