@@ -1,24 +1,33 @@
 'use client'
 // MARGEM POR JOB (P&M). valor_job − custo (Σ agency_timesheet.custo_total) → lucro/margem. Semáforo.
 // CEO 01/10: sem custo/hora não há lucro — a tela pede para cadastrar o custo da hora (regra em src/lib/pm/margem.ts).
-// Escopo por company_id (RD-45). Tema Espresso.
+// Onda 1 da P&M da Pdois (mapeamento do SIGA, Parte S): a mesma margem vista por job, cliente, serviço ou fee (contrato) —
+// regra em agruparMargem (src/lib/pm/margem.ts). Escopo por company_id (RD-45). Tema Espresso.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { calcularMargem, totaisMargem, type ApontamentoMargem } from '@/lib/pm/margem'
+import { calcularMargem, totaisMargem, agruparMargem, type ApontamentoMargem, type DimensaoMargem } from '@/lib/pm/margem'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const YELLOW = '#7A5A0F'; const RED = '#7A1F1F'
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-type Job = { id: string; titulo: string; numero: string | null; valor_job: number | null; custo_estimado: number | null; status: string; cliente_id: string | null }
+type Job = { id: string; titulo: string; numero: string | null; valor_job: number | null; custo_estimado: number | null; status: string; cliente_id: string | null; servico_id: string | null; fee_id: string | null; contrato_id: string | null }
+type Nome = { id: string; nome: string }
+type Contrato = { id: string; cliente_id: string | null; tipo: string | null; status: string | null }
 type Cli = { id: string; nome: string; nome_fantasia: string | null }
 // custo_hora por pessoa só para quem vê salário (fn_pm_equipe_custos, LGPD 03/10); os demais veem só os totais
 type Membro = { id: string; nome: string; custo_hora: number | null }
 
 // onde se cadastra o custo da hora: tela Equipe do P&M (custo/hora por pessoa)
 const ROTA_CUSTO_HORA = '/dashboard/pm/equipe'
+
+const DIMENSOES: { v: DimensaoMargem; l: string }[] = [
+  { v: 'job', l: 'Job' }, { v: 'cliente', l: 'Cliente' }, { v: 'servico', l: 'Serviço' }, { v: 'fee', l: 'Fee' },
+]
+const SEM_GRUPO: Record<DimensaoMargem, string> = { job: '—', cliente: 'Sem cliente', servico: 'Sem serviço', fee: 'Fora de fee (avulso)' }
 
 export default function MargemJobPage() {
   const { selInfo, companyIds } = useCompanyIds()
@@ -27,18 +36,23 @@ export default function MargemJobPage() {
   const [membros, setMembros] = useState<Membro[]>([])
   const [podeVer, setPodeVer] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [servicos, setServicos] = useState<Nome[]>([]); const [contratos, setContratos] = useState<Contrato[]>([])
+  const [dim, setDim] = useState<DimensaoMargem>('job')
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!empresa) { setLoading(false); return }
     setLoading(true)
     Promise.all([
-      supabase.from('agency_jobs').select('id, titulo, numero, valor_job, custo_estimado, status, cliente_id').eq('company_id', empresa),
+      supabase.from('agency_jobs').select('id, titulo, numero, valor_job, custo_estimado, status, cliente_id, servico_id, fee_id, contrato_id').eq('company_id', empresa),
       supabase.from('agency_timesheet').select('job_id, horas, custo_hora, custo_total').eq('company_id', empresa),
       supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa),
       supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
       carregarCustosEquipe(supabase, empresa),
-    ]).then(([j, t, c, m, custos]) => {
+      supabase.from('agency_servico').select('id, nome').eq('company_id', empresa),
+      supabase.from('agency_contratos').select('id, cliente_id, tipo, status').eq('company_id', empresa),
+    ]).then(([j, t, c, m, custos, sv, co]) => {
+      setServicos((sv.data ?? []) as Nome[]); setContratos((co.data ?? []) as Contrato[])
       setJobs((j.data ?? []) as Job[]); setTs((t.data ?? []) as ApontamentoMargem[]); setClientes((c.data ?? []) as Cli[])
       setPodeVer(custos.podeVer)
       setMembros(((m.data ?? []) as { id: string; nome: string }[]).map((x) => ({ ...x, custo_hora: custos.custos.get(x.id) ?? null })))
@@ -54,6 +68,18 @@ export default function MargemJobPage() {
   }).sort((a, b) => (a.margem ?? -1e9) - (b.margem ?? -1e9)), [jobs, ts])
 
   const tot = useMemo(() => totaisMargem(linhas), [linhas])
+  // fee = contrato do job (fee_id; job antigo só tem contrato_id)
+  const chaveDe = (j: Job): string | null => dim === 'cliente' ? j.cliente_id : dim === 'servico' ? j.servico_id : (j.fee_id ?? j.contrato_id)
+  const nomeGrupo = (id: string | null): string => {
+    if (!id) return SEM_GRUPO[dim]
+    if (dim === 'cliente') return nomeCli(id)
+    if (dim === 'servico') return servicos.find((x) => x.id === id)?.nome ?? 'Serviço'
+    const c = contratos.find((x) => x.id === id)
+    return c ? `${nomeCli(c.cliente_id)} · ${c.tipo === 'projeto' ? 'projeto' : 'fee'}${c.status && c.status !== 'ativo' ? ` (${c.status})` : ''}` : 'Fee'
+  }
+  const grupos = useMemo(() => dim === 'job' ? [] : agruparMargem(linhas.map((l) => ({ chave: chaveDe(l.j), linha: l }))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [linhas, dim])
   // quem está sem custo/hora é dado por pessoa: só aparece para quem vê salário
   const semCustoHora = podeVer ? membros.filter((m) => !(Number(m.custo_hora ?? 0) > 0)).map((m) => m.nome) : []
 
@@ -96,9 +122,44 @@ export default function MargemJobPage() {
           </div>
         )}
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }} data-testid="margem-ver-por">
+          <span style={{ fontSize: 12, color: TEXTM, fontWeight: 700, display: 'inline-flex', alignItems: 'center' }}>Ver margem por<AjudaCampo chave="pm.margem.ver_por" /></span>
+          {DIMENSOES.map((d) => (
+            <button key={d.v} type="button" onClick={() => setDim(d.v)} data-testid={`margem-dim-${d.v}`} aria-pressed={dim === d.v}
+              style={{ border: `1px solid ${dim === d.v ? ESPRESSO : BORDA}`, background: dim === d.v ? ESPRESSO : '#fff', color: dim === d.v ? '#fff' : ESPRESSO, borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', minHeight: 36 }}>
+              {d.l}
+            </button>
+          ))}
+        </div>
+
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
           : linhas.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>Sem jobs ainda.</div>
-          : (
+          : dim !== 'job' ? (
+            <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 620 }}>
+                <thead style={{ background: OFFWHITE }}><tr><Th>{DIMENSOES.find((d) => d.v === dim)?.l}</Th><Th>Jobs</Th><Th>Valor</Th><Th>Custo</Th><Th>Lucro</Th><Th><span style={{ display: 'inline-flex', alignItems: 'center' }}>Margem<AjudaCampo chave="pm.margem.grupo" /></span></Th></tr></thead>
+                <tbody>
+                  {grupos.map((g) => {
+                    const tom = g.margem == null ? TEXTM : g.margem >= 50 ? GREEN : g.margem >= 25 ? YELLOW : RED
+                    return (
+                      <tr key={g.chave ?? 'sem'} style={{ borderTop: `1px solid ${BORDA}` }} data-testid={`margem-grupo-${g.chave ?? 'sem'}`}>
+                        <Td><b>{nomeGrupo(g.chave)}</b></Td>
+                        <Td style={{ color: TEXTM }}>{g.jobs}{g.pendentes > 0 && <span style={{ fontSize: 11, color: YELLOW }}> · {g.pendentes} sem custo</span>}</Td>
+                        {g.margem == null ? (
+                          <Td colSpan={4} style={{ color: TEXTM }}>Sem custo lançado nos jobs deste grupo</Td>
+                        ) : (<>
+                          <Td>{brl(g.valor)}</Td>
+                          <Td>{brl(g.custo)}</Td>
+                          <Td style={{ color: g.lucro >= 0 ? GREEN : RED, fontWeight: 700 }}>{brl(g.lucro)}</Td>
+                          <Td><span style={{ fontWeight: 700, color: tom }}>● {g.margem.toFixed(1)}%</span></Td>
+                        </>)}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 620 }}>
                 <thead style={{ background: OFFWHITE }}><tr><Th>Job</Th><Th>Cliente</Th><Th>Valor</Th><Th>Custo</Th><Th>Lucro</Th><Th>Margem</Th></tr></thead>
