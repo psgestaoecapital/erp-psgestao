@@ -15,7 +15,7 @@ const hoje = new Date().toISOString().slice(0, 10)
 
 const clientes: string[] = []
 const titulos: string[] = []
-type Mov = { tabela: string; rotulo: string; qtd: number }
+type Mov = { tabela: string; rotulo: string; qtd: number; ids?: string[] }
 
 test.describe('Cliente: unificar cadastros com o mesmo CNPJ (caixa 3352399e, item 3)', () => {
   test.afterEach(async ({}, testInfo) => {
@@ -74,6 +74,8 @@ test.describe('Cliente: unificar cadastros com o mesmo CNPJ (caixa 3352399e, ite
       { p_principal: principal, p_duplicado: duplicado, p_motivo: `aceitação ${RUN}` })
     expect(feito.status, feito.texto).toBe(200)
     expect(feito.corpo?.movidos.find((m) => m.tabela === 'erp_receber')?.qtd).toBe(2)
+    expect([...(feito.corpo?.movidos.find((m) => m.tabela === 'erp_receber')?.ids ?? [])].sort(),
+      'a auditoria guarda os ids movidos (para desfazer)').toEqual([...titulos].sort())
 
     const depois = await dbSelect<{ id: string; valor: number; status: string; cliente_id: string }>('erp_receber', `id=in.(${titulos.join(',')})&select=id,valor,status,cliente_id&order=id`)
     expect(depois.every((t) => t.cliente_id === principal), 'os títulos (aberto e pago) passam para o principal').toBe(true)

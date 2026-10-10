@@ -53,7 +53,7 @@ GRANT SELECT ON public.erp_cliente_unificacao TO authenticated;
 GRANT ALL ON public.erp_cliente_unificacao TO service_role;
 
 COMMENT ON TABLE public.erp_cliente_unificacao IS
-  'Auditoria da unificação de cadastros de cliente com o mesmo CNPJ/CPF: quem, quando, o que foi movido (tabela/qtd) e a foto do duplicado antes.';
+  'Auditoria da unificação de cadastros de cliente com o mesmo CNPJ/CPF: quem, quando, o que foi movido (tabela, coluna, qtd e ids das linhas, para desfazer) e a foto do duplicado antes.';
 
 -- Mesmo corpo da #2300 (guarda de CNPJ duplicado): repetido aqui para esta migration não depender da ordem de publicação.
 CREATE OR REPLACE FUNCTION public.fn_clientes_documento_digitos(p_cpf_cnpj text, p_cnpj_cpf text)
@@ -251,6 +251,7 @@ DECLARE
   mov    jsonb := '[]'::jsonb;
   antes  jsonb;
   v_id   uuid;
+  ids    jsonb;
 BEGIN
   SELECT * INTO v FROM public.fn__cliente_unificar_validar(p_principal, p_duplicado);
   -- trava os dois cadastros e confere de novo (duas unificações simultâneas do mesmo par esperam uma a outra)
@@ -262,11 +263,12 @@ BEGIN
   BEGIN
     FOR r IN SELECT * FROM public.fn__cliente_referencias() LOOP
       IF to_regclass('public.' || r.tabela) IS NULL THEN CONTINUE; END IF;
-      EXECUTE format('UPDATE public.%I SET %I = $1 WHERE %I = $2 AND company_id = $3', r.tabela, r.coluna, r.coluna)
-        USING p_principal, p_duplicado, v.o_company;
-      GET DIAGNOSTICS n = ROW_COUNT;
+      -- guarda os ids das linhas movidas (backup para desfazer: basta voltar a coluna ao duplicado nesses ids)
+      EXECUTE format('WITH u AS (UPDATE public.%I SET %I = $1 WHERE %I = $2 AND company_id = $3 RETURNING id) '
+                     'SELECT count(*), coalesce(jsonb_agg(id), ''[]''::jsonb) FROM u', r.tabela, r.coluna, r.coluna)
+        INTO n, ids USING p_principal, p_duplicado, v.o_company;
       IF n > 0 THEN
-        mov := mov || jsonb_build_object('tabela', r.tabela, 'rotulo', r.rotulo, 'qtd', n);
+        mov := mov || jsonb_build_object('tabela', r.tabela, 'coluna', r.coluna, 'rotulo', r.rotulo, 'qtd', n, 'ids', ids);
       END IF;
     END LOOP;
   EXCEPTION WHEN unique_violation THEN
