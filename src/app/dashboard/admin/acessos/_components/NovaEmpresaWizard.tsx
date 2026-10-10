@@ -4,6 +4,7 @@
 // v1: papel padrão por pessoa (acesso fino área→tela→função é Fase B, tela "Gerenciar acessos" separada).
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { Building2, Search, Crown, Users, ClipboardCheck, Check, X, Loader2, Plus, Trash2, ChevronRight, ChevronLeft } from 'lucide-react'
 
 const GO = '#C8941A', BG = '#FAF7F2', BG2 = '#FFFFFF', BD = '#E0D8CC', TX = '#3D2314', TXM = '#6B5D4F', TXD = '#9C8E80', G = '#22C55E', R = '#EF4444'
@@ -39,6 +40,7 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
   const [endereco, setEndereco] = useState('')
   const [cnae, setCnae] = useState('')
   const [ie, setIe] = useState('')
+  const [ieIsento, setIeIsento] = useState(false)
   const [im, setIm] = useState('')
   const [regime, setRegime] = useState('simples')
   const [grupoId, setGrupoId] = useState('')
@@ -120,7 +122,7 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
       }
       const { data, error } = await supabase.rpc('fn_admin_criar_empresa', {
         p_razao_social: razao.trim(), p_nome_fantasia: fantasia.trim() || null, p_cnpj: cnpjLimpo,
-        p_inscricao_estadual: ie.trim() || null, p_inscricao_municipal: im.trim() || null,
+        p_inscricao_estadual: ieIsento ? null : (ie.trim() || null), p_inscricao_municipal: im.trim() || null,
         p_cidade_estado: cidadeUf.trim() || null, p_endereco: endereco.trim() || null,
         p_cnae: soDig(cnae) || null, p_regime_tributario: regime || null,
         p_plan_ids: planIds, p_group_id: gid, p_is_matriz: true, p_org_id: null,
@@ -133,6 +135,7 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
         setErro(m); setCriando(false); return
       }
       const companyId = j.company_id
+      if (ieIsento) await supabase.rpc('fn_empresa_salvar_ie_isento', { p_company_id: companyId, p_ie_isento: true })
       const baseUrl = typeof window !== 'undefined' ? window.location.origin : null
       let convites = 0
       // Master → CLIENT_OWNER
@@ -163,11 +166,11 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
     || !!(master.nome || master.email || master.telefone)
     || equipe.length > 0
     || step > 1
-  ), [cnpj, razao, fantasia, cidadeUf, endereco, cnae, ie, im, novoGrupo, grupoId, planIds, master, equipe, step])
+  ), [cnpj, razao, fantasia, cidadeUf, endereco, cnae, ie, ieIsento, im, novoGrupo, grupoId, planIds, master, equipe, step])
 
   function resetTudo() {
     setStep(1); setCnpj(''); setRazao(''); setFantasia(''); setCidadeUf(''); setEndereco(''); setCnae('')
-    setIe(''); setIm(''); setRegime('simples'); setGrupoId(''); setNovoGrupo(''); setCnpjMsg(null)
+    setIe(''); setIeIsento(false); setIm(''); setRegime('simples'); setGrupoId(''); setNovoGrupo(''); setCnpjMsg(null)
     setPlanIds([]); setMaster({ nome: '', email: '', telefone: '' }); setEquipe([])
     setErro(null); setResultado(null); setConfirmClose(false)
   }
@@ -244,7 +247,8 @@ export default function NovaEmpresaWizard({ open, onClose, onCreated }: { open: 
                     <option value="simples">Simples Nacional</option><option value="presumido">Lucro Presumido</option><option value="real">Lucro Real</option><option value="mei">MEI</option>
                   </select>
                 </div>
-                <div><label style={lbl}>Inscrição estadual</label><input value={ie} onChange={(e) => setIe(e.target.value)} style={inp} /></div>
+                <div><label style={lbl}>Inscrição estadual</label><input value={ieIsento ? '' : ie} onChange={(e) => setIe(e.target.value)} disabled={ieIsento} placeholder={ieIsento ? 'Isento' : ''} style={inp} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12.5 }}><input type="checkbox" checked={ieIsento} onChange={(e) => setIeIsento(e.target.checked)} /> Isento de inscrição estadual<AjudaCampo chave="empresa.dados.ie_isento" /></label></div>
                 <div><label style={lbl}>Inscrição municipal</label><input value={im} onChange={(e) => setIm(e.target.value)} style={inp} /></div>
                 <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Endereço</label><input value={endereco} onChange={(e) => setEndereco(e.target.value)} style={inp} /></div>
                 <div><label style={lbl}>Grupo (multi-CNPJ)</label>
