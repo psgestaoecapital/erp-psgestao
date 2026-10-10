@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
+import GraficosCodes from './GraficosCodes'
 import MeuCode from '@/components/dev/MeuCode'
 import {
   CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, entregues, estadoSessao, faixa,
@@ -22,7 +23,8 @@ const COLS_ENTREGA = 'id,pr_numero,titulo,code,evento,via,sha,url,ocorrido_em'
 const COLS_MSG = 'id,para,assunto,status,pr_numero,resposta,arquivada,criado_em,atualizado_em'
 const FILA_VISIVEL = 6
 
-type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[] }
+type MainTeste = { verde: boolean | null; desde: string | null; spec_falha: string | null; run_url: string | null }
+type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[]; mainTeste: MainTeste | null }
 
 export default function PainelCodes() {
   const [pode, setPode] = useState<boolean | null>(null)
@@ -46,7 +48,7 @@ export default function PainelCodes() {
   const carregar = useCallback(async () => {
     const desde = new Date(Date.now() - 14 * 864e5).toISOString()
     const { de, ate } = intervaloDia(diaRef.current)
-    const [ent, abertas, resp, leases, rotinas, linha] = await Promise.all([
+    const [ent, abertas, resp, leases, rotinas, linha, mt] = await Promise.all([
       supabase.from('erp_dev_entrega').select(COLS_ENTREGA).gte('ocorrido_em', desde).order('ocorrido_em', { ascending: false }).limit(3000),
       supabase.from('erp_agente_mensagem').select(COLS_MSG).in('para', CODES_PAINEL as string[]).not('arquivada', 'is', true)
         .in('status', ['nova', 'recebida', 'em_andamento']).order('criado_em', { ascending: true }).limit(5000),
@@ -56,7 +58,9 @@ export default function PainelCodes() {
       supabase.from('erp_agente_rotina').select('agente,aciona'),
       supabase.from('erp_dev_entrega').select(COLS_ENTREGA).eq('evento', 'publicada').gte('ocorrido_em', de).lt('ocorrido_em', ate)
         .order('ocorrido_em', { ascending: false }).limit(500),
+      supabase.from('erp_dev_main_teste').select('verde,desde,spec_falha,run_url').eq('id', 1).maybeSingle(),
     ])
+    // erp_dev_main_teste pode não existir em ambientes sem a migration: o erro dela não derruba a aba.
     const falha = [ent, abertas, resp, leases, rotinas, linha].find((r) => r.error)?.error
     if (falha) { setErro(falha.message); return }
     setErro(null)
@@ -66,6 +70,7 @@ export default function PainelCodes() {
       leases: (leases.data ?? []) as Lease[],
       rotinas: (rotinas.data ?? []) as Rotina[],
       linhaTempo: (linha.data ?? []) as Entrega[],
+      mainTeste: (mt.error ? null : (mt.data as MainTeste | null)),
     })
     const n = new Date()
     setAtualizado(n); setAgora(n)
@@ -95,7 +100,12 @@ export default function PainelCodes() {
   const trocarDia = (d: string) => { diaRef.current = d; setDia(d); void carregar() }
 
   const f = useMemo(() => (dados ? faixa({ entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, agora }) : null), [dados, agora])
-  const est = useMemo(() => (dados ? esteira({ entregas: dados.entregas, agora }) : null), [dados, agora])
+  const est = useMemo(() => (dados ? esteira({
+    entregas: dados.entregas, agora,
+    mainVerde: dados.mainTeste?.verde ?? null,
+    mainDesde: dados.mainTeste?.desde ? new Date(dados.mainTeste.desde) : null,
+    specFalha: dados.mainTeste?.spec_falha ?? null,
+  }) : null), [dados, agora])
   const resumos = useMemo(
     () => (dados ? CODES_PAINEL.map((code) => resumoCode({ code, entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, rotinas: dados.rotinas, agora })) : []),
     [dados, agora],
@@ -123,6 +133,7 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
+      <GraficosCodes />
       {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
       {resumos.length > 0 && <ResumoPorCode itens={resumos} agora={agora} />}
 
@@ -158,7 +169,9 @@ const COR_STATUS: Record<StatusCode, { bg: string; fg: string; ico: string; nome
 function FaixaEsteira({ e, alerta, agora }: { e: ReturnType<typeof esteira>; alerta: string | null; agora: Date }) {
   const c = COR_ESTEIRA[e.cor]
   const pub = e.ultimaPub ? `publicou ${hora(e.ultimaPub)} (há ${duracao(agora.getTime() - e.ultimaPub.getTime())})` : 'sem publicação nos últimos 7 dias'
-  const main = e.mainVerde === null ? 'teste da main sem dado' : e.mainVerde ? 'teste da main verde' : 'teste da main vermelho'
+  const main = e.mainVerde === null ? 'teste da main sem dado'
+    : e.mainVerde ? 'teste da main verde'
+    : `teste da main VERMELHO${e.mainDesde ? ` há ${duracao(agora.getTime() - e.mainDesde.getTime())}` : ''}${e.specFalha ? ` — ${e.specFalha}` : ''}`
   const filaT = e.filaTestes === null ? 'fila de testes sem dado' : `fila de testes ${e.filaTestes} esperando`
   return (
     <div data-testid="codes-faixa" data-cor={e.cor}
