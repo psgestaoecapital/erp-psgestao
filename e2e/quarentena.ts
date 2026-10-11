@@ -36,6 +36,14 @@ export type SpecQuarentenado = {
 // a remoção é feita pela PR do Code dono que conserta o spec. Nunca apaga o arquivo do spec, só o tira da execução.
 export const QUARENTENA: SpecQuarentenado[] = [
   /* quarentena:inicio */
+  {
+    spec: 'e2e/jornadas/aceitacao/agency-origens-semente.spec.ts',
+    area: 'agency-origens',
+    motivo: 'asserção da linha 31 falha no banco de testes novo (DEMO da agência sem algum dado da semente); trava o teste da main e ~32 PRs. Conserto: Eng. Chefe msg 8787bb9d, ação 2',
+    desde: '2026-10-11T09:00:00Z',
+    runs: [0, 0], // run da aceitacao-main 01:09 e o seguinte (CEO destrava manual, 11/10)
+    code: 'gilberto-desenv',
+  },
   /* quarentena:fim */
 ]
 
