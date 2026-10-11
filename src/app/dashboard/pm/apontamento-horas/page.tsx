@@ -14,7 +14,7 @@ const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', {
 
 type JobOpt = { id: string; titulo: string; numero: string | null }
 type MembroOpt = { id: string; nome: string; custo_hora: number | null }
-type Linha = { id: string; job_id: string | null; data: string; horas: number; descricao: string | null; custo_total: number | null; user_id: string | null }
+type Linha = { id: string; job_id: string | null; data: string; horas: number; descricao: string | null; custo_total: number | null; user_id: string | null; etapa_tipo?: string | null }
 
 export default function ApontamentoHorasPage() {
   const { selInfo, companyIds } = useCompanyIds()
@@ -35,7 +35,7 @@ export default function ApontamentoHorasPage() {
     const [j, e, t, c] = await Promise.all([
       supabase.from('agency_jobs').select('id, titulo, numero').eq('company_id', empresa).order('created_at', { ascending: false }),
       supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
-      supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, custo_total, user_id').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
+      supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, custo_total, user_id, etapa_tipo').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
       carregarCustosEquipe(supabase, empresa),
     ])
     setJobs((j.data ?? []) as JobOpt[]); setLinhas((t.data ?? []) as Linha[])
@@ -139,12 +139,13 @@ export default function ApontamentoHorasPage() {
           ) : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 520 }}>
-                <thead style={{ background: OFFWHITE }}><tr><Th>Data</Th><Th>Job</Th><Th>Horas</Th><Th>Custo</Th><Th>Descrição</Th></tr></thead>
+                <thead style={{ background: OFFWHITE }}><tr><Th>Data</Th><Th>Job</Th><Th>Etapa</Th><Th>Horas</Th><Th>Custo</Th><Th>Descrição</Th></tr></thead>
                 <tbody>
                   {linhas.map((l) => (
                     <tr key={l.id} style={{ borderTop: `1px solid ${BORDA}` }}>
                       <Td>{l.data}</Td>
                       <Td>{jobs.find((j) => j.id === l.job_id)?.titulo ?? '—'}</Td>
+                      <Td>{l.etapa_tipo ?? '—'}</Td>
                       <Td>{Number(l.horas).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}h</Td>
                       <Td style={{ color: GREEN, fontWeight: 600 }}>{brl(Number(l.custo_total ?? 0))}</Td>
                       <Td style={{ color: TEXTM }}>{l.descricao ?? ''}</Td>

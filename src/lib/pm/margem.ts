@@ -52,3 +52,36 @@ export function totaisMargem(linhas: LinhaMargem[]) {
     semCusto: linhas.filter((l) => l.situacao === 'sem_custo').length,
   }
 }
+
+// ── Margem agrupada (onda 1 da P&M da Pdois, mapeamento do SIGA — Parte S): o SIGA só mostra por cliente; aqui a mesma
+// conta por job é somada por cliente, por serviço ou por fee (contrato). Mesma regra do job: só entra no lucro do grupo
+// o job com custo completo; os pendentes são contados à parte no próprio grupo (RD-51).
+export type DimensaoMargem = 'job' | 'cliente' | 'servico' | 'fee'
+
+export type GrupoMargem = {
+  chave: string | null
+  jobs: number
+  valor: number
+  custo: number
+  lucro: number
+  margem: number | null
+  pendentes: number
+}
+
+export function agruparMargem(itens: { chave: string | null; linha: LinhaMargem }[]): GrupoMargem[] {
+  const mapa = new Map<string, { chave: string | null; linhas: LinhaMargem[] }>()
+  for (const it of itens) {
+    const k = it.chave ?? ''
+    const g = mapa.get(k) ?? { chave: it.chave, linhas: [] }
+    g.linhas.push(it.linha)
+    mapa.set(k, g)
+  }
+  return [...mapa.values()].map((g) => {
+    const t = totaisMargem(g.linhas)
+    const algumOk = g.linhas.some((l) => l.situacao === 'ok')
+    return {
+      chave: g.chave, jobs: g.linhas.length, valor: t.valor, custo: t.custo, lucro: t.lucro,
+      margem: algumOk ? t.margem : null, pendentes: t.semCustoHora + t.semCusto,
+    }
+  }).sort((a, b) => (a.margem ?? -1e9) - (b.margem ?? -1e9))
+}

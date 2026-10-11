@@ -2,6 +2,8 @@
 // Paleta espresso/off-white/dourado inviolavel.
 'use client'
 
+import { fmtMoedaDre } from '@/lib/formatoMoedaDre'
+
 export const C = {
   espresso: '#3D2314',
   espressoLt: '#5C3923',
@@ -38,13 +40,8 @@ export const MESES_PT = [
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ]
 
-export const fmtBRL = (v: number) => {
-  if (!Number.isFinite(v)) return 'R$ 0'
-  const negativo = v < 0
-  const abs = Math.abs(v)
-  const fmt = `R$ ${abs.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-  return negativo ? `(${fmt})` : fmt
-}
+// CEO 07/10: moeda completa pt-BR (R$ 1.234,56), negativo com "-" na frente (sem parênteses, sem abreviar).
+export const fmtBRL = fmtMoedaDre
 
 export const fmtPct = (v: number, casas = 1) => {
   if (!Number.isFinite(v)) return '0%'

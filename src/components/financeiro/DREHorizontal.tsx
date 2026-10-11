@@ -6,12 +6,13 @@
 // - intervalo > 1 mês → colunas = MESES (fn_psgc_dre_horizontal);
 // - 1 mês (De = Até) → colunas = DIAS 1…31 (fn_psgc_dre_horizontal_dia), cada conta
 //   com valor por dia; expandir conta-folha abre o detalhe por pessoa × dia (#813);
-// - árvore colapsável; sticky; abreviado com valor cheio no title.
+// - árvore colapsável; sticky; valor sempre cheio (R$ 1.234,56), negativo em vermelho.
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import Modal from '@/components/ui/Modal'
+import { fmtMoedaDre, valorComSinalDre, ehNegativoDre, COR_VALOR_NEGATIVO } from '@/lib/formatoMoedaDre'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -46,13 +47,8 @@ type MesRaw = { ym: string; label: string; projecao: boolean }
 type DiaRaw = { d: number; ymd: string }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
-function abrev(n: number): string {
-  const a = Math.abs(n)
-  if (a >= 1_000_000) return `${(n / 1_000_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`
-  if (a >= 1_000) return `${(n / 1_000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mil`
-  return n.toLocaleString('pt-BR', { maximumFractionDigits: 0 })
-}
-const cheio = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const cheio = fmtMoedaDre
+const abrev = fmtMoedaDre
 
 export default function DREHorizontal() {
   const { sel, companyIds, selInfo, loading: loadingSel } = useCompanyIds()
@@ -313,22 +309,22 @@ export default function DREHorizontal() {
                           : ESP
                         const saldoNeg = isPrevisto && l.codigo === 'SALDO' && v != null && v < 0
                         return (
-                          <td key={c.key} title={v != null ? cheio(v) : ''} style={{
+                          <td key={c.key} title={v != null ? cheio(valorComSinalDre(v, l.sinal)) : ''} style={{
                             ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null),
                             ...(c.projecao ? { background: isRes ? '#FBF4E6' : '#FDFAF3' } : null),
                             ...(saldoNeg ? { background: '#FCEBEB' } : null),
                             fontWeight: bold ? 700 : 400,
-                            color: corCel,
+                            color: v != null && ehNegativoDre(valorComSinalDre(v, l.sinal)) ? COR_VALOR_NEGATIVO : corCel,
                           }}>
-                            {v != null ? abrev(v) : ''}
+                            {v != null ? fmtMoedaDre(valorComSinalDre(v, l.sinal)) : ''}
                           </td>
                         )
                       })}
-                      <td title={cheio(totalDisplay)} style={{
+                      <td title={cheio(valorComSinalDre(totalDisplay, l.sinal))} style={{
                         ...tdVal, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
-                        fontWeight: 700, color: corTotal,
+                        fontWeight: 700, color: ehNegativoDre(valorComSinalDre(totalDisplay, l.sinal)) ? COR_VALOR_NEGATIVO : corTotal,
                       }}>
-                        {abrev(totalDisplay)}
+                        {fmtMoedaDre(valorComSinalDre(totalDisplay, l.sinal))}
                       </td>
                     </tr>
                     {/* Drill como LINHAS da MESMA tabela (mesmas colunas do topo) → dia N sempre sob dia N. */}
@@ -344,7 +340,7 @@ export default function DREHorizontal() {
         )}
 
         <p style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
-          Valores abreviados (toque/hover mostra o valor cheio).
+          Valores em reais completos; despesas e resultados negativos aparecem com “-” em vermelho.
           {data?.regime === 'previsto'
             ? <> <b>Previsto</b> = fluxo de caixa por <b>vencimento</b> (entradas − saídas → saldo acumulado). Não é DRE: previsão não tem lucro/EBITDA, tem <b>quanto vou ter em caixa</b>. Clique num <b>dia</b> (cabeçalho) pra ver os títulos a vencer.</>
             : umMes
