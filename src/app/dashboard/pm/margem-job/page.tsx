@@ -44,7 +44,7 @@ export default function MargemJobPage() {
     if (!empresa) { setLoading(false); return }
     setLoading(true)
     Promise.all([
-      supabase.from('agency_jobs').select('id, titulo, numero, valor_job, custo_estimado, status, cliente_id, servico_id, fee_id, contrato_id').eq('company_id', empresa),
+      supabase.from('agency_jobs').select('id, titulo, numero, valor_job, custo_estimado, status, cliente_id, servico_id, fee_id, contrato_id').eq('company_id', empresa).order('created_at', { ascending: false }).limit(1000), // PostgREST corta em 1000: sem ordem, o job mais novo some quando a empresa passa disso
       supabase.rpc('fn_pm_job_custos', { p_company_id: empresa }), // agregado por job; ninguém lê custo/hora por pessoa direto (LGPD)
       supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa),
       supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
