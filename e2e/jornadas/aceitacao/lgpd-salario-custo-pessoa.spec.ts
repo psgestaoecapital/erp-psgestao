@@ -122,7 +122,7 @@ test.describe('LGPD · salário_base e custo por pessoa protegidos', () => {
 
   test('Apontamento de horas grava pela função e a Margem por Job segue calculando', { tag: '@pos-migration' }, async ({ page }) => {
     const [membro] = await dbSelect<{ id: string; custo_hora: number | null }>('agency_equipe', `company_id=eq.${DEMO_PM}&custo_hora=gt.0&ativo=eq.true&select=id,custo_hora&limit=1`)
-    const [job] = await dbSelect<{ id: string; titulo: string }>('agency_jobs', `company_id=eq.${DEMO_PM}&select=id,titulo&limit=1`)
+    const [job] = await dbSelect<{ id: string; titulo: string }>('agency_jobs', `company_id=eq.${DEMO_PM}&select=id,titulo&order=created_at.desc&limit=1`)
     expect(membro, 'a demo P&M tem pessoa com custo/hora').toBeTruthy()
 
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_PM)
