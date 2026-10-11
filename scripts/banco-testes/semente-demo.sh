@@ -81,7 +81,7 @@ INSERT INTO public.atak_fonte_mapa
 -- erp_contexto_projeto: NUNCA a memória real. Só uma linha SINTÉTICA de briefing (ponto-de-partida).
 DELETE FROM public.erp_contexto_projeto;
 INSERT INTO public.erp_contexto_projeto (projeto, categoria, prioridade, status, titulo, descricao, tags, criado_por)
-VALUES ('banco-testes', 'briefing', 'media', 'ativo',
+VALUES ('banco-testes', 'estrela_polar', 'media', 'ativo',
         'Ponto de partida (semente de testes)',
         'Registro sintético do banco de testes para o briefing de sessão. Sem dado real.',
         ARRAY['ponto-de-partida']::text[], 'semente-testes');
