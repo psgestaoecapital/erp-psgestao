@@ -161,8 +161,9 @@ jobs:
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
           TRAVA_DEMO_ESPERA_MIN: '15'
-        # suíte inteira (inclui @pos-migration: o banco de testes recebe as migrations da main pelo montar-banco-testes)
-        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
+        # Eng. Chefe 11/10: sem @pos-migration — esses specs testam o estado pós-deploy em PRODUÇÃO (aceitacao-pos-migration.yml)
+        # e falham no banco de testes, derrubando o run e travando a fila. Mesmo filtro da aceitacao-pr.yml.
+        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep-invert @pos-migration
       - name: Soltar a trava da demo (sempre)
         if: steps.ja.outputs.pular == 'false' && (always())
         continue-on-error: true

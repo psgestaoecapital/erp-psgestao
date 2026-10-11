@@ -31,6 +31,9 @@ for (const [f, step] of [['aceitacao-pr.yml', 'Jornadas de aceitação contra o 
   ok(i > 0 && /^\s+timeout-minutes: \d+\s*$/m.test(wf.slice(i, i + 200)), `${f}: step longo "${step}" com timeout-minutes próprio`)
 }
 ok(/^    timeout-minutes: 60\s*$/m.test(ler('.github/workflows/aceitacao-main.yml')), 'aceitacao-main.yml: job com timeout-minutes explícito')
+// Eng. Chefe 11/10: @pos-migration pertence à produção; na suíte da main derrubava o run e travava a fila
+ok(/playwright test e2e\/jornadas\/aceitacao[^\n]*--grep-invert @pos-migration/.test(ler('.github/workflows/aceitacao-main.yml')),
+  'aceitacao-main.yml: suíte da main exclui os specs @pos-migration (--grep-invert)')
 
 // (a)–(d) fila de merge
 const fila = ler('.github/workflows/fila-merge.yml')
