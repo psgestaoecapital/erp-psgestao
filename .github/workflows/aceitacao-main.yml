@@ -84,10 +84,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          EVENTO: ${{ github.event_name }}
         run: |
           set -euo pipefail
           sha=$(gh api "repos/$REPO/commits/main" --jq .sha)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # disparo manual FORÇA o re-teste (ex.: banco de testes consertado, mesmo SHA): nunca pula por "já julgada"
+          if [ "$EVENTO" = workflow_dispatch ]; then
+            echo "::notice::disparo manual: julgando ${sha:0:7} de novo mesmo já julgada"
+            echo "pular=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           outros=$(gh api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&per_page=30" --jq \
             "[.workflow_runs[] | select(.id != $RUN_ID and .head_sha == \"$sha\" and
               ((.status == \"completed\" and (.conclusion == \"success\" or .conclusion == \"failure\")) or .status == \"in_progress\"))] | length")
