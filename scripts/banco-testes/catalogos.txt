@@ -20,6 +20,9 @@ rbac_subgrupo_catalogo
 rbac_papel
 rbac_papel_acesso
 
+# EPI: categorias globais (fn_demo_reset da indústria SST resolve epi_catalogo.categoria_id por slug; sem elas → 23502)
+epi_categoria
+
 # Referência fiscal/geral usada pelas specs
 fiscal_codigo_catalogo      # LC 116 (200) e NBS (675)
 fiscal_correlacao_servico   # LC 116 ↔ NBS ↔ cClassTrib
