@@ -20,13 +20,21 @@ export default function DevPage() {
     if (typeof window!=='undefined' && new URLSearchParams(window.location.search).get('dev')==='ferramentas') return 'ferramentas';
     // Aba "Codes" (CEO 07/10): rota própria /dashboard/dev/codes (system_screens) abre a Central já nela.
     if (typeof window!=='undefined' && (/\/dashboard\/dev\/codes\/?$/.test(window.location.pathname) || new URLSearchParams(window.location.search).get('aba')==='codes')) return 'codes';
-    return 'leitura';
+    // Aba padrão (CEO 11/10): Codes abre primeiro; quem não é da equipe PS cai em Leitura (ver efeito abaixo).
+    return 'codes';
   });
   // Aba Codes só aparece no seletor para a equipe PS (mesma regra da RLS: fn_dev_painel_pode_ver).
   const [podeCodes,setPodeCodes]=useState(false);
   useEffect(()=>{
     let vivo=true;
-    void supabase.rpc('fn_dev_painel_pode_ver').then(({data,error})=>{ if(vivo) setPodeCodes(!error && data===true); });
+    void supabase.rpc('fn_dev_painel_pode_ver').then(({data,error})=>{
+      if(!vivo) return;
+      const pode=!error && data===true;
+      setPodeCodes(pode);
+      // Sem permissão à aba Codes (padrão), volta para Leitura — exceto se abriu por link explícito /codes ou ?aba=codes.
+      const explicito=/\/dashboard\/dev\/codes\/?$/.test(window.location.pathname) || new URLSearchParams(window.location.search).get('aba')==='codes';
+      if(!pode && !explicito) setView(v=>v==='codes'?'leitura':v);
+    });
     return()=>{vivo=false;};
   },[]);
   const [tab, setTab] = useState('ambientes');
