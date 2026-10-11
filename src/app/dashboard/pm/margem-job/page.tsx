@@ -43,8 +43,19 @@ export default function MargemJobPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!empresa) { setLoading(false); return }
     setLoading(true)
+    // o PostgREST corta em 1000 linhas: pagina para a margem não omitir job de empresa grande
+    const carregarJobs = async () => {
+      const todos: Job[] = []
+      for (let de = 0; ; de += 1000) {
+        const r = await supabase.from('agency_jobs').select('id, titulo, numero, valor_job, custo_estimado, status, cliente_id, servico_id, fee_id, contrato_id').eq('company_id', empresa).order('id').range(de, de + 999)
+        if (r.error) return { data: todos.length ? todos : null, error: r.error }
+        todos.push(...((r.data ?? []) as Job[]))
+        if ((r.data ?? []).length < 1000) break
+      }
+      return { data: todos, error: null }
+    }
     Promise.all([
-      supabase.from('agency_jobs').select('id, titulo, numero, valor_job, custo_estimado, status, cliente_id, servico_id, fee_id, contrato_id').eq('company_id', empresa),
+      carregarJobs(),
       supabase.rpc('fn_pm_job_custos', { p_company_id: empresa }), // agregado por job; ninguém lê custo/hora por pessoa direto (LGPD)
       supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa),
       supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
