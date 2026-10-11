@@ -13,6 +13,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
 
@@ -468,6 +469,47 @@ function ModalNovaOS({
   const [busca, setBusca] = useState('')
   const [resultados, setResultados] = useState<Cliente[]>([])
   const [cliente, setCliente] = useState<Cliente | null>(null)
+  // cadastro inline (#2260): mesmo fluxo da recepção — fn_cliente_criar_inline
+  const [cadAberto, setCadAberto] = useState(false)
+  const [cadNome, setCadNome] = useState('')
+  const [cadDoc, setCadDoc] = useState('')
+  const [cadTel, setCadTel] = useState('')
+  const [cadSalvando, setCadSalvando] = useState(false)
+  const [cadMsg, setCadMsg] = useState<string | null>(null)
+
+  function abrirCadastroCliente() {
+    const t = busca.trim()
+    const soDig = t.replace(/\D/g, '')
+    if (soDig.length === 11 || soDig.length === 14) { setCadDoc(soDig); setCadNome('') } else { setCadNome(t); setCadDoc('') }
+    setCadTel(''); setCadMsg(null); setCadAberto(true)
+  }
+
+  async function buscarCnpjCadastro(doc: string) {
+    if (doc.length !== 14) return
+    try {
+      const r = await fetch(`/api/cnpj-lookup?cnpj=${doc}`)
+      if (!r.ok) { setCadMsg(r.status === 404 ? 'CNPJ não encontrado — preencha o nome à mão.' : 'Consulta externa indisponível — preencha o nome à mão.'); return }
+      const d = await r.json() as { razao_social?: string; nome_fantasia?: string }
+      if (d.razao_social && !cadNome.trim()) setCadNome(d.razao_social)
+    } catch { setCadMsg('Consulta externa indisponível — preencha o nome à mão.') }
+  }
+
+  async function salvarCadastroCliente() {
+    if (!companyIdAtiva) return
+    if (!cadNome.trim()) { setCadMsg('Informe o nome do cliente.'); return }
+    setCadSalvando(true); setCadMsg(null)
+    const extra: Record<string, string> = {}
+    if (cadTel.trim()) extra.telefone = cadTel.trim()
+    const doc = cadDoc.replace(/\D/g, '')
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', {
+      p_company_id: companyIdAtiva, p_nome: cadNome.trim(), p_cpf_cnpj: doc || null,
+      p_extra: Object.keys(extra).length ? extra : null,
+    })
+    setCadSalvando(false)
+    if (error) { setCadMsg('❌ ' + error.message); return }
+    setCliente({ id: data as string, razao_social: cadNome.trim(), nome_fantasia: null, cpf_cnpj: doc || null, company_id: companyIdAtiva })
+    setResultados([]); setCadAberto(false)
+  }
 
   // Pre-fill tecnicoNome com o email do usuario
   useEffect(() => {
@@ -567,7 +609,7 @@ function ModalNovaOS({
           </div>
 
           <div>
-            <label style={lbl}>Cliente (opcional)</label>
+            <label style={lbl}>Cliente (opcional)<AjudaCampo chave="os.nova.cliente" rota="/dashboard/os" /></label>
             {cliente ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: 10, background: C.cream, borderRadius: 8 }}>
                 <div>
@@ -584,6 +626,36 @@ function ModalNovaOS({
                   placeholder="Buscar cliente por nome ou CNPJ (ou deixar sem cliente)"
                   style={inp}
                 />
+                {!cadAberto && resultados.length === 0 && busca.trim().length >= 2 && (
+                  <button type="button" onClick={abrirCadastroCliente} data-testid="os-nova-cadastrar-cliente"
+                    style={{ marginTop: 6, width: '100%', textAlign: 'left', background: C.cream, border: `1px dashed ${C.border}`, borderRadius: 8, padding: 10, cursor: 'pointer', minHeight: 44, fontSize: 13, color: C.espresso }}>
+                    + Cadastrar novo cliente “{busca.trim()}”
+                  </button>
+                )}
+                {cadAberto && (
+                  <div style={{ marginTop: 6, padding: 10, background: C.cream, borderRadius: 8, display: 'grid', gap: 8 }} data-testid="os-nova-cliente-inline">
+                    <div>
+                      <label style={lbl}>Nome / razão social<AjudaCampo chave="os.nova.cliente_novo_nome" rota="/dashboard/os" /></label>
+                      <input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>CPF / CNPJ<AjudaCampo chave="os.nova.cliente_novo_doc" rota="/dashboard/os" /></label>
+                      <input value={cadDoc} onChange={(e) => setCadDoc(e.target.value)} onBlur={() => void buscarCnpjCadastro(cadDoc.replace(/\D/g, ''))} inputMode="numeric" style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Telefone<AjudaCampo chave="os.nova.cliente_novo_tel" rota="/dashboard/os" /></label>
+                      <input value={cadTel} onChange={(e) => setCadTel(e.target.value)} inputMode="tel" style={inp} />
+                    </div>
+                    {cadMsg && <div style={{ fontSize: 12, color: C.espressoM }}>{cadMsg}</div>}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" onClick={() => void salvarCadastroCliente()} disabled={cadSalvando} data-testid="os-nova-cliente-salvar"
+                        style={{ flex: 1, minHeight: 44, borderRadius: 8, border: 'none', background: C.espresso, color: C.white, cursor: 'pointer', fontWeight: 600 }}>
+                        {cadSalvando ? 'Salvando…' : 'Cadastrar e vincular'}
+                      </button>
+                      <button type="button" onClick={() => setCadAberto(false)} style={{ minHeight: 44, borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', cursor: 'pointer', padding: '0 14px' }}>Cancelar</button>
+                    </div>
+                  </div>
+                )}
                 {resultados.length > 0 && (
                   <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, marginTop: 4, maxHeight: 200, overflowY: 'auto' }}>
                     {resultados.map((c) => (

@@ -19,6 +19,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { C, fmtBRL, fmtPct } from './index'
+import { COR_VALOR_NEGATIVO } from '@/lib/formatoMoedaDre'
 
 type Linha = {
   ln_id: string
@@ -267,6 +268,7 @@ function TdNum({ children, strong, style }: { children: React.ReactNode; strong?
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
         whiteSpace: 'nowrap',
         fontWeight: strong ? 700 : 500,
+        ...(typeof children === 'string' && children.startsWith('-R$') ? { color: COR_VALOR_NEGATIVO } : null),
         ...(style || {}),
       }}
     >

@@ -64,19 +64,24 @@ export default function EmitirNFSeOSButton({
   const [modalAberto, setModalAberto] = useState(false)
   const [producao, setProducao] = useState(false)
   const [servSel, setServSel] = useState('')
+  // cliente da OS = tomador da nota (caixa jordana-code 3352399e: a OS-2026-0198 da Gean pegava o cadastro DUPLICADO
+  // da FC Pisos, inativo e sem endereço, porque a emissão procurava só pelo CNPJ)
+  const [clienteId, setClienteId] = useState<string | null>(null)
 
   async function preparar() {
     setErro(null)
     setCarregando(true)
     try {
-      const [rpc, prod] = await Promise.all([
+      const [rpc, prod, os] = await Promise.all([
         supabase.rpc('fn_os_nfse_preparar', { p_os_id: osId }),
         carregarProducaoDisponivel(companyId),
+        supabase.from('erp_os').select('cliente_id').eq('id', osId).eq('company_id', companyId).maybeSingle(),
       ])
       if (rpc.error) { setErro(rpc.error.message); return }
       const p = rpc.data as Prep | null
       if (!p?.ok) { setErro(p?.erro ?? 'Não foi possível preparar a NFS-e.'); return }
       setPrep(p)
+      setClienteId((os.data as { cliente_id?: string | null } | null)?.cliente_id ?? null)
       setProducao(prod)
       setServSel(p.servico_fiscal_id_default ?? p.servicos_fiscais?.[0]?.id ?? '')
       setConfirmAberto(true)
@@ -208,6 +213,7 @@ export default function EmitirNFSeOSButton({
         tomadorTipo={prep?.tomador?.tipo}
         tomadorNome={prep?.tomador?.nome ?? undefined}
         tomadorEmail={prep?.tomador?.email ?? undefined}
+        tomadorClienteId={clienteId ?? undefined}
         descricaoServico={prep?.descricao_sugerida}
         codigoServicoMunicipio={servico?.codigo_servico_municipio ?? undefined}
         codigoLC116={servico?.codigo_lc116 ?? undefined}
