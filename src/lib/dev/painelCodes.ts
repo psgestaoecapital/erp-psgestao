@@ -10,6 +10,10 @@ export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-chamados', 'gilber
 export const CODES_LINHA_FINAL = ['gilberto-revisor', 'eng-chefe-auto'] as const
 export const CODES_PAINEL: readonly string[] = [...CODES_PRINCIPAIS, ...CODES_LINHA_FINAL]
 
+// Rótulo de EXIBIÇÃO (CEO 11/10). A chave do agente nunca muda — está amarrada na caixa, nas rotinas, no lease e no cron.
+export const NOME_EXIBICAO: Record<string, string> = { 'gilberto-produto': 'Gilberto — Monitor de Merge' }
+export const nomeCode = (code: string): string => NOME_EXIBICAO[code] ?? code
+
 export const LEASE_MIN = 12
 export const STATUS_FILA = ['nova', 'recebida'] as const
 const MIN = 60_000

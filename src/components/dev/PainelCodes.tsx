@@ -13,6 +13,7 @@ import {
   CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, entregues, estadoSessao, faixa,
   esteira, fila, hora, intervaloDia, quando, resumoCode, ultimaResposta, type StatusCode,
   type Entrega, type Lease, type Mensagem, type Rotina,
+  nomeCode,
 } from '@/lib/dev/painelCodes'
 
 // Identidade PS: Espresso (estrutura/texto) · Off-white (fundo) · Dourado (destaque). Verde/vermelho SÓ no semáforo.
@@ -204,7 +205,7 @@ function ResumoPorCode({ itens, agora }: { itens: ReturnType<typeof resumoCode>[
             <a key={r.code} href={`#card-code-${r.code}`} data-testid={`resumo-${r.code}`} data-status={r.status}
               onClick={(ev) => { ev.preventDefault(); document.querySelector(`[data-testid="card-code-${r.code}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
               style={{ flex: '0 0 200px', minWidth: 0, textDecoration: 'none', color: ESP, background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 10 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>{r.code}</div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{nomeCode(r.code)}</div>
               <div data-testid={`resumo-status-${r.code}`} style={{ display: 'inline-block', margin: '4px 0', fontSize: 11, fontWeight: 700, background: s.bg, color: s.fg, border: `1px solid ${s.fg}`, borderRadius: 999, padding: '1px 8px' }}>
                 {s.ico} {s.nome}{r.desde ? ` desde ${hora(r.desde)}` : ''}
               </div>
@@ -244,7 +245,7 @@ function CartaoCode({ code, dados, agora, compacto }: { code: string; dados: Dad
   return (
     <div data-testid={`card-code-${code}`} style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, minWidth: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontWeight: 700, fontSize: 15 }}>{code}</span>
+        <span style={{ fontWeight: 700, fontSize: 15 }}>{nomeCode(code)}</span>
         {rotina && !rotina.aciona && <span style={{ fontSize: 10, color: TXM, border: `1px solid ${BD}`, borderRadius: 999, padding: '2px 8px' }}>rotina desligada</span>}
       </div>
 
