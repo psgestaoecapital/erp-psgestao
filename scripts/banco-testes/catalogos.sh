@@ -16,7 +16,7 @@ PG_DUMP="${PG_DUMP:-pg_dump}"
 PSQL="${PSQL:-psql}"
 LISTA="${LISTA:-scripts/banco-testes/catalogos.txt}"
 PROD_REF=horsymhsinqcimflrtjo
-TEST_REF=hqjzqwsxrkewjjuyqeij
+TEST_REF=xjzqndnvjkdjyisuklpy
 erro() { echo "::error::$*"; exit 1; }
 
 # Trava de destino/origem: o destino NUNCA é a produção; a origem só pode ser a produção.
