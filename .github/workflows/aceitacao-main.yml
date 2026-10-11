@@ -68,8 +68,8 @@ jobs:
       group: aceitacao-testes
       cancel-in-progress: false
       queue: max
-    # build (~5 min) + suíte inteira (~30 min); fora do vigia de 45 min de propósito
-    timeout-minutes: 60
+    # build (~5 min) + suíte inteira (~45 min); teto próprio no vigia (LIMITE_MAIN_MIN 70), não o de 45
+    timeout-minutes: 75
     env:
       TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
       TEST_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
@@ -150,7 +150,7 @@ jobs:
       - if: steps.ja.outputs.pular == 'false'
         run: npx playwright install --with-deps chromium
       - name: Suíte de aceitação contra a main (banco de testes)
-        timeout-minutes: 45
+        timeout-minutes: 60
         if: steps.ja.outputs.pular == 'false'
         id: suite
         env:
