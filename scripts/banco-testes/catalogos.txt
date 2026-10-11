@@ -32,3 +32,6 @@ erp_gov_nfse_municipios     # municípios IBGE (adesão à NFS-e nacional)
 # importou (dado pessoal) — pg_dump -t copia a tabela inteira, então ela NÃO entra. Nenhuma spec lê o conteúdo dela
 # (ibpt-empresa-token só a cita). Se o CEO quiser o IBPT no banco de testes, a cópia tem de ser por SELECT com essa
 # coluna em branco, não por pg_dump. erp_ibpt_item depende de erp_ibpt_tabela (que tem company_id): também fora.
+
+# EHS/SST: fn_demo_reset (demo_industria_sst) resolve epi_catalogo.categoria_id por slug aqui (NOT NULL); sem ela o seed do EHS falha
+epi_categoria

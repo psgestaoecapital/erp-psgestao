@@ -156,14 +156,18 @@ jobs:
           # a demo da produção é povoada por fn_demo_reset (se existir na cópia)
           # diagnóstico: mostra o erro REAL (mensagem, detalhe, contexto) como anotação, em vez de só "falhou"
           : > demo-reset-erro.log
+          RESET_FALHAS=""
           for emp in b0700000-0000-4000-a000-000000000001 b0700000-0000-4000-a000-000000000002 b0700000-0000-4000-a000-000000000003 b0700000-0000-4000-a000-000000000004 b0700000-0000-4000-a000-000000000005 ded00000-0000-4000-a000-000000000001; do
             if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('$emp')" 2> "demo-reset-$emp.log"; then
               cat "demo-reset-$emp.log" | tee -a demo-reset-erro.log
-              echo "::warning title=fn_demo_reset falhou ($emp)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+              echo "::error title=fn_demo_reset falhou ($emp)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+              RESET_FALHAS="$RESET_FALHAS $emp"
             fi
           done
           # trava-demo liberada ao final da montagem (lease de run que falhou/cancelou não pode travar a próxima)
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "delete from public.e2e_trava" || true
+          # DEMO incompleta não pode ficar "verde" (custou o dia 10/10): qualquer fn_demo_reset com erro reprova o job
+          [ -z "$RESET_FALHAS" ] || { echo "::error::DEMO incompleta — fn_demo_reset falhou em:$RESET_FALHAS"; exit 1; }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
