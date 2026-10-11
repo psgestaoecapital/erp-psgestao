@@ -1,13 +1,14 @@
 'use client'
 
 // HB1 · Resultado por obra (fatia 2) — lê v_obra_resultado (receita serviço + material, custo material + viagens,
-// previsto × realizado). Só leitura. 3 estados: erro / vazio (ensina) / dados. Linha "Consolidado" no fim. Excel (CSV).
+// previsto × realizado). Só leitura. 3 estados: erro / vazio (ensina) / dados. Linha "Consolidado" no fim. Excel (CSV) e PDF (impressão do navegador).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 
@@ -72,7 +73,13 @@ export default function ResultadoObrasPage() {
         )}
         {!loading && !erro && linhas.length > 0 && (
           <>
-            <button onClick={baixarCsv} style={{ marginBottom: 8, padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Baixar Excel (CSV)</button>
+            <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+              <button onClick={baixarCsv} style={{ padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Baixar Excel (CSV)</button>
+              <AjudaCampo chave="projetos.resultado_obra.excel" />
+              <button data-testid="resultado-pdf" onClick={() => window.print()} style={{ padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Baixar PDF</button>
+              <AjudaCampo chave="projetos.resultado_obra.pdf" />
+            </div>
+            <style>{'@media print{.no-print{display:none!important}body{background:#fff}}'}</style>
             <div style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
               <table data-testid="resultado-tabela" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
