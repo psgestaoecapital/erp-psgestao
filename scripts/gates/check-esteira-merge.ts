@@ -30,7 +30,8 @@ for (const [f, step] of [['aceitacao-pr.yml', 'Jornadas de aceitação contra o 
   const i = wf.indexOf(`- name: ${step}`)
   ok(i > 0 && /^\s+timeout-minutes: \d+\s*$/m.test(wf.slice(i, i + 200)), `${f}: step longo "${step}" com timeout-minutes próprio`)
 }
-ok(/^    timeout-minutes: 60\s*$/m.test(ler('.github/workflows/aceitacao-main.yml')), 'aceitacao-main.yml: job com timeout-minutes explícito')
+ok(/^    timeout-minutes: 75\s*$/m.test(ler('.github/workflows/aceitacao-main.yml')), 'aceitacao-main.yml: job com timeout-minutes explícito (75)')
+ok(/LIMITE_MAIN_MIN: '70'/.test(vigia) && /\[ "\$wf" = "aceitacao-main\.yml" \] && limite=\$LIMITE_MAIN_MIN/.test(vigia), 'vigia: aceitacao-main tem teto próprio de 70 min (< job 75 < zumbi 90); as demais seguem em 45')
 
 // (a)–(d) fila de merge
 const fila = ler('.github/workflows/fila-merge.yml')
