@@ -49,20 +49,22 @@ dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
 for f in doc_vertical demo_por_area atak_mapa; do echo "$f: $(wc -l < "$dir/$f.csv") linha(s) da produção"; done
 
 # Carga no TESTE: transação única, triggers/FKs off. jsonb_populate_record casa por nome de campo; campos ausentes
-# (criado_por/aprovado_por) ficam NULL. (.*) expande na ordem das colunas da tabela.
-"$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q \
-  -v doc="$dir/doc_vertical.csv" -v dpa="$dir/demo_por_area.csv" -v atak="$dir/atak_mapa.csv" -v demo_pm="$DEMO_PM" <<'SQL'
+# (criado_por/aprovado_por) ficam NULL; (.*) expande na ordem das colunas da tabela.
+# IMPORTANTE: o \copy do psql NÃO interpola variáveis (:'x') nos seus argumentos. Então o caminho do CSV é escrito
+# LITERAL no script de carga (expandido pelo bash aqui) e rodado com psql -f — igual ao catalogos.sh. O corpo SQL
+# abaixo não tem '$' nem crase, por isso o heredoc sem aspas é seguro.
+cat > "$dir/carga.sql" <<SQL
 BEGIN;
 SET LOCAL statement_timeout = '5min';
 SET LOCAL lock_timeout = '30s';
 SET LOCAL session_replication_role = replica;
 
 CREATE TEMP TABLE _doc (j jsonb) ON COMMIT DROP;
-\copy _doc FROM :'doc' WITH (FORMAT csv)
+\copy _doc FROM '$dir/doc_vertical.csv' WITH (FORMAT csv)
 CREATE TEMP TABLE _dpa (j jsonb) ON COMMIT DROP;
-\copy _dpa FROM :'dpa' WITH (FORMAT csv)
+\copy _dpa FROM '$dir/demo_por_area.csv' WITH (FORMAT csv)
 CREATE TEMP TABLE _atak (j jsonb) ON COMMIT DROP;
-\copy _atak FROM :'atak' WITH (FORMAT csv)
+\copy _atak FROM '$dir/atak_mapa.csv' WITH (FORMAT csv)
 
 DELETE FROM public.erp_documento_vertical;
 INSERT INTO public.erp_documento_vertical
@@ -72,7 +74,7 @@ DELETE FROM public.demo_por_area;
 INSERT INTO public.demo_por_area
   SELECT (jsonb_populate_record(NULL::public.demo_por_area, j)).* FROM _dpa;
 
-DELETE FROM public.atak_fonte_mapa WHERE company_id = :'demo_pm'::uuid;
+DELETE FROM public.atak_fonte_mapa WHERE company_id = '$DEMO_PM'::uuid;
 INSERT INTO public.atak_fonte_mapa
   SELECT (jsonb_populate_record(NULL::public.atak_fonte_mapa, j)).* FROM _atak;
 
@@ -85,6 +87,7 @@ VALUES ('banco-testes', 'briefing', 'media', 'ativo',
         ARRAY['ponto-de-partida']::text[], 'semente-testes');
 COMMIT;
 SQL
+"$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$dir/carga.sql"
 
 # Conferência (RD-38 · Ação 3): tabela-chave da semente vazia = montagem incompleta → falha o job.
 falta=0
