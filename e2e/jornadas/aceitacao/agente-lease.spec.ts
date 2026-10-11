@@ -64,6 +64,22 @@ test.describe('Lease de sessão dos agentes', () => {
     expect(sem.disparos.map((d) => d.mensagem_id), 'lease expirou: dispara').toEqual([m.id])
   })
 
+  test('três envios seguidos com lease ativa: só gravam, 0 acionamentos (causa raiz das sessões paralelas)', { tag: '@pos-migration' }, async () => {
+    await expirar()
+    expect((await iniciar(`teste-D-${RUN}`)).resultado).toBe('ok')
+    for (let i = 1; i <= 3; i++) {
+      const m = await dbInsert<{ id: string }>('erp_agente_mensagem', {
+        para: AG, de: 'eng_chefe', tipo: 'tarefa', assunto: `[TESTE ${RUN}] envio ${i}, não executar`, corpo: 'Teste da aceitação. Não executar.',
+        requer_ok_ceo: false, status: 'recebida', enviado_por: `aceitacao-e2e ${RUN}`,
+      })
+      criadas.push(m.id)
+    }
+    const linhas = await dbSelect<{ id: string; acionamento: { acionou?: boolean; em?: string } | null }>(
+      'erp_agente_mensagem', `id=in.(${criadas.slice(-3).join(',')})&select=id,acionamento`)
+    expect(linhas.length).toBe(3)
+    for (const l of linhas) expect(l.acionamento?.acionou ?? false, `envio ${l.id} não acionou`).toBe(false)
+  })
+
   test('o teto conta só redisparos sem progresso: resposta nova zera', { tag: '@pos-migration' }, async () => {
     const m = await dbInsert<{ id: string }>('erp_agente_mensagem', {
       para: AG, de: 'eng_chefe', tipo: 'tarefa', assunto: `[TESTE ${RUN}] teto, não executar`, corpo: 'Teste da aceitação. Não executar.',
