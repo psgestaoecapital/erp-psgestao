@@ -4,12 +4,12 @@
 
 import { test, expect } from '../../support/fixtures'
 import { rpc, dbInsert, dbPatch, dbSelect, registrarJornada } from '../../support/api'
-import { liberarLease } from '../../support/lease'
+import { AGENTE_TESTE, ligarAgenteTeste } from '../../support/agente-teste'
 
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 const MIN = 60_000
 const ha = (min: number) => new Date(Date.now() - min * MIN).toISOString()
-const AG = 'gilberto-chamados'
+const AG = AGENTE_TESTE
 
 type Sessao = { ok: boolean; resultado?: string }
 type Desp = { disparos: { mensagem_id: string }[] }
@@ -20,8 +20,8 @@ test.describe('Lease de sessão dos agentes', () => {
   let leaseAnterior = false
 
   test.beforeAll(async () => {
+    devolverLease = await ligarAgenteTeste()
     leaseAnterior = (await dbSelect('erp_agente_sessao_lease', `agente=eq.${AG}&select=sessao_ref`)).length > 0
-    devolverLease = await liberarLease(AG)
   })
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-agente-lease', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
