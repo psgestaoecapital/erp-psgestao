@@ -15,6 +15,10 @@ feature_catalog
 system_screens
 screen_route_features
 
+# EPI: catálogo global de categorias (sem coluna de dono). O fn_demo_reset popula epi_catalogo (por empresa), que
+# referencia categoria_id → epi_categoria tem de existir ANTES do fn_demo_reset, senão a semente da DEMO falha.
+epi_categoria
+
 # Papéis de acesso (RBAC) globais
 rbac_subgrupo_catalogo
 rbac_papel
