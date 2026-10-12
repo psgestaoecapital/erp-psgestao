@@ -1,6 +1,6 @@
 name: Comando na PR
 
-# Eng. Chefe 07/10: comentário EXATAMENTE "/re-rodar" numa PR, de quem tem permissão write/maintain/admin, re-roda a
+# Eng. Chefe 07/10: comentário que COMEÇA com "/re-rodar" (o rodapé de atribuição das sessões do Code não pode impedir) numa PR, de quem tem permissão write/maintain/admin, re-roda a
 # última aceitação (aceitacao-pr) do head SHA da PR com FILA_MERGE_TOKEN e responde na PR com o link do run.
 # Existe porque a rede das sessões do Code troca o token pelo da integração (POST /rerun dá 403): quem re-roda é o GitHub.
 # Roda o código da main (issue_comment); nunca faz checkout nem executa código da PR; o texto do comentário nunca é
@@ -19,7 +19,7 @@ jobs:
   re-rodar:
     if: >-
       github.event.issue.pull_request &&
-      github.event.comment.body == '/re-rodar'
+      startsWith(github.event.comment.body, '/re-rodar')
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
