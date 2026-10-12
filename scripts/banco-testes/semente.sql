@@ -40,6 +40,13 @@ SELECT 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725', (SELECT id FROM public.organizati
        'Ps Gestao LTDA', 'Ps Gestao LTDA', false, true
 ON CONFLICT (id) DO NOTHING;
 
+-- Passada de semente (CEO 11/10): a GE DEMO nasce sem UF/regime fiscal e as specs de NF-e leem (alliance-regime-divergente-146
+-- exige simples_nacional; nfe-cfop-venda exige SC). Só preenche quando NULL (idempotente, nunca sobrescreve).
+UPDATE public.companies
+   SET uf_fiscal = COALESCE(uf_fiscal, 'SC'),
+       regime_tributario = COALESCE(regime_tributario, 'simples_nacional')
+ WHERE id = 'b0700000-0000-4000-a000-000000000004'::uuid;
+
 -- plano ativo de cada demo (plan_catalog vem da whitelist de catálogos, que roda antes da semente)
 INSERT INTO public.tenant_subscriptions (company_id, plan_id, status, monthly_price_brl)
 SELECT p.company_id, p.plan_id, 'active', 0

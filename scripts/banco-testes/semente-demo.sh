@@ -114,6 +114,12 @@ chkw demo_ge_plano_contas       "select count(*) from public.erp_plano_contas wh
 chkw demo_pm_timesheet          "select count(*) from public.agency_timesheet where company_id='$DEMO_PM'::uuid and job_id is not null"
 chkw demo_sst_funcionario_abate "select count(*) from public.compliance_funcionarios where company_id='${DEMO_BASE}5'::uuid and setor='Abate'"
 chkw demo_chamados_sugestoes    "select count(*) from public.sugestoes where status<>'arquivada' and coalesce(user_name,'')<>'robô aceitação'"
+chkw demo_ge_regime_uf          "select count(*) from public.companies where id='${DEMO_BASE}4'::uuid and uf_fiscal='SC' and regime_tributario='simples_nacional'"
+chkw catalogo_tipos_documento   "select count(*) from public.compliance_tipos_documento where nome='RG e CPF'"
+chkw demo_mecanica_os           "select count(*) from public.erp_os where company_id='ded00000-0000-4000-a000-000000000001'::uuid"
+chkw demo_sst_doc_exigido       "select count(*) from public.compliance_documento_exigido where company_id='${DEMO_BASE}5'::uuid"
+chkw banco_manifesto            "select count(*) from public.erp_banco_manifesto"
+chkw banco_erro_catalogo        "select count(*) from public.erp_banco_erro_catalogo"
 [ "$falta" = 0 ] || erro "semente-demo incompleta — alguma tabela-chave ficou vazia"
 
 {
