@@ -1,0 +1,41 @@
+name: Registrar entrega (aba Codes)
+
+# CEO 07/10 14:30 — aba "Codes" da Central de Desenvolvimento: cada PR aberta, pronta, publicada ou fechada vira uma
+# linha em erp_dev_entrega (o painel atualiza sozinho pelo Realtime). Regras em scripts/dev/registrar-entrega.mjs.
+# Seguro: pull_request_target roda o código da MAIN; o checkout é só da main (scripts/dev), nunca do código da PR.
+# workflow_dispatch = carga inicial (PRs publicadas e abertas dos últimos N dias, pela API REST do GitHub).
+on:
+  pull_request_target:
+    types: [opened, ready_for_review, closed]
+  workflow_dispatch:
+    inputs:
+      dias:
+        description: 'Carga inicial: quantos dias para trás'
+        required: false
+        default: '7'
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  registrar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: scripts/dev
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Grava o evento em erp_dev_entrega
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DIAS: ${{ inputs.dias }}
+        run: node scripts/dev/registrar-entrega.mjs

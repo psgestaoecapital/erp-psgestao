@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createHash } from 'crypto'
 import { withAuth } from '@/lib/withAuth'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
@@ -36,7 +35,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // uma segunda ativa (era o que estourava "duplicate key uq_fiscal_uma_config_ativa").
     const { data: existente } = await supabaseAdmin
       .from('erp_fiscal_provider_config')
-      .select('id, provider, api_key_encrypted')
+      .select('id, provider, api_key_encrypted, focus_token_vault_id')
       .eq('company_id', companyId)
       .eq('ativo', true)
       .maybeSingle()
@@ -72,18 +71,21 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       // Trocando gov → Focus na mesma linha: zera os campos do gov (a linha vira Focus).
       payload.gov_nfse_municipio_codigo = null
       payload.gov_nfse_municipio_aderido = false
+      // #1944 · o token da Focus vai SÓ para o cofre (fn_fiscal_salvar_token, chamada pela tela como o próprio
+      // usuário) — nunca mais em texto nesta tabela (api_key_encrypted era só base64). Token no corpo = recusa.
       if (typeof apiKey === 'string' && apiKey.trim()) {
-        payload.api_key_encrypted = Buffer.from(apiKey, 'utf-8').toString('base64')
-        payload.api_key_hash = createHash('sha256').update(apiKey).digest('hex')
-      } else if (!existente || existente.provider !== providerFinal || !existente.api_key_encrypted) {
-        // Sem config ainda, ou trocando de provider (ex.: gov → Focus), ou a config atual não tem
-        // API key salva pra este provider → precisa informar a API key agora.
         return NextResponse.json(
-          { ok: false, erro: 'API key obrigatória para o Focus NFe (informe a chave para ativar a produção).' },
+          { ok: false, erro: 'O token do Focus é gravado no cofre pela tela (Passo 2 › Token). Atualize a página e salve de novo.' },
           { status: 400 }
         )
       }
-      // Mesmo provider Focus e chave já salva: mantém a api_key existente (não precisa re-digitar).
+      const temToken = !!existente && (!!existente.focus_token_vault_id || !!existente.api_key_encrypted)
+      if (!temToken) {
+        return NextResponse.json(
+          { ok: false, erro: 'Token do Focus obrigatório: informe o token da conta para ativar a emissão.' },
+          { status: 400 }
+        )
+      }
     }
 
     if (existente) {

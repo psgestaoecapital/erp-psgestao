@@ -72,8 +72,15 @@ test.describe('Caixa de mensagens dos agentes', () => {
   test('usuário logado do ERP não lê nem grava a caixa (canal protegido)', { tag: '@pos-migration' }, async () => {
     const token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
     const h = { apikey: ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+    // CEO 07/10 (aba Codes, migration 20261007200060): a equipe PS LÊ a caixa (colunas do painel, por RLS); o usuário
+    // de cliente (o robô não é da equipe) segue sem ver NENHUMA linha, sem ver o corpo e sem gravar.
     const tabela = await fetch(`${SUPABASE_URL}/rest/v1/erp_agente_mensagem?select=id&limit=1`, { headers: h })
-    expect(tabela.ok, 'tabela fechada ao usuário logado').toBe(false)
+    if (tabela.ok) expect(await tabela.json(), 'usuário de cliente não vê nenhuma mensagem da caixa').toEqual([])
+    const corpo = await fetch(`${SUPABASE_URL}/rest/v1/erp_agente_mensagem?select=corpo&limit=1`, { headers: h })
+    expect(corpo.ok, 'o corpo das tarefas segue fechado ao usuário logado').toBe(false)
+    const grava = await fetch(`${SUPABASE_URL}/rest/v1/erp_agente_mensagem`, { method: 'POST', headers: h,
+      body: JSON.stringify({ para: 'gilberto-desenv', de: 'ceo', tipo: 'aviso', assunto: 'x', corpo: 'y' }) })
+    expect(grava.ok, 'logado não grava na caixa').toBe(false)
     const fn = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fn_agente_caixa`, { method: 'POST', headers: h, body: JSON.stringify({ p_agente: 'gilberto-desenv' }) })
     expect(fn.ok, 'função fechada ao usuário logado').toBe(false)
     const envio = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fn_agente_mensagem_enviar`, {

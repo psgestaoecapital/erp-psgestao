@@ -114,6 +114,12 @@ export interface ResultadoCusto {
   custo_unidade: number | null
   unidade: string | null
   custo_m2: number | null
+  // horas extras (Mão de obra · HE): custo da hora SEM e COM horas extras, lado a lado
+  horas_extras: number
+  custo_he: number | null
+  custo_mensal_sem_he: number | null
+  custo_hora_sem_he: number | null
+  custo_hora_com_he: number | null
   // percentuais efetivamente usados (ajuste da ficha ou padrão da empresa)
   encargos_folha_pct: number
   prov_13_pct: number
@@ -238,11 +244,13 @@ export function calcularCustoMaoObra(
   for (const c of comps) if (c.tipo === 'fixo') { if ((c.subtipo ?? 'mensal') === 'hora') horaFixa += num(c.valor); else fixoMes += num(c.valor) }
   const ctx = { fixoMes, horaBase: fixoMes / 220 + horaFixa, salarioMinimo: sm }
 
+  let heH = 0, heV = 0
   let a = 0, sDsr = 0, s13 = 0, sEnc = 0, sInt = 0, vol = 0, diasDiaria = 0, estimado = false
   let uni: string | null = null, valProd: number | null = null
   for (const c of comps) {
     const v = valorMesComponente(c, ctx)
     a += v
+    if (c.tipo === 'hora_extra') { heH += num(c.quantidade); heV += v }
     if (c.integra_remuneracao) {
       sInt += v
       if (c.gera_dsr) sDsr += v
@@ -272,6 +280,9 @@ export function calcularCustoMaoObra(
   let mensal: number | null = a + d + p + enc + r + ben
   if (a === 0 && valProd !== null) mensal = null  // só produção, sem volume: não inventa custo mensal
 
+  // custo SEM horas extras: a mesma conta sem os componentes de HE (DSR, 13º, férias, encargos e rescisão saem junto)
+  const mensalSem = heV > 0 && mensal !== null ? calcularCustoMaoObra({ ...f, componentes: comps.filter(c => c.tipo !== 'hora_extra') }, e).custo_mensal : mensal
+
   const alertas: AlertaCusto[] = []
   if (vinc === 'diarista' && diasDiaria > 8) alertas.push('diarista_mais_8_dias')
   if (estimado) alertas.push('volume_estimado')
@@ -285,6 +296,11 @@ export function calcularCustoMaoObra(
     custo_hora: mensal === null || horas === null ? null : r2(mensal / horas),
     custo_unidade: unidade === null ? null : r2(unidade), unidade: uni,
     custo_m2: m2 === null ? null : r2(m2),
+    horas_extras: r2(heH),
+    custo_he: mensal === null || mensalSem === null ? null : r2(mensal - mensalSem),
+    custo_mensal_sem_he: mensalSem === null ? null : r2(mensalSem),
+    custo_hora_sem_he: mensalSem === null || horas === null ? null : r2(mensalSem / horas),
+    custo_hora_com_he: mensal === null || horas === null ? null : r2(mensal / (horas + heH)),
     encargos_folha_pct: encp, prov_13_pct: p13, prov_ferias_pct: pfer, prov_rescisao_pct: presc, dsr_fator: dsrf, rpa_inss_pct: rpa,
     alertas,
   }
