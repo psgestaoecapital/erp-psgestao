@@ -10,6 +10,8 @@
 # (pg_dump abre transação READ ONLY; --lock-wait-timeout não deixa esperar trava). Nada é gravado na produção.
 # Testes: numa transação só, com session_replication_role=replica (triggers e FKs não disparam — ex.: o alerta de
 # tela órfã de system_screens e o vínculo automático de module_catalog), apaga e recarrega cada tabela da lista.
+# Colunas de auditoria (atualizado_por, updated_by, criado_por, created_by, deleted_by, excluido_por) NÃO abortam a trava:
+# são zeradas (NULL) na própria transação de carga, então nenhum id de usuário da produção fica no banco de testes.
 set -euo pipefail
 : "${PROD_DATABASE_URL:?PROD_DATABASE_URL ausente}" "${TEST_DATABASE_URL:?TEST_DATABASE_URL ausente}"
 PG_DUMP="${PG_DUMP:-pg_dump}"
@@ -52,6 +54,7 @@ SELECT t.n || ': ' || CASE WHEN c.oid IS NULL THEN 'não existe em public na pro
 FROM t
 LEFT JOIN pg_class c ON c.relname = t.n AND c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
 LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+  AND a.attname !~ '^(atualizado_por|updated_by|criado_por|created_by|deleted_by|excluido_por)$'
   AND (a.attname ~ '^(company_id|org_id|user_id|organization_id|tenant_id|empresa_id|cliente_id|profile_id|owner_id|auth_user_id)$'
     OR a.attname ~ '(_por$|_by$|email|cpf|cnpj|telefone|phone|celular|senha|password|token)')
 GROUP BY t.n, c.oid
@@ -82,6 +85,10 @@ done
   echo 'SET LOCAL session_replication_role = replica;'
   for t in "${TABELAS[@]}"; do echo "DELETE FROM public.$t;"; done
   for f in "$dir"/[0-9][0-9]_*.sql; do echo "\\i $f"; done
+  # Colunas de auditoria vão NULL na mesma transação (nunca ficam commitadas no banco de testes).
+  for t in "${TABELAS[@]}"; do
+    echo "DO \$\$ DECLARE c text; BEGIN FOR c IN SELECT attname FROM pg_attribute WHERE attrelid = 'public.$t'::regclass AND attnum > 0 AND NOT attisdropped AND attname ~ '^(atualizado_por|updated_by|criado_por|created_by|deleted_by|excluido_por)\$' LOOP EXECUTE format('UPDATE public.$t SET %I = NULL', c); END LOOP; END \$\$;"
+  done
   echo 'COMMIT;'
 } > "$dir/carga.sql"
 "$PSQL" "$TEST_DATABASE_URL" -q -f "$dir/carga.sql"
