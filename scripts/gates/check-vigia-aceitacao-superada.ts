@@ -1,19 +1,23 @@
-// Gate (Eng. Chefe 08/10) — o vigia cancela aceitação de PREVIEW esperando a fila cujo SHA não é mais o head da PR
-// (ou cuja PR fechou/virou draft), com o GITHUB_TOKEN do workflow (actions: write). Run executando nunca é cancelado aqui.
+// Gate (Eng. Chefe 08/10; CEO 10/10) — o vigia libera a vaga única cancelando aceitação de PREVIEW que a ocupa à toa:
+// PR mergeada/fechada ou SHA superado/órfão. Desde 10/10 a lógica vive em scripts/merge/aceitacao-prune.sh (chamado
+// também pela triagem) e passou a incluir os runs status=in_progress PRESOS na fila de concorrência (onde ficavam 2h
+// até o zumbi matar aos 90 min). A versão VIVA de PR aberta e o run da main nunca são cancelados — provado em
+// check-aceitacao-prune.ts. Usa o GITHUB_TOKEN do job (actions: write).
 import { readFileSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 const y = readFileSync('.github/workflows/vigia-runs.yml', 'utf8')
-const passo = y.slice(y.indexOf('Cancelar aceitação de preview superada'), y.indexOf('Re-rodar aceitação cancelada'))
+const passo = y.slice(y.indexOf('Liberar vaga'), y.indexOf('Re-rodar aceitação cancelada'))
 
-ok(passo.length > 100, 'passo "Cancelar aceitação de preview superada" existe')
+ok(passo.length > 40, 'passo "Liberar vaga" existe no vigia')
 ok(/actions: write/.test(y), 'vigia tem actions: write')
-ok(/workflows\/aceitacao-pr\.yml\/runs\?status=\$st/.test(passo) && /for st in pending queued waiting/.test(passo), 'olha só runs esperando a fila (pending/queued/waiting)')
-ok(!/in_progress/.test(passo), 'nunca toca run em execução')
-ok(/commits\/\$sha\/pulls/.test(passo) && /\.draft == false/.test(passo) && /\.head\.sha == /.test(passo), 'SHA vale só se for o head de PR aberta e Ready')
-ok(/\[ "\$vale" = 0 \] \|\| continue/.test(passo), 'erro de consulta à API não cancela nada')
-ok(!/FILA_MERGE_TOKEN/.test(passo), 'usa o GITHUB_TOKEN do job')
+ok(/scripts\/merge\/aceitacao-prune\.sh/.test(passo), 'delega a lógica ao prune compartilhado (mesma da triagem)')
+ok(!/FILA_MERGE_TOKEN/.test(passo), 'usa o GITHUB_TOKEN do job (não o PAT da fila)')
+// o prune, de fato, protege a versão viva e inclui os presos na fila (in_progress)
+const sh = readFileSync('scripts/merge/aceitacao-prune.sh', 'utf8')
+ok(/for st in queued waiting in_progress/.test(sh), 'o prune inclui in_progress (os runs presos na fila de concorrência)')
+ok(/select\([^)]*state=="open"[^)]*head\.sha=="\$hsha"/.test(sh.replace(/\\"/g, '"')), 'o prune só cancela quando NÃO há versão viva (open & head atual) — nunca a viva')
 
 if (falhas) { console.error(`\ncheck-vigia-aceitacao-superada: ${falhas} falha(s)`); process.exit(1) }
 console.log('\nVigia de aceitação superada: ok')

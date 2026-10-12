@@ -5,7 +5,12 @@
 // leitura só da equipe PS (RLS fn_dev_painel_pode_ver, vale também no Realtime). Qualquer mudança nas 3 primeiras chega pelo
 // Realtime e a aba recarrega sozinha, sem recarregar a página. Regras puras em src/lib/dev/painelCodes.ts.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
+import GraficosCodes from './GraficosCodes'
+import SaudeEsteira from './SaudeEsteira'
+import SaudeCodes from './SaudeCodes'
+import MeuCode from '@/components/dev/MeuCode'
 import {
   CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, entregues, estadoSessao, faixa,
   esteira, fila, hora, intervaloDia, quando, resumoCode, ultimaResposta, type StatusCode,
@@ -20,7 +25,8 @@ const COLS_ENTREGA = 'id,pr_numero,titulo,code,evento,via,sha,url,ocorrido_em'
 const COLS_MSG = 'id,para,assunto,status,pr_numero,resposta,arquivada,criado_em,atualizado_em'
 const FILA_VISIVEL = 6
 
-type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[]; mainVerde: boolean | null; filaTestes: number | null }
+type MainTeste = { verde: boolean | null; desde: string | null; spec_falha: string | null; run_url: string | null }
+type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[]; mainTeste: MainTeste | null; filaTestes: number | null }
 
 export default function PainelCodes() {
   const [pode, setPode] = useState<boolean | null>(null)
@@ -44,7 +50,7 @@ export default function PainelCodes() {
   const carregar = useCallback(async () => {
     const desde = new Date(Date.now() - 14 * 864e5).toISOString()
     const { de, ate } = intervaloDia(diaRef.current)
-    const [ent, abertas, resp, leases, rotinas, linha, estat] = await Promise.all([
+    const [ent, abertas, resp, leases, rotinas, linha, mt, estat] = await Promise.all([
       supabase.from('erp_dev_entrega').select(COLS_ENTREGA).gte('ocorrido_em', desde).order('ocorrido_em', { ascending: false }).limit(3000),
       supabase.from('erp_agente_mensagem').select(COLS_MSG).in('para', CODES_PAINEL as string[]).not('arquivada', 'is', true)
         .in('status', ['nova', 'recebida', 'em_andamento']).order('criado_em', { ascending: true }).limit(5000),
@@ -54,8 +60,10 @@ export default function PainelCodes() {
       supabase.from('erp_agente_rotina').select('agente,aciona'),
       supabase.from('erp_dev_entrega').select(COLS_ENTREGA).eq('evento', 'publicada').gte('ocorrido_em', de).lt('ocorrido_em', ate)
         .order('ocorrido_em', { ascending: false }).limit(500),
+      supabase.from('erp_dev_main_teste').select('verde,desde,spec_falha,run_url').eq('id', 1).maybeSingle(),
       supabase.from('erp_dev_esteira_status').select('chave,verde,quantidade'),
     ])
+    // erp_dev_main_teste pode não existir em ambientes sem a migration: o erro dela não derruba a aba.
     const falha = [ent, abertas, resp, leases, rotinas, linha].find((r) => r.error)?.error
     if (falha) { setErro(falha.message); return }
     setErro(null)
@@ -65,7 +73,7 @@ export default function PainelCodes() {
       leases: (leases.data ?? []) as Lease[],
       rotinas: (rotinas.data ?? []) as Rotina[],
       linhaTempo: (linha.data ?? []) as Entrega[],
-      mainVerde: (estat.data ?? []).find((x: { chave: string }) => x.chave === 'main')?.verde ?? null,
+      mainTeste: (mt.error ? null : (mt.data as MainTeste | null)),
       filaTestes: (estat.data ?? []).find((x: { chave: string }) => x.chave === 'fila')?.quantidade ?? null,
     })
     const n = new Date()
@@ -97,7 +105,13 @@ export default function PainelCodes() {
   const trocarDia = (d: string) => { diaRef.current = d; setDia(d); void carregar() }
 
   const f = useMemo(() => (dados ? faixa({ entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, agora }) : null), [dados, agora])
-  const est = useMemo(() => (dados ? esteira({ entregas: dados.entregas, agora, mainVerde: dados.mainVerde, filaTestes: dados.filaTestes }) : null), [dados, agora])
+  const est = useMemo(() => (dados ? esteira({
+    entregas: dados.entregas, agora,
+    mainVerde: dados.mainTeste?.verde ?? null,
+    mainDesde: dados.mainTeste?.desde ? new Date(dados.mainTeste.desde) : null,
+    specFalha: dados.mainTeste?.spec_falha ?? null,
+    filaTestes: dados.filaTestes,
+  }) : null), [dados, agora])
   const resumos = useMemo(
     () => (dados ? CODES_PAINEL.map((code) => resumoCode({ code, entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, rotinas: dados.rotinas, agora })) : []),
     [dados, agora],
@@ -125,9 +139,15 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
+      <SaudeEsteira />
+      <SaudeCodes />
+      <GraficosCodes />
       {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
       {resumos.length > 0 && <ResumoPorCode itens={resumos} agora={agora} />}
       {dados && <LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} />}
+
+      {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
+      <MeuCode />
 
       {dados && (
         <>
@@ -157,7 +177,9 @@ const COR_STATUS: Record<StatusCode, { bg: string; fg: string; ico: string; nome
 function FaixaEsteira({ e, alerta, agora }: { e: ReturnType<typeof esteira>; alerta: string | null; agora: Date }) {
   const c = COR_ESTEIRA[e.cor]
   const pub = e.ultimaPub ? `publicou ${hora(e.ultimaPub)} (há ${duracao(agora.getTime() - e.ultimaPub.getTime())})` : 'sem publicação nos últimos 7 dias'
-  const main = e.mainVerde === null ? 'teste da main sem dado' : e.mainVerde ? 'teste da main verde' : 'teste da main vermelho'
+  const main = e.mainVerde === null ? 'teste da main sem dado'
+    : e.mainVerde ? 'teste da main verde'
+    : `teste da main VERMELHO${e.mainDesde ? ` há ${duracao(agora.getTime() - e.mainDesde.getTime())}` : ''}${e.specFalha ? ` — ${e.specFalha}` : ''}`
   const filaT = e.filaTestes === null ? 'fila de testes sem dado' : `fila de testes ${e.filaTestes} esperando`
   return (
     <div data-testid="codes-faixa" data-cor={e.cor}
@@ -311,7 +333,7 @@ function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: st
   return (
     <div data-testid="codes-linha-tempo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-        <span style={{ fontWeight: 700 }}>Publicações do dia</span>
+        <span style={{ fontWeight: 700 }}>Publicações do dia</span><AjudaCampo chave="dev.codes.filtro_data" rota="/dashboard/dev/codes" />
         <input data-testid="codes-filtro-data" type="date" value={dia} max={diaSP(agora)} onChange={(e) => e.target.value && setDia(e.target.value)}
           style={{ border: `1px solid ${BD}`, borderRadius: 8, padding: '4px 8px', color: ESP, background: OFF, fontFamily: 'inherit' }} />
       </div>

@@ -57,6 +57,8 @@ export default function EngenhariaPage() {
   const [itensGerados, setItensGerados] = useState<ItemGerado[]>([])
   const [bom, setBom] = useState<BomRow[]>([])
   const [addAberto, setAddAberto] = useState(false)
+  const [novoAberto, setNovoAberto] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -117,7 +119,7 @@ export default function EngenhariaPage() {
   // Passo 1 · novo take-off manual (sem DWG). fn_takeoff_planta_salvar aceita arquivo 'manual'.
   const novoTakeoff = async () => {
     if (!companyId) return
-    const nome = window.prompt('Nome do projeto / take-off:')?.trim()
+    const nome = novoNome.trim()
     if (!nome) return
     setBusy(true); setErro(null); setMsg(null)
     try {
@@ -129,6 +131,7 @@ export default function EngenhariaPage() {
       const id = data as string
       await recarregarPlantas()
       await abrirPlanta({ id, nome, status: 'rascunho', created_at: new Date(0).toISOString() })
+      setNovoAberto(false); setNovoNome('')
       setMsg('Take-off criado. Adicione ambientes e vincule serviços.')
     } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
   }
@@ -248,12 +251,18 @@ export default function EngenhariaPage() {
                 <option value="">— novo ou selecione um existente —</option>
                 {plantas.map((p) => <option key={p.id} value={p.id}>{p.nome} · {p.status}</option>)}
               </select>
-              <button onClick={novoTakeoff} disabled={busy} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: busy ? 0.6 : 1 }}>
+              <button onClick={() => setNovoAberto((v) => !v)} disabled={busy} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: busy ? 0.6 : 1 }}>
                 <Plus size={15} /> Novo
               </button>
             </div>
           </div>
         </div>
+        {novoAberto && (
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void novoTakeoff() }}>
+            <input autoFocus className={inp} value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Nome do projeto / take-off" aria-label="Nome do take-off" />
+            <button type="submit" disabled={busy || !novoNome.trim()} className="shrink-0 px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: (busy || !novoNome.trim()) ? 0.6 : 1 }}>Criar</button>
+          </form>
+        )}
       </section>
 
       {msg && <div className="rounded-xl p-3 text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>{msg}</div>}

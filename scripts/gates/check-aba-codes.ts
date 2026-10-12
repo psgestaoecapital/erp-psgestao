@@ -144,17 +144,19 @@ async function main() {
 
   const ent = (id: number, pr: number, evento: Entrega['evento'], m: number, code = 'gilberto-desenv'): Entrega =>
     ({ id, pr_numero: pr, titulo: `PR ${pr}`, code, evento, via: 'rapida', sha: `s${id}`, url: null, ocorrido_em: min(m) })
-  const ents = [ent(1, 10, 'aberta', 300), ent(2, 10, 'pronta', 200), ent(3, 11, 'aberta', 100), ent(4, 12, 'aberta', 90), ent(5, 12, 'publicada', 30)]
+  const ents = [ent(1, 10, 'aberta', 300), ent(2, 10, 'pronta', 200), ent(3, 11, 'aberta', 100), ent(4, 12, 'aberta', 90), ent(5, 12, 'publicada', 20)]
   const et = emTeste(ents, 'gilberto-desenv')
   ok(et.map((p) => `${p.pr_numero}:${p.pronta}`).join(',') === '10:true,11:false', 'em teste: abertas sem publicada/fechada (pronta x rascunho)')
 
   const leases = [lease('gilberto-desenv', 30, 2)]
   const verde = faixa({ entregas: ents, msgs: [], leases, agora })
-  ok(verde.cor === 'verde', `faixa VERDE: publicou na última hora e ninguém parado com fila (${verde.frase})`)
+  ok(verde.cor === 'verde', `faixa VERDE: publicou nos últimos 30 min e ninguém parado com fila (${verde.frase})`)
   const semPub = faixa({ entregas: ents.filter((e) => e.evento !== 'publicada'), msgs: [], leases, agora })
   ok(semPub.cor === 'vermelha' && /^Nada publicado nos últimos 7 dias com 1 PR pronta$/.test(semPub.frase), `faixa VERMELHA sem publicação (${semPub.frase})`)
   const velha = faixa({ entregas: [ent(6, 13, 'publicada', 125), ent(7, 14, 'pronta', 10), ent(8, 15, 'pronta', 10)], msgs: [], leases, agora })
   ok(velha.cor === 'vermelha' && velha.frase === 'Nada publicado há 2 h com 2 PRs prontas', `faixa: "nada publicado há 2 h com 2 PRs prontas" (${velha.frase})`)
+  const trinta = faixa({ entregas: [ent(9, 16, 'publicada', 45), ent(10, 17, 'pronta', 10)], msgs: [], leases, agora })
+  ok(trinta.cor === 'vermelha' && /^Nada publicado há 45 min/.test(trinta.frase), `faixa: 45 min sem publicar já é vermelha (${trinta.frase})`)
   const parado = faixa({ entregas: ents, msgs, leases, agora })
   ok(parado.cor === 'vermelha' && /^jordana-code parado com 3 tarefas na fila$/.test(parado.frase), `faixa VERMELHA: Code parado com fila (${parado.frase})`)
   const ativo = faixa({ entregas: ents, msgs, leases: [...leases, lease('jordana-code', 40, 1)], agora })
