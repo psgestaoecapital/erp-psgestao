@@ -86,18 +86,15 @@ export function validateNFeRequest(req: NFeRequest): void {
         const nomeProduto = item.codigo ? `${item.descricao} (cód. ${item.codigo})` : item.descricao
         erros.push(`${prefixo}: O produto ${nomeProduto} está com tributação de regime normal (CST). Para empresa do Simples use CSOSN (ex.: 500 para produto com ST já retido). CST no cadastro: ${cstItem}`)
       }
-      // Guarda comb (padrão do 232/938): item com NCM de combustível/lubrificante (começa com 2710) exige
-      // o grupo comb (NT 2016/002) — cProdANP e descANP no cadastro do produto (a UFCons vem do
-      // destinatário). Sem eles a SEFAZ rejeita. Barra ANTES de emitir, dizendo o que falta, pra a Jordana
-      // testar uma vez só com tudo. cProdANP é inteiro (aceita 0 teórico), por isso testa == null.
-      const ncmComb = (item.ncm ?? '').replace(/\D/g, '')
-      if (ncmComb.startsWith('2710')) {
-        const faltandoComb: string[] = []
-        if (item.comb?.cProdANP == null) faltandoComb.push('Código ANP do produto (cProdANP)')
-        if (!item.comb?.descANP) faltandoComb.push('Descrição ANP do produto (descANP)')
-        if (faltandoComb.length > 0) {
-          erros.push(`${prefixo}: produto com NCM ${ncmComb} (combustível/lubrificante) exige o grupo ANP no cadastro do produto (bloco Fiscal) · faltando: ${faltandoComb.join(', ')} · sem isso a SEFAZ rejeita (grupo comb · NT 2016/002)`)
-        }
+      // Guarda comb (#1755 · CEO 07/10 "ANP só com código ANP"): o grupo comb (LA) do XML é obrigatório SÓ
+      // quando o produto tem código ANP cadastrado (cProdANP). MOC 7.0 / NT 2016/002, grupo LA: "Informar
+      // apenas para operações com combustíveis líquidos" — o gatilho é o produto estar na tabela SIMP da ANP
+      // (ter cProdANP), não o NCM. Prova: NF 394.102 da Black Prime (LIMPA BICO DIESEL, NCM 2710, sem grupo
+      // ANP) autorizada pela SEFAZ. NCM 2710 sem código ANP = só aviso no pré-voo, nunca bloqueio.
+      // Produto COM código ANP e descANP faltando continua barrado, dizendo o que falta (sem isso a SEFAZ
+      // rejeita o grupo comb). cProdANP é inteiro (aceita 0 teórico), por isso testa != null.
+      if (item.comb?.cProdANP != null && !item.comb.descANP) {
+        erros.push(`${prefixo}: o produto ${item.codigo ? `${item.descricao} (cód. ${item.codigo})` : item.descricao} tem código ANP ${item.comb.cProdANP} no cadastro, mas está sem a Descrição ANP (descANP) · preencha a descrição da tabela SIMP da ANP no bloco Fiscal do produto, ou apague o código ANP se o produto não é combustível · sem isso a SEFAZ rejeita (grupo comb · NT 2016/002)`)
       }
     })
   }
