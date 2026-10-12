@@ -156,7 +156,13 @@ function Coluna({ titulo, cor, obras, receita, onStatus, busy, onAbrir, onFiscal
     <div>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: cor, fontWeight: 700, marginBottom: 8 }}>{titulo} · {obras.length}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {obras.length === 0 ? <div style={{ fontSize: 12, color: MUT, fontStyle: 'italic' }}>—</div> :
+        {obras.length === 0 ? (
+          <div data-testid={`obras-coluna-vazia-${titulo}`} style={{ fontSize: 12.5, color: MUT, lineHeight: 1.5, border: `0.5px dashed ${LINE}`, borderRadius: 10, padding: 14 }}>
+            {titulo === 'Em andamento'
+              ? <>Nenhuma obra em andamento. A obra nasce quando uma proposta é aprovada — <Link href="/dashboard/projetos/propostas" style={{ color: ESP, fontWeight: 600 }}>abra as Propostas</Link> e aprove a próxima.</>
+              : <>Nenhuma obra {titulo.toLowerCase()} por enquanto.</>}
+          </div>
+        ) :
           obras.map((o) => <ObraCard key={o.id} o={o} receita={receita ? (receita[o.id] ?? null) : undefined} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} onFiscal={onFiscal} />)}
       </div>
     </div>

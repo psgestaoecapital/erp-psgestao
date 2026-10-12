@@ -4,12 +4,12 @@
 
 import { test, expect } from '../../support/fixtures'
 import { rpc, dbInsert, dbPatch, dbSelect, registrarJornada } from '../../support/api'
-import { liberarLease } from '../../support/lease'
+import { AGENTE_TESTE, ligarAgenteTeste } from '../../support/agente-teste'
 
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 const MIN = 60_000
 const ha = (min: number) => new Date(Date.now() - min * MIN).toISOString()
-const AG = 'gilberto-chamados'
+const AG = AGENTE_TESTE
 
 type Sessao = { ok: boolean; resultado?: string }
 type Desp = { disparos: { mensagem_id: string }[] }
@@ -18,7 +18,7 @@ test.describe('Encerrar sessão e despertador de 5 min', () => {
   const criadas: string[] = []
   let devolverLease: () => Promise<void> = async () => {}
 
-  test.beforeAll(async () => { devolverLease = await liberarLease(AG) })
+  test.beforeAll(async () => { devolverLease = await ligarAgenteTeste() })
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-agente-encerrar-despertador5', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
@@ -65,8 +65,10 @@ test.describe('Encerrar sessão e despertador de 5 min', () => {
     expect((await rpc<Desp>('fn_agente_despertador', { p_somente: nova, p_simular: true })).disparos.map((d) => d.mensagem_id)).toEqual([nova])
   })
 
-  test('gilberto-produto existe na rotina com acionamento ligado', { tag: '@pos-migration' }, async () => {
-    const l = await dbSelect<{ aciona: boolean }>('erp_agente_rotina', 'agente=eq.gilberto-produto&select=aciona')
+  test('gilberto-produto existe na rotina; o agente de teste nasce com acionamento ligado', { tag: '@pos-migration' }, async () => {
+    // o estado de aciona dos agentes reais é operacional (congelamento): o spec só exige que existam
+    expect(await dbSelect('erp_agente_rotina', 'agente=eq.gilberto-produto&select=agente')).toHaveLength(1)
+    const l = await dbSelect<{ aciona: boolean }>('erp_agente_rotina', `agente=eq.${AG}&select=aciona`)
     expect(l[0]?.aciona).toBe(true)
   })
 })
