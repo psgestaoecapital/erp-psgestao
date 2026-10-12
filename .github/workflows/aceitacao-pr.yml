@@ -118,7 +118,7 @@ jobs:
       # Pool de bancos (CEO 10/10): no banco de testes, UM grupo POR VAGA (aceitacao-testes-<vaga>) → vagas diferentes
       # rodam EM PARALELO (um banco cada), e dentro de uma vaga segue serial (sem colisão de seed). Com ACEITACAO_VAGAS=1
       # a vaga é sempre 0 → um grupo só → serial, idêntico a antes. Em produção, o grupo único demo-e2e é preservado.
-      group: ${{ vars.ACEITACAO_BANCO == 'testes' && format('aceitacao-testes-{0}', needs.triagem.outputs.vaga) || 'demo-e2e' }}
+      group: ${{ vars.ACEITACAO_BANCO == 'testes' && (needs.triagem.outputs.vaga == '0' && 'aceitacao-testes' || format('aceitacao-testes-{0}', needs.triagem.outputs.vaga)) || 'demo-e2e' }}
       cancel-in-progress: false
       queue: max
     # 40 min (CEO 06/10, regra e): a espera na fila demo-e2e é FORA do runner e não conta; preso além disso o
