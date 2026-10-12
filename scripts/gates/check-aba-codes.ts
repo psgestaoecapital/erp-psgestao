@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  CODES_LINHA_FINAL, CODES_PRINCIPAIS, emTeste, estadoSessao, faixa, fila, intervaloDia,
+  CODES_LINHA_FINAL, CODES_PRINCIPAIS, emTeste, esteira, resumoCode, estadoSessao, faixa, fila, intervaloDia,
   type Entrega, type Lease, type Mensagem,
 } from '../../src/lib/dev/painelCodes'
 
@@ -144,17 +144,19 @@ async function main() {
 
   const ent = (id: number, pr: number, evento: Entrega['evento'], m: number, code = 'gilberto-desenv'): Entrega =>
     ({ id, pr_numero: pr, titulo: `PR ${pr}`, code, evento, via: 'rapida', sha: `s${id}`, url: null, ocorrido_em: min(m) })
-  const ents = [ent(1, 10, 'aberta', 300), ent(2, 10, 'pronta', 200), ent(3, 11, 'aberta', 100), ent(4, 12, 'aberta', 90), ent(5, 12, 'publicada', 30)]
+  const ents = [ent(1, 10, 'aberta', 300), ent(2, 10, 'pronta', 200), ent(3, 11, 'aberta', 100), ent(4, 12, 'aberta', 90), ent(5, 12, 'publicada', 20)]
   const et = emTeste(ents, 'gilberto-desenv')
   ok(et.map((p) => `${p.pr_numero}:${p.pronta}`).join(',') === '10:true,11:false', 'em teste: abertas sem publicada/fechada (pronta x rascunho)')
 
   const leases = [lease('gilberto-desenv', 30, 2)]
   const verde = faixa({ entregas: ents, msgs: [], leases, agora })
-  ok(verde.cor === 'verde', `faixa VERDE: publicou na última hora e ninguém parado com fila (${verde.frase})`)
+  ok(verde.cor === 'verde', `faixa VERDE: publicou nos últimos 30 min e ninguém parado com fila (${verde.frase})`)
   const semPub = faixa({ entregas: ents.filter((e) => e.evento !== 'publicada'), msgs: [], leases, agora })
   ok(semPub.cor === 'vermelha' && /^Nada publicado nos últimos 7 dias com 1 PR pronta$/.test(semPub.frase), `faixa VERMELHA sem publicação (${semPub.frase})`)
   const velha = faixa({ entregas: [ent(6, 13, 'publicada', 125), ent(7, 14, 'pronta', 10), ent(8, 15, 'pronta', 10)], msgs: [], leases, agora })
   ok(velha.cor === 'vermelha' && velha.frase === 'Nada publicado há 2 h com 2 PRs prontas', `faixa: "nada publicado há 2 h com 2 PRs prontas" (${velha.frase})`)
+  const trinta = faixa({ entregas: [ent(9, 16, 'publicada', 45), ent(10, 17, 'pronta', 10)], msgs: [], leases, agora })
+  ok(trinta.cor === 'vermelha' && /^Nada publicado há 45 min/.test(trinta.frase), `faixa: 45 min sem publicar já é vermelha (${trinta.frase})`)
   const parado = faixa({ entregas: ents, msgs, leases, agora })
   ok(parado.cor === 'vermelha' && /^jordana-code parado com 3 tarefas na fila$/.test(parado.frase), `faixa VERMELHA: Code parado com fila (${parado.frase})`)
   const ativo = faixa({ entregas: ents, msgs, leases: [...leases, lease('jordana-code', 40, 1)], agora })
@@ -180,6 +182,25 @@ async function main() {
   ok(existsSync('src/app/dashboard/dev/codes/page.tsx') && /export \{ default \} from '\.\.\/page'/.test(ler('src/app/dashboard/dev/codes/page.tsx')),
     'rota /dashboard/dev/codes é a mesma Central')
   ok(/Code: <nome da rotina>/.test(ler('AGENTS.md')), 'AGENTS.md: toda PR leva a linha "Code: <nome da rotina>"')
+
+  // (6) topo da aba (CEO 08/10): faixa da esteira e resumo por Code — RD-83
+  {
+    const ag = new Date('2026-10-08T15:00:00-03:00')
+    const min = (m: number) => new Date(ag.getTime() - m * 60_000).toISOString()
+    const msg = (id: string, para: string, status: string, m: number): Mensagem =>
+      ({ id, para, assunto: `assunto ${id}`, status, pr_numero: null, resposta: null, criado_em: min(m), atualizado_em: min(m) })
+    const lease = (agente: string, m: number): Lease => ({ agente, sessao_ref: 's', iniciada_em: min(m + 5), renovada_em: min(m) })
+    const base = { entregas: [] as Entrega[], agora: ag }
+    const r = (code: string, msgs: Mensagem[], leases: Lease[]) => resumoCode({ ...base, code, msgs, leases })
+    ok(r('gilberto-desenv', [], [lease('gilberto-desenv', 2)]).status === 'trabalhando', 'RD-83: sessão ativa → Trabalhando')
+    ok(r('jordana-code', [msg('a', 'jordana-code', 'nova', 20)], []).status === 'travado', 'RD-83: nova não lida há 20 min → Travado')
+    const antiga = r('rodrigo-code', [msg('b', 'rodrigo-code', 'recebida', 30 * 60)], [])
+    ok(antiga.status === 'dormindo' && antiga.filaAntiga === 1 && antiga.fila === 0, 'RD-83: recebida > 24 h vira fila antiga, nunca Travado')
+    ok(r('gilberto-produto', [msg('c', 'gilberto-produto', 'nova', 5)], []).status === 'dormindo', 'nova há 5 min ainda não é Travado')
+    ok(esteira({ ...base, entregas: [{ id: 1, pr_numero: 1, titulo: 't', code: 'x', evento: 'publicada', via: 'rapida', sha: 'a', url: null, ocorrido_em: min(10) }] }).cor === 'verde', 'esteira verde: publicou na última hora')
+    ok(esteira({ ...base }).cor === 'amarela', 'esteira amarela: sem publicação há mais de 1 h')
+    ok(esteira({ ...base, mainVerde: false }).cor === 'vermelha' && esteira({ ...base, testeParadoMin: 100 }).cor === 'vermelha', 'esteira vermelha: main vermelha ou teste parado > 90 min')
+  }
 
   if (falhas) { console.error(`\ncheck-aba-codes: ${falhas} falha(s)`); process.exit(1) }
   console.log('\nAba Codes: ok')

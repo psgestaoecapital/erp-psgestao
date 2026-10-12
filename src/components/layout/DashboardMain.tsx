@@ -21,12 +21,14 @@ export default function DashboardMain({ children }: { children: React.ReactNode 
   const modoForm = FORM_ROUTES.includes(pathname ?? '')
   return (
     <main
+      // No celular, folga no rodapé (pb-[150px]) para a ação primária do fim da tela não cair sob o FAB flutuante
+      // do comunicador (right:18/bottom:82, 52px). No desktop (sm+) volta ao py-6 de sempre — lá o FAB não cobre.
       className={
         modoForm
           // conforto de leitura: largura máxima centrada (campos não esticam)
-          ? 'flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 py-6'
+          ? 'flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 pt-6 pb-[150px] sm:py-6'
           // padrão: full-width + respiro lateral (mesmo padding de antes, sem o teto de 1400px)
-          : 'flex-1 w-full px-4 sm:px-6 py-6'
+          : 'flex-1 w-full px-4 sm:px-6 pt-6 pb-[150px] sm:py-6'
       }
     >
       {children}
