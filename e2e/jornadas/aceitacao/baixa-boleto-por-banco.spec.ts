@@ -24,10 +24,12 @@ async function rpcRobo<T = unknown>(fn: string, args: Record<string, unknown>): 
   if (!resp.ok) throw new Error(`rpc ${fn} falhou: ${resp.status} ${await resp.text()}`)
   return (await resp.json()) as T
 }
+// Vencimento sempre no futuro (data fixa virava "vencido" com o passar do tempo e quebrava o teste da main)
+const VENCIMENTO = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
 async function boleto(banco: string): Promise<string> {
   const { id } = await dbInsert<{ id: string }>('erp_receber', {
     company_id: DEMO, cliente_nome: `E2E boleto ${banco}`, descricao: `Aceitação baixa por banco · ${banco} · ${RUN}`, valor: 100,
-    data_vencimento: '2026-10-10', status: 'aberto', boleto_status: 'registrado', boleto_nosso_numero: NN, boleto_banco_codigo: banco,
+    data_vencimento: VENCIMENTO, status: 'aberto', boleto_status: 'registrado', boleto_nosso_numero: NN, boleto_banco_codigo: banco,
   })
   titulos.push(id)
   return id
@@ -74,7 +76,7 @@ test.describe('Baixa de boleto por banco (empresa + banco + nosso número)', () 
     expect(r3.erro, 'sem banco não baixa nada').toBe('banco_obrigatorio')
 
     await expect(dbInsert('erp_receber', {
-      company_id: DEMO, descricao: `Aceitação dup ${RUN}`, valor: 100, data_vencimento: '2026-10-10', status: 'aberto',
+      company_id: DEMO, descricao: `Aceitação dup ${RUN}`, valor: 100, data_vencimento: VENCIMENTO, status: 'aberto',
       boleto_status: 'registrado', boleto_nosso_numero: NN, boleto_banco_codigo: '748',
     }), 'empresa + banco + nosso número repetido é barrado').rejects.toThrow()
   })

@@ -70,10 +70,16 @@ jobs:
       - name: Trava de segurança (nunca aponta para a produção)
         run: |
           [ -n "$TEST_DATABASE_URL" ] || { echo "::error::TEST_DATABASE_URL ausente"; exit 1; }
+          # normaliza o segredo (espaço/CR/aspas coladas) e deixa a forma na tela, sem a senha
+          url=$(printf '%s' "$TEST_DATABASE_URL" | tr -d '\r\n' | sed -e 's/^[[:space:]"'"'"']*//' -e 's/[[:space:]"'"'"']*$//')
+          echo "TEST_DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "forma do segredo: $(printf '%s' "$url" | sed -E 's#(://[^:/@]*):[^@]*@#\1:***@#')"
+          case "$url" in postgres://*|postgresql://*) ;; *) echo "::error::TEST_DATABASE_URL não começa com postgresql:// (começa com '${url:0:12}')"; exit 1;; esac
+          case "$url" in *"[YOUR-PASSWORD]"*|*"[PASSWORD]"*) echo "::error::TEST_DATABASE_URL ainda tem o placeholder de senha"; exit 1;; esac
           case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
           # vaga 0 = o projeto erp-psgestao-testes conhecido; vaga > 0 = qualquer banco do Session pooler que NÃO seja a produção
           if [ "${ACEITACAO_VAGA:-0}" = 0 ]; then
-            case "$TEST_DATABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado (vaga 0)";; *) echo "::error::TEST_DATABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+            case "$TEST_DATABASE_URL" in *xjzqndnvjkdjyisuklpy*) echo "banco de testes confirmado (vaga 0)";; *) echo "::error::TEST_DATABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
           else
             case "$TEST_DATABASE_URL" in *pooler.supabase.com*) echo "banco de testes extra confirmado (vaga ${ACEITACAO_VAGA}, pooler não-produção)";; *) echo "::error::vaga ${ACEITACAO_VAGA}: TEST_DATABASE_URL precisa ser Session pooler (*.pooler.supabase.com)"; exit 1;; esac
           fi
@@ -142,6 +148,8 @@ jobs:
           echo "::add-mask::$senha"
           echo "::add-mask::$PROD_DATABASE_URL"
           PROD_DATABASE_URL="$PROD_DATABASE_URL" scripts/banco-testes/catalogos.sh
+          # reaproveitado pelo passo "Semente demo" (depois do fn_demo_reset); cliente pg17 já instalado acima
+          echo "PROD_DATABASE_URL=$PROD_DATABASE_URL" >> "$GITHUB_ENV"
       - name: Semente (usuário do Playwright no Auth + empresa DEMO)
         run: |
           set -euo pipefail
@@ -156,14 +164,36 @@ jobs:
           # a demo da produção é povoada por fn_demo_reset (se existir na cópia)
           # diagnóstico: mostra o erro REAL (mensagem, detalhe, contexto) como anotação, em vez de só "falhou"
           : > demo-reset-erro.log
+          reset_falhou=0
           for emp in b0700000-0000-4000-a000-000000000001 b0700000-0000-4000-a000-000000000002 b0700000-0000-4000-a000-000000000003 b0700000-0000-4000-a000-000000000004 b0700000-0000-4000-a000-000000000005 ded00000-0000-4000-a000-000000000001; do
             if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('$emp')" 2> "demo-reset-$emp.log"; then
               cat "demo-reset-$emp.log" | tee -a demo-reset-erro.log
-              echo "::warning title=fn_demo_reset falhou ($emp)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+              echo "::error title=fn_demo_reset falhou ($emp)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+              reset_falhou=1
             fi
           done
           # trava-demo liberada ao final da montagem (lease de run que falhou/cancelou não pode travar a próxima)
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "delete from public.e2e_trava" || true
+          # Ação 3 (CEO 11/10): o job NÃO pode ficar verde com a DEMO incompleta (foi a causa do apagão). epi_catalogo
+          # é povoado pelo fn_demo_reset (referencia epi_categoria, agora na whitelist) → vazio = semente quebrada.
+          epi=$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -At -c "select count(*) from public.epi_catalogo")
+          echo "epi_catalogo: ${epi:-0}"
+          [ "${epi:-0}" -gt 0 ] || { echo "::error::epi_catalogo vazio após fn_demo_reset — DEMO incompleta"; reset_falhou=1; }
+          [ "$reset_falhou" = 0 ] || { echo "::error::montagem incompleta (fn_demo_reset com erro ou semente-chave vazia) — abortado"; exit 1; }
+      # Eng. Chefe 12/10 (passada completa de semente): o teste nasce com "grant all" para anon e o dump não traz os direitos
+      # da produção → ~40 specs de segurança/LGPD @pos-migration vermelhos por esquema, não por regressão. Espelha só os
+      # GRANTs/REVOKEs do catálogo da produção (sem dado de tabela). Idempotente.
+      - name: Direitos (GRANT/REVOKE) espelhados da produção → banco de testes
+        run: |
+          set -euo pipefail
+          export PSQL=/usr/lib/postgresql/17/bin/psql
+          scripts/banco-testes/espelhar-grants.sh
+      - name: Semente demo (globais/indicadores — filtrado, autor nulo, sintético)
+        run: |
+          set -euo pipefail
+          # cliente pg17 (instalado no passo dos catálogos) p/ ler a produção (Postgres 17); PROD_DATABASE_URL vem do GITHUB_ENV
+          export PSQL=/usr/lib/postgresql/17/bin/psql
+          scripts/banco-testes/semente-demo.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

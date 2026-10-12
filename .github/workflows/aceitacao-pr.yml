@@ -261,9 +261,12 @@ jobs:
         run: npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=celular --pass-with-no-tests --grep-invert @pos-migration
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
+      # CEO 12/10 (fila não drenava): só roda se a suíte passou e com teto de 8 min. Antes rodava também após a suíte
+      # falhar/estourar (30 min) e comia o resto do timeout do job (40 min) → o job virava "cancelled" em vez de
+      # vermelho/verde, a fila re-rodava até o teto de 3 tentativas e a PR ficava presa para sempre.
       - name: Aceitação @pos-migration (informativo — não bloqueia)
-        timeout-minutes: 15
-        if: success() || failure()
+        timeout-minutes: 8
+        if: success()
         continue-on-error: true
         env:
           PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}

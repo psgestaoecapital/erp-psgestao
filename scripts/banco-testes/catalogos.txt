@@ -15,6 +15,16 @@ feature_catalog
 system_screens
 screen_route_features
 
+# EPI: catálogo global de categorias (sem coluna de dono). O fn_demo_reset popula epi_catalogo (por empresa), que
+# referencia categoria_id → epi_categoria tem de existir ANTES do fn_demo_reset, senão a semente da DEMO falha.
+epi_categoria
+
+# Passada de semente (CEO 11/10): globais de produção que a UI das specs lê e o banco de testes não tinha. Sem coluna de dono.
+area_menu_config            # menu por área (FK plan_catalog)
+area_indicadores_mestres    # indicadores-mestre por área
+role_permissions            # permissão por papel/módulo (FK module_catalog)
+permissoes_nivel            # permissão por nível/módulo (FK module_catalog)
+
 # Papéis de acesso (RBAC) globais
 rbac_subgrupo_catalogo
 rbac_papel
@@ -32,3 +42,9 @@ erp_gov_nfse_municipios     # municípios IBGE (adesão à NFS-e nacional)
 # importou (dado pessoal) — pg_dump -t copia a tabela inteira, então ela NÃO entra. Nenhuma spec lê o conteúdo dela
 # (ibpt-empresa-token só a cita). Se o CEO quiser o IBPT no banco de testes, a cópia tem de ser por SELECT com essa
 # coluna em branco, não por pg_dump. erp_ibpt_item depende de erp_ibpt_tabela (que tem company_id): também fora.
+
+# Passada completa de semente (11/10, msg c3497781): auditoria das 209 specs de e2e contra o banco de testes. Funções (rpc)
+# usadas pelas specs: todas existem no teste. Tabelas lidas direto: só dominio_bi estava vazia e é global (id/slug/nome/ordem/
+# ativo/icone, sem dono nem dado pessoal). As demais vazias (invites, user_scope, lgpd_consentimentos) são criadas pelas
+# próprias specs ou por empresa DEMO — não entram aqui.
+dominio_bi

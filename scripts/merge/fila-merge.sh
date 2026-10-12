@@ -88,7 +88,7 @@ rerodar() {
   local id=$1 tent
   tent=$(api "repos/$REPO/actions/runs/$id" --jq '.run_attempt')
   if [ "$tent" -lt 3 ]; then api -X POST "repos/$REPO/actions/runs/$id/rerun" > /dev/null && log "run $id re-disparado (tentativa $((tent + 1)))"
-  else log "run $id já teve $tent tentativas: não re-roda de novo (avise o Eng. Chefe)"; fi
+  else log "run $id já teve $tent tentativas: não re-roda de novo (avise o Eng. Chefe)"; return 1; fi
 }
 
 # (a) Estado da main para PR COM migration. Ecoa: livre | esperar:<motivo>
@@ -122,7 +122,7 @@ ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc vercel_ok vercel_ruim
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc esgotou id vercel_ok vercel_ruim
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # via rápida: tira a aceitação do cálculo de pendentes, vermelhos e cancelados
@@ -132,7 +132,13 @@ estado_checks() {
   canc=$(awk -F'\t' '$3 == "cancelled" {print $4}' <<< "$linhas" | sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' | sort -u)
   [ -z "$verm" ] || { echo "vermelho:check vermelho: $verm"; return; }
   [ -z "$pend" ] || { echo "esperar:checks rodando: $pend"; return; }
-  if [ -n "$canc" ]; then for id in $canc; do rerodar "$id" >&2; done; echo "esperar:check cancelado re-disparado"; return; fi
+  if [ -n "$canc" ]; then
+    esgotou=0
+    for id in $canc; do rerodar "$id" >&2 || esgotou=1; done
+    # run cancelado que já gastou as 3 tentativas nunca vai completar: sai da fila com motivo (era "re-disparado" eterno, 12/10)
+    [ "$esgotou" = 1 ] && { echo "vermelho:check cancelado 3 vezes seguidas (use /re-rodar ou empurre um commit)"; return; }
+    echo "esperar:check cancelado re-disparado"; return
+  fi
   # gates (scripts/gates/): saíram do build da Vercel para o workflow gates.yml (CEO 07/10) — têm de existir e estar
   # verdes nas DUAS vias
   case "$(awk -F'\t' '$1 == "gates" {print $3}' <<< "$linhas" | tail -1)" in
@@ -251,7 +257,7 @@ so_sem_migration=0
 # Teto de PRs "da vez" em PREPARO ao mesmo tempo (CEO 09/10): atualizar com a main dispara preview/aceitação (~3 min/PR).
 # Sem teto, a fila atualizava TODA PR verde atrás da main a cada push → dezenas de builds por publicação. Agora prepara só
 # as próximas N da ordem; as demais esperam a vez (sem build) até uma da frente mergear.
-ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-2}
+ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-4}
 em_preparo=0
 # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada (corta runs/builds de publicação). PR COM migration
 # é UMA por rodada e encerra a rodada. merges = quantas já saíram no lote; LOTE_MAX = teto por rodada (teto de risco).
