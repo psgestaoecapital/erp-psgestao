@@ -68,3 +68,35 @@ export function auditarCoresFonte(fonte: string): ViolacaoCor[] {
   })
   return out
 }
+
+// ── Classificação por token e varredura de Tailwind (#2436) ──────────────────────────────────────
+
+export type ClasseCor = 'identidade' | 'semaforo' | 'neutra' | 'fora'
+
+/** Classifica uma cor: identidade, semáforo (família verde/amarelo/vermelho), neutra ou fora da paleta. */
+export function classificarCor(hex: string): ClasseCor {
+  if (ehIdentidade(hex)) return 'identidade'
+  if (ehNeutro(hex)) return 'neutra'
+  if (familiaSemaforo(hex)) return 'semaforo'
+  return 'fora'
+}
+
+const TW_SEMAFORO = /\b(?:bg|text|border|ring|fill|stroke)-(?:green|emerald|yellow|amber|red)-\d{2,3}\b/g
+// Contexto em que verde/amarelo/vermelho é semáforo legítimo (status/performance).
+const CTX_SEMAFORO = /semaf|status|sla|alerta|saude|score|meta|desempenho|performance|positivo|negativo|erro|sucesso|aviso|atras|vencid|kpi|ok\b/i
+
+export interface AchadoCor { linha: number; tipo: 'cor_fora_da_paleta' | 'semaforo_decorativo'; cor: string }
+
+/** Varre o texto de uma tela (hex e classes Tailwind) e devolve as violações de cor — insumo do Insight visual e do backlog. */
+export function violacoesDeCor(texto: string): AchadoCor[] {
+  const out: AchadoCor[] = []
+  texto.split('\n').forEach((ln, i) => {
+    for (const m of ln.matchAll(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g)) {
+      const c = classificarCor(m[0])
+      if (c === 'fora') out.push({ linha: i + 1, tipo: 'cor_fora_da_paleta', cor: m[0] })
+      else if (c === 'semaforo' && !CTX_SEMAFORO.test(ln)) out.push({ linha: i + 1, tipo: 'semaforo_decorativo', cor: m[0] })
+    }
+    for (const m of ln.matchAll(TW_SEMAFORO)) if (!CTX_SEMAFORO.test(ln)) out.push({ linha: i + 1, tipo: 'semaforo_decorativo', cor: m[0] })
+  })
+  return out
+}
