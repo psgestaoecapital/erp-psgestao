@@ -22,7 +22,7 @@ export type PrSimulada = {
 }
 export type Rodada = { log: string; escritas: string[]; status: number }
 
-export function comFilaSimulada<T>(fn: (rodar: (prs: PrSimulada[], mainOcupada?: boolean, cota?: number) => Rodada) => T): T {
+export function comFilaSimulada<T>(fn: (rodar: (prs: PrSimulada[], mainOcupada?: boolean, cota?: number, env?: Record<string, string>) => Rodada) => T): T {
   const raiz = mkdtempSync(join(tmpdir(), 'fila-gate-'))
   try {
     const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim()
@@ -37,6 +37,7 @@ export function comFilaSimulada<T>(fn: (rodar: (prs: PrSimulada[], mainOcupada?:
       git(o, 'update-ref', `refs/pull/${n}/head`, 'HEAD')
     }
     git(o, 'checkout', '-q', 'main'); execFileSync('git', ['clone', '-q', o, w])
+    const main0 = git(o, 'rev-parse', 'main')   // main do início da rodada (= $MAIN0 na fila): o `atras` é medido contra ela
 
     // gh simulado: GET lê <fx>/<caminho normalizado>.json (com --jq aplicado); escrita é registrada e responde {}
     const bin = join(raiz, 'bin'); const fx = join(raiz, 'fx')
@@ -53,7 +54,7 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
     chmodSync(join(bin, 'gh'), 0o755)
 
     const R = 'repos/o/r'
-    const rodar = (prs: PrSimulada[], mainOcupada = false, cota = 5000): Rodada => {
+    const rodar = (prs: PrSimulada[], mainOcupada = false, cota = 5000, envExtra: Record<string, string> = {}): Rodada => {
       rmSync(fx, { recursive: true, force: true }); execFileSync('mkdir', ['-p', fx])
       const put = (p: string, v: unknown) => writeFileSync(join(fx, `${p.replace(/[^A-Za-z0-9]/g, '_')}.json`), JSON.stringify(v))
       put(`${R}/pulls?state=open&base=main&per_page=100`, prs.map((p, i) => ({
@@ -71,6 +72,7 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         if (arq) put(`${R}/contents/supabase/migrations/${arq}?ref=pr${p.n}`, { content: 'c2VsZWN0IDE7Cg==', sha: 'abc123' })
         put(`${R}/git/trees/main:supabase/migrations`, { tree: [{ path: '20261008150005_ultima.sql' }, { path: 'README.md' }] })
         put(`${R}/compare/main...${sha[p.n]}`, { behind_by: p.atras ?? 0 })
+        put(`${R}/compare/${main0}...${sha[p.n]}`, { behind_by: p.atras ?? 0 })   // a fila compara contra MAIN0 (constante na rodada)
         const acc = p.aceitacao ?? 'in_progress'
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [
           { name: 'check_menu', status: p.checksRodando ? 'in_progress' : 'completed', conclusion: p.checksRodando ? null : 'success', details_url: '' },
@@ -83,7 +85,7 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         { workflow_runs: [{ id: 1, status: mainOcupada ? 'in_progress' : 'completed', conclusion: mainOcupada ? null : 'success' }] })
       put(`${R}/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=1`, { workflow_runs: [{ id: 2, status: 'completed', conclusion: 'success' }] })
       const r = spawnSync('bash', [SCRIPT_FILA], { cwd: w, encoding: 'utf8',
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FX: fx, GH_TOKEN: 'x', REPO: 'o/r', GITHUB_STEP_SUMMARY: '' } })
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FX: fx, GH_TOKEN: 'x', REPO: 'o/r', GITHUB_STEP_SUMMARY: '', ...envExtra } })
       const log = `${r.stdout}${r.stderr}`
       if (r.status !== 0) console.error(log)
       const escritas = readFileSync(join(fx, 'chamadas.log'), 'utf8').split('\n').filter((l) => l && !l.startsWith('GET '))

@@ -5,9 +5,13 @@
 import { defineConfig, devices } from '@playwright/test'
 import { BASE_URL } from './e2e/support/api'
 import { STORAGE_STATE } from './e2e/global-setup'
+import { specsEmQuarentena } from './e2e/quarentena'
 
 export default defineConfig({
   testDir: './e2e/jornadas',
+  // Quarentena (CEO 10/10): specs postos em quarentena pelo detector (scripts/merge/quarentena-detectar.ts) não rodam
+  // — o arquivo continua no repo, só sai da execução enquanto o Code dono conserta. Lista viva em e2e/quarentena.ts.
+  testIgnore: specsEmQuarentena(),
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,

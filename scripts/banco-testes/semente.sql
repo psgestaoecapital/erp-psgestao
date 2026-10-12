@@ -33,6 +33,13 @@ BEGIN
   ON CONFLICT (id) DO UPDATE SET is_demo = true, ambiente_tenant = EXCLUDED.ambiente_tenant, is_active = true;
 END $$;
 
+-- empresa interna PS (c_ps de fn_agente_coleta_vigiar; a spec vigia-coleta-agentes espera o chamado nela). Sem dado de cliente;
+-- is_demo falso de propósito (é a empresa interna), por isso fica fora do CROSS JOIN das demos acima.
+INSERT INTO public.companies (id, org_id, razao_social, nome_fantasia, is_demo, is_active)
+SELECT 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725', (SELECT id FROM public.organizations ORDER BY created_at NULLS LAST LIMIT 1),
+       'Ps Gestao LTDA', 'Ps Gestao LTDA', false, true
+ON CONFLICT (id) DO NOTHING;
+
 -- plano ativo de cada demo (plan_catalog vem da whitelist de catálogos, que roda antes da semente)
 INSERT INTO public.tenant_subscriptions (company_id, plan_id, status, monthly_price_brl)
 SELECT p.company_id, p.plan_id, 'active', 0
