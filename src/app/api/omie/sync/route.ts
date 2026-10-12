@@ -48,6 +48,12 @@ function extractFault(r: any): string | null {
   return [code, str].filter(Boolean).join(" · ");
 }
 
+// Omie responde "lista vazia" como fault (SOAP-ENV:Client-5113 · "Não existem registros para a página [1]!").
+// Empresa sem estoque/pedido nenhum NÃO é falha: é zero registros. Só vale na página 1 (página N+1 vazia é outra coisa).
+function faultEhListaVazia(fault: string | null): boolean {
+  return !!fault && /Client-5113|N[ãa]o existem registros para a p[áa]gina \[1\]/i.test(fault);
+}
+
 async function omieCallAllPages(app_key: string, app_secret: string, endpoint: string, method: string, arrayKey: string, extraParams: any = {}, perPageOverride?: number) {
   const allData: any[] = [];
   let page = 1;
@@ -59,6 +65,7 @@ async function omieCallAllPages(app_key: string, app_secret: string, endpoint: s
     // Fault na 1a pagina · retorna raw pra caller detectar via extractFault
     const fault = extractFault(result);
     if (fault) {
+      if (page === 1 && faultEhListaVazia(fault)) return { [arrayKey]: [], total: 0, total_de_registros: 0, total_de_paginas: 0 };
       if (page === 1) return result;
       // Fault em pagina N+1 · retorna o que ja acumulou + flag
       return { [arrayKey]: allData, total: allData.length, _partial_fault: fault };
@@ -209,6 +216,7 @@ async function omieListarPosEstoqueAllPages(app_key: string, app_secret: string,
     });
     const fault = extractFault(result);
     if (fault) {
+      if (page === 1 && faultEhListaVazia(fault)) return { produto_servico_lista: [], nTotPaginas: 0, nTotRegistros: 0, total: 0 };
       if (page === 1) return result; // raw fault
       return {
         produto_servico_lista: allData,
@@ -342,10 +350,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 6. Sales Orders (era 7)
+    // 6. Sales Orders (era 7) · pedidos FATURADOS (etapa 60). O filtro é "etapa" — "filtrar_por_etapa" não existe em
+    //    pvpListarRequest e o Omie recusava a chamada inteira (SOAP Client-5001) desde 04/06/2026.
     if (doAll || sync_type === "vendas") {
       await runCall("vendas", () =>
-        omieCallAllPages(app_key, app_secret, "produtos/pedido/", "ListarPedidos", "pedido_venda_produto", { filtrar_por_etapa: "60" }),
+        omieCallAllPages(app_key, app_secret, "produtos/pedido/", "ListarPedidos", "pedido_venda_produto", { etapa: "60" }),
         (d) => d?.total ?? 0
       );
     }
