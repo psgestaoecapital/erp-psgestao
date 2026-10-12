@@ -20,8 +20,10 @@ import {
   TrendingUp,
   Settings,
   Smartphone,
+  Tag,
   BarChart3,
   Gauge,
+  Calculator,
   type LucideIcon,
 } from "lucide-react";
 
@@ -37,6 +39,7 @@ const COMERCIAL: Tab[] = [
   { href: "/dashboard/projetos/clientes",       label: "Clientes",    icon: Users,           key: "2" },
   { href: "/dashboard/projetos/visitas",        label: "Visitas",     icon: MapPin,          key: "3" },
   { href: "/dashboard/projetos/propostas",      label: "Propostas",   icon: FileSignature,   key: "4" },
+  { href: "/dashboard/projetos/tabelas-preco",  label: "Tabela de preço", icon: Tag,         key: "t" },
   { href: "/dashboard/projetos/instalar-app",   label: "Instalar app", icon: Smartphone,     key: "i" },
 ];
 
@@ -45,6 +48,7 @@ const TECNICO: Tab[] = [
   { href: "/dashboard/projetos/catalogo",       label: "Catálogo",    icon: BookOpenText, key: "6" },
   { href: "/dashboard/projetos/insumos",        label: "Insumos",     icon: Package,      key: "7" },
   { href: "/dashboard/projetos/mao-obra",       label: "Mão de obra", icon: HardHat,      key: "8" },
+  { href: "/dashboard/projetos/calculadora",    label: "Calculadora", icon: Calculator,   key: "c" },
 ];
 
 const EXECUCAO: Tab[] = [
