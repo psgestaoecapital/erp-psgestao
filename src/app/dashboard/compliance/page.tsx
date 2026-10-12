@@ -6,7 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtData } from '@/lib/psgc-tokens'
-import { EhsCabecalho, EhsCartaoStatus } from '@/components/ps-ehs/componentes'
+import { EhsCabecalho } from '@/components/ps-ehs/componentes'
+import { EhsCockpit, type EhsPapel } from '@/components/ps-ehs/cockpit'
 import { EHS } from '@/components/ps-ehs/tokens'
 import { tEhs } from '@/components/ps-ehs/i18n'
 
@@ -51,6 +52,7 @@ export default function ComplianceDashboardPage() {
     setTimeout(() => setToast(null), 3500)
   }
 
+  const [papel, setPapel] = useState<EhsPapel>('gestor')
   const [totalFuncionarios, setTotalFuncionarios] = useState(0)
   const [docsVencendo, setDocsVencendo] = useState(0)
   const [docsVencidos, setDocsVencidos] = useState(0)
@@ -136,13 +138,17 @@ export default function ComplianceDashboardPage() {
           ) : undefined}
         />
 
-        {/* Cards */}
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
-          <EhsCartaoStatus rotulo="Funcionários ativos" valor={loading ? '…' : totalFuncionarios} status="neutro" />
-          <EhsCartaoStatus rotulo="Vencendo (10 dias)" valor={loading ? '…' : docsVencendo} status={docsVencendo > 0 ? 'atencao' : 'ok'} />
-          <EhsCartaoStatus rotulo="Vencidos" valor={loading ? '…' : docsVencidos} status={docsVencidos > 0 ? 'critico' : 'ok'} />
-          <EhsCartaoStatus rotulo="% em dia" valor={loading ? '…' : `${pctEmDia}%`} status={pctEmDia >= 90 ? 'ok' : pctEmDia >= 70 ? 'atencao' : 'critico'} />
-        </section>
+        {/* Cockpit por papel — os quatro indicadores seguem todos visíveis; o papel muda foco e prioridade */}
+        <EhsCockpit
+          papel={papel}
+          onPapel={setPapel}
+          indicadores={[
+            { id: 'func', rotulo: 'Funcionários ativos', valor: loading ? '…' : totalFuncionarios, status: 'neutro' },
+            { id: 'vencendo', rotulo: 'Vencendo (10 dias)', valor: loading ? '…' : docsVencendo, status: docsVencendo > 0 ? 'atencao' : 'ok' },
+            { id: 'vencidos', rotulo: 'Vencidos', valor: loading ? '…' : docsVencidos, status: docsVencidos > 0 ? 'critico' : 'ok' },
+            { id: 'emdia', rotulo: '% em dia', valor: loading ? '…' : `${pctEmDia}%`, status: pctEmDia >= 90 ? 'ok' : pctEmDia >= 70 ? 'atencao' : 'critico' },
+          ]}
+        />
 
         {/* Atalhos */}
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
