@@ -29,11 +29,11 @@ export async function iniciarCronometro(empresa: string, userId: string, jobId: 
   const aberto = await lerCronometroAberto(userId)
   if (aberto?.job_id === jobId) return {}
   if (aberto) { const r = await pararCronometro(aberto); if (r.erro) return { erro: r.erro } }
-  const { data: eq } = await supabase.from('agency_equipe').select('custo_hora').eq('company_id', empresa).eq('user_id', userId).maybeSingle()
+  // LGPD (20261005180000): o custo/hora nasce no servidor (gatilho trg_agency_timesheet_custo_auto) — o cliente não grava custo_hora
   const ini = new Date()
   const { error } = await supabase.from('agency_timesheet').insert({
     company_id: empresa, job_id: jobId, user_id: userId, data: ini.toISOString().slice(0, 10), horas: 0,
-    inicio_em: ini.toISOString(), custo_hora: (eq as { custo_hora: number | null } | null)?.custo_hora ?? null, descricao: 'cronômetro',
+    inicio_em: ini.toISOString(), descricao: 'cronômetro',
   })
   if (error) return { erro: error.message }
   avisarCronometro()

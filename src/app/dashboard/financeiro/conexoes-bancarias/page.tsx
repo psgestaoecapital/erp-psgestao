@@ -19,6 +19,7 @@ import { temConectorExtrato, MSG_EXTRATO_SEM_CONECTOR } from '@/lib/banco/extrat
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   ArrowLeft, Plus, RefreshCw, Loader2, AlertCircle, CheckCircle2,
   Banknote, X, Lock,
@@ -40,6 +41,7 @@ interface ProviderConfig {
   agencia_dv: string | null
   carteira: string | null
   cap_boleto: boolean | null
+  boleto_responsavel: boolean | null   // #1673: banco responsável pelos boletos da empresa
   cap_extrato: boolean | null
   cap_pagamento: boolean | null
   ativo: boolean
@@ -169,12 +171,22 @@ export default function ConexoesBancariasPage() {
   const [editando, setEditando] = useState<{ banco: BancoDef; cfg: ProviderConfig } | null>(null)
   const [cnabEdit, setCnabEdit] = useState<ProviderConfig | null>(null)   // editor de identidade CNAB (sem credenciais)
 
+  // #1673: marca o banco que emite os boletos da empresa (um só por empresa; a função valida ativo + cap_boleto)
+  async function definirResponsavelBoleto(cfg: ProviderConfig) {
+    if (!empresaUnica) return
+    const { data, error } = await supabase.rpc('fn_banco_definir_responsavel_boleto', { p_company_id: empresaUnica, p_config_id: cfg.id })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro(error?.message ?? r?.erro ?? 'Não foi possível definir o responsável.'); return }
+    setErro(null)
+    await carregar()
+  }
+
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
     setLoading(true); setErro(null)
     const [cfgRes, contasRes, testesRes, catRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
-        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, juros_pct, multa_pct, dias_multa, dias_juros, instrucao_linha1, instrucao_linha2, instrucao_linha3, instrucao_linha4, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, boleto_responsavel, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, juros_pct, multa_pct, dias_multa, dias_juros, instrucao_linha1, instrucao_linha2, instrucao_linha3, instrucao_linha4, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
         .eq('company_id', empresaUnica)
         .order('provider'),
       supabase.from('erp_banco_contas')
@@ -409,6 +421,7 @@ export default function ConexoesBancariasPage() {
                       </div>
                       <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
                         {cfg.cap_boleto && <Badge cor="#16A34A">Boleto</Badge>}
+                        {cfg.boleto_responsavel && <Badge cor="#C8941A">Responsável pelos boletos</Badge>}
                         {cfg.cap_extrato && <Badge cor="#3B82F6">Extrato</Badge>}
                         {cfg.cap_pagamento && <Badge cor="#7C3AED">Pagamento</Badge>}
                       </div>
@@ -460,6 +473,21 @@ export default function ConexoesBancariasPage() {
                           }}>
                           🧾 Dados CNAB
                         </button>
+                        {cfg.ativo && cfg.cap_boleto && !cfg.boleto_responsavel && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <button
+                              type="button"
+                              data-testid={`definir-responsavel-boleto-${cfg.provider}`}
+                              onClick={() => definirResponsavelBoleto(cfg)}
+                              style={{
+                                background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                                padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                              }}>
+                              Definir como responsável pelos boletos
+                            </button>
+                            <AjudaCampo chave="banco.responsavel_boleto" />
+                          </span>
+                        )}
                         {cfg.ativo && botaoTestar(cfg)}
                         {cfg.cap_extrato && cfg.ativo && !temConectorExtrato(cfg.provider) && (
                           <span data-testid={`extrato-sem-conector-${cfg.provider}`} style={{ fontSize: 10, color: ESP60, maxWidth: 220 }}>

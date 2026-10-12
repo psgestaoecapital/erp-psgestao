@@ -27,6 +27,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # Rede de segurança (CEO 10/10): a fila é event-driven e fica QUIETA entre eventos (ninguém clicando → backlog parado).
+  # Um tick periódico a cada 15 min varre o backlog e drena sozinho. Mantém TODOS os gatilhos de evento acima; no tick
+  # por schedule não há github.event.pull_request — o job varre a lista de PRs, não uma PR específica, então roda igual.
+  schedule:
+    - cron: '*/15 * * * *'
 
 concurrency:
   group: fila-merge

@@ -36,6 +36,70 @@ export type SpecQuarentenado = {
 // a remoção é feita pela PR do Code dono que conserta o spec. Nunca apaga o arquivo do spec, só o tira da execução.
 export const QUARENTENA: SpecQuarentenado[] = [
   /* quarentena:inicio */
+  {
+    spec: 'e2e/jornadas/aceitacao/agency-origens-semente.spec.ts',
+    area: 'agency-origens',
+    motivo: 'asserção da linha 31 falha no banco de testes novo (DEMO da agência sem algum dado da semente); trava o teste da main e ~32 PRs. Conserto: Eng. Chefe msg 8787bb9d, ação 2',
+    desde: '2026-10-11T09:00:00Z',
+    runs: [0, 0], // run da aceitacao-main 01:09 e o seguinte (CEO destrava manual, 11/10)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/agente-caixa-mensagens.spec.ts',
+    area: 'agentes-caixa',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/agente-despertador.spec.ts',
+    area: 'agentes-despertador',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/agente-encerrar-despertador5.spec.ts',
+    area: 'agentes-despertador',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/agente-lease.spec.ts',
+    area: 'agentes-lease',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/caminho-atendimento-fila.spec.ts',
+    area: 'atendimento-fila',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/caminho-clonar-produto.spec.ts',
+    area: 'clonar-produto',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/caminho-clonar-servico.spec.ts',
+    area: 'clonar-servico',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
   /* quarentena:fim */
 ]
 
