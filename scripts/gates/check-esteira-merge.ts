@@ -55,7 +55,7 @@ ok(/if \[ "\$com_migration" = 1 \]; then\s*\n\s*m=\$\(estado_main\)/.test(sh), '
 ok(/Re-rodar aceitação cancelada/.test(vigia) && /FILA_MERGE_TOKEN/.test(vigia) && /\$tent" -gt 2/.test(vigia), 'vigia: re-roda aceitação cancelada com PAT, no máximo 2 vezes por SHA')
 ok(/head\.sha == /.test(vigia), 'vigia: só re-roda SHA ainda vigente (head de PR aberta ou main)')
 const cmd = ler('.github/workflows/comando-pr.yml')
-ok(/comment\.body == '\/re-rodar'/.test(cmd), 'comando-pr: só o comentário exato /re-rodar')
+ok(/startsWith\(github\.event\.comment\.body, '\/re-rodar'\)/.test(cmd), 'comando-pr: comentário que começa com /re-rodar (rodapé de atribuição não impede)')
 ok(/admin\|maintain\|write/.test(cmd) && /collaborators\/\$AUTOR\/permission/.test(cmd), 'comando-pr: exige permissão write do autor')
 ok(!/actions\/checkout/.test(cmd) && !/\$\{\{ github\.event\.comment\.body \}\}/.test(cmd.replace(/if: >-[\s\S]*?runs-on/, '')), 'comando-pr: sem checkout e sem interpolar o comentário no shell')
 
