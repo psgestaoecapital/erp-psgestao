@@ -14,6 +14,7 @@ export const LEASE_MIN = 12
 export const STATUS_FILA = ['nova', 'recebida'] as const
 const MIN = 60_000
 const HORA = 60 * MIN
+export const LIMITE_SEM_PUBLICAR_MIN = 30 // CEO 12/10: alerta da esteira dispara com 30 min sem publicar
 const DIA = 24 * HORA
 
 export type Entrega = {
@@ -120,7 +121,7 @@ export function faixa(p: { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[
   const agora = p.agora.getTime()
   const pubs = p.entregas.filter((e) => e.evento === 'publicada' && t(e.ocorrido_em) <= agora + MIN)
   const ultimaPub = pubs.reduce((m, e) => Math.max(m, t(e.ocorrido_em)), 0)
-  const publicouNaHora = ultimaPub > agora - HORA
+  const publicouNaHora = ultimaPub > agora - LIMITE_SEM_PUBLICAR_MIN * MIN
   const prontas = emTeste(p.entregas, null).filter((x) => x.pronta).length
   const parados = codes
     .map((c) => ({ code: c, sessao: estadoSessao(p.leases.find((l) => l.agente === c), p.agora), fila: fila(p.msgs, c).length }))
@@ -148,18 +149,18 @@ export function faixa(p: { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[
 export const TRAVADO_MIN = 15
 export const FILA_ANTIGA_H = 24
 
-export type Esteira = { cor: 'verde' | 'amarela' | 'vermelha'; ultimaPub: Date | null; prontas: number; mainVerde: boolean | null; filaTestes: number | null }
+export type Esteira = { cor: 'verde' | 'amarela' | 'vermelha'; ultimaPub: Date | null; prontas: number; mainVerde: boolean | null; filaTestes: number | null; mainDesde: Date | null; specFalha: string | null }
 
 /** verde = publicou na última hora e main não vermelha; amarela = sem publicação há > 1 h; vermelha = main vermelha ou teste parado > 90 min.
- *  mainVerde/filaTestes vêm de fora (null = sem dado ainda: a aba não lê esse dado hoje). */
-export function esteira(p: { entregas: Entrega[]; agora: Date; mainVerde?: boolean | null; filaTestes?: number | null; testeParadoMin?: number | null }): Esteira {
+ *  mainVerde/mainDesde/specFalha/filaTestes vêm de fora (erp_dev_main_teste; null = sem dado ainda). */
+export function esteira(p: { entregas: Entrega[]; agora: Date; mainVerde?: boolean | null; filaTestes?: number | null; testeParadoMin?: number | null; mainDesde?: Date | null; specFalha?: string | null }): Esteira {
   const agora = p.agora.getTime()
   const pubs = p.entregas.filter((e) => e.evento === 'publicada' && t(e.ocorrido_em) <= agora + MIN)
   const ult = pubs.reduce((m, e) => Math.max(m, t(e.ocorrido_em)), 0)
   const mainVerde = p.mainVerde ?? null
   const vermelha = mainVerde === false || (p.testeParadoMin ?? 0) > 90
   const cor = vermelha ? 'vermelha' : ult > agora - HORA ? 'verde' : 'amarela'
-  return { cor, ultimaPub: ult ? new Date(ult) : null, prontas: emTeste(p.entregas, null).filter((x) => x.pronta).length, mainVerde, filaTestes: p.filaTestes ?? null }
+  return { cor, ultimaPub: ult ? new Date(ult) : null, prontas: emTeste(p.entregas, null).filter((x) => x.pronta).length, mainVerde, filaTestes: p.filaTestes ?? null, mainDesde: p.mainDesde ?? null, specFalha: p.specFalha ?? null }
 }
 
 export type StatusCode = 'trabalhando' | 'travado' | 'esperando' | 'dormindo'

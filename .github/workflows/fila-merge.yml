@@ -27,16 +27,24 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-
-concurrency:
-  group: fila-merge
-  cancel-in-progress: false
+  # Rede de segurança (CEO 10/10): a fila é event-driven e fica QUIETA entre eventos (ninguém clicando → backlog parado).
+  # Um tick periódico a cada 15 min varre o backlog e drena sozinho. Mantém TODOS os gatilhos de evento acima; no tick
+  # por schedule não há github.event.pull_request — o job varre a lista de PRs, não uma PR específica, então roda igual.
+  schedule:
+    - cron: '*/15 * * * *'
 
 permissions:
   contents: read
 
 jobs:
   fila:
+    # Concorrência no JOB (não no workflow): evento filtrado pelo `if` abaixo (status da Vercel pending, comentário que não
+    # é autorização, PR draft) é job pulado e NÃO entra na fila serial — só rodada que processa a fila espera a vez.
+    # CEO 12/10: `queue: max` mantém zero rodada descartada; antes, no workflow, todo evento virava run serial (latência).
+    concurrency:
+      group: fila-merge
+      cancel-in-progress: false
+      queue: max
     # filtros baratos: só acorda quando o evento pode mudar o estado da fila
     if: >-
       (github.event_name != 'pull_request_target' || (!github.event.pull_request.draft && github.event.pull_request.base.ref == 'main')) &&
@@ -60,4 +68,8 @@ jobs:
           GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Observabilidade (CEO 10/10): grava "por que cada PR está presa" em erp_esteira_pr_estado (produção, onde a aba
+          # /dashboard/dev lê). Ausentes → flush_estado é no-op; a fila nunca quebra por causa disto.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: scripts/merge/fila-merge.sh

@@ -9,9 +9,10 @@ import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer,
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
+import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
 import {
   CABECALHO_FLUXO, SITUACOES, contarFiltroPainel, filtrarJobs, graficos, indicadores, legado, limparFiltroPainel, linhaParaArray, linhasFluxo, resumoParaIA,
-  type Barra, type FiltroPainel, type Hora, type JobPainel, type Nomes, type Rodada,
+  type Barra, type FiltroPainel, type Hora, type JobPainel, type LinhaFluxo, type Nomes, type Rodada,
 } from "@/lib/pm/painel";
 
 type Nome = { id: string; nome: string };
@@ -20,6 +21,11 @@ const CORES = ["#3D2314", "#C8941A", "#8a6a4f", "#b98b5e", "#5b7a6a", "#a35a4b",
 const cartao = "rounded-2xl border border-[#3D2314]/10 bg-white p-4";
 const campo = "w-full rounded-lg border border-[#E7DED3] bg-white px-2 py-2 text-[13px] text-[#3D2314] min-h-[40px]";
 const rotulo = "mb-1 block text-[11px] font-semibold uppercase tracking-wider text-[#3D2314]/60";
+// PDF = arquivo gerado (pdf-lib), nunca a impressão do navegador (window.print): o diálogo de impressão é modal e PARA a aba inteira até ser
+// fechado — no mapeamento da P&M (10/10) o clique em "PDF" deixava o navegador congelado. Mesmas colunas do Excel.
+const COLUNAS_PDF: Coluna<LinhaFluxo>[] = CABECALHO_FLUXO.map((header, i) => ({
+  header, get: (l: LinhaFluxo) => linhaParaArray(l)[i], peso: i === 1 ? 3 : i === 2 || i === 3 ? 2 : 1, align: i >= 6 ? "right" as const : "left" as const,
+}));
 const fmt = (n: number | null, suf = "") => (n === null ? "—" : `${n.toLocaleString("pt-BR")}${suf}`);
 
 function Multi({ valor, opcoes, onChange }: { valor?: string[]; opcoes: Nome[]; onChange: (v: string[]) => void }) {
@@ -69,6 +75,7 @@ export default function PainelJobsPage() {
   const [insights, setInsights] = useState<{ titulo: string; detalhe: string }[] | null>(null);
   const [avisoIA, setAvisoIA] = useState<string | null>(null);
   const [gerando, setGerando] = useState(false);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
 
   const carregarOpcoes = useCallback(async () => {
     if (!empresa) return;
@@ -143,6 +150,20 @@ export default function PainelJobsPage() {
     XLSX.utils.book_append_sheet(wb, ws, "Fluxo de trabalho");
     XLSX.writeFile(wb, `painel-de-jobs-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
+  async function pdf() {
+    if (gerandoPdf) return;
+    setGerandoPdf(true);
+    try {
+      const nomeEmpresa = (companies as { id: string; nome_fantasia?: string | null; razao_social?: string | null }[]).find((c) => c.id === empresa);
+      await exportarPDF({
+        titulo: "Painel de Jobs - fluxo de trabalho",
+        empresa: nomeEmpresa?.nome_fantasia || nomeEmpresa?.razao_social || "Empresa",
+        filtros: `${ind.total} jobs · ${nFiltros ? `${nFiltros} filtro(s) aplicado(s)` : "sem filtro"} · alterações ${fmt(ind.alteracoes)} · realizado/estimado ${ind.realizadoSobreEstimado === null ? "—" : `${fmt(ind.realizadoSobreEstimado)}%`}`,
+        emitidoEmISO: new Date().toISOString(),
+      }, COLUNAS_PDF, fluxo);
+    } catch { setErro("Não foi possível gerar o PDF agora. Tente de novo ou use o Excel."); }
+    setGerandoPdf(false);
+  }
   async function gerarInsights() {
     if (!empresa) return;
     setGerando(true); setAvisoIA(null); setInsights(null);
@@ -181,7 +202,7 @@ export default function PainelJobsPage() {
           <div className="flex flex-wrap gap-2 print:hidden">
             <button onClick={() => setFiltroAberto((v) => !v)} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><Filter size={14} /> Filtro{nFiltros ? ` (${nFiltros})` : ""}</button>
             <button onClick={excel} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><FileSpreadsheet size={14} /> Excel</button>
-            <button onClick={() => window.print()} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><FileDown size={14} /> PDF</button>
+            <button onClick={pdf} disabled={gerandoPdf} data-testid="painel-pdf" className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px] disabled:opacity-50"><FileDown size={14} /> {gerandoPdf ? "Gerando…" : "PDF"}</button>
             <button onClick={gerarInsights} disabled={gerando || ind.total === 0} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-[#3D2314] px-3 text-[13px] text-white disabled:opacity-50"><Sparkles size={14} /> {gerando ? "Analisando…" : "Insights com IA"}</button>
           </div>
         </header>

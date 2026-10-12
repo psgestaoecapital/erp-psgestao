@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import PessoaForm, { type Pessoa } from './PessoaForm'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import ClienteArquivos from './ClienteArquivos'   // PM-QW #16 · anexos do cliente (contrato)
 
 interface Props {
@@ -39,11 +40,12 @@ export default function PessoasList({ companyId, tipo }: Props) {
     setLoading(true)
     const { data } = await supabase
       .from(tabela)
-      .select('id, company_id, nome_fantasia, razao_social, cnpj_cpf, tipo_pessoa, ie, inscricao_municipal, contribuinte_icms, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags')
+      // codigo_ibge_municipio só existe em erp_clientes (o formulário mostra e edita o IBGE do cliente)
+      .select('id, company_id, nome_fantasia, razao_social, cnpj_cpf, tipo_pessoa, ie, inscricao_municipal, contribuinte_icms, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags' + (tabela === 'erp_clientes' ? ', codigo_ibge_municipio' : ''))
       .eq('company_id', companyId)
       .eq('ativo', true)
       .order('nome_fantasia')
-    if (data) setPessoas(data as Pessoa[])
+    if (data) setPessoas(data as unknown as Pessoa[])   // select montado (coluna do IBGE só em clientes)
     setLoading(false)
   }
 
@@ -109,6 +111,7 @@ export default function PessoasList({ companyId, tipo }: Props) {
             placeholder={`Buscar por nome ou CNPJ/CPF…`}
             style={{ flex: 1, minWidth: 220, padding: '8px 12px', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 6, fontSize: 13, color: '#3D2314', background: 'transparent' }}
           />
+          <AjudaCampo chave="cadastros.pessoa.busca" rota="/dashboard/cadastros/pessoa" />
           <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
             {filtradas.length} de {pessoas.length} ativos
           </span>
