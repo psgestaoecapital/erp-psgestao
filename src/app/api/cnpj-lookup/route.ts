@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
       next: { revalidate: 3600 },
     });
     
+    const brasilNaoExiste = r.status === 404;
     if (r.ok) {
       const d = await r.json();
       return NextResponse.json({
@@ -80,8 +81,12 @@ export async function GET(req: NextRequest) {
       });
     }
     
-    return NextResponse.json({ error: 'CNPJ não encontrado nos serviços.' }, { status: 404 });
+    // 404 só quando as duas fontes dizem que não existe; limite/instabilidade é 503 (indisponível).
+    if (brasilNaoExiste && r2.status === 404) {
+      return NextResponse.json({ error: 'CNPJ não encontrado nos serviços.' }, { status: 404 });
+    }
+    return NextResponse.json({ error: 'Consulta externa indisponível no momento.', indisponivel: true }, { status: 503 });
   } catch (e) {
-    return NextResponse.json({ error: 'Erro ao consultar: ' + (e instanceof Error ? e.message : String(e)) }, { status: 500 });
+    return NextResponse.json({ error: 'Consulta externa indisponível: ' + (e instanceof Error ? e.message : String(e)), indisponivel: true }, { status: 503 });
   }
 }

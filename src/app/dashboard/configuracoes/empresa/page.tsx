@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import OSHeaderEmpresa, { type EmpresaHeader } from '@/components/os/OSHeaderEmpresa'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
@@ -41,6 +42,7 @@ export default function ConfigEmpresaPage() {
   const [busy, setBusy] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
+  const [ieIsento, setIeIsento] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) return
@@ -74,13 +76,21 @@ export default function ConfigEmpresaPage() {
     })
   }, [sel, comps])
 
+  // flag de isenção (chamado #776): vem por RPC própria — a tela não lê companies direto
+  useEffect(() => {
+    if (!sel) return
+    let vivo = true
+    void Promise.resolve(supabase.rpc('fn_empresa_obter_ie_isento', { p_company_id: sel })).then(({ data }) => { if (vivo) setIeIsento(data === true) })
+    return () => { vivo = false }
+  }, [sel, comps])
+
   const emp = comps.find((c) => c.id === sel) ?? null
   const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }))
 
   // prévia do cabeçalho: LIVE dos campos do form + logo atual
   const header: EmpresaHeader = {
     nome: form.nome_fantasia || form.razao_social, razao_social: form.razao_social, cnpj: form.cnpj,
-    ie: form.inscricao_estadual, im: form.inscricao_municipal, endereco: form.endereco, cidade_estado: form.cidade_estado, logo: emp?.logo_url,
+    ie: ieIsento ? 'Isento' : form.inscricao_estadual, im: form.inscricao_municipal, endereco: form.endereco, cidade_estado: form.cidade_estado, logo: emp?.logo_url,
   }
 
   async function salvar() {
@@ -89,13 +99,15 @@ export default function ConfigEmpresaPage() {
     setSalvando(true); setMsg('')
     const { data, error } = await supabase.rpc('fn_empresa_salvar_dados', {
       p_company_id: sel, p_razao_social: form.razao_social, p_nome_fantasia: form.nome_fantasia, p_cnpj: form.cnpj,
-      p_inscricao_estadual: form.inscricao_estadual, p_inscricao_municipal: form.inscricao_municipal,
+      p_inscricao_estadual: ieIsento ? '' : form.inscricao_estadual, p_inscricao_municipal: form.inscricao_municipal,
       p_cidade_estado: form.cidade_estado, p_endereco: form.endereco, p_cnae: form.cnae, p_regime_tributario: form.regime_tributario,
     })
-    setSalvando(false)
-    if (error) { setMsg('Erro: ' + error.message); return }
+    if (error) { setSalvando(false); setMsg('Erro: ' + error.message); return }
     const j = data as { sucesso?: boolean; erro?: string; mensagem?: string } | null
-    if (!j?.sucesso) { setMsg('Erro: ' + (j?.erro === 'sem_acesso' ? 'Você não tem permissão para editar esta empresa.' : (j?.mensagem ?? j?.erro ?? 'não salvou'))); return }
+    if (!j?.sucesso) { setSalvando(false); setMsg('Erro: ' + (j?.erro === 'sem_acesso' ? 'Você não tem permissão para editar esta empresa.' : (j?.mensagem ?? j?.erro ?? 'não salvou'))); return }
+    const r = await supabase.rpc('fn_empresa_salvar_ie_isento', { p_company_id: sel, p_ie_isento: ieIsento })
+    setSalvando(false)
+    if (r.error || (r.data as { sucesso?: boolean } | null)?.sucesso !== true) { setMsg('Erro: não consegui salvar a isenção de inscrição estadual.'); return }
     setMsg('✅ Dados da empresa salvos.'); void carregar()
   }
 
@@ -158,7 +170,13 @@ export default function ConfigEmpresaPage() {
             <Campo label="Razão social *" span><input value={form.razao_social} onChange={(e) => set('razao_social', e.target.value)} style={inp} /></Campo>
             <Campo label="Nome fantasia"><input value={form.nome_fantasia} onChange={(e) => set('nome_fantasia', e.target.value)} style={inp} /></Campo>
             <Campo label="CNPJ"><input value={form.cnpj} onChange={(e) => set('cnpj', maskCNPJ(e.target.value))} inputMode="numeric" placeholder="00.000.000/0000-00" style={inp} /></Campo>
-            <Campo label="Inscrição estadual"><input value={form.inscricao_estadual} onChange={(e) => set('inscricao_estadual', e.target.value)} style={inp} /></Campo>
+            <Campo label="Inscrição estadual">
+              <input value={ieIsento ? '' : form.inscricao_estadual} onChange={(e) => set('inscricao_estadual', e.target.value)} disabled={ieIsento} placeholder={ieIsento ? 'Isento' : ''} style={{ ...inp, ...(ieIsento ? { background: '#EEE9E0', color: MUT, cursor: 'not-allowed' } : {}) }} />
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12.5, color: ESP }}>
+                <input type="checkbox" checked={ieIsento} onChange={(e) => setIeIsento(e.target.checked)} style={{ width: 16, height: 16 }} />
+                Isento de inscrição estadual<AjudaCampo chave="empresa.dados.ie_isento" />
+              </span>
+            </Campo>
             <Campo label="Inscrição municipal"><input value={form.inscricao_municipal} onChange={(e) => set('inscricao_municipal', e.target.value)} style={inp} /></Campo>
             <Campo label="Cidade/Estado"><input value={form.cidade_estado} onChange={(e) => set('cidade_estado', e.target.value)} placeholder="São Miguel do Oeste/SC" style={inp} /></Campo>
             <Campo label="CNAE"><input value={form.cnae} onChange={(e) => set('cnae', e.target.value)} placeholder="0000-0/00" style={inp} /></Campo>
