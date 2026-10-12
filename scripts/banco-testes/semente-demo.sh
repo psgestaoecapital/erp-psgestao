@@ -100,6 +100,20 @@ chk erp_documento_vertical_vigente "select count(*) from public.erp_documento_ve
 chk demo_por_area                  "select count(*) from public.demo_por_area"
 chk atak_fonte_mapa_demo           "select count(*) from public.atak_fonte_mapa where company_id='$DEMO_PM'::uuid and ativo"
 chk contexto_ponto_de_partida      "select count(*) from public.erp_contexto_projeto where 'ponto-de-partida' = any(tags)"
+# Passada de semente (CEO 11/10): dados que as specs não-@pos LEEM (não criam) e que vêm do fn_demo_reset por empresa.
+# Só AVISO (::warning + resumo): mostra a mina antes de a spec cair, sem derrubar a montagem por algo fora da semente.
+DEMO_BASE=b0700000-0000-4000-a000-00000000000
+chkw() {
+  n=$("$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -At -c "$2" 2>/dev/null || echo erro)
+  echo "$1: ${n:-0}"
+  case "$n" in erro|0|"") echo "::warning::semente: $1 vazio — specs que leem esse dado podem cair"; echo "- ⚠ $1 vazio" >> "${GITHUB_STEP_SUMMARY:-/dev/null}";; esac
+}
+chkw demo_oficina_os            "select count(*) from public.erp_os where company_id='${DEMO_BASE}1'::uuid"
+chkw demo_ge_nfe_recebidas_forn "select count(*) from public.erp_nfe_recebidas where company_id='${DEMO_BASE}4'::uuid and chave_acesso is not null and fornecedor_id is not null"
+chkw demo_ge_plano_contas       "select count(*) from public.erp_plano_contas where company_id='${DEMO_BASE}4'::uuid"
+chkw demo_pm_timesheet          "select count(*) from public.agency_timesheet where company_id='$DEMO_PM'::uuid and job_id is not null"
+chkw demo_sst_funcionario_abate "select count(*) from public.compliance_funcionarios where company_id='${DEMO_BASE}5'::uuid and setor='Abate'"
+chkw demo_chamados_sugestoes    "select count(*) from public.sugestoes where status<>'arquivada' and coalesce(user_name,'')<>'robô aceitação'"
 [ "$falta" = 0 ] || erro "semente-demo incompleta — alguma tabela-chave ficou vazia"
 
 {
