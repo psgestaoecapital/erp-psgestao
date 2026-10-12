@@ -30,7 +30,8 @@ for (const [f, step] of [['aceitacao-pr.yml', 'Jornadas de aceitação contra o 
   const i = wf.indexOf(`- name: ${step}`)
   ok(i > 0 && /^\s+timeout-minutes: \d+\s*$/m.test(wf.slice(i, i + 200)), `${f}: step longo "${step}" com timeout-minutes próprio`)
 }
-ok(/^    timeout-minutes: 60\s*$/m.test(ler('.github/workflows/aceitacao-main.yml')), 'aceitacao-main.yml: job com timeout-minutes explícito')
+ok(/^    timeout-minutes: 75\s*$/m.test(ler('.github/workflows/aceitacao-main.yml')), 'aceitacao-main.yml: job com timeout-minutes explícito (75)')
+ok(/LIMITE_MAIN_MIN: '70'/.test(vigia) && /\[ "\$wf" = "aceitacao-main\.yml" \] && limite=\$LIMITE_MAIN_MIN/.test(vigia), 'vigia: aceitacao-main tem teto próprio de 70 min (< job 75 < zumbi 90); as demais seguem em 45')
 
 // (a)–(d) fila de merge
 const fila = ler('.github/workflows/fila-merge.yml')
@@ -66,6 +67,7 @@ ok(iCat > 0 && iReset > iCat, 'montar-banco-testes: cópia dos catálogos ANTES 
 ok(mbt.indexOf('Trava de segurança') < iCat, 'montar-banco-testes: a trava contra a produção vem antes da cópia')
 const cat = ler('scripts/banco-testes/catalogos.sh')
 ok(/\*"\$PROD_REF"\*\) erro "TEST_DATABASE_URL aponta para a PRODUÇÃO/.test(cat), 'catalogos.sh: recusa a produção como destino')
+ok(/ACEITACAO_VAGA:-0\}" = 0/.test(cat) && /\*pooler\.supabase\.com\*\) ;;/.test(cat) && /\*"\$TEST_REF"\*\) ;;/.test(cat), 'catalogos.sh: vaga 0 exige o banco de testes conhecido; vaga > 0 aceita Session pooler (nunca a produção)')
 ok(/--data-only/.test(cat) && /-t "public\.\$t"/.test(cat), 'catalogos.sh: pg_dump --data-only -t de cada tabela')
 const tabelas = ler('scripts/banco-testes/catalogos.txt').split('\n').map((l) => l.replace(/#.*/, '').trim()).filter(Boolean)
 ok(tabelas.includes('plan_catalog'), 'whitelist: plan_catalog (o fn_demo_reset precisa do v15_revenda)')
