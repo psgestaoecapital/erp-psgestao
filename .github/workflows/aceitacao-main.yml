@@ -68,8 +68,8 @@ jobs:
       group: aceitacao-testes
       cancel-in-progress: false
       queue: max
-    # build (~5 min) + suíte inteira (~30 min); fora do vigia de 45 min de propósito
-    timeout-minutes: 60
+    # build (~5 min) + suíte inteira (~45 min); teto próprio no vigia (LIMITE_MAIN_MIN 70), não o de 45
+    timeout-minutes: 75
     env:
       TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
       TEST_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
@@ -150,7 +150,7 @@ jobs:
       - if: steps.ja.outputs.pular == 'false'
         run: npx playwright install --with-deps chromium
       - name: Suíte de aceitação contra a main (banco de testes)
-        timeout-minutes: 45
+        timeout-minutes: 75
         if: steps.ja.outputs.pular == 'false'
         id: suite
         env:
@@ -160,7 +160,9 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
-          TRAVA_DEMO_ESPERA_MIN: '15'
+          # 12/10: com 15 min a main desistia da trava (run 195: demo presa por aceitação de PR) e ficava VERMELHA sem
+          # rodar spec nenhum, derrubando o portão. 40 min cobre 1-2 suítes de PR na frente; suíte da main leva ~15.
+          TRAVA_DEMO_ESPERA_MIN: '40'
         # suíte inteira (inclui @pos-migration: o banco de testes recebe as migrations da main pelo montar-banco-testes)
         run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
       - name: Soltar a trava da demo (sempre)

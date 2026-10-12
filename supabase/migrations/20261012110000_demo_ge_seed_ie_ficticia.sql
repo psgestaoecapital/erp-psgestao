@@ -161,4 +161,6 @@ BEGIN
   );
 END $function$;
 
--- CREATE OR REPLACE preserva os grants vivos (postgres, service_role): nada a conceder/revogar aqui.
+-- ci-sem-guarda: fn_gold_ge_seed_reparar — só opera na empresa demo GE (guarda dura p_company_id = v_bot no corpo); rodada por fn_demo_reset/service_role.
+REVOKE ALL ON FUNCTION public.fn_gold_ge_seed_reparar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_gold_ge_seed_reparar(uuid) TO service_role;

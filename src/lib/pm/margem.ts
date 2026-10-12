@@ -5,7 +5,11 @@
 // entra no lucro total (RD-51: pendência não vira número bonito).
 
 export type JobMargem = { id: string; valor_job: number | null; custo_estimado: number | null }
-export type ApontamentoMargem = { job_id: string | null; horas: number | null; custo_hora: number | null; custo_total: number | null }
+// LGPD (20261005180000): ninguém lê custo_hora/custo_total de agency_timesheet direto. A margem usa o AGREGADO por job de
+// fn_pm_job_custos: `tem_custo` diz se aquelas horas têm custo/hora da pessoa (sem revelar o valor por hora).
+// `custo_hora` segue aceito (testes e leitura por quem vê salário); quando `tem_custo` vem, ele manda.
+export type ApontamentoMargem = { job_id: string | null; horas: number | null; custo_hora?: number | null; custo_total: number | null; tem_custo?: boolean }
+const semCustoHoraDe = (a: ApontamentoMargem) => (a.tem_custo !== undefined ? !a.tem_custo : !(Number(a.custo_hora ?? 0) > 0))
 
 export type SituacaoMargem = 'ok' | 'sem_custo_hora' | 'sem_custo'
 
@@ -23,7 +27,7 @@ export function calcularMargem(job: JobMargem, apontamentos: ApontamentoMargem[]
   const doJob = apontamentos.filter((a) => a.job_id === job.id)
   const valor = Number(job.valor_job ?? 0)
   const horasSemCusto = doJob
-    .filter((a) => Number(a.horas ?? 0) > 0 && !(Number(a.custo_hora ?? 0) > 0))
+    .filter((a) => Number(a.horas ?? 0) > 0 && semCustoHoraDe(a))
     .reduce((s, a) => s + Number(a.horas ?? 0), 0)
   const custoReal = doJob.reduce((s, a) => s + Number(a.custo_total ?? 0), 0)
 
