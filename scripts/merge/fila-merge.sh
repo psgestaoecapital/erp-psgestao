@@ -38,6 +38,7 @@ set -euo pipefail
 LABEL='fila-merge'
 NAO_PUBLICAR='nao-publicar'
 SENSIVEL=revisao-eng-chefe
+VIA_RAPIDA_PROIBIDA='^(src/app/|src/components/|supabase/migrations/|src/lib/[^ ]*(calculo|calc)[^ /]*)'
 RODAPE=$'\n\n<sub>fila-merge · '"${RUN_URL:-local}"'</sub>'
 SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
@@ -290,6 +291,12 @@ for n in $fila; do
   # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
   via=rapida
   jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
+  # CEO 12/10 (spec infra, camada 2): via rápida só para PR que NÃO toca tela, cálculo, migration ou RLS/policy.
+  if [ "$via" = rapida ] && grep -qE "$VIA_RAPIDA_PROIBIDA" <<< "$arquivos"; then
+    via=revisada
+    log "#$n toca tela/cálculo/migration/RLS: via revisada obrigatória (etiqueta $SENSIVEL posta para acordar o revisor)"
+    api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
+  fi
   log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')"
 
   # (c) sensível → autorização pelo conteúdo
