@@ -105,7 +105,9 @@ export default function AgendaComercialPage() {
   function abrirEditar(a: Ag) { void carregarLeads(); setModal({ data: a.data, ag: a }) }
 
   async function mudarStatus(a: Ag, status: string) {
-    const { error } = await supabase.rpc('fn_agendamento_mudar_status', { p_id: a.id, p_status: status })
+    // #2244: p_motivo explícito — no banco há duas versões (2 e 3 args, a de 3 com DEFAULT) e a chamada
+    // só com 2 parâmetros dava "could not choose the best candidate function". Motivo nulo = mesmo efeito.
+    const { error } = await supabase.rpc('fn_agendamento_mudar_status', { p_id: a.id, p_status: status, p_motivo: null })
     if (error) { setErro(error.message); return }
     void carregar()
   }
