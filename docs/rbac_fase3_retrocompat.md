@@ -44,6 +44,21 @@ com `nivel` como teto) é exatamente o contrato que um write path precisa para p
 > remover" que rege toda esta fase. A migração dos ~580 write paths para consultar a decisão é
 > trabalho da Fase 3 (ou de uma sub-onda dela), dimensionado com a amostra guardada.
 
+### 0.1 · Menu escondido não é acesso negado — a mesma família do write path
+
+O gating de telas da Oficina (esconder Aprovação/Comissão/WhatsApp do `OFICINA_MECANICO` no
+`fn_modulos_sidebar_por_area`) tira as telas do **menu**, mas **não bloqueia a navegação direta
+pela URL**: quem sabe a rota ainda abre a tela, e a RPC que a alimenta ainda responde.
+
+**Isto é o mesmo problema do write path, do lado da leitura.** Bloqueio de **rota** e bloqueio de
+**RPC** por papel são a mesma família: hoje dependem da tela decidir, e a tela pode ser contornada.
+A cura é a mesma — a decisão mora em `fn_acesso_efetivo` (§1–§4), e **tanto os writes quanto as
+rotas/telas consultam essa decisão** em vez de decidir por conta própria.
+
+> 🔑 **Regra a gravar:** *menu escondido ≠ acesso negado.* Gating de menu é conveniência de UX;
+> a negação de verdade (rota + RPC) é enforcement, e enforcement é Fase 3. Enquanto ela não existe,
+> todo gating de tela carrega o resíduo declarado de que a rota direta ainda alcança.
+
 ---
 
 ## 1 · O erro do §14 como estava escrito
