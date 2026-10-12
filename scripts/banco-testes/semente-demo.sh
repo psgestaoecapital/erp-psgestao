@@ -46,7 +46,10 @@ dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
 "$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
   "SET statement_timeout='30s'; COPY (SELECT to_jsonb(t) || jsonb_build_object('company_id','$DEMO_PM','ativo',true) FROM public.atak_fonte_mapa t WHERE t.ativo) TO STDOUT WITH (FORMAT csv)" \
   > "$dir/atak_mapa.csv"
-for f in doc_vertical demo_por_area atak_mapa; do echo "$f: $(wc -l < "$dir/$f.csv") linha(s) da produção"; done
+"$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
+  "SET statement_timeout='30s'; COPY (SELECT to_jsonb(t) FROM public.erp_agente_rotina t WHERE t.agente NOT LIKE 'teste-%') TO STDOUT WITH (FORMAT csv)" \
+  > "$dir/agente_rotina.csv"
+for f in doc_vertical demo_por_area atak_mapa agente_rotina; do echo "$f: $(wc -l < "$dir/$f.csv") linha(s) da produção"; done
 
 # Carga no TESTE: transação única, triggers/FKs off. jsonb_populate_record casa por nome de campo; campos ausentes
 # (criado_por/aprovado_por) ficam NULL; (.*) expande na ordem das colunas da tabela.
@@ -66,6 +69,9 @@ CREATE TEMP TABLE _dpa (j jsonb) ON COMMIT DROP;
 CREATE TEMP TABLE _atak (j jsonb) ON COMMIT DROP;
 \copy _atak FROM '$dir/atak_mapa.csv' WITH (FORMAT csv)
 
+CREATE TEMP TABLE _rot (j jsonb) ON COMMIT DROP;
+\copy _rot FROM '$dir/agente_rotina.csv' WITH (FORMAT csv)
+
 DELETE FROM public.erp_documento_vertical;
 INSERT INTO public.erp_documento_vertical
   SELECT (jsonb_populate_record(NULL::public.erp_documento_vertical, j)).* FROM _doc;
@@ -77,6 +83,16 @@ INSERT INTO public.demo_por_area
 DELETE FROM public.atak_fonte_mapa WHERE company_id = '$DEMO_PM'::uuid;
 INSERT INTO public.atak_fonte_mapa
   SELECT (jsonb_populate_record(NULL::public.atak_fonte_mapa, j)).* FROM _atak;
+
+-- Caixa dos agentes (specs agente-*): erp_agente_rotina é config sem dado pessoal (nomes dos Codes) — copia, SEMPRE com
+-- aciona=false (o banco de testes nunca aciona rotina real). erp_agente_dono NÃO é copiado (user_id real = dado pessoal);
+-- erp_agente_config recebe valor SINTÉTICO. Mensagens/lease: nascem nos próprios specs.
+INSERT INTO public.erp_agente_rotina
+  SELECT (jsonb_populate_record(NULL::public.erp_agente_rotina, j || '{"aciona":false}'::jsonb)).* FROM _rot
+ON CONFLICT (agente) DO UPDATE SET aciona = false;
+INSERT INTO public.erp_agente_config (chave, valor)
+VALUES ('chamado_autor_email', 'agente-testes@example.invalid')
+ON CONFLICT (chave) DO NOTHING;
 
 -- erp_contexto_projeto: NUNCA a memória real. Só uma linha SINTÉTICA de briefing (ponto-de-partida).
 DELETE FROM public.erp_contexto_projeto;
@@ -99,6 +115,7 @@ chk() {
 chk erp_documento_vertical_vigente "select count(*) from public.erp_documento_vertical where vigente is true"
 chk demo_por_area                  "select count(*) from public.demo_por_area"
 chk atak_fonte_mapa_demo           "select count(*) from public.atak_fonte_mapa where company_id='$DEMO_PM'::uuid and ativo"
+chk agente_rotina                  "select count(*) from public.erp_agente_rotina where agente in ('gilberto-desenv','stephany-code','jordana-code')"
 chk contexto_ponto_de_partida      "select count(*) from public.erp_contexto_projeto where 'ponto-de-partida' = any(tags)"
 # Passada de semente (CEO 11/10): dados que as specs não-@pos LEEM (não criam) e que vêm do fn_demo_reset por empresa.
 # Só AVISO (::warning + resumo): mostra a mina antes de a spec cair, sem derrubar a montagem por algo fora da semente.
@@ -123,6 +140,7 @@ chkw demo_chamados_sugestoes    "select count(*) from public.sugestoes where sta
   echo "| erp_documento_vertical | produção (autores nulos) | global de referência |"
   echo "| demo_por_area | produção (sem a linha ecommerce/…007) | mapa área→empresa DEMO |"
   echo "| atak_fonte_mapa (…002) | config dos 17 ativos da prod (template) | sintetizado p/ a DEMO, sem empresa real |"
+  echo "| erp_agente_rotina / erp_agente_config | produção (rotina, aciona=false) / sintético | caixa dos agentes; dono nunca copiado |"
   echo "| erp_contexto_projeto | SINTÉTICO (ponto-de-partida) | memória real nunca é copiada |"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 echo "semente-demo: ok"
