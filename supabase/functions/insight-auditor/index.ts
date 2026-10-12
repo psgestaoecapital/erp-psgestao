@@ -215,7 +215,9 @@ REGRAS DE SCORE:
 - Score < 30 = placeholder/mockup sem dados
 - Score 30-60 = parcialmente implementada
 - Score 60-85 = funcional com pequenos ajustes
-- Score 85-100 = pronta ou quase pronta`;
+- Score 85-100 = pronta ou quase pronta
+
+REGRA DE COR (identidade PS, inviolavel): estrutura = Espresso #3D2314; fundos = Off-white #FAF7F2; icones = Dourado #C8941A. Verde/amarelo/vermelho SO como semaforo de performance (nunca decorativo). Branco, preto e cinzas sao neutros. Se ver (a) cor de marca/estrutura/fundo fora dessa paleta ou (b) verde/amarelo/vermelho usado como enfeite (fora de semaforo/status/alerta), registre cada caso em bugs_visuais_detectados comecando EXATAMENTE por "COR: " (ex.: "COR: botao azul fora da paleta", "COR: card verde decorativo") e rebaixe score_visual.`;
 
       // 18/09/2026 (item A) — FORCED TOOL USE: o auditor caia em parse_erro (raw vazio/prosa) com
       // claude-sonnet-5 e "nao devolvia nada". Forcando a ferramenta, a analise volta estruturada
