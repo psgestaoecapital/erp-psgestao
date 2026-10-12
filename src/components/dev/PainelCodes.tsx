@@ -9,6 +9,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
 import GraficosCodes from './GraficosCodes'
 import SaudeEsteira from './SaudeEsteira'
+import FluxogramaInfra from './FluxogramaInfra'
 import SaudeCodes from './SaudeCodes'
 import MeuCode from '@/components/dev/MeuCode'
 import {
@@ -136,6 +137,7 @@ export default function PainelCodes() {
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
       <SaudeEsteira />
+      <FluxogramaInfra />
       <SaudeCodes />
       <GraficosCodes />
       {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
