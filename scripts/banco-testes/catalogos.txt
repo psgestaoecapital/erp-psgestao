@@ -19,6 +19,12 @@ screen_route_features
 # referencia categoria_id → epi_categoria tem de existir ANTES do fn_demo_reset, senão a semente da DEMO falha.
 epi_categoria
 
+# Passada de semente (CEO 11/10): globais de produção que a UI das specs lê e o banco de testes não tinha. Sem coluna de dono.
+area_menu_config            # menu por área (FK plan_catalog)
+area_indicadores_mestres    # indicadores-mestre por área
+role_permissions            # permissão por papel/módulo (FK module_catalog)
+permissoes_nivel            # permissão por nível/módulo (FK module_catalog)
+
 # Papéis de acesso (RBAC) globais
 rbac_subgrupo_catalogo
 rbac_papel
