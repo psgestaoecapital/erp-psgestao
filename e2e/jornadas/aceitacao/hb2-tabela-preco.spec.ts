@@ -40,7 +40,7 @@ test.describe('HB2 — tabela de preço por cliente', () => {
     await tela.getByTestId('tp-servico').selectOption('pintura-epoxi')
     await tela.getByTestId('tp-qtd').fill('350')
     await tela.getByTestId('tp-cond').selectOption('sabado')
-    await expect(tela.getByTestId('tp-preco')).toContainText(/30,00/)
+    await expect(tela.getByTestId('tp-preco')).toContainText(/R\$\s*30(,00)?\s*por/)
     await tela.getByTestId('tp-custo').fill('20')
     await expect(tela.getByTestId('tp-margem')).toContainText('33,3%')
   })
