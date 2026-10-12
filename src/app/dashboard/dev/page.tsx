@@ -2,6 +2,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { authFetch } from '@/lib/authFetch';
+import PainelCodes from '@/components/dev/PainelCodes';
+import { Activity, FileText, Bot, Wrench } from 'lucide-react';
 
 // Identidade PS (RD visual): Espresso #3D2314 (estrutura/texto) · Off-white #FAF7F2 (fundos) · Dourado #C8941A (destaques).
 // (Antes a Central estava invertida — fundo escuro. Corrigido para o padrão claro. Verde/amarelo/vermelho ficam só nas 3 barras (performance), em tons com contraste sobre off-white.)
@@ -14,10 +16,19 @@ const PROD_URL="https://erp-psgestao.vercel.app";
 export default function DevPage() {
   // Duas telas irmãs (Leitura · Desenvolvimento) para os quatro usuários. As "Ferramentas do dev"
   // (SQL/deploy/segurança) são utilitário técnico — ficam FORA do seletor, atrás de porta ?dev=ferramentas.
-  const [view, setView] = useState<'leitura'|'desenvolvimento'|'ferramentas'>(()=>{
+  const [view, setView] = useState<'leitura'|'desenvolvimento'|'codes'|'ferramentas'>(()=>{
     if (typeof window!=='undefined' && new URLSearchParams(window.location.search).get('dev')==='ferramentas') return 'ferramentas';
+    // Aba "Codes" (CEO 07/10): rota própria /dashboard/dev/codes (system_screens) abre a Central já nela.
+    if (typeof window!=='undefined' && (/\/dashboard\/dev\/codes\/?$/.test(window.location.pathname) || new URLSearchParams(window.location.search).get('aba')==='codes')) return 'codes';
     return 'leitura';
   });
+  // Aba Codes só aparece no seletor para a equipe PS (mesma regra da RLS: fn_dev_painel_pode_ver).
+  const [podeCodes,setPodeCodes]=useState(false);
+  useEffect(()=>{
+    let vivo=true;
+    void supabase.rpc('fn_dev_painel_pode_ver').then(({data,error})=>{ if(vivo) setPodeCodes(!error && data===true); });
+    return()=>{vivo=false;};
+  },[]);
   const [tab, setTab] = useState('ambientes');
   const [isAdmin,setIsAdmin]=useState(false);
   const [secResults,setSecResults]=useState<any[]>([]);
@@ -79,12 +90,13 @@ export default function DevPage() {
       {/* Seletor das duas telas irmãs (Central de Desenvolvimento) + Ferramentas do dev */}
       <div style={{ display:'flex', gap:8, background:C.card, borderBottom:`1px solid ${BD}`, padding:'8px 12px', flexWrap:'wrap' }}>
         {([
-          {id:'leitura',label:'📊 Leitura e diagnóstico'},
-          {id:'desenvolvimento',label:'📄 Desenvolvimento'},
+          {id:'leitura',label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Activity size={14} strokeWidth={1.5}/>Leitura e diagnóstico</span>},
+          {id:'desenvolvimento',label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><FileText size={14} strokeWidth={1.5}/>Desenvolvimento</span>},
+          ...(podeCodes || view==='codes' ? [{id:'codes' as const,label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Bot size={14} strokeWidth={1.5}/>Codes</span>}] : []),
           // 'Ferramentas do dev' fica fora do seletor (porta ?dev=ferramentas) — utilitário técnico.
-          ...(view==='ferramentas' ? [{id:'ferramentas' as const,label:'🛠 Ferramentas do dev'}] : []),
+          ...(view==='ferramentas' ? [{id:'ferramentas' as const,label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Wrench size={14} strokeWidth={1.5}/>Ferramentas do dev</span>}] : []),
         ] as const).map(v=>(
-          <button key={v.id} onClick={()=>setView(v.id)}
+          <button key={v.id} data-testid={`central-aba-${v.id}`} onClick={()=>setView(v.id)}
             style={{ background:view===v.id?`linear-gradient(135deg,${GO},${GOL})`:'transparent', color:view===v.id?ONGOLD:C.f, border:`1px solid ${view===v.id?'transparent':BD}`, padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
             {v.label}
           </button>
@@ -93,6 +105,7 @@ export default function DevPage() {
 
       {view==='leitura' && <div style={{ padding:16 }}><LeituraDiagnostico/></div>}
       {view==='desenvolvimento' && <div style={{ padding:16 }}><DesenvolvimentoDoc isAdmin={isAdmin}/></div>}
+      {view==='codes' && <div style={{ padding:16 }}><PainelCodes/></div>}
 
       {view==='ferramentas' && <>
         <div style={{ display:'flex', borderBottom:`1px solid ${BD}`, background:C.card, flexWrap:'wrap' }}>
@@ -391,7 +404,7 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
   return(
     <div>
       <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:12,flexWrap:'wrap'}}>
-        <span style={{fontSize:13,color:GOL,fontWeight:600}}>📄 Documento vivo da vertical</span>
+        <span style={{fontSize:13,color:GOL,fontWeight:600,display:'inline-flex',alignItems:'center',gap:6}}><FileText size={14} strokeWidth={1.5}/>Documento vivo da vertical</span>
         <select value={vertical} onChange={e=>setVertical(e.target.value)}
           style={{background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit'}}>
           <option value={ESTRELA_POLAR}>⭐ Estrela Polar (documento-mestre)</option>
@@ -427,7 +440,7 @@ function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
       {carregando && <div style={{color:TXM,fontSize:12}}>Carregando…</div>}
       {!carregando && semDoc && (
         <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:24,textAlign:'center'}}>
-          <div style={{fontSize:24,marginBottom:8}}>📄</div>
+          <div style={{marginBottom:8}}><FileText size={28} strokeWidth={1.5}/></div>
           <div style={{fontSize:12,color:TXM}}>Ainda não há documento vivo para esta vertical.</div>
           {!isAdmin && <div style={{fontSize:11,color:TXD,marginTop:6}}>O documento é visível apenas para administradores (CEO).</div>}
         </div>

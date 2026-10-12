@@ -1,0 +1,42 @@
+name: Aceitação ao etiquetar (via revisada)
+
+# CEO 07/10 — esteira em 2 velocidades: a aceitação pesada (aceitacao-pr.yml) só roda na VIA REVISADA (PR com a etiqueta
+# revisao-eng-chefe); na via rápida a triagem a dispensa. Se a etiqueta for posta DEPOIS do preview, este workflow
+# re-roda o run de aceitação do head da PR (o mesmo deployment_status do preview): a triagem lê a etiqueta de novo e
+# agora roda a suíte. Sem preview ainda → nada a fazer (o deployment_status do preview já nasce com a etiqueta).
+# Seguro: pull_request_target roda o código da MAIN; nunca faz checkout nem executa código da PR. O re-run usa o
+# FILA_MERGE_TOKEN (a rede das sessões do Code dá 403 no /rerun; aqui quem re-roda é o próprio GitHub).
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  re-rodar:
+    if: github.event.label.name == 'revisao-eng-chefe' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Re-roda a aceitação do head (a triagem lê a etiqueta de novo)
+        run: |
+          set -uo pipefail
+          [ -n "$GH_TOKEN" ] || { echo "::error::segredo FILA_MERGE_TOKEN ausente — comente /re-rodar na PR"; exit 1; }
+          run=$(gh api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?head_sha=$SHA&per_page=1" \
+            --jq '.workflow_runs[0] | "\(.id) \(.status)"' 2>/dev/null || true)
+          if [ -z "$run" ] || [ "$run" = "null null" ]; then
+            echo "::notice::#$PR: ainda sem preview/aceitação para ${SHA:0:7} — ela nasce já com a etiqueta"; exit 0
+          fi
+          read -r id st <<< "$run"
+          if [ "$st" != completed ]; then
+            echo "::notice::#$PR: aceitação do ${SHA:0:7} ainda '$st' (run $id) — a triagem dela já leu a etiqueta ou vai ler"; exit 0
+          fi
+          gh api -X POST "repos/$REPO/actions/runs/$id/rerun" > /dev/null
+          echo "::notice::#$PR etiquetada revisao-eng-chefe: aceitação do ${SHA:0:7} re-disparada (run $id)"

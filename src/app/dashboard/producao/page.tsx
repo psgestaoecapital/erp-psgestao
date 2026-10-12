@@ -6,6 +6,7 @@ import { labelUsuario } from '@/lib/usuarioLabel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { ClienteBusca } from '@/components/pm/ClienteBusca'
 import { BriefingEditor } from '@/components/pm/BriefingEditor'
+import { BriefingLigado } from '@/components/pm/BriefingLigado'
 import { CopiarJob, JobsParecidos, type ResultadoCopia } from '@/components/pm/CopiarJob'
 
 // Identidade Espresso (mesmos tokens do CRM Oportunidades / Financiamentos)
@@ -34,6 +35,7 @@ type Job = {
   prioridade: string; cliente_id: string; responsavel_id: string; responsavel_nome: string | null
   data_inicio: string | null; data_prazo: string; valor_job: number; horas_estimadas: number; horas_realizadas: number
   percentual_comissao: number | null; descricao: string | null; created_at: string
+  briefing_id?: string | null
 }
 
 // Preview seguro do briefing no card: tira qualquer tag HTML (defensivo p/ dados antigos),
@@ -156,7 +158,7 @@ function ProducaoPageInner() {
     const [cl, jb, ts, us, ct, sv] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).order('created_at', { ascending: false }),
-      supabase.from('agency_timesheet').select('*').eq('company_id', sel).order('data', { ascending: false }),
+      supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
@@ -205,7 +207,7 @@ function ProducaoPageInner() {
       cliente_id: j.cliente_id, responsavel_id: j.responsavel_id, responsavel_nome: j.responsavel_nome,
       data_inicio: j.data_inicio, data_prazo: j.data_prazo, valor_job: j.valor_job,
       horas_estimadas: j.horas_estimadas, percentual_comissao: j.percentual_comissao,
-      descricao: j.descricao,
+      descricao: j.descricao, briefing_id: j.briefing_id ?? null,
     })
     setMaisDetalhesJob(false); setEditId(j.id); setShowForm('job')
   }
@@ -527,6 +529,9 @@ function ProducaoPageInner() {
             <BriefingEditor value={(form.descricao as string) ?? ''} onChange={(v) => setForm({ ...form, descricao: v })} ajuda="pm.job.briefing" testid="job-briefing" linhas={8}
               placeholder="Descreva o job para quem vai executar: contexto, entregáveis e formatos, prazos e o que evitar…" />
           </div>
+
+          {/* Briefing ligado (CEO 07/10 · Marciana): o briefing de onde o job nasceu, formatado e sempre o atual */}
+          {editId && form.briefing_id ? <BriefingLigado briefingId={form.briefing_id as string} /> : null}
 
           {/* MAIS DETALHES — colapsado */}
           <button type="button" onClick={() => setMaisDetalhesJob(!maisDetalhesJob)} style={maisDetalhesBtn}>
