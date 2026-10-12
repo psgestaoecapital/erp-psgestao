@@ -17,8 +17,11 @@ on:
     types: [opened, reopened, ready_for_review, synchronize]
 
 concurrency:
+  # CEO 12/10: sem cancelar run em andamento (o commit vazio pode estar a meio); eventos da mesma PR entram em fila e o
+  # anti-laço (head já é o commit vazio) os torna no-op.
   group: preview-pronta-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read

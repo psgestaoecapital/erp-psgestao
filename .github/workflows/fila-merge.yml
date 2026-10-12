@@ -34,8 +34,11 @@ on:
     - cron: '*/15 * * * *'
 
 concurrency:
+  # CEO 12/10: sem `queue: max` o GitHub DESCARTA a rodada pendente quando chega outra (1 em andamento + 1 pendente) —
+  # cancelamento por concorrência que engasga a drenagem. Com a fila, toda rodada espera a vez e roda (serial).
   group: fila-merge
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
