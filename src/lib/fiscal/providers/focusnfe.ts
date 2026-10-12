@@ -1,5 +1,6 @@
 import { FiscalError } from '../errors'
 import { resolverOpcaoSimplesNacional } from '../types'
+import { dataBrasil, isoBrasilia } from '../dataBrasil'
 import type {
   FiscalProvider,
   NFSeRequest,
@@ -59,11 +60,7 @@ export function sanitizeTextoFiscal(s: string | null | undefined): string {
 // ── NFSe Nacional (Focus POST /v2/nfsen) ────────────────────────────────────────────────
 // Layout do padrão nacional (doc Focus · exemplos Lages/SC e Porto Feliz/SP), pra a
 // emissão VIA FOCUS (município aderido) em vez do /v2/nfse municipal.
-function isoBrasilia(d: Date = new Date()): string {
-  const sp = new Date(d.getTime() - 3 * 60 * 60 * 1000)
-  const p = (x: number) => String(x).padStart(2, '0')
-  return `${sp.getUTCFullYear()}-${p(sp.getUTCMonth() + 1)}-${p(sp.getUTCDate())}T${p(sp.getUTCHours())}:${p(sp.getUTCMinutes())}:${p(sp.getUTCSeconds())}-03:00`
-}
+// Data/hora de Brasília: src/lib/fiscal/dataBrasil.ts (#1944 — uma regra para NF-e, NFC-e e NFS-e, RD-71).
 export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
   const muni = Number(String(req.prestador.codigoMunicipio ?? '').replace(/\D/g, ''))
   // Opção do Simples resolvida sem adivinhar (o route já resolve/bloqueia; aqui é defesa: regime desconhecido → erro, nunca chute).
@@ -71,11 +68,11 @@ export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unkno
   if (opc == null) {
     throw new FiscalError('PAYLOAD_INVALIDO', 'Configuração fiscal incompleta: defina a opção do Simples Nacional (ou o regime tributário) da empresa antes de emitir.')
   }
-  const emissao = isoBrasilia()
+  const agora = new Date()
   const p: Record<string, unknown> = {
     // Sem serie_rps/numero_rps: o /v2/nfsen usa data_emissao (Focus numera).
-    data_emissao: emissao,
-    data_competencia: emissao.split('T')[0],
+    data_emissao: isoBrasilia(agora),
+    data_competencia: dataBrasil(agora),
     codigo_municipio_emissora: muni,
     codigo_municipio_prestacao: muni,
     cnpj_prestador: req.prestador.cnpj.replace(/\D/g, ''),
@@ -312,12 +309,10 @@ export class FocusNFeProvider implements FiscalProvider {
         ok: true,
         ambiente: this.opts.ambiente,
         apiAlcancavel: true,
-        certificadoOk: true,
+        // #1944 · aqui só a API responde; o certificado é conferido no cadastro da empresa na Focus (rota testar-conexao)
+        certificadoOk: false,
         diasParaExpirarCert: this.opts.diasParaExpirarCert,
-        mensagem:
-          this.opts.diasParaExpirarCert !== undefined && this.opts.diasParaExpirarCert < 30
-            ? `API OK · certificado expira em ${this.opts.diasParaExpirarCert} dias`
-            : `API ${this.opts.ambiente} OK · certificado valido`,
+        mensagem: `API ${this.opts.ambiente} OK`,
       }
     } catch (err) {
       if (err instanceof FiscalError) {
@@ -365,7 +360,8 @@ export class FocusNFeProvider implements FiscalProvider {
 
     // Padrão municipal (ABRASF) · /v2/nfse
     const payload: FocusNFeNFSePayload = {
-      data_emissao: req.dataEmissao ?? new Date().toISOString(),
+      // #1944 · horário de Brasília (o ISO em UTC virava o dia seguinte depois das 21h)
+      data_emissao: isoBrasilia(req.dataEmissao ? new Date(req.dataEmissao) : new Date()),
       prestador: {
         cnpj: req.prestador.cnpj.replace(/\D/g, ''),
         inscricao_municipal: req.prestador.inscricaoMunicipal,
@@ -565,7 +561,7 @@ export class FocusNFeProvider implements FiscalProvider {
       // .serie_nfe_padrao (KGF='2'). NAO enviar 'numero': Focus numera
       // sozinha por serie/empresa.
       serie: Number(req.serie ?? '2'),
-      data_emissao: new Date().toISOString(),
+      data_emissao: isoBrasilia(),   // #1944 · horário de Brasília
       presenca_comprador: 1,
       tipo_documento: 1,
       // indFinal (operação com consumidor final). Nome do campo Focus na NF-e modelo 55 A CONFIRMAR na
@@ -683,7 +679,7 @@ export class FocusNFeProvider implements FiscalProvider {
 
     const payload = {
       natureza_operacao: req.naturezaOperacao ?? 'Venda ao consumidor',
-      data_emissao: new Date().toISOString(),
+      data_emissao: isoBrasilia(),   // #1944 · horário de Brasília
       presenca_comprador: 1,            // 1 = presencial (balcão)
       // indFinal (consumidor_final) é OBRIGATÓRIO; NFC-e (modelo 65) é SEMPRE consumidor final → 1.
       // Campo ausente = rejeição esperando. Fonte: doc Focus NotaFiscalXML.html (tag indFinal).

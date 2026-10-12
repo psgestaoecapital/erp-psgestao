@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { gravarCredencialEmpresa } from '@/lib/credenciais/servidor'
 import { consultarApiIbpt, gravarCacheIbpt, registrarStatusIbpt, type ConsultaIbpt } from '@/lib/fiscal/ibptEmpresa'
-import { escolherProdutoTeste } from '@/lib/fiscal/ibptTeste'
+import { escolherProdutoTeste, escolherVeiculoTeste, type VeiculoTeste } from '@/lib/fiscal/ibptTeste'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -24,6 +24,7 @@ const TESTE_GENERICO: Omit<ConsultaIbpt, 'uf'>[] = [
 
 // Itens da consulta de teste: UM produto e UM serviço, quando a empresa tem os dois (CEO 28/09):
 //  - produto: NCM 2710 (óleo) primeiro — 1ª prova na KGF —, senão qualquer produto com NCM VÁLIDO (nunca vazio/00000000);
+//    na REVENDA (#994), que não usa erp_produtos, o produto do teste é um VEÍCULO com NCM válido (veic_veiculo);
 //  - serviço: o código da ÚLTIMA NFS-e da empresa primeiro (FC: 07.05, para bater com a nota autorizada de
 //    referência), senão qualquer serviço com LC116.
 // Sem nenhum dos dois, um código padrão e o aviso de "teste genérico" (ajuste 2 do CEO).
@@ -45,6 +46,18 @@ async function itensDeTeste(companyId: string, uf: string): Promise<{ itens: Con
       tipo: 'produto', codigo: p.ncmTeste, uf, ex: 0, descricao: String(p.nome || p.descricao || 'produto'),
       unidadeMedida: String(p.unidade || 'UN'), valor: Number(p.preco_venda) || 1, gtin: p.codigo_barras ? String(p.codigo_barras) : null,
     })
+  } else {
+    // Revenda (#994, Alliance): sem produto em erp_produtos, o produto do teste é um VEÍCULO com NCM válido
+    // (veic_veiculo). Prefere o que está em estoque ('disponivel'); senão qualquer veículo ativo. Empresa sem
+    // veículo (não é revenda) não acha nada aqui e segue para o serviço/teste genérico — comportamento inalterado.
+    const { data: veics } = await supabaseAdmin.from('veic_veiculo')
+      .select('ncm, marca, modelo, preco_venda, preco_minimo, valor_fipe, situacao')
+      .eq('company_id', companyId).eq('ativo', true).not('ncm', 'is', null).neq('ncm', '00000000')
+      .limit(200)
+    const veiculos = ((veics ?? []) as Array<VeiculoTeste & { situacao: string | null }>)
+      .slice().sort((a, b) => Number(b.situacao === 'disponivel') - Number(a.situacao === 'disponivel'))
+    const v = escolherVeiculoTeste(veiculos)
+    if (v) itens.push({ tipo: 'produto', codigo: v.ncmTeste, uf, ex: 0, descricao: v.descricao, unidadeMedida: 'UN', valor: v.valor, gtin: null })
   }
   const { data: ultima } = await supabaseAdmin.from('erp_nfse_emitidas')
     .select('codigo_servico').eq('company_id', companyId).not('codigo_servico', 'is', null)

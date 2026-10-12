@@ -18,3 +18,26 @@ export function escolherProdutoTeste<T extends { ncm: string | null }>(produtos:
     .filter((p): p is T & { ncmTeste: string } => p.ncmTeste !== null)
   return validos.find((p) => p.ncmTeste.startsWith(prefixo)) ?? validos[0] ?? null
 }
+
+// Revenda (#994, Alliance): o "produto" é o VEÍCULO (veic_veiculo já tem NCM — ex.: 87032210), enquanto erp_produtos
+// fica vazio. Quando a empresa não tem produto com NCM válido, o item do teste do IBPT vem do estoque de veículos.
+export type VeiculoTeste = {
+  ncm: string | null
+  marca?: string | null
+  modelo?: string | null
+  preco_venda?: number | null
+  preco_minimo?: number | null
+  valor_fipe?: number | null
+}
+
+/**
+ * Item de teste do IBPT a partir dos veículos da revenda: primeiro veículo com NCM válido (mesma regra do produto).
+ * Descrição = marca + modelo; valor = preço de venda, senão mínimo, senão FIPE, senão 1. Null quando nenhum serve.
+ */
+export function escolherVeiculoTeste(veiculos: VeiculoTeste[]): { ncmTeste: string; descricao: string; valor: number } | null {
+  const v = escolherProdutoTeste(veiculos)
+  if (!v) return null
+  const descricao = [v.marca, v.modelo].map((x) => String(x ?? '').trim()).filter(Boolean).join(' ') || 'veículo'
+  const valor = Number(v.preco_venda) || Number(v.preco_minimo) || Number(v.valor_fipe) || 1
+  return { ncmTeste: v.ncmTeste, descricao, valor }
+}

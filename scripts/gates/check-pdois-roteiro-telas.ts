@@ -19,6 +19,7 @@ ok(menu.includes("PM_COMERCIAL: '1 · Comercial & Entrada'") && menu.includes("P
 ok(leads.includes('data-testid="lead-novo"') && leads.includes('+ Novo lead'), 'Leads: botão "+ Novo lead"')
 ok(leads.includes('Origem do Lead') && leads.includes('data-testid="lead-salvar"'), 'Leads: campo "Origem do Lead" e CRIAR')
 ok(leads.includes('>Meus leads</option>'), 'Leads: filtro "Meus leads"')
+ok(leads.includes('data-testid="lead-observacoes"') && /observacoes: form\.observacoes/.test(leads), 'Leads: "Observações" no Novo lead, gravada na criação (#912)')
 ok(leads.includes('data-testid="lead-tarefas"') && leads.includes('✅ Tarefas'), 'Leads: botão "✅ Tarefas" no cartão do lead')
 ok(leads.includes('data-testid="minhas-tarefas-abrir"') && leads.includes('✅ Minhas tarefas'), 'Leads: botão "✅ Minhas tarefas" no topo')
 
