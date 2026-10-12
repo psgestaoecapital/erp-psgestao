@@ -10,11 +10,16 @@ name: Acionar revisor
 on:
   pull_request_target:
     types: [labeled, synchronize, ready_for_review]
+  # CEO 12/10: varredura a cada 5 min — o revisor revisa TODAS as PRs revisadas pendentes de aval (nada espera 1 h)
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
-# um grupo por PR: PR diferente não cancela o acionamento da outra
+# um grupo por PR: PR diferente não cancela o acionamento da outra. A varredura tem grupo próprio e NUNCA cancela
+# a anterior em andamento (só o evento de PR cancela rajada), para a agenda de 5 min não se auto-cancelar.
 concurrency:
-  group: acionar-revisor-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: acionar-revisor-${{ github.event.pull_request.number || 'varredura' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 permissions:
   contents: read
@@ -24,6 +29,7 @@ permissions:
 jobs:
   acionar:
     if: >-
+      github.event_name == 'pull_request_target' &&
       !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(github.event.pull_request.labels.*.name, 'revisao-eng-chefe') &&
@@ -80,3 +86,53 @@ jobs:
           else
             echo "::warning title=Acionamento do revisor falhou::HTTP $code ao acionar o revisor para a PR #$N; a rotina horária cobre."
           fi
+
+  # Varredura (agenda de 5 min / manual): acha PR Ready com revisao-eng-chefe SEM "MERGE AUTORIZADO" do patch-id atual
+  # e acorda a rotina do revisor UMA vez (a rotina revisa todas as pendentes dentro da alçada, conclui e sai).
+  # As sensíveis do CEO (imposto/XML, LGPD, permissões, dado em massa, 6 Grupos) continuam esperando o CEO: isso é regra
+  # da rotina do revisor, não deste workflow. Sem pendência = sai em segundos, sem acionar nada.
+  varredura:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      REVISOR_ROTINA_URL: ${{ secrets.REVISOR_ROTINA_URL }}
+      REVISOR_ROTINA_TOKEN: ${{ secrets.REVISOR_ROTINA_TOKEN }}
+    steps:
+      - name: Checkout da main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Varrer PRs pendentes de aval
+        run: |
+          set -uo pipefail
+          if [ -z "${REVISOR_ROTINA_URL:-}" ] || [ -z "${REVISOR_ROTINA_TOKEN:-}" ]; then
+            echo "::warning title=Revisor sem rotina configurada::Faltam REVISOR_ROTINA_URL / REVISOR_ROTINA_TOKEN (ver o job acionar)."
+            exit 0
+          fi
+          pend=0
+          lista=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --paginate \
+            --jq '.[] | select(.draft == false and .head.repo.full_name == "'"$REPO"'" and ([.labels[].name] | index("revisao-eng-chefe") != null) and ([.labels[].name] | index("nao-publicar") == null)) | .number' 2>/dev/null || true)
+          for n in $lista; do
+            pid=$(bash scripts/merge/patch-id.sh "$n" 2>/dev/null || true)
+            [ -z "$pid" ] && continue
+            if gh api "repos/$REPO/issues/$n/comments" --paginate --jq '.[].body' 2>/dev/null \
+              | grep -qE "^MERGE AUTORIZADO #$n — gilberto-revisor · patch-id $pid([^0-9a-f]|\$)"; then
+              continue
+            fi
+            echo "PR #$n pendente de aval (patch-id $pid)"; pend=$((pend+1))
+          done
+          if [ "$pend" -eq 0 ]; then echo "nenhuma PR revisada pendente: nada a acionar"; exit 0; fi
+          corpo_json=$(jq -cn --arg t "$pend PR(s) com revisao-eng-chefe aguardando revisão (evento varredura)." '{text: $t}')
+          code=$(curl -sS -o /tmp/resp.txt -w '%{http_code}' --max-time 30 -X POST "$REVISOR_ROTINA_URL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $REVISOR_ROTINA_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$corpo_json" || echo 000)
+          if [ "${code:0:1}" = "2" ]; then echo "revisor acionado ($pend pendente(s), HTTP $code)"
+          else echo "::warning title=Acionamento do revisor falhou::HTTP $code na varredura."; fi
