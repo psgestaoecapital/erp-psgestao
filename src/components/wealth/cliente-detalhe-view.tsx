@@ -29,10 +29,12 @@ type ResumoCliente = {
   investidor_profissional: boolean | null; renda_mensal: number | null; patrimonio_declarado: number | null;
   profissao: string | null; email: string | null; telefone: string | null;
 };
+type AtivoSemClasse = { asset_id: string; ticker: string | null; nome: string | null; classe: string | null; valor: number | null };
 type Resumo = {
   ok: boolean; erro?: string; cliente: ResumoCliente; aum: number; alocacao_atual: Record<string, number>;
   aderencia: { success?: boolean; desvios?: Desvio[]; ips_versao?: number };
-  perfil: string | null; perfil_valido_ate: string | null; perfil_vencido: boolean; tem_ips_aprovado: boolean; alertas: Alerta[];
+  perfil: string | null; perfil_valido_ate: string | null; perfil_vencido: boolean; tem_ips_aprovado: boolean;
+  ativos_sem_classe_canonica?: AtivoSemClasse[]; alertas: Alerta[];
 };
 
 type Aba = "visao" | "carteira" | "perfil" | "ips" | "recomendacoes" | "kyc" | "relatorios";
@@ -231,6 +233,17 @@ function VisaoGeral({ resumo }: { resumo: Resumo }) {
           <h3 className="text-lg mb-3" style={{ color: ESP, fontFamily: "serif" }}>Alocação atual</h3>
           {Object.keys(resumo.alocacao_atual ?? {}).length === 0 ? <p className="text-sm" style={{ color: MUT }}>Sem posições registradas.</p> : (
             <div className="grid gap-4 sm:grid-cols-2 items-center"><Pizza aloc={resumo.alocacao_atual} /><LegendaClasses aloc={resumo.alocacao_atual} /></div>
+          )}
+          {(resumo.ativos_sem_classe_canonica?.length ?? 0) > 0 && (
+            <div className="mt-3 rounded-lg border p-3 text-xs" style={{ borderColor: "#E7C9A0", background: "#FFF6E9", color: "#7A4A0F" }}>
+              <div className="font-semibold mb-1">Ativos sem classe canônica ({resumo.ativos_sem_classe_canonica!.length}) — não contam como 0%:</div>
+              <ul className="list-disc pl-4">
+                {resumo.ativos_sem_classe_canonica!.map((a) => (
+                  <li key={a.asset_id}>{a.ticker || a.nome || a.asset_id} · classe atual “{a.classe ?? "—"}” · {fmtBRL(a.valor)}</li>
+                ))}
+              </ul>
+              <div className="mt-1">Classifique numa das 7 canônicas para a aderência/recomendação ficarem precisas.</div>
+            </div>
           )}
         </section>
         <section className="rounded-xl border p-5" style={{ borderColor: LINE, background: "#fff" }}>
