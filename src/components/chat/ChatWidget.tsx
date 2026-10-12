@@ -137,10 +137,14 @@ export default function ChatWidget() {
 
   return (
     <>
-      {/* botão flutuante (acima do "?" da Ajuda) */}
+      {/* Botão flutuante do comunicador. z-index ABAIXO dos modais/overlays (convenção do app: z-50+) e ACIMA do
+          conteúdo de página (z ≤ 40): um modal aberto fica POR CIMA do FAB (ele se recolhe atrás da ação primária),
+          em vez de o FAB (que é global) interceptar o clique do "Salvar" de um modal no celular — bug do @pos
+          (runs 311–313: mao-obra-componentes [celular], o FAB em z-900 cobria o funcao-salvar do modal em z-[90]).
+          O painel ABERTO (abaixo) mantém z alto porque é o usuário que o traz à frente. */}
       {!aberto && (
         <button onClick={() => { setAberto(true); void carregarCanais() }} aria-label="Chat da equipe"
-          style={{ position: 'fixed', right: 18, bottom: 82, zIndex: 900, width: 52, height: 52, borderRadius: '50%', border: 'none', background: ESP, color: '#fff', cursor: 'pointer', boxShadow: '0 6px 20px rgba(0,0,0,.18)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+          style={{ position: 'fixed', right: 18, bottom: 82, zIndex: 45, width: 52, height: 52, borderRadius: '50%', border: 'none', background: ESP, color: '#fff', cursor: 'pointer', boxShadow: '0 6px 20px rgba(0,0,0,.18)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           <MessageSquare size={22} />
           {totalNaoLidas > 0 && (
             <span style={{ position: 'absolute', top: -3, right: -3, minWidth: 20, height: 20, padding: '0 5px', borderRadius: 999, background: '#DC2626', color: '#fff', fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>{totalNaoLidas > 99 ? '99+' : totalNaoLidas}</span>

@@ -50,7 +50,7 @@ if (!temFerramentas()) {
     ok(merges(x.escritas).length === 0 && comentariosEm(x.escritas, 1).length === 0, '2) nao-publicar: na rodada seguinte não comenta de novo')
     // 3) revisada sem autorização não publica (aceitação verde, checks verdes)
     x = rodar([{ n: 1, labels: ['revisao-eng-chefe'], aceitacao: 'success' }])
-    ok(merges(x.escritas).length === 0 && comentariosEm(x.escritas, 1).some((l) => /MERGE AUTORIZADO/.test(l)),
+    ok(merges(x.escritas).length === 0 && comentariosEm(x.escritas, 1).some((l) => /sem a autorização do revisor/.test(l)),
       '3) revisao-eng-chefe sem "MERGE AUTORIZADO" pelo patch-id não publica')
     // 4) comum, pronta e verde, SEM etiqueta → publica
     x = rodar([{ n: 1, labels: [] }])
@@ -58,9 +58,9 @@ if (!temFerramentas()) {
     // válvula: com pouca cota da API a rodada não publica nada (e não gasta)
     x = rodar([{ n: 1, labels: [] }], false, 300)
     ok(merges(x.escritas).length === 0 && /cota da API baixa/.test(x.log), 'válvula: cota da API baixa → rodada adiada, nada publicado')
-    // a label continua aceita
+    // a label continua aceita (e, no lote, as duas sem migration publicam na mesma rodada)
     x = rodar([{ n: 1, labels: [] }, { n: 2, labels: ['fila-merge'] }])
-    ok(merges(x.escritas).length === 1, 'a label fila-merge continua aceita (1 merge por rodada)')
+    ok(merges(x.escritas).join() === '1,2', 'a label fila-merge continua aceita (lote: ambas sem migration publicam na rodada)')
   })
 }
 
