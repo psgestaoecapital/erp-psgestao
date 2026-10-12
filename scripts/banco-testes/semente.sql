@@ -27,10 +27,18 @@ BEGIN
     ('b0700000-0000-4000-a000-000000000003'::uuid, 'Demonstração Revenda',   'auditoria'),
     ('b0700000-0000-4000-a000-000000000004'::uuid, 'Demonstração Gestão Empresarial', 'auditoria'),
     ('b0700000-0000-4000-a000-000000000005'::uuid, 'Demonstração Indústria SST',      'auditoria'),
+    ('b0700000-0000-4000-a000-000000000006'::uuid, 'Construtora Modelo - DEMO',        'auditoria'),
     ('ded00000-0000-4000-a000-000000000001'::uuid, 'Demonstração Mecânica',  'demo')
   ) AS d(id, nome, ambiente)
   ON CONFLICT (id) DO UPDATE SET is_demo = true, ambiente_tenant = EXCLUDED.ambiente_tenant, is_active = true;
 END $$;
+
+-- empresa interna PS (c_ps de fn_agente_coleta_vigiar; a spec vigia-coleta-agentes espera o chamado nela). Sem dado de cliente;
+-- is_demo falso de propósito (é a empresa interna), por isso fica fora do CROSS JOIN das demos acima.
+INSERT INTO public.companies (id, org_id, razao_social, nome_fantasia, is_demo, is_active)
+SELECT 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725', (SELECT id FROM public.organizations ORDER BY created_at NULLS LAST LIMIT 1),
+       'Ps Gestao LTDA', 'Ps Gestao LTDA', false, true
+ON CONFLICT (id) DO NOTHING;
 
 -- plano ativo de cada demo (plan_catalog vem da whitelist de catálogos, que roda antes da semente)
 INSERT INTO public.tenant_subscriptions (company_id, plan_id, status, monthly_price_brl)
@@ -42,6 +50,8 @@ FROM (VALUES
   ('b0700000-0000-4000-a000-000000000004'::uuid, 'v15_gestao_empresarial_pro'),
   ('b0700000-0000-4000-a000-000000000004'::uuid, 'v15_hub_t1'),
   ('b0700000-0000-4000-a000-000000000005'::uuid, 'v15_compliance'),
+  ('b0700000-0000-4000-a000-000000000006'::uuid, 'v15_hub_t1'),
+  ('b0700000-0000-4000-a000-000000000006'::uuid, 'v15_gestao_empresarial_pro'),
   ('ded00000-0000-4000-a000-000000000001'::uuid, 'v15_oficina_grande')
 ) AS p(company_id, plan_id)
 WHERE EXISTS (SELECT 1 FROM public.plan_catalog c WHERE c.id = p.plan_id)
@@ -50,7 +60,7 @@ WHERE EXISTS (SELECT 1 FROM public.plan_catalog c WHERE c.id = p.plan_id)
 UPDATE public.tenant_subscriptions SET status = 'active'
 WHERE company_id IN ('b0700000-0000-4000-a000-000000000001','b0700000-0000-4000-a000-000000000002',
                      'b0700000-0000-4000-a000-000000000003','b0700000-0000-4000-a000-000000000004',
-                     'b0700000-0000-4000-a000-000000000005','ded00000-0000-4000-a000-000000000001')
+                     'b0700000-0000-4000-a000-000000000005','b0700000-0000-4000-a000-000000000006','ded00000-0000-4000-a000-000000000001')
   AND status IS DISTINCT FROM 'active';
 
 -- usuário do Playwright: 'adm' em todas as demos (igual à produção) ...
