@@ -15,7 +15,7 @@
 //   L2 fn_ponto_bi_colaborador_dias → os dias de um colaborador
 //   L3 fn_ponto_bi_marcacoes       → as batidas de um colaborador num dia
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 const ESP = '#3D2314'
@@ -61,17 +61,22 @@ export default function PontoPainelDia({ companyId }: { companyId: string }) {
   const [erro, setErro] = useState<string | null>(null)
   const [aberto, setAberto] = useState<string | null>(null) // cpf expandido
 
-  const carregar = useCallback(async () => {
+  // Re-busca a CADA troca de mês (companyId/ano/mes na dependência) COM guarda de
+  // corrida: se o usuário troca o mês antes de a resposta anterior chegar, a resposta
+  // obsoleta é descartada (alive=false) — nunca pinta o mês novo com dado do mês velho.
+  useEffect(() => {
+    let alive = true
     setLoading(true); setErro(null)
-    const { data: res, error } = await supabase.rpc('fn_ponto_bi_dia', {
+    void supabase.rpc('fn_ponto_bi_dia', {
       p_company_id: companyId, p_ano: ano, p_mes: mes,
+    }).then(({ data: res, error }) => {
+      if (!alive) return
+      if (error) { setErro(error.message); setData(null) }
+      else setData(res as BiDia)
+      setLoading(false)
     })
-    if (error) { setErro(error.message); setData(null) }
-    else setData(res as BiDia)
-    setLoading(false)
+    return () => { alive = false }
   }, [companyId, ano, mes])
-
-  useEffect(() => { void carregar() }, [carregar])
 
   function mudaMes(delta: number) {
     setAberto(null)
@@ -167,7 +172,10 @@ export default function PontoPainelDia({ companyId }: { companyId: string }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {colabs.map((c) => (
                 <CardColaborador
-                  key={c.cpf ?? c.matricula ?? c.nome ?? Math.random()}
+                  // key inclui ano-mes: trocar o mês REMONTA o card, zerando o cache
+                  // dos dias (drill-down L2) → reabrir busca o mês novo, nunca o velho.
+                  // (Também remove o Math.random() da key, que era impuro no render.)
+                  key={`${ano}-${mes}-${c.cpf ?? c.matricula ?? c.nome ?? 'sem-id'}`}
                   companyId={companyId}
                   ano={ano}
                   mes={mes}
