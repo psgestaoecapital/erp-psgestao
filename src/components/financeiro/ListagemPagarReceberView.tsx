@@ -529,6 +529,26 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const pageStart = (pageSafe - 1) * pageSize
   const pageItems = resultadosFiltrados.slice(pageStart, pageStart + pageSize)
 
+  // Chamado #1939: o filtro mostrava só o código (2.03); busca o nome no plano de contas da empresa.
+  const [nomeCategoria, setNomeCategoria] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!companyId) { setNomeCategoria({}); return }
+    let alive = true
+    supabase
+      .from('erp_plano_contas')
+      .select('codigo, descricao')
+      .eq('company_id', companyId)
+      .limit(2000)
+      .then(({ data: rows }) => {
+        if (!alive) return
+        const m: Record<string, string> = {}
+        ;(rows ?? []).forEach((r: { codigo: string | null; descricao: string | null }) => { if (r.codigo && r.descricao) m[r.codigo] = r.descricao })
+        setNomeCategoria(m)
+      })
+    return () => { alive = false }
+  }, [companyId])
+  const rotuloCategoria = (c: string) => (nomeCategoria[c] ? `${c} - ${nomeCategoria[c]}` : c)
+
   const categoriasDistinct = useMemo(() => {
     const set = new Set<string>()
     ;(data?.resultados ?? []).forEach((r) => {
@@ -994,7 +1014,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
           </select>
         </Campo>
@@ -1287,7 +1307,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           )}
                         </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
-                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
+                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria ? rotuloCategoria(r.categoria) : '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">
