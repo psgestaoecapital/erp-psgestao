@@ -8,6 +8,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
 import GraficosCodes from './GraficosCodes'
+import SaudeEsteira from './SaudeEsteira'
+import SaudeCodes from './SaudeCodes'
 import MeuCode from '@/components/dev/MeuCode'
 import {
   CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, entregues, estadoSessao, faixa,
@@ -133,6 +135,8 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
+      <SaudeEsteira />
+      <SaudeCodes />
       <GraficosCodes />
       {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
       {resumos.length > 0 && <ResumoPorCode itens={resumos} agora={agora} />}
