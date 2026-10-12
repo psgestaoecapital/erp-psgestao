@@ -8,6 +8,7 @@ import { Play, Square, Timer } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { horasDoCronometro, horasTexto, relogio } from "@/lib/pm/meuDia";
+import { EVENTO_CRONOMETRO, avisarCronometro } from "@/lib/pm/cronometroGlobal";
 
 type Aberto = { id: string; job_id: string | null; inicio_em: string };
 export type JobCurto = { id: string; codigo: string; titulo: string | null };
@@ -33,7 +34,7 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
     } else setNomeJob("");
   }, [userId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- busca o cronômetro aberto desta pessoa
-  useEffect(() => { void carregar(); }, [carregar]);
+  useEffect(() => { void carregar(); window.addEventListener(EVENTO_CRONOMETRO, carregar); return () => window.removeEventListener(EVENTO_CRONOMETRO, carregar); }, [carregar]);
   useEffect(() => {
     if (!aberto) return;
     const t = setInterval(() => setAgora(Date.now()), 1000);
@@ -50,6 +51,7 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
     if (error) { setMsg(`Não foi possível parar: ${error.message}`); return false; }
     if (!silencioso) setMsg(`Parado — ${horasTexto(horas)} apontadas.`);
     setAberto(null);
+    avisarCronometro();
     onMudou?.();
     return true;
   }
@@ -58,16 +60,16 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
     if (!job) { setMsg("Escolha o job."); return; }
     if (aberto && !(await parar(true))) return;
     setOcupado(true);
-    const { data: eq } = await supabase.from("agency_equipe").select("custo_hora").eq("company_id", empresa).eq("user_id", userId).maybeSingle();
     const ini = new Date();
     const { error } = await supabase.from("agency_timesheet").insert({
       company_id: empresa, job_id: job, user_id: userId, data: ini.toISOString().slice(0, 10), horas: 0,
-      inicio_em: ini.toISOString(), custo_hora: (eq as { custo_hora: number | null } | null)?.custo_hora ?? null, descricao: "cronômetro",
+      inicio_em: ini.toISOString(), descricao: "cronômetro", // custo/hora da pessoa: o servidor preenche (LGPD, gatilho trg_agency_timesheet_custo_auto)
     });
     setOcupado(false);
     if (error) { setMsg(`Não foi possível iniciar: ${error.message}`); return; }
     setMsg(null); setAgora(Date.now());
     await carregar();
+    avisarCronometro();
     onMudou?.();
   }
 

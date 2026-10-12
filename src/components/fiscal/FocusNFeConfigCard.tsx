@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
+import { supabase } from '@/lib/supabase'
 import { Loader2, Save, AlertCircle, CheckCircle2, Landmark, Radio } from 'lucide-react'
 import { verificarMunicipioAderido, type GovNFSeMunicipioStatus } from '@/lib/fiscal/gov-nfse-provider'
 
@@ -37,7 +38,8 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
 
   // Feedback de segredo (Pilar 2): mostra só o ESTADO (configurada/vazia), nunca o valor.
   // Baseado na presença real da chave — não em "existe alguma config" (uma config gov não tem key).
-  const temApiKey = !!(configAtual && (configAtual as Record<string, unknown>).api_key_encrypted)
+  // #1944 · o token fica no COFRE (focus_token_vault_id); api_key_encrypted é o legado em base64.
+  const temApiKey = !!(configAtual && ((configAtual as Record<string, unknown>).focus_token_vault_id || (configAtual as Record<string, unknown>).api_key_encrypted))
 
   useEffect(() => {
     if (!configAtual) return
@@ -95,7 +97,11 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         // RD-51: desconhecido (não verificado) fica null, nunca false — a emissão lê o vivo de erp_gov_nfse_municipios.
         payload.govNfseMunicipioAderido = municipioStatus?.aderido ?? null
       } else if (apiKey.trim()) {
-        payload.apiKey = apiKey.trim()
+        // #1944 · token da Focus direto para o COFRE, como o próprio usuário (fn_fiscal_salvar_token confere o vínculo
+        // com a empresa) — nunca vai em texto para a tabela nem passa pela rota.
+        const { data: tok, error: tokErr } = await supabase.rpc('fn_fiscal_salvar_token', { p_company_id: companyId, p_token: apiKey.trim(), p_ambiente: ambiente })
+        const r = tok as { ok?: boolean; erro?: string } | null
+        if (tokErr || !r?.ok) throw new Error(`Não foi possível guardar o token no cofre: ${tokErr?.message ?? r?.erro ?? 'erro desconhecido'}`)
       }
 
       const resp = await authFetch('/api/fiscal/provider-config', {

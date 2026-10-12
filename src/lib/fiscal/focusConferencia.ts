@@ -131,3 +131,28 @@ export function compararFocusLocal(
 
   return { campos, divergencias: campos.filter((c) => c.diverge).length }
 }
+
+// #1944 · o certificado A1 que a FOCUS tem para a empresa (é com ele que a nota é assinada — nós nunca enviamos o
+// certificado para a Focus). Lido do cadastro da empresa na Focus (GET /v2/empresas/{cnpj}, só leitura), com chaves
+// candidatas como o resto da conferência. Focus não informou → null (desconhecido, cinza — RD-51), nunca "ok".
+export interface CertificadoFocus { ok: boolean | null; validoAte: string | null; mensagem: string }
+const CHAVES_VALIDADE_CERT = ['certificado_valido_ate', 'certificado_validade', 'validade_certificado', 'data_validade_certificado']
+const CHAVES_CNPJ_CERT = ['certificado_cnpj', 'cnpj_certificado']
+export function avaliarCertificadoFocus(
+  focus: Record<string, unknown> | null, cnpjEmpresa: string, hojeBR: string,
+): CertificadoFocus {
+  if (!focus) return { ok: false, validoAte: null, mensagem: 'Empresa não cadastrada na Focus da conta PS — cadastre o CNPJ e envie o certificado A1 no painel da Focus.' }
+  const validadeRaw = pega(focus, CHAVES_VALIDADE_CERT)
+  const validoAte = validadeRaw === undefined ? null : String(validadeRaw).slice(0, 10)
+  if (!validoAte || !/^\d{4}-\d{2}-\d{2}$/.test(validoAte)) {
+    return { ok: null, validoAte: null, mensagem: 'A Focus não informou o certificado desta empresa — confira se o A1 foi enviado no painel da Focus.' }
+  }
+  const br = validoAte.split('-').reverse().join('/')
+  if (validoAte < hojeBR) return { ok: false, validoAte, mensagem: `Certificado na Focus VENCIDO em ${br} — envie o certificado novo no painel da Focus.` }
+  const cnpjCert = soDigitos(pega(focus, CHAVES_CNPJ_CERT))
+  const raiz = soDigitos(cnpjEmpresa).slice(0, 8)
+  if (cnpjCert.length === 14 && raiz.length === 8 && cnpjCert.slice(0, 8) !== raiz) {
+    return { ok: false, validoAte, mensagem: `O certificado na Focus é de outro CNPJ (${cnpjCert}) — envie o A1 desta empresa no painel da Focus.` }
+  }
+  return { ok: true, validoAte, mensagem: `Certificado na Focus válido até ${br}.` }
+}

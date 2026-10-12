@@ -631,13 +631,16 @@ function KanbanBoard({
       && (!q || (o.numero ?? '').toLowerCase().includes(q) || (o.cliente_nome ?? '').toLowerCase().includes(q))),
     [orcamentos, q],
   )
+  // #780 (cont.) · "Gerar Financeiro" é a ÚLTIMA ação: a coluna depende do STATUS, não da nota. Um pedido com NF-e
+  // emitida mas ainda não faturado continua em "A faturar" (pendente de Gerar Financeiro); só vai para "Faturado"
+  // quando status = 'faturado'. (Antes o nf_emitida movia o pedido cedo demais — a emissão de NF-e agora é pré-financeiro.)
   const colPed = useMemo(
-    () => pedidos.filter((p) => p.status !== 'faturado' && p.status !== 'cancelado' && p.status !== 'revertido' && !p.nf_emitida
+    () => pedidos.filter((p) => p.status !== 'faturado' && p.status !== 'cancelado' && p.status !== 'revertido'
       && (!q || (p.numero ?? '').toLowerCase().includes(q) || (p.cliente_nome ?? '').toLowerCase().includes(q))),
     [pedidos, q],
   )
   const colFat = useMemo(
-    () => pedidos.filter((p) => (p.status === 'faturado' || p.nf_emitida)
+    () => pedidos.filter((p) => p.status === 'faturado'
       && (!q || (p.numero ?? '').toLowerCase().includes(q) || (p.cliente_nome ?? '').toLowerCase().includes(q))),
     [pedidos, q],
   )
@@ -1210,7 +1213,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   const [medicoesVersao, setMedicoesVersao] = useState(0)
   const [nfseProducaoDisponivel, setNfseProducaoDisponivel] = useState(false)
   // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · ultima NFS-e do pedido (inclui rejeitada)
-  const [nfseUltima, setNfseUltima] = useState<{ id: string; numero: string | null; status: string; pdf_url: string | null; motivo_rejeicao: string | null } | null>(null)
+  const [nfseUltima, setNfseUltima] = useState<{ id: string; numero: string | null; status: string; pdf_url: string | null; xml_url: string | null; cancelado_em: string | null; motivo_rejeicao: string | null } | null>(null)
   const [nfseAtualizando, setNfseAtualizando] = useState(false)
   // #782 · boleto na própria tela de pedido: após "Gerar Financeiro", as parcelas marcadas com
   // "Boleto" têm seu boleto gerado aqui (reusa GerarBoletosReceita). Os receber_ids NÃO vêm do
@@ -1281,7 +1284,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
       supabase.rpc('fn_pedido_nfse_dados', { p_pedido_id: ped.id }),
       supabase
         .from('erp_nfse_emitidas')
-        .select('id,numero,status,pdf_url,motivo_rejeicao')
+        .select('id,numero,status,pdf_url,xml_url,cancelado_em,motivo_rejeicao')
         .eq('pedido_id', ped.id)
         .order('criado_em', { ascending: false })
         .limit(1)
@@ -1422,7 +1425,8 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
             const ultStatus = nfseUltima?.status
             const eAutorizada = ultStatus === 'autorizada'
             const eProcessando = ultStatus === 'processando'
-            const eRejeitada = ultStatus === 'rejeitada' || ultStatus === 'erro' || ultStatus === 'cancelada'
+            const eCancelada = ultStatus === 'cancelada'
+            const eRejeitada = ultStatus === 'rejeitada' || ultStatus === 'erro'
             const semNota = !nfseUltima
             const btnAtualizar = (
               <button
@@ -1440,6 +1444,34 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                 {nfseAtualizando ? 'Atualizando…' : '↻ Atualizar status'}
               </button>
             )
+            const linkArq = (href: string, rotulo: string, tid: string) => (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid={tid}
+                style={{
+                  padding: '8px 14px', borderRadius: 8,
+                  border: `1px solid ${C.gold}`, background: C.goldBg, color: C.goldD,
+                  fontSize: 12, fontWeight: 600, textDecoration: 'none',
+                }}
+              >
+                {rotulo}
+              </a>
+            )
+            const arquivos = (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {nfseUltima?.xml_url && linkArq(nfseUltima.xml_url, 'Baixar XML', 'nfse-baixar-xml')}
+                  {nfseUltima?.pdf_url && linkArq(nfseUltima.pdf_url, 'Baixar PDF', 'nfse-ver-pdf')}
+                </div>
+                {(!nfseUltima?.xml_url || !nfseUltima?.pdf_url) && (
+                  <p data-testid="nfse-arquivo-gerando" style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
+                    {!nfseUltima?.xml_url && !nfseUltima?.pdf_url ? 'XML e PDF' : !nfseUltima?.xml_url ? 'XML' : 'PDF'} ainda sendo gerado pela prefeitura — toque em “Atualizar status”.
+                  </p>
+                )}
+              </div>
+            )
             return (
               <Card titulo="NFS-e do serviço">
                 {eAutorizada && (
@@ -1447,22 +1479,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>
                       ✅ NFS-e emitida — nº {nfseUltima?.numero ?? '—'}
                     </p>
-                    {nfseUltima?.pdf_url && (
-                      <a
-                        href={nfseUltima.pdf_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        data-testid="nfse-ver-pdf"
-                        style={{
-                          alignSelf: 'flex-start',
-                          padding: '8px 14px', borderRadius: 8,
-                          border: `1px solid ${C.gold}`, background: C.goldBg, color: C.goldD,
-                          fontSize: 12, fontWeight: 600, textDecoration: 'none',
-                        }}
-                      >
-                        Ver PDF
-                      </a>
-                    )}
+                    {arquivos}
                     {btnAtualizar}
                   </div>
                 )}
@@ -1475,6 +1492,29 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
                       O número sai assim que a prefeitura autorizar.
                     </p>
+                    {btnAtualizar}
+                  </div>
+                )}
+
+                {eCancelada && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-testid="nfse-cancelada">
+                    <p style={{ fontSize: 12, color: C.espressoM, fontWeight: 600, margin: 0 }}>
+                      🚫 NFS-e cancelada — nº {nfseUltima?.numero ?? '—'}
+                      {nfseUltima?.cancelado_em ? ` · em ${new Date(nfseUltima.cancelado_em).toLocaleDateString('pt-BR')}` : ''}
+                    </p>
+                    {arquivos}
+                    <button
+                      type="button"
+                      onClick={() => { setMedicaoSel(null); setNfseModalAberto(true) }}
+                      data-testid="nfse-reemitir"
+                      style={{
+                        minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                        border: 'none', background: C.gold, color: '#fff',
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
+                      }}
+                    >
+                      📄 Emitir novamente
+                    </button>
                     {btnAtualizar}
                   </div>
                 )}
@@ -1534,7 +1574,10 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
           })()}
 
           {/* FEAT-NFE-PRODUTO-3-PRODUCAO-v1 · NF-e do produto · ambiente vem da config (producao) */}
-          {statusLocal === 'faturado' && (
+          {/* #780 (cont.) · NF-e do produto PRIMEIRO: emitir ANTES de "Gerar Financeiro", igual à NFS-e. Vale para
+              pedido NÃO cancelado e NÃO revertido (revisão Eng. Chefe: pedido que voltou a orçamento não emite NF-e).
+              O gate antigo 'faturado' só mostrava o card depois do financeiro — inverso do #780. */}
+          {statusLocal !== 'cancelado' && statusLocal !== 'revertido' && (
             <Card titulo="NF-E DO PRODUTO">
               <NFeCard companyId={ped.company_id} pedidoId={ped.id} />
             </Card>
@@ -1568,17 +1611,8 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                 {faturaResult?.erro && (
                   <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {faturaResult.erro}</p>
                 )}
-                {/* #780 · emissão de nota (NF-e) vem ANTES do financeiro — "Gerar Financeiro" é a última ação do fluxo */}
-                <p style={{ fontSize: 11, color: C.espressoL, margin: 0 }}>NF-e fica pra próxima onda.</p>
-                <button
-                  type="button"
-                  disabled
-                  title="Em desenvolvimento (Onda 3c)"
-                  style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.cream, color: C.espressoL, fontSize: 12, fontWeight: 600, cursor: 'not-allowed', alignSelf: 'flex-start' }}
-                >
-                  Emitir NF-e (em breve)
-                </button>
-                <hr style={{ border: 'none', borderTop: `1px solid ${C.borderL}`, margin: '4px 0' }} />
+                {/* #780 (cont.) · a emissão de NF-e saiu daqui: agora fica no card "NF-E DO PRODUTO" acima, emitida ANTES
+                    do financeiro (igual à NFS-e). "Gerar Financeiro" segue sendo a ÚLTIMA ação, standalone. */}
                 {/* #780 · última ação: gera os recebíveis + baixa de estoque (standalone p/ pedido sem nota) */}
                 <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
                   Gere os títulos a receber + baixa de estoque (produtos + BOM dos serviços) em 1 clique.
@@ -1639,6 +1673,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
         tomadorTipo={nfseDados?.tomador?.tipo ?? undefined}
         tomadorNome={nfseDados?.tomador?.nome ?? undefined}
         tomadorEmail={nfseDados?.tomador?.email ?? undefined}
+        tomadorClienteId={ped.cliente_id ?? undefined}
         descricaoServico={nfseSeed?.descricao}
         codigoServicoMunicipio={nfseSeed?.codigoServicoMunicipio}
         codigoLC116={nfseSeed?.codigoLC116}

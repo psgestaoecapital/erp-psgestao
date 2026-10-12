@@ -1,0 +1,211 @@
+name: Montar banco de testes
+
+# Autorizado pelo CEO em 06/10/2026 17:38 (erp_contexto_projeto f08edfe1): antes do fn_demo_reset, copia da PRODUÇÃO
+# para o BANCO DE TESTES só os DADOS das tabelas globais de referência da whitelist scripts/banco-testes/catalogos.txt
+# (sem company_id/org_id/user_id, sem dado pessoal), por pg_dump --data-only -t de cada tabela e psql no
+# TEST_DATABASE_URL. A trava abaixo continua recusando a produção como destino. Resolve: fn_demo_reset falhava porque
+# plan_catalog estava vazio no banco de testes (plan_id v15_revenda não existia).
+# CEO 06/10: aceitação das PRs sai da produção. Atalho (horas, não dias): copia a ESTRUTURA da produção (pg_dump
+# --schema-only, só leitura, sem dados de cliente, sem Vault, sem jobs do cron) para o projeto erp-psgestao-testes,
+# marca o ledger com todas as migrations do repo e planta a semente mínima (empresa DEMO + usuário do Playwright).
+# Manual (recria do zero) e a cada push na main que toque migration (aplica só as novas, depois do deploy-migrations).
+on:
+  workflow_dispatch:
+    inputs:
+      recriar:
+        description: 'Recriar do zero (apaga o schema public do BANCO DE TESTES e restaura o dump)'
+        type: boolean
+        default: true
+      vaga:
+        description: 'Banco do pool a montar (0 = erp-psgestao-testes atual; 1/2 = bancos extras, se provisionados)'
+        type: choice
+        options: ['0', '1', '2']
+        default: '0'
+  workflow_run:
+    workflows: ['Deploy Migrations (Production)']
+    types: [completed]
+    branches: [main]
+
+# 12/10 (CEO: banco de testes sem minas): o montar RECRIA/repovoa o banco da vaga 0 (dump + fn_demo_reset + semente).
+# Antes ele tinha grupo próprio e rodava no MEIO da aceitação da main/PR (mesmo banco): companies/plano_contas sumiam
+# no meio do run → dezenas de specs vermelhos por dado ausente (run 196: 84 falhas, 298 passaram; montar 204 rodou
+# 06:06–06:11 dentro do run 05:31–06:22). Agora entra na MESMA fila FIFO do banco (aceitacao-testes-0 = vaga 0 do
+# aceitacao-pr.yml; a aceitacao-main usa o grupo 'aceitacao-testes'), e espera a vez em vez de derrubar o run.
+# Vagas extras (1/2) têm banco próprio → grupo próprio da vaga.
+concurrency:
+  group: ${{ (github.event_name == 'workflow_dispatch' && inputs.vaga != '0') && format('aceitacao-testes-{0}', inputs.vaga) || 'aceitacao-testes' }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  montar:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+      PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      # Pool de bancos (CEO 10/10): a vaga > 0 usa os segredos TEST_*_1 / TEST_*_2 (bancos extras). Vaga 0 = banco atual
+      # (segredos TEST_* base). Sem input (ex.: disparo por deploy-migrations) → vaga 0, como antes.
+      - name: Selecionar o banco da vaga
+        env:
+          VAGA: ${{ github.event.inputs.vaga || '0' }}
+          DBURL1: ${{ secrets.TEST_DATABASE_URL_1 }}
+          URL1: ${{ secrets.TEST_SUPABASE_URL_1 }}
+          SRK1: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_1 }}
+          DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
+          URL2: ${{ secrets.TEST_SUPABASE_URL_2 }}
+          SRK2: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_2 }}
+        run: |
+          set -u
+          case "$VAGA" in
+            1) DB="$DBURL1"; U="$URL1"; S="$SRK1";;
+            2) DB="$DBURL2"; U="$URL2"; S="$SRK2";;
+            *) echo "VAGA=0 (banco de testes atual)"; echo "ACEITACAO_VAGA=0" >> "$GITHUB_ENV"; exit 0;;
+          esac
+          [ -n "$DB" ] && [ -n "$U" ] && [ -n "$S" ] || { echo "::error::vaga $VAGA sem segredos TEST_*_$VAGA provisionados"; exit 1; }
+          echo "::add-mask::$DB"; echo "::add-mask::$S"
+          { echo "TEST_DATABASE_URL=$DB"; echo "TEST_SUPABASE_URL=$U"; echo "TEST_SUPABASE_SERVICE_ROLE_KEY=$S"; echo "ACEITACAO_VAGA=$VAGA"; } >> "$GITHUB_ENV"
+          echo "VAGA=$VAGA (banco extra do pool)"
+      - name: Trava de segurança (nunca aponta para a produção)
+        run: |
+          [ -n "$TEST_DATABASE_URL" ] || { echo "::error::TEST_DATABASE_URL ausente"; exit 1; }
+          # normaliza o segredo (espaço/CR/aspas coladas) e deixa a forma na tela, sem a senha
+          url=$(printf '%s' "$TEST_DATABASE_URL" | tr -d '\r\n' | sed -e 's/^[[:space:]"'"'"']*//' -e 's/[[:space:]"'"'"']*$//')
+          echo "TEST_DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "forma do segredo: $(printf '%s' "$url" | sed -E 's#(://[^:/@]*):[^@]*@#\1:***@#')"
+          case "$url" in postgres://*|postgresql://*) ;; *) echo "::error::TEST_DATABASE_URL não começa com postgresql:// (começa com '${url:0:12}')"; exit 1;; esac
+          case "$url" in *"[YOUR-PASSWORD]"*|*"[PASSWORD]"*) echo "::error::TEST_DATABASE_URL ainda tem o placeholder de senha"; exit 1;; esac
+          case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          # vaga 0 = o projeto erp-psgestao-testes conhecido; vaga > 0 = qualquer banco do Session pooler que NÃO seja a produção
+          if [ "${ACEITACAO_VAGA:-0}" = 0 ]; then
+            case "$TEST_DATABASE_URL" in *xjzqndnvjkdjyisuklpy*) echo "banco de testes confirmado (vaga 0)";; *) echo "::error::TEST_DATABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+          else
+            case "$TEST_DATABASE_URL" in *pooler.supabase.com*) echo "banco de testes extra confirmado (vaga ${ACEITACAO_VAGA}, pooler não-produção)";; *) echo "::error::vaga ${ACEITACAO_VAGA}: TEST_DATABASE_URL precisa ser Session pooler (*.pooler.supabase.com)"; exit 1;; esac
+          fi
+      - name: Normaliza TEST_DATABASE_URL (psql lê string fora do formato URI como NOME DE BANCO e tenta o socket local)
+        run: |
+          u="$TEST_DATABASE_URL"
+          u="$(printf '%s' "$u" | sed -E "s/^[[:space:]]*(TEST_DATABASE_URL=)?//; s/^psql[[:space:]]+//" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
+          case "$u" in postgresql://*|postgres://*) ;; *) echo "::error::TEST_DATABASE_URL não começa com postgresql:// (começa com: ${u:0:12}). Cole a Connection string (Session pooler) inteira, sem aspas."; exit 1;; esac
+          case "$u" in *'[YOUR-PASSWORD]'*|*'[SENHA]'*) echo "::error::TEST_DATABASE_URL ainda tem o marcador [YOUR-PASSWORD]: troque pela senha real (sem os colchetes)"; exit 1;; esac
+          case "$u" in *pooler.supabase.com*) ;; *@db.*) echo "::error::TEST_DATABASE_URL usa o host db.* (conexão direta, IPv6) em vez do Session pooler (*.pooler.supabase.com)"; exit 1;; *) echo "::error::TEST_DATABASE_URL não contém pooler.supabase.com"; exit 1;; esac
+          echo "::add-mask::$u"
+          echo "TEST_DATABASE_URL=$u" >> "$GITHUB_ENV"
+          echo "URL normalizada: esquema ${u%%://*}, host $(printf '%s' "$u" | sed -E 's#^[^@]*@([^:/]+).*#\1#')"
+          psql "$u" -v ON_ERROR_STOP=1 -tAc 'select version()' | cut -c1-60
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      - name: Montagem completa (dump da estrutura → restore → ledger → semente)
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          t0=$(date +%s)
+          supabase link --project-ref horsymhsinqcimflrtjo
+          # só ESTRUTURA do schema public (sem dados; Vault/cron/auth/storage não vão)
+          supabase db dump --linked --schema public -f estrutura.sql
+          wc -l estrutura.sql
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "drop schema if exists public cascade; create schema public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
+          # restore sem parar no 1º erro: o que depender de extensão/dado só da produção vai para o relatório
+          psql "$TEST_DATABASE_URL" -q -f estrutura.sql 2> restore-erros.log || true
+          echo "erros no restore: $(grep -c 'ERROR' restore-erros.log || true)"
+          grep 'ERROR' restore-erros.log | sort | uniq -c | sort -rn | head -40 || true
+          echo "### Montagem do banco de testes: $(( $(date +%s) - t0 )) s · erros no restore: $(grep -c 'ERROR' restore-erros.log || true)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Ledger (migrations do repo marcadas como aplicadas)
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar
+        run: scripts/banco-testes/ledger.sh
+      - name: Migrations novas da main (aplica só as pendentes no banco de testes)
+        if: github.event_name == 'workflow_run'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+      # Autorizado pelo CEO em 06/10/2026 17:38. Produção só leitura (catálogo do Postgres + pg_dump --data-only -t);
+      # o script repete as travas (destino nunca é a produção) e recusa tabela da lista com coluna de dono/dado pessoal.
+      - name: Catálogos globais da produção → banco de testes (whitelist, só dados)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # produção é Postgres 17 e o pg_dump precisa ser >= servidor (o runner traz o 16)
+          pgdg=/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+          [ -x "$pgdg" ] || sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo "$pgdg" -y > /dev/null
+          sudo apt-get install -y -qq postgresql-client-17 > /dev/null
+          export PG_DUMP=/usr/lib/postgresql/17/bin/pg_dump PSQL=/usr/lib/postgresql/17/bin/psql
+          # URL da produção pelo Session pooler (host/usuário da API de gestão; a senha é o segredo já existente)
+          pool=$(curl -fsS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            https://api.supabase.com/v1/projects/horsymhsinqcimflrtjo/config/database/pooler)
+          host=$(jq -r '[.[] | select(.database_type == "PRIMARY")][0].db_host // empty' <<< "$pool")
+          user=$(jq -r '[.[] | select(.database_type == "PRIMARY")][0].db_user // empty' <<< "$pool")
+          [ -n "$host" ] && [ -n "$user" ] || { echo "::error::não achei o pooler da produção na API de gestão"; exit 1; }
+          senha=$(jq -rn --arg s "$SUPABASE_DB_PASSWORD" '$s | @uri')
+          PROD_DATABASE_URL="postgresql://$user:$senha@$host:5432/postgres"
+          echo "::add-mask::$senha"
+          echo "::add-mask::$PROD_DATABASE_URL"
+          PROD_DATABASE_URL="$PROD_DATABASE_URL" scripts/banco-testes/catalogos.sh
+          # reaproveitado pelo passo "Semente demo" (depois do fn_demo_reset); cliente pg17 já instalado acima
+          echo "PROD_DATABASE_URL=$PROD_DATABASE_URL" >> "$GITHUB_ENV"
+      - name: Semente (usuário do Playwright no Auth + empresa DEMO)
+        run: |
+          set -euo pipefail
+          # usuário do bot via Auth admin (service role do banco de testes); 422 = já existe
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TEST_SUPABASE_URL/auth/v1/admin/users" \
+            -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg e "$PLAYWRIGHT_USER_EMAIL" --arg p "$PLAYWRIGHT_USER_PASSWORD" '{email:$e,password:$p,email_confirm:true}')")
+          echo "criar usuário: HTTP $code (200/201 criado · 422 já existe)"
+          [ "$code" = 200 ] || [ "$code" = 201 ] || [ "$code" = 422 ] || exit 1
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -v bot_email="$PLAYWRIGHT_USER_EMAIL" -f scripts/banco-testes/semente.sql
+          # a demo da produção é povoada por fn_demo_reset (se existir na cópia)
+          # diagnóstico: mostra o erro REAL (mensagem, detalhe, contexto) como anotação, em vez de só "falhou"
+          : > demo-reset-erro.log
+          reset_falhou=0
+          for emp in b0700000-0000-4000-a000-000000000001 b0700000-0000-4000-a000-000000000002 b0700000-0000-4000-a000-000000000003 b0700000-0000-4000-a000-000000000004 b0700000-0000-4000-a000-000000000005 ded00000-0000-4000-a000-000000000001; do
+            if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('$emp')" 2> "demo-reset-$emp.log"; then
+              cat "demo-reset-$emp.log" | tee -a demo-reset-erro.log
+              echo "::error title=fn_demo_reset falhou ($emp)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+              reset_falhou=1
+            fi
+          done
+          # trava-demo liberada ao final da montagem (lease de run que falhou/cancelou não pode travar a próxima)
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "delete from public.e2e_trava" || true
+          # Ação 3 (CEO 11/10): o job NÃO pode ficar verde com a DEMO incompleta (foi a causa do apagão). epi_catalogo
+          # é povoado pelo fn_demo_reset (referencia epi_categoria, agora na whitelist) → vazio = semente quebrada.
+          epi=$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -At -c "select count(*) from public.epi_catalogo")
+          echo "epi_catalogo: ${epi:-0}"
+          [ "${epi:-0}" -gt 0 ] || { echo "::error::epi_catalogo vazio após fn_demo_reset — DEMO incompleta"; reset_falhou=1; }
+          [ "$reset_falhou" = 0 ] || { echo "::error::montagem incompleta (fn_demo_reset com erro ou semente-chave vazia) — abortado"; exit 1; }
+      # Eng. Chefe 12/10 (passada completa de semente): o teste nasce com "grant all" para anon e o dump não traz os direitos
+      # da produção → ~40 specs de segurança/LGPD @pos-migration vermelhos por esquema, não por regressão. Espelha só os
+      # GRANTs/REVOKEs do catálogo da produção (sem dado de tabela). Idempotente.
+      - name: Direitos (GRANT/REVOKE) espelhados da produção → banco de testes
+        run: |
+          set -euo pipefail
+          export PSQL=/usr/lib/postgresql/17/bin/psql
+          scripts/banco-testes/espelhar-grants.sh
+      - name: Semente demo (globais/indicadores — filtrado, autor nulo, sintético)
+        run: |
+          set -euo pipefail
+          # cliente pg17 (instalado no passo dos catálogos) p/ ler a produção (Postgres 17); PROD_DATABASE_URL vem do GITHUB_ENV
+          export PSQL=/usr/lib/postgresql/17/bin/psql
+          scripts/banco-testes/semente-demo.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: montar-banco-testes-log
+          path: |
+            restore-erros.log
+            demo-reset-erro.log
+          if-no-files-found: ignore
