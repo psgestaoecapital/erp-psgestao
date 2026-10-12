@@ -33,15 +33,18 @@ on:
   schedule:
     - cron: '*/15 * * * *'
 
-concurrency:
-  group: fila-merge
-  cancel-in-progress: false
-
 permissions:
   contents: read
 
 jobs:
   fila:
+    # Concorrência no JOB (não no workflow): evento filtrado pelo `if` abaixo (status da Vercel pending, comentário que não
+    # é autorização, PR draft) é job pulado e NÃO entra na fila serial — só rodada que processa a fila espera a vez.
+    # CEO 12/10: `queue: max` mantém zero rodada descartada; antes, no workflow, todo evento virava run serial (latência).
+    concurrency:
+      group: fila-merge
+      cancel-in-progress: false
+      queue: max
     # filtros baratos: só acorda quando o evento pode mudar o estado da fila
     if: >-
       (github.event_name != 'pull_request_target' || (!github.event.pull_request.draft && github.event.pull_request.base.ref == 'main')) &&
