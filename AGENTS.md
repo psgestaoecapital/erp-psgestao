@@ -278,6 +278,8 @@ Gate: `scripts/gates/check-quarentena.ts`.
   **Ao terminar** (sucesso, recusa ou espera de run), chame `SELECT fn_agente_sessao_encerrar('<seu-identificador>', '<ref da sessão>');`
   — libera a vez na hora; o despertador pode acordar a próxima no ciclo seguinte.
   O teto de redisparos (18) conta só os seguidos sem progresso (resposta nova zera).
+  **Com lease ativa o envio só grava a mensagem (não aciona):** antes de encerrar, **leia a caixa de novo**
+  (`SELECT fn_agente_caixa('<seu-identificador>');`) e trate o que chegou durante a sessão; o despertador cobre o resto.
 - **(A) Enquanto aguarda run/CI**, adiante o diagnóstico (sem merge) do próximo item da fila, registrando o progresso dos dois.
 - **(C) Antes de abrir PR:** rode o teste novo DUAS vezes seguidas (idempotência) e, em patch de função existente,
   leia a definição VIVA com `pg_get_functiondef` antes de reescrevê-la.
@@ -326,3 +328,12 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
    com a label `nao-publicar` — nunca a pergunta "push / PR / discard" ao CEO.
 3. **Nunca deixe pergunta aberta ao CEO numa sessão de rotina.** Dúvida vai para a caixa (`fn_agente_mensagem_responder`) e
    a sessão encerra.
+
+# Despertador econômico (CEO 08/10) — vale para TODOS os Codes
+- Mensagem nova aciona na hora (gatilho de envio). Redisparo só se nada mudou há 30 min, com recuo 30 min → 1 h → 2 h → 4 h
+  (teto) e no máximo 6 redisparos seguidos sem progresso, depois alerta ao Eng. Chefe. Progresso = resposta nova ou mensagem atualizada.
+- **Sessão acordada trabalha a fila em sequência até acabar ou bater o limite de tempo — nunca uma tarefa por sessão.**
+- Travou esperando algo externo (revisor, CEO, outra PR)? Antes de encerrar:
+  `SELECT fn_agente_mensagem_aguardar('<id>', '<seu-identificador>', '<motivo>');` — o despertador não redispara enquanto valer;
+  a marca cai sozinha quando status, resposta ou PR da mensagem mudam (ou com motivo vazio).
+- Sessões abertas nas últimas 24 h por agente: `fn_agente_sessoes_24h()`.
