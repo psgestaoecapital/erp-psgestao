@@ -85,7 +85,7 @@ export interface NFeBuilderInput {
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
   const { data: emp, error: empErr } = await supabaseAdmin
     .from('companies')
-    .select('cnpj, razao_social, inscricao_estadual, inscricao_municipal, regime_tributario, uf_fiscal, pais')
+    .select('cnpj, razao_social, inscricao_estadual, ie_isento, inscricao_municipal, regime_tributario, uf_fiscal, pais')
     .eq('id', input.companyId)
     .maybeSingle()
   if (empErr || !emp) {
@@ -112,9 +112,12 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     )
   }
   if (!emp.inscricao_estadual) {
+    // empresa declarada isenta (companies.ie_isento, chamado #776): NF-e de produto exige IE do emitente — o aviso diz isso
     throw new FiscalError(
       'PAYLOAD_INVALIDO',
-      'Inscricao Estadual obrigatoria pra NFe · cadastre em Configuracoes da empresa'
+      (emp as { ie_isento?: boolean }).ie_isento
+        ? 'Empresa isenta de Inscricao Estadual nao emite NFe de produto · emita NFS-e ou desmarque a isencao em Configuracoes da empresa'
+        : 'Inscricao Estadual obrigatoria pra NFe · cadastre em Configuracoes da empresa'
     )
   }
 
