@@ -7,11 +7,14 @@ name: Preview da PR pronta
 # um commit VAZIO no ramo da PR (pela API, sem checkout) para a Vercel buildar.
 #  · PR só de .md/docs/.github: não precisa de preview (a fila de merge também não exige).
 #  · Se o head já tem preview (verde) ou um build real falhou, não faz nada.
+#  · `synchronize` (CEO 09/10, causa da pilha): a fila atualiza a branch com a main / renumera migration por commit, e o
+#    Ignored Build Step pulava esse head — sem preview a aceitação não roda e a PR esperava para sempre. Agora todo head
+#    novo de PR pronta passa por esta conferência. Anti-laço: se o head JÁ é o commit vazio deste workflow, não empurra outro.
 #  · Quem trabalha no ramo faz `git pull` antes do próximo push (o commit vazio entra no ramo).
 # Usa o FILA_MERGE_TOKEN (PAT): commit criado com o GITHUB_TOKEN não dispara os checks do Actions (gates).
 on:
   pull_request_target:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, synchronize]
 
 concurrency:
   group: preview-pronta-${{ github.event.pull_request.number }}
@@ -44,6 +47,9 @@ jobs:
           # mesma regra do scripts/vercel-ignore.mjs (SO_DOCS)
           outros=$(gh api "repos/$REPO/pulls/$N/files" --paginate --jq '.[].filename' | grep -vE '(\.md$|^docs/|^\.github/)' || true)
           [ -n "$outros" ] || { echo "PR #$N só muda .md/docs/.github: sem preview (a fila não exige)"; exit 0; }
+          # anti-laço: o head já é o commit vazio deste workflow (a Vercel pulou de novo): não empurra outro
+          msg=$(gh api "repos/$REPO/git/commits/$SHA" --jq '.message')
+          if grep -q '^ci: preview da PR #' <<< "$msg"; then echo "head já é o commit vazio de preview: não repito"; exit 0; fi
           # PR que acabou de nascer: dá tempo do build do push aparecer
           [ "$ACAO" = ready_for_review ] || sleep 90
           for i in $(seq 1 24); do

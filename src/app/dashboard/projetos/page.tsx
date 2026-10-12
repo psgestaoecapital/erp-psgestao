@@ -124,6 +124,23 @@ export default function PainelProjetos() {
         </div>
       </section>
 
+      {/* NOVIDADES DO HUB — toda entrega nova do Hub precisa aparecer aqui, no menu e nas abas */}
+      <section className="mt-4" data-testid="novidades-hub">
+        <SectionLabel>Novidades do Hub</SectionLabel>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="novidade-resultado" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
+            <div className="text-base font-medium text-[#3D2314]">Resultado por obra</div>
+            <div className="mt-1 text-sm text-[#3D2314]/60">Receita, custo e margem de cada obra, previsto × realizado, com o consolidado.</div>
+          </Link>
+          <Link href="/dashboard/projetos/cockpit?area=hub" data-testid="novidade-cockpit" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
+            <div className="text-base font-medium text-[#3D2314]">Cockpit da obra</div>
+            <div className="mt-1 text-sm text-[#3D2314]/60">Avanço, custo, margem e pendências de uma obra numa tela só.</div>
+          </Link>
+        </div>
+      </section>
+
       {/* INDICADORES */}
       <section className="mt-16">
         <SectionLabel>Indicadores</SectionLabel>

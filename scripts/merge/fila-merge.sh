@@ -5,8 +5,11 @@
 # Entra na fila (CEO 08/10 08:15, "ok fila sem etiqueta"): TODA PR aberta, NÃO-draft (Ready), base main, do próprio
 # repositório, com todos os checks obrigatórios verdes. A label `fila-merge` virou OPCIONAL (continua aceita: a hora
 # em que foi posta conta como entrada na fila). A label `nao-publicar` tira a PR da fila (a fila comenta o motivo UMA vez). Ordem: hora em que a PR
-# entrou (label fila-merge; senão a última vez que ficou Ready; senão a criação). Por execução, no máximo 1 merge
-# (squash, travado no SHA conferido); o push na main dispara a próxima rodada.
+# entrou (label fila-merge; senão a última vez que ficou Ready; senão a criação). LOTE (CEO 09/10): numa mesma rodada a
+# fila publica VÁRIAS PRs SEM migration (squash, cada uma travada no seu SHA conferido), até o teto LOTE_MAX; PR COM
+# migration é sempre UMA por rodada e encerra a rodada (a próxima espera o deploy + @pos-migration da main). O `atras` é
+# medido contra a main do INÍCIO da rodada (MAIN0): uma PR em dia no começo segue publicável mesmo depois de a fila ter
+# mergeado outras à frente dela nesta rodada (sem rebuild só porque a main andou no próprio lote).
 # SEM BLOQUEIO PELA CABEÇA (CEO 07/10): a PR que está atrás da main é atualizada (update-branch) e a PR cujos checks
 # ainda rodam fica esperando — e a rodada SEGUE para a próxima PR da fila (antes saía e uma PR lenta segurava todas).
 # Várias PRs podem ser atualizadas na mesma rodada. Migration: só a PR com migration que espera a MAIN (deploy-migrations
@@ -39,10 +42,23 @@ RODAPE=$'\n\n<sub>fila-merge · '"${RUN_URL:-local}"'</sub>'
 SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 api() { gh api -H 'Accept: application/vnd.github+json' "$@"; }
-log() { echo "$*"; echo "- $*" >> "$SUMARIO"; }
+# Observabilidade (CEO 10/10): toda linha "#<pr> ..." também vai p/ o snapshot que a fila grava no fim (flush_estado).
+log() { echo "$*"; echo "- $*" >> "$SUMARIO"; case "$*" in \#[0-9]*) [ -n "${TMPF:-}" ] && printf '%s\n' "$*" >> "$TMPF/estado" 2>/dev/null || true;; esac; }
+# Grava "por que cada PR está presa" em erp_esteira_pr_estado (a aba /dashboard/dev lê). No trap EXIT: roda sempre, mesmo
+# quando a rodada encerra num `exit 0` após um merge. Guardado: sem SUPABASE_URL/SERVICE_KEY, é no-op (nunca quebra a fila).
+flush_estado() {
+  [ -n "${TMPF:-}" ] && [ -f "$TMPF/estado" ] || return 0
+  [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || return 0
+  local payload
+  payload=$(ESTADO_FILE="$TMPF/estado" RUN_URL="${RUN_URL:-}" python3 scripts/merge/esteira-estado-json.py 2>/dev/null) || return 0
+  [ -n "$payload" ] || return 0
+  curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_esteira_pr_estado_gravar" \
+    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+    -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 || true
+}
 comentar() { api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null; }
 # comentários da PR lidos UMA vez por rodada (cada corpo numa linha, em JSON) — a fila agora olha todas as PRs Ready
-TMPF=$(mktemp -d); trap 'rm -rf "$TMPF"' EXIT
+TMPF=$(mktemp -d); trap 'flush_estado; rm -rf "$TMPF"' EXIT
 comentarios() {
   [ -f "$TMPF/c-$1" ] || api "repos/$REPO/issues/$1/comments" --paginate --jq '.[].body | @json' > "$TMPF/c-$1"
   cat "$TMPF/c-$1"
@@ -72,7 +88,7 @@ rerodar() {
   local id=$1 tent
   tent=$(api "repos/$REPO/actions/runs/$id" --jq '.run_attempt')
   if [ "$tent" -lt 3 ]; then api -X POST "repos/$REPO/actions/runs/$id/rerun" > /dev/null && log "run $id re-disparado (tentativa $((tent + 1)))"
-  else log "run $id já teve $tent tentativas: não re-roda de novo (avise o Eng. Chefe)"; fi
+  else log "run $id já teve $tent tentativas: não re-roda de novo (avise o Eng. Chefe)"; return 1; fi
 }
 
 # (a) Estado da main para PR COM migration. Ecoa: livre | esperar:<motivo>
@@ -106,7 +122,7 @@ ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc vercel_ok vercel_ruim
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc esgotou id vercel_ok vercel_ruim
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # via rápida: tira a aceitação do cálculo de pendentes, vermelhos e cancelados
@@ -116,7 +132,13 @@ estado_checks() {
   canc=$(awk -F'\t' '$3 == "cancelled" {print $4}' <<< "$linhas" | sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' | sort -u)
   [ -z "$verm" ] || { echo "vermelho:check vermelho: $verm"; return; }
   [ -z "$pend" ] || { echo "esperar:checks rodando: $pend"; return; }
-  if [ -n "$canc" ]; then for id in $canc; do rerodar "$id" >&2; done; echo "esperar:check cancelado re-disparado"; return; fi
+  if [ -n "$canc" ]; then
+    esgotou=0
+    for id in $canc; do rerodar "$id" >&2 || esgotou=1; done
+    # run cancelado que já gastou as 3 tentativas nunca vai completar: sai da fila com motivo (era "re-disparado" eterno, 12/10)
+    [ "$esgotou" = 1 ] && { echo "vermelho:check cancelado 3 vezes seguidas (use /re-rodar ou empurre um commit)"; return; }
+    echo "esperar:check cancelado re-disparado"; return
+  fi
   # gates (scripts/gates/): saíram do build da Vercel para o workflow gates.yml (CEO 07/10) — têm de existir e estar
   # verdes nas DUAS vias
   case "$(awk -F'\t' '$1 == "gates" {print $3}' <<< "$linhas" | tail -1)" in
@@ -146,7 +168,7 @@ autorizacao() {
   pid=$(git diff "$(git merge-base origin/main "refs/fila/pr-$n")" "refs/fila/pr-$n" | git patch-id --stable | cut -d' ' -f1)
   # só vale comentário cuja PRIMEIRA linha é exatamente a autorização do revisor; aviso da fila (marca escondida ou
   # "Fila de merge:") cita o texto mas nunca conta (todos os comentários saem da mesma conta do GitHub)
-  corpo=$(comentarios "$n" | jq -rs --arg re "^MERGE AUTORIZADO #$n — gilberto-revisor · patch-id [0-9a-f]{40}[ \\t\\r]*\$" \
+  corpo=$(comentarios "$n" | jq -rs --arg re "^MERGE AUTORIZADO #$n — gilberto-revisor · patch-id [0-9a-f]{40}([ \\t\\r]*|[:\\s].*)\$" \
     '[.[] | select((contains("<!-- fila:") | not) and (startswith("Fila de merge:") | not) and (split("\n")[0] | test($re)))] | last // empty | split("\n")[0]')
   [ -n "$corpo" ] || { echo "vermelho:PR sensível ($SENSIVEL) sem a autorização do revisor para o conteúdo atual"; return; }
   pid_aut=$(grep -oE 'patch-id[: ]+[0-9a-f]{40}' <<< "$corpo" | tail -1 | grep -oE '[0-9a-f]{40}' || true)
@@ -156,6 +178,8 @@ autorizacao() {
 }
 
 git fetch -q origin main
+MAIN0=$(git rev-parse origin/main)   # main do INÍCIO da rodada: o `atras` é medido contra ela, não contra a main viva
+                                     # (que muda a cada merge do lote). Assim a PR em dia no começo não vira "atrás" sozinha.
 echo "## Fila de merge" >> "$SUMARIO"
 
 # Válvula da cota da API (CEO 08/10): a fila agora olha TODAS as PRs Ready a cada rodada e o mesmo PAT serve o
@@ -181,7 +205,64 @@ fila=$(while read -r linha; do
 [ -n "$fila" ] || { log "fila vazia"; exit 0; }
 log "fila: $(echo $fila | sed 's/\([0-9]*\)/#\1/g')"
 
+# próxima versão de migration > $1 (piso), com os 2 últimos dígitos $2 (faixa do agente); timestamp do momento (UTC)
+proxima_versao() {
+  local piso=$1 ss=$2 t cand
+  t=$(date -u +%s)
+  while :; do
+    cand="$(date -u -d "@$t" +%Y%m%d%H%M)$ss"
+    [ "$cand" -gt "$piso" ] && break
+    t=$((t + 60))
+  done
+  echo "$cand"
+}
+
+# Renomeia (commit no ramo da PR, pela API de conteúdo) as migrations NOVAS da PR com versão <= a última da main.
+# Retorna 0 se renumerou (a PR segue no próximo commit) e 1 se não pôde (quem chama recusa como antes). Não renumera se
+# outro arquivo da PR cita a versão antiga (gate/spec que lê a migration pelo nome): aí a decisão é de quem fez a PR.
+renumerar_migrations() {
+  local n=$1 pj=$2 ult=$3 baixas=$4 via=$5 ref piso f v rest novo c b64 fsha lista=''
+  ref=$(jq -r .head.ref <<< "$pj"); piso=$ult
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    v=${f:0:14}
+    if api "repos/$REPO/pulls/$n/files" --paginate | jq -e --arg v "$v" --arg f "supabase/migrations/$f" '.[] | select(.filename != $f and ((.patch // "") | contains($v)))' > /dev/null; then
+      log "#$n: outro arquivo da PR cita a versão $v: não renumero sozinha"; return 1
+    fi
+  done <<< "$baixas"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    v=${f:0:14}; rest=${f:15}
+    novo=$(proxima_versao "$piso" "${v:12:2}"); piso=$novo
+    c=$(api "repos/$REPO/contents/supabase/migrations/$f?ref=$ref") || return 1
+    b64=$(jq -r .content <<< "$c" | tr -d '\n'); fsha=$(jq -r .sha <<< "$c")
+    { [ -n "$b64" ] && [ "$fsha" != null ]; } || return 1
+    api -X PUT "repos/$REPO/contents/supabase/migrations/${novo}_$rest" -f message="fila: renumera migration $v para $novo (acima da última da main $ult)" -f content="$b64" -f branch="$ref" > /dev/null || return 1
+    api -X DELETE "repos/$REPO/contents/supabase/migrations/$f" -f message="fila: remove migration $v (renumerada para $novo)" -f sha="$fsha" -f branch="$ref" > /dev/null || return 1
+    lista="$lista
+- \`${v}_$rest\` → \`${novo}_$rest\`"
+  done <<< "$baixas"
+  log "#$n: migration(s) renumerada(s) pela fila"
+  comentar "$n" "🔢 **Fila de merge:** a migration desta PR estava com versão NÃO maior que a última da main (\`$ult\`); renumerei sozinha (commit no ramo, conteúdo idêntico):$lista
+
+Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: o patch-id mudou — o gilberto-revisor precisa autorizar de novo (a etiqueta \`$SENSIVEL\` é tirada e recolocada para acordá-lo).")"
+  if [ "$via" = revisada ]; then
+    api -X DELETE "repos/$REPO/issues/$n/labels/$SENSIVEL" > /dev/null 2>&1 || true
+    api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
+  fi
+  return 0
+}
+
 so_sem_migration=0
+# Teto de PRs "da vez" em PREPARO ao mesmo tempo (CEO 09/10): atualizar com a main dispara preview/aceitação (~3 min/PR).
+# Sem teto, a fila atualizava TODA PR verde atrás da main a cada push → dezenas de builds por publicação. Agora prepara só
+# as próximas N da ordem; as demais esperam a vez (sem build) até uma da frente mergear.
+ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-4}
+em_preparo=0
+# LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada (corta runs/builds de publicação). PR COM migration
+# é UMA por rodada e encerra a rodada. merges = quantas já saíram no lote; LOTE_MAX = teto por rodada (teto de risco).
+LOTE_MAX=${LOTE_MAX:-6}
+merges=0
 for n in $fila; do
   pj=$(jq -c --argjson n "$n" 'select(.number == $n)' "$TMPF/lista")
   sha=$(jq -r .head.sha <<< "$pj"); titulo=$(jq -r .title <<< "$pj")
@@ -202,7 +283,9 @@ for n in $fila; do
   grep -q '^supabase/migrations/' <<< "$arquivos" && com_migration=1
   # mesma regra do scripts/vercel-ignore.mjs: sem preview para PR só de .md/docs/.github
   grep -qvE '(\.md$|^docs/|^\.github/)' <<< "$arquivos" || so_docs=1
-  if [ "$so_sem_migration" = 1 ] && [ "$com_migration" = 1 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
+  # PR COM migration não vai nesta rodada se outra migration já espera a main (so_sem_migration) OU já houve merge no lote
+  # (merges>0: a main acabou de mudar — a migration vai na próxima rodada, contra a main já assentada/verde).
+  if { [ "$so_sem_migration" = 1 ] || [ "$merges" -gt 0 ]; } && [ "$com_migration" = 1 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
 
   # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
   via=rapida
@@ -221,14 +304,22 @@ for n in $fila; do
   c=$(estado_checks "$sha" "$via" "$so_docs")
   case "$c" in
     vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
-    esperar:*) log "#$n aguardando: ${c#esperar:} — segue para a próxima"; continue;;
+    # Só conta como "em preparo" o PREVIEW que a própria fila dispara: PR VIA RÁPIDA com check rodando (não "gates ainda
+    # não rodaram", que é PR estagnada). A aceitação (demo-e2e, serial/lenta) das PRs via REVISADA NÃO é preparo da fila —
+    # contá-la inflava o em_preparo (13-14 no run 9299) e esfomeava as via-rápida atrás da main. (Correção da regressão do #2361.)
+    esperar:*) { [ "$via" = rapida ] && [ "${c#esperar:}" != 'gates ainda não rodaram' ]; } && em_preparo=$((em_preparo + 1)); log "#$n aguardando: ${c#esperar:} — segue para a próxima"; continue;;
   esac
 
-  # atrás da main → atualiza (merge da main no ramo, sem reescrever histórico) e espera os checks do novo commit
-  atras=$(api "repos/$REPO/compare/main...$sha" --jq '.behind_by')
+  # atrás da main → atualiza (merge da main no ramo, sem reescrever histórico), MAS só as próximas ATUALIZA_NA_VEZ da
+  # ordem; as demais esperam a vez (sem disparar preview/aceitação agora). Cada publicação gera ~N builds, não um por PR.
+  atras=$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')
   if [ "$atras" -gt 0 ]; then
+    if [ "$em_preparo" -ge "$ATUALIZA_NA_VEZ" ]; then
+      log "#$n está $atras atrás da main, mas já há $em_preparo PR(s) da vez em preparo (teto $ATUALIZA_NA_VEZ): espera a vez — sem build agora"; continue
+    fi
+    em_preparo=$((em_preparo + 1))
     if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
-      log "#$n estava $atras commit(s) atrás da main: atualizada; aguardando os checks do novo commit — segue para a próxima"
+      log "#$n estava $atras commit(s) atrás da main: atualizada (vaga $em_preparo/$ATUALIZA_NA_VEZ); aguardando os checks do novo commit — segue para a próxima"
     else
       tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"; continue
     fi
@@ -248,15 +339,30 @@ for n in $fila; do
     ult_main=$(api "repos/$REPO/git/trees/main:supabase/migrations" | jq -r '[.tree[].path | select(test("^[0-9]{14}_")) | .[0:14]] | max')
     baixas=$(api "repos/$REPO/pulls/$n/files" --paginate | jq -r --arg u "$ult_main" '.[] | select(.status == "added" and (.filename | test("^supabase/migrations/[0-9]{14}_"))) | .filename | ltrimstr("supabase/migrations/") | select(.[0:14] <= $u)')
     if [ -n "$baixas" ]; then
-      tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
+      # Renumeração AUTOMÁTICA (Eng. Chefe 09/10): em vez de recusar, a fila renomeia a(s) migration(s) da PR com um commit
+      # no ramo dela (versão nova = timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente). O commit roda
+      # os checks de novo; PR revisada precisa de NOVA autorização do revisor (o patch-id muda).
+      if renumerar_migrations "$n" "$pj" "$ult_main" "$baixas" "$via"; then continue; fi
+      tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — não consegui renumerar sozinha; renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
     fi
   fi
 
-  # merge travado no SHA conferido (se alguém empurrou no meio, o GitHub recusa)
+  # merge travado no SHA conferido (se alguém empurrou no meio, o GitHub recusa). O GitHub faz o 3-way contra a main VIVA:
+  # PR sem migration que só está "atrás" das outras deste lote (não conflitante) é mergeada; conflito real → recusa abaixo.
   if out=$(api -X PUT "repos/$REPO/pulls/$n/merge" -f merge_method=squash -f sha="$sha" -f commit_title="$titulo (#$n)" 2>&1); then
-    log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada)"
-    comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida** (aceitação informativa; a aceitação da main roda de hora em hora)' || echo 'revisada**').$([ "$com_migration" = 1 ] && echo ' Tem migration: veredito no @pos-migration da main (vermelho = reverter).')"
-    exit 0
+    if [ "$com_migration" = 1 ]; then
+      # migration: UMA por rodada — publica e ENCERRA a rodada (a próxima migration espera o deploy + @pos-migration)
+      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: uma por rodada"
+      comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration: veredito no @pos-migration da main (vermelho = reverter)."
+      exit 0
+    fi
+    # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada. A aceitação da via rápida é informativa e a
+    # aceitação da main (de hora em hora, banco de testes) é a rede de segurança; teto LOTE_MAX por rodada.
+    merges=$((merges + 1))
+    log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — lote $merges/$LOTE_MAX"
+    comentar "$n" "✅ **Fila de merge:** mergeada (squash, lote) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida** (aceitação informativa; a aceitação da main roda de hora em hora)' || echo 'revisada**')."
+    if [ "$merges" -ge "$LOTE_MAX" ]; then log "teto do lote ($LOTE_MAX) atingido nesta rodada: as próximas seguem na próxima rodada"; exit 0; fi
+    continue
   fi
   tirar_da_fila "$n" "o GitHub recusou o merge: $(tr '\n' ' ' <<< "$out" | cut -c1-300)" "$sha"
 done
