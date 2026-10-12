@@ -76,7 +76,10 @@ export default function PecuariaPainel() {
             <Link href="/dashboard/agro/pecuaria/rebanho" className="rounded-2xl bg-[#3D2314] text-white p-4 text-center font-semibold">
               Rebanho &amp; Lotes
             </Link>
-            <Link href="/dashboard/agro/pecuaria/propriedades" className="rounded-2xl bg-white border border-[#3D2314] text-[#3D2314] p-4 text-center font-semibold">
+            <Link href="/dashboard/agro/pecuaria/manejo" className="rounded-2xl bg-[#C8941A] text-white p-4 text-center font-semibold">
+              Manejo &amp; Pesagem
+            </Link>
+            <Link href="/dashboard/agro/pecuaria/propriedades" className="rounded-2xl bg-white border border-[#3D2314] text-[#3D2314] p-4 text-center font-semibold col-span-2">
               Propriedades &amp; Áreas
             </Link>
           </div>
