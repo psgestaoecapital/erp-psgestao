@@ -56,7 +56,15 @@ flush_estado() {
     -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
     -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 || true
 }
-comentar() { api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null; }
+# Comentário é AVISO, nunca pode derrubar a rodada: o secondary rate limit do GitHub (HTTP 403 em criação de conteúdo) sob
+# `set -e` matava a fila no meio da lista e a esteira parava (emergência 12/10). Falhou → registra e segue (a marca
+# escondida não é gravada, então o aviso é tentado de novo numa rodada futura).
+comentar() {
+  api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null 2>"$TMPF/erro-comentario" || {
+    log "aviso: comentário em #$1 não foi postado ($(head -c 120 "$TMPF/erro-comentario" 2>/dev/null | tr '\n' ' ')) — segue sem ele"
+    return 1
+  }
+}
 # comentários da PR lidos UMA vez por rodada (cada corpo numa linha, em JSON) — a fila agora olha todas as PRs Ready
 TMPF=$(mktemp -d); trap 'flush_estado; rm -rf "$TMPF"' EXIT
 comentarios() {
@@ -67,9 +75,11 @@ comentarios() {
 comentar_uma_vez() {
   local n=$1 chave=$2 texto=$3
   if comentarios "$n" | grep -qF "<!-- fila:$chave -->"; then return 0; fi
-  comentar "$n" "$texto
-<!-- fila:$chave -->"
-  printf '%s\n' "\"<!-- fila:$chave -->\"" >> "$TMPF/c-$n"
+  if comentar "$n" "$texto
+<!-- fila:$chave -->"; then
+    printf '%s\n' "\"<!-- fila:$chave -->\"" >> "$TMPF/c-$n"
+  fi
+  return 0
 }
 # vermelho de verdade: comenta o motivo uma vez por commit + motivo e tira a label (se houver). Sem a label a PR
 # continua candidata (a etiqueta é opcional): volta a ser avaliada sozinha no próximo commit.
@@ -245,7 +255,7 @@ renumerar_migrations() {
   log "#$n: migration(s) renumerada(s) pela fila"
   comentar "$n" "🔢 **Fila de merge:** a migration desta PR estava com versão NÃO maior que a última da main (\`$ult\`); renumerei sozinha (commit no ramo, conteúdo idêntico):$lista
 
-Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: o patch-id mudou — o gilberto-revisor precisa autorizar de novo (a etiqueta \`$SENSIVEL\` é tirada e recolocada para acordá-lo).")"
+Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: o patch-id mudou — o gilberto-revisor precisa autorizar de novo (a etiqueta \`$SENSIVEL\` é tirada e recolocada para acordá-lo).")" || true
   if [ "$via" = revisada ]; then
     api -X DELETE "repos/$REPO/issues/$n/labels/$SENSIVEL" > /dev/null 2>&1 || true
     api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
@@ -364,14 +374,14 @@ for n in $fila; do
     if [ "$com_migration" = 1 ]; then
       # migration: UMA por rodada — publica e ENCERRA a rodada (a próxima migration espera o deploy + @pos-migration)
       log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: uma por rodada"
-      comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration: veredito no @pos-migration da main (vermelho = reverter)."
+      comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration: veredito no @pos-migration da main (vermelho = reverter)." || true
       exit 0
     fi
     # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada. A aceitação da via rápida é informativa e a
     # aceitação da main (de hora em hora, banco de testes) é a rede de segurança; teto LOTE_MAX por rodada.
     merges=$((merges + 1))
     log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — lote $merges/$LOTE_MAX"
-    comentar "$n" "✅ **Fila de merge:** mergeada (squash, lote) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida** (aceitação informativa; a aceitação da main roda de hora em hora)' || echo 'revisada**')."
+    comentar "$n" "✅ **Fila de merge:** mergeada (squash, lote) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida** (aceitação informativa; a aceitação da main roda de hora em hora)' || echo 'revisada**')." || true
     if [ "$merges" -ge "$LOTE_MAX" ]; then log "teto do lote ($LOTE_MAX) atingido nesta rodada: as próximas seguem na próxima rodada"; exit 0; fi
     continue
   fi
