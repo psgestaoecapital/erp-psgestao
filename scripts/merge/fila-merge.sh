@@ -251,7 +251,7 @@ so_sem_migration=0
 # Teto de PRs "da vez" em PREPARO ao mesmo tempo (CEO 09/10): atualizar com a main dispara preview/aceitação (~3 min/PR).
 # Sem teto, a fila atualizava TODA PR verde atrás da main a cada push → dezenas de builds por publicação. Agora prepara só
 # as próximas N da ordem; as demais esperam a vez (sem build) até uma da frente mergear.
-ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-2}
+ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-4}
 em_preparo=0
 # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada (corta runs/builds de publicação). PR COM migration
 # é UMA por rodada e encerra a rodada. merges = quantas já saíram no lote; LOTE_MAX = teto por rodada (teto de risco).
