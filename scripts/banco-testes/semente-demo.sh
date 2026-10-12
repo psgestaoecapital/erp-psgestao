@@ -24,6 +24,9 @@ PSQL="${PSQL:-psql}"
 PROD_REF=horsymhsinqcimflrtjo
 TEST_REF=xjzqndnvjkdjyisuklpy
 DEMO_PM=b0700000-0000-4000-a000-000000000002        # Demonstração P&M — a empresa do atak-status-equipe-rls
+DEMO_GE=b0700000-0000-4000-a000-000000000004        # Demonstração Gestão Empresarial — plano de contas (plano-contas-relatorio-*)
+DEMO_SST=b0700000-0000-4000-a000-000000000005       # Demonstração Indústria SST — exigências/dispensa (tryo-documentos-so-aplicaveis-47)
+DEMO_MEC=ded00000-0000-4000-a000-000000000001       # Demonstração Mecânica — OS p/ impressão (caminho-oficina-os-impressao)
 ECOMMERCE=b0700000-0000-4000-a000-000000000007      # NÃO é demo no banco de testes → fora do demo_por_area
 erro() { echo "::error::$*"; exit 1; }
 
@@ -46,7 +49,11 @@ dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
 "$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
   "SET statement_timeout='30s'; COPY (SELECT to_jsonb(t) || jsonb_build_object('company_id','$DEMO_PM','ativo',true) FROM public.atak_fonte_mapa t WHERE t.ativo) TO STDOUT WITH (FORMAT csv)" \
   > "$dir/atak_mapa.csv"
-for f in doc_vertical demo_por_area atak_mapa; do echo "$f: $(wc -l < "$dir/$f.csv") linha(s) da produção"; done
+# Modelo GLOBAL do plano de contas (company_id NULL: catálogo de contas, sem dado pessoal/de cliente). Sem id/created_at.
+"$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
+  "SET statement_timeout='30s'; COPY (SELECT to_jsonb(t) - 'id' - 'created_at' FROM public.erp_plano_contas t WHERE t.company_id IS NULL) TO STDOUT WITH (FORMAT csv)" \
+  > "$dir/plano_global.csv"
+for f in doc_vertical demo_por_area atak_mapa plano_global; do echo "$f: $(wc -l < "$dir/$f.csv") linha(s) da produção"; done
 
 # Carga no TESTE: transação única, triggers/FKs off. jsonb_populate_record casa por nome de campo; campos ausentes
 # (criado_por/aprovado_por) ficam NULL; (.*) expande na ordem das colunas da tabela.
@@ -65,6 +72,8 @@ CREATE TEMP TABLE _dpa (j jsonb) ON COMMIT DROP;
 \copy _dpa FROM '$dir/demo_por_area.csv' WITH (FORMAT csv)
 CREATE TEMP TABLE _atak (j jsonb) ON COMMIT DROP;
 \copy _atak FROM '$dir/atak_mapa.csv' WITH (FORMAT csv)
+CREATE TEMP TABLE _plano (j jsonb) ON COMMIT DROP;
+\copy _plano FROM '$dir/plano_global.csv' WITH (FORMAT csv)
 
 DELETE FROM public.erp_documento_vertical;
 INSERT INTO public.erp_documento_vertical
@@ -85,6 +94,43 @@ VALUES ('banco-testes', 'estrela_polar', 'media', 'ativo',
         'Ponto de partida (semente de testes)',
         'Registro sintético do banco de testes para o briefing de sessão. Sem dado real.',
         ARRAY['ponto-de-partida']::text[], 'semente-testes');
+
+-- Plano de contas: o modelo global (company_id NULL) e a cópia na demo de GE (as specs plano-contas-relatorio-* exigem plano
+-- gerencial ativo na demo). Idempotente (NOT EXISTS por empresa+código); sem DELETE.
+INSERT INTO public.erp_plano_contas (company_id, codigo, descricao, grupo, tipo, pai_codigo, nivel, ativo, is_totalizador, sugerida_global)
+SELECT v.cid, r.codigo, r.descricao, r.grupo, r.tipo, r.pai_codigo, r.nivel, COALESCE(r.ativo, true), COALESCE(r.is_totalizador, false),
+       CASE WHEN v.cid IS NULL THEN r.sugerida_global ELSE false END
+FROM _plano p
+CROSS JOIN LATERAL jsonb_to_record(p.j) AS r(codigo text, descricao text, grupo text, tipo text, pai_codigo text, nivel int,
+                                              ativo boolean, is_totalizador boolean, sugerida_global boolean)
+CROSS JOIN (VALUES (NULL::uuid), ('$DEMO_GE'::uuid)) AS v(cid)
+WHERE NOT EXISTS (SELECT 1 FROM public.erp_plano_contas e WHERE e.company_id IS NOT DISTINCT FROM v.cid AND e.codigo = r.codigo);
+
+-- Demonstração Mecânica: 1 cliente + 2 OS SINTÉTICOS (a produção tem 14 OS/12 clientes, mas não vêm do fn_demo_reset e podem
+-- ter dado real — não se copia). CNPJ 11.444.777/0001-61 é o de teste público; cliente_cnpj da OS fica NULL de propósito.
+INSERT INTO public.erp_clientes (company_id, nome_fantasia, razao_social, cpf_cnpj, ativo)
+SELECT '$DEMO_MEC'::uuid, 'Cliente Demonstração Mecânica', 'Cliente Demonstração Mecânica LTDA', '11444777000161', true
+WHERE NOT EXISTS (SELECT 1 FROM public.erp_clientes WHERE company_id = '$DEMO_MEC'::uuid AND nome_fantasia = 'Cliente Demonstração Mecânica');
+INSERT INTO public.erp_os (company_id, numero, cliente_id, cliente_nome, descricao_servico, placa, marca, modelo)
+SELECT '$DEMO_MEC'::uuid, o.numero, c.id, c.nome_fantasia, o.descr, o.placa, 'Demo', 'Modelo Demo'
+FROM (VALUES ('MEC-DEMO-001', 'Revisão geral (demonstração)', 'DEM0A01'), ('MEC-DEMO-002', 'Troca de óleo e filtros (demonstração)', 'DEM0A02')) AS o(numero, descr, placa)
+JOIN public.erp_clientes c ON c.company_id = '$DEMO_MEC'::uuid AND c.nome_fantasia = 'Cliente Demonstração Mecânica'
+WHERE NOT EXISTS (SELECT 1 FROM public.erp_os x WHERE x.company_id = '$DEMO_MEC'::uuid AND x.numero = o.numero);
+
+-- Indústria SST: exigências de terceiro (ASO, NR-06) e a dispensa da Audiometria NR-7 do Rafael (tipos vêm da whitelist de
+-- catálogos: compliance_tipos_documento). Pulam sozinhas se o tipo/funcionário não existir (a conferência abaixo acusa).
+INSERT INTO public.compliance_documento_exigido (company_id, tipo_documento_id, aplica_a, obrigatorio, ativo)
+SELECT '$DEMO_SST'::uuid, t.id, 'funcionario_terceiro', true, true
+FROM public.compliance_tipos_documento t
+WHERE t.nome IN ('ASO - Atestado de Saúde Ocupacional', 'NR-06 - EPIs')
+  AND NOT EXISTS (SELECT 1 FROM public.compliance_documento_exigido e
+                  WHERE e.company_id = '$DEMO_SST'::uuid AND e.tipo_documento_id = t.id AND e.aplica_a = 'funcionario_terceiro');
+INSERT INTO public.compliance_dispensas (company_id, tipo_documento_id, funcionario_id, motivo, dispensado_em, ativo)
+SELECT '$DEMO_SST'::uuid, t.id, f.id, 'Setor administrativo sem exposição a ruído (demonstração)', now(), true
+FROM public.compliance_tipos_documento t
+JOIN public.compliance_funcionarios f ON f.company_id = '$DEMO_SST'::uuid AND f.nome_completo = 'Rafael Gomes Demo'
+WHERE t.nome = 'Audiometria NR-7'
+  AND NOT EXISTS (SELECT 1 FROM public.compliance_dispensas d WHERE d.funcionario_id = f.id AND d.tipo_documento_id = t.id);
 COMMIT;
 SQL
 "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$dir/carga.sql"
@@ -100,6 +146,9 @@ chk erp_documento_vertical_vigente "select count(*) from public.erp_documento_ve
 chk demo_por_area                  "select count(*) from public.demo_por_area"
 chk atak_fonte_mapa_demo           "select count(*) from public.atak_fonte_mapa where company_id='$DEMO_PM'::uuid and ativo"
 chk contexto_ponto_de_partida      "select count(*) from public.erp_contexto_projeto where 'ponto-de-partida' = any(tags)"
+chk plano_contas_demo_ge           "select count(*) from public.erp_plano_contas where company_id='$DEMO_GE'::uuid and ativo and not is_totalizador"
+chk os_demo_mecanica               "select count(*) from public.erp_os where company_id='$DEMO_MEC'::uuid and cliente_nome is not null"
+chk sst_exigencias_dispensa        "select (select count(*) from public.compliance_documento_exigido where company_id='$DEMO_SST'::uuid) * (select count(*) from public.compliance_dispensas where company_id='$DEMO_SST'::uuid and ativo)"
 [ "$falta" = 0 ] || erro "semente-demo incompleta — alguma tabela-chave ficou vazia"
 
 {
@@ -109,6 +158,9 @@ chk contexto_ponto_de_partida      "select count(*) from public.erp_contexto_pro
   echo "| erp_documento_vertical | produção (autores nulos) | global de referência |"
   echo "| demo_por_area | produção (sem a linha ecommerce/…007) | mapa área→empresa DEMO |"
   echo "| atak_fonte_mapa (…002) | config dos 17 ativos da prod (template) | sintetizado p/ a DEMO, sem empresa real |"
+  echo "| erp_plano_contas (modelo global + demo GE) | produção (company_id NULL = catálogo de contas) | sem dado pessoal |"
+  echo "| erp_clientes/erp_os (Mecânica) | SINTÉTICO | 1 cliente + 2 OS |"
+  echo "| compliance_documento_exigido/dispensas (SST) | SINTÉTICO | ASO, NR-06, dispensa Audiometria |"
   echo "| erp_contexto_projeto | SINTÉTICO (ponto-de-partida) | memória real nunca é copiada |"
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 echo "semente-demo: ok"
