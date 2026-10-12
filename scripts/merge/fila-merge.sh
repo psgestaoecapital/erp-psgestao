@@ -88,7 +88,7 @@ rerodar() {
   local id=$1 tent
   tent=$(api "repos/$REPO/actions/runs/$id" --jq '.run_attempt')
   if [ "$tent" -lt 3 ]; then api -X POST "repos/$REPO/actions/runs/$id/rerun" > /dev/null && log "run $id re-disparado (tentativa $((tent + 1)))"
-  else log "run $id já teve $tent tentativas: não re-roda de novo (avise o Eng. Chefe)"; fi
+  else log "run $id já teve $tent tentativas: não re-roda de novo (avise o Eng. Chefe)"; return 1; fi
 }
 
 # (a) Estado da main para PR COM migration. Ecoa: livre | esperar:<motivo>
@@ -122,7 +122,7 @@ ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc vercel_ok vercel_ruim
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc esgotou id vercel_ok vercel_ruim
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # via rápida: tira a aceitação do cálculo de pendentes, vermelhos e cancelados
@@ -132,7 +132,13 @@ estado_checks() {
   canc=$(awk -F'\t' '$3 == "cancelled" {print $4}' <<< "$linhas" | sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' | sort -u)
   [ -z "$verm" ] || { echo "vermelho:check vermelho: $verm"; return; }
   [ -z "$pend" ] || { echo "esperar:checks rodando: $pend"; return; }
-  if [ -n "$canc" ]; then for id in $canc; do rerodar "$id" >&2; done; echo "esperar:check cancelado re-disparado"; return; fi
+  if [ -n "$canc" ]; then
+    esgotou=0
+    for id in $canc; do rerodar "$id" >&2 || esgotou=1; done
+    # run cancelado que já gastou as 3 tentativas nunca vai completar: sai da fila com motivo (era "re-disparado" eterno, 12/10)
+    [ "$esgotou" = 1 ] && { echo "vermelho:check cancelado 3 vezes seguidas (use /re-rodar ou empurre um commit)"; return; }
+    echo "esperar:check cancelado re-disparado"; return
+  fi
   # gates (scripts/gates/): saíram do build da Vercel para o workflow gates.yml (CEO 07/10) — têm de existir e estar
   # verdes nas DUAS vias
   case "$(awk -F'\t' '$1 == "gates" {print $3}' <<< "$linhas" | tail -1)" in
@@ -297,7 +303,18 @@ for n in $fila; do
   # recebe o aviso e fica como está (sem empurrar merge da main no ramo de quem ainda não acabou a PR).
   c=$(estado_checks "$sha" "$via" "$so_docs")
   case "$c" in
-    vermelho:*) tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
+    vermelho:*)
+      # Deadlock 12/10: vermelho SÓ de guarda que lê o estado da main (check_fn_guards etc.) numa PR atrás da main costuma ser
+      # a main já corrigida depois do commit da PR; como a fila não atualiza PR vermelha, ela nunca re-rodava. Atualiza uma vez
+      # (o novo commit re-roda os guardas); se continuar vermelho com a PR em dia, cai na recusa normal.
+      if [[ "${c#vermelho:check vermelho: }" =~ ^(check_fn_guards|check_menu|check_migrations)(,(check_fn_guards|check_menu|check_migrations))*$ ]] \
+         && [ "$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')" -gt 0 ] && [ "$em_preparo" -lt "$ATUALIZA_NA_VEZ" ]; then
+        em_preparo=$((em_preparo + 1))
+        if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+          log "#$n vermelha só de guarda (${c#vermelho:}) e atrás da main: atualizada para re-rodar os guardas — segue para a próxima"; continue
+        fi
+      fi
+      tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
     # Só conta como "em preparo" o PREVIEW que a própria fila dispara: PR VIA RÁPIDA com check rodando (não "gates ainda
     # não rodaram", que é PR estagnada). A aceitação (demo-e2e, serial/lenta) das PRs via REVISADA NÃO é preparo da fila —
     # contá-la inflava o em_preparo (13-14 no run 9299) e esfomeava as via-rápida atrás da main. (Correção da regressão do #2361.)

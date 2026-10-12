@@ -9,7 +9,7 @@ const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗',
 
 // ── Parte 1: aceitacao-pr.yml ───────────────────────────────────────────────────────────────────────────────────
 const wf = readFileSync('.github/workflows/aceitacao-pr.yml', 'utf8')
-ok(/group: \$\{\{ vars\.ACEITACAO_BANCO == 'testes' && format\('aceitacao-testes-\{0\}', needs\.triagem\.outputs\.vaga\) \|\| 'demo-e2e' \}\}/.test(wf),
+ok(/group: \$\{\{ vars\.ACEITACAO_BANCO == 'testes' && \(needs\.triagem\.outputs\.vaga == '0' && 'aceitacao-testes' \|\| format\('aceitacao-testes-\{0\}', needs\.triagem\.outputs\.vaga\)\) \|\| 'demo-e2e' \}\}/.test(wf),
   'concurrency: UM grupo por vaga (aceitacao-testes-<vaga>) no banco de testes → vagas diferentes em paralelo')
 ok(/cancel-in-progress: false/.test(wf) && /queue: max/.test(wf) && /timeout-minutes: 40/.test(wf),
   'PRESERVA: cancel-in-progress:false, queue:max e timeout-minutes:40')
