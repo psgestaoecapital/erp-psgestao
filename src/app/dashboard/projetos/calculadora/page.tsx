@@ -2,15 +2,19 @@
 
 // Hub · HB2 — Calculadora de Obra PS (fatia 2: tela). Motor em src/lib/calculadora/motor.ts (regras como dado).
 // Parede simples e forro F530. "Ver a conta" em cada item; unidade de compra + quantidade real; "?" em todo campo (RD-95).
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Calculator, AlertTriangle } from "lucide-react";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { supabaseBrowser } from "@/lib/authFetch";
+import { useCompanyIds } from "@/lib/useCompanyIds";
+import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
 import {
   REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroF530, calcularParede, type Resultado,
 } from "@/lib/calculadora/motor";
 
 type Sistema = "parede" | "forro";
 const n = (v: string) => Number((v || "0").replace(",", ".")) || 0
+const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })
 const inCls = "w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-right font-mono text-sm text-[#3D2314] focus:border-[#C8941A] focus:outline-none";
 const lbCls = "mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/55";
@@ -32,10 +36,43 @@ export default function CalculadoraObraPage() {
   const [larg, setLarg] = useState("3");
   const [compF, setCompF] = useState("4");
   const [avancado, setAvancado] = useState(false);
+  const { sel } = useCompanyIds();
+  const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
+  const [produtos, setProdutos] = useState<ProdutoEstoque[]>([]);
+  const [vinculos, setVinculos] = useState<Record<string, string>>({});
+  const [erroVinculo, setErroVinculo] = useState<string | null>(null);
+  const sistemaDb = sistema === "parede" ? "parede" : "forro_f530";
+
+  const carregarEstoque = useCallback(async () => {
+    if (!companyId) { setProdutos([]); setVinculos({}); return; }
+    const sb = supabaseBrowser();
+    const [p, d] = await Promise.all([
+      sb.from("erp_produtos").select("id,nome,unidade,preco_custo_medio,preco_custo").eq("company_id", companyId).eq("ativo", true).order("nome").limit(2000),
+      sb.from("erp_calc_depara").select("chave,produto_id").eq("company_id", companyId).eq("sistema", sistemaDb),
+    ]);
+    setProdutos((p.data ?? []).map((x: any) => ({ id: x.id, nome: x.nome, unidade: x.unidade, custo: Number(x.preco_custo_medio) || Number(x.preco_custo) || null })));
+    setVinculos(Object.fromEntries((d.data ?? []).map((x: any) => [x.chave, x.produto_id])));
+  }, [companyId, sistemaDb]);
+  useEffect(() => { void carregarEstoque(); }, [carregarEstoque]);
+
+  async function vincular(chave: string, produtoId: string) {
+    if (!companyId) return;
+    setErroVinculo(null);
+    const sb = supabaseBrowser();
+    const q = produtoId
+      ? sb.from("erp_calc_depara").upsert({ company_id: companyId, sistema: sistemaDb, chave, produto_id: produtoId, atualizado_em: new Date().toISOString() }, { onConflict: "company_id,sistema,chave" })
+      : sb.from("erp_calc_depara").delete().eq("company_id", companyId).eq("sistema", sistemaDb).eq("chave", chave);
+    const { error } = await q;
+    if (error) { setErroVinculo("Não consegui salvar o vínculo: " + error.message); return; }
+    setVinculos((v) => { const n2 = { ...v }; if (produtoId) n2[chave] = produtoId; else delete n2[chave]; return n2; });
+  }
 
   const res: Resultado = useMemo(() => sistema === "parede"
     ? calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos) })
     : calcularForroF530(REGRAS_FORRO_F530, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, larg, compF]);
+
+  const custo = useMemo(() => res.ok ? custearItens(res.itens, vinculos, new Map(produtos.map((p) => [p.id, p]))) : { linhas: [], total: 0, semCusto: 0 }, [res, vinculos, produtos]);
+  const custoPorChave = useMemo(() => Object.fromEntries(custo.linhas.map((l) => [l.item.chave, l])), [custo]);
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6">
@@ -83,6 +120,13 @@ export default function CalculadoraObraPage() {
       ) : (
         <section className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm" data-testid="calc-resultado">
           <h2 className="mb-3 text-base font-medium text-[#3D2314]">O que comprar <span className="text-sm text-[#3D2314]/50">· área {fmt(res.area)} m²</span><AjudaCampo chave="projetos.calculadora.resultado" rota="/dashboard/projetos/calculadora" /></h2>
+          {companyId && (
+            <p className="mb-2 text-sm text-[#3D2314]/70" data-testid="calc-custo-total">
+              Custo estimado: <b>{fmtBRL(custo.total)}</b><AjudaCampo chave="projetos.calculadora.custo_total" rota="/dashboard/projetos/calculadora" />
+              {custo.semCusto > 0 && <span className="ml-2 text-amber-700">{custo.semCusto} item(ns) sem custo — fora do total</span>}
+            </p>
+          )}
+          {erroVinculo && <p className="mb-2 text-sm text-red-700">{erroVinculo}</p>}
           <ul className="divide-y divide-[#3D2314]/8">
             {res.itens.map((i) => (
               <li key={i.chave} className="py-2.5" data-testid={`calc-item-${i.chave}`}>
@@ -90,6 +134,18 @@ export default function CalculadoraObraPage() {
                   <span className="text-sm text-[#3D2314]">{i.descricao}</span>
                   <span className="font-mono text-sm text-[#3D2314]"><b data-testid={`calc-qtd-${i.chave}`}>{i.quantidade}</b> × {i.unidadeCompra}</span>
                 </div>
+                {companyId && (
+                  <label className="mt-1 flex items-center gap-2 text-xs text-[#3D2314]/60">
+                    <span className="flex items-center">Produto do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" /></span>
+                    <select value={vinculos[i.chave] ?? ""} data-testid={`calc-produto-${i.chave}`} onChange={(e) => void vincular(i.chave, e.target.value)}
+                      className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1 text-xs">
+                      <option value="">Sem vínculo</option>
+                      {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.unidade ? ` (${p.unidade})` : ""}</option>)}
+                    </select>
+                  </label>
+                )}
+                {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
+                {custoPorChave[i.chave]?.total != null && <p className="mt-0.5 text-xs text-[#3D2314]/60">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade} = <b>{fmtBRL(custoPorChave[i.chave].total!)}</b></p>}
                 <details className="mt-1 text-xs text-[#3D2314]/60">
                   <summary className="cursor-pointer">ver a conta</summary>
                   {i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}
