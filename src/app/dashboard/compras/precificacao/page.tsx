@@ -74,9 +74,10 @@ export default function PrecificacaoPage() {
   const [metaIn, setMetaIn] = useState('')
   const [minIn, setMinIn] = useState('')
   const [salvandoCfg, setSalvandoCfg] = useState(false)
-  // empresa para a qual os campos de config já foram preenchidos: evita que um "Calcular prévia" ou troca de filtro
-  // (que recarregam o painel) apaguem/sobrescrevam o que o usuário acabou de digitar. Null força o prefill de novo.
-  const cfgPrefillPara = useRef<string | null>(null)
+  // última tupla (empresa + os 3 valores GRAVADOS) já refletida nos campos. Re-sincroniza quando a empresa muda ou
+  // quando o que está GRAVADO muda (ex.: depois de salvar) — nunca num "Calcular prévia"/filtro/busca (o gravado não
+  // muda → a digitação do usuário fica intacta). Assim o campo nunca lateja num valor velho nem volta vazio havendo valor.
+  const cfgSync = useRef<string | null>(null)
 
   // parse pt-BR tolerante: aceita "11", "11,5" e "11.5". Vazio/!número → null.
   const num = (s: string): number | null => {
@@ -102,15 +103,18 @@ export default function PrecificacaoPage() {
 
   useEffect(() => { void carregar(false) }, [empresa, filtro]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Prefill dos campos de CONFIG a partir do que está salvo no banco — só UMA vez por empresa (ou logo após salvar,
-  // quando zeramos cfgPrefillPara). Fora daqui o painel pode recarregar à vontade (prévia/filtro/busca) sem apagar o
-  // que o usuário digitou. Mostra o número com vírgula (pt-BR). (correção do bug 13/10: campos sumiam / vinham errados.)
+  // Prefill dos campos de CONFIG a partir do que está GRAVADO no banco — re-sincroniza quando a empresa muda ou quando
+  // o valor gravado muda (depois de salvar). Um "Calcular prévia"/filtro/busca NÃO muda o gravado, então não apaga o
+  // que o usuário digitou. Mostra o número com vírgula (pt-BR). (bug 13/10: imposto latejava 11,3289 / campo sumia.)
   const fmtNum = (n: number) => String(n).replace('.', ',')
   const cfg = p?.config
   useEffect(() => {
     if (!empresa || !cfg) return
-    if (cfgPrefillPara.current === empresa) return
-    cfgPrefillPara.current = empresa
+    // chave = empresa + os valores GRAVADOS (imposto_override é a coluna erp_precificacao_parametros.imposto_venda_pct,
+    // nunca um valor derivado do motor). Só re-sincroniza quando essa chave muda.
+    const chave = [empresa, cfg.imposto_override ?? '', cfg.margem_meta_pct ?? '', cfg.margem_minima_pct ?? ''].join('|')
+    if (cfgSync.current === chave) return
+    cfgSync.current = chave
     setImpostoIn(cfg.imposto_override != null ? fmtNum(cfg.imposto_override) : '')
     setMetaIn(cfg.margem_meta_pct != null ? fmtNum(cfg.margem_meta_pct) : '')
     setMinIn(cfg.margem_minima_pct != null ? fmtNum(cfg.margem_minima_pct) : '')
@@ -141,7 +145,7 @@ export default function PrecificacaoPage() {
       setToast(rr?.erro ? (msg[rr.erro] ?? 'Não consegui salvar.') : 'Não consegui salvar a configuração.'); return
     }
     setToast('Parâmetros salvos. Recalculando com o imposto e a margem da empresa…')
-    cfgPrefillPara.current = null // relê os 3 campos do banco (os valores que acabaram de ser gravados)
+    // o próximo carregar traz o config gravado; a chave do cfgSync muda e os 3 campos re-sincronizam com o salvo.
     await carregar(previa)
   }
 
