@@ -8,6 +8,7 @@ import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
+import { camposEditaveis, diferencas, mesclarRegras, ROTULO_REGRA } from "@/lib/calculadora/regras";
 import { itensParaOrcamento, listaDeCompra } from "@/lib/calculadora/saida";
 import {
   REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroF530, calcularParede, type Resultado,
@@ -46,6 +47,49 @@ export default function CalculadoraObraPage() {
   const [orcId, setOrcId] = useState("");
   const [msgSaida, setMsgSaida] = useState<{ ok: boolean; texto: string } | null>(null);
   const sistemaDb = sistema === "parede" ? "parede" : "forro_f530";
+  const [override, setOverride] = useState<Record<string, Record<string, number>>>({});
+  const [validada, setValidada] = useState<Record<string, string | null>>({});
+  const [msgRegra, setMsgRegra] = useState<{ ok: boolean; texto: string } | null>(null);
+  const refSistema = sistema === "parede" ? REGRAS_PAREDE_SIMPLES_ST : REGRAS_FORRO_F530;
+  const regrasParede = useMemo(() => mesclarRegras(REGRAS_PAREDE_SIMPLES_ST, override.parede), [override]);
+  const regrasForro = useMemo(() => mesclarRegras(REGRAS_FORRO_F530, override.forro_f530), [override]);
+  const regrasAtuais = (sistema === "parede" ? regrasParede : regrasForro) as unknown as Record<string, number>;
+
+  const carregarRegras = useCallback(async () => {
+    setOverride({}); setValidada({});
+    if (!companyId) return;
+    const { data } = await supabaseBrowser().from("erp_calc_regra").select("sistema,regras,validada_em").eq("company_id", companyId);
+    setOverride(Object.fromEntries((data ?? []).map((x: any) => [x.sistema, x.regras ?? {}])));
+    setValidada(Object.fromEntries((data ?? []).map((x: any) => [x.sistema, x.validada_em])));
+  }, [companyId]);
+  useEffect(() => { void carregarRegras(); }, [carregarRegras]);
+
+  async function salvarRegra(campo: string, texto: string) {
+    if (!companyId) return;
+    const v = Number(texto.replace(",", "."));
+    if (!Number.isFinite(v) || v <= 0) { setMsgRegra({ ok: false, texto: "Use um número maior que zero." }); return; }
+    const novo = diferencas(refSistema, { ...(override[sistemaDb] ?? {}), [campo]: v });
+    const { error } = await supabaseBrowser().from("erp_calc_regra").upsert(
+      { company_id: companyId, sistema: sistemaDb, regras: novo, validada_em: null, atualizado_em: new Date().toISOString() }, { onConflict: "company_id,sistema" });
+    if (error) { setMsgRegra({ ok: false, texto: "Não consegui salvar: " + error.message }); return; }
+    setMsgRegra({ ok: true, texto: "Ajuste salvo para a sua empresa." });
+    setOverride((o) => ({ ...o, [sistemaDb]: novo })); setValidada((x) => ({ ...x, [sistemaDb]: null }));
+  }
+  async function marcarValidada() {
+    if (!companyId) return;
+    const agora = new Date().toISOString();
+    const { error } = await supabaseBrowser().from("erp_calc_regra").upsert(
+      { company_id: companyId, sistema: sistemaDb, regras: override[sistemaDb] ?? {}, validada_em: agora, atualizado_em: agora }, { onConflict: "company_id,sistema" });
+    if (error) { setMsgRegra({ ok: false, texto: "Não consegui salvar: " + error.message }); return; }
+    setValidada((x) => ({ ...x, [sistemaDb]: agora })); setMsgRegra({ ok: true, texto: "Regras marcadas como validadas." });
+  }
+  async function restaurarRegras() {
+    if (!companyId) return;
+    const { error } = await supabaseBrowser().from("erp_calc_regra").delete().eq("company_id", companyId).eq("sistema", sistemaDb);
+    if (error) { setMsgRegra({ ok: false, texto: "Não consegui restaurar: " + error.message }); return; }
+    setOverride((o) => { const c = { ...o }; delete c[sistemaDb]; return c; }); setValidada((x) => ({ ...x, [sistemaDb]: null }));
+    setMsgRegra({ ok: true, texto: "Voltou aos valores de referência." });
+  }
 
   const carregarEstoque = useCallback(async () => {
     if (!companyId) { setProdutos([]); setVinculos({}); setOrcamentos([]); return; }
@@ -91,8 +135,8 @@ export default function CalculadoraObraPage() {
   }
 
   const res: Resultado = useMemo(() => sistema === "parede"
-    ? calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos) })
-    : calcularForroF530(REGRAS_FORRO_F530, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, larg, compF]);
+    ? calcularParede(regrasParede, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos) })
+    : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, larg, compF, regrasParede, regrasForro]);
 
   const custo = useMemo(() => res.ok ? custearItens(res.itens, vinculos, new Map(produtos.map((p) => [p.id, p]))) : { linhas: [], total: 0, semCusto: 0 }, [res, vinculos, produtos]);
   const custoPorChave = useMemo(() => Object.fromEntries(custo.linhas.map((l) => [l.item.chave, l])), [custo]);
@@ -131,10 +175,27 @@ export default function CalculadoraObraPage() {
           {avancado ? "Esconder" : "Mostrar"} parâmetros avançados<AjudaCampo chave="projetos.calculadora.avancado" rota="/dashboard/projetos/calculadora" />
         </button>
         {avancado && (
-          <p className="mt-2 rounded-lg bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/70">
-            Regras de referência de mercado, <b>a validar com o fabricante</b>: perda {fmt((sistema === "parede" ? REGRAS_PAREDE_SIMPLES_ST : REGRAS_FORRO_F530).perda)}×,
-            chapa de {fmt(2.16)} m². A edição por empresa vem na próxima fatia.
-          </p>
+          <div className="mt-2 rounded-lg bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/70" data-testid="calc-regras">
+            <p className="mb-2">
+              {validada[sistemaDb] ? <>Regras <b>validadas</b> em {new Date(validada[sistemaDb]!).toLocaleDateString("pt-BR")}.</> : <>Referência de mercado, <b>a validar com o fabricante</b>.</>}
+              <AjudaCampo chave="projetos.calculadora.regra_validada" rota="/dashboard/projetos/calculadora" />
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {camposEditaveis(refSistema).map((c) => (
+                <label key={sistema + c} className="block">
+                  <span className={lbCls}>{ROTULO_REGRA[c] ?? c}<AjudaCampo chave="projetos.calculadora.regra" rota="/dashboard/projetos/calculadora" /></span>
+                  <input inputMode="decimal" defaultValue={String(regrasAtuais[c]).replace(".", ",")} key={sistema + c + regrasAtuais[c]} data-testid={`calc-regra-${c}`}
+                    disabled={!companyId} onBlur={(e) => { if (e.target.value.replace(".", ",") !== String(regrasAtuais[c]).replace(".", ",")) void salvarRegra(c, e.target.value); }} className={inCls} />
+                </label>
+              ))}
+            </div>
+            {!companyId && <p className="mt-2">Escolha uma empresa para ajustar as regras.</p>}
+            <div className="mt-3 flex flex-wrap gap-3">
+              <button className="rounded-lg border border-[#3D2314]/15 px-3 py-1.5 text-[#3D2314]" onClick={marcarValidada} disabled={!companyId} data-testid="calc-regra-validar">Marcar como validadas</button>
+              <button className="rounded-lg border border-[#3D2314]/15 px-3 py-1.5 text-[#3D2314]" onClick={restaurarRegras} disabled={!companyId} data-testid="calc-regra-restaurar">Voltar à referência<AjudaCampo chave="projetos.calculadora.regra_restaurar" rota="/dashboard/projetos/calculadora" /></button>
+            </div>
+            {msgRegra && <p className={`mt-2 ${msgRegra.ok ? "text-green-800" : "text-red-800"}`} data-testid="calc-regra-msg">{msgRegra.texto}</p>}
+          </div>
         )}
       </section>
 
