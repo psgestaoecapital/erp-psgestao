@@ -252,6 +252,18 @@ jobs:
             echo "::add-mask::$DBURL"
           fi
           echo "TEST_DATABASE_URL=$DBURL" >> "$GITHUB_ENV"
+      # CEO 13/10 19:58: ANTES dos testes, barra banco CONTAMINADO por PR (ledger com versão > a da main = migration de PR
+      # não aprovada que sobrou de execução cancelada/fora do fluxo). Nunca testa em banco sujo: se contaminado, falha com
+      # "vaga N precisa de recriar" (exit 2) e o Montar recriar limpa. A restauração cirúrgica é um PR seguinte (validável
+      # no dado da vaga contaminada). Materializa o ledger-alvo de origin/main (nunca da PR, cujo checkout é este job).
+      - name: Guarda de contaminação (banco da vaga alinhado à main) — antes dos testes
+        if: vars.ACEITACAO_BANCO == 'testes'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          mdir=$(mktemp -d); mkdir -p "$mdir/supabase"
+          git archive origin/main -- supabase/migrations | tar -x -C "$mdir"
+          VAGA="${ACEITACAO_VAGA:-0}" MAIN_MIGR_DIR="$mdir/supabase/migrations" scripts/banco-testes/reconciliar-vaga.sh
       # CEO 13/10: os bancos de teste ficavam ATRÁS da produção (o Montar da vaga espera na MESMA fila FIFO das aceitações
       # e não ganhava a vez), então as PRs eram testadas num schema diferente da produção e geravam aceitação vermelha
       # FALSA. Aqui, DEPOIS de reservar a vaga e ANTES dos testes, aplicamos as migrations pendentes da main no banco da
@@ -332,6 +344,18 @@ jobs:
             echo "### @pos-migration no preview: vermelho (informativo, não bloqueia) — veredito em produção após o merge" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+      # CEO 13/10 19:58: ao FIM da aceitação (sucesso OU falha), reconfere que a vaga não ficou contaminada por PR. Com o
+      # sync só-da-main (#2519) a aceitação não aplica migration de PR, mas se algo tiver aplicado, falha com "vaga N precisa
+      # de recriar" para a próxima PR não herdar schema não aprovado. Materializa o ledger-alvo de origin/main (nunca da PR).
+      - name: Guarda de contaminação (banco da vaga alinhado à main) — ao fim
+        if: always() && vars.ACEITACAO_BANCO == 'testes'
+        run: |
+          set -euo pipefail
+          [ -n "${TEST_DATABASE_URL:-}" ] || { echo "vaga não selecionada neste run — nada a reconferir"; exit 0; }
+          git fetch --no-tags --depth=1 origin main
+          mdir=$(mktemp -d); mkdir -p "$mdir/supabase"
+          git archive origin/main -- supabase/migrations | tar -x -C "$mdir"
+          VAGA="${ACEITACAO_VAGA:-0}" MAIN_MIGR_DIR="$mdir/supabase/migrations" scripts/banco-testes/reconciliar-vaga.sh
       # CEO 07/10: libera a trava da demo SEMPRE (cancelamento/timeout não rodam o global-teardown; a lease ficava até
       # 25 min e a aceitação seguinte esperava sem rodar teste).
       - name: Soltar a trava da demo (sempre)
