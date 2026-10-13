@@ -1,0 +1,50 @@
+name: Onda de auto-merge
+
+# CEO 12/10 (prioridade máxima — estabilizar a esteira). A fila-merge sofre serrilhado: escoa uma leva e entope de novo
+# porque a CI fica SATURADA de check runs quando se atualiza/re-roda MUITA PR de uma vez. Este workflow drena em ONDAS
+# controladas: a cada ~20 min pega as PRs via-rápida mais antigas, liga o auto-merge (squash) e atualiza o branch com a
+# main de SÓ 3–5 por rodada (teto ONDA_MAX). As próximas 3–5 vão na rodada seguinte. Nunca atualiza tudo de uma vez —
+# o teto por rodada é o freio contra o flood dos runners. Regras em scripts/merge/onda-auto-merge.sh.
+#
+# Segurança: nunca toca PR `revisao-eng-chefe` (dependem da autorização do revisor pela fila-merge), draft, `nao-publicar`,
+# outra base ou fork. Auto-merge SEMPRE por `gh pr merge --auto --squash` (respeita a proteção de branch; só publica no
+# verde). Conflito real ou check vermelho → marca e reporta, não força. Sem bypass.
+#
+# FILA_MERGE_TOKEN (PAT) é obrigatório: merge/update-branch com o GITHUB_TOKEN não disparam os workflows da main.
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+    inputs:
+      onda_max:
+        description: 'Teto de update-branch por rodada (3–5)'
+        type: string
+        default: '4'
+
+concurrency:
+  group: onda-auto-merge
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  onda:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Token da onda
+        env:
+          FILA_MERGE_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+        run: |
+          [ -n "$FILA_MERGE_TOKEN" ] || { echo "::error::segredo FILA_MERGE_TOKEN ausente — sem ele o update-branch/merge não dispara os workflows da main. Peça ao CEO."; exit 1; }
+      - name: Drenar a fila em onda (3–5 por rodada)
+        timeout-minutes: 7
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+          REPO: ${{ github.repository }}
+          ONDA_MAX: ${{ github.event.inputs.onda_max || '4' }}
+        run: scripts/merge/onda-auto-merge.sh
