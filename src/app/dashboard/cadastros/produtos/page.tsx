@@ -9,7 +9,7 @@ import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModa
 import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle,
 } from 'lucide-react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
@@ -38,6 +38,7 @@ const fmtBRL = (v: number | null | undefined) =>
 
 export default function ProdutosPage() {
   const [produtos, setProdutos] = useState<Produto[]>([])
+  const [semPrecoCount, setSemPrecoCount] = useState(0) // ativos sem preço de venda (banner → Precificação)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -151,6 +152,19 @@ export default function ProdutosPage() {
         if (!alive || error) return
         setPendencias((data ?? []) as { id: string; codigo: string; nome: string; tipo_item_sped: string | null; motivo: string }[])
       })
+    return () => { alive = false }
+  }, [companyId])
+
+  // Conta os produtos ativos sem preço de venda (banner que leva para Formar preços na Precificação).
+  useEffect(() => {
+    if (!companyId) { setSemPrecoCount(0); return }
+    let alive = true
+    supabase
+      .from('erp_produtos')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId).eq('ativo', true)
+      .or('preco_venda.is.null,preco_venda.eq.0')
+      .then(({ count, error }) => { if (alive && !error) setSemPrecoCount(count ?? 0) })
     return () => { alive = false }
   }, [companyId])
 
@@ -396,6 +410,13 @@ export default function ProdutosPage() {
               </button>
               <AjudaCampo chave="cadastros.produtos.exportar" />
             </span>
+            <a
+              href="/dashboard/compras/precificacao"
+              data-testid="produto-formar-precos"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+            >
+              <Tags size={15} /> Formar preços
+            </a>
             <button
               type="button"
               onClick={() => setNovoAberto(true)}
@@ -406,6 +427,18 @@ export default function ProdutosPage() {
             </button>
           </div>
         </header>
+
+        {/* Banner: produtos sem preço travam a venda → leva para Formar preços na Precificação */}
+        {semPrecoCount > 0 && (
+          <a href="/dashboard/compras/precificacao" data-testid="produto-sem-preco-banner"
+             className="mb-4 flex items-start gap-2.5 bg-[#FBEDD6] border border-[#C8941A]/35 rounded-xl px-4 py-3 hover:bg-[#F9E6C8] transition-colors">
+            <AlertTriangle size={18} className="text-[#B06A00] shrink-0 mt-0.5" />
+            <div className="text-[13px] text-[#5A3A12]">
+              <strong>{semPrecoCount} produto(s) ativo(s) sem preço de venda</strong> — eles travam a venda.
+              {' '}<span className="underline text-[#A2600B] font-medium">Formar preços agora →</span>
+            </div>
+          </a>
+        )}
 
         {/* Pendências fiscais (SPED 0200) — pro contador completar (tipo do item / NCM) */}
         {pendencias.length > 0 && (
