@@ -54,8 +54,10 @@ export default function MelhoriasPage() {
 }
 
 function Inner() {
-  const { selInfo, sel } = useCompanyIds()
+  const { selInfo, sel, companyIds } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
+  // Chamados da empresa abertos pela equipe PS também aparecem p/ quem está em visão consolidada/grupo (não só empresa única).
+  const idsKey = (companyIds ?? []).join(',')
   const searchParams = useSearchParams()
   // rota #5: se o usuário chegou pelo ícone do cabeçalho, a rota anterior vem no ?from — assim ele
   // não precisa explicar onde estava. Fallback: a própria tela de melhorias.
@@ -97,7 +99,7 @@ function Inner() {
     // chamado — evita chamado repetido). A RLS de sugestoes libera a leitura pela empresa (get_user_company_ids).
     // Mostramos de QUAL empresa é cada um (embed companies). Arquivadas saem da lista por padrão (CEO).
     let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at,company_id,user_id,user_name,companies(nome_fantasia,razao_social)')
-    q = companyId && !sup ? q.or(`user_id.eq.${user.id},company_id.eq.${companyId}`) : q.eq('user_id', user.id)
+    q = idsKey && !sup ? q.or(`user_id.eq.${user.id},company_id.in.(${idsKey})`) : q.eq('user_id', user.id)
     q = verArquivadas ? q.eq('status', 'arquivada') : q.neq('status', 'arquivada')
     const { data } = await q.order('created_at', { ascending: false }).limit(50)
     type Row = Minha & { companies?: { nome_fantasia: string | null; razao_social: string | null } | { nome_fantasia: string | null; razao_social: string | null }[] | null }
@@ -105,7 +107,7 @@ function Inner() {
       const co = Array.isArray(companies) ? companies[0] : companies
       return { ...m, empresa: co?.nome_fantasia || co?.razao_social || null, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null }
     }))
-  }, [verArquivadas, companyId])
+  }, [verArquivadas, idsKey])
   useEffect(() => { void carregar() }, [carregar])
 
   // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
@@ -285,7 +287,7 @@ function Inner() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, margin: '4px 0 10px' }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{verArquivadas ? 'Sugestões arquivadas' : (companyId && !ehSuporte ? 'Chamados — meus e da empresa' : 'Minhas sugestões')}</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{verArquivadas ? 'Sugestões arquivadas' : (idsKey && !ehSuporte ? 'Chamados — meus e da empresa' : 'Minhas sugestões')}</h2>
         <button type="button" onClick={() => setVerArquivadas((v) => !v)} style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
           {verArquivadas ? '← voltar às ativas' : 'ver arquivadas'}
         </button>
