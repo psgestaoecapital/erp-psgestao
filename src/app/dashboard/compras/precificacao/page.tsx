@@ -6,7 +6,7 @@
 // RD-26: o cálculo é do motor que já existe no banco — fn_produtos_precos_painel (leitura, custo por permissão),
 // fn_produto_margem_real ("conta do preço") e fn_produto_preco_aplicar (grava, um histórico por produto).
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Tags, Loader2, AlertTriangle, Calculator, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -74,6 +74,16 @@ export default function PrecificacaoPage() {
   const [metaIn, setMetaIn] = useState('')
   const [minIn, setMinIn] = useState('')
   const [salvandoCfg, setSalvandoCfg] = useState(false)
+  // empresa para a qual os campos de config já foram preenchidos: evita que um "Calcular prévia" ou troca de filtro
+  // (que recarregam o painel) apaguem/sobrescrevam o que o usuário acabou de digitar. Null força o prefill de novo.
+  const cfgPrefillPara = useRef<string | null>(null)
+
+  // parse pt-BR tolerante: aceita "11", "11,5" e "11.5". Vazio/!número → null.
+  const num = (s: string): number | null => {
+    const t = s.trim().replace(/\s/g, '').replace(',', '.')
+    const n = Number(t)
+    return t === '' || Number.isNaN(n) ? null : n
+  }
 
   // carrega o painel; quando `comPrevia`, pede ao banco o preço novo (modo/valor/arred) sem gravar nada
   const carregar = useCallback(async (comPrevia: boolean) => {
@@ -81,29 +91,35 @@ export default function PrecificacaoPage() {
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_produtos_precos_painel', {
       p_company_id: empresa, p_filtro: filtro, p_busca: busca.trim() || null,
-      p_modo: comPrevia ? modo : null, p_valor: comPrevia ? (Number(valor) || 0) : null, p_arredondar: arred,
+      p_modo: comPrevia ? modo : null, p_valor: comPrevia ? (num(valor) ?? 0) : null, p_arredondar: arred,
     })
     setLoading(false)
     if (error) { setErro(error.message); return }
     const r = data as Painel | null
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro ?? 'Erro ao carregar')); setP(null); return }
     setP(r); setPrevia(comPrevia)
-    // prefill dos campos de configuração com o que está salvo no banco
-    const c = r.config
-    setImpostoIn(c?.imposto_override != null ? String(c.imposto_override).replace('.', ',') : '')
-    setMetaIn(c?.margem_meta_pct != null ? String(c.margem_meta_pct).replace('.', ',') : '')
-    setMinIn(c?.margem_minima_pct != null ? String(c.margem_minima_pct).replace('.', ',') : '')
   }, [empresa, filtro, busca, modo, valor, arred])
 
-  const num = (s: string): number | null => { const n = Number(s.replace(',', '.')); return s.trim() === '' || Number.isNaN(n) ? null : n }
-
   useEffect(() => { void carregar(false) }, [empresa, filtro]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Prefill dos campos de CONFIG a partir do que está salvo no banco — só UMA vez por empresa (ou logo após salvar,
+  // quando zeramos cfgPrefillPara). Fora daqui o painel pode recarregar à vontade (prévia/filtro/busca) sem apagar o
+  // que o usuário digitou. Mostra o número com vírgula (pt-BR). (correção do bug 13/10: campos sumiam / vinham errados.)
+  const fmtNum = (n: number) => String(n).replace('.', ',')
+  const cfg = p?.config
+  useEffect(() => {
+    if (!empresa || !cfg) return
+    if (cfgPrefillPara.current === empresa) return
+    cfgPrefillPara.current = empresa
+    setImpostoIn(cfg.imposto_override != null ? fmtNum(cfg.imposto_override) : '')
+    setMetaIn(cfg.margem_meta_pct != null ? fmtNum(cfg.margem_meta_pct) : '')
+    setMinIn(cfg.margem_minima_pct != null ? fmtNum(cfg.margem_minima_pct) : '')
+  }, [empresa, cfg])
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 5000); return () => clearTimeout(t) }, [toast])
 
   const podeCusto = p?.pode_ver_custo !== false
   const rows = p?.produtos ?? []
   const comPrecoNovo = useMemo(() => rows.filter((r) => r.preco_novo != null && r.preco_novo > 0), [rows])
-  const cfg = p?.config
   const metaN = cfg?.margem_meta_pct ?? null
   const minN = cfg?.margem_minima_pct ?? null
   // imposto da venda configurado? sem ele o motor usa 0% e o preço sai errado → bloqueia a gravação (revisão Eng. Chefe)
@@ -124,7 +140,8 @@ export default function PrecificacaoPage() {
       const msg: Record<string, string> = { imposto_invalido: 'Imposto inválido (0 a 99%).', meta_invalida: 'Informe a margem meta.', minima_maior_que_meta: 'A mínima não pode ser maior que a meta.', sem_acesso: 'Sem acesso.' }
       setToast(rr?.erro ? (msg[rr.erro] ?? 'Não consegui salvar.') : 'Não consegui salvar a configuração.'); return
     }
-    setToast('Configuração salva. Recalculando com o imposto e a margem da empresa…')
+    setToast('Parâmetros salvos. Recalculando com o imposto e a margem da empresa…')
+    cfgPrefillPara.current = null // relê os 3 campos do banco (os valores que acabaram de ser gravados)
     await carregar(previa)
   }
 
