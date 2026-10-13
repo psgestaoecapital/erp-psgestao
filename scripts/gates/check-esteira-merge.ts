@@ -55,7 +55,8 @@ ok(/if \[ "\$com_migration" = 1 \]; then\s*\n\s*m=\$\(estado_main\)/.test(sh), '
 ok(/Re-rodar aceitação cancelada/.test(vigia) && /FILA_MERGE_TOKEN/.test(vigia) && /\$tent" -gt 2/.test(vigia), 'vigia: re-roda aceitação cancelada com PAT, no máximo 2 vezes por SHA')
 ok(/head\.sha == /.test(vigia), 'vigia: só re-roda SHA ainda vigente (head de PR aberta ou main)')
 const cmd = ler('.github/workflows/comando-pr.yml')
-ok(/comment\.body == '\/re-rodar'/.test(cmd), 'comando-pr: só o comentário exato /re-rodar')
+ok(/startsWith\(github\.event\.comment\.body, '\/re-rodar'\)/.test(cmd), 'comando-pr: comentário que começa com /re-rodar (rodapé de atribuição não impede)')
+ok(!/responder "\/re-rodar/.test(cmd), 'comando-pr: respostas do workflow não começam com /re-rodar (laço infinito 13/10)')
 ok(/admin\|maintain\|write/.test(cmd) && /collaborators\/\$AUTOR\/permission/.test(cmd), 'comando-pr: exige permissão write do autor')
 ok(!/actions\/checkout/.test(cmd) && !/\$\{\{ github\.event\.comment\.body \}\}/.test(cmd.replace(/if: >-[\s\S]*?runs-on/, '')), 'comando-pr: sem checkout e sem interpolar o comentário no shell')
 
@@ -68,7 +69,7 @@ ok(mbt.indexOf('Trava de segurança') < iCat, 'montar-banco-testes: a trava cont
 const cat = ler('scripts/banco-testes/catalogos.sh')
 ok(/\*"\$PROD_REF"\*\) erro "TEST_DATABASE_URL aponta para a PRODUÇÃO/.test(cat), 'catalogos.sh: recusa a produção como destino')
 ok(/ACEITACAO_VAGA:-0\}" = 0/.test(cat) && /\*pooler\.supabase\.com\*\) ;;/.test(cat) && /\*"\$TEST_REF"\*\) ;;/.test(cat), 'catalogos.sh: vaga 0 exige o banco de testes conhecido; vaga > 0 aceita Session pooler (nunca a produção)')
-ok(/--data-only/.test(cat) && /-t "public\.\$t"/.test(cat), 'catalogos.sh: pg_dump --data-only -t de cada tabela')
+ok(/\\copy \(SELECT \$cols FROM public\.\$t\) TO/.test(cat) && /AUDITORIA=/.test(cat), 'catalogos.sh: \copy (SELECT colunas sem auditoria) de cada tabela')
 const tabelas = ler('scripts/banco-testes/catalogos.txt').split('\n').map((l) => l.replace(/#.*/, '').trim()).filter(Boolean)
 ok(tabelas.includes('plan_catalog'), 'whitelist: plan_catalog (o fn_demo_reset precisa do v15_revenda)')
 const proibida = /(^auth|^storage|^vault|^cron|^_|(^|_)logs?(_|$)|mensagem|contexto|handoff|bkp|backup|history|historico|sessao|usuario|users?(_|$)|^companies$|^organizations$|fiscal_ibpt_aliquota)/
