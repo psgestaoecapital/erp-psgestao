@@ -18,7 +18,10 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import { selecionarTodas } from '@/lib/selecionarTodas'
 import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
-import { BaixarPlanilhaContagemModal, SubirContagemModal } from '@/components/estoque/PlanilhaContagemInventario'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { BaixarPlanilhaContagemModal, SubirContagemModal, useProdutosAtivos } from '@/components/estoque/PlanilhaContagemInventario'
+import { SubirPlanilhaNoInventarioModal, AdicionarItemInventarioModal } from '@/components/estoque/InventarioAbertoTools'
+import { gerarPlanilhaContagem } from '@/lib/estoque/planilhaContagem'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
   X, Info, Trash2, Pencil, Download, Upload, Car,
@@ -849,6 +852,8 @@ function EstoqueInner() {
       {inventarioSel && (
         <DrawerInventario
           inventario={inventarioSel}
+          empresa={(() => { const e = (companies as { id: string; nome_fantasia?: string | null; razao_social?: string | null }[]).find((c) => c.id === inventarioSel.company_id); return e?.nome_fantasia || e?.razao_social || '' })()}
+          cnpj={(companies as { id: string; cnpj?: string | null }[]).find((c) => c.id === inventarioSel.company_id)?.cnpj ?? null}
           produtos={produtos}
           locaisPorId={locaisPorId}
           onClose={() => setInventarioSel(null)}
@@ -2014,6 +2019,8 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
   const [categoria, setCategoria] = useState('')
   const [marca, setMarca] = useState('')
   const [salvando, setSalvando] = useState(false)
+  // CEO 13/10: produto ativo com saldo 0 também entra (a contagem pode achar o que o sistema dá como zerado)
+  const [incluirZerados, setIncluirZerados] = useState(true)
 
   // FIX-INVENTARIO-INICIAR-SALDO-v1
   // Fonte unica de verdade: erp_produtos.estoque_atual GLOBAL (mesma fonte
@@ -2032,7 +2039,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
       const cols = 'id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo'
       // #126: mesmo teto de 1000 do PostgREST — o inventário também precisa do universo inteiro.
       const { data } = await selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select(cols)
-        .eq('company_id', companyId).eq('ativo', true).gt('estoque_atual', 0)
+        .eq('company_id', companyId).eq('ativo', true)
         .order('nome').order('id').range(de, ate))
       if (cancelado) return
       setUniverso((data ?? []) as Produto[])
@@ -2047,12 +2054,12 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
   // Snapshot: estoque_atual GLOBAL > 0 + filtros opcionais.
   const snapshot = useMemo(() => {
     return universo.filter((p) => {
-      if (Number(p.estoque_atual ?? 0) <= 0) return false
+      if (!incluirZerados && Number(p.estoque_atual ?? 0) <= 0) return false
       if (categoria && p.categoria !== categoria) return false
       if (marca && (p as Produto & { marca?: string | null }).marca !== marca) return false
       return true
     })
-  }, [universo, categoria, marca])
+  }, [universo, categoria, marca, incluirZerados])
 
   async function criar() {
     if (!localId) { flashErr('Escolha o local.'); return }
@@ -2133,8 +2140,13 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
           <div style={{ padding: 10, background: C.goldBg, borderRadius: 8, fontSize: 12, color: C.goldD }}>
             {carregandoUniv
               ? 'Carregando produtos com saldo…'
-              : <>Vai inventariar <strong>{snapshot.length}</strong> produto(s) com saldo &gt; 0.</>}
+              : <>Vai inventariar <strong>{snapshot.length}</strong> produto(s){incluirZerados ? ' (inclui os com saldo 0)' : ' com saldo > 0'}.</>}
           </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.espresso }}>
+            <input type="checkbox" checked={incluirZerados} onChange={(e) => setIncluirZerados(e.target.checked)} data-testid="inventario-incluir-zerados" />
+            Incluir itens zerados
+            <AjudaCampo chave="estoque.inventario.incluir_zerados" rota="/dashboard/commerce/estoque" />
+          </label>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
             <button type="button" onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
             <button type="button" onClick={criar} disabled={salvando || carregandoUniv || snapshot.length === 0} data-testid="inventario-criar"
@@ -2148,8 +2160,10 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
   )
 }
 
-function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechado, flash, flashErr }: {
+function DrawerInventario({ inventario, produtos, locaisPorId, empresa, cnpj, onClose, onFechado, flash, flashErr }: {
   inventario: Inventario
+  empresa: string
+  cnpj: string | null
   produtos: Produto[]
   locaisPorId: Record<string, Local>
   onClose: () => void
@@ -2162,23 +2176,49 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
   const [salvandoIdx, setSalvandoIdx] = useState<string | null>(null)
   const [fechando, setFechando] = useState(false)
   const fechado = inventario.status === 'fechado'
-  const produtosPorId = useMemo(() => Object.fromEntries(produtos.map((p) => [p.id, p])), [produtos])
+  // catálogo da empresa (todas as páginas): nome/EAN dos itens, busca e produtos a adicionar
+  const { produtos: catalogo } = useProdutosAtivos(inventario.company_id)
+  const produtosPorId = useMemo(() => Object.fromEntries([...produtos, ...(catalogo ?? [])].map((p) => [p.id, p])) as Record<string, Produto & { codigo_barras?: string | null }>, [produtos, catalogo])
+  const [filtro, setFiltro] = useState<'todos' | 'divergencia' | 'nao_contados'>('todos')
+  const [busca, setBusca] = useState('')
+  const [ordem, setOrdem] = useState<'nome' | 'diferenca'>('nome')
+  const [modal, setModal] = useState<'subir' | 'adicionar' | null>(null)
   const local = inventario.local_id ? locaisPorId[inventario.local_id] : null
+
+  const recarregarItens = useCallback(async () => {
+    const { data } = await selecionarTodas<InventarioItem>((de, ate) => supabase
+      .from('erp_inventario_itens').select('*').eq('inventario_id', inventario.id).order('id').range(de, ate))
+    setItens((data ?? []) as InventarioItem[])
+  }, [inventario.id])
 
   useEffect(() => {
     let alive = true
     ;(async () => {
       setLoading(true)
-      const { data } = await supabase
-        .from('erp_inventario_itens')
-        .select('*').eq('inventario_id', inventario.id)
-      if (alive) {
-        setItens((data ?? []) as InventarioItem[])
-        setLoading(false)
-      }
+      await recarregarItens()
+      if (alive) setLoading(false)
     })()
     return () => { alive = false }
-  }, [inventario.id])
+  }, [recarregarItens])
+
+  async function baixarPlanilhaDoInventario() {
+    try {
+      const ids = new Set(itens.map((i) => i.produto_id))
+      const lista = (catalogo ?? []).filter((p) => ids.has(p.id))
+      const bytes = await gerarPlanilhaContagem({
+        empresa, cnpj, local: local?.nome ?? '—', saldoEm: new Date(), cega: true,
+        filtros: `Inventário ${inventario.numero ?? ''} · só os ${lista.length} itens dele`,
+        produtos: lista.map((p) => ({ id: p.id, codigo: p.codigo, codigo_barras: p.codigo_barras, nome: p.nome, unidade: p.unidade, localizacao: p.localizacao, estoque_atual: p.estoque_atual })),
+      })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      a.download = `contagem_${(inventario.numero ?? 'inventario').replace(/[^\p{L}\p{N}-]+/gu, '_')}.xlsx`
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+    } catch (e) {
+      flashErr('Não foi possível gerar a planilha: ' + ((e as Error)?.message ?? ''))
+    }
+  }
 
   async function alterarContado(it: InventarioItem, novaQtd: number) {
     setSalvandoIdx(it.id)
@@ -2225,6 +2265,20 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
   // (diferenca e GENERATED · vem != 0 antes da contagem · nao e divergencia real)
   const contados = itens.filter((i) => i.quantidade_contada != null).length
   const divergencias = itens.filter((i) => i.quantidade_contada != null && Number(i.diferenca ?? 0) !== 0).length
+  const visiveis = useMemo(() => {
+    const t = busca.trim().toLowerCase()
+    const lista = itens.filter((it) => {
+      if (filtro === 'divergencia' && !(it.quantidade_contada != null && Number(it.diferenca ?? 0) !== 0)) return false
+      if (filtro === 'nao_contados' && it.quantidade_contada != null) return false
+      if (!t) return true
+      const p = produtosPorId[it.produto_id]
+      return !!p && (p.nome.toLowerCase().includes(t) || (p.codigo ?? '').toLowerCase().includes(t) || (p.codigo_barras ?? '').includes(t))
+    })
+    const nome = (it: InventarioItem) => produtosPorId[it.produto_id]?.nome ?? ''
+    return lista.sort(ordem === 'diferenca'
+      ? (a, b) => Math.abs(Number(b.valor_diferenca ?? 0)) - Math.abs(Number(a.valor_diferenca ?? 0)) || nome(a).localeCompare(nome(b))
+      : (a, b) => nome(a).localeCompare(nome(b)))
+  }, [itens, filtro, busca, ordem, produtosPorId])
 
   return (
     <div onClick={onClose}
@@ -2241,6 +2295,29 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
         </header>
 
         <div style={{ padding: 20 }}>
+          <div data-testid="inv-filtros" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar nome, código ou EAN" data-testid="inv-busca"
+              style={{ ...selInpStyle, flex: '1 1 180px', minWidth: 160 }} />
+            <AjudaCampo chave="estoque.inventario.busca" rota="/dashboard/commerce/estoque" />
+            <select value={filtro} onChange={(e) => setFiltro(e.target.value as typeof filtro)} data-testid="inv-filtro" style={selInpStyle}>
+              <option value="todos">Todos ({itens.length})</option>
+              <option value="divergencia">Só com divergência ({divergencias})</option>
+              <option value="nao_contados">Só não contados ({itens.length - contados})</option>
+            </select>
+            <AjudaCampo chave="estoque.inventario.filtro" rota="/dashboard/commerce/estoque" />
+            <select value={ordem} onChange={(e) => setOrdem(e.target.value as typeof ordem)} data-testid="inv-ordem" style={selInpStyle}>
+              <option value="nome">Ordem: nome</option>
+              <option value="diferenca">Ordem: maior diferença (R$)</option>
+            </select>
+            <AjudaCampo chave="estoque.inventario.ordem" rota="/dashboard/commerce/estoque" />
+          </div>
+          {!fechado && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <button type="button" onClick={() => setModal('subir')} disabled={!catalogo} data-testid="inv-subir-planilha" style={btnPrincipal(!!catalogo)}>⬆ Subir planilha de contagem</button>
+              <button type="button" onClick={() => void baixarPlanilhaDoInventario()} disabled={!catalogo} data-testid="inv-baixar-planilha" style={btnSec}>⬇ Baixar planilha deste inventário</button>
+              <button type="button" onClick={() => setModal('adicionar')} disabled={!catalogo} data-testid="inv-adicionar-item" style={btnSec}>➕ Adicionar produto</button>
+            </div>
+          )}
           {loading ? (
             <div style={{ padding: 30, textAlign: 'center', color: C.espressoM }}>Carregando itens…</div>
           ) : itens.length === 0 ? (
@@ -2252,7 +2329,8 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
                   <tr><Th>Produto</Th><Th align="right">Sistema</Th><Th align="right">Contado</Th><Th align="right">Diferença</Th></tr>
                 </thead>
                 <tbody>
-                  {itens.map((it) => {
+                  {visiveis.length === 0 && <tr><td colSpan={4} style={{ padding: 14, textAlign: 'center', color: C.espressoM }}>Nenhum item com esse filtro.</td></tr>}
+                  {visiveis.map((it) => {
                     const p = produtosPorId[it.produto_id]
                     const sistema = Number(it.quantidade_sistema ?? 0)
                     const contado = it.quantidade_contada
@@ -2317,6 +2395,26 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
           )}
         </div>
       </aside>
+      {modal === 'subir' && catalogo && (
+        <SubirPlanilhaNoInventarioModal
+          inventario={inventario}
+          itens={itens.map((i) => ({ item_id: i.id, produto_id: i.produto_id, codigo: produtosPorId[i.produto_id]?.codigo ?? null, nome: produtosPorId[i.produto_id]?.nome ?? '', quantidade_sistema: Number(i.quantidade_sistema ?? 0), quantidade_contada: i.quantidade_contada, custo_unitario: Number(i.custo_unitario ?? 0) }))}
+          produtos={catalogo}
+          onClose={() => setModal(null)}
+          onGravado={async (n) => { setModal(null); await recarregarItens(); flash(`${n} contagem(ns) gravada(s) · confira as divergências antes de fechar.`) }}
+          flashErr={flashErr}
+        />
+      )}
+      {modal === 'adicionar' && catalogo && (
+        <AdicionarItemInventarioModal
+          inventario={inventario}
+          itensExistentes={new Set(itens.map((i) => i.produto_id))}
+          produtos={catalogo}
+          onClose={() => setModal(null)}
+          onAdicionado={async () => { setModal(null); await recarregarItens(); flash('Produto incluído no inventário.') }}
+          flashErr={flashErr}
+        />
+      )}
     </div>
   )
 }

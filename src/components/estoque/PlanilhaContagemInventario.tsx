@@ -14,29 +14,29 @@ import {
   gerarPlanilhaContagem, lerPlanilhaContagem, montarPrevia, type LeituraContagem, type ProdutoAtual,
 } from '@/lib/estoque/planilhaContagem'
 
-const C = {
+export const C = {
   espresso: '#3D2314', espressoM: '#6B5D4F', espressoL: '#9C8E80', offWhite: '#FAF7F2', white: '#FFFFFF',
   cream: '#F0ECE3', border: '#E0D8CC', borderL: '#EDE7DA', gold: '#C8941A', goldD: '#A57A15', goldBg: '#FDF7E8',
   green: '#10B981', greenBg: '#ECFDF5', red: '#EF4444', redBg: '#FEE2E2', amber: '#C88A1A', amberBg: '#FFF8E1',
 }
-const inp: React.CSSProperties = { padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, background: C.white, color: C.espresso, width: '100%', marginTop: 4 }
-const lbl: React.CSSProperties = { fontSize: 11, color: C.espressoM, fontWeight: 600 }
-const btnSec: React.CSSProperties = { padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', color: C.espresso, fontSize: 12, fontWeight: 500, cursor: 'pointer' }
-const btnPri = (on: boolean): React.CSSProperties => ({
+export const inp: React.CSSProperties = { padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, background: C.white, color: C.espresso, width: '100%', marginTop: 4 }
+export const lbl: React.CSSProperties = { fontSize: 11, color: C.espressoM, fontWeight: 600 }
+export const btnSec: React.CSSProperties = { padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', color: C.espresso, fontSize: 12, fontWeight: 500, cursor: 'pointer' }
+export const btnPri = (on: boolean): React.CSSProperties => ({
   padding: '8px 16px', borderRadius: 8, border: 'none', background: on ? C.gold : C.cream, color: on ? '#FFF' : C.espressoL,
   fontSize: 12, fontWeight: 600, cursor: on ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 6,
 })
-const fmtQ = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
-const fmtR = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+export const fmtQ = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+export const fmtR = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 type LocalMin = { id: string; nome: string; principal: boolean | null }
-type ProdutoPlanilha = ProdutoAtual & { codigo_barras: string | null; localizacao: string | null; categoria: string | null; grupo: string | null }
+export type ProdutoPlanilha = ProdutoAtual & { codigo_barras: string | null; localizacao: string | null; categoria: string | null; grupo: string | null }
 
 const COLS = 'id,codigo,codigo_barras,nome,unidade,localizacao,categoria,grupo,estoque_atual,preco_custo_medio,preco_custo'
 const grupoDe = (p: { categoria: string | null; grupo: string | null }) => (p.categoria || p.grupo || '').trim()
 
 /** Universo de produtos ativos da empresa (todas as páginas — teto de 1000 do PostgREST, #126). */
-function useProdutosAtivos(companyId: string) {
+export function useProdutosAtivos(companyId: string) {
   const [produtos, setProdutos] = useState<ProdutoPlanilha[] | null>(null)
   const [lidoEm, setLidoEm] = useState<Date>(new Date())
   useEffect(() => {
@@ -53,7 +53,7 @@ function useProdutosAtivos(companyId: string) {
   return { produtos, lidoEm }
 }
 
-function Moldura({ titulo, largura, onClose, bloqueado, children }: { titulo: string; largura: number; onClose: () => void; bloqueado?: boolean; children: React.ReactNode }) {
+export function Moldura({ titulo, largura, onClose, bloqueado, children }: { titulo: string; largura: number; onClose: () => void; bloqueado?: boolean; children: React.ReactNode }) {
   return (
     <div onClick={(e) => { if (e.target === e.currentTarget && !bloqueado) onClose() }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
