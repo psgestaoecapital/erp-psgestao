@@ -216,22 +216,26 @@ jobs:
           URL0: ${{ secrets.TEST_SUPABASE_URL }}
           ANON0: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           SRK0: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          DBURL0: ${{ secrets.TEST_DATABASE_URL }}
           URL1: ${{ secrets.TEST_SUPABASE_URL_1 }}
           ANON1: ${{ secrets.TEST_SUPABASE_ANON_KEY_1 }}
           SRK1: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_1 }}
+          DBURL1: ${{ secrets.TEST_DATABASE_URL_1 }}
           URL2: ${{ secrets.TEST_SUPABASE_URL_2 }}
           ANON2: ${{ secrets.TEST_SUPABASE_ANON_KEY_2 }}
           SRK2: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_2 }}
+          DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
           PURL: ${{ secrets.SUPABASE_URL }}
           PANON: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PSRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -u
+          DBURL=""
           if [ "$MODO_TESTES" = "true" ]; then
             case "${VAGA:-0}" in
-              1) URL="$URL1"; ANON="$ANON1"; SRK="$SRK1";;
-              2) URL="$URL2"; ANON="$ANON2"; SRK="$SRK2";;
-              *) URL="$URL0"; ANON="$ANON0"; SRK="$SRK0";;
+              1) URL="$URL1"; ANON="$ANON1"; SRK="$SRK1"; DBURL="$DBURL1";;
+              2) URL="$URL2"; ANON="$ANON2"; SRK="$SRK2"; DBURL="$DBURL2";;
+              *) URL="$URL0"; ANON="$ANON0"; SRK="$SRK0"; DBURL="$DBURL0";;
             esac
             echo "banco da aceitação: vaga ${VAGA:-0} (banco de testes)"
           else
@@ -240,7 +244,52 @@ jobs:
           fi
           [ -n "$URL" ] && [ -n "$SRK" ] || { echo "::error::banco da vaga ${VAGA:-0} sem segredo — abortado"; exit 1; }
           echo "::add-mask::$SRK"
-          { echo "SUPABASE_URL=$URL"; echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON"; echo "SUPABASE_SERVICE_ROLE_KEY=$SRK"; } >> "$GITHUB_ENV"
+          { echo "SUPABASE_URL=$URL"; echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON"; echo "SUPABASE_SERVICE_ROLE_KEY=$SRK"; echo "ACEITACAO_VAGA=${VAGA:-0}"; } >> "$GITHUB_ENV"
+          # URL do Postgres (Session pooler) da vaga — usada só para SINCRONIZAR as migrations pendentes antes dos testes
+          # (passo abaixo). Em produção fica vazia (não sincronizamos a produção). Normaliza aspas/espaço e mascara.
+          if [ -n "$DBURL" ]; then
+            DBURL="$(printf '%s' "$DBURL" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]\$//")"
+            echo "::add-mask::$DBURL"
+          fi
+          echo "TEST_DATABASE_URL=$DBURL" >> "$GITHUB_ENV"
+      # CEO 13/10: os bancos de teste ficavam ATRÁS da produção (o Montar da vaga espera na MESMA fila FIFO das aceitações
+      # e não ganhava a vez), então as PRs eram testadas num schema diferente da produção e geravam aceitação vermelha
+      # FALSA. Aqui, DEPOIS de reservar a vaga e ANTES dos testes, aplicamos as migrations pendentes da main no banco da
+      # vaga (idempotente — `supabase db push` compara o ledger e só aplica o que falta). Como este job roda no grupo de
+      # concorrência da vaga (cancel-in-progress:false), a sincronização fica sob a MESMA trava do Montar e das outras
+      # aceitações da vaga. Só no banco de testes; a produção nunca é sincronizada daqui.
+      - uses: supabase/setup-cli@v1
+        if: vars.ACEITACAO_BANCO == 'testes'
+        with:
+          version: 2.118.0
+      - name: Sincronizar o banco da vaga com a produção (migrations pendentes) — antes dos testes
+        if: vars.ACEITACAO_BANCO == 'testes'
+        run: |
+          set -euo pipefail
+          if [ -z "${TEST_DATABASE_URL:-}" ]; then
+            echo "::error::banco da vaga ${ACEITACAO_VAGA:-?} não sincronizou — segredo TEST_DATABASE_URL da vaga ausente"; exit 1
+          fi
+          case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          case "$TEST_DATABASE_URL" in *pooler.supabase.com*) ;; *) echo "::error::vaga ${ACEITACAO_VAGA:-?}: TEST_DATABASE_URL precisa ser Session pooler (*.pooler.supabase.com)"; exit 1;; esac
+          led() { psql "$1" -tAc "select count(*)||' · até '||coalesce(max(version),'—') from supabase_migrations.schema_migrations" 2>/dev/null || echo 'indisponível'; }
+          alvo=$(ls supabase/migrations/*.sql 2>/dev/null | wc -l | tr -d ' ')
+          alvo_v=$(ls supabase/migrations/*.sql 2>/dev/null | sed -E 's#.*/([0-9]+)_.*#\1#' | sort | tail -1)
+          antes=$(led "$TEST_DATABASE_URL")
+          echo "sincronizando a vaga ${ACEITACAO_VAGA:-0} com a main (db push idempotente)…"
+          if ! supabase db push --include-all --db-url "$TEST_DATABASE_URL"; then
+            echo "::error::banco da vaga ${ACEITACAO_VAGA:-?} não sincronizou (supabase db push falhou) — aceitação abortada para não gerar vermelho FALSO de teste"; exit 1
+          fi
+          depois=$(led "$TEST_DATABASE_URL")
+          {
+            echo "### Sincronização do banco da vaga ${ACEITACAO_VAGA:-0} com a produção"
+            echo ""
+            echo "| ledger | valor |"
+            echo "| --- | --- |"
+            echo "| vaga ANTES | $antes |"
+            echo "| vaga DEPOIS | $depois |"
+            echo "| alvo (migrations no repo = produção após deploy) | $alvo · até ${alvo_v:-—} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "vaga ${ACEITACAO_VAGA:-0}: ledger antes=[$antes] depois=[$depois] alvo=[$alvo · até ${alvo_v:-—}]"
       # @pos-migration (CEO 26/09): teste que depende de migration só é verdade DEPOIS do merge (o deploy-migrations
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
