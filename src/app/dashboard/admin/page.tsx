@@ -1,7 +1,11 @@
 "use client";
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { APP_URL } from "@/lib/appUrl";
+import AreasContratadasModal from "@/components/admin/AreasContratadasModal";
+import ScreenshotAssinado from "@/components/admin/ScreenshotAssinado";
 import { PLANO_MODULOS, PLANOS, ROLES_POR_PLANO, ROLE_NAMES, ROLE_TABS, isAdminRole, type Plano } from "@/lib/planos";
+import { authFetch } from '@/lib/authFetch';
 
 // ═══ CORES COM CSS VARIABLES (adapta ao tema claro/escuro) ═══
 const GO="var(--ps-gold,#C8941A)",GOL="var(--ps-gold,#C8941A)",BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)",
@@ -37,6 +41,14 @@ export default function AdminPage(){
   const [usuarios,setUsuarios]=useState<any[]>([]);
   const [convites,setConvites]=useState<any[]>([]);
   const [tab,setTab]=useState("empresas");
+  // ADMIN-AREAS-DINAMICAS-v1: aba "📂 Áreas" · le area_menu_config via RPCs
+  const [areasSubTab,setAreasSubTab]=useState<"empresa"|"usuario">("empresa");
+  const [areaCompanyId,setAreaCompanyId]=useState<string>("");
+  const [areaUserId,setAreaUserId]=useState<string>("");
+  const [areasEmpresa,setAreasEmpresa]=useState<any[]>([]);
+  const [areasUsuario,setAreasUsuario]=useState<any[]>([]);
+  const [areasLoading,setAreasLoading]=useState(false);
+  const [areasError,setAreasError]=useState<string|null>(null);
   const [showForm,setShowForm]=useState(false);
   const [showInvite,setShowInvite]=useState(false);
   const [selectedCompany,setSelectedCompany]=useState("");
@@ -45,6 +57,13 @@ export default function AdminPage(){
   const [inviteEmail,setInviteEmail]=useState("");
   const [generatedLink,setGeneratedLink]=useState("");
   const [copied,setCopied]=useState(false);
+  // RD-41 · escopo de area no convite. Teto = areas habilitadas da empresa.
+  // inviteAreasAll=true (default) envia areas_liberadas=null (sem restricao).
+  type InviteArea={area_slug:string;nome_menu:string};
+  const [inviteAreasTeto,setInviteAreasTeto]=useState<InviteArea[]>([]);
+  const [inviteAreasSel,setInviteAreasSel]=useState<Set<string>>(new Set());
+  const [inviteAreasAll,setInviteAreasAll]=useState(true);
+  const [inviteAreasLoading,setInviteAreasLoading]=useState(false);
   const [newEmp,setNewEmp]=useState({razao_social:"",nome_fantasia:"",cnpj:"",cidade_estado:"",group_id:"",plano:"erp_cs"});
   const [msg,setMsg]=useState("");
   const [userComps,setUserComps]=useState<any[]>([]);
@@ -54,14 +73,32 @@ export default function AdminPage(){
   const [auditFilter,setAuditFilter]=useState("");
   const [currentEmail,setCurrentEmail]=useState("");
   const [editingUser,setEditingUser]=useState<string|null>(null);
+  // #56 · edição do nome de exibição (users.full_name) no cadastro
+  const [editandoNome,setEditandoNome]=useState<string|null>(null);
+  const [nomeDraft,setNomeDraft]=useState("");
   const [isAuthorized,setIsAuthorized]=useState(false);
+  const [isPS,setIsPS]=useState(false); // PS_ADMIN → vê ferramentas internas (ex.: mapa de cobertura por ramo)
   const [checkingAuth,setCheckingAuth]=useState(true);
+  // admin-escopado-dono · CLIENT_OWNER pode abrir /admin (escopado a sua empresa)
+  const [ownerScoped,setOwnerScoped]=useState(false);
+  const [ownerCompanyIds,setOwnerCompanyIds]=useState<string[]>([]);
   const [grupos,setGrupos]=useState<any[]>([]);
   const [expandedGroups,setExpandedGroups]=useState<Record<string,boolean>>({});
   const [showNewGroup,setShowNewGroup]=useState(false);
   const [newGroupName,setNewGroupName]=useState("");
   const [newGroupCor,setNewGroupCor]=useState("#C8941A");
   const [movingEmpresa,setMovingEmpresa]=useState<string|null>(null);
+  // empresa-habilitar-areas · modal de areas contratadas por empresa
+  const [areasModalEmp,setAreasModalEmp]=useState<{id:string;nome:string}|null>(null);
+  // badge-empresa-areas-reais · mapa company_id -> areas contratadas (chips)
+  type AreaChip={area_slug:string;nome_menu:string;ordem:number};
+  const [areasByCompany,setAreasByCompany]=useState<Map<string,AreaChip[]>>(new Map());
+  // saneamento-verticais · planos vivos lidos do plan_catalog (ativo=true, legacy=false)
+  // agrupados por vertical · ate aqui a lista estava hardcoded em PLANOS.
+  const [planCat,setPlanCat]=useState<Array<{id:string;nome:string;vertical:string|null;preco_min?:number|null;preco_max?:number|null}>>([]);
+  // mapa-permissoes-catalogo-novo · modulos + plan_modules pra matriz
+  const [moduleCat,setModuleCat]=useState<Array<{id:string;nome:string;grupo:string|null;ordem:number|null}>>([]);
+  const [planModulesSet,setPlanModulesSet]=useState<Map<string,Set<string>>>(new Map());
   const groupColors=["#C8941A","#FF9800","#4CAF50","#3B82F6","#A855F7","#EF4444","#14B8A6","#FF5722","#8BC34A","#E91E63"];
 
   // ═══ Screen Watcher + Visual Truth (M.A.7.5.1) ═══
@@ -81,6 +118,12 @@ export default function AdminPage(){
   const [swSoComScreenshot,setSwSoComScreenshot]=useState(false);
 
   useEffect(()=>{checkAuth();},[]);
+  // admin-escopado-dono · trava empresa selecionada para o dono
+  useEffect(()=>{
+    if(ownerScoped&&ownerCompanyIds.length>0&&!selectedCompany) setSelectedCompany(ownerCompanyIds[0]);
+    if(ownerScoped&&!["socio","financeiro","operacional","visualizador"].includes(inviteRole)) setInviteRole("socio");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[ownerScoped,ownerCompanyIds]);
 
   useEffect(()=>{
     if(!isAuthorized) return;
@@ -91,25 +134,167 @@ export default function AdminPage(){
   const checkAuth=async()=>{
     const{data:{user}}=await supabase.auth.getUser();
     if(!user){setCheckingAuth(false);return;}
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    if(up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"){setIsAuthorized(true);setCurrentEmail(user.email||"");loadData();}
+    const{data:up}=await supabase.from("users").select("role,system_role").eq("id",user.id).single();
+    const isSystemAdmin=up?.role==="adm"||up?.role==="acesso_total"||up?.role==="adm_investimentos"||!!up?.system_role;
+    setIsPS(up?.system_role==="PS_ADMIN"||up?.system_role==="PS_ADMIN_CVM");
+    // Dono de empresa? (CLIENT_OWNER ativo) — RLS tur_self_read permite ler o proprio papel
+    const{data:ownerRoles}=await supabase.from("tenant_user_roles").select("company_id").eq("user_id",user.id).eq("role","CLIENT_OWNER").eq("is_active",true);
+    const ownerIds=(ownerRoles??[]).map((r:any)=>r.company_id);
+    const isOwner=ownerIds.length>0;
+    if(isSystemAdmin||isOwner){
+      const scoped=isOwner&&!isSystemAdmin;
+      setIsAuthorized(true);
+      setOwnerScoped(scoped);
+      setOwnerCompanyIds(ownerIds);
+      setCurrentEmail(user.email||"");
+      if(scoped) setTab("usuarios");
+      loadData(scoped,ownerIds);
+    }
     setCheckingAuth(false);
   };
 
-  const loadData=async()=>{
-    const{data:emp}=await supabase.from("companies").select("*").order("nome_fantasia");
+  const loadData=async(scopedArg?:boolean,ownIdsArg?:string[])=>{
+    const scoped=scopedArg??ownerScoped;
+    const ownIds=ownIdsArg??ownerCompanyIds;
+    let empQ=supabase.from("companies").select("*").order("nome_fantasia");
+    if(scoped&&ownIds.length>0) empQ=empQ.in("id",ownIds);
+    const{data:emp}=await empQ;
     if(emp)setEmpresas(emp);
-    const{data:inv}=await supabase.from("invites").select("*,companies(nome_fantasia,razao_social)").order("created_at",{ascending:false}).limit(20);
+    let invQ=supabase.from("invites").select("*,companies(nome_fantasia,razao_social)").order("created_at",{ascending:false}).limit(20);
+    if(scoped&&ownIds.length>0) invQ=invQ.in("company_id",ownIds);
+    const{data:inv}=await invQ;
     if(inv)setConvites(inv);
-    const{data:usr}=await supabase.from("users").select("*").order("created_at",{ascending:false});
-    if(usr)setUsuarios(usr);
     const{data:uc}=await supabase.from("user_companies").select("*");
     if(uc)setUserComps(uc);
+    const{data:usr}=await supabase.from("users").select("*").order("created_at",{ascending:false});
+    if(usr){
+      if(scoped&&ownIds.length>0){
+        const allowed=new Set((uc??[]).filter((x:any)=>ownIds.includes(x.company_id)).map((x:any)=>x.user_id));
+        setUsuarios(usr.filter((u:any)=>allowed.has(u.id)));
+      } else setUsuarios(usr);
+    }
     const{data:grps}=await supabase.from("company_groups").select("*").order("nome");
     if(grps)setGrupos(grps);
     const{data:ac}=await supabase.from("access_config").select("*").order("role");
     if(ac)setAccessConfigs(ac);
-    try{const res=await fetch("/api/audit?limit=100");const d=await res.json();if(d.success){setAuditLogs(d.logs||[]);setSessions(d.sessions||[]);}}catch{}
+    try{const res=await authFetch("/api/audit?limit=100");const d=await res.json();if(d.success){setAuditLogs(d.logs||[]);setSessions(d.sessions||[]);}}catch{}
+    // saneamento-verticais · planos vivos pro dropdown de empresas
+    const{data:pc}=await supabase.from("plan_catalog").select("id,nome,vertical,prioridade_comercial,preco_min,preco_max").eq("ativo",true).eq("legacy",false).order("vertical",{ascending:true}).order("prioridade_comercial",{ascending:true,nullsFirst:false});
+    if(pc)setPlanCat(pc as any);
+    // mapa-permissoes-catalogo-novo · modulos + plan_modules pra matriz
+    const[mcR,pmR]=await Promise.all([
+      supabase.from("module_catalog").select("id,nome,grupo,ordem").eq("ativo",true).order("grupo",{ascending:true}).order("ordem",{ascending:true,nullsFirst:false}),
+      supabase.from("plan_modules").select("plan_id,module_id"),
+    ]);
+    if(mcR.data)setModuleCat(mcR.data as any);
+    if(pmR.data){
+      const m=new Map<string,Set<string>>();
+      (pmR.data as Array<{plan_id:string;module_id:string}>).forEach(r=>{
+        if(!m.has(r.plan_id))m.set(r.plan_id,new Set());
+        m.get(r.plan_id)!.add(r.module_id);
+      });
+      setPlanModulesSet(m);
+    }
+    // badge-empresa-areas-reais · carrega areas contratadas (1 query batch)
+    await loadAreasContratadas();
+  };
+
+  // Computa areas contratadas por empresa a partir de tenant_subscriptions + area_menu_config.
+  // Mesma logica do fn_empresa_areas_status mas em batch (1 query · evita N RPCs).
+  const loadAreasContratadas=async()=>{
+    const[tsR,amcR,pcAll]=await Promise.all([
+      supabase.from("tenant_subscriptions").select("company_id,plan_id").eq("status","active"),
+      supabase.from("area_menu_config").select("area_slug,nome_menu,ordem,plano_principal_id").eq("ativo",true).order("ordem"),
+      supabase.from("plan_catalog").select("id,vertical"),
+    ]);
+    const ts=(tsR.data??[]) as Array<{company_id:string;plan_id:string}>;
+    const amc=(amcR.data??[]) as Array<{area_slug:string;nome_menu:string;ordem:number;plano_principal_id:string|null}>;
+    const planosAll=(pcAll.data??[]) as Array<{id:string;vertical:string|null}>;
+    const verticalDe=new Map(planosAll.map(p=>[p.id,p.vertical]));
+    // multi: vertical com >1 area no amc
+    const areaCountPorVert=new Map<string,number>();
+    amc.forEach(a=>{
+      if(!a.plano_principal_id)return;
+      const v=verticalDe.get(a.plano_principal_id);
+      if(!v)return;
+      areaCountPorVert.set(v,(areaCountPorVert.get(v)??0)+1);
+    });
+    const out=new Map<string,AreaChip[]>();
+    ts.forEach(sub=>{
+      const subVert=verticalDe.get(sub.plan_id);
+      if(!subVert)return;
+      const isMulti=(areaCountPorVert.get(subVert)??0)>1;
+      const matches=amc.filter(a=>{
+        if(!a.plano_principal_id)return false;
+        const av=verticalDe.get(a.plano_principal_id);
+        if(av!==subVert)return false;
+        if(isMulti)return a.plano_principal_id===sub.plan_id;
+        return true;
+      });
+      const list=out.get(sub.company_id)??[];
+      matches.forEach(a=>{
+        if(!list.some(x=>x.area_slug===a.area_slug))list.push({area_slug:a.area_slug,nome_menu:a.nome_menu,ordem:a.ordem});
+      });
+      out.set(sub.company_id,list);
+    });
+    out.forEach(l=>l.sort((a,b)=>a.ordem-b.ordem));
+    setAreasByCompany(out);
+  };
+
+  // Render dos chips de areas contratadas pra uma empresa.
+  // Fallback "Sem area contratada" quando nenhuma · NUNCA "Comercio & Servicos".
+  const ChipsAreas=({companyId,max=3}:{companyId:string;max?:number})=>{
+    const areas=areasByCompany.get(companyId)??[];
+    if(areas.length===0){
+      return <span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:"rgba(61,35,20,0.08)",color:TXM,fontWeight:500,whiteSpace:"nowrap"}}>Sem área contratada</span>;
+    }
+    const visiveis=areas.slice(0,max);
+    const sobra=areas.length-visiveis.length;
+    return(<>
+      {visiveis.map(a=>(
+        <span key={a.area_slug} style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:"#FAEEDA",color:"#854F0B",fontWeight:600,whiteSpace:"nowrap"}}>{a.nome_menu}</span>
+      ))}
+      {sobra>0&&<span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:"rgba(133,79,11,0.10)",color:"#854F0B",fontWeight:600,whiteSpace:"nowrap"}}>+{sobra}</span>}
+    </>);
+  };
+
+  // agrupa plan_catalog por vertical para optgroup. mantem ordem estavel.
+  const planosPorVertical=()=>{
+    const grupos=new Map<string,Array<{id:string;nome:string}>>();
+    planCat.forEach(p=>{
+      const v=p.vertical||"sem_vertical";
+      if(!grupos.has(v))grupos.set(v,[]);
+      grupos.get(v)!.push({id:p.id,nome:p.nome});
+    });
+    return Array.from(grupos.entries());
+  };
+  const VERTICAL_LABELS:Record<string,string>={
+    gestao_empresarial:"Gestão Empresarial",
+    bpo:"BPO Financeiro",
+    oficina:"Oficina",
+    pm:"P&M",
+    industrial:"Industrial",
+    hub:"Hub Projetos",
+    wealth:"Wealth",
+    agro:"Agro",
+    compliance:"Compliance",
+    custeio:"Custeio",
+    odonto:"Clínica Odontológica",
+    medica:"Clínica Médica",
+    sem_vertical:"Outros",
+  };
+  // mostra fallback (id-only) se o plano atual nao esta na lista (ex: legacy)
+  const PlanoOpcoes=({selected}:{selected:string})=>{
+    const grupos=planosPorVertical();
+    const idsConhecidos=new Set(planCat.map(p=>p.id));
+    return(<>
+      {!idsConhecidos.has(selected)&&selected&&<option value={selected}>{selected} (legado)</option>}
+      {grupos.map(([vert,planos])=>(
+        <optgroup key={vert} label={VERTICAL_LABELS[vert]||vert}>
+          {planos.map(p=><option key={p.id} value={p.id}>{p.nome}</option>)}
+        </optgroup>
+      ))}
+    </>);
   };
 
   const getUserCompIds=(uid:string)=>userComps.filter(uc=>uc.user_id===uid).map(uc=>uc.company_id);
@@ -137,6 +322,38 @@ export default function AdminPage(){
   const expandAllGroups=()=>{const all:any={};grupos.forEach(g=>{all[g.id]=true;});all["sem_grupo"]=true;setExpandedGroups(all);};
   const collapseAllGroups=()=>setExpandedGroups({});
 
+  // RD-41 · ao trocar de empresa no form de convite, carrega teto de areas
+  // (fn_empresa_areas_status, mesma fonte do admin). Grupos: oculta seletor
+  // (cada empresa do grupo tem teto distinto · escopo so para empresa unica).
+  useEffect(()=>{
+    if(!showInvite||selectedGroup||!selectedCompany){
+      setInviteAreasTeto([]);setInviteAreasSel(new Set());setInviteAreasAll(true);return;
+    }
+    let cancelled=false;
+    (async()=>{
+      setInviteAreasLoading(true);
+      const{data,error}=await supabase.rpc('fn_empresa_areas_status',{p_company_id:selectedCompany});
+      if(cancelled)return;
+      if(error||!data){setInviteAreasTeto([]);setInviteAreasSel(new Set());setInviteAreasLoading(false);return;}
+      const teto=(data as any[]).filter(a=>a.habilitada).sort((a,b)=>(a.ordem??0)-(b.ordem??0))
+        .map(a=>({area_slug:a.area_slug,nome_menu:a.nome_menu}));
+      setInviteAreasTeto(teto);
+      setInviteAreasSel(new Set(teto.map(t=>t.area_slug)));
+      setInviteAreasAll(true);
+      setInviteAreasLoading(false);
+    })();
+    return()=>{cancelled=true;};
+  },[selectedCompany,selectedGroup,showInvite]);
+
+  const toggleInviteArea=(slug:string)=>{
+    setInviteAreasSel(prev=>{
+      const next=new Set(prev);
+      if(next.has(slug))next.delete(slug);else next.add(slug);
+      setInviteAreasAll(next.size===inviteAreasTeto.length);
+      return next;
+    });
+  };
+
   const gerarConvite=async()=>{
     if(!selectedCompany&&!selectedGroup){setMsg("Selecione uma empresa ou grupo.");return;}
     const{data:{user}}=await supabase.auth.getUser();if(!user)return;
@@ -144,12 +361,19 @@ export default function AdminPage(){
     const code="conv_"+Math.random().toString(36).substring(2,10)+Date.now().toString(36);
     const inviteData:any={org_id:up?.org_id,email:inviteEmail||null,role:inviteRole,invite_code:code,created_by:user.id};
     if(selectedGroup){inviteData.group_id=selectedGroup;const fc=empresas.find(e=>e.group_id===selectedGroup);inviteData.company_id=fc?.id||null;}else{inviteData.company_id=selectedCompany;}
+    // RD-41 · escopo de area. Somente para empresa unica. Todas marcadas = null.
+    if(!selectedGroup&&inviteAreasTeto.length>0&&!inviteAreasAll){
+      if(inviteAreasSel.size===0){setMsg("Selecione ao menos uma area liberada.");return;}
+      inviteData.areas_liberadas=Array.from(inviteAreasSel);
+    }
     const{error}=await supabase.from("invites").insert(inviteData);
     if(error){setMsg("Erro: "+error.message);return;}
-    setGeneratedLink("https://erp-psgestao.vercel.app/convite?code="+code);setCopied(false);loadData();
+    setGeneratedLink(`${APP_URL}/convite?code=`+code);setCopied(false);loadData();
   };
 
   const atualizarRole=async(uid:string,nr:string)=>{await supabase.from("users").update({role:nr}).eq("id",uid);setUsuarios(usuarios.map(u=>u.id===uid?{...u,role:nr}:u));setMsg("Nível atualizado!");};
+  // #56 · nome de exibição (users.full_name). Humano digita o nome correto — não se infere do e-mail.
+  const salvarNome=async(uid:string)=>{const nome=nomeDraft.trim();if(!nome){setMsg("O nome de exibição não pode ficar vazio.");return;}const{error}=await supabase.from("users").update({full_name:nome}).eq("id",uid);if(error){setMsg("Erro ao salvar nome: "+error.message);return;}setUsuarios(usuarios.map(u=>u.id===uid?{...u,full_name:nome}:u));setEditandoNome(null);setMsg("Nome de exibição atualizado!");setTimeout(()=>setMsg(""),3000);};
   const atualizarPlano=async(compId:string,novoPlano:string)=>{await supabase.from("companies").update({plano:novoPlano}).eq("id",compId);setEmpresas(empresas.map(e=>e.id===compId?{...e,plano:novoPlano}:e));setMsg("Plano atualizado!");setTimeout(()=>setMsg(""),3000);};
 
   // ═══ Screen Watcher RPCs ═══
@@ -204,24 +428,46 @@ export default function AdminPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  // ADMIN-AREAS-DINAMICAS-v1: loaders das RPCs ja existentes
+  const loadAreasEmpresa=async(cid:string|null)=>{
+    setAreasLoading(true);setAreasError(null);
+    const{data:{user}}=await supabase.auth.getUser();
+    const{data,error}=await supabase.rpc('fn_listar_areas_visiveis',{p_company_id:cid,p_user_id:user?.id??null});
+    if(error){setAreasError(error.message);setAreasEmpresa([]);}
+    else{setAreasEmpresa(data??[]);}
+    setAreasLoading(false);
+  };
+  const loadAreasUsuario=async(uid:string)=>{
+    setAreasLoading(true);setAreasError(null);
+    const{data,error}=await supabase.rpc('fn_areas_visiveis_usuario',{p_user_id:uid});
+    if(error){setAreasError(error.message);setAreasUsuario([]);}
+    else{setAreasUsuario(data??[]);}
+    setAreasLoading(false);
+  };
+  useEffect(()=>{
+    if(tab!=='areas')return;
+    if(areasSubTab==='empresa')loadAreasEmpresa(areaCompanyId||null);
+    if(areasSubTab==='usuario'&&areaUserId)loadAreasUsuario(areaUserId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[tab,areasSubTab,areaCompanyId,areaUserId]);
+
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
   // ═══ EMPRESA ROW — reutilizado em grupos e sem grupo ═══
   const EmpresaRow=({emp,grupoId}:{emp:any;grupoId?:string})=>{
-    const pb=getPlanBadge(emp.plano||"erp_cs");
+    // badge-empresa-areas-reais: badge "Comercio & Servicos" era hardcoded.
+    // Agora chips das areas contratadas reais via tenant_subscriptions.
     return(
       <div style={{padding:"8px 16px 8px 44px",borderBottom:`0.5px solid ${BD}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-            <span style={{fontSize:13,fontWeight:500,color:TX}}>{emp.nome_fantasia||emp.razao_social}</span>
-            <span style={{fontSize:8,padding:"2px 8px",borderRadius:6,background:pb.cor+"15",color:pb.cor,fontWeight:600,whiteSpace:"nowrap"}}>{pb.icon} {pb.nome}</span>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,fontWeight:500,color:TX,marginRight:2}}>{emp.nome_fantasia||emp.razao_social}</span>
+            <ChipsAreas companyId={emp.id}/>
           </div>
           <div style={{fontSize:10,color:TXD}}>{emp.cnpj||"Sem CNPJ"} · {emp.cidade_estado||""}</div>
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
-          <select value={emp.plano||"erp_cs"} onChange={e=>atualizarPlano(emp.id,e.target.value)} style={{fontSize:9,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`,cursor:"pointer"}}>
-            {(Object.entries(PLANOS) as [string,any][]).map(([k,v])=>(<option key={k} value={k}>{v.icon} {v.nome}</option>))}
-          </select>
+          <button onClick={()=>setAreasModalEmp({id:emp.id,nome:emp.nome_fantasia||emp.razao_social})} style={{background:"none",border:`1px solid ${BD}`,borderRadius:6,color:TXM,fontSize:11,cursor:"pointer",padding:"6px 10px"}} title="Áreas contratadas">⚙️ Áreas</button>
           {movingEmpresa===emp.id?(
             <select onChange={e=>{moverEmpresaGrupo(emp.id,e.target.value||null);}} style={{...inp,width:"auto",fontSize:10,padding:"4px 8px"}}>
               <option value="">Sem grupo</option>
@@ -257,13 +503,15 @@ export default function AdminPage(){
         <a href="/dashboard" style={{padding:"8px 16px",border:`1px solid ${BD}`,borderRadius:8,color:TX,fontSize:11,textDecoration:"none"}}>← Dashboard</a>
         <a href="/dashboard/conectores" style={{padding:"8px 16px",border:`1px solid ${GO}`,borderRadius:8,color:GO,fontSize:11,textDecoration:"none"}}>🔌 Conectores</a>
         <a href="/dashboard/bpo" style={{padding:"8px 16px",border:`1px solid ${G}`,borderRadius:8,color:G,fontSize:11,textDecoration:"none"}}>📊 BPO</a>
+        {/* P0 (16bc8561) · painel de travamentos de carregamento (registro Camada 4) */}
+        <a href="/dashboard/admin/travamentos" style={{padding:"8px 16px",border:`1px solid ${R}`,borderRadius:8,color:R,fontSize:11,textDecoration:"none"}}>⏱️ Travamentos</a>
       </div>
     </div>
 
     {msg&&<div style={{background:G+"20",border:`1px solid ${G}`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:G,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 
     <div style={{display:"flex",gap:4,marginBottom:16,flexWrap:"wrap"}}>
-      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"},{id:"auditoria",n:"Sessões & Auditoria"},{id:"screen_watcher",n:"📸 Screen Watcher"},{id:"visual_truth",n:"🛡️ Visual Truth"}].map(t=>(
+      {[{id:"empresas",n:"Empresas"},{id:"usuarios",n:"Usuários & Níveis"},{id:"areas",n:"📂 Áreas"},{id:"convites",n:"Convites"},{id:"niveis",n:"Mapa de Permissões"},{id:"seguranca",n:"Horários & Segurança"},{id:"auditoria",n:"Sessões & Auditoria"},{id:"screen_watcher",n:"📸 Screen Watcher"},{id:"visual_truth",n:"🛡️ Visual Truth"}].filter(t=>!ownerScoped||t.id==="usuarios"||t.id==="convites").map(t=>(
         <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"8px 16px",borderRadius:20,fontSize:11,border:`1px solid ${tab===t.id?GO:BD}`,background:tab===t.id?`${G}08`:"transparent",color:tab===t.id?GO:TXM,fontWeight:tab===t.id?600:400,cursor:"pointer"}}>{t.n}</button>
       ))}
     </div>
@@ -312,7 +560,7 @@ export default function AdminPage(){
                 </select></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Plano</div>
                 <select value={newEmp.plano} onChange={e=>setNewEmp({...newEmp,plano:e.target.value})} style={{...inp,cursor:"pointer"}}>
-                  {(Object.entries(PLANOS) as [string,any][]).map(([k,v])=>(<option key={k} value={k}>{v.icon} {v.nome}</option>))}
+                  <PlanoOpcoes selected={newEmp.plano}/>
                 </select></div>
             </div>
             <div style={{marginTop:10,display:"flex",gap:8}}>
@@ -373,6 +621,18 @@ export default function AdminPage(){
 
     {/* ═══ USUÁRIOS ═══ */}
     {tab==="usuarios"&&(<div>
+      <a href="/dashboard/admin/escopo-dados" style={{display:"flex",justifyContent:"space-between",alignItems:"center",textDecoration:"none",
+        background:GO+"14",border:`1px solid ${GO}40`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+        <span style={{fontSize:13,color:TX}}><b style={{color:GO}}>🔐 Escopo de dados</b> — defina quais setores cada pessoa pode ver (jornada/ponto, SST, tudo).</span>
+        <span style={{fontSize:13,fontWeight:700,color:GO}}>Abrir →</span>
+      </a>
+      {isPS&&(
+        <a href="/dashboard/admin/ramos-cobertura" style={{display:"flex",justifyContent:"space-between",alignItems:"center",textDecoration:"none",
+          background:BL+"12",border:`1px solid ${BL}35`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
+          <span style={{fontSize:13,color:TX}}><b style={{color:BL}}>🧭 Mapa de cobertura por ramo</b> — telas entregues vs. tagueadas (interno PS).</span>
+          <span style={{fontSize:13,fontWeight:700,color:BL}}>Abrir →</span>
+        </a>
+      )}
       <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:12}}>{usuarios.length} usuários</div>
       {usuarios.map(u=>{
         const uComps=getUserCompIds(u.id);const isEditing=editingUser===u.id;
@@ -381,8 +641,25 @@ export default function AdminPage(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <div style={{width:36,height:36,borderRadius:"50%",background:getRC(u.role)+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{ROLES.find(r=>r.role===u.role)?.icon||"👤"}</div>
-              <div><div style={{fontSize:13,fontWeight:600,color:TX}}>{u.full_name||u.email||"Sem nome"}</div>
-              <div style={{fontSize:10,color:TXD}}>{u.email||""}</div></div>
+              <div>
+                {editandoNome===u.id?(
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <input autoFocus value={nomeDraft} onChange={e=>setNomeDraft(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter")salvarNome(u.id);if(e.key==="Escape")setEditandoNome(null);}}
+                      placeholder="Nome de exibição"
+                      style={{fontSize:13,fontWeight:600,color:TX,background:BG3,border:`1px solid ${GO}`,borderRadius:6,padding:"4px 8px",width:200}} />
+                    <button onClick={()=>salvarNome(u.id)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:G+"20",color:G,border:`1px solid ${G}30`,cursor:"pointer"}}>Salvar</button>
+                    <button onClick={()=>setEditandoNome(null)} style={{fontSize:10,padding:"4px 8px",borderRadius:6,background:"transparent",color:TXD,border:`1px solid ${BD}`,cursor:"pointer"}}>Cancelar</button>
+                  </div>
+                ):(
+                  <div style={{fontSize:13,fontWeight:600,color:TX,display:"flex",alignItems:"center",gap:6}}>
+                    {u.full_name||u.email||"Sem nome"}
+                    <button title="Editar nome de exibição (#56)" onClick={()=>{setEditandoNome(u.id);setNomeDraft(u.full_name||"");}}
+                      style={{fontSize:10,padding:"1px 6px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}`,cursor:"pointer"}}>✎ nome</button>
+                  </div>
+                )}
+                <div style={{fontSize:10,color:TXD}}>{u.email||""}</div>
+              </div>
             </div>
             <select value={u.role||"visualizador"} onChange={e=>atualizarRole(u.id,e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:getRC(u.role),borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
               {ROLES.map(r=><option key={r.role} value={r.role}>{r.icon} {r.nome}</option>)}
@@ -440,23 +717,46 @@ export default function AdminPage(){
         <div style={{background:BG2,borderRadius:12,padding:16,marginBottom:10,border:`1px solid ${BD}`}}>
           <div style={{fontSize:13,fontWeight:700,color:GO,marginBottom:10}}>Gerar Link de Convite</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-            <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>📁 Grupo</div>
+            {!ownerScoped&&(<div><div style={{fontSize:10,color:TXM,marginBottom:3}}>📁 Grupo</div>
             <select value={selectedGroup} onChange={e=>{setSelectedGroup(e.target.value);if(e.target.value)setSelectedCompany("");}} style={{...inp,borderColor:selectedGroup?G:""}}>
               <option value="">— Empresa individual —</option>
               {grupos.map(g=>{const cnt=empresas.filter(e=>e.group_id===g.id).length;return <option key={g.id} value={g.id}>📁 {g.nome} ({cnt})</option>;})}
-            </select></div>
+            </select></div>)}
             <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>🏢 Empresa</div>
-            <select value={selectedCompany} onChange={e=>{setSelectedCompany(e.target.value);if(e.target.value)setSelectedGroup("");}} disabled={!!selectedGroup} style={{...inp,opacity:selectedGroup?0.4:1}}>
+            <select value={selectedCompany} onChange={e=>{setSelectedCompany(e.target.value);if(e.target.value)setSelectedGroup("");}} disabled={!!selectedGroup||ownerScoped} style={{...inp,opacity:(selectedGroup||ownerScoped)?0.7:1}}>
               <option value="">Selecione</option>
               {empresas.map(emp=><option key={emp.id} value={emp.id}>{emp.nome_fantasia||emp.razao_social}</option>)}
             </select></div>
             <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>Nível de Acesso *</div>
             <select value={inviteRole} onChange={e=>setInviteRole(e.target.value)} style={{...inp,color:getRC(inviteRole),fontWeight:600}}>
-              {ROLES.map(r=><option key={r.role} value={r.role}>{r.icon} {r.nome}</option>)}
+              {ROLES.filter(r=>!ownerScoped||["socio","financeiro","operacional","visualizador"].includes(r.role)).map(r=><option key={r.role} value={r.role}>{r.icon} {r.nome}</option>)}
             </select></div>
             <div><div style={{fontSize:10,color:TXM,marginBottom:3}}>E-mail (opcional)</div>
             <input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="email@empresa.com" style={inp}/></div>
           </div>
+          {/* RD-41 · escopo de area no convite (apenas empresa unica) */}
+          {!selectedGroup&&selectedCompany&&(
+            <div style={{marginBottom:12,padding:10,background:BG3,borderRadius:8,border:`1px solid ${BD}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <div style={{fontSize:10,fontWeight:600,color:TXM}}>📂 Áreas liberadas {inviteAreasAll?<span style={{color:G,fontWeight:500}}>(todas habilitadas)</span>:<span style={{color:Y,fontWeight:500}}>({inviteAreasSel.size}/{inviteAreasTeto.length})</span>}</div>
+                {inviteAreasTeto.length>0&&(
+                  <button type="button" onClick={()=>{if(inviteAreasAll){setInviteAreasSel(new Set());setInviteAreasAll(false);}else{setInviteAreasSel(new Set(inviteAreasTeto.map(t=>t.area_slug)));setInviteAreasAll(true);}}} style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:"transparent",border:`1px solid ${BD}`,color:TXM,cursor:"pointer"}}>{inviteAreasAll?"Limpar":"Marcar todas"}</button>
+                )}
+              </div>
+              {inviteAreasLoading?(
+                <div style={{fontSize:10,color:TXD}}>Carregando áreas contratadas...</div>
+              ):inviteAreasTeto.length===0?(
+                <div style={{fontSize:10,color:TXD}}>Empresa sem áreas habilitadas. Convite ficará sem escopo.</div>
+              ):(
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {inviteAreasTeto.map(a=>{const sel=inviteAreasSel.has(a.area_slug);return(
+                    <button key={a.area_slug} type="button" onClick={()=>toggleInviteArea(a.area_slug)} style={{fontSize:10,padding:"4px 10px",borderRadius:14,border:`1px solid ${sel?G:BD}`,background:sel?G+"15":"transparent",color:sel?G:TXM,fontWeight:sel?600:500,cursor:"pointer"}}>{sel?"✓":"○"} {a.nome_menu}</button>
+                  );})}
+                </div>
+              )}
+              <div style={{fontSize:9,color:TXD,marginTop:6}}>Todas marcadas = acesso integral. Subconjunto = usuário fica restrito às áreas escolhidas (cerca do teto aplicada no consumo).</div>
+            </div>
+          )}
           <button onClick={gerarConvite} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>Gerar Link</button>
           {generatedLink&&(
             <div style={{marginTop:12,background:BG3,borderRadius:8,padding:12,border:`1px solid ${G}`}}>
@@ -477,7 +777,15 @@ export default function AdminPage(){
         <div key={inv.id||i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:4,border:`1px solid ${BD}`,borderLeft:`3px solid ${inv.is_used?G:getRC(inv.role)}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div><div style={{fontSize:12,fontWeight:600,color:TX}}>{inv.companies?.nome_fantasia||inv.companies?.razao_social||"Grupo"}</div>
-            <div style={{fontSize:9,color:TXD}}>{inv.email||"Sem e-mail"} | <span style={{color:getRC(inv.role),fontWeight:600}}>{getRN(inv.role)}</span> | {new Date(inv.created_at).toLocaleDateString("pt-BR")}</div></div>
+            <div style={{fontSize:9,color:TXD}}>{inv.email||"Sem e-mail"} | <span style={{color:getRC(inv.role),fontWeight:600}}>{getRN(inv.role)}</span> | {new Date(inv.created_at).toLocaleDateString("pt-BR")}</div>
+            {/* RD-41 · chips de escopo de area */}
+            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
+              {Array.isArray(inv.areas_liberadas)&&inv.areas_liberadas.length>0?(
+                inv.areas_liberadas.map((s:string)=>(<span key={s} style={{fontSize:8,padding:"1px 6px",borderRadius:10,background:Y+"18",color:Y,fontWeight:600,border:`1px solid ${Y}40`}}>📂 {s}</span>))
+              ):(
+                <span style={{fontSize:8,padding:"1px 6px",borderRadius:10,background:G+"15",color:G,fontWeight:600,border:`1px solid ${G}30`}}>📂 Todas as áreas</span>
+              )}
+            </div></div>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:inv.is_used?G+"20":Y+"20",color:inv.is_used?G:Y,fontWeight:600}}>{inv.is_used?"Usado":"Pendente"}</span>
               <button onClick={async()=>{if(!confirm("Excluir?"))return;await supabase.from("invites").delete().eq("id",inv.id);setConvites(prev=>prev.filter(c=>c.id!==inv.id));setMsg("Excluído!");}} style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:R+"10",border:`1px solid ${R}25`,color:R,cursor:"pointer"}}>✕</button>
@@ -488,38 +796,88 @@ export default function AdminPage(){
     </div>)}
 
     {/* ═══ MAPA DE PERMISSÕES ═══ */}
-    {tab==="niveis"&&(<div>
-      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:14}}>Permissões por Plano — Módulos e Roles</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:16}}>
-        {(Object.entries(PLANOS) as [Plano,any][]).map(([k,p])=>(
-          <div key={k} style={{background:BG2,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${p.cor}`}}>
-            <div style={{fontSize:9,color:TXD}}>{p.icon} {p.nome}</div>
-            <div style={{fontSize:13,fontWeight:600,color:p.cor}}>{p.preco.split("/")[0]}</div>
-            <div style={{fontSize:8,color:TXM}}>{Object.values(PLANO_MODULOS).filter(m=>m[k]==="full").length} módulos</div>
-          </div>
-        ))}
+    {tab==="niveis"&&(()=>{
+      // mapa-permissoes-catalogo-novo · matriz vertical x modulo a partir do catalogo vivo.
+      // Colunas: 1 por vertical (planos agrupados por plan_catalog.vertical).
+      // Linhas: modulos do module_catalog que aparecem em pelo menos 1 plan_modules de plano ativo+!legacy.
+      // Celula: vertical contem o modulo se ANY plano da vertical tem ele em plan_modules.
+      const VERT_LABELS:Record<string,string>={
+        gestao_empresarial:"Gestão Empresarial",bpo:"BPO Financeiro",oficina:"Oficina",
+        pm:"P&M",industrial:"Industrial",hub:"Hub Projetos",wealth:"Wealth MFO",
+        agro:"Agro",compliance:"Compliance",custeio:"Custeio",odonto:"Clínica Odontológica",medica:"Clínica Médica",
+      };
+      const VERT_COLOR="#C8941A";
+      // agrupa planos por vertical
+      const vertMap=new Map<string,{planos:string[];preco_min:number|null;preco_max:number|null;modules:Set<string>}>();
+      planCat.forEach(p=>{
+        if(!p.vertical)return;
+        if(!vertMap.has(p.vertical))vertMap.set(p.vertical,{planos:[],preco_min:null,preco_max:null,modules:new Set()});
+        const v=vertMap.get(p.vertical)!;
+        v.planos.push(p.id);
+        if(p.preco_min!=null)v.preco_min=v.preco_min==null?p.preco_min:Math.min(v.preco_min,p.preco_min);
+        if(p.preco_max!=null)v.preco_max=v.preco_max==null?p.preco_max:Math.max(v.preco_max,p.preco_max);
+        const mods=planModulesSet.get(p.id);
+        if(mods)mods.forEach(m=>v.modules.add(m));
+      });
+      const verticais=Array.from(vertMap.entries()).map(([v,d])=>({vertical:v,label:VERT_LABELS[v]||v,...d})).sort((a,b)=>a.label.localeCompare(b.label,"pt-BR"));
+      // modulos relevantes: aparecem em ao menos 1 vertical
+      const modulosUsadosIds=new Set<string>();
+      verticais.forEach(v=>v.modules.forEach(m=>modulosUsadosIds.add(m)));
+      const modulosFiltrados=moduleCat.filter(m=>modulosUsadosIds.has(m.id));
+      // agrupa por grupo
+      const grupoOrder=modulosFiltrados.reduce<Array<{grupo:string;mods:typeof modulosFiltrados}>>((acc,m)=>{
+        const g=m.grupo||"outros";
+        let bucket=acc.find(x=>x.grupo===g);
+        if(!bucket){bucket={grupo:g,mods:[]};acc.push(bucket);}
+        bucket.mods.push(m);
+        return acc;
+      },[]);
+      const GRUPO_LABELS:Record<string,string>={
+        erp_core:"CORE",erp_ext:"GESTÃO",gestao_empresarial:"Gestão Empresarial",
+        industrial:"Industrial",pm:"P&M",hub:"Hub Projetos",oficina:"Oficina",
+        bpo:"BPO Financeiro",wealth:"Wealth",compliance:"Compliance",
+        custeio_a:"Custeio Sub-A",custeio_b:"Custeio Sub-B",agro:"Agro",
+        odonto:"Clínica Odontológica",medica:"Clínica Médica",
+        contador:"Contador",assessor:"Assessor",fiscal:"Fiscal",admin:"Admin",dev:"Dev",
+      };
+      const brl=(n:number|null)=>n==null?null:n.toLocaleString("pt-BR",{style:"currency",currency:"BRL",maximumFractionDigits:0});
+      return(<div>
+      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:14}}>Mapa de Permissões — Verticais × Módulos</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:8,marginBottom:16}}>
+        {verticais.map(v=>{
+          const preco=v.preco_min!=null||v.preco_max!=null
+            ? (v.preco_min===v.preco_max?brl(v.preco_min):`${brl(v.preco_min)??"—"}–${brl(v.preco_max)??"—"}`)
+            : "a definir";
+          return(
+            <div key={v.vertical} style={{background:BG2,borderRadius:10,padding:"10px 12px",borderLeft:`3px solid ${VERT_COLOR}`}}>
+              <div style={{fontSize:10,color:TXD,fontWeight:500}}>{v.label}</div>
+              <div style={{fontSize:12,fontWeight:600,color:VERT_COLOR}}>{preco}</div>
+              <div style={{fontSize:9,color:TXM,marginTop:2}}>{v.modules.size} módulos · {v.planos.length} tier{v.planos.length>1?"s":""}</div>
+            </div>
+          );
+        })}
       </div>
       <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:Math.max(640,200+verticais.length*64)}}>
           <thead><tr style={{borderBottom:`2px solid ${BD}`}}>
-            <th style={{padding:"10px 12px",textAlign:"left",color:GO,fontSize:10,width:200}}>Módulo</th>
-            {(Object.entries(PLANOS) as [Plano,any][]).map(([k,p])=>(<th key={k} style={{padding:"8px 4px",textAlign:"center",color:p.cor,fontSize:8,lineHeight:1.3}}>{p.nome.split(" ").slice(0,2).join(" ")}</th>))}
+            <th style={{padding:"10px 12px",textAlign:"left",color:GO,fontSize:10,width:220,position:"sticky",left:0,background:BG2}}>Módulo</th>
+            {verticais.map(v=>(<th key={v.vertical} style={{padding:"8px 4px",textAlign:"center",color:VERT_COLOR,fontSize:9,lineHeight:1.3,whiteSpace:"nowrap",minWidth:60}}>{v.label}</th>))}
           </tr></thead>
           <tbody>
-            {[{section:"CORE"},{mod:"visao-diaria",nome:"Visão Diária"},{mod:"dados",nome:"Dados"},{mod:"importar",nome:"Importar"},{mod:"ajuda",nome:"Ajuda"},
-              {section:"GESTÃO"},{mod:"operacional",nome:"Operacional"},{mod:"rateio",nome:"Rateio"},{mod:"orcamento",nome:"Orçamento"},{mod:"viabilidade",nome:"Viabilidade"},
-              {section:"INTELIGÊNCIA"},{mod:"consultor-ia",nome:"Consultor IA"},{mod:"contador",nome:"Contador"},{mod:"assessor",nome:"PS Assessor"},{mod:"anti-fraude-basico",nome:"Anti-Fraude"},{mod:"custeio",nome:"Custeio"},
-              {section:"EXCLUSIVOS"},{mod:"ficha-tecnica",nome:"Ficha Técnica"},{mod:"industrial",nome:"Industrial"},{mod:"custo",nome:"Custo"},{mod:"noc",nome:"NOC"},{mod:"wealth",nome:"Wealth"},{mod:"producao",nome:"Produção"},
-            ].map((row,i)=>{
-              if("section" in row)return(<tr key={i}><td colSpan={8} style={{padding:"8px 12px",fontSize:9,fontWeight:700,color:GO,background:BG3,borderTop:`1px solid ${BD}`}}>{row.section}</td></tr>);
-              const perms=PLANO_MODULOS[row.mod!]||{};
-              return(<tr key={i} style={{borderBottom:`0.5px solid ${BD}`}}>
-                <td style={{padding:"6px 12px",fontWeight:500,color:TX,fontSize:11}}>{row.nome}</td>
-                {(Object.keys(PLANOS) as Plano[]).map(plan=>{const a=perms[plan]||"none";return(
-                  <td key={plan} style={{padding:6,textAlign:"center"}}><span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:12,fontWeight:600,background:a==="full"?G+"18":a==="addon"?Y+"18":R+"10",color:a==="full"?G:a==="addon"?Y:R,minWidth:28}}>{a==="full"?"✓":a==="addon"?"🔒":"✕"}</span></td>
-                );})}
-              </tr>);
-            })}
+            {grupoOrder.map(g=>(<Fragment key={g.grupo}>
+              <tr><td colSpan={1+verticais.length} style={{padding:"8px 12px",fontSize:9,fontWeight:700,color:GO,background:BG3,borderTop:`1px solid ${BD}`,letterSpacing:.4,textTransform:"uppercase"}}>{GRUPO_LABELS[g.grupo]||g.grupo}</td></tr>
+              {g.mods.map(mod=>(
+                <tr key={mod.id} style={{borderBottom:`0.5px solid ${BD}`}}>
+                  <td style={{padding:"6px 12px",fontWeight:500,color:TX,fontSize:11,position:"sticky",left:0,background:BG2}}>{mod.nome}</td>
+                  {verticais.map(v=>{
+                    const tem=v.modules.has(mod.id);
+                    return(<td key={v.vertical} style={{padding:6,textAlign:"center"}}>
+                      <span style={{display:"inline-block",padding:"2px 8px",borderRadius:6,fontSize:12,fontWeight:600,background:tem?G+"18":R+"08",color:tem?G:R+"a0",minWidth:28}}>{tem?"✓":"✕"}</span>
+                    </td>);
+                  })}
+                </tr>
+              ))}
+            </Fragment>))}
           </tbody>
         </table>
       </div>
@@ -531,14 +889,14 @@ export default function AdminPage(){
             <div><span style={{fontSize:12,fontWeight:500,color:TX}}>{c.nome_fantasia||c.razao_social}</span><span style={{fontSize:9,color:TXD,marginLeft:8}}>{c.cnpj}</span></div>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
               <span style={{fontSize:9,padding:"2px 8px",borderRadius:6,background:pb.cor+"18",color:pb.cor,fontWeight:600}}>{pb.icon} {pb.nome}</span>
-              <select value={c.plano||"erp_cs"} onChange={e=>atualizarPlano(c.id,e.target.value)} style={{fontSize:10,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`}}>
-                {(Object.entries(PLANOS) as [string,any][]).map(([k,v])=>(<option key={k} value={k}>{v.icon} {v.nome}</option>))}
+              <select value={c.plano||""} onChange={e=>atualizarPlano(c.id,e.target.value)} style={{fontSize:10,padding:"3px 6px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`}}>
+                <PlanoOpcoes selected={c.plano||""}/>
               </select>
             </div>
           </div>
         );})}
       </div>
-    </div>)}
+    </div>);})()}
 
     {/* ═══ SEGURANÇA (mantido igual, cores adaptadas) ═══ */}
     {tab==="seguranca"&&(<div>
@@ -562,8 +920,8 @@ export default function AdminPage(){
                   <td style={{padding:6,textAlign:"center"}}>{!isAdmR?(<div style={{display:"flex",gap:4,justifyContent:"center",alignItems:"center"}}><input type="time" defaultValue={inicio} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"2px 4px",fontSize:10,width:70}} data-role={r.role} data-field="horario_inicio"/><span style={{color:TXD,fontSize:9}}>-</span><input type="time" defaultValue={fim} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"2px 4px",fontSize:10,width:70}} data-role={r.role} data-field="horario_fim"/></div>):<span style={{color:TXD,fontSize:10}}>24h</span>}</td>
                   <td style={{padding:6,textAlign:"center"}}>{!isAdmR?(<select defaultValue={(cfg?.dias_semana||["seg","ter","qua","qui","sex","sab","dom"]).join(",")} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"2px 4px",fontSize:9}} data-role={r.role} data-field="dias_semana"><option value="seg,ter,qua,qui,sex">Seg-Sex</option><option value="seg,ter,qua,qui,sex,sab">Seg-Sáb</option><option value="seg,ter,qua,qui,sex,sab,dom">Todos</option></select>):<span style={{color:TXD,fontSize:10}}>7 dias</span>}</td>
                   <td style={{padding:6,textAlign:"center"}}>{!isAdmR?(<select defaultValue={String(timeout)} style={{background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:4,padding:"2px 4px",fontSize:9}} data-role={r.role} data-field="timeout_minutos"><option value="0">Sem timeout</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hora</option><option value="120">2 horas</option><option value="480">8 horas</option></select>):<span style={{color:TXD,fontSize:10}}>Nunca</span>}</td>
-                  <td style={{padding:6,textAlign:"center"}}>{!isAdmR&&(<div onClick={async()=>{if(cfg){await supabase.from("access_config").update({ativo:!ativo}).eq("id",cfg.id);}else{await supabase.from("access_config").insert({role:r.role,ativo:!ativo});}loadData();}} style={{width:36,height:20,borderRadius:10,background:ativo?G:"#9C8E80",cursor:"pointer",position:"relative",transition:"background 0.2s",margin:"0 auto"}}><div style={{width:16,height:16,borderRadius:8,background:"white",position:"absolute",top:2,left:ativo?18:2,transition:"left 0.2s"}}/></div>)}</td>
-                  <td style={{padding:6,textAlign:"center"}}>{!isAdmR&&(<button onClick={async()=>{const hi=(document.querySelector(`[data-role="${r.role}"][data-field="horario_inicio"]`) as HTMLInputElement)?.value||"00:00";const hf=(document.querySelector(`[data-role="${r.role}"][data-field="horario_fim"]`) as HTMLInputElement)?.value||"23:59";const ds=((document.querySelector(`[data-role="${r.role}"][data-field="dias_semana"]`) as HTMLSelectElement)?.value||"seg,ter,qua,qui,sex,sab,dom").split(",");const tm=parseInt((document.querySelector(`[data-role="${r.role}"][data-field="timeout_minutos"]`) as HTMLSelectElement)?.value||"30");const data={role:r.role,horario_inicio:hi,horario_fim:hf,dias_semana:ds,timeout_minutos:tm,ativo:true};if(cfg){await supabase.from("access_config").update(data).eq("id",cfg.id);}else{await supabase.from("access_config").insert(data);}setMsg("Regra salva para "+r.nome);loadData();}} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:GO+"15",border:`1px solid ${GO}`,color:GO,cursor:"pointer"}}>Salvar</button>)}</td>
+                  <td style={{padding:6,textAlign:"center"}}>{!isAdmR&&(<div onClick={async()=>{/* segurança PR1: access_config só grava pela RPC (admin PS) */const{data:rs,error:re}=await supabase.rpc("fn_access_config_salvar",{p_role:r.role,p_dados:{ativo:!ativo}});const j=rs as {ok?:boolean;erro?:string}|null;if(re||j?.ok===false){setMsg("Erro: "+(re?.message||j?.erro));return;}loadData();}} style={{width:36,height:20,borderRadius:10,background:ativo?G:"#9C8E80",cursor:"pointer",position:"relative",transition:"background 0.2s",margin:"0 auto"}}><div style={{width:16,height:16,borderRadius:8,background:"white",position:"absolute",top:2,left:ativo?18:2,transition:"left 0.2s"}}/></div>)}</td>
+                  <td style={{padding:6,textAlign:"center"}}>{!isAdmR&&(<button onClick={async()=>{const hi=(document.querySelector(`[data-role="${r.role}"][data-field="horario_inicio"]`) as HTMLInputElement)?.value||"00:00";const hf=(document.querySelector(`[data-role="${r.role}"][data-field="horario_fim"]`) as HTMLInputElement)?.value||"23:59";const ds=((document.querySelector(`[data-role="${r.role}"][data-field="dias_semana"]`) as HTMLSelectElement)?.value||"seg,ter,qua,qui,sex,sab,dom").split(",");const tm=parseInt((document.querySelector(`[data-role="${r.role}"][data-field="timeout_minutos"]`) as HTMLSelectElement)?.value||"30");const data={role:r.role,horario_inicio:hi,horario_fim:hf,dias_semana:ds,timeout_minutos:tm,ativo:true};const{data:rs,error:re}=await supabase.rpc("fn_access_config_salvar",{p_role:r.role,p_dados:data});const j=rs as {ok?:boolean;erro?:string}|null;if(re||j?.ok===false){setMsg("Erro: "+(re?.message||j?.erro));return;}setMsg("Regra salva para "+r.nome);loadData();}} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:GO+"15",border:`1px solid ${GO}`,color:GO,cursor:"pointer"}}>Salvar</button>)}</td>
                 </tr>
               );
             })}
@@ -587,7 +945,7 @@ export default function AdminPage(){
         <div style={{fontSize:14,fontWeight:600,color:TX}}>Log de Auditoria</div>
         <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
           {["","login","logout","page_visit","access_blocked"].map(f=>(<button key={f} onClick={()=>setAuditFilter(f)} style={{fontSize:9,padding:"4px 10px",borderRadius:6,cursor:"pointer",background:auditFilter===f?GO+"15":"transparent",border:`1px solid ${auditFilter===f?GO:BD}`,color:auditFilter===f?GO:TXM}}>{f||"Todos"}</button>))}
-          <button onClick={loadData} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:BL+"15",border:`1px solid ${BL}30`,color:BL,cursor:"pointer"}}>Atualizar</button>
+          <button onClick={()=>loadData()} style={{fontSize:9,padding:"4px 10px",borderRadius:6,background:BL+"15",border:`1px solid ${BL}30`,color:BL,cursor:"pointer"}}>Atualizar</button>
         </div>
       </div>
       <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden",maxHeight:500,overflowY:"auto"}}>
@@ -664,8 +1022,11 @@ export default function AdminPage(){
                                 return (
                                   <div key={t.id} onClick={()=>abrirRota(t.rota)} style={{background:BG2,border:`1px solid ${cor}`,borderRadius:8,overflow:"hidden",cursor:"pointer"}}>
                                     {t.screenshot_url?(
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img src={t.screenshot_url} alt={t.titulo||t.rota} loading="lazy" style={{width:"100%",aspectRatio:"16/10",objectFit:"cover",display:"block"}}/>
+                                      // LGPD: bucket privado — screenshot_url é o PATH; assina na hora (PS_ADMIN)
+                                      <ScreenshotAssinado valor={t.screenshot_url} alt={t.titulo||t.rota}
+                                        style={{width:"100%",aspectRatio:"16/10",objectFit:"cover",display:"block"}}
+                                        fallbackStyle={{width:"100%",aspectRatio:"16/10",background:BG3,display:"flex",alignItems:"center",justifyContent:"center",color:TXD,fontSize:10}}
+                                        fallbackTexto="Sem screenshot"/>
                                     ):(
                                       <div style={{width:"100%",aspectRatio:"16/10",background:BG3,display:"flex",alignItems:"center",justifyContent:"center",color:TXD,fontSize:10}}>Sem screenshot</div>
                                     )}
@@ -713,7 +1074,7 @@ export default function AdminPage(){
                         <span style={{color:h.status==="ok"?G:R,fontWeight:600,fontSize:10,textTransform:"uppercase"}}>{h.status||"—"}</span>
                       </div>
                       {h.html_hash&&<div style={{color:TXD,fontSize:9,fontFamily:"monospace",marginBottom:4}}>hash: {String(h.html_hash).substring(0,24)}…</div>}
-                      {h.screenshot_url&&<a href={h.screenshot_url} target="_blank" rel="noopener noreferrer" style={{color:GO,fontSize:10,textDecoration:"none",fontWeight:600}}>Ver imagem ↗</a>}
+                      {h.screenshot_url&&/^https?:\/\//.test(h.screenshot_url)&&<a href={h.screenshot_url} target="_blank" rel="noopener noreferrer" style={{color:GO,fontSize:10,textDecoration:"none",fontWeight:600}}>Ver imagem ↗</a>}
                     </div>
                   ))}
                 </div>
@@ -791,6 +1152,111 @@ export default function AdminPage(){
       )}
     </div>)}
 
+    {/* ═══ ADMIN-AREAS-DINAMICAS-v1: aba 📂 Áreas (le area_menu_config via RPC) ═══ */}
+    {tab==="areas"&&(<div>
+      <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:6}}>Áreas do catálogo · area_menu_config</div>
+      <div style={{fontSize:11,color:TXD,marginBottom:14}}>Fonte da verdade: RPC <code style={{background:BG3,padding:"1px 6px",borderRadius:4}}>fn_listar_areas_visiveis</code> / <code style={{background:BG3,padding:"1px 6px",borderRadius:4}}>fn_areas_visiveis_usuario</code>. Catálogo dinâmico — sem lista hardcoded.</div>
+
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        <button onClick={()=>setAreasSubTab('empresa')} style={{padding:"6px 14px",borderRadius:8,fontSize:11,border:`1px solid ${areasSubTab==='empresa'?GO:BD}`,background:areasSubTab==='empresa'?`${GO}10`:"transparent",color:areasSubTab==='empresa'?GO:TXM,fontWeight:areasSubTab==='empresa'?600:400,cursor:"pointer"}}>Por empresa</button>
+        <button onClick={()=>setAreasSubTab('usuario')} style={{padding:"6px 14px",borderRadius:8,fontSize:11,border:`1px solid ${areasSubTab==='usuario'?GO:BD}`,background:areasSubTab==='usuario'?`${GO}10`:"transparent",color:areasSubTab==='usuario'?GO:TXM,fontWeight:areasSubTab==='usuario'?600:400,cursor:"pointer"}}>Por usuário</button>
+      </div>
+
+      {areasSubTab==='empresa'&&(
+        <div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
+            <span style={{fontSize:11,color:TXM,minWidth:80}}>Empresa:</span>
+            <select value={areaCompanyId} onChange={e=>setAreaCompanyId(e.target.value)} style={{...inp,maxWidth:380}}>
+              <option value="">— Todas (catálogo geral, sem contexto) —</option>
+              {empresas.map(e=><option key={e.id} value={e.id}>{e.nome_fantasia||e.razao_social}</option>)}
+            </select>
+          </div>
+          {areasLoading?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Carregando áreas…</div>
+          ):areasError?(
+            <div style={{background:R+"15",border:`1px solid ${R}40`,borderRadius:8,padding:"10px 14px",fontSize:12,color:R}}>❌ {areasError}</div>
+          ):areasEmpresa.length===0?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Nenhuma área retornada pela RPC.</div>
+          ):(
+            <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden"}}>
+              {[...areasEmpresa].sort((a,b)=>(a.ordem??999)-(b.ordem??999)).map((a:any)=>(
+                <div key={a.area_slug} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:`0.5px solid ${BD}`,gap:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
+                    <span style={{fontSize:18}}>{a.icone||"📁"}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:TX,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                        {a.nome_menu}
+                        {a.status_comercial&&(
+                          <span style={{fontSize:8,padding:"1px 6px",borderRadius:4,background:(a.cor_destaque||GO)+"20",color:a.cor_destaque||GO,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{a.status_comercial}</span>
+                        )}
+                      </div>
+                      <div style={{fontSize:10,color:TXD}}><code>{a.area_slug}</code> · {a.rota_raiz}</div>
+                      {a.descricao_curta&&<div style={{fontSize:11,color:TXM,marginTop:2}}>{a.descricao_curta}</div>}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                    {areaCompanyId?(
+                      <span title={a.motivo_acesso||""} style={{fontSize:11,padding:"3px 10px",borderRadius:6,background:a.empresa_tem_acesso?G+"20":TXD+"20",color:a.empresa_tem_acesso?G:TXD,fontWeight:600,border:`1px solid ${a.empresa_tem_acesso?G:TXD}40`}}>
+                        {a.empresa_tem_acesso?"✓ tem acesso":"sem acesso"}
+                      </span>
+                    ):(
+                      <span style={{fontSize:10,color:TXD,fontStyle:"italic"}}>selecione empresa pra ver acesso</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {areasSubTab==='usuario'&&(
+        <div>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12}}>
+            <span style={{fontSize:11,color:TXM,minWidth:80}}>Usuário:</span>
+            <select value={areaUserId} onChange={e=>setAreaUserId(e.target.value)} style={{...inp,maxWidth:380}}>
+              <option value="">— Selecione um usuário —</option>
+              {usuarios.map(u=><option key={u.id} value={u.id}>{u.full_name||u.email||u.id}</option>)}
+            </select>
+          </div>
+          {!areaUserId?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Selecione um usuário acima.</div>
+          ):areasLoading?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Carregando áreas do usuário…</div>
+          ):areasError?(
+            <div style={{background:R+"15",border:`1px solid ${R}40`,borderRadius:8,padding:"10px 14px",fontSize:12,color:R}}>❌ {areasError}</div>
+          ):areasUsuario.length===0?(
+            <div style={{textAlign:"center",padding:30,color:TXD,fontSize:12}}>Nenhuma área visível para este usuário.</div>
+          ):(
+            <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"hidden"}}>
+              {[...areasUsuario].sort((a,b)=>(a.ordem??999)-(b.ordem??999)).map((a:any)=>(
+                <div key={a.area_id||a.area_slug} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:`0.5px solid ${BD}`,gap:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
+                    <span style={{fontSize:18}}>{a.icone||"📁"}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:TX,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                        {a.nome_menu}
+                        {a.status_comercial&&(
+                          <span style={{fontSize:8,padding:"1px 6px",borderRadius:4,background:(a.cor_destaque||GO)+"20",color:a.cor_destaque||GO,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>{a.status_comercial}</span>
+                        )}
+                      </div>
+                      <div style={{fontSize:10,color:TXD}}>{a.rota_raiz}</div>
+                    </div>
+                  </div>
+                  <span style={{fontSize:11,padding:"3px 10px",borderRadius:6,background:a.restrito?Y+"20":G+"20",color:a.restrito?Y:G,fontWeight:600,border:`1px solid ${a.restrito?Y:G}40`}}>
+                    {a.restrito?"restrito":"liberado"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>)}
+
     <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:24}}>PS Gestão e Capital — Painel Administrativo v9.1</div>
+    {areasModalEmp&&(
+      <AreasContratadasModal companyId={areasModalEmp.id} companyName={areasModalEmp.nome} onClose={()=>{setAreasModalEmp(null);loadAreasContratadas();}}/>
+    )}
   </div>);
 }

@@ -12,14 +12,62 @@
 //
 // Multi-tenant: RD-34 → useCompanyIds (admin / consolidado / grupo / unica)
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import {
-  Plus, Search, FileText, ShoppingCart, BarChart3,
-  X, Info, Send, CheckCircle2, ArrowRight, Trash2,
+  Plus, Search, ShoppingCart, BarChart3,
+  X, Info, Send, CheckCircle2, ArrowRight,
+  AlertTriangle, Undo2,
+  Columns3, Lock,
 } from 'lucide-react'
+import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
+import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
+import ParcelasEditor from '@/components/comum/ParcelasEditor'
+import MedicoesNFSeCard, { type MedicaoEscolhida } from '@/components/comum/MedicoesNFSeCard'
+import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
+import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
+import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
+import NFeCard from '@/components/comum/NFeCard'
+import GerarBoletosReceita from '@/components/financeiro/GerarBoletosReceita'
+
+// FEAT-OS-ONDA3B-NFSE-FRONT-v1 · tipos do retorno de fn_pedido_nfse_dados
+type NfsePedidoTomador = {
+  documento?: string | null
+  tipo?: 'cpf' | 'cnpj' | 'indefinido' | null
+  nome?: string | null
+  email?: string | null
+}
+type NfsePedidoServico = {
+  servico_id?: string | null
+  descricao?: string | null
+  codigo_servico_municipio?: string | null
+  codigo_lc116?: string | null
+  aliquota_iss?: number | null
+  iss_retido?: boolean | null
+  cnae?: string | null
+  valor?: number | null
+}
+type NfsePedidoExistente = {
+  id: string
+  numero: string | null
+  status: string
+  pdf_url: string | null
+}
+type NfsePedidoDados = {
+  pedido_id?: string
+  pedido_numero?: string | null
+  status?: string
+  tem_servico: boolean
+  valor_servicos?: number | null
+  tomador?: NfsePedidoTomador
+  servicos: NfsePedidoServico[]
+  ja_emitida: boolean
+  nfse_existente: NfsePedidoExistente | null
+  erro?: string
+}
 
 // useSearchParams exige Suspense boundary em pages prerenderizadas (Next 16)
 export const dynamic = 'force-dynamic'
@@ -49,7 +97,7 @@ const C = {
   purpleBg: '#F3E8FF',
 }
 
-type Tab = 'orcamentos' | 'pedidos' | 'visao'
+type Tab = 'orcamentos' | 'pedidos' | 'kanban' | 'visao'
 
 type Orcamento = {
   id: string
@@ -152,13 +200,14 @@ export default function OTCPage() {
 }
 
 function OTCPageInner() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { companyIds, selInfo, loading: companiesLoading, sel } = useCompanyIds()
   const companyIdUnico = selInfo.tipo === 'empresa' && sel ? sel : null
   const canCreate = !!companyIdUnico
 
-  const initialTab = (searchParams?.get('tab') as Tab) || 'orcamentos'
+  // #90 · abas Orçamentos/Pedidos removidas — só Kanban e Visão geral. Normaliza links antigos.
+  const rawTab = (searchParams?.get('tab') as Tab) || 'kanban'
+  const initialTab: Tab = rawTab === 'visao' ? 'visao' : 'kanban'
   const [tab, setTab] = useState<Tab>(initialTab)
 
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([])
@@ -167,41 +216,64 @@ function OTCPageInner() {
   const [msg, setMsg] = useState<string>('')
   const [erro, setErro] = useState<string>('')
 
-  const [filtroBusca, setFiltroBusca] = useState('')
-  const [filtroStatus, setFiltroStatus] = useState<string>('')
-
   const [orcSel, setOrcSel] = useState<Orcamento | null>(null)
   const [orcItens, setOrcItens] = useState<OrcamentoItem[]>([])
   const [pedSel, setPedSel] = useState<Pedido | null>(null)
   const [showNova, setShowNova] = useState(false)
+  // ⑨ #90 · confirmação ao arrastar Orçamento → Pedido no Kanban (cria documento fiscal → nunca direto)
+  const [confirmConv, setConfirmConv] = useState<Orcamento | null>(null)
+  const [convertendo, setConvertendo] = useState(false)
+  // #90 · arrastar para Faturado: faturar (pedido) ou converter+faturar (orçamento), com confirmação.
+  const [confirmFatura, setConfirmFatura] = useState<{ tipo: 'orcamento'; orc: Orcamento } | { tipo: 'pedido'; ped: Pedido } | null>(null)
+  const [faturandoKanban, setFaturandoKanban] = useState(false)
+  // #728 · pedido 'aberto' volta a ser orçamento (arraste reverso), com confirmação.
+  const [confirmReverter, setConfirmReverter] = useState<Pedido | null>(null)
+  const [revertendo, setRevertendo] = useState(false)
+  // #728 · cancelamento (perda) vive no orçamento — modal de motivo.
+  const [cancelOrc, setCancelOrc] = useState<Orcamento | null>(null)
 
-  const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
-
-  // Carrega orcamentos + pedidos quando empresas mudam
-  const carregar = useCallback(async () => {
-    if (companyIds.length === 0) {
-      setOrcamentos([])
-      setPedidos([])
-      return
-    }
-    setLoading(true)
-    setErro('')
-    const [orc, ped] = await Promise.all([
-      supabase.from('erp_orcamentos').select('*').in('company_id', companyIds).order('created_at', { ascending: false }).limit(200),
-      supabase.from('erp_pedidos').select('*').in('company_id', companyIds).order('created_at', { ascending: false }).limit(200),
-    ])
-    if (orc.error) setErro('Falha ao carregar orcamentos: ' + orc.error.message)
-    else setOrcamentos((orc.data ?? []) as Orcamento[])
-    if (ped.error) setErro('Falha ao carregar pedidos: ' + ped.error.message)
-    else setPedidos((ped.data ?? []) as Pedido[])
-    setLoading(false)
-  }, [companyIds])
-
+  // FIX-VAZAMENTO-JORDANA (07/07 · defesa em profundidade sobre #541):
+  //   1) Gate estrito em companyIdUnico (nunca .in(companyIds))
+  //   2) Race guard (alive flag) — troca de empresa cancela write anterior,
+  //      impede "flash" de dados stale quando resposta antiga chega depois
+  //   3) Assertion runtime — se qualquer linha vier com company_id != esperado
+  //      (bug de schema / RPC futuro / RLS mal configurado), dropa antes do
+  //      setState. Nunca renderiza tenant errado, mesmo diante de falha DB.
+  //   4) recarregar() exposto pra callbacks (post-create, post-fatura)
+  //      atraves de ref pra nao criar dependencia estatica.
+  const recarregarRef = useRef<() => void>(() => {})
   useEffect(() => {
     if (companiesLoading) return
-    void carregar()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyIdsKey, companiesLoading])
+    let alive = true
+    const expected = companyIdUnico
+    const run = async () => {
+      if (!expected) {
+        setOrcamentos([])
+        setPedidos([])
+        return
+      }
+      setLoading(true)
+      setErro('')
+      const [orc, ped] = await Promise.all([
+        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
+        supabase.from('erp_pedidos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
+      ])
+      if (!alive) return
+      // Runtime guard: descarta qualquer linha com company_id divergente
+      // (defense-in-depth contra falha em .eq / RPC / RLS).
+      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected)
+      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected)
+      if (orc.error) setErro('Falha ao carregar orcamentos: ' + orc.error.message)
+      else setOrcamentos(orcSafe)
+      if (ped.error) setErro('Falha ao carregar pedidos: ' + ped.error.message)
+      else setPedidos(pedSafe)
+      setLoading(false)
+    }
+    recarregarRef.current = () => { void run() }
+    void run()
+    return () => { alive = false }
+  }, [companyIdUnico, companiesLoading])
+  const carregar = useCallback(() => recarregarRef.current(), [])
 
   // Carrega itens quando orcamento eh selecionado
   useEffect(() => {
@@ -260,40 +332,56 @@ function OTCPageInner() {
     flash('Pedido criado com sucesso!')
     setOrcSel(null)
     await carregar()
-    router.push(`/dashboard/commerce/otc?tab=pedidos&id=${pedidoId}`)
-    setTab('pedidos')
+    // #90 · abas removidas — abre o pedido recém-criado no drawer (não troca de aba).
+    const { data: ped } = await supabase.from('erp_pedidos').select('*').eq('id', pedidoId).single()
+    if (ped) setPedSel(ped as Pedido)
   }
 
-  // ────────────────────────────────────────────────────────
-  // Listas filtradas
-  // ────────────────────────────────────────────────────────
+  // #90 · arrastar para Faturado. Orçamento: converte e fatura (dois passos, na ordem). Pedido: fatura.
+  async function executarFaturaKanban() {
+    if (!confirmFatura) return
+    setFaturandoKanban(true)
+    try {
+      let pedidoId: string
+      if (confirmFatura.tipo === 'orcamento') {
+        const { data, error } = await supabase.rpc('fn_converter_orcamento_em_pedido', { p_orcamento_id: confirmFatura.orc.id })
+        if (error) throw new Error(error.message)
+        pedidoId = data as string
+      } else {
+        pedidoId = confirmFatura.ped.id
+      }
+      const { data: fat, error: errFat } = await supabase.rpc('fn_faturar', { p_pedido_id: pedidoId })
+      if (errFat) throw new Error(errFat.message)
+      const r = fat as { ok?: boolean; erro?: string } | null
+      if (r && r.ok === false) throw new Error(r.erro ?? 'Falha ao faturar')
+      flash(confirmFatura.tipo === 'orcamento' ? 'Orçamento convertido e faturado!' : 'Pedido faturado!')
+      setConfirmFatura(null)
+      await carregar()
+    } catch (e) {
+      flash('Erro ao faturar: ' + (e instanceof Error ? e.message : 'falha'))
+    } finally {
+      setFaturandoKanban(false)
+    }
+  }
 
-  const orcFiltrados = useMemo(() => {
-    const q = filtroBusca.trim().toLowerCase()
-    return orcamentos.filter((o) => {
-      if (filtroStatus && o.status !== filtroStatus) return false
-      if (!q) return true
-      return (
-        (o.numero ?? '').toLowerCase().includes(q) ||
-        (o.cliente_nome ?? '').toLowerCase().includes(q) ||
-        (o.cliente_cnpj ?? '').toLowerCase().includes(q) ||
-        (o.vendedor_nome ?? '').toLowerCase().includes(q)
-      )
-    })
-  }, [orcamentos, filtroBusca, filtroStatus])
-
-  const pedFiltrados = useMemo(() => {
-    const q = filtroBusca.trim().toLowerCase()
-    return pedidos.filter((p) => {
-      if (filtroStatus && p.status !== filtroStatus) return false
-      if (!q) return true
-      return (
-        (p.numero ?? '').toLowerCase().includes(q) ||
-        (p.cliente_nome ?? '').toLowerCase().includes(q) ||
-        (p.nf_numero ?? '').toLowerCase().includes(q)
-      )
-    })
-  }, [pedidos, filtroBusca, filtroStatus])
+  // #728 · reverter pedido 'aberto' para orçamento (o orçamento volta a ser a entidade ativa).
+  async function executarReverter() {
+    if (!confirmReverter) return
+    setRevertendo(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_pedido_reverter_para_orcamento', { p_pedido_id: confirmReverter.id })
+      if (error) throw new Error(error.message)
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (!r?.ok) throw new Error(r?.erro ?? 'Não foi possível reverter o pedido')
+      flash('Pedido revertido para orçamento.')
+      setConfirmReverter(null)
+      await carregar()
+    } catch (e) {
+      flash('Erro ao reverter: ' + (e instanceof Error ? e.message : 'falha'))
+    } finally {
+      setRevertendo(false)
+    }
+  }
 
   // KPIs Visao Geral
   const kpis = useMemo(() => {
@@ -326,7 +414,7 @@ function OTCPageInner() {
             <p style={{ margin: 0, fontSize: 12, color: C.espressoM }}>Orçamento → Pedido → Faturamento</p>
           </div>
         </div>
-        {tab === 'orcamentos' && (
+        {tab === 'kanban' && (
           <button
             onClick={() => setShowNova(true)}
             disabled={!canCreate}
@@ -344,18 +432,18 @@ function OTCPageInner() {
         )}
       </header>
 
-      {/* Tabs */}
+      {/* Tabs — #90: só Kanban e Visão geral (Orçamentos/Pedidos viraram colunas do Kanban) */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}` }}>
-        <TabButton ativo={tab === 'orcamentos'} onClick={() => setTab('orcamentos')} icon={<FileText size={14} />} label="Orçamentos" count={orcamentos.length} />
-        <TabButton ativo={tab === 'pedidos'} onClick={() => setTab('pedidos')} icon={<ShoppingCart size={14} />} label="Pedidos" count={pedidos.length} />
+        <TabButton ativo={tab === 'kanban'} onClick={() => setTab('kanban')} icon={<Columns3 size={14} />} label="Kanban" />
         <TabButton ativo={tab === 'visao'} onClick={() => setTab('visao')} icon={<BarChart3 size={14} />} label="Visão geral" />
       </div>
 
-      {/* Hint multi-empresa */}
+      {/* FIX-VAZAMENTO-JORDANA (07/07): telas operacionais NAO consolidam
+          multi-empresa. Se consolidado/grupo, mostra apenas prompt. */}
       {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
-        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.goldBg, border: `1px solid ${C.gold}55`, borderRadius: 8, color: C.goldD, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, color: C.amber, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={14} />
-          <span>Exibindo dados de <strong>{selInfo.nome}</strong> ({selInfo.count} {selInfo.count === 1 ? 'empresa' : 'empresas'}). Para criar novos registros, selecione uma empresa específica no menu superior.</span>
+          <span>Selecione uma empresa específica no menu superior. OTC é operacional por empresa — não exibe dados consolidados.</span>
         </div>
       )}
 
@@ -363,40 +451,26 @@ function OTCPageInner() {
       {msg && <div onClick={() => setMsg('')} style={{ marginBottom: 12, padding: '10px 14px', background: C.greenBg, border: `1px solid ${C.green}55`, borderRadius: 8, color: C.green, fontSize: 12, cursor: 'pointer' }}>{msg}</div>}
       {erro && <div style={{ marginBottom: 12, padding: '10px 14px', background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 8, color: C.red, fontSize: 12 }}>{erro}</div>}
 
-      {/* Filtros (orcamentos + pedidos) */}
-      {tab !== 'visao' && (
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
-          <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
-            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
-            <input
-              type="text" placeholder={`Buscar por número, cliente${tab === 'pedidos' ? ', NF' : ''}…`}
-              value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
-              style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }}
-            />
-          </div>
-          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} style={{ padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, background: C.white, color: C.espresso, minWidth: 160 }}>
-            <option value="">Todos os status</option>
-            {Object.keys(tab === 'orcamentos' ? STATUS_ORC : STATUS_PED).map((s) => (
-              <option key={s} value={s}>{(tab === 'orcamentos' ? STATUS_ORC : STATUS_PED)[s].label}</option>
-            ))}
-          </select>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
-            {tab === 'orcamentos' ? orcFiltrados.length : pedFiltrados.length} de {tab === 'orcamentos' ? orcamentos.length : pedidos.length}
-          </span>
-        </div>
-      )}
-
       {/* Conteúdo */}
       {companiesLoading || loading ? (
         <div style={{ padding: 40, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>Carregando…</div>
       ) : companyIds.length === 0 ? (
         <EmptyState titulo="Nenhuma empresa disponível" texto="Você ainda não tem empresas vinculadas. Peça ao administrador para te vincular ou selecione uma no menu superior." />
-      ) : tab === 'orcamentos' ? (
-        <TabelaOrcamentos rows={orcFiltrados} total={orcamentos.length} onSelect={setOrcSel} canCreate={canCreate} onCreate={() => setShowNova(true)} />
-      ) : tab === 'pedidos' ? (
-        <TabelaPedidos rows={pedFiltrados} total={pedidos.length} orcamentos={orcamentos} onSelect={setPedSel} />
-      ) : (
+      ) : !companyIdUnico ? (
+        <EmptyState titulo="Selecione uma empresa" texto="OTC é operacional por empresa. Escolha uma empresa específica no menu superior para ver orçamentos e pedidos." />
+      ) : tab === 'visao' ? (
         <VisaoGeralKPIs kpis={kpis} />
+      ) : (
+        <KanbanBoard
+          orcamentos={orcamentos}
+          pedidos={pedidos}
+          onAbrirOrc={setOrcSel}
+          onAbrirPed={setPedSel}
+          onSoltarEmPedido={(o) => setConfirmConv(o)}
+          onFaturarOrc={(o) => setConfirmFatura({ tipo: 'orcamento', orc: o })}
+          onFaturarPed={(p) => setConfirmFatura({ tipo: 'pedido', ped: p })}
+          onReverterParaOrcamento={(p) => setConfirmReverter(p)}
+        />
       )}
 
       {/* Drawer detalhe orcamento */}
@@ -407,12 +481,60 @@ function OTCPageInner() {
           onClose={() => setOrcSel(null)}
           onEnviar={() => enviarOrcamento(orcSel.id)}
           onAprovar={() => aprovarOrcamento(orcSel.id)}
-          onConverter={() => converterEmPedido(orcSel.id)}
+          // PEDIDO 2 · um caminho: card, arrastar e drawer passam TODOS pela mesma confirmação →
+          // fn_converter_orcamento_em_pedido (antes o drawer convertia direto, sem confirmar).
+          onConverter={() => { const o = orcSel; setOrcSel(null); setConfirmConv(o) }}
+          onCancelar={() => { const o = orcSel; setOrcSel(null); setCancelOrc(o) }}
         />
       )}
 
       {/* Drawer detalhe pedido */}
-      {pedSel && <DrawerPedido ped={pedSel} orcamentos={orcamentos} onClose={() => setPedSel(null)} />}
+      {pedSel && <DrawerPedido ped={pedSel} orcamentos={orcamentos} onClose={() => setPedSel(null)} onFaturado={() => carregar()} />}
+
+      {/* ⑨ #90 · confirmação Kanban: arrastar Orçamento → Pedido cria documento fiscal */}
+      {confirmConv && (
+        <ConfirmConverterModal
+          orc={confirmConv}
+          loading={convertendo}
+          onCancel={() => { if (!convertendo) setConfirmConv(null) }}
+          onConfirm={async () => {
+            setConvertendo(true)
+            await converterEmPedido(confirmConv.id)
+            setConvertendo(false)
+            setConfirmConv(null)
+          }}
+        />
+      )}
+
+      {/* #90 · confirmação Kanban: arrastar para Faturado (fatura; converte antes se for orçamento) */}
+      {confirmFatura && (
+        <ConfirmFaturarModal
+          info={confirmFatura}
+          loading={faturandoKanban}
+          onCancel={() => { if (!faturandoKanban) setConfirmFatura(null) }}
+          onConfirm={() => { void executarFaturaKanban() }}
+        />
+      )}
+
+      {/* #728 · confirmação: reverter pedido para orçamento */}
+      {confirmReverter && (
+        <ConfirmReverterModal
+          ped={confirmReverter}
+          loading={revertendo}
+          onCancel={() => { if (!revertendo) setConfirmReverter(null) }}
+          onConfirm={() => { void executarReverter() }}
+        />
+      )}
+
+      {/* #728 · cancelamento (perda) do orçamento */}
+      {cancelOrc && (
+        <ModalCancelarOrcamento
+          orc={cancelOrc}
+          onClose={() => setCancelOrc(null)}
+          onDone={async () => { setCancelOrc(null); await carregar() }}
+          flash={flash}
+        />
+      )}
 
       {/* Modal novo orcamento */}
       {showNova && companyIdUnico && (
@@ -480,102 +602,447 @@ function EmptyState({ titulo, texto, cta }: { titulo: string; texto: string; cta
   )
 }
 
-function TabelaOrcamentos({ rows, total, onSelect, canCreate, onCreate }: { rows: Orcamento[]; total: number; onSelect: (o: Orcamento) => void; canCreate: boolean; onCreate: () => void }) {
-  if (total === 0) {
-    return <EmptyState titulo="Nenhum orçamento ainda" texto="Crie seu primeiro orçamento para iniciar o ciclo Order-to-Cash." cta={canCreate ? { label: '+ Novo orçamento', onClick: onCreate } : undefined} />
+const DND_MIME = 'application/x-otc-card'
+
+// ⑨ #90 · Kanban "Vender e Faturar". DnD robusto (preventDefault SEMPRE no dragover — habilitar o
+// drop nunca depende de estado React defasado). Orçamento arrasta p/ Pedido (converter) ou p/
+// Faturado (converter+faturar). Pedido arrasta p/ Faturado (faturar). Tudo com confirmação.
+function KanbanBoard({
+  orcamentos, pedidos, onAbrirOrc, onAbrirPed, onSoltarEmPedido, onFaturarOrc, onFaturarPed, onReverterParaOrcamento,
+}: {
+  orcamentos: Orcamento[]
+  pedidos: Pedido[]
+  onAbrirOrc: (o: Orcamento) => void
+  onAbrirPed: (p: Pedido) => void
+  onSoltarEmPedido: (o: Orcamento) => void
+  onFaturarOrc: (o: Orcamento) => void
+  onFaturarPed: (p: Pedido) => void
+  onReverterParaOrcamento: (p: Pedido) => void
+}) {
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dragKind, setDragKind] = useState<'orc' | 'ped' | null>(null)
+  const [dropCol, setDropCol] = useState<'ped' | 'fat' | 'orc' | null>(null)
+  const [busca, setBusca] = useState('')
+  const q = busca.trim().toLowerCase()
+
+  // Busca migrada da aba removida (nada se perde): filtra por número ou cliente.
+  const colOrc = useMemo(
+    () => orcamentos.filter((o) => !o.pedido_id && ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(o.status)
+      && (!q || (o.numero ?? '').toLowerCase().includes(q) || (o.cliente_nome ?? '').toLowerCase().includes(q))),
+    [orcamentos, q],
+  )
+  // #780 (cont.) · "Gerar Financeiro" é a ÚLTIMA ação: a coluna depende do STATUS, não da nota. Um pedido com NF-e
+  // emitida mas ainda não faturado continua em "A faturar" (pendente de Gerar Financeiro); só vai para "Faturado"
+  // quando status = 'faturado'. (Antes o nf_emitida movia o pedido cedo demais — a emissão de NF-e agora é pré-financeiro.)
+  const colPed = useMemo(
+    () => pedidos.filter((p) => p.status !== 'faturado' && p.status !== 'cancelado' && p.status !== 'revertido'
+      && (!q || (p.numero ?? '').toLowerCase().includes(q) || (p.cliente_nome ?? '').toLowerCase().includes(q))),
+    [pedidos, q],
+  )
+  const colFat = useMemo(
+    () => pedidos.filter((p) => p.status === 'faturado'
+      && (!q || (p.numero ?? '').toLowerCase().includes(q) || (p.cliente_nome ?? '').toLowerCase().includes(q))),
+    [pedidos, q],
+  )
+
+  function iniciarDrag(e: React.DragEvent, id: string, kind: 'orc' | 'ped') {
+    setDragId(id); setDragKind(kind)
+    e.dataTransfer.effectAllowed = 'move'
+    try { e.dataTransfer.setData(DND_MIME, `${kind}:${id}`) } catch { /* alguns browsers travam custom mime */ }
+    e.dataTransfer.setData('text/plain', id)
   }
-  if (rows.length === 0) {
-    return <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhum orçamento corresponde aos filtros.</div>
+  function fimDrag() { setDragId(null); setDragKind(null); setDropCol(null) }
+  // preventDefault SEMPRE (o alvo aceita o drop). Decidir o que fazer fica no onDrop.
+  function permitirDrop(e: React.DragEvent, col: 'ped' | 'fat' | 'orc') {
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'
+    if (dropCol !== col) setDropCol(col)
   }
+
+  const cardOrc = (o: Orcamento) => (
+    <div key={o.id} draggable onDragStart={(e) => iniciarDrag(e, o.id, 'orc')} onDragEnd={fimDrag} onClick={() => onAbrirOrc(o)}
+      style={{ cursor: 'grab', opacity: dragId === o.id ? 0.5 : 1, background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.gold}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}
+      title="Arraste para Pedido (converter) ou Faturado (converter e faturar); clique para abrir">
+      <KanbanCardTopo numero={o.numero} status={o.status} mapa={STATUS_ORC} />
+      <div style={{ fontWeight: 600, fontSize: 12 }}>{o.cliente_nome ?? '—'}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.espressoM }}>
+        <span>{fmtDate(o.data_validade) !== '—' ? `val. ${fmtDate(o.data_validade)}` : fmtDate(o.data_emissao)}</span>
+        <strong style={{ color: C.gold }}>{fmtBRL(o.total)}</strong>
+      </div>
+      {/* PEDIDO 2 (Rodrigo): a ação de negócio do orçamento é virar pedido — botão explícito no card.
+          Mesmo caminho do arrastar-para-Pedido e do drawer (onSoltarEmPedido → confirmação →
+          fn_converter_orcamento_em_pedido). stopPropagation p/ não abrir o drawer no clique do botão. */}
+      <button type="button"
+        onClick={(e) => { e.stopPropagation(); onSoltarEmPedido(o) }}
+        title="Converter este orçamento em pedido"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: 2, background: C.blue, color: C.white, border: 'none', borderRadius: 6, padding: '5px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+        <ArrowRight size={13} /> Converter em Pedido
+      </button>
+    </div>
+  )
+  const cardPed = (p: Pedido) => (
+    <div key={p.id} draggable onDragStart={(e) => iniciarDrag(e, p.id, 'ped')} onDragEnd={fimDrag} onClick={() => onAbrirPed(p)}
+      style={{ cursor: 'grab', opacity: dragId === p.id ? 0.5 : 1, background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}
+      title="Arraste para Faturado para faturar, de volta para Orçamento para reverter, ou clique para abrir">
+      <KanbanCardTopo numero={p.numero} status={p.status} mapa={STATUS_PED} />
+      <div style={{ fontWeight: 600, fontSize: 12 }}>{p.cliente_nome ?? '—'}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.espressoM }}>
+        <span>{fmtDate(p.data_pedido)}</span>
+        <strong style={{ color: C.blue }}>{fmtBRL(p.total)}</strong>
+      </div>
+    </div>
+  )
+
   return (
-    <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 860 }}>
-          <thead style={{ background: C.cream }}>
-            <tr>
-              <Th>Número</Th>
-              <Th>Cliente</Th>
-              <Th>Emissão</Th>
-              <Th>Validade</Th>
-              <Th align="right">Total</Th>
-              <Th>Status</Th>
-              <Th align="right">Views</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((o) => (
-              <tr key={o.id} onClick={() => onSelect(o)} style={{ cursor: 'pointer', borderTop: `1px solid ${C.borderL}` }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = C.cream)}
-                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-              >
-                <Td>
-                  <div style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 600 }}>{o.numero ?? '—'}</div>
-                  {(o.versao ?? 0) > 1 && <span style={{ fontSize: 9, color: C.espressoM }}>v{o.versao}</span>}
-                </Td>
-                <Td>
-                  <div style={{ fontWeight: 600 }}>{o.cliente_nome ?? '—'}</div>
-                  {o.cliente_cnpj && <div style={{ fontSize: 10, color: C.espressoM }}>{o.cliente_cnpj}</div>}
-                </Td>
-                <Td>{fmtDate(o.data_emissao)}</Td>
-                <Td>{fmtDate(o.data_validade)}</Td>
-                <Td align="right"><strong>{fmtBRL(o.total)}</strong></Td>
-                <Td><StatusBadge status={o.status} mapa={STATUS_ORC} /></Td>
-                <Td align="right"><span style={{ color: C.espressoM }}>{o.qtd_visualizacoes ?? 0}</span></Td>
-              </tr>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180, maxWidth: 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
+          <input type="text" placeholder="Buscar por número ou cliente…" value={busca} onChange={(e) => setBusca(e.target.value)}
+            style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: C.espressoM }}>
+        <Info size={13} />
+        <span>Arraste um <strong>orçamento</strong> para <strong>Pedido</strong> (converter) ou direto para <strong>Faturado</strong> (converter e faturar). Arraste um <strong>pedido</strong> para <strong>Faturado</strong> para faturar, ou de volta para <strong>Orçamento</strong> para revertê-lo. Cada passo pede confirmação.</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, alignItems: 'start' }}>
+        {/* ── Orçamento (arrastável; drop-target: reverter pedido aberto → orçamento · #728) ── */}
+        <div
+          onDragOver={(e) => { if (dragKind === 'ped') permitirDrop(e, 'orc') }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropCol((c) => (c === 'orc' ? null : c)) }}
+          onDrop={(e) => {
+            if (dragKind !== 'ped') return
+            e.preventDefault()
+            const ped = dragId ? colPed.find((p) => p.id === dragId) ?? null : null
+            fimDrag()
+            if (ped) onReverterParaOrcamento(ped)
+          }}
+          style={{ borderRadius: 12, outline: dropCol === 'orc' ? `2px dashed ${C.gold}` : '2px dashed transparent', outlineOffset: 2, transition: 'outline-color .12s' }}
+        >
+          <KanbanColuna titulo="Orçamento" cor={C.gold} corBg={C.goldBg} qtd={colOrc.length} total={colOrc.reduce((s, o) => s + (Number(o.total) || 0), 0)}>
+            {dropCol === 'orc' && (
+              <div style={{ border: `2px dashed ${C.gold}`, borderRadius: 8, padding: 12, textAlign: 'center', fontSize: 11, color: C.gold, background: C.goldBg, fontWeight: 600 }}>
+                Soltar para voltar a orçamento
+              </div>
+            )}
+            {colOrc.length === 0 && dropCol !== 'orc' ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : colOrc.map(cardOrc)}
+          </KanbanColuna>
+        </div>
+
+        {/* ── Pedido (drop-target: converter) ── */}
+        <div
+          onDragOver={(e) => { if (dragKind === 'orc') permitirDrop(e, 'ped') }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropCol((c) => (c === 'ped' ? null : c)) }}
+          onDrop={(e) => {
+            e.preventDefault()
+            const orc = dragKind === 'orc' && dragId ? colOrc.find((o) => o.id === dragId) ?? null : null
+            fimDrag()
+            if (orc) onSoltarEmPedido(orc)
+          }}
+          style={{ borderRadius: 12, outline: dropCol === 'ped' ? `2px dashed ${C.blue}` : '2px dashed transparent', outlineOffset: 2, transition: 'outline-color .12s' }}
+        >
+          <KanbanColuna titulo="Pedido" cor={C.blue} corBg={C.blueBg} qtd={colPed.length} total={colPed.reduce((s, p) => s + (Number(p.total) || 0), 0)}>
+            {dropCol === 'ped' && (
+              <div style={{ border: `2px dashed ${C.blue}`, borderRadius: 8, padding: 12, textAlign: 'center', fontSize: 11, color: C.blue, background: C.blueBg, fontWeight: 600 }}>
+                Soltar para converter em pedido
+              </div>
+            )}
+            {colPed.length === 0 && dropCol !== 'ped' ? <KanbanVazio texto="Nenhum pedido em aberto. Arraste um orçamento para cá." /> : colPed.map(cardPed)}
+          </KanbanColuna>
+        </div>
+
+        {/* ── Faturado (drop-target: faturar) ── */}
+        <div
+          onDragOver={(e) => permitirDrop(e, 'fat')}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropCol((c) => (c === 'fat' ? null : c)) }}
+          onDrop={(e) => {
+            e.preventDefault()
+            const orc = dragKind === 'orc' && dragId ? colOrc.find((o) => o.id === dragId) ?? null : null
+            const ped = dragKind === 'ped' && dragId ? colPed.find((p) => p.id === dragId) ?? null : null
+            fimDrag()
+            if (orc) onFaturarOrc(orc)
+            else if (ped) onFaturarPed(ped)
+          }}
+          style={{ borderRadius: 12, outline: dropCol === 'fat' ? `2px dashed ${C.purple}` : '2px dashed transparent', outlineOffset: 2, transition: 'outline-color .12s' }}
+        >
+          <KanbanColuna titulo="Faturado" cor={C.purple} corBg={C.purpleBg} qtd={colFat.length} total={colFat.reduce((s, p) => s + (Number(p.total) || 0), 0)}>
+            {dropCol === 'fat' && (
+              <div style={{ border: `2px dashed ${C.purple}`, borderRadius: 8, padding: 12, textAlign: 'center', fontSize: 11, color: C.purple, background: C.purpleBg, fontWeight: 600 }}>
+                Soltar para faturar
+              </div>
+            )}
+            {colFat.length === 0 && dropCol !== 'fat' ? <KanbanVazio texto="Nada faturado ainda. Arraste um pedido (ou orçamento) para cá." /> : colFat.map((p) => (
+              <div key={p.id} onClick={() => onAbrirPed(p)}
+                style={{ cursor: 'pointer', background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.purple}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <KanbanCardTopo numero={p.numero} status={p.status} mapa={STATUS_PED} />
+                <div style={{ fontWeight: 600, fontSize: 12 }}>{p.cliente_nome ?? '—'}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: C.espressoM }}>
+                  <span>{p.nf_numero ? <span style={{ color: C.green, fontWeight: 600 }}>NF {p.nf_numero}</span> : fmtDate(p.data_faturamento)}</span>
+                  <strong style={{ color: C.purple }}>{fmtBRL(p.total)}</strong>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </KanbanColuna>
+        </div>
       </div>
     </div>
   )
 }
 
-function TabelaPedidos({ rows, total, orcamentos, onSelect }: { rows: Pedido[]; total: number; orcamentos: Orcamento[]; onSelect: (p: Pedido) => void }) {
-  const orcMap = useMemo(() => Object.fromEntries(orcamentos.map((o) => [o.id, o])), [orcamentos])
-  if (total === 0) {
-    return <EmptyState titulo="Nenhum pedido ainda" texto="Pedidos são criados ao converter orçamentos aprovados. Aprovação manual ou via cliente público." />
-  }
-  if (rows.length === 0) {
-    return <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhum pedido corresponde aos filtros.</div>
-  }
+function KanbanColuna({ titulo, cor, corBg, qtd, total, soLeitura, children }: {
+  titulo: string; cor: string; corBg: string; qtd: number; total: number; soLeitura?: boolean; children: React.ReactNode
+}) {
   return (
-    <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 900 }}>
-          <thead style={{ background: C.cream }}>
-            <tr>
-              <Th>Número</Th>
-              <Th>Cliente</Th>
-              <Th>Data pedido</Th>
-              <Th>Prev. entrega</Th>
-              <Th align="right">Total</Th>
-              <Th>Status</Th>
-              <Th>NF-e</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((p) => {
-              const orcOrigem = p.orcamento_origem_id ? orcMap[p.orcamento_origem_id] : null
-              return (
-                <tr key={p.id} onClick={() => onSelect(p)} style={{ cursor: 'pointer', borderTop: `1px solid ${C.borderL}` }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = C.cream)}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <Td>
-                    <div style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 600 }}>{p.numero ?? '—'}</div>
-                    {orcOrigem && <div style={{ fontSize: 9, color: C.purple }} title="Originado de orçamento">📂 {orcOrigem.numero}</div>}
-                  </Td>
-                  <Td><div style={{ fontWeight: 600 }}>{p.cliente_nome ?? '—'}</div></Td>
-                  <Td>{fmtDate(p.data_pedido)}</Td>
-                  <Td>{fmtDate(p.data_prevista_entrega)}</Td>
-                  <Td align="right"><strong>{fmtBRL(p.total)}</strong></Td>
-                  <Td><StatusBadge status={p.status} mapa={STATUS_PED} /></Td>
-                  <Td>{p.nf_emitida && p.nf_numero ? <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>{p.nf_numero}</span> : <span style={{ fontSize: 10, color: C.espressoL }}>—</span>}</Td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+    <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 12, padding: 10, minHeight: 120, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 999, background: cor }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.espresso }}>{titulo}</span>
+          <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 999, background: corBg, color: cor, fontWeight: 700 }}>{qtd}</span>
+          {soLeitura && <span title="Somente leitura — emissão de nota é feita no pedido"><Lock size={11} style={{ color: C.espressoL }} /></span>}
+        </div>
+        <span style={{ fontSize: 10, color: C.espressoM }}>{fmtBRL(total)}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
+    </div>
+  )
+}
+
+function KanbanCardTopo({ numero, status, mapa }: { numero: string | null; status: string; mapa: Record<string, { label: string; bg: string; fg: string }> }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 600, color: C.espressoM }}>{numero ?? '—'}</span>
+      <StatusBadge status={status} mapa={mapa} />
+    </div>
+  )
+}
+
+function KanbanVazio({ texto }: { texto: string }) {
+  return <div style={{ fontSize: 11, color: C.espressoL, fontStyle: 'italic', padding: '10px 4px', textAlign: 'center' }}>{texto}</div>
+}
+
+function ConfirmConverterModal({ orc, loading, onCancel, onConfirm }: {
+  orc: Orcamento; loading: boolean; onCancel: () => void; onConfirm: () => void
+}) {
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, 100%)', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ArrowRight size={18} style={{ color: C.blue }} />
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Converter orçamento em pedido?</h3>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, color: C.espresso }}>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            O orçamento <strong style={{ fontFamily: 'monospace' }}>{orc.numero ?? '—'}</strong> de <strong>{orc.cliente_nome ?? '—'}</strong> ({fmtBRL(orc.total)}) vai gerar um <strong>pedido</strong>.
+          </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, padding: 10, fontSize: 12, color: C.amber }}>
+            <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>Esta ação cria um documento e não é desfeita por arrastar de volta. Confirme para prosseguir.</span>
+          </div>
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onCancel} disabled={loading} style={{ ...btnSec, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>Cancelar</button>
+          <button onClick={onConfirm} disabled={loading} style={{ ...btnPri, background: C.blue, opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
+            <ArrowRight size={14} /> {loading ? 'Convertendo…' : 'Converter em pedido'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// #90 · confirmação ao arrastar para Faturado. Orçamento → "converter em pedido e faturar?"
+// (dois passos, na ordem). Pedido → "faturar pedido?". Emitir/faturar é ação séria, nunca por gesto só.
+function ConfirmFaturarModal({ info, loading, onCancel, onConfirm }: {
+  info: { tipo: 'orcamento'; orc: Orcamento } | { tipo: 'pedido'; ped: Pedido }
+  loading: boolean; onCancel: () => void; onConfirm: () => void
+}) {
+  const ehOrc = info.tipo === 'orcamento'
+  const doc = ehOrc ? info.orc : info.ped
+  const titulo = ehOrc ? 'Converter em pedido e faturar?' : 'Faturar pedido?'
+  const acao = ehOrc ? 'Converter e faturar' : 'Faturar'
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(460px, 100%)', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ArrowRight size={18} style={{ color: C.purple }} />
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{titulo}</h3>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, color: C.espresso }}>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            {ehOrc ? 'O orçamento ' : 'O pedido '}
+            <strong style={{ fontFamily: 'monospace' }}>{doc.numero ?? '—'}</strong> de <strong>{doc.cliente_nome ?? '—'}</strong> ({fmtBRL(doc.total)})
+            {ehOrc
+              ? <> vai <strong>virar pedido</strong> e depois ser <strong>faturado</strong> (baixa estoque e gera as contas a receber).</>
+              : <> vai ser <strong>faturado</strong> (baixa estoque e gera as contas a receber).</>}
+          </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, padding: 10, fontSize: 12, color: C.amber }}>
+            <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>Cria documentos (pedido{ehOrc ? ' e ' : ' já existe; gera '}títulos) e não é desfeito por arrastar de volta. Confirme para prosseguir.</span>
+          </div>
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onCancel} disabled={loading} style={{ ...btnSec, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>Cancelar</button>
+          <button onClick={onConfirm} disabled={loading} style={{ ...btnPri, background: C.purple, opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
+            <ArrowRight size={14} /> {loading ? 'Processando…' : acao}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// #728 · confirmação ao reverter pedido 'aberto' para orçamento. Soft-delete das previsões; o orçamento
+// de origem volta a ser a entidade ativa. Reversível sem efeito fiscal (pedido aberto não baixou estoque).
+function ConfirmReverterModal({ ped, loading, onCancel, onConfirm }: {
+  ped: Pedido; loading: boolean; onCancel: () => void; onConfirm: () => void
+}) {
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, 100%)', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Undo2 size={18} style={{ color: C.gold }} />
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Voltar pedido para orçamento?</h3>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, color: C.espresso }}>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            O pedido <strong style={{ fontFamily: 'monospace' }}>{ped.numero ?? '—'}</strong> de <strong>{ped.cliente_nome ?? '—'}</strong> ({fmtBRL(ped.total)}) volta a ser <strong>orçamento</strong>. As previsões de recebimento do pedido são descartadas; o cancelamento (perda) passa a ser feito no orçamento.
+          </p>
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onCancel} disabled={loading} style={{ ...btnSec, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>Voltar</button>
+          <button onClick={onConfirm} disabled={loading} style={{ ...btnPri, background: C.gold, opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
+            <Undo2 size={14} /> {loading ? 'Revertendo…' : 'Voltar a orçamento'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// #728 · cancelamento (perda) do orçamento: escolhe o motivo (erp_motivo_perda) + descrição se exigida.
+// Como não há tela dedicada de cadastro de motivos e muitas empresas têm zero, o modal permite cadastrar
+// um motivo na hora (RLS já libera insert por empresa) para o cancelamento nunca ficar sem saída.
+function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
+  orc: Orcamento; onClose: () => void; onDone: () => void | Promise<void>; flash: (m: string) => void
+}) {
+  type Motivo = { id: string; nome: string; exige_descricao: boolean }
+  const [motivos, setMotivos] = useState<Motivo[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [motivoId, setMotivoId] = useState('')
+  const [texto, setTexto] = useState('')
+  const [novoAberto, setNovoAberto] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const carregarMotivos = async (selecionarId?: string) => {
+    const { data } = await supabase
+      .from('erp_motivo_perda')
+      .select('id,nome,exige_descricao')
+      .eq('company_id', orc.company_id).eq('ativo', true)
+      .order('ordem', { ascending: true, nullsFirst: false }).order('nome')
+    const lista = (data as Motivo[] | null) ?? []
+    setMotivos(lista)
+    if (selecionarId) setMotivoId(selecionarId)
+    else if (lista.length === 1) setMotivoId(lista[0].id)
+    setCarregando(false)
+  }
+  useEffect(() => {
+    let alive = true
+    ;(async () => { if (alive) await carregarMotivos() })()
+    return () => { alive = false }
+  }, [orc.company_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const motivoSel = motivos.find((m) => m.id === motivoId) ?? null
+  const exigeTexto = !!motivoSel?.exige_descricao
+
+  async function criarMotivo() {
+    const nome = novoNome.trim()
+    if (!nome) { setErro('Dê um nome ao motivo.'); return }
+    setSalvando(true); setErro(null)
+    const { data, error } = await supabase
+      .from('erp_motivo_perda')
+      .insert({ company_id: orc.company_id, nome, ativo: true, exige_descricao: false })
+      .select('id').single()
+    setSalvando(false)
+    if (error) { setErro(error.message); return }
+    setNovoAberto(false); setNovoNome('')
+    await carregarMotivos((data as { id: string }).id)
+  }
+
+  async function confirmar() {
+    if (!motivoId) { setErro('Escolha o motivo da perda.'); return }
+    if (exigeTexto && !texto.trim()) { setErro('Este motivo exige uma descrição.'); return }
+    setSalvando(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_orcamento_cancelar', {
+      p_orcamento_id: orc.id, p_motivo_perda_id: motivoId, p_motivo_texto: texto.trim() || null,
+    })
+    setSalvando(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro ?? 'Não foi possível cancelar'); return }
+    flash('Orçamento cancelado (perda registrada).')
+    await onDone()
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 96, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(460px, 100%)', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 12, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <X size={18} style={{ color: C.red }} />
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Cancelar orçamento (perda)</h3>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, fontSize: 13, color: C.espresso }}>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            Orçamento <strong style={{ fontFamily: 'monospace' }}>{orc.numero ?? '—'}</strong> de <strong>{orc.cliente_nome ?? '—'}</strong> ({fmtBRL(orc.total)}).
+          </p>
+          {carregando ? (
+            <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>Carregando motivos…</p>
+          ) : (
+            <>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Motivo da perda</span>
+                <select value={motivoId} onChange={(e) => setMotivoId(e.target.value)}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }}>
+                  <option value="">{motivos.length === 0 ? 'Nenhum motivo cadastrado' : 'Selecione…'}</option>
+                  {motivos.map((m) => <option key={m.id} value={m.id}>{m.nome}{m.exige_descricao ? ' (exige descrição)' : ''}</option>)}
+                </select>
+              </label>
+
+              {!novoAberto ? (
+                <button type="button" onClick={() => setNovoAberto(true)}
+                  style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: C.gold, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                  + Cadastrar novo motivo
+                </button>
+              ) : (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', background: C.cream, borderRadius: 8, padding: 8 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                    <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Novo motivo</span>
+                    <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Ex.: Preço, Prazo, Concorrência…"
+                      style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }} />
+                  </label>
+                  <button type="button" onClick={() => void criarMotivo()} disabled={salvando}
+                    style={{ ...btnPri, padding: '8px 12px', opacity: salvando ? 0.7 : 1 }}>Criar</button>
+                </div>
+              )}
+
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Descrição {exigeTexto ? '(obrigatória)' : '(opcional)'}</span>
+                <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={2} placeholder="O que aconteceu?"
+                  style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso, resize: 'vertical' }} />
+              </label>
+            </>
+          )}
+          {erro && <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {erro}</p>}
+        </div>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onClose} disabled={salvando} style={{ ...btnSec, opacity: salvando ? 0.6 : 1, cursor: salvando ? 'not-allowed' : 'pointer' }}>Voltar</button>
+          <button onClick={() => void confirmar()} disabled={salvando || carregando || !motivoId}
+            style={{ ...btnPri, background: C.red, opacity: (salvando || carregando || !motivoId) ? 0.6 : 1, cursor: (salvando || carregando || !motivoId) ? 'not-allowed' : 'pointer' }}>
+            <X size={14} /> {salvando ? 'Cancelando…' : 'Cancelar orçamento'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -628,13 +1095,16 @@ function KpiCard({ label, valor, sub, accent }: { label: string; valor: string; 
   )
 }
 
-function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter }: {
+function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter, onCancelar }: {
   orc: Orcamento; itens: OrcamentoItem[]; onClose: () => void;
-  onEnviar: () => void; onAprovar: () => void; onConverter: () => void;
+  onEnviar: () => void; onAprovar: () => void; onConverter: () => void; onCancelar: () => void;
 }) {
   const canEnviar = orc.status === 'rascunho'
   const canAprovar = ['enviado', 'visualizado'].includes(orc.status)
-  const canConverter = ['aprovado', 'enviado', 'visualizado'].includes(orc.status) && !orc.pedido_id
+  // #122 (R.R): converte de qualquer etapa aberta — "enviado" é opcional (mesma regra do banco)
+  const canConverter = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
+  // #728 · cancelar (perda) só enquanto o orçamento está aberto e não virou pedido
+  const canCancelar = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
@@ -706,6 +1176,9 @@ function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter
 
           {/* Açoes */}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+            {canCancelar && (
+              <button onClick={onCancelar} style={{ ...btnSec, color: C.red, borderColor: C.red, marginRight: 'auto' }}><X size={14} /> Cancelar (perda)</button>
+            )}
             {canEnviar && (
               <button onClick={onEnviar} style={btnSec}><Send size={14} /> Marcar enviado</button>
             )}
@@ -725,9 +1198,29 @@ function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter
   )
 }
 
-function DrawerPedido({ ped, orcamentos, onClose }: { ped: Pedido; orcamentos: Orcamento[]; onClose: () => void }) {
+function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; orcamentos: Orcamento[]; onClose: () => void; onFaturado?: () => void | Promise<void> }) {
   const [itens, setItens] = useState<{ id: string; produto_nome: string; produto_codigo: string | null; unidade: string | null; quantidade: number | null; preco_unitario: number | null; subtotal: number | null }[]>([])
   const orcOrigem = ped.orcamento_origem_id ? orcamentos.find((o) => o.id === ped.orcamento_origem_id) : null
+  // FEAT-OS-ONDA3A-FATURAMENTO-v1 · status local pra refletir faturamento sem reload
+  const [statusLocal, setStatusLocal] = useState(ped.status)
+  const [faturando, setFaturando] = useState(false)
+  const [faturaResult, setFaturaResult] = useState<{ ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null; erro?: string } | null>(null)
+  // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · dados pra emitir NFS-e do pedido faturado
+  const [nfseDados, setNfseDados] = useState<NfsePedidoDados | null>(null)
+  const [nfseModalAberto, setNfseModalAberto] = useState(false)
+  // #35 · medição escolhida (parcelas) para a próxima emissão; null = nota do pedido inteiro
+  const [medicaoSel, setMedicaoSel] = useState<MedicaoEscolhida | null>(null)
+  const [medicoesVersao, setMedicoesVersao] = useState(0)
+  const [nfseProducaoDisponivel, setNfseProducaoDisponivel] = useState(false)
+  // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · ultima NFS-e do pedido (inclui rejeitada)
+  const [nfseUltima, setNfseUltima] = useState<{ id: string; numero: string | null; status: string; pdf_url: string | null; xml_url: string | null; cancelado_em: string | null; motivo_rejeicao: string | null } | null>(null)
+  const [nfseAtualizando, setNfseAtualizando] = useState(false)
+  // #782 · boleto na própria tela de pedido: após "Gerar Financeiro", as parcelas marcadas com
+  // "Boleto" têm seu boleto gerado aqui (reusa GerarBoletosReceita). Os receber_ids NÃO vêm do
+  // retorno do fn_faturar (o caminho com previsão delega a fn_faturar_efetivar, que não os retorna):
+  // buscamos os títulos efetivados cruzando com as parcelas que têm gerar_boleto=true.
+  const [boletoIds, setBoletoIds] = useState<string[]>([])
+  const [boletoAberto, setBoletoAberto] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -738,6 +1231,117 @@ function DrawerPedido({ ped, orcamentos, onClose }: { ped: Pedido; orcamentos: O
     return () => { alive = false }
   }, [ped.id])
 
+  // #782 · receber_ids dos títulos efetivados cujas parcelas pediram boleto (gerar_boleto=true).
+  const carregarBoletoIds = useCallback(async (): Promise<string[]> => {
+    const { data: parc } = await supabase
+      .from('erp_pedidos_parcelas')
+      .select('id')
+      .eq('pedido_id', ped.id)
+      .eq('gerar_boleto', true)
+    const parcIds = (parc ?? []).map((p) => p.id as string)
+    if (parcIds.length === 0) { setBoletoIds([]); return [] }
+    const { data: rec } = await supabase
+      .from('erp_receber')
+      .select('id')
+      .eq('pedido_id', ped.id)
+      .neq('status', 'previsto')
+      .is('deleted_at', null)
+      .in('pedido_parcela_id', parcIds)
+    const ids = (rec ?? []).map((r) => r.id as string)
+    setBoletoIds(ids)
+    return ids
+  }, [ped.id])
+
+  // Reabrir um pedido já faturado com parcelas de boleto ainda pendentes → mostra o gerador.
+  useEffect(() => {
+    if (ped.status !== 'faturado' && ped.status !== 'faturamento_parcial') return
+    let alive = true
+    ;(async () => {
+      const ids = await carregarBoletoIds()
+      if (alive && ids.length > 0) setBoletoAberto(true)
+    })()
+    return () => { alive = false }
+  }, [ped.id, ped.status, carregarBoletoIds])
+
+  // FIX-NFSE-PRODUCAO-PROVIDER-v2 · lê a config fiscal ATIVA (helper compartilhado). Antes filtrava por
+  // provider='gov_nfse_nacional' (legado, inativo) e travava Produção pra todo mundo — chamado #16.
+  useEffect(() => {
+    if (!ped.company_id) return
+    let alive = true
+    void carregarProducaoDisponivel(ped.company_id).then((v) => { if (alive) setNfseProducaoDisponivel(v) })
+    return () => { alive = false }
+  }, [ped.company_id])
+
+  // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · dados pro card NFS-e
+  // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · tambem busca a ultima NFS-e (qualquer status)
+  // direto da tabela pra cobrir rejeitada · ordena por criado_em DESC.
+  const carregarNfseDados = useCallback(async () => {
+    // NFS-e PRIMEIRO (CEO 23/09) + #35 medição: a nota vale para pedido NÃO faturado (aberto / faturamento
+    // parcial). O gate antigo ('faturado') escondia o card da NFS-e e o de Medições justamente nesses pedidos.
+    if (statusLocal === 'cancelado') return
+    setNfseAtualizando(true)
+    const [dadosRes, ultimaRes] = await Promise.all([
+      supabase.rpc('fn_pedido_nfse_dados', { p_pedido_id: ped.id }),
+      supabase
+        .from('erp_nfse_emitidas')
+        .select('id,numero,status,pdf_url,xml_url,cancelado_em,motivo_rejeicao')
+        .eq('pedido_id', ped.id)
+        .order('criado_em', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ])
+    setNfseDados(dadosRes.data as NfsePedidoDados | null)
+    setNfseUltima(ultimaRes.data as typeof nfseUltima)
+    setNfseAtualizando(false)
+  }, [ped.id, statusLocal])
+
+  useEffect(() => { void carregarNfseDados() }, [carregarNfseDados])
+
+  // HOTFIX-NFSE-PROCESSANDO-v1 · "Atualizar status" precisa CONSULTAR a Focus (a rota grava número/chave/
+  // XML/PDF ou o motivo da recusa), não só reler o banco — sem webhook a nota fica presa em 'processando'.
+  const consultarERecarregar = useCallback(async () => {
+    const id = nfseUltima?.id
+    if (id) {
+      setNfseAtualizando(true)
+      try { await authFetch(`/api/fiscal/nfse/consultar/${id}`) } catch { /* a rota loga a tentativa; recarrega abaixo */ }
+    }
+    await carregarNfseDados()
+  }, [nfseUltima?.id, carregarNfseDados])
+
+  // Após emitir pelo pedido, consulta a Focus algumas vezes (3× a cada 5s), como o NFSePreviewModal faz:
+  // a autorização costuma sair em segundos, então o número aparece sozinho sem depender de webhook.
+  const pollAposEmitir = useCallback(async () => {
+    for (let i = 0; i < 3; i++) {
+      await new Promise((r) => setTimeout(r, 5000))
+      const { data } = await supabase
+        .from('erp_nfse_emitidas')
+        .select('id,status')
+        .eq('pedido_id', ped.id)
+        .order('criado_em', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const nota = data as { id: string; status: string } | null
+      if (!nota?.id || nota.status !== 'processando') { await carregarNfseDados(); break }
+      try { await authFetch(`/api/fiscal/nfse/consultar/${nota.id}`) } catch { /* segue tentando */ }
+      await carregarNfseDados()
+    }
+  }, [ped.id, carregarNfseDados])
+
+  // Consolidacao multi-servico: junta descricoes + soma valor + usa servicos[0] pra LC116/codigo/aliquota
+  const nfseSeed = useMemo(() => {
+    if (!nfseDados || !nfseDados.tem_servico || nfseDados.servicos.length === 0) return null
+    const descricoes = Array.from(new Set(nfseDados.servicos.map((s) => s.descricao).filter(Boolean))).join(' · ')
+    const primeiro = nfseDados.servicos[0]
+    return {
+      descricao: descricoes || primeiro.descricao || '',
+      codigoServicoMunicipio: primeiro.codigo_servico_municipio ?? undefined,
+      codigoLC116: primeiro.codigo_lc116 ?? undefined,
+      aliquotaIss: Number(primeiro.aliquota_iss ?? 0),
+      valorServicos: Number(nfseDados.valor_servicos ?? 0),
+      servicoId: primeiro.servico_id ?? undefined,
+    }
+  }, [nfseDados])
+
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
       <aside onClick={(e) => e.stopPropagation()} style={{ width: 'min(720px, 100%)', height: '100%', background: C.offWhite, overflowY: 'auto', boxShadow: '-8px 0 24px rgba(0,0,0,0.15)' }}>
@@ -746,7 +1350,7 @@ function DrawerPedido({ ped, orcamentos, onClose }: { ped: Pedido; orcamentos: O
             <div style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', fontWeight: 600, marginBottom: 4 }}>Pedido</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, fontFamily: 'monospace' }}>{ped.numero ?? '—'}</h2>
-              <StatusBadge status={ped.status} mapa={STATUS_PED} />
+              <StatusBadge status={statusLocal} mapa={STATUS_PED} />
             </div>
             {orcOrigem && (
               <p style={{ margin: '4px 0 0', fontSize: 11, color: C.purple }}>📂 Originado do orçamento <strong>{orcOrigem.numero}</strong></p>
@@ -793,28 +1397,313 @@ function DrawerPedido({ ped, orcamentos, onClose }: { ped: Pedido; orcamentos: O
             </div>
           </Card>
 
-          <Card titulo="Faturamento">
-            {ped.nf_emitida && ped.nf_numero ? (
-              <Row label="NF-e emitida" value={ped.nf_numero} />
+          {/* FEAT-OS-ONDA4-O41-FICHA-GENERICA-v1 · Ordem de Serviço */}
+          <Card titulo="ORDEM DE SERVIÇO">
+            <OrdemServicoCard pedidoId={ped.id} />
+          </Card>
+
+          <Card titulo="Parcelas">
+            <ParcelasEditor pedidoId={ped.id} total={Number(ped.total ?? 0)} onSaved={() => setMedicoesVersao((v) => v + 1)} />
+          </Card>
+
+          {/* #35 · faturar por MEDIÇÃO: parcelas marcadas → uma NFS-e pela soma (aparece com 2+ parcelas) */}
+          {statusLocal !== 'cancelado' && nfseDados && nfseDados.tem_servico && (
+            <Card titulo="Medições (NFS-e por parcela)">
+              <MedicoesNFSeCard
+                pedidoId={ped.id}
+                versao={medicoesVersao}
+                onEmitir={(m) => { setMedicaoSel(m); setNfseModalAberto(true) }}
+              />
+            </Card>
+          )}
+
+          {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · NFS-e do serviço · 4 estados
+              NFS-e PRIMEIRO (CEO 23/09): "Emitir NFS-e" passa a valer em pedido NÃO faturado (com serviço
+              e tomador). O financeiro nasce da nota, pelo líquido (no próprio modal). Some a exigência de
+              faturar antes — só bloqueia pedido cancelado. Quem já fatura primeiro continua vinculando o título. */}
+          {statusLocal !== 'cancelado' && nfseDados && nfseDados.tem_servico && (() => {
+            const ultStatus = nfseUltima?.status
+            const eAutorizada = ultStatus === 'autorizada'
+            const eProcessando = ultStatus === 'processando'
+            const eCancelada = ultStatus === 'cancelada'
+            const eRejeitada = ultStatus === 'rejeitada' || ultStatus === 'erro'
+            const semNota = !nfseUltima
+            const btnAtualizar = (
+              <button
+                type="button"
+                onClick={() => void consultarERecarregar()}
+                disabled={nfseAtualizando}
+                data-testid="nfse-atualizar-status"
+                style={{
+                  fontSize: 11, padding: '4px 10px', borderRadius: 6,
+                  border: `1px solid ${C.border}`, background: 'transparent',
+                  color: C.espressoM, cursor: nfseAtualizando ? 'not-allowed' : 'pointer',
+                  alignSelf: 'flex-start',
+                }}
+              >
+                {nfseAtualizando ? 'Atualizando…' : '↻ Atualizar status'}
+              </button>
+            )
+            const linkArq = (href: string, rotulo: string, tid: string) => (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid={tid}
+                style={{
+                  padding: '8px 14px', borderRadius: 8,
+                  border: `1px solid ${C.gold}`, background: C.goldBg, color: C.goldD,
+                  fontSize: 12, fontWeight: 600, textDecoration: 'none',
+                }}
+              >
+                {rotulo}
+              </a>
+            )
+            const arquivos = (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {nfseUltima?.xml_url && linkArq(nfseUltima.xml_url, 'Baixar XML', 'nfse-baixar-xml')}
+                  {nfseUltima?.pdf_url && linkArq(nfseUltima.pdf_url, 'Baixar PDF', 'nfse-ver-pdf')}
+                </div>
+                {(!nfseUltima?.xml_url || !nfseUltima?.pdf_url) && (
+                  <p data-testid="nfse-arquivo-gerando" style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
+                    {!nfseUltima?.xml_url && !nfseUltima?.pdf_url ? 'XML e PDF' : !nfseUltima?.xml_url ? 'XML' : 'PDF'} ainda sendo gerado pela prefeitura — toque em “Atualizar status”.
+                  </p>
+                )}
+              </div>
+            )
+            return (
+              <Card titulo="NFS-e do serviço">
+                {eAutorizada && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>
+                      ✅ NFS-e emitida — nº {nfseUltima?.numero ?? '—'}
+                    </p>
+                    {arquivos}
+                    {btnAtualizar}
+                  </div>
+                )}
+
+                {eProcessando && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <p style={{ fontSize: 12, color: C.amber, fontWeight: 600, margin: 0 }}>
+                      ⏳ NFS-e em processamento na prefeitura
+                    </p>
+                    <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
+                      O número sai assim que a prefeitura autorizar.
+                    </p>
+                    {btnAtualizar}
+                  </div>
+                )}
+
+                {eCancelada && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-testid="nfse-cancelada">
+                    <p style={{ fontSize: 12, color: C.espressoM, fontWeight: 600, margin: 0 }}>
+                      🚫 NFS-e cancelada — nº {nfseUltima?.numero ?? '—'}
+                      {nfseUltima?.cancelado_em ? ` · em ${new Date(nfseUltima.cancelado_em).toLocaleDateString('pt-BR')}` : ''}
+                    </p>
+                    {arquivos}
+                    <button
+                      type="button"
+                      onClick={() => { setMedicaoSel(null); setNfseModalAberto(true) }}
+                      data-testid="nfse-reemitir"
+                      style={{
+                        minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                        border: 'none', background: C.gold, color: '#fff',
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
+                      }}
+                    >
+                      📄 Emitir novamente
+                    </button>
+                    {btnAtualizar}
+                  </div>
+                )}
+
+                {eRejeitada && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <p style={{ fontSize: 12, color: C.red, fontWeight: 600, margin: 0 }}>
+                      ❌ NFS-e rejeitada
+                    </p>
+                    {nfseUltima?.motivo_rejeicao && (
+                      <p style={{ fontSize: 11, color: C.espressoM, margin: 0, padding: 8, background: '#FCEBEB', borderRadius: 6 }}>
+                        {nfseUltima.motivo_rejeicao}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => { setMedicaoSel(null); setNfseModalAberto(true) }}
+                      data-testid="nfse-reemitir"
+                      style={{
+                        minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                        border: 'none', background: C.gold, color: '#fff',
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
+                      }}
+                    >
+                      📄 Emitir novamente
+                    </button>
+                    {btnAtualizar}
+                  </div>
+                )}
+
+                {semNota && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
+                      Valor: <strong style={{ color: C.gold }}>{fmtBRL(nfseDados.valor_servicos)}</strong>
+                      {nfseDados.servicos.length > 1 && (
+                        <span style={{ marginLeft: 8, fontSize: 11, color: C.espressoL }}>
+                          ({nfseDados.servicos.length} serviços consolidados)
+                        </span>
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { setMedicaoSel(null); setNfseModalAberto(true) }}
+                      data-testid="nfse-emitir-abrir"
+                      style={{
+                        minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                        border: 'none', background: C.gold, color: '#fff',
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
+                      }}
+                    >
+                      📄 Emitir NFS-e
+                    </button>
+                  </div>
+                )}
+              </Card>
+            )
+          })()}
+
+          {/* FEAT-NFE-PRODUTO-3-PRODUCAO-v1 · NF-e do produto · ambiente vem da config (producao) */}
+          {/* #780 (cont.) · NF-e do produto PRIMEIRO: emitir ANTES de "Gerar Financeiro", igual à NFS-e. Vale para
+              pedido NÃO cancelado e NÃO revertido (revisão Eng. Chefe: pedido que voltou a orçamento não emite NF-e).
+              O gate antigo 'faturado' só mostrava o card depois do financeiro — inverso do #780. */}
+          {statusLocal !== 'cancelado' && statusLocal !== 'revertido' && (
+            <Card titulo="NF-E DO PRODUTO">
+              <NFeCard companyId={ped.company_id} pedidoId={ped.id} />
+            </Card>
+          )}
+
+          <Card titulo="Gerar Financeiro">
+            {/* FEAT-OS-ONDA3A-FATURAMENTO-v1 */}
+            {statusLocal === 'faturado' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>✓ Pedido FATURADO</p>
+                {faturaResult?.ok && (
+                  <div style={{ fontSize: 12, color: C.espresso, lineHeight: 1.5 }}>
+                    CRIOU <strong>{faturaResult.qtd_titulos_receber}</strong> título(s) a receber<br />
+                    BAIXOU <strong>{faturaResult.qtd_movimentos_estoque}</strong> item(ns) do estoque<br />
+                    CMV: <strong>{fmtBRL(faturaResult.cmv)}</strong>
+                  </div>
+                )}
+                {/* #782 · gera o(s) boleto(s) das parcelas marcadas, aqui mesmo na tela de pedido */}
+                {boletoAberto && boletoIds.length > 0 && (
+                  <GerarBoletosReceita
+                    companyId={ped.company_id}
+                    ids={boletoIds}
+                    onConcluir={() => setBoletoAberto(false)}
+                  />
+                )}
+              </div>
+            ) : statusLocal === 'cancelado' ? (
+              <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>Pedido cancelado · não pode ser faturado.</p>
             ) : (
-              <div>
-                <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>Nenhuma NF-e emitida.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {faturaResult?.erro && (
+                  <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {faturaResult.erro}</p>
+                )}
+                {/* #780 (cont.) · a emissão de NF-e saiu daqui: agora fica no card "NF-E DO PRODUTO" acima, emitida ANTES
+                    do financeiro (igual à NFS-e). "Gerar Financeiro" segue sendo a ÚLTIMA ação, standalone. */}
+                {/* #780 · última ação: gera os recebíveis + baixa de estoque (standalone p/ pedido sem nota) */}
+                <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
+                  Gere os títulos a receber + baixa de estoque (produtos + BOM dos serviços) em 1 clique.
+                </p>
                 <button
                   type="button"
-                  disabled
-                  title="Em desenvolvimento (M.B.1.5)"
-                  style={{ marginTop: 8, padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.cream, color: C.espressoL, fontSize: 12, fontWeight: 600, cursor: 'not-allowed' }}
+                  disabled={faturando}
+                  onClick={async () => {
+                    if (!confirm('Vai gerar os recebíveis e baixar o estoque. Confirma?')) return
+                    setFaturando(true)
+                    setFaturaResult(null)
+                    const { data, error } = await supabase.rpc('fn_faturar', { p_pedido_id: ped.id })
+                    setFaturando(false)
+                    if (error) {
+                      setFaturaResult({ ok: false, erro: error.message })
+                      return
+                    }
+                    const r = data as { ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null }
+                    setFaturaResult(r)
+                    if (r?.ok) {
+                      setStatusLocal('faturado')
+                      // #782 · parcelas marcadas com "Boleto" → abre o gerador na própria tela
+                      const ids = await carregarBoletoIds()
+                      if (ids.length > 0) setBoletoAberto(true)
+                      await onFaturado?.()
+                    }
+                  }}
+                  data-testid="pedido-faturar"
+                  style={{
+                    minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                    border: 'none', background: faturando ? C.cream : C.gold,
+                    color: faturando ? C.espressoL : '#fff',
+                    fontSize: 13, fontWeight: 700,
+                    cursor: faturando ? 'not-allowed' : 'pointer',
+                  }}
                 >
-                  Emitir NF-e (em breve)
+                  {faturando ? 'Gerando…' : '💰 Gerar Financeiro'}
                 </button>
               </div>
             )}
           </Card>
         </div>
       </aside>
+      {/* FEAT-OS-ONDA3B-NFSE-FRONT-v1 · modal de emissao pre-preenchido.
+          HOTFIX (print Rodrigo 21/09): o modal é irmão do <aside> DENTRO do wrapper que fecha no onClick.
+          Todo clique no modal (escolher obra, digitar) borbulhava pela árvore React até o wrapper → onClose
+          → o painel do pedido fechava. O stopPropagation aqui contém o clique: o overlay do próprio modal
+          fecha só o modal; o fundo do painel (sem modal) continua fechando o painel. O modal fica ACIMA do
+          <aside> (fixed z-50 dentro do contexto de empilhamento do wrapper z-90). */}
+      <div onClick={(e) => e.stopPropagation()}>
+      <NFSeEmitirGovModal
+        companyId={ped.company_id}
+        aberto={nfseModalAberto}
+        pedidoId={ped.id}
+        pedidoNumero={ped.numero ?? undefined}
+        producaoDisponivel={nfseProducaoDisponivel}
+        tomadorDocumento={nfseDados?.tomador?.documento ?? undefined}
+        tomadorTipo={nfseDados?.tomador?.tipo ?? undefined}
+        tomadorNome={nfseDados?.tomador?.nome ?? undefined}
+        tomadorEmail={nfseDados?.tomador?.email ?? undefined}
+        tomadorClienteId={ped.cliente_id ?? undefined}
+        descricaoServico={nfseSeed?.descricao}
+        codigoServicoMunicipio={nfseSeed?.codigoServicoMunicipio}
+        codigoLC116={nfseSeed?.codigoLC116}
+        aliquotaIss={nfseSeed?.aliquotaIss}
+        valorServicos={nfseSeed?.valorServicos}
+        servicoId={nfseSeed?.servicoId}
+        medicao={medicaoSel ?? undefined}
+        onFechar={() => { setNfseModalAberto(false); setMedicaoSel(null) }}
+        onEmitida={async (providerReference?: string) => {
+          setNfseModalAberto(false)
+          setMedicaoSel(null)
+          setMedicoesVersao((v) => v + 1)
+          if (providerReference) {
+            await supabase.rpc('fn_pedido_nfse_marcar_emitida', {
+              p_pedido_id: ped.id,
+              p_provider_reference: providerReference,
+            })
+          }
+          await carregarNfseDados()
+          // HOTFIX-NFSE-PROCESSANDO-v1: sem webhook, a nota fica em 'processando' — consulta a Focus
+          // algumas vezes logo após emitir para o número/recusa aparecer sozinho.
+          void pollAposEmitir()
+        }}
+      />
+      </div>
     </div>
   )
 }
+
+// #82② / A③ · obra migrada para o componente único BlocoObraFiscal (tipos/regras lá).
 
 function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
   companyId: string; onClose: () => void; onCreated: (id: string) => void; flash: (m: string) => void;
@@ -824,11 +1713,29 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null)
   const [searchingClientes, setSearchingClientes] = useState(false)
-  const [itens, setItens] = useState<{ produto_nome: string; quantidade: number; preco_unitario: number; unidade: string }[]>([
-    { produto_nome: '', quantidade: 1, preco_unitario: 0, unidade: 'un' },
-  ])
+  // FEAT-OS-ONDA1B-EDITOR-NO-OTC-v1 · itens polimorficos via shared editor
+  const [itens, setItens] = useState<EditorItem[]>([])
   const [observacoes, setObservacoes] = useState('')
   const [salvando, setSalvando] = useState(false)
+
+  // #82② cluster obra · Parte 3 — bloco de obra quando algum serviço é E0370 (construção civil).
+  // A obra vira CAMPOS congelados no orçamento (autossuficiência fiscal) + obra_id (rastreio #82.3).
+  const [exigeObra, setExigeObra] = useState(false)
+  const [checandoObra, setChecandoObra] = useState(false)
+  // #82② / A③ · obra via componente ÚNICO BlocoObraFiscal (mesmo do reenvio de NFS-e).
+  const [obraFiscal, setObraFiscal] = useState<ObraFiscalState>(obraFiscalStateInicial)
+
+  // Detecção do E0370 ANTES de salvar (a tela só tem os servico_id; fn_orcamento_exige_obra exige
+  // orçamento já gravado). Mesma regra da emissão (fn_servicos_exigem_obra → fn_fiscal_exige_obra).
+  useEffect(() => {
+    const ids = itens.filter((i) => i.tipo_item === 'servico' && i.servico_id).map((i) => i.servico_id as string)
+    if (ids.length === 0) { setExigeObra(false); return }
+    let cancel = false
+    setChecandoObra(true)
+    supabase.rpc('fn_servicos_exigem_obra', { p_company_id: companyId, p_servico_ids: ids })
+      .then(({ data }) => { if (!cancel) { setExigeObra(data === true); setChecandoObra(false) } })
+    return () => { cancel = true }
+  }, [itens, companyId])
 
   // Busca clientes (debounced)
   useEffect(() => {
@@ -850,14 +1757,30 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
     return () => clearTimeout(handle)
   }, [clienteBusca, companyId])
 
-  const subtotal = itens.reduce((s, i) => s + (i.quantidade || 0) * (i.preco_unitario || 0), 0)
+  const subtotal = itens.reduce((s, i) => s + (i.subtotal || 0), 0)
 
   async function criar() {
     if (!clienteSel) return
     setSalvando(true)
-    const numero = `ORC-${Date.now().toString().slice(-6)}`
+    // Numeração oficial e sequencial (config por empresa). Antes gerava ORC-<timestamp> aleatório
+    // (fonte dos números órfãos tipo ORC-346035). O trigger BEFORE INSERT é a rede de segurança.
+    const { data: numData } = await supabase.rpc('next_orcamento_numero', { p_company_id: companyId })
+    const numero = (numData as string | null) || `ORC-${new Date().getFullYear()}-0001`
     const validade = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+
+    // #82② / A③ — obra congelada no orçamento (autossuficiência fiscal) + obra_id (rastreio), resolvida
+    // pelo helper ÚNICO (mesmo do reenvio de NFS-e). Não bloqueia o rascunho: sem obra, grava tudo nulo
+    // e a trava fica na emissão. Só aborta se falhar ao criar a obra no Hub.
+    let obraFields: Record<string, unknown> = {}
+    if (exigeObra) {
+      const rObra = await resolverObraFiscal(obraFiscal, {
+        companyId, clienteId: clienteSel.id, clienteNome: clienteSel.nome_fantasia || clienteSel.razao_social,
+      })
+      if (!rObra.ok) { flash(rObra.erro); setSalvando(false); return }
+      obraFields = rObra.obra as unknown as Record<string, unknown>
+    }
+
     const { data: orc, error } = await supabase
       .from('erp_orcamentos')
       .insert({
@@ -876,6 +1799,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
         total: subtotal,
         observacoes: observacoes || null,
         created_by: user?.id,
+        ...obraFields,
       })
       .select()
       .single()
@@ -884,18 +1808,28 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
       setSalvando(false)
       return
     }
-    // Inserir itens (apenas os preenchidos)
-    const validos = itens.filter((i) => i.produto_nome.trim() && i.quantidade > 0)
+    // Inserir itens polimorficos · usa IDs reais do autocomplete
+    const validos = itens.filter((i) =>
+      i.quantidade > 0 && (i.tipo_item === 'servico' ? !!i.servico_id : !!i.produto_id)
+    )
     if (validos.length > 0) {
       await supabase.from('erp_orcamentos_itens').insert(validos.map((it, idx) => ({
         orcamento_id: orc.id,
         company_id: companyId,
         ordem: idx + 1,
-        produto_nome: it.produto_nome.trim(),
-        quantidade: it.quantidade,
+        tipo_item: it.tipo_item,
+        produto_id: it.tipo_item === 'produto' ? it.produto_id : null,
+        produto_codigo: it.tipo_item === 'produto' ? it.produto_codigo : null,
+        produto_nome: it.tipo_item === 'produto' ? it.produto_nome : null,
+        produto_descricao: it.tipo_item === 'produto' ? it.produto_descricao : null,
+        servico_id: it.tipo_item === 'servico' ? it.servico_id : null,
+        servico_codigo: it.tipo_item === 'servico' ? it.servico_codigo : null,
+        servico_descricao: it.tipo_item === 'servico' ? it.servico_descricao : null,
         unidade: it.unidade,
+        quantidade: it.quantidade,
         preco_unitario: it.preco_unitario,
-        subtotal: it.quantidade * it.preco_unitario,
+        preco_custo: it.preco_custo ?? null,
+        subtotal: it.subtotal,
       })))
     }
     // Historico
@@ -961,47 +1895,15 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
             </div>
 
             <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Itens</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {itens.map((it, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '2.5fr 0.6fr 0.6fr 1fr auto', gap: 6, alignItems: 'center' }}>
-                  <input
-                    placeholder="Nome do produto/serviço"
-                    value={it.produto_nome}
-                    onChange={(e) => { const copy = [...itens]; copy[i].produto_nome = e.target.value; setItens(copy) }}
-                    style={inp}
-                  />
-                  <input
-                    type="number" step="0.01" value={it.quantidade}
-                    onChange={(e) => { const copy = [...itens]; copy[i].quantidade = parseFloat(e.target.value) || 0; setItens(copy) }}
-                    style={{ ...inp, textAlign: 'right' }} placeholder="Qtd"
-                  />
-                  <select
-                    value={it.unidade}
-                    onChange={(e) => { const copy = [...itens]; copy[i].unidade = e.target.value; setItens(copy) }}
-                    style={inp}
-                  >
-                    <option value="un">un</option><option value="m²">m²</option><option value="m">m</option>
-                    <option value="kg">kg</option><option value="h">h</option><option value="serv.">serv.</option>
-                  </select>
-                  <input
-                    type="number" step="0.01" value={it.preco_unitario}
-                    onChange={(e) => { const copy = [...itens]; copy[i].preco_unitario = parseFloat(e.target.value) || 0; setItens(copy) }}
-                    style={{ ...inp, textAlign: 'right' }} placeholder="Preço un."
-                  />
-                  {itens.length > 1 && (
-                    <button onClick={() => setItens(itens.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red }}>
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button
-                onClick={() => setItens([...itens, { produto_nome: '', quantidade: 1, preco_unitario: 0, unidade: 'un' }])}
-                style={{ alignSelf: 'flex-start', padding: '4px 10px', fontSize: 11, border: `1px solid ${C.gold}`, borderRadius: 6, background: C.goldBg, color: C.goldD, fontWeight: 600, cursor: 'pointer' }}
-              >
-                + Adicionar item
-              </button>
-            </div>
+            <OrcamentoItensEditor companyId={companyId} itens={itens} onChange={setItens} />
+
+            {/* #82② — bloco de obra: só aparece quando um serviço é de construção civil (E0370) */}
+            {checandoObra && !exigeObra && (
+              <p style={{ margin: 0, fontSize: 11, color: C.espressoL }}>Verificando se algum serviço exige obra…</p>
+            )}
+            {exigeObra && (
+              <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={setObraFiscal} />
+            )}
 
             <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label>
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} placeholder="Opcional — texto que aparece no orçamento" style={{ ...inp, resize: 'vertical' }} />

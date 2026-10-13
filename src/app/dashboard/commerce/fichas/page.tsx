@@ -97,11 +97,11 @@ export default function FichasCommercePage() {
   const canCreate = !!companyIdUnico
 
   // Carregar fichas (re-executa quando companyIds mudam, ex: usuario troca empresa)
-  const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
-
+  // FIX-VAZAMENTO-JORDANA (07/07): tela operacional — nunca consolida
+  // multi-empresa. Gate estrito em companyIdUnico + .eq (era .in(companyIds)).
   useEffect(() => {
     if (companiesLoading) return
-    if (companyIds.length === 0) {
+    if (!companyIdUnico) {
       setFichas([])
       return
     }
@@ -111,7 +111,7 @@ export default function FichasCommercePage() {
       const { data } = await supabase
         .from('fichas_tecnicas')
         .select('*')
-        .in('company_id', companyIds)
+        .eq('company_id', companyIdUnico)
         .order('categoria', { ascending: true, nullsFirst: true })
         .order('nome', { ascending: true })
       if (!alive) return
@@ -119,9 +119,7 @@ export default function FichasCommercePage() {
       setLoadingFichas(false)
     })()
     return () => { alive = false }
-    // companyIdsKey eh CSV ordenado — estavel em string para deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyIdsKey, companiesLoading])
+  }, [companyIdUnico, companiesLoading])
 
   // Carregar itens da ficha selecionada
   useEffect(() => {
@@ -340,16 +338,16 @@ export default function FichasCommercePage() {
         </div>
       </header>
 
-      {/* Hint contextual (consolidado/grupo) — orienta sem ser intrusivo */}
+      {/* FIX-VAZAMENTO-JORDANA (07/07): NAO consolida multi-empresa */}
       {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
         <div
           style={{
             marginBottom: 12,
             padding: '10px 14px',
-            background: C.goldBg,
-            border: `1px solid ${C.gold}55`,
+            background: '#FFF8E1',
+            border: '1px solid #C88A1A55',
             borderRadius: 8,
-            color: C.goldD,
+            color: '#C88A1A',
             fontSize: 12,
             display: 'flex',
             alignItems: 'center',
@@ -358,9 +356,8 @@ export default function FichasCommercePage() {
         >
           <Info size={14} />
           <span>
-            Exibindo fichas de <strong>{selInfo.nome}</strong> ({selInfo.count}{' '}
-            {selInfo.count === 1 ? 'empresa' : 'empresas'}). Para criar uma ficha nova, selecione uma
-            empresa especifica no menu superior.
+            Selecione uma empresa específica no menu superior. Fichas técnicas são operacionais
+            por empresa — não exibe dados consolidados.
           </span>
         </div>
       )}
@@ -450,6 +447,8 @@ export default function FichasCommercePage() {
           Carregando fichas técnicas…
         </div>
       ) : companyIds.length === 0 ? (
+        <NoCompanyState />
+      ) : !companyIdUnico ? (
         <NoCompanyState />
       ) : fichas.length === 0 ? (
         <EmptyState onCreate={() => setShowNova(true)} disabled={!canCreate} hintNeedSelect={!canCreate} />

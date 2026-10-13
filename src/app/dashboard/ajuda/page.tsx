@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { authFetch } from '@/lib/authFetch'
 
 const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', blue: '#42A5F5', espresso: '#3D2314' }
 
@@ -29,7 +30,7 @@ export default function AjudaPage() {
   const chatRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    fetch('/api/ajuda/context')
+    authFetch('/api/ajuda/context')
       .then(r => r.json())
       .then(data => {
         setContext(data)

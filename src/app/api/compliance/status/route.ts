@@ -5,7 +5,7 @@
 // consultas recentes e próximas a vencer (30d).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -15,10 +15,12 @@ function fail(status: number, mensagem_humana: string) {
   return NextResponse.json({ ok: false, error: mensagem_humana, mensagem_humana }, { status })
 }
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const url = new URL(req.url)
   const company_id = url.searchParams.get('company_id') || ''
   if (!company_id) return fail(400, 'company_id é obrigatório.')
+  const negado = await exigirEmpresas(u, [company_id])
+  if (negado) return negado
 
   // Empresa
   const { data: empresa, error: empErr } = await supabaseAdmin

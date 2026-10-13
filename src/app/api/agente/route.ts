@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { exigirLogin, empresasPermitidas, type UsuarioApi } from "@/lib/auth/guardaApi";
+import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -8,14 +9,20 @@ export const maxDuration = 60;
 
 const fmtR = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+async function handler(req: NextRequest, user: UsuarioApi) {
   try {
     const { pergunta, company_ids, historico } = await req.json();
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "API key não configurada" }, { status: 500 });
 
     const supabase = supabaseAdmin;
-    const compIds = company_ids || [];
+    // Toda empresa pedida precisa ser do usuário; lista vazia segue sem dados de empresa (como antes).
+    let compIds: string[] = Array.isArray(company_ids) ? company_ids : [];
+    if (compIds.length) {
+      const permitidas = await empresasPermitidas(user, compIds);
+      if (permitidas instanceof NextResponse) return permitidas;
+      compIds = permitidas;
+    }
 
     // ══════════════════════════════════════
     // COLETA DE CONTEXTO — DADOS DA EMPRESA
@@ -144,7 +151,7 @@ FONTE DOS DADOS:
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: modeloPara('consultor'),
         max_tokens: 2000,
         system: `Você é o PS, o Consultor Digital da PS Gestão e Capital. Você está integrado ao ERP como assistente inteligente.
 
@@ -182,6 +189,9 @@ LINHAS DE NEGÓCIO: ${blSummary}`,
     });
 
     const data = await response.json();
+    if (!response.ok || data?.error) {
+      await registrarFalhaIA({ endpoint: '/api/agente', finalidade: 'consultor', modelo: modeloPara('consultor'), status: response.status, erro: data?.error?.message || JSON.stringify(data?.error || 'sem corpo'), companyId: compIds[0] ?? null });
+    }
     const resposta = data.content?.map((c: any) => c.text || "").join("") || "Desculpe, não consegui processar sua pergunta.";
 
     return NextResponse.json({ success: true, resposta });
@@ -190,4 +200,4 @@ LINHAS DE NEGÓCIO: ${blSummary}`,
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

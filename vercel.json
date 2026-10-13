@@ -1,5 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "next build",
+  "ignoreCommand": "bash scripts/vercel-ignore.sh",
   "functions": {
     "src/app/api/screen-watcher/playwright/route.ts": {
       "maxDuration": 60,
@@ -8,12 +10,20 @@
     "src/app/api/cron/screen-watcher/route.ts": {
       "maxDuration": 300,
       "memory": 512
+    },
+    "src/app/api/cron/ponto-diario/route.ts": {
+      "maxDuration": 300,
+      "memory": 512
     }
   },
   "crons": [
     {
       "path": "/api/cron/screen-watcher",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/ponto-diario",
+      "schedule": "0 8 * * *"
     }
   ]
 }

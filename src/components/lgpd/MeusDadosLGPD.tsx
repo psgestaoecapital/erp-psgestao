@@ -108,6 +108,10 @@ export default function MeusDadosLGPD() {
         <br />· Corrigir dados incorretos (Art. 18 II)
         <br />· Solicitar anonimização ou eliminação (Art. 18 III)
         <br />· Revogar consentimento a qualquer momento (Art. 18 VI)
+        <br />· Opor-se ao tratamento por IA (Art. 18 §2º) — veja abaixo
+        <br />
+        <br />
+        <strong>Sobre o processamento por Inteligência Artificial:</strong> você pode se opor ao tratamento por IA. Como ele é essencial ao funcionamento do sistema (o ERP é AI-native, e a IA está prevista no contrato de serviço), a oposição implica <strong>encerrar o uso do produto</strong>. Fale com o suporte — a oposição não é executada automaticamente.
         <br />
         <br />
         Para exercer qualquer direito, entre em contato com nosso DPO: <strong>dpo@psgestao.com.br</strong>

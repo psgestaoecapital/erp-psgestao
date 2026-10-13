@@ -2,6 +2,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from '@/lib/authFetch';
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
   G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -110,7 +111,7 @@ export default function CusteioPage(){
   const processar=async()=>{
     setProcessing(true);
     try{
-      const r=await fetch("/api/custos/processar",{
+      const r=await authFetch("/api/custos/processar",{
         method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({company_ids:[sel],periodo:mesAno})
       });

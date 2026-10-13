@@ -1,0 +1,243 @@
+// Adapter IO Point — converte resposta da API IO Point pro modelo canonico
+// (PontoColaborador / PontoHoras). Auth via header apiIopointToken.
+//
+// Endpoints validados ao vivo (30/06/2026):
+//   GET /collaborator                              -> 151 registros
+//   GET /collaborator/totalHours?begin_date=&end_date=
+//       periodo maximo 31 dias.
+//
+// Campos vindos da API (validados):
+//   national_registry, registration_number, email, name, occupation,
+//   department, team, business_unit, admission_date, pis, company,
+//   + total_hours em /totalHours.
+
+import type {
+  PontoAdapter, PontoColaborador, PontoCredencial, PontoHoras, PontoDia, PontoMarcacaoPonto, PontoPausa,
+} from './types'
+import { hhmmParaDecimal } from './hhmm'
+
+// "HH:MM:SS" (ou "HH:MM") -> segundos. Vazio/invalido -> 0.
+function hhmmssParaSegundos(v: unknown): number {
+  const s = String(v ?? '').trim()
+  if (!/^\d{1,3}:\d{2}(:\d{2})?$/.test(s)) return 0
+  const [h, m, sec] = s.split(':').map((x) => Number(x) || 0)
+  return h * 3600 + m * 60 + (sec || 0)
+}
+
+const onlyDigits = (s: unknown) => String(s ?? '').replace(/\D/g, '')
+
+// FIX-PONTO-ADMISSION-VAZIO (07/07): a API IO Point manda admission_date=""
+// (string vazia) pra alguns colaboradores (7/158 na Frioeste). O `?? null`
+// NAO pega string vazia — so null/undefined — entao "" ia direto pra coluna
+// `admissao date` e o Postgres rejeitava (SQLSTATE 22007 "invalid input
+// syntax for type date") DERRUBANDO O LOTE INTEIRO dos 158. Resultado:
+// ind_ponto_colaborador=0 e erro mascarado como "[object Object]".
+// dateOrNull: string vazia/invalida -> null; ISO valido -> mantem.
+const dateOrNull = (v: unknown): string | null => {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null
+}
+// textOrNull: normaliza string vazia -> null (evita "" em colunas opcionais).
+const textOrNull = (v: unknown): string | null => {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return s === '' ? null : s
+}
+
+// FIX-PONTO-SYNC-TIMEOUT (07/07): a API IO Point (sobretudo /totalHours) e'
+// lenta e as vezes estoura o timeout default do fetch — confirmado empirico
+// (pg_net: /collaborator 200 rapido, /totalHours timeout >5s). Sem timeout
+// explicito + retry, a sync morria com erro de rede generico. Agora:
+// AbortController com timeout amplo (route tem maxDuration=60) + 1 retry
+// em falha de rede/timeout (nao em 4xx, que e' erro definitivo).
+const TIMEOUT_MS = 25_000
+
+async function getJson(url: string, token: string): Promise<unknown> {
+  let ultimoErro: unknown = null
+  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+    try {
+      const r = await fetch(url, {
+        method: 'GET',
+        headers: { apiIopointToken: token, accept: 'application/json' },
+        cache: 'no-store',
+        signal: ctrl.signal,
+      })
+      const text = await r.text()
+      if (!r.ok) {
+        // 4xx = erro definitivo (auth/rota) — nao adianta repetir.
+        throw new Error(`IO Point ${r.status}: ${text.slice(0, 300)}`)
+      }
+      try { return JSON.parse(text) } catch { return text }
+    } catch (e) {
+      ultimoErro = e
+      const abortou = e instanceof Error && e.name === 'AbortError'
+      const httpErro = e instanceof Error && /^IO Point \d/.test(e.message)
+      // Repete so em timeout/rede; erro HTTP 4xx nao se repete.
+      if (httpErro || tentativa === 2) break
+      if (!abortou) break // erro de rede diferente de timeout — nao insiste
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  if (ultimoErro instanceof Error && ultimoErro.name === 'AbortError') {
+    throw new Error(`IO Point timeout (${TIMEOUT_MS / 1000}s) em ${url.split('?')[0]}`)
+  }
+  throw ultimoErro instanceof Error ? ultimoErro : new Error(String(ultimoErro))
+}
+
+function pegarLista(payload: unknown): Record<string, unknown>[] {
+  if (Array.isArray(payload)) return payload as Record<string, unknown>[]
+  if (payload && typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>
+    for (const k of ['data', 'collaborators', 'items', 'result']) {
+      const v = obj[k]
+      if (Array.isArray(v)) return v as Record<string, unknown>[]
+    }
+  }
+  return []
+}
+
+function mapColaborador(row: Record<string, unknown>): PontoColaborador {
+  return {
+    cpf: onlyDigits(row.national_registry),
+    matricula: textOrNull(row.registration_number),
+    nome: (typeof row.name === 'string' ? row.name.trim() : '') || '',
+    email: textOrNull(row.email),
+    funcao: textOrNull(row.occupation),
+    departamento: textOrNull(row.department),
+    equipe: textOrNull(row.team),
+    unidade_negocio: textOrNull(row.business_unit),
+    admissao: dateOrNull(row.admission_date), // "" -> null (evita 22007)
+    pis: textOrNull(row.pis),
+    raw: row,
+  }
+}
+
+// FIX-PONTO-HORAS (07/07): a API IO Point retorna total_hours como OBJETO
+// (nao numero/string) com ~37 sub-campos HH:MM:
+//   total_hours: { worked_time:"36:37", worked_actual_time:"36:50",
+//                  over_time_1:"02:37", fault_full_time:"08:48", ... }
+// O parser antigo tratava total_hours como escalar -> caia no else -> 0.
+// Agora: extrai worked_time (jornada trabalhada no periodo) e converte via
+// hhmmParaDecimal (./hhmm — fonte unica, reusada pelo BI de ponto). Guarda o
+// objeto inteiro em raw pro Painel de Jornada fazer drill-down (extras, faltas).
+function mapHoras(row: Record<string, unknown>, beginISO: string, endISO: string): PontoHoras {
+  const th = row.total_hours
+  let total = 0
+  if (th && typeof th === 'object') {
+    const o = th as Record<string, unknown>
+    // worked_time = jornada trabalhada oficial no periodo; fallback worked_actual_time.
+    total = hhmmParaDecimal(o.worked_time ?? o.worked_actual_time)
+  } else {
+    total = hhmmParaDecimal(th)
+  }
+  return {
+    cpf: onlyDigits(row.national_registry),
+    periodo_inicio: beginISO,
+    periodo_fim: endISO,
+    total_horas: Number(total.toFixed(2)),
+    funcao: (row.occupation as string | null) ?? null,
+    departamento: (row.department as string | null) ?? null,
+    equipe: (row.team as string | null) ?? null,
+    unidade_negocio: (row.business_unit as string | null) ?? null,
+    raw: row,
+  }
+}
+
+// Dedup/agrega por CPF: a API /totalHours retorna mais linhas que colaboradores
+// (empirico Frioeste: 373 linhas, 359 CPFs — ha CPFs com 2-3 matriculas). O
+// upsert em ind_ponto_horas usa onConflict (company_id,provider,cpf,periodo_*)
+// — CPF duplicado no mesmo periodo quebra o batch ("cannot affect row a second
+// time"). Solucao: somar as horas por CPF (total do colaborador no periodo,
+// atravessando matriculas). Preserva todas as linhas de origem em raw.linhas.
+function agregarPorCpf(rows: PontoHoras[]): PontoHoras[] {
+  const porCpf = new Map<string, PontoHoras>()
+  for (const h of rows) {
+    if (!h.cpf) continue
+    const existente = porCpf.get(h.cpf)
+    if (!existente) {
+      porCpf.set(h.cpf, { ...h, raw: { linhas: [h.raw] } })
+    } else {
+      existente.total_horas = Number((existente.total_horas + h.total_horas).toFixed(2))
+      ;(existente.raw as { linhas: unknown[] }).linhas.push(h.raw)
+    }
+  }
+  return Array.from(porCpf.values())
+}
+
+export const iopointAdapter: PontoAdapter = {
+  async listarColaboradores(cred: PontoCredencial) {
+    const data = await getJson(`${cred.base_url}/collaborator`, cred.token)
+    return pegarLista(data).map(mapColaborador).filter((c) => c.cpf.length > 0)
+  },
+  async listarHoras(cred: PontoCredencial, beginISO: string, endISO: string) {
+    const url = `${cred.base_url}/collaborator/totalHours?begin_date=${encodeURIComponent(beginISO)}&end_date=${encodeURIComponent(endISO)}`
+    const data = await getJson(url, cred.token)
+    const mapeadas = pegarLista(data).map((r) => mapHoras(r, beginISO, endISO)).filter((h) => h.cpf.length > 0)
+    // Agrega por CPF antes de retornar (evita colisao no upsert onConflict).
+    return agregarPorCpf(mapeadas)
+  },
+
+  // Marcação DIÁRIA: GET /point/getFromPeriod?begin_date=&end_date=.
+  // Cada colaborador tem days[]; cada day tem points[] (batidas). Achata em
+  // 1 PontoDia por (colaborador, dia). LGPD: só cpf/setor + batidas; sem nome/email.
+  async listarMarcacoesDiarias(cred: PontoCredencial, beginISO: string, endISO: string): Promise<PontoDia[]> {
+    const url = `${cred.base_url}/point/getFromPeriod?begin_date=${encodeURIComponent(beginISO)}&end_date=${encodeURIComponent(endISO)}`
+    const data = await getJson(url, cred.token)
+    const out: PontoDia[] = []
+    for (const col of pegarLista(data)) {
+      const cpf = onlyDigits(col.national_registry)
+      if (!cpf) continue
+      const dias = Array.isArray(col.days) ? (col.days as Record<string, unknown>[]) : []
+      for (const d of dias) {
+        const dataISO = dateOrNull(d.date)
+        if (!dataISO) continue
+        const pontosRaw = Array.isArray(d.points) ? (d.points as Record<string, unknown>[]) : []
+        const pontos: PontoMarcacaoPonto[] = pontosRaw.map((p) => ({
+          point_id: p.point_id != null ? Number(p.point_id) : null,
+          datetime: typeof p.datetime === 'string' ? p.datetime : null,
+          hora: typeof p.hour === 'string' ? p.hour : null,
+          method: textOrNull(p.method),
+          origin: textOrNull(p.origin),
+          is_adjusted: !!p.is_adjusted,
+          adjustment_reason: textOrNull(p.adjustment_reason),
+          adjusted_by: textOrNull(p.adjusted_by),
+          has_audit_photo: !!p.has_audit_photo,
+        }))
+        out.push({
+          cpf,
+          registration_number: textOrNull(col.registration_number),
+          data: dataISO,
+          shift: textOrNull(d.shift),
+          worked_seconds: hhmmssParaSegundos(d.worked_time),
+          departamento: textOrNull(col.department),
+          equipe: textOrNull(col.team),
+          unidade_negocio: textOrNull(col.business_unit),
+          total_pontos: pontos.length,
+          tem_ajuste: pontos.some((x) => x.is_adjusted),
+          pontos,
+          raw: d,
+        })
+      }
+    }
+    return out
+  },
+
+  // PAUSAS TÉCNICAS (NR-36 / Art.253) — Fase 2. STUB: hoje retorna [] (no-op seguro).
+  //
+  // Auditoria (RD-38): /point/getFromPeriod traz só o espelho de jornada (~4 batidas/dia); NÃO traz as
+  // pausas técnicas. O RH confirmou que as pausas existem na MESMA API IO Point, em endpoint/registro
+  // diferente. Falta o Jian (tem o token e a doc fechada) confirmar:
+  //   1. Qual rota da API v2 retorna as pausas (ex.: /break, /pause, um `type` no registro de ponto, ou
+  //      uma leitora/point específica da pausa térmica, distinta do relógio Hikvision principal).
+  //   2. Se a pausa vem como um tipo de marcação (campo type/reason) ou como registro separado.
+  //   3. Amostra JSON cru de 1 dia de um funcionário de câmara fria com as pausas.
+  //
+  // Ao confirmar, implementar aqui: GET ${cred.base_url}/<rota_das_pausas>?begin_date=&end_date=, mapear
+  // cada pausa -> PontoPausa { cpf, data, inicio, fim, duracao_seg, tipo, point_id, raw }. O sync-diario
+  // já faz o upsert em ind_ponto_pausa quando este método existe, e o fn_nr36_apurar passa a ter o REALIZADO.
+  async listarPausas(): Promise<PontoPausa[]> {
+    return []
+  },
+}

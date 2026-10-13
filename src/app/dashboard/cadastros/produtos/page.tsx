@@ -1,0 +1,887 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
+import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
+import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarProdutosModal'
+import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModal'
+import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
+import {
+  Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy,
+} from 'lucide-react'
+
+export const dynamic = 'force-dynamic'
+
+const PAGE_SIZE = 50
+
+const SELECT_COLS = 'id,codigo,nome,ncm,unidade,preco_venda,codigo_barras,estoque_atual,estoque_minimo,grupo,ativo,status_estoque'
+
+type OrdenarPor = 'codigo' | 'nome' | 'preco_venda' | 'unidade' | 'estoque_atual'
+type ComEan = 'todos' | 'sim' | 'nao'
+type OrigemFiltro = 'todos' | 'omie' | 'manual'
+type StatusEstoque = 'todos' | 'zerado' | 'abaixo_minimo' | 'ok'
+type Situacao = 'ativos' | 'inativos' | 'todos'
+
+interface UnidadeOption {
+  unidade: string
+  qtd: number
+}
+
+const fmtBRL = (v: number | null | undefined) =>
+  v == null
+    ? '—'
+    : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v))
+
+export default function ProdutosPage() {
+  const [produtos, setProdutos] = useState<Produto[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [companyId, setCompanyId] = useState<string | null>(null)
+
+  // Busca
+  const [busca, setBusca] = useState('')
+  const [buscaDebounced, setBuscaDebounced] = useState('')
+
+  // Filtros
+  const [unidade, setUnidade] = useState<string>('')
+  const [grupo, setGrupo] = useState<string>('')
+  const [statusEstoque, setStatusEstoque] = useState<StatusEstoque>('todos')
+  const [situacao, setSituacao] = useState<Situacao>('ativos')
+  const [precoMin, setPrecoMin] = useState<string>('')
+  const [precoMax, setPrecoMax] = useState<string>('')
+  const [semPreco, setSemPreco] = useState(false)
+  const [comEan, setComEan] = useState<ComEan>('todos')
+  const [origem, setOrigem] = useState<OrigemFiltro>('todos')
+  const [gruposOpts, setGruposOpts] = useState<string[]>([])
+
+  // Ordenacao
+  const [ordenarPor, setOrdenarPor] = useState<OrdenarPor>('codigo')
+  const [ordemAsc, setOrdemAsc] = useState(true)
+
+  // Opcoes carregadas
+  const [unidades, setUnidades] = useState<UnidadeOption[]>([])
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+
+  // Modal edicao
+  const [editando, setEditando] = useState<Produto | null>(null)
+  const [novoAberto, setNovoAberto] = useState(false)
+  // Clonar: pré-preenche um NOVO produto a partir de um existente. Como a lista só traz colunas parciais (SELECT_COLS
+  // da view), precisa buscar a linha INTEIRA (select '*') antes — senão o clone perderia os campos fiscais.
+  const [clonando, setClonando] = useState<Produto | null>(null)
+  const [importarFiscalAberto, setImportarFiscalAberto] = useState(false)
+  // Pendências fiscais (SPED 0200): produtos sem tipo do item ou sem NCM — pro contador completar.
+  const [pendencias, setPendencias] = useState<{ id: string; codigo: string; nome: string; tipo_item_sped: string | null; motivo: string }[]>([])
+  const [pendVerLista, setPendVerLista] = useState(false)
+  const [autoclassificarAberto, setAutoclassificarAberto] = useState(false)
+  const [fiscalMassaAberto, setFiscalMassaAberto] = useState(false)
+  // Etiquetas A4 (CEO 30/09 · Diego/FC): seleção sobrevive a busca/filtro/"carregar mais"
+  const [selecionados, setSelecionados] = useState<string[]>([])
+  const [etiquetasAberto, setEtiquetasAberto] = useState(false)
+  const alternarSel = (id: string) =>
+    setSelecionados((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  const offsetRef = useRef(0)
+
+  useEffect(() => {
+    const id = setTimeout(() => setBuscaDebounced(busca.trim()), 300)
+    return () => clearTimeout(id)
+  }, [busca])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const cid = localStorage.getItem('ps_empresa_sel')
+    if (cid && !cid.startsWith('group_') && cid !== 'consolidado') {
+      setCompanyId(cid)
+    } else {
+      setLoading(false)
+    }
+  }, [])
+
+  // Carrega unidades pra o dropdown (uma vez por empresa)
+  useEffect(() => {
+    if (!companyId) return
+    let alive = true
+    supabase
+      .rpc('fn_produtos_unidades', { p_company_id: companyId })
+      .then(({ data, error }) => {
+        if (!alive || error) return
+        setUnidades((data ?? []) as UnidadeOption[])
+      })
+    return () => { alive = false }
+  }, [companyId])
+
+  // Carrega as pendências fiscais (SPED 0200) da empresa
+  useEffect(() => {
+    if (!companyId) { setPendencias([]); return }
+    let alive = true
+    supabase
+      .rpc('fn_produtos_pendencia_legal', { p_company_id: companyId })
+      .then(({ data, error }) => {
+        if (!alive || error) return
+        setPendencias((data ?? []) as { id: string; codigo: string; nome: string; tipo_item_sped: string | null; motivo: string }[])
+      })
+    return () => { alive = false }
+  }, [companyId])
+
+  // #118 (Jordana): deep-link ?edit=<id> abre a ficha do produto direto — é como o Estoque manda o
+  // usuário editar aqui. Busca a linha COMPLETA (select '*') para o ProdutoForm não perder campo
+  // fiscal (NCM/CST/ST) ao salvar.
+  useEffect(() => {
+    if (!companyId) return
+    const editId = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('edit') : null
+    if (!editId) return
+    let alive = true
+    supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', editId).maybeSingle()
+      .then(({ data }) => { if (alive && data) setEditando(data as unknown as Produto) })
+    return () => { alive = false }
+  }, [companyId])
+
+  // Carrega grupos distintos (uma vez por empresa)
+  useEffect(() => {
+    if (!companyId) return
+    let alive = true
+    supabase
+      .from('erp_produtos')
+      .select('grupo')
+      .eq('company_id', companyId)
+      .not('grupo', 'is', null)
+      .limit(2000)
+      .then(({ data, error }) => {
+        if (!alive || error) return
+        const set = new Set<string>()
+        for (const r of (data ?? []) as Array<{ grupo: string | null }>) {
+          if (r.grupo) set.add(r.grupo)
+        }
+        setGruposOpts(Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR')))
+      })
+    return () => { alive = false }
+  }, [companyId])
+
+  const carregar = useCallback(
+    async (reset: boolean) => {
+      if (!companyId) return
+      if (reset) {
+        setLoading(true)
+        offsetRef.current = 0
+      } else {
+        setLoadingMore(true)
+      }
+      setErro(null)
+      try {
+        // View v_erp_produtos_estoque expoe todos os campos + status_estoque
+        // derivado (zerado/abaixo_minimo/ok) — viabiliza filtro server-side
+        // pra "abaixo do minimo" (comparacao entre duas colunas).
+        let q = supabase
+          .from('v_erp_produtos_estoque')
+          .select(SELECT_COLS, { count: 'exact' })
+          .eq('company_id', companyId)
+
+        // PRODUTOS-LISTA-TODOS: lista TODOS por padrão (não só OMIE). Origem é filtro opcional.
+        if (origem === 'omie') q = q.eq('ref_externa_sistema', 'OMIE')
+        else if (origem === 'manual') q = q.is('ref_externa_sistema', null)
+
+        if (buscaDebounced) {
+          const b = buscaDebounced.replace(/[%]/g, '')
+          q = q.or(`nome.ilike.%${b}%,codigo.ilike.%${b}%,ncm.ilike.%${b}%`)
+        }
+        if (unidade) q = q.eq('unidade', unidade)
+        if (grupo) q = q.eq('grupo', grupo)
+        if (statusEstoque !== 'todos') q = q.eq('status_estoque', statusEstoque)
+        if (situacao === 'ativos') q = q.eq('ativo', true)
+        else if (situacao === 'inativos') q = q.eq('ativo', false)
+        const min = precoMin === '' ? null : parseFloat(precoMin.replace(',', '.'))
+        const max = precoMax === '' ? null : parseFloat(precoMax.replace(',', '.'))
+        if (min != null && !isNaN(min)) q = q.gte('preco_venda', min)
+        if (max != null && !isNaN(max)) q = q.lte('preco_venda', max)
+        if (semPreco) q = q.or('preco_venda.is.null,preco_venda.eq.0')
+        if (comEan === 'sim') q = q.not('codigo_barras', 'is', null)
+        if (comEan === 'nao') q = q.is('codigo_barras', null)
+
+        q = q
+          .order(ordenarPor, { ascending: ordemAsc })
+          .range(offsetRef.current, offsetRef.current + PAGE_SIZE - 1)
+
+        const { data, count, error } = await q
+        if (error) throw error
+        const rows = (data ?? []) as unknown as Produto[]
+        setTotal(count ?? 0)
+        setProdutos((prev) => (reset ? rows : [...prev, ...rows]))
+        offsetRef.current += rows.length
+      } catch (e) {
+        setErro(e instanceof Error ? e.message : 'Erro ao carregar produtos')
+      } finally {
+        setLoading(false)
+        setLoadingMore(false)
+      }
+    },
+    [companyId, buscaDebounced, unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, origem, ordenarPor, ordemAsc]
+  )
+
+  // Reset on qualquer mudanca de filtro/ordem/busca
+  useEffect(() => {
+    if (companyId) carregar(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, buscaDebounced, unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, origem, ordenarPor, ordemAsc])
+
+  // A lista traz só as colunas da tabela (SELECT_COLS); a ficha precisa da linha INTEIRA. Abrir a ficha com a linha
+  // da lista fazia o salvar gravar os campos fiscais que a lista não trouxe (CST, alíquotas, CFOP, origem, ST retido)
+  // com o valor padrão da ficha — por cima do que estava no banco. Busca o produto completo antes de abrir.
+  async function abrirEdicao(id: string) {
+    if (!companyId) return
+    const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
+    if (error || !data) { setErro(error?.message ?? 'Produto não encontrado'); return }
+    setEditando(data as unknown as Produto)
+  }
+
+  // Clonar: busca a linha completa (igual abrirEdicao) e abre o form em modo NOVO pré-preenchido (clonarDe).
+  async function clonarProduto(id: string) {
+    if (!companyId) return
+    const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
+    if (error || !data) { setErro(error?.message ?? 'Produto não encontrado'); return }
+    setEditando(null)
+    setNovoAberto(false)
+    setClonando(data as unknown as Produto)
+  }
+
+  function toggleOrdem(coluna: OrdenarPor) {
+    if (ordenarPor === coluna) {
+      setOrdemAsc((a) => !a)
+    } else {
+      setOrdenarPor(coluna)
+      setOrdemAsc(true)
+    }
+  }
+
+  function limparFiltros() {
+    setUnidade('')
+    setGrupo('')
+    setStatusEstoque('todos')
+    setSituacao('ativos')
+    setPrecoMin('')
+    setPrecoMax('')
+    setSemPreco(false)
+    setComEan('todos')
+    setOrigem('todos')
+  }
+
+  const filtrosAtivos = useMemo(() => {
+    let n = 0
+    if (unidade) n++
+    if (grupo) n++
+    if (statusEstoque !== 'todos') n++
+    if (situacao !== 'ativos') n++
+    if (precoMin) n++
+    if (precoMax) n++
+    if (semPreco) n++
+    if (comEan !== 'todos') n++
+    if (origem !== 'todos') n++
+    return n
+  }, [unidade, grupo, statusEstoque, situacao, precoMin, precoMax, semPreco, comEan, origem])
+
+  const podeCarregarMais = produtos.length < total
+  const buscaOuFiltroAtivo = !!buscaDebounced || filtrosAtivos > 0
+  const headerContagem = buscaOuFiltroAtivo
+    ? `${produtos.length} de ${total} (filtrado)`
+    : `${produtos.length} de ${total}`
+
+  if (!companyId) {
+    return (
+      <div className="min-h-screen bg-[#FAF7F2] text-[#3D2314]">
+        <div className="max-w-6xl mx-auto px-4 py-6">
+          <div className="p-6 text-center text-[#3D2314]/70 text-[13px]">
+            Selecione uma empresa especifica (nao consolidado ou grupo) pra cadastrar produtos.
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-[#FAF7F2] text-[#3D2314]">
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <header className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[11px] text-[#3D2314]/60 tracking-[1px] uppercase font-medium mb-1">
+              Cadastros · Gestao Empresarial
+            </div>
+            <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight flex items-center gap-2">
+              <Package size={22} className="text-[#C8941A]" /> Produtos
+            </h1>
+            <p className="text-[13px] text-[#3D2314]/70 mt-1.5">
+              Catalogo pra emissao de NFe · vendas de produto fisico
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setEtiquetasAberto(true)}
+              disabled={selecionados.length === 0}
+              title={selecionados.length === 0 ? 'Marque os produtos na lista' : undefined}
+              data-testid="etiquetas-abrir"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-45 disabled:hover:bg-transparent flex items-center gap-2"
+            >
+              <Printer size={15} /> Etiquetas A4{selecionados.length > 0 ? ` (${selecionados.length})` : ''}
+            </button>
+            <button
+              type="button"
+              onClick={() => setFiscalMassaAberto(true)}
+              data-testid="fiscal-massa-abrir"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+            >
+              <ListChecks size={15} /> Edição fiscal em massa
+            </button>
+            <button
+              type="button"
+              onClick={() => setAutoclassificarAberto(true)}
+              data-testid="produto-autoclassificar"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+            >
+              <Sparkles size={15} /> Auto-classificar pela base PS
+            </button>
+            <button
+              type="button"
+              onClick={() => setImportarFiscalAberto(true)}
+              data-testid="produto-importar-fiscal"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+            >
+              <Upload size={15} /> Importar planilha fiscal
+            </button>
+            <a
+              href="/dashboard/cadastros/produtos/importar"
+              data-testid="produto-importar-estoque"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+            >
+              <Upload size={15} /> Importar estoque (planilha)
+            </a>
+            <button
+              type="button"
+              onClick={() => setNovoAberto(true)}
+              data-testid="produto-novo"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2"
+            >
+              <Plus size={15} /> Novo Produto
+            </button>
+          </div>
+        </header>
+
+        {/* Pendências fiscais (SPED 0200) — pro contador completar (tipo do item / NCM) */}
+        {pendencias.length > 0 && (
+          <div className="mb-4 rounded-xl border border-[#C8941A]/40 bg-[#FBF4E4] p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-[13px] text-[#3D2314]">
+                <b>⚠ {pendencias.length} produto(s) com pendência fiscal</b> (SPED 0200) — falta tipo do item ou NCM. O contador completa antes da apuração.
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendVerLista((v) => !v)}
+                className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7]"
+              >
+                {pendVerLista ? 'Ocultar' : 'Ver lista'}
+              </button>
+            </div>
+            {pendVerLista && (
+              <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-[#3D2314]/10 bg-white">
+                {pendencias.slice(0, 500).map((p) => (
+                  <div key={p.id} className="grid grid-cols-[auto_1fr_auto] gap-2 items-center px-3 py-1.5 border-b border-[#3D2314]/5 text-[12px]">
+                    <span className="font-mono text-[#3D2314]/70">{p.codigo}</span>
+                    <span className="text-[#3D2314] truncate">{p.nome}</span>
+                    <span className="text-[#A32D2D] whitespace-nowrap">{p.motivo}</span>
+                  </div>
+                ))}
+                {pendencias.length > 500 && (
+                  <div className="px-3 py-1.5 text-[11px] text-[#3D2314]/50">…e mais {pendencias.length - 500}. Use o relatório completo (fn_produtos_pendencia_legal).</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="bg-white rounded-xl border border-[#3D2314]/10 overflow-hidden">
+          {/* Barra de busca + toggle filtros */}
+          <div className="px-4 py-3 border-b border-[#3D2314]/10 flex items-center gap-2">
+            <Search size={15} className="text-[#3D2314]/50 flex-shrink-0" />
+            <input
+              type="text"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por nome, codigo ou NCM..."
+              className="flex-1 text-[13px] outline-none bg-transparent text-[#3D2314] placeholder:text-[#3D2314]/40 min-w-0"
+            />
+            <button
+              type="button"
+              onClick={() => setFiltrosAbertos((o) => !o)}
+              data-testid="produto-toggle-filtros"
+              className={`flex items-center gap-1 px-2 py-1 text-[11.5px] font-medium rounded border transition-colors flex-shrink-0 ${
+                filtrosAtivos > 0
+                  ? 'border-[#C8941A]/45 text-[#633806] bg-[#C8941A]/10'
+                  : 'border-[#3D2314]/15 text-[#3D2314]/70 hover:bg-[#3D2314]/5'
+              }`}
+            >
+              <Filter size={12} />
+              <span className="hidden sm:inline">Filtros</span>
+              {filtrosAtivos > 0 && (
+                <span className="bg-[#C8941A] text-white text-[9.5px] px-1 rounded">{filtrosAtivos}</span>
+              )}
+              {filtrosAbertos ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+            </button>
+            <span
+              className="text-[11px] text-[#3D2314]/70 flex-shrink-0"
+              data-testid="produtos-contagem"
+            >
+              {headerContagem}
+            </span>
+            {selecionados.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelecionados([])}
+                data-testid="produto-sel-limpar"
+                className="text-[11px] text-[#C8941A] hover:underline flex-shrink-0"
+              >
+                {selecionados.length} marcado(s) · limpar
+              </button>
+            )}
+          </div>
+
+          {/* Filtros · colapsavel */}
+          {filtrosAbertos && (
+            <div className="px-4 py-3 border-b border-[#3D2314]/10 bg-[#FAF7F2]/40">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Unidade
+                  </label>
+                  <select
+                    value={unidade}
+                    onChange={(e) => setUnidade(e.target.value)}
+                    data-testid="filtro-unidade"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="">Todas ({unidades.reduce((s, u) => s + u.qtd, 0)})</option>
+                    {unidades.map((u) => (
+                      <option key={u.unidade} value={u.unidade}>
+                        {u.unidade} ({u.qtd})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Grupo
+                  </label>
+                  <select
+                    value={grupo}
+                    onChange={(e) => setGrupo(e.target.value)}
+                    data-testid="filtro-grupo"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="">Todos</option>
+                    {gruposOpts.map((g) => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Estoque
+                  </label>
+                  <select
+                    value={statusEstoque}
+                    onChange={(e) => setStatusEstoque(e.target.value as StatusEstoque)}
+                    data-testid="filtro-estoque"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="zerado">Zerado</option>
+                    <option value="abaixo_minimo">Abaixo do mínimo</option>
+                    <option value="ok">Com estoque</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Situação
+                  </label>
+                  <select
+                    value={situacao}
+                    onChange={(e) => setSituacao(e.target.value as Situacao)}
+                    data-testid="filtro-situacao"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="ativos">Ativos</option>
+                    <option value="inativos">Inativos</option>
+                    <option value="todos">Todos</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Preço entre (R$)
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={precoMin}
+                      onChange={(e) => setPrecoMin(e.target.value)}
+                      placeholder="min"
+                      data-testid="filtro-preco-min"
+                      className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314] placeholder:text-[#3D2314]/40"
+                    />
+                    <span className="text-[#3D2314]/40 text-[11px]">—</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={precoMax}
+                      onChange={(e) => setPrecoMax(e.target.value)}
+                      placeholder="max"
+                      data-testid="filtro-preco-max"
+                      className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314] placeholder:text-[#3D2314]/40"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    EAN (cód. barras)
+                  </label>
+                  <select
+                    value={comEan}
+                    onChange={(e) => setComEan(e.target.value as ComEan)}
+                    data-testid="filtro-ean"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="sim">Com EAN</option>
+                    <option value="nao">Sem EAN</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Origem
+                  </label>
+                  <select
+                    value={origem}
+                    onChange={(e) => setOrigem(e.target.value as OrigemFiltro)}
+                    data-testid="filtro-origem"
+                    className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
+                  >
+                    <option value="todos">Todas</option>
+                    <option value="omie">OMIE</option>
+                    <option value="manual">Manual / Importado</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
+                    Outros
+                  </label>
+                  <label className="flex items-center gap-2 px-2 py-1.5 border border-[#3D2314]/15 rounded bg-white cursor-pointer text-[12.5px] text-[#3D2314]">
+                    <input
+                      type="checkbox"
+                      checked={semPreco}
+                      onChange={(e) => setSemPreco(e.target.checked)}
+                      data-testid="filtro-sem-preco"
+                      className="accent-[#C8941A]"
+                    />
+                    Só sem preço
+                  </label>
+                </div>
+              </div>
+
+              {filtrosAtivos > 0 && (
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={limparFiltros}
+                    data-testid="filtro-limpar"
+                    className="text-[12px] text-[#3D2314]/70 hover:text-[#3D2314] flex items-center gap-1"
+                  >
+                    <X size={12} /> Limpar {filtrosAtivos} filtro{filtrosAtivos > 1 ? 's' : ''}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {erro && (
+            <div className="px-4 py-2 bg-[#FCEBEB] text-[#791F1F] text-[12.5px] border-b border-[#E8A6A5]">
+              {erro}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="py-12 flex justify-center">
+              <Loader2 className="animate-spin text-[#C8941A]" size={24} />
+            </div>
+          ) : produtos.length === 0 ? (
+            <div className="py-12 text-center text-[#3D2314]/70 text-[13px]">
+              {buscaOuFiltroAtivo
+                ? 'Nenhum produto corresponde à busca + filtros · ajuste ou limpe pra ver mais.'
+                : 'Nenhum produto cadastrado · clique em "Novo Produto" pra começar'}
+            </div>
+          ) : (
+            <>
+              {/* Tabela · desktop */}
+              <div className="overflow-x-auto hidden md:block">
+                <table className="w-full text-[13px] text-[#3D2314]">
+                  <thead className="bg-[#3D2314]/5 text-[11.5px] text-[#3D2314]/75 uppercase tracking-[0.5px]">
+                    <tr>
+                      <th className="pl-4 pr-1 py-2.5 w-8">
+                        <input
+                          type="checkbox"
+                          aria-label="Selecionar os produtos listados"
+                          data-testid="produto-sel-todos"
+                          checked={produtos.length > 0 && produtos.every((p) => selecionados.includes(p.id))}
+                          onChange={(e) => {
+                            const ids = produtos.map((p) => p.id)
+                            setSelecionados((s) =>
+                              e.target.checked ? [...s, ...ids.filter((id) => !s.includes(id))] : s.filter((id) => !ids.includes(id)),
+                            )
+                          }}
+                          className="accent-[#C8941A]"
+                        />
+                      </th>
+                      <ThSort label="Codigo" col="codigo" current={ordenarPor} asc={ordemAsc} onClick={toggleOrdem} />
+                      <ThSort label="Descricao" col="nome" current={ordenarPor} asc={ordemAsc} onClick={toggleOrdem} />
+                      <th className="text-left px-4 py-2.5 font-medium">NCM</th>
+                      <th className="text-left px-4 py-2.5 font-medium">Unidade</th>
+                      <ThSort
+                        label="Preço venda"
+                        col="preco_venda"
+                        current={ordenarPor}
+                        asc={ordemAsc}
+                        onClick={toggleOrdem}
+                        align="right"
+                      />
+                      <th className="text-right px-4 py-2.5 font-medium">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {produtos.map((p) => (
+                      <tr
+                        key={p.id}
+                        data-testid="produto-row"
+                        className="border-t border-[#3D2314]/8 hover:bg-[#FAEEDA]/30"
+                      >
+                        <td className="pl-4 pr-1 py-2.5">
+                          <input
+                            type="checkbox"
+                            aria-label={`Selecionar ${p.nome}`}
+                            data-testid="produto-sel"
+                            checked={selecionados.includes(p.id)}
+                            onChange={() => alternarSel(p.id)}
+                            className="accent-[#C8941A]"
+                          />
+                        </td>
+                        <td className="px-4 py-2.5 font-mono text-[12px] text-[#3D2314]">
+                          {p.codigo ?? '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-[#3D2314]">{p.nome}</td>
+                        <td className="px-4 py-2.5 font-mono text-[12px] text-stone-500">
+                          {p.ncm ?? '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-stone-500 text-[12.5px]">
+                          {p.unidade ?? '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314] font-medium">
+                          {fmtBRL(p.preco_venda as number | null | undefined)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => clonarProduto(p.id)}
+                            data-testid="produto-clonar"
+                            className="text-[#C8941A] hover:text-[#A87810] mr-3"
+                            title="Clonar (criar novo a partir deste)"
+                          >
+                            <Copy size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => abrirEdicao(p.id)}
+                            data-testid="produto-editar"
+                            className="text-[#C8941A] hover:text-[#A87810] mr-3"
+                            title="Editar"
+                          >
+                            <Edit size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Cards · mobile */}
+              <div className="md:hidden divide-y divide-[#3D2314]/8">
+                {produtos.map((p) => (
+                  <div
+                    key={p.id}
+                    data-testid="produto-row-mobile"
+                    className="px-4 py-3 flex items-start gap-3"
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`Selecionar ${p.nome}`}
+                      data-testid="produto-sel"
+                      checked={selecionados.includes(p.id)}
+                      onChange={() => alternarSel(p.id)}
+                      className="mt-1 accent-[#C8941A]"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13.5px] font-medium text-[#3D2314] leading-tight">
+                        {p.nome}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2 text-[11.5px] text-stone-500">
+                        <span className="font-mono text-[#3D2314]/85">{p.codigo ?? '—'}</span>
+                        {p.unidade && (
+                          <>
+                            <span>·</span>
+                            <span>{p.unidade}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                      <div className="text-[13.5px] tabular-nums font-medium text-[#3D2314]">
+                        {fmtBRL(p.preco_venda as number | null | undefined)}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => clonarProduto(p.id)}
+                          data-testid="produto-clonar-mobile"
+                          className="text-[#C8941A] hover:text-[#A87810]"
+                          title="Clonar"
+                        >
+                          <Copy size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicao(p.id)}
+                          data-testid="produto-editar"
+                          className="text-[#C8941A] hover:text-[#A87810]"
+                          title="Editar"
+                        >
+                          <Edit size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {podeCarregarMais && (
+                <div className="px-4 py-3 border-t border-[#3D2314]/10 flex items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={() => carregar(false)}
+                    disabled={loadingMore}
+                    data-testid="produto-carregar-mais"
+                    className="px-4 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-40 flex items-center gap-2"
+                  >
+                    {loadingMore ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Plus size={13} />
+                    )}
+                    Carregar mais (faltam {total - produtos.length})
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {(novoAberto || editando || clonando) && (
+          <ProdutoForm
+            key={editando ? `edit-${editando.id}` : clonando ? `clone-${clonando.id}` : 'novo'}
+            companyId={companyId}
+            produto={editando}
+            clonarDe={clonando}
+            onClonar={(p) => { setEditando(null); setNovoAberto(false); setClonando(p) }}
+            onClose={() => {
+              setNovoAberto(false)
+              setEditando(null)
+              setClonando(null)
+            }}
+            onSalvo={() => {
+              setNovoAberto(false)
+              setEditando(null)
+              setClonando(null)
+              carregar(true)
+            }}
+          />
+        )}
+
+        {importarFiscalAberto && (
+          <ImportProdutosFiscalModal
+            companyId={companyId}
+            onClose={() => setImportarFiscalAberto(false)}
+            onAtualizado={() => carregar(true)}
+          />
+        )}
+
+        {etiquetasAberto && companyId && (
+          <EtiquetasProdutosModal companyId={companyId} ids={selecionados} onClose={() => setEtiquetasAberto(false)} />
+        )}
+
+        {fiscalMassaAberto && (
+          <EdicaoFiscalMassaModal
+            companyId={companyId}
+            onClose={() => setFiscalMassaAberto(false)}
+            onAplicado={() => carregar(true)}
+          />
+        )}
+
+        {autoclassificarAberto && (
+          <AutoclassificarProdutosModal
+            companyId={companyId}
+            onClose={() => setAutoclassificarAberto(false)}
+            onAtualizado={() => carregar(true)}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+interface ThSortProps {
+  label: string
+  col: OrdenarPor
+  current: OrdenarPor
+  asc: boolean
+  onClick: (col: OrdenarPor) => void
+  align?: 'left' | 'right'
+}
+function ThSort({ label, col, current, asc, onClick, align = 'left' }: ThSortProps) {
+  const ativo = current === col
+  return (
+    <th
+      className={`px-4 py-2.5 font-medium ${align === 'right' ? 'text-right' : 'text-left'}`}
+    >
+      <button
+        type="button"
+        onClick={() => onClick(col)}
+        data-testid={`ordenar-${col}`}
+        className={`inline-flex items-center gap-1 ${
+          align === 'right' ? 'ml-auto' : ''
+        } ${ativo ? 'text-[#3D2314]' : 'text-[#3D2314]/75'} hover:text-[#3D2314]`}
+      >
+        {label}
+        {ativo ? (
+          asc ? <ArrowUp size={11} /> : <ArrowDown size={11} />
+        ) : (
+          <span className="opacity-30">↕</span>
+        )}
+      </button>
+    </th>
+  )
+}

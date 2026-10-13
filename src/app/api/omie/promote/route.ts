@@ -7,14 +7,10 @@
 // Body: { company_id: string, import_types?: string[] }
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 
 export const maxDuration = 300
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 const IMPORT_TYPES_PADRAO = ['clientes', 'contas_pagar', 'contas_receber'] as const
 type ImportType = typeof IMPORT_TYPES_PADRAO[number]
@@ -97,17 +93,24 @@ function mapTituloFinanceiro(r: any, companyId: string) {
     r.codigo_lancamento ||
     ''
   )
+  const valor = parseOmieNumero(r.valor_documento ?? r.valor)
+  const valorPagoBruto = parseOmieNumero(r.valor_pago)
+  const status = mapStatusTitulo(r.status_titulo)
+  // Omie nao preenche valor_pago em lancamentos quitados (vem 0 mesmo com
+  // status=RECEBIDO/PAGO). Quando ja sabemos que esta pago, assume liquidacao
+  // total: valor_pago = valor. Sem isso, DRE caixa/conciliacao zera.
+  const valor_pago = status === 'pago' && valorPagoBruto === 0 ? valor : valorPagoBruto
   return {
     company_id: companyId,
     ref_externa_sistema: 'OMIE',
     ref_externa_id: refId,
     descricao: r.observacao || r.descricao_categoria || r.descricao || `Omie ${refId}`,
-    valor: parseOmieNumero(r.valor_documento ?? r.valor),
-    valor_pago: parseOmieNumero(r.valor_pago),
+    valor,
+    valor_pago,
     data_emissao: parseOmieDate(r.data_emissao),
     data_vencimento: parseOmieDate(r.data_vencimento),
     data_pagamento: parseOmieDate(r.data_pagamento),
-    status: mapStatusTitulo(r.status_titulo),
+    status,
     categoria: r.descricao_categoria || '',
     numero_documento: r.numero_documento || '',
     numero_nf: r.numero_nf || '',
@@ -268,6 +271,9 @@ async function promoverTitulos(
 
 // ─── Handler ───────────────────────────────────────────────────────────
 export async function POST(req: Request) {
+  // Usuário da empresa, ou máquina (Bearer CRON_SECRET) — também chamada pelo conector Omie.
+  const guarda = await exigirUsuario(req, { cron: true })
+  if (guarda instanceof NextResponse) return guarda
   const inicio = Date.now()
   try {
     const body = await req.json().catch(() => ({}))
@@ -282,6 +288,8 @@ export async function POST(req: Request) {
         { status: 400 }
       )
     }
+    const negado = await exigirEmpresas(guarda, [company_id])
+    if (negado) return negado
 
     const tipos = (Array.isArray(import_types) && import_types.length > 0
       ? import_types

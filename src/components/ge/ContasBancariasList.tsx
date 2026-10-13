@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ContasBancariasForm, { type Conta } from './ContasBancariasForm'
+import BancoIntegracaoPanel from './BancoIntegracaoPanel'
 
 const TIPOS_LABELS: Record<string, { label: string; icone: string }> = {
   corrente: { label: 'Conta Corrente', icone: '🏦' },
@@ -24,16 +25,25 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Conta | null>(null)
+  const [integracao, setIntegracao] = useState<Conta | null>(null)
+  // Camada1/Fatia1 item 6: conciliações pendentes por conta (badge)
+  const [pendentesPorConta, setPendentesPorConta] = useState<Record<string, number>>({})
 
   async function load() {
     setLoading(true)
     const { data } = await supabase
       .from('erp_banco_contas')
-      .select('id, nome, banco, agencia, conta, tipo_conta, saldo_inicial, data_saldo_inicial, soma_no_saldo, cor, ativo')
+      .select('id, nome, banco, agencia, conta, tipo_conta, saldo_inicial, data_saldo_inicial, soma_no_saldo, incluir_no_resumo, incluir_no_fluxo, incluir_no_orcamento, limite_credito, cor, ativo, conta_corrente_vinculada_id, dia_fechamento_fatura, dia_vencimento_fatura, numero_cartao_final')
       .eq('company_id', companyId)
       .eq('ativo', true)
       .order('nome')
     if (data) setContas(data as Conta[])
+    const { data: pend } = await supabase.rpc('fn_conciliacao_pendentes_por_conta', { p_company_id: companyId })
+    const map: Record<string, number> = {}
+    ;((pend ?? []) as { conta_bancaria_id: string; pendentes: number }[]).forEach((r) => {
+      if (r.conta_bancaria_id) map[r.conta_bancaria_id] = Number(r.pendentes)
+    })
+    setPendentesPorConta(map)
     setLoading(false)
   }
 
@@ -121,11 +131,13 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
             <CardConta
               key={c.id}
               conta={c}
+              pendentes={pendentesPorConta[c.id] ?? 0}
               onEditar={() => {
                 setEditing(c)
                 setShowForm(true)
               }}
               onInativar={() => handleInativar(c.id)}
+              onIntegracao={() => setIntegracao(c)}
             />
           ))}
         </div>
@@ -145,6 +157,7 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
         <ContasBancariasForm
           companyId={companyId}
           conta={editing}
+          contas={contas}
           onClose={() => {
             setShowForm(false)
             setEditing(null)
@@ -156,11 +169,19 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
           }}
         />
       )}
+
+      {integracao && (
+        <BancoIntegracaoPanel
+          companyId={companyId}
+          conta={integracao}
+          onClose={() => setIntegracao(null)}
+        />
+      )}
     </div>
   )
 }
 
-function CardConta({ conta, onEditar, onInativar }: { conta: Conta; onEditar: () => void; onInativar: () => void }) {
+function CardConta({ conta, pendentes, onEditar, onInativar, onIntegracao }: { conta: Conta; pendentes: number; onEditar: () => void; onInativar: () => void; onIntegracao: () => void }) {
   const tipoInfo = TIPOS_LABELS[conta.tipo_conta ?? 'corrente'] ?? TIPOS_LABELS.corrente
   const corBarra = conta.cor || '#3D2314'
 
@@ -180,11 +201,39 @@ function CardConta({ conta, onEditar, onInativar }: { conta: Conta; onEditar: ()
     >
       <div style={{ fontSize: 22 }} aria-hidden>{tipoInfo.icone}</div>
       <div style={{ flex: 1, minWidth: 200 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
           {conta.nome}
+          {pendentes > 0 ? (
+            <a
+              href="/dashboard/financeiro/conciliacao"
+              title="Ir para a conciliação"
+              style={{ fontSize: 10, background: '#FBF3E0', color: '#B7791F', padding: '2px 8px', borderRadius: 8, fontWeight: 700, textDecoration: 'none' }}
+            >
+              ⚠ {pendentes} conciliaç{pendentes === 1 ? 'ão' : 'ões'} pendente{pendentes === 1 ? '' : 's'}
+            </a>
+          ) : (
+            <span style={{ fontSize: 10, background: '#EAF3DE', color: '#3B6D11', padding: '2px 8px', borderRadius: 8, fontWeight: 700 }}>
+              ✓ Sem pendências
+            </span>
+          )}
           {!conta.soma_no_saldo && (
-            <span style={{ marginLeft: 8, fontSize: 10, background: 'rgba(186,117,23,0.15)', color: '#854F0B', padding: '2px 6px', borderRadius: 3, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
+            <span style={{ fontSize: 10, background: 'rgba(186,117,23,0.15)', color: '#854F0B', padding: '2px 6px', borderRadius: 3, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
               Não soma
+            </span>
+          )}
+          {conta.incluir_no_resumo === false && (
+            <span title="Não incluída no Resumo" style={{ fontSize: 10, background: 'rgba(163,45,45,0.12)', color: '#A32D2D', padding: '2px 6px', borderRadius: 3, fontWeight: 600 }}>
+              ⚠ Resumo
+            </span>
+          )}
+          {conta.incluir_no_fluxo === false && (
+            <span title="Não incluída no Fluxo de Caixa" style={{ fontSize: 10, background: 'rgba(163,45,45,0.12)', color: '#A32D2D', padding: '2px 6px', borderRadius: 3, fontWeight: 600 }}>
+              ⚠ Fluxo
+            </span>
+          )}
+          {conta.incluir_no_orcamento === false && (
+            <span title="Não incluída no Orçamento" style={{ fontSize: 10, background: 'rgba(163,45,45,0.12)', color: '#A32D2D', padding: '2px 6px', borderRadius: 3, fontWeight: 600 }}>
+              ⚠ Orçamento
             </span>
           )}
         </div>
@@ -202,6 +251,9 @@ function CardConta({ conta, onEditar, onInativar }: { conta: Conta; onEditar: ()
         </div>
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
+        <button type="button" onClick={onIntegracao} style={{ background: '#C8941A', color: '#3D2314', border: '0.5px solid #C8941A', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+          🔌 Integração bancária
+        </button>
         <button type="button" onClick={onEditar} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
           Editar
         </button>

@@ -1,0 +1,12 @@
+{
+  "name": "atak-frioeste-coletor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Coletor que le SQL Server ATAK (Frioeste) e envia abate pro Supabase via Edge Function atak-ingest.",
+  "scripts": {
+    "start": "node collector.js"
+  },
+  "dependencies": {
+    "mssql": "^11.0.1"
+  }
+}

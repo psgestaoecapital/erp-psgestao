@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { exigirLogin, exigirEmpresas, type UsuarioApi } from "@/lib/auth/guardaApi";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+async function handler(req: NextRequest, user: UsuarioApi) {
   try {
     const { company_id } = await req.json();
     if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
+    const negado = await exigirEmpresas(user, [company_id]);
+    if (negado) return negado;
 
     const supabase = supabaseAdmin;
 
@@ -119,4 +121,4 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

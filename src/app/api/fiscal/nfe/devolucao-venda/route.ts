@@ -1,0 +1,294 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/withAuth'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { createFiscalService } from '@/lib/fiscal/service'
+import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
+import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
+import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
+import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
+
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
+interface DevolVendaBody {
+  nfeVendaId: string
+  // [{ produtoId, quantidade }] · quantidades a devolver (<= vendidas)
+  itens: Array<{ produtoId: string; quantidade: number; cfopOverride?: string }>
+  naturezaOperacao?: string
+  ambiente?: 'homologacao' | 'producao'
+}
+
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
+  try {
+    const body = (await req.json()) as DevolVendaBody
+
+    if (!body.nfeVendaId) {
+      return NextResponse.json({ ok: false, mensagem: 'nfeVendaId obrigatorio' }, { status: 400 })
+    }
+    if (!Array.isArray(body.itens) || body.itens.length === 0) {
+      return NextResponse.json(
+        { ok: false, mensagem: 'Informe pelo menos 1 item para devolver' },
+        { status: 400 }
+      )
+    }
+
+    // Busca a NFe de venda original
+    const { data: nfeVenda, error: errVenda } = await supabaseAdmin
+      .from('erp_nfe_emitidas')
+      .select('id, company_id, chave, numero, serie, status, finalidade, itens, destinatario_razao_social, destinatario_cnpj, destinatario_cpf, destinatario_email, destinatario_endereco')
+      .eq('id', body.nfeVendaId)
+      .single()
+
+    if (errVenda || !nfeVenda) {
+      return NextResponse.json(
+        { ok: false, mensagem: `NFe de venda nao encontrada: ${errVenda?.message ?? 'inexistente'}` },
+        { status: 404 }
+      )
+    }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: nfeVenda.company_id, papelMinimo: 'membro', log: { notaTipo: 'nfe', notaId: nfeVenda.id, operacao: 'devolucao_venda', endpoint: 'nfe/devolucao-venda' } })
+    if (negado) return negado
+
+    if (nfeVenda.status !== 'autorizada') {
+      return NextResponse.json(
+        { ok: false, mensagem: `NFe de venda nao esta autorizada (status: ${nfeVenda.status})` },
+        { status: 400 }
+      )
+    }
+    if (!nfeVenda.chave || nfeVenda.chave.replace(/\D/g, '').length !== 44) {
+      return NextResponse.json(
+        { ok: false, mensagem: 'NFe de venda sem chave de 44 digitos' },
+        { status: 422 }
+      )
+    }
+
+    // Valida quantidades nao excedem o vendido E captura o valor unitario vendido POR item.
+    // valorUnitPorProduto espelha a venda original de CADA item (nao o primeiro da nota).
+    const itensVenda = Array.isArray(nfeVenda.itens) ? nfeVenda.itens as Array<Record<string, unknown>> : []
+    const valorUnitPorProduto = new Map<string, number>()
+    for (const itDev of body.itens) {
+      if (!itDev.produtoId || !(itDev.quantidade > 0)) {
+        return NextResponse.json(
+          { ok: false, mensagem: 'Item invalido (produtoId/quantidade)' },
+          { status: 400 }
+        )
+      }
+      // Tenta achar codigo do produto na nfe original
+      const { data: prod } = await supabaseAdmin
+        .from('erp_produtos')
+        .select('id, codigo')
+        .eq('id', itDev.produtoId)
+        .eq('company_id', nfeVenda.company_id)
+        .maybeSingle()
+      if (!prod) {
+        return NextResponse.json(
+          { ok: false, mensagem: `Produto ${itDev.produtoId} nao encontrado na empresa` },
+          { status: 404 }
+        )
+      }
+      const itemOriginal = itensVenda.find(
+        (i) => i.codigo === prod.codigo || i.produto_id === itDev.produtoId
+      )
+      if (itemOriginal) {
+        const qtdOriginal = Number(itemOriginal.quantidade ?? 0)
+        if (itDev.quantidade > qtdOriginal + 0.001) {
+          return NextResponse.json(
+            { ok: false, mensagem: `Quantidade a devolver (${itDev.quantidade}) excede a vendida (${qtdOriginal}) no produto ${prod.codigo ?? prod.id}` },
+            { status: 400 }
+          )
+        }
+        // Valor unitario ESPELHA a venda original DESTE item (chave: produtoId)
+        const v = itemOriginal.valorUnitario ?? itemOriginal.valor_unitario
+        if (typeof v === 'number') valorUnitPorProduto.set(itDev.produtoId, v)
+      }
+      // Se nao bateu codigo, deixa o builder cair no preco atual do produto
+    }
+
+    const chaveVenda = nfeVenda.chave.replace(/\D/g, '')
+
+    // Monta NFe manual de devolucao com destinatario = cliente original
+    const itensBuilder: NFeBuilderItemInput[] = body.itens.map((it) => ({
+      produtoId: it.produtoId,
+      quantidade: Number(it.quantidade),
+      // valor unitario do ITEM correspondente na venda original (fix: antes pegava
+      // o primeiro item da nota p/ todos os itens -> valores errados em nota multi-item).
+      // Sem correspondencia, undefined -> o builder usa o preco atual do produto.
+      valorUnitarioOverride: valorUnitPorProduto.get(it.produtoId),
+      // TODO PARAMETRO_CONFIRMAR_COM_CONTADOR: CFOP devolucao entrada 1202/2202
+      cfopOverride: it.cfopOverride ?? '1202',
+    }))
+
+    const docDest = String(nfeVenda.destinatario_cnpj ?? nfeVenda.destinatario_cpf ?? '').replace(/\D/g, '')
+    const ehCnpj = docDest.length === 14
+
+    // #94 fast-follow (mesma raiz do #125): a devolução sai para o CLIENTE original. Se ele é
+    // contribuinte de ICMS, a Sefaz exige a IE do destinatário — sem ela, rejeição 232. O snapshot
+    // da nota de venda não guarda IE; busca no cadastro do cliente pelo documento (dígitos).
+    // Sem IE cadastrada, a validação (nfe-validator) barra o contribuinte antes da Sefaz.
+    let ieDest: string | undefined
+    let indicadorIE: 1 | 2 | 9 | undefined
+    if (docDest) {
+      const { data: cli } = await supabaseAdmin
+        .from('erp_clientes')
+        .select('ie, contribuinte_icms')
+        .eq('company_id', nfeVenda.company_id)
+        .or(`cnpj_cpf.eq.${docDest},cpf_cnpj.eq.${docDest}`)
+        .maybeSingle()
+      ieDest = String(cli?.ie ?? '').replace(/\D/g, '') || undefined
+      const indMap: Record<string, 1 | 2 | 9> = { contribuinte: 1, isento: 2, nao_contribuinte: 9 }
+      indicadorIE = indMap[String((cli as { contribuinte_icms?: string | null } | null)?.contribuinte_icms ?? '')]
+    }
+
+    const enderecoRaw = nfeVenda.destinatario_endereco as Record<string, unknown> | null
+    const enderecoBuilder = enderecoRaw && typeof enderecoRaw === 'object'
+      ? {
+          logradouro: String(enderecoRaw.logradouro ?? ''),
+          numero: String(enderecoRaw.numero ?? 'S/N'),
+          complemento: enderecoRaw.complemento ? String(enderecoRaw.complemento) : undefined,
+          bairro: String(enderecoRaw.bairro ?? ''),
+          cidade: String(enderecoRaw.cidade ?? ''),
+          uf: String(enderecoRaw.uf ?? ''),
+          cep: String(enderecoRaw.cep ?? '').replace(/\D/g, ''),
+        }
+      : undefined
+
+    // #94: a NF de origem tem que aparecer nas OBSERVAÇÕES da DANFE (dados adicionais), não só no
+    // grupo NFref estrutural. Devolução sem referência legível é problema fiscal (carta de correção
+    // e fiscalização não acham a nota de origem).
+    const obsDevolucao = `Devolução referente à NF-e nº ${nfeVenda.numero ?? '—'}, série ${nfeVenda.serie ?? '—'}, chave de acesso ${chaveVenda}.`
+
+    const nfeReq = await buildNFeRequest({
+      companyId: nfeVenda.company_id,
+      manual: {
+        destinatario: {
+          razaoSocial: String(nfeVenda.destinatario_razao_social ?? 'Cliente'),
+          cnpj: ehCnpj ? docDest : undefined,
+          cpf: !ehCnpj ? docDest : undefined,
+          inscricaoEstadual: ieDest,
+          indicadorIE,
+          email: nfeVenda.destinatario_email ?? undefined,
+          endereco: enderecoBuilder,
+        },
+        itens: itensBuilder,
+        naturezaOperacao: body.naturezaOperacao ?? 'Devolução de venda',
+        finalidade: 'devolucao',
+        chaveReferenciada: chaveVenda,
+        observacoes: obsDevolucao,
+      },
+    })
+
+    // OS-0179 (RD-71, mesmo caminho da nfe/emitir): toda falha da emissão deixa rastro — tentativa; recusa
+    // síncrona da Focus → nota 'rejeitada' com payload_enviado.
+    const ctxEmissao: ContextoEmissaoNFe = {
+      companyId: nfeVenda.company_id, userId, notaTipo: 'nfe', operacao: 'devolucao_venda', endpoint: 'nfe/devolucao-venda', nfeReq: nfeReq,
+      vinculos: { chave_referenciada: chaveVenda },
+    }
+    try {
+      validateNFeRequest(nfeReq)
+    } catch (e) {
+      await registrarFalhaEmissaoNFe(ctxEmissao, e)
+      throw e
+    }
+
+    const svc = await createFiscalService(nfeVenda.company_id, { ambienteOverride: body.ambiente })
+    let resposta
+    try {
+      resposta = await svc.emitirNFe(nfeReq)
+    } catch (e) {
+      await registrarFalhaEmissaoNFe(ctxEmissao, e, svc.ambiente)
+      throw e
+    }
+
+    const valorProdutos = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
+    const dadosRegistro = {
+      chave: resposta.chave,
+      numero: resposta.numero,
+      serie: nfeReq.serie,
+      protocolo: resposta.protocolo,
+      natureza_operacao: nfeReq.naturezaOperacao,
+      finalidade: nfeReq.finalidade,
+      valor_total: valorProdutos,
+      valor_produtos: valorProdutos,
+      emitente_cnpj: nfeReq.emitente.cnpj,
+      emitente_razao_social: nfeReq.emitente.razaoSocial,
+      emitente_inscricao_estadual: nfeReq.emitente.inscricaoEstadual,
+      destinatario_cnpj: nfeReq.destinatario.cnpj,
+      destinatario_cpf: nfeReq.destinatario.cpf,
+      destinatario_razao_social: nfeReq.destinatario.razaoSocial,
+      destinatario_email: nfeReq.destinatario.email,
+      destinatario_endereco: nfeReq.destinatario.endereco,
+      status: resposta.status,
+      motivo_rejeicao: resposta.motivoRejeicao,
+      xml_url: resposta.xmlUrl,
+      danfe_url: resposta.danfeUrl,
+    }
+
+    const { data: registroId, error: rpcErr } = await supabaseAdmin.rpc(
+      'fn_registrar_nfe_emitida',
+      {
+        p_company_id: nfeVenda.company_id,
+        p_erp_receber_id: null,
+        p_provider_reference: resposta.providerReference,
+        p_ambiente: svc.ambiente,
+        p_dados: dadosRegistro,
+        p_itens: nfeReq.itens,
+        p_provider_raw: resposta.providerRaw ?? null,
+      }
+    )
+
+    await registrarTentativaEmissaoNFe(ctxEmissao, resposta, (registroId as string | null) ?? null)
+
+    if (rpcErr) {
+      return NextResponse.json(
+        { ok: false, mensagem: `NFe emitida mas erro registrar: ${rpcErr.message}`, providerReference: resposta.providerReference },
+        { status: 500 }
+      )
+    }
+
+    if (registroId) {
+      await supabaseAdmin
+        .from('erp_nfe_emitidas')
+        .update({ chave_referenciada: chaveVenda })
+        .eq('id', registroId)
+    }
+
+    // Estorno de estoque: devolução de VENDA = cliente devolve a peça → estoque ENTRA.
+    // Só se autorizada. Idempotente (guarda por ref_id na RPC). Não quebra o retorno da NF.
+    let estoqueEstornado = false
+    if (registroId && resposta.ok) {
+      try {
+        const { data: est } = await supabaseAdmin.rpc('fn_nfe_devolucao_estornar_estoque', {
+          p_company_id: nfeVenda.company_id,
+          p_nfe_emitida_id: registroId,
+          p_itens: body.itens.map((it) => ({ produto_id: it.produtoId, quantidade: it.quantidade, custo: 0 })),
+          p_direcao: 'venda',
+        })
+        estoqueEstornado = (est as { ok?: boolean })?.ok === true
+      } catch { estoqueEstornado = false }
+    }
+
+    return NextResponse.json({
+      ok: resposta.ok,
+      nfeId: registroId,
+      estoqueEstornado,
+      status: resposta.status,
+      numero: resposta.numero,
+      chave: resposta.chave,
+      xmlUrl: resposta.xmlUrl,
+      danfeUrl: resposta.danfeUrl,
+      motivoRejeicao: resposta.motivoRejeicao,
+      providerReference: resposta.providerReference,
+      ambiente: svc.ambiente,
+      chaveReferenciada: chaveVenda,
+    })
+  } catch (err) {
+    if (isFiscalError(err)) {
+      return NextResponse.json(err.toJSON(), { status: 502 })
+    }
+    return NextResponse.json(
+      { ok: false, mensagem: (err as Error)?.message ?? 'Erro interno' },
+      { status: 500 }
+    )
+  }
+})

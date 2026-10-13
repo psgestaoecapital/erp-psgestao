@@ -13,6 +13,8 @@ export type ConnectorContext = {
   // syncModule — permite reaproveitar /api/sync/omie/* e /api/omie/promote
   // sem duplicar a lógica de mapeamento/upsert.
   baseUrl: string
+  // Authorization da requisição original, repassado às rotas internas (que exigem login).
+  authorization?: string
 }
 
 export type SyncReport = {

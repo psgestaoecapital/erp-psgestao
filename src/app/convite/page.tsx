@@ -3,12 +3,15 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 function ConviteForm() {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
+  const [showPw, setShowPw] = useState(false);   // mostrar/ocultar "Crie uma senha" (independente)
+  const [showPw2, setShowPw2] = useState(false);  // mostrar/ocultar "Confirme sua senha" (independente)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -21,14 +24,11 @@ function ConviteForm() {
   useEffect(() => {
     if (!code) { setInvalid(true); setLoading(false); return; }
     
-    supabase.from("invites")
-      .select("*, companies(razao_social, nome_fantasia), organizations(name)")
-      .eq("invite_code", code)
-      .eq("is_used", false)
-      .single()
+    // Segurança PR 5: o convite é lido SÓ pelo código, via RPC (a tabela invites não é mais legível sem login).
+    // A RPC já filtra usado/expirado.
+    supabase.rpc("fn_convite_ler", { p_code: code })
       .then(({ data, error }) => {
-        if (error || !data) { setInvalid(true); setLoading(false); return; }
-        if (data.expires_at && new Date(data.expires_at) < new Date()) { setInvalid(true); setLoading(false); return; }
+        if (error || !data?.ok) { setInvalid(true); setLoading(false); return; }
         setInvite(data);
         if (data.email) setEmail(data.email);
         setLoading(false);
@@ -44,7 +44,7 @@ function ConviteForm() {
 
     // Tenta criar conta - se ja existe, faz login
     let authData: any = null;
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password, options: { data: { full_name: nome } } });
     if (signUpError) {
       // Se usuario ja existe no Auth, tenta fazer login
       if (signUpError.message.includes("already") || signUpError.message.includes("exists") || signUpError.message.includes("registered")) {
@@ -64,39 +64,27 @@ function ConviteForm() {
       authData = signUpData;
     }
 
+    if (authData.user && !authData.session) {
+      // Cadastro que exige confirmação de e-mail: sem sessão não há como aceitar agora (a RPC exige login).
+      setError("Confirme seu e-mail pelo link que enviamos e abra o convite de novo para concluir.");
+      setLoading(false);
+      return;
+    }
+
     if (authData.user) {
-      // Mark invite as used
-      await supabase.from("invites").update({ 
-        is_used: true, 
-        used_by: authData.user.id, 
-        used_at: new Date().toISOString() 
-      }).eq("invite_code", code);
-
-      // Create user profile
-      await supabase.from("users").insert({
-        id: authData.user.id,
-        org_id: invite.org_id,
-        full_name: nome,
-        email: email,
-        role: invite.role || "visualizador",
-      });
-
-      // Link user to company/companies
-      if (invite.group_id) {
-        // Group invite: link to ALL companies in the group
-        const { data: groupComps } = await supabase.from("companies").select("id").eq("group_id", invite.group_id);
-        if (groupComps) {
-          for (const comp of groupComps) {
-            await supabase.from("user_companies").insert({
-              user_id: authData.user.id, company_id: comp.id, role: invite.role || "visualizador"
-            });
-          }
-        }
-      } else if (invite.company_id) {
-        // Single company invite
-        await supabase.from("user_companies").insert({
-          user_id: authData.user.id, company_id: invite.company_id, role: invite.role || "visualizador"
-        });
+      // Aceite pela RPC: confere convite aberto, no prazo e para o e-mail do login; o banco provisiona perfil,
+      // empresa(s), papel e áreas (gatilho fn_invite_consumido_criar_vinculo). A tela não grava users/user_companies.
+      const { data: aceite, error: aceiteErro } = await supabase.rpc("fn_convite_aceitar", { p_code: code });
+      if (aceiteErro || !aceite?.ok) {
+        const motivo = aceite?.erro === "email_diferente"
+          ? "Este convite foi enviado para outro e-mail. Use o e-mail do convite."
+          : aceite?.erro === "convite_ja_usado" ? "Este convite já foi utilizado."
+          : aceite?.erro === "convite_expirado" ? "Este convite expirou. Peça um novo convite."
+          : aceite?.erro === "sem_login" ? "Confirme seu e-mail pelo link que enviamos e abra o convite de novo."
+          : "Não foi possível aceitar o convite. Tente novamente ou peça um novo convite."
+        setError(motivo);
+        setLoading(false);
+        return;
       }
     }
 
@@ -164,7 +152,7 @@ function ConviteForm() {
             <div style={{ background: "#2A2822", borderRadius: 8, padding: 12, marginBottom: 20, textAlign: "center", border: "0.5px solid #3D3A30" }}>
               <div style={{ fontSize: 10, color: "#918C82", textTransform: "uppercase", letterSpacing: 0.5 }}>Empresa</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: "#E8C872", marginTop: 4 }}>
-                {invite.companies.nome_fantasia || invite.companies.razao_social}
+                {invite.empresa}
               </div>
               <div style={{ fontSize: 10, color: "#A8A498", marginTop: 2 }}>
                 Perfil: {invite.role === "adm" ? "Administrador" : invite.role === "financeiro" ? "Financeiro" : invite.role ? invite.role.charAt(0).toUpperCase() + invite.role.slice(1).replace('_', ' ') : "Visualização"}
@@ -190,14 +178,26 @@ function ConviteForm() {
 
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, color: "#A8A498", marginBottom: 6, display: "block" }}>Crie uma senha (mínimo 6 caracteres)</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6}
-                style={{ background: "#2A2822", border: "1px solid #3D3A30", color: "#E8E5DC", borderRadius: 8, padding: "10px 14px", fontSize: 14, width: "100%" }} />
+              <div style={{ position: "relative" }}>
+                <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6}
+                  style={{ background: "#2A2822", border: "1px solid #3D3A30", color: "#E8E5DC", borderRadius: 8, padding: "10px 48px 10px 14px", fontSize: 14, width: "100%" }} />
+                <button type="button" onClick={() => setShowPw(v => !v)} aria-label={showPw ? "Ocultar senha" : "Mostrar senha"} title={showPw ? "Ocultar senha" : "Mostrar senha"}
+                  style={{ position: "absolute", top: "50%", right: 4, transform: "translateY(-50%)", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color: "#C8941A", padding: 0 }}>
+                  {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <div style={{ marginBottom: 24 }}>
               <label style={{ fontSize: 12, color: "#A8A498", marginBottom: 6, display: "block" }}>Confirme sua senha</label>
-              <input type="password" value={password2} onChange={e => setPassword2(e.target.value)} placeholder="••••••••" required minLength={6}
-                style={{ background: "#2A2822", border: `1px solid ${password2 && password !== password2 ? "#EF4444" : "#3D3A30"}`, color: "#E8E5DC", borderRadius: 8, padding: "10px 14px", fontSize: 14, width: "100%" }} />
+              <div style={{ position: "relative" }}>
+                <input type={showPw2 ? "text" : "password"} value={password2} onChange={e => setPassword2(e.target.value)} placeholder="••••••••" required minLength={6}
+                  style={{ background: "#2A2822", border: `1px solid ${password2 && password !== password2 ? "#EF4444" : "#3D3A30"}`, color: "#E8E5DC", borderRadius: 8, padding: "10px 48px 10px 14px", fontSize: 14, width: "100%" }} />
+                <button type="button" onClick={() => setShowPw2(v => !v)} aria-label={showPw2 ? "Ocultar senha" : "Mostrar senha"} title={showPw2 ? "Ocultar senha" : "Mostrar senha"}
+                  style={{ position: "absolute", top: "50%", right: 4, transform: "translateY(-50%)", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color: "#C8941A", padding: 0 }}>
+                  {showPw2 ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
               {password2 && password !== password2 && (
                 <div style={{ fontSize: 10, color: "#EF4444", marginTop: 4 }}>As senhas não coincidem</div>
               )}

@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
       next: { revalidate: 3600 },
     });
     
+    const brasilNaoExiste = r.status === 404;
     if (r.ok) {
       const d = await r.json();
       return NextResponse.json({
@@ -39,6 +40,8 @@ export async function GET(req: NextRequest) {
         cep: d.cep ? String(d.cep).padStart(8, '0').replace(/(\d{5})(\d{3})/, '$1-$2') : '',
         telefone: d.ddd_telefone_1 ? `(${String(d.ddd_telefone_1).slice(0, 2)}) ${String(d.ddd_telefone_1).slice(2)}` : '',
         email: d.email || '',
+        // código IBGE do município (obrigatório na NFS-e) — a BrasilAPI já devolve; evita 2ª consulta.
+        ibge: d.codigo_municipio_ibge ? String(d.codigo_municipio_ibge) : '',
         source: 'brasilapi',
       });
     }
@@ -73,12 +76,17 @@ export async function GET(req: NextRequest) {
         cep: d.cep || '',
         telefone: d.telefone || '',
         email: d.email || '',
+        ibge: '',   // ReceitaWS não devolve IBGE — resolvido pela tabela (cidade+UF) no cadastro.
         source: 'receitaws',
       });
     }
     
-    return NextResponse.json({ error: 'CNPJ não encontrado nos serviços.' }, { status: 404 });
-  } catch (e: any) {
-    return NextResponse.json({ error: 'Erro ao consultar: ' + e.message }, { status: 500 });
+    // 404 só quando as duas fontes dizem que não existe; limite/instabilidade é 503 (indisponível).
+    if (brasilNaoExiste && r2.status === 404) {
+      return NextResponse.json({ error: 'CNPJ não encontrado nos serviços.' }, { status: 404 });
+    }
+    return NextResponse.json({ error: 'Consulta externa indisponível no momento.', indisponivel: true }, { status: 503 });
+  } catch (e) {
+    return NextResponse.json({ error: 'Consulta externa indisponível: ' + (e instanceof Error ? e.message : String(e)), indisponivel: true }, { status: 503 });
   }
 }

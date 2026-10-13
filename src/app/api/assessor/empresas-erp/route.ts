@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-)
-
-export async function GET() {
+export async function GET(req: Request) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     // 1. Buscar clientes_assessoria
     const { data: clientes } = await supabase

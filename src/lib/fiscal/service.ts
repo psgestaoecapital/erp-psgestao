@@ -1,0 +1,176 @@
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { FocusNFeProvider } from './providers/focusnfe'
+import { decryptApiKey } from './decrypt'
+import { FiscalError } from './errors'
+import type {
+  FiscalProvider,
+  NFSeRequest,
+  NFSeResponse,
+  NFeRequest,
+  NFeResponse,
+  MDeListaRequest,
+  MDeListaResponse,
+  MDeManifestarRequest,
+  MDeManifestarResponse,
+  TestarConexaoResponse,
+  FiscalAmbiente,
+} from './types'
+
+export interface FiscalService {
+  readonly providerName: string
+  readonly ambiente: FiscalAmbiente
+
+  testarConexao(): Promise<TestarConexaoResponse>
+  // FEAT-NFE-DIAGNOSTICO-FOCUS-v1
+  diagnosticoEmpresas(): Promise<{
+    status: number
+    autenticou: boolean
+    empresas: Array<{
+      cnpj: string; nome: string;
+      habilita_nfe: boolean; habilita_nfce: boolean;
+      habilita_nfse: boolean; habilita_cte: boolean; habilita_mdfe: boolean;
+    }>
+  }>
+  // Conferência Focus × local: objeto bruto da empresa no Focus (por CNPJ) ou null.
+  obterEmpresaFocus(cnpj: string): Promise<Record<string, unknown> | null>
+  emitirNFSe(req: NFSeRequest): Promise<NFSeResponse>
+  consultarNFSe(ref: string): Promise<NFSeResponse>
+  cancelarNFSe(ref: string, justificativa: string): Promise<NFSeResponse>
+  emitirNFe(req: NFeRequest): Promise<NFeResponse>
+  emitirNFCe(req: NFeRequest): Promise<NFeResponse>
+  consultarNFe(chave: string): Promise<NFeResponse>
+  baixarXmlNota(referenceOrChave: string): Promise<{ xml: string; chave?: string }>
+  cancelarNFe(chave: string, justificativa: string): Promise<NFeResponse>
+  cartaCorrecaoNFe(chave: string, correcao: string): Promise<{
+    status: 'registrado' | 'rejeitado' | 'processando'
+    protocolo?: string
+    motivoRejeicao?: string
+    providerRaw: unknown
+  }>
+  mdeListar(req: MDeListaRequest): Promise<MDeListaResponse>
+  mdeManifestar(req: MDeManifestarRequest): Promise<MDeManifestarResponse>
+  mdeBaixarXml(chave: string): Promise<string>
+}
+
+interface CreateFiscalServiceOpts {
+  // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · override SO desce pra homologacao
+  // body NUNCA consegue subir pra producao a partir desta opcao
+  ambienteOverride?: 'homologacao' | 'producao'
+}
+
+export async function createFiscalService(
+  companyId: string,
+  opts: CreateFiscalServiceOpts = {},
+): Promise<FiscalService> {
+  const { data, error } = await supabaseAdmin.rpc('fn_buscar_provider_config_ativa', {
+    p_company_id: companyId,
+    p_provider: 'focusnfe',
+  })
+
+  if (error) {
+    throw new FiscalError('CONFIG_NAO_ENCONTRADA', error.message, { rpc_error: error })
+  }
+
+  const payload = (data ?? {}) as {
+    encontrou?: boolean
+    tem_certificado?: boolean
+    certificado?: { validade_fim?: string }
+  }
+
+  if (!payload.encontrou) {
+    throw new FiscalError(
+      'CONFIG_NAO_ENCONTRADA',
+      'Configuracao Focus NFe nao encontrada · cadastre em /dashboard/configuracoes/fiscal'
+    )
+  }
+  if (!payload.tem_certificado) {
+    throw new FiscalError(
+      'CERTIFICADO_AUSENTE',
+      'Certificado A1 nao encontrado · cadastre em /dashboard/configuracoes/fiscal'
+    )
+  }
+
+  const { data: configRow, error: cfgErr } = await supabaseAdmin
+    .from('erp_fiscal_provider_config')
+    .select('api_key_encrypted, ambiente')
+    .eq('company_id', companyId)
+    .eq('provider', 'focusnfe')
+    .eq('ativo', true)
+    .maybeSingle()
+
+  if (cfgErr || !configRow) {
+    throw new FiscalError('API_KEY_INVALIDA', 'api_key Focus NFe nao encontrada')
+  }
+
+  // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
+  // ambiente da config + override anti-engano: SO desce pra homologacao;
+  // body NUNCA consegue subir pra producao
+  const configAmbiente = (configRow.ambiente ?? 'homologacao') as FiscalAmbiente
+  const ambiente: FiscalAmbiente =
+    opts.ambienteOverride === 'homologacao' ? 'homologacao' : configAmbiente
+
+  // FIX-FOCUS-TOKEN-VAULT (RD-52): o "Atualizar" (fn_fiscal_salvar_token) grava o token
+  // no Vault (focus_token_vault_id), NAO em api_key_encrypted. A emissao lia so a coluna
+  // legada (vazia) -> "api_key nao encontrada" mesmo com o token salvo. Agora: usa a
+  // coluna legada se houver; senao obtem o token do Vault via fn_fiscal_obter_token.
+  // #1944 · o COFRE manda: usa o token do Vault; a coluna legada (base64) só se o cofre estiver vazio.
+  let apiKey: string
+  const { data: tok } = await supabaseAdmin.rpc('fn_fiscal_obter_token', {
+    p_company_id: companyId,
+    p_ambiente: configAmbiente,
+  })
+  const tokStr = typeof tok === 'string' ? tok.trim() : ''
+  if (tokStr.length >= 8) {
+    apiKey = tokStr
+  } else if (configRow.api_key_encrypted) {
+    apiKey = decryptApiKey(configRow.api_key_encrypted)
+  } else {
+    throw new FiscalError('API_KEY_INVALIDA', 'api_key Focus NFe nao encontrada')
+  }
+
+  const { data: company, error: companyErr } = await supabaseAdmin
+    .from('companies')
+    .select('cnpj')
+    .eq('id', companyId)
+    .maybeSingle()
+
+  if (companyErr || !company?.cnpj) {
+    throw new FiscalError('CONFIG_NAO_ENCONTRADA', 'CNPJ da empresa nao encontrado em companies.cnpj')
+  }
+
+  const cnpjEmpresa = String(company.cnpj).replace(/\D/g, '')
+
+  const validadeFim = payload.certificado?.validade_fim
+    ? new Date(payload.certificado.validade_fim)
+    : null
+  const diasParaExpirar = validadeFim
+    ? Math.floor((validadeFim.getTime() - Date.now()) / 86_400_000)
+    : undefined
+
+  const provider: FiscalProvider = new FocusNFeProvider({
+    apiKey,
+    ambiente,
+    cnpjEmpresa,
+    diasParaExpirarCert: diasParaExpirar,
+  })
+
+  return {
+    providerName: provider.name,
+    ambiente,
+    testarConexao: () => provider.testarConexao(),
+    diagnosticoEmpresas: () => provider.diagnosticoEmpresas(),
+    obterEmpresaFocus: (cnpj) => (provider as FocusNFeProvider).obterEmpresa(cnpj),
+    emitirNFSe: (req) => provider.emitirNFSe(req),
+    consultarNFSe: (ref) => provider.consultarNFSe(ref),
+    cancelarNFSe: (ref, j) => provider.cancelarNFSe(ref, j),
+    emitirNFe: (req) => provider.emitirNFe(req),
+    emitirNFCe: (req) => provider.emitirNFCe(req),
+    consultarNFe: (c) => provider.consultarNFe(c),
+    baixarXmlNota: (c) => provider.baixarXmlNota(c),
+    cancelarNFe: (c, j) => provider.cancelarNFe(c, j),
+    cartaCorrecaoNFe: (c, x) => provider.cartaCorrecaoNFe(c, x),
+    mdeListar: (req) => provider.mdeListar(req),
+    mdeManifestar: (req) => provider.mdeManifestar(req),
+    mdeBaixarXml: (c) => provider.mdeBaixarXml(c),
+  }
+}

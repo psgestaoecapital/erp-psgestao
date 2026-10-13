@@ -7,9 +7,11 @@ import { authFetch } from '@/lib/authFetch'
 import { fmtData, fmtDataHora } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../../_components/UploadDocumentoModal'
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
+import MarcarDocsPessoa from './MarcarDocsPessoa'
 
 type Matriz = {
-  tipo_documento_id: string
+  tipo_documento_id: string | null
+  exigido_id?: string | null
   tipo_slug: string
   tipo_nome: string
   tipo_grupo: string | null
@@ -38,6 +40,8 @@ type Documento = {
 }
 
 type Funcionario = Record<string, any>
+// LGPD (20261005180000): salário individual só para quem vê salário; os demais veem a média da função (grupo de 3+)
+type SalarioInfo = { pode_ver: boolean; cargo?: string | null; pessoas_no_cargo?: number; media_funcao?: number | null }
 
 export default function FuncionarioDetalhePage() {
   const params = useParams()
@@ -46,6 +50,7 @@ export default function FuncionarioDetalhePage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [funcionario, setFuncionario] = useState<Funcionario | null>(null)
+  const [salario, setSalario] = useState<SalarioInfo | null>(null)
   const [matriz, setMatriz] = useState<Matriz[]>([])
   const [historico, setHistorico] = useState<Documento[]>([])
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
@@ -59,6 +64,7 @@ export default function FuncionarioDetalhePage() {
       const j = await res.json()
       if (!j.ok) throw new Error(j.error || 'falha')
       setFuncionario(j.funcionario)
+      setSalario(j.salario ?? null)
       setMatriz(j.matriz || [])
       setHistorico(j.historico || [])
     } catch (e: any) {
@@ -69,6 +75,10 @@ export default function FuncionarioDetalhePage() {
   }, [id])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // #47 · a lista de documentos mostra só o que se aplica à pessoa: o marcado "não se aplica" sai da lista
+  // (continua visível — e reversível — em "Quais documentos esta pessoa precisa").
+  const matrizAplicavel = matriz.filter((m) => m.status_final !== 'nao_se_aplica')
 
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
@@ -94,7 +104,7 @@ export default function FuncionarioDetalhePage() {
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}` }}>
           {([
             { k: 'dados', label: 'Dados' },
-            { k: 'documentos', label: `Documentos (${matriz.length})` },
+            { k: 'documentos', label: `Documentos (${matrizAplicavel.length})` },
             { k: 'historico', label: `Histórico (${historico.length})` },
           ] as const).map((t) => (
             <button
@@ -118,17 +128,21 @@ export default function FuncionarioDetalhePage() {
         </div>
 
         {tab === 'dados' && funcionario && (
-          <AbaDados funcionario={funcionario} onSaved={carregar} />
+          <AbaDados funcionario={funcionario} salario={salario} onSaved={carregar} />
+        )}
+        {tab === 'documentos' && funcionario && (
+          <MarcarDocsPessoa companyId={funcionario.company_id} funcionarioId={funcionario.id} onChanged={carregar} />
         )}
         {tab === 'documentos' && (
           <AbaDocumentos
             loading={loading}
-            matriz={matriz}
+            matriz={matrizAplicavel}
             onUpload={(m, modo) => {
               if (!funcionario) return
               setUploadCtx({
                 companyId: funcionario.company_id,
                 tipoDocumentoId: m.tipo_documento_id,
+                exigidoId: m.exigido_id ?? null,
                 tipoNome: m.tipo_nome,
                 funcionarioId: funcionario.id,
                 modo,
@@ -156,7 +170,8 @@ export default function FuncionarioDetalhePage() {
   )
 }
 
-function AbaDados({ funcionario, onSaved }: { funcionario: Funcionario; onSaved: () => void }) {
+function AbaDados({ funcionario, salario, onSaved }: { funcionario: Funcionario; salario: SalarioInfo | null; onSaved: () => void }) {
+  const podeVerSalario = salario?.pode_ver === true
   const [form, setForm] = useState<Funcionario>(funcionario)
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -173,6 +188,8 @@ function AbaDados({ funcionario, onSaved }: { funcionario: Funcionario; onSaved:
       delete payload.company_id
       delete payload.created_at
       delete payload.updated_at
+      // salário só vai quando quem vê salário alterou (cada gravação fica registrada); os demais nunca enviam
+      if (!podeVerSalario || (payload.salario_base ?? null) === (funcionario.salario_base ?? null)) delete payload.salario_base
       const res = await authFetch(`/api/compliance/funcionarios/${funcionario.id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
@@ -222,7 +239,16 @@ function AbaDados({ funcionario, onSaved }: { funcionario: Funcionario; onSaved:
         <F label="Data admissão" v={form.data_admissao || ''} onChange={(v) => set('data_admissao', v)} type="date" />
         <F label="Data demissão" v={form.data_demissao || ''} onChange={(v) => set('data_demissao', v)} type="date" />
         <F label="Tipo contrato" v={form.tipo_contrato || ''} onChange={(v) => set('tipo_contrato', v)} />
-        <F label="Salário base (R$)" v={form.salario_base ?? ''} onChange={(v) => set('salario_base', v === '' ? null : Number(v))} type="number" />
+        {podeVerSalario
+          ? <F label="Salário base (R$)" v={form.salario_base ?? ''} onChange={(v) => set('salario_base', v === '' ? null : Number(v))} type="number" />
+          : (
+            <div data-testid="salario-media-funcao" style={{ fontSize: 13, color: C.espresso }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Salário da função</div>
+              {salario?.media_funcao != null
+                ? <>Média da função{salario.cargo ? ` (${salario.cargo})` : ''}: <b>{Number(salario.media_funcao).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</b> · {salario.pessoas_no_cargo} pessoas</>
+                : <>Média da função indisponível (menos de 3 pessoas no cargo). O salário individual só aparece para quem tem permissão.</>}
+            </div>
+          )}
       </div>
 
       <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, margin: '20px 0 12px' }}>Alocação</h3>
@@ -275,7 +301,7 @@ function AbaDocumentos({
             {matriz.map((m, i) => {
               const temDoc = !!m.documento_id
               return (
-                <tr key={m.tipo_documento_id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
+                <tr key={m.tipo_documento_id ?? m.exigido_id ?? m.tipo_slug} data-testid="doc-linha" data-doc={m.tipo_nome} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
                   <Td>
                     <div style={{ fontWeight: 600 }}>{m.tipo_nome}</div>
                     {m.obrigatorio && <div style={{ fontSize: 10, color: C.red, marginTop: 2, fontWeight: 600 }}>OBRIGATÓRIO</div>}

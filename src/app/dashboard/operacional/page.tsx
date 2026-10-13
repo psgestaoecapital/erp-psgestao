@@ -129,7 +129,14 @@ export default function OperacionalPage(){
     const{data:fd}=await supabase.from('erp_fornecedores').select('*').eq('company_id',sel).eq('ativo',true).order('nome_fantasia')
     setFornecedores(fd||[])
     const{data:pc}=await supabase.from('erp_plano_contas').select('*').or(`company_id.is.null,company_id.eq.${sel}`).eq('ativo',true).order('codigo')
-    setPlano(pc||[])
+    // Dedup por codigo preferindo a cópia da empresa sobre o template global (RD-52 fonte única):
+    // sem isso, uma conta que existe como global + cópia da empresa aparecia DUAS vezes (DRE/lista).
+    const _porCodigo=new Map<string,any>()
+    for(const r of ((pc||[]) as any[])){
+      const ex=_porCodigo.get(r.codigo)
+      if(!ex || (r.company_id===sel && ex.company_id!==sel)) _porCodigo.set(r.codigo,r)
+    }
+    setPlano(Array.from(_porCodigo.values()).sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo))))
     try{
       const{data:cb}=await supabase.from('erp_contas_bancarias').select('*').eq('company_id',sel).eq('ativo',true).order('nome')
       setContasBancarias(cb||[])
@@ -219,7 +226,13 @@ export default function OperacionalPage(){
 
   const deleteLanc=async(id:string)=>{
     if(!confirm('Excluir este lançamento?'))return
-    await supabase.from('erp_lancamentos').delete().eq('id',id)
+    // Exclusão auditada+guardada (RD-30/RD-51): a UI LÊ o retorno e recarrega do servidor.
+    // Nunca DELETE cru (bloqueado no banco) nem "assume sucesso" sem confirmação.
+    const{data,error}=await supabase.rpc('fn_lancamento_excluir',{p_id:id,p_motivo:'exclusão manual (operacional)'})
+    if(error||(data&&data.sucesso===false)){
+      setMsg('❌ '+(error?.message||data?.orientacao||data?.erro||'não foi possível excluir'))
+      setTimeout(()=>setMsg(''),4000);return
+    }
     setMsg('✅ Excluído');await loadAll();setTimeout(()=>setMsg(''),3000)
   }
 

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { modeloPara, registrarFalhaIA } from '@/lib/aiModel'
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { diagnostico, cliente_nome, assessoria_nome } = await req.json()
     const apiKey = process.env.ANTHROPIC_API_KEY
@@ -23,12 +27,17 @@ Gere um parecer com:
 
 Seja direto, use numeros, sem enrolacao. Portugues brasileiro.`
 
+    const modelo = modeloPara('consultor')
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1200, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model: modelo, max_tokens: 1200, messages: [{ role: 'user', content: prompt }] }),
     })
-    if (!response.ok) throw new Error('API ' + response.status)
+    if (!response.ok) {
+      const t = await response.text().catch(() => '')
+      await registrarFalhaIA({ endpoint: '/api/assessor/consultor', finalidade: 'consultor', modelo, status: response.status, erro: t })
+      throw new Error('API ' + response.status)
+    }
     const data = await response.json()
     const reply = data.content?.map((c: any) => c.text || '').join('') || 'Sem resposta'
     return NextResponse.json({ parecer: reply })

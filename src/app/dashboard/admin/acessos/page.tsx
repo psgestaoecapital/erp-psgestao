@@ -1,0 +1,716 @@
+"use client";
+// Usuários & Acessos · Fase 1 — tela em cascata (Empresa → Áreas contratadas (teto) → Master → Pessoas).
+// Backend (RPCs SECURITY DEFINER com travas): fn_acessos_empresa_contexto / fn_acessos_salvar_pessoa.
+// Horário = SÓ configuração nesta fase (trava de login é Fase 2). Coexiste com as 9 abas antigas.
+import { useEffect, useState, useCallback, type CSSProperties } from "react";
+import { supabase } from "@/lib/supabase";
+import { useCompanyIds } from "@/lib/useCompanyIds";
+import { Users, Building2, Shield, Factory, Clock, Save, ChevronDown, ChevronRight, Crown, Lock, UserPlus, Link2, Plus, Send } from "lucide-react";
+import { textoUltimoEnvio, type UltimoEnvio } from "@/lib/acessos/enviarLink";
+import NovaEmpresaWizard from "./_components/NovaEmpresaWizard";
+import EquipePsSection from "./_components/EquipePsSection";
+
+const GO = "var(--ps-gold,#C8941A)", BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)",
+  BD = "var(--ps-border,#E0D8CC)", TX = "var(--ps-text,#3D2314)", TXM = "var(--ps-text-m,#6B5D4F)", TXD = "var(--ps-text-d,#9C8E80)",
+  G = "#22C55E", R = "#EF4444", BL = "#3B82F6";
+const cadInp: CSSProperties = { padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320, width: "100%", boxSizing: "border-box" };
+
+// Papéis liberáveis pelo Master (NUNCA admin/acesso_total/PS_ADMIN — travado também no backend).
+const PAPEIS: { role: string; nome: string }[] = [
+  { role: "socio", nome: "Sócio / CEO" }, { role: "diretor", nome: "Diretor" }, { role: "diretor_area", nome: "Diretor de Área" },
+  { role: "gerente", nome: "Gerente" }, { role: "gerente_planta", nome: "Gerente de Planta" }, { role: "gerente_processo", nome: "Gerente de Processo" },
+  { role: "supervisor", nome: "Supervisor" }, { role: "supervisor_turno", nome: "Supervisor de Turno" }, { role: "coordenador", nome: "Coordenador" },
+  { role: "operacional", nome: "Operacional" }, { role: "operador", nome: "Operador" }, { role: "comercial", nome: "Comercial" },
+  { role: "financeiro", nome: "Financeiro" }, { role: "contador", nome: "Contador" }, { role: "consultor", nome: "Consultor" },
+  { role: "rh_industrial", nome: "RH Industrial" }, { role: "sst", nome: "SST" }, { role: "viewer", nome: "Visualizador" },
+];
+const DIAS = [{ n: 1, l: "Seg" }, { n: 2, l: "Ter" }, { n: 3, l: "Qua" }, { n: 4, l: "Qui" }, { n: 5, l: "Sex" }, { n: 6, l: "Sáb" }, { n: 7, l: "Dom" }];
+const SIT_LBL: Record<string, string> = { ATIVO: "Ativo", INATIVO_7DIAS: "Inativo 7d+", INATIVO_30DIAS: "Inativo 30d+", NUNCA_LOGOU: "Nunca logou" };
+const SIT_COR: Record<string, string> = { ATIVO: G, INATIVO_7DIAS: "#F59E0B", INATIVO_30DIAS: R, NUNCA_LOGOU: TXD };
+// Papel de gestao (tenant_user_roles) -> rotulo curto.
+const PAPEL_GESTAO_LBL: Record<string, string> = {
+  CLIENT_OWNER: "Master", CLIENT_MANAGER: "Gestor", CLIENT_OPERATOR: "Operador", CLIENT_VIEWER: "Visualizador",
+};
+
+type Empresa = { id: string; nome_fantasia: string | null; razao_social: string | null };
+type Area = { slug: string; nome: string };
+type Planta = { id: string; nome: string };
+type Master = { user_id: string; email: string; nome: string | null };
+type Horario = { dias_semana: number[] | null; hora_inicio: string | null; hora_fim: string | null; timezone: string | null; ativo: boolean | null };
+type Pessoa = {
+  user_id: string; email: string; nome: string | null; role: string; nivel: string; is_master: boolean;
+  papel_gestao: string | null;
+  cargo: string | null; telefone: string | null; cpf: string | null; observacao: string | null; is_active: boolean | null;
+  restricted: boolean; areas: string[] | null; plantas: string[] | null; horario: Horario | null;
+  ultimo_login: string | null; situacao: string;
+};
+type Contexto = { empresa: Empresa; areas_contratadas: Area[]; plantas: Planta[]; master: Master[]; pessoas: Pessoa[] };
+type ConvitePendente = { id: string; email: string; created_at: string; expires_at: string | null };
+type Envios = { convites_pendentes: ConvitePendente[]; ultimos_envios: Record<string, UltimoEnvio> };
+
+// "Enviar link de acesso" (CEO 29/09): convite pendente → reenvia o convite; tem conta e nunca entrou → convite com
+// link para criar a senha; já entrou → e-mail de criar senha nova. Regra e registro no servidor (/api/acessos/enviar-link).
+async function chamarEnviarLink(companyId: string, alvo: { user_id: string } | { invite_id: string }) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const r = await fetch("/api/acessos/enviar-link", {
+    method: "POST", headers: { "content-type": "application/json", authorization: session ? `Bearer ${session.access_token}` : "" },
+    body: JSON.stringify({ company_id: companyId, ...alvo }),
+  });
+  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; rotulo?: string; destino?: string; enviado_em?: string; por?: string | null; erro?: string; error?: string };
+  return j.ok ? { ok: true as const, t: `${j.rotulo} para ${j.destino}.`, envio: { em: j.enviado_em || new Date().toISOString(), por: j.por ?? null } }
+    : { ok: false as const, t: j.erro || j.error || "Não foi possível enviar." };
+}
+
+export default function AcessosCascataPage() {
+  // Empresa do seletor global do topo (RD-52: Acessos sempre na empresa do contexto, nunca uma stale).
+  const { sel } = useCompanyIds();
+  const [empresasGeriveis, setEmpresasGeriveis] = useState<Empresa[]>([]);
+  const [companyId, setCompanyId] = useState<string>("");
+  const [ctx, setCtx] = useState<Contexto | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [envios, setEnvios] = useState<Envios>({ convites_pendentes: [], ultimos_envios: {} });
+
+  // Empresas que o usuário pode gerir: PS_ADMIN → todas; senão as que ele é CLIENT_OWNER ativo.
+  useEffect(() => {
+    (async () => {
+      setLoading(true); setErro(null);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setErro("Sessão expirada. Entre novamente."); setLoading(false); return; }
+      const { data: me } = await supabase.from("users").select("system_role").eq("id", user.id).maybeSingle();
+      const ehPS = me?.system_role === "PS_ADMIN" || me?.system_role === "PS_ADMIN_CVM";
+      setIsAdmin(ehPS);
+      let empresas: Empresa[] = [];
+      if (ehPS) {
+        const { data } = await supabase.from("companies").select("id,nome_fantasia,razao_social").order("nome_fantasia");
+        empresas = (data as Empresa[]) || [];
+      } else {
+        const { data } = await supabase.from("tenant_user_roles")
+          .select("company_id, companies(id,nome_fantasia,razao_social)")
+          .eq("user_id", user.id).eq("role", "CLIENT_OWNER").eq("is_active", true);
+        empresas = ((data as any[]) || []).map((r) => r.companies).filter(Boolean);
+      }
+      setEmpresasGeriveis(empresas);
+      // Default = empresa do seletor global do topo (localStorage), se for gerível; senão a 1ª.
+      const selTopo = typeof window !== "undefined" ? localStorage.getItem("ps_empresa_sel") : null;
+      const inicial = empresas.some((e) => e.id === selTopo) ? (selTopo as string) : empresas[0]?.id;
+      if (empresas.length > 0) setCompanyId((prev) => prev || inicial);
+      setLoading(false);
+    })();
+  }, [reloadKey]);
+
+  // Re-scope: se a empresa do topo mudar (e for gerível), a tela acompanha — nunca mostra outra empresa.
+  useEffect(() => {
+    if (!sel || empresasGeriveis.length === 0) return;
+    if (sel !== companyId && empresasGeriveis.some((e) => e.id === sel)) setCompanyId(sel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel, empresasGeriveis]);
+
+  const carregar = useCallback(async (cid: string) => {
+    if (!cid) return;
+    setLoading(true); setErro(null); setEditId(null);
+    const { data, error } = await supabase.rpc("fn_acessos_empresa_contexto", { p_company_id: cid });
+    if (error) { setErro(error.message); setCtx(null); }
+    else setCtx(data as Contexto);
+    setLoading(false);
+  }, []);
+  useEffect(() => { if (companyId) void carregar(companyId); }, [companyId, carregar]);
+
+  const carregarEnvios = useCallback(async (cid: string) => {
+    if (!cid) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const r = await fetch(`/api/acessos/enviar-link?company_id=${cid}`, { headers: { authorization: session ? `Bearer ${session.access_token}` : "" } });
+    const j = (await r.json().catch(() => null)) as (Envios & { ok?: boolean }) | null;
+    setEnvios(j?.ok ? { convites_pendentes: j.convites_pendentes || [], ultimos_envios: j.ultimos_envios || {} } : { convites_pendentes: [], ultimos_envios: {} });
+  }, []);
+  useEffect(() => { if (companyId) void carregarEnvios(companyId); }, [companyId, carregarEnvios]);
+  const registrarEnvio = (id: string, e: UltimoEnvio) => setEnvios((v) => ({ ...v, ultimos_envios: { ...v.ultimos_envios, [id]: e } }));
+
+  if (loading && !ctx) return <Shell><div style={{ color: TXM }}>Carregando…</div></Shell>;
+  if (empresasGeriveis.length === 0) return <Shell><div style={{ color: TXM }}>Você não administra nenhuma empresa. Fale com a PS Gestão.</div></Shell>;
+
+  return (
+    <Shell>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: TX, display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <Users size={22} color={GO} /> Usuários &amp; Acessos
+        </h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {empresasGeriveis.length > 1 && (
+            <select value={companyId} onChange={(e) => setCompanyId(e.target.value)}
+              style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG2, color: TX, fontWeight: 600 }}>
+              {empresasGeriveis.map((e) => <option key={e.id} value={e.id}>{e.nome_fantasia || e.razao_social}</option>)}
+            </select>
+          )}
+          {isAdmin && (
+            <button onClick={() => setWizardOpen(true)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: GO, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+              <Plus size={15} /> Incluir nova empresa
+            </button>
+          )}
+        </div>
+      </div>
+      {wizardOpen && (
+        <NovaEmpresaWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onCreated={() => setReloadKey((k) => k + 1)} />
+      )}
+
+      {erro && <div style={{ background: "#FEF2F2", border: `1px solid ${R}`, color: R, padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+
+      {/* Equipe PS (acesso a todas as empresas, exceto Wealth/[BOT]) — só PS_ADMIN. Contexto 9a38849b. */}
+      {isAdmin && <EquipePsSection />}
+
+      {ctx && (
+        <>
+          {/* 1 · Empresa */}
+          <Card>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Building2 size={20} color={GO} />
+              <div>
+                <div style={{ fontWeight: 800, color: TX, fontSize: 16 }}>{ctx.empresa.nome_fantasia || ctx.empresa.razao_social}</div>
+                {ctx.empresa.razao_social && ctx.empresa.nome_fantasia && <div style={{ fontSize: 12, color: TXD }}>{ctx.empresa.razao_social}</div>}
+              </div>
+            </div>
+          </Card>
+
+          {/* 2 · Áreas contratadas (teto) */}
+          <Secao icon={<Shield size={15} color={GO} />} titulo={`Áreas contratadas (teto) · ${ctx.areas_contratadas.length}`} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {ctx.areas_contratadas.length === 0 && <span style={{ color: TXD, fontSize: 13 }}>Nenhuma área contratada.</span>}
+            {ctx.areas_contratadas.map((a) => (
+              <span key={a.slug} style={{ padding: "6px 12px", borderRadius: 999, background: BG3, border: `1px solid ${BD}`, color: TX, fontSize: 13, fontWeight: 700 }}>{a.nome}</span>
+            ))}
+          </div>
+
+          {/* 2b · Gerenciar áreas contratadas (planos) — só PS_ADMIN (RD-25) */}
+          {isAdmin && <GerenciarAreas companyId={companyId} onChanged={() => carregar(companyId)} />}
+
+          {/* 3 · Master(s) */}
+          <Secao icon={<Crown size={15} color={GO} />} titulo="Master da empresa" />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {ctx.master.length === 0 && <span style={{ color: TXD, fontSize: 13 }}>Sem master definido.</span>}
+            {ctx.master.map((m) => (
+              <div key={m.user_id} style={{ padding: "8px 14px", borderRadius: 10, background: BG2, border: `1px solid ${GO}`, display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <Crown size={14} color={GO} /><span style={{ fontWeight: 700, color: TX, fontSize: 13 }}>{m.nome || m.email}</span>
+                <span style={{ fontSize: 11, color: TXD }}>{m.email}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* 4 · Pessoas */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+            <Secao icon={<Users size={15} color={GO} />} titulo={`Pessoas · ${ctx.pessoas.length}`} />
+            <button onClick={() => setAddOpen((v) => !v)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: addOpen ? BG3 : GO, color: addOpen ? TX : "#fff", border: `1px solid ${addOpen ? BD : GO}`, borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
+              <UserPlus size={15} /> {addOpen ? "Fechar" : "+ Adicionar pessoa"}
+            </button>
+          </div>
+          {addOpen && (
+            <AdicionarPessoa areasContratadas={ctx.areas_contratadas} plantas={ctx.plantas} companyId={companyId}
+              onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void carregar(companyId); }} />
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {ctx.pessoas.map((p) => (
+              // RD-41 🅲 · key inclui a versão de áreas/papel → remonta e re-sincroniza do banco
+              // após Salvar (fim do estado "preso" na memória que fazia as marcações reverterem).
+              <PessoaRow key={`${p.user_id}:${p.restricted ? "r" : "o"}:${(p.areas || []).join("|")}:${p.role}`} p={p} aberto={editId === p.user_id}
+                onToggle={() => setEditId(editId === p.user_id ? null : p.user_id)}
+                areasContratadas={ctx.areas_contratadas} plantas={ctx.plantas}
+                companyId={companyId} onSaved={() => carregar(companyId)}
+                ultimoEnvio={envios.ultimos_envios[p.user_id]} onEnviado={(e) => registrarEnvio(p.user_id, e)} />
+            ))}
+          </div>
+
+          {/* 5 · Convites pendentes (a pessoa ainda não criou a conta) — reenviar o convite */}
+          {envios.convites_pendentes.length > 0 && (
+            <>
+              <div style={{ marginTop: 18 }}><Secao icon={<Send size={15} color={GO} />} titulo={`Convites pendentes · ${envios.convites_pendentes.length}`} /></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {envios.convites_pendentes.map((c) => (
+                  <ConviteRow key={c.id} c={c} companyId={companyId} ultimoEnvio={envios.ultimos_envios[c.id]}
+                    onEnviado={(e) => { registrarEnvio(c.id, e); void carregarEnvios(companyId); }} />
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </Shell>
+  );
+}
+
+type AreaPlano = { plan_id: string; nome: string; vertical: string | null; tier_internal: string | null; grupo: string | null; preco_min: number | null; ativa: boolean; sub_status: string | null; observacao: string | null };
+const brlN = (v: number | null | undefined) => (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const bloqueado = (a: AreaPlano) => /bloquead/i.test(a.observacao ?? "") || a.sub_status === "pending_setup";
+
+// Painel admin: incluir/excluir áreas contratadas (planos) da empresa. Só PS_ADMIN (gate também no backend).
+function GerenciarAreas({ companyId, onChanged }: { companyId: string; onChanged: () => void }) {
+  const [areas, setAreas] = useState<AreaPlano[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [incluirOpen, setIncluirOpen] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+
+  const carregar = useCallback(async () => {
+    if (!companyId) return;
+    setLoading(true);
+    const { data, error } = await supabase.rpc("fn_admin_areas_empresa", { p_company_id: companyId });
+    if (error) setMsg({ ok: false, t: error.message });
+    else setAreas((data as AreaPlano[]) || []);
+    setLoading(false);
+  }, [companyId]);
+  useEffect(() => { const t = setTimeout(() => { void carregar(); }, 0); return () => clearTimeout(t); }, [carregar]);
+  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 3500); return () => clearTimeout(t); }, [msg]);
+
+  const ativas = areas.filter((a) => a.ativa);
+  const inativas = areas.filter((a) => !a.ativa);
+
+  async function incluir(a: AreaPlano) {
+    setBusy(a.plan_id);
+    const { data, error } = await supabase.rpc("fn_admin_area_incluir", { p_company_id: companyId, p_plan_id: a.plan_id });
+    setBusy(null);
+    const j = data as { ok?: boolean; erro?: string; modulos_ativados?: number } | null;
+    if (error || !j?.ok) { setMsg({ ok: false, t: error?.message || j?.erro || "Falha ao incluir." }); return; }
+    setIncluirOpen(false); setMsg({ ok: true, t: `CRIOU área ${a.nome}${j.modulos_ativados ? ` · ${j.modulos_ativados} módulos ativados` : ""}.` });
+    await carregar(); onChanged();
+  }
+  async function excluir(a: AreaPlano) {
+    if (!confirm(`Excluir a área ${a.nome}?\n\nOs dados são preservados, o acesso é desligado. Reincluir restaura.`)) return;
+    setBusy(a.plan_id);
+    const { data, error } = await supabase.rpc("fn_admin_area_excluir", { p_company_id: companyId, p_plan_id: a.plan_id });
+    setBusy(null);
+    const j = data as { ok?: boolean; erro?: string } | null;
+    if (error || !j?.ok) { setMsg({ ok: false, t: error?.message || j?.erro || "Falha ao excluir." }); return; }
+    setMsg({ ok: true, t: `EXCLUIU área ${a.nome}.` });
+    await carregar(); onChanged();
+  }
+
+  return (
+    <div style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, padding: 12, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, color: TXM, fontWeight: 800 }}>🔐 Gerenciar áreas contratadas (planos)</span>
+        <button onClick={() => setIncluirOpen((v) => !v)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, background: incluirOpen ? BG3 : GO, color: incluirOpen ? TX : "#fff", border: `1px solid ${incluirOpen ? BD : GO}`, borderRadius: 8, padding: "6px 12px", fontWeight: 700, cursor: "pointer", fontSize: 12.5 }}>
+          {incluirOpen ? "Fechar" : "+ Incluir área"}
+        </button>
+      </div>
+
+      {msg && <div style={{ background: msg.ok ? "#F0FDF4" : "#FEF2F2", border: `1px solid ${msg.ok ? G : R}`, color: msg.ok ? "#166534" : R, padding: "7px 10px", borderRadius: 8, marginBottom: 8, fontSize: 12.5 }}>{msg.t}</div>}
+
+      {loading ? <div style={{ color: TXD, fontSize: 12 }}>Carregando planos…</div> : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {ativas.length === 0 && <span style={{ color: TXD, fontSize: 13 }}>Nenhum plano contratado.</span>}
+            {ativas.map((a) => (
+              <span key={a.plan_id} title={a.observacao ?? undefined} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 8px 6px 12px", borderRadius: 999, background: BG3, border: `1px solid ${bloqueado(a) ? GO : BD}`, color: TX, fontSize: 13, fontWeight: 700 }}>
+                {bloqueado(a) && <span title="Uso interno/piloto (bloqueado comercialmente)">⚠️</span>}
+                {a.nome}
+                <button disabled={busy === a.plan_id} onClick={() => excluir(a)} title={`Excluir área ${a.nome}`}
+                  style={{ border: "none", background: "transparent", color: R, cursor: "pointer", fontWeight: 800, fontSize: 15, lineHeight: 1, padding: "0 2px" }}>×</button>
+              </span>
+            ))}
+          </div>
+
+          {incluirOpen && (
+            <div style={{ marginTop: 10, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, background: BG }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: TXM, marginBottom: 6 }}>Adicionar uma área não contratada:</div>
+              {inativas.length === 0 ? <div style={{ color: TXD, fontSize: 12 }}>Todas as áreas já estão contratadas.</div> : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+                  {inativas.map((a) => (
+                    <button key={a.plan_id} disabled={busy === a.plan_id} onClick={() => incluir(a)}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, textAlign: "left", border: `1px solid ${BD}`, background: BG2, borderRadius: 8, padding: "8px 10px", cursor: "pointer" }}>
+                      <span>
+                        <span style={{ fontWeight: 700, color: TX, fontSize: 13 }}>{bloqueado(a) ? "⚠️ " : ""}{a.nome}</span>
+                        <span style={{ color: TXD, fontSize: 11, marginLeft: 6 }}>{[a.vertical, a.grupo].filter(Boolean).join(" · ")}</span>
+                        {bloqueado(a) && <span style={{ color: GO, fontSize: 10.5, display: "block", marginTop: 1 }}>uso interno/piloto — inclui mesmo assim (decisão do CEO)</span>}
+                      </span>
+                      <span style={{ color: TXM, fontSize: 12, whiteSpace: "nowrap" }}>{a.preco_min ? `a partir de ${brlN(a.preco_min)}` : "—"}{busy === a.plan_id ? " · …" : ""}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, onSaved, ultimoEnvio, onEnviado }: {
+  p: Pessoa; aberto: boolean; onToggle: () => void; areasContratadas: Area[]; plantas: Planta[]; companyId: string; onSaved: () => void;
+  ultimoEnvio?: UltimoEnvio; onEnviado: (e: UltimoEnvio) => void;
+}) {
+  const [nome, setNome] = useState(p.nome ?? "");
+  const [cargo, setCargo] = useState(p.cargo ?? "");
+  const [telefone, setTelefone] = useState(p.telefone ?? "");
+  const [cpf, setCpf] = useState(p.cpf ?? "");
+  const [observacao, setObservacao] = useState(p.observacao ?? "");
+  const [ativo, setAtivo] = useState(p.is_active ?? true);
+  const [role, setRole] = useState(p.role);
+  const [areas, setAreas] = useState<Set<string>>(new Set(p.restricted && p.areas ? p.areas : areasContratadas.map((a) => a.slug)));
+  const [plantasSel, setPlantasSel] = useState<Set<string>>(new Set(p.plantas || []));
+  const [dias, setDias] = useState<Set<number>>(new Set(p.horario?.dias_semana || []));
+  const [ini, setIni] = useState((p.horario?.hora_inicio || "").slice(0, 5));
+  const [fim, setFim] = useState((p.horario?.hora_fim || "").slice(0, 5));
+  const [salvando, setSalvando] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+
+  async function salvar() {
+    setSalvando(true); setMsg(null);
+    const horario = { dias_semana: Array.from(dias).sort(), hora_inicio: ini || null, hora_fim: fim || null, timezone: "America/Sao_Paulo", ativo: true };
+    const nomeTrim = nome.trim();
+    const nomeMudou = !!nomeTrim && nomeTrim !== (p.nome ?? "");
+    const ativoMudou = ativo !== (p.is_active ?? true);
+    const { data, error } = await supabase.rpc("fn_acessos_salvar_pessoa", {
+      p_company_id: companyId, p_user_id: p.user_id, p_areas: Array.from(areas),
+      p_role: role, p_plantas: Array.from(plantasSel), p_horario: horario,
+      p_nome: nomeTrim || null,           // grava em users.full_name; vazio não apaga (guarda no backend)
+      p_cargo: cargo.trim() || null,      // vazio não apaga
+      p_telefone: telefone.trim() || null,
+      p_cpf: cpf.trim() || null,          // backend guarda só os dígitos
+      p_observacao: observacao,           // aceita limpar (string vazia)
+      p_ativo: ativo,                     // status = users.is_active (acesso ao sistema)
+    });
+    setSalvando(false);
+    const res = data as { ok?: boolean; erro?: string } | null;
+    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao salvar" }); return; }
+    setMsg({ ok: true, t: ativoMudou ? `Acesso ${ativo ? "ATIVADO" : "INATIVADO"}.` : nomeMudou ? `Nome ALTERADO para "${nomeTrim}".` : "Salvo." });
+    onSaved();
+  }
+  const [acaoBusy, setAcaoBusy] = useState(false);
+  async function definirMaster(makeOwner: boolean) {
+    if (!confirm(makeOwner ? `Tornar "${p.nome || p.email}" MASTER da empresa?` : `Remover o papel de master de "${p.nome || p.email}"?`)) return;
+    setAcaoBusy(true); setMsg(null);
+    const { data, error } = await supabase.rpc("fn_acessos_definir_papel_gestao", {
+      p_company_id: companyId, p_user_id: p.user_id, p_papel: makeOwner ? "CLIENT_OWNER" : "CLIENT_MANAGER",
+    });
+    setAcaoBusy(false);
+    const res = data as { ok?: boolean; erro?: string } | null;
+    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha." }); return; }
+    setMsg({ ok: true, t: makeOwner ? "Agora é master." : "Master removido." });
+    onSaved();
+  }
+  async function removerPessoa() {
+    if (!confirm(`Remover "${p.nome || p.email}" desta empresa?\n\nPerde o acesso a ESTA empresa (continua existindo se estiver em outras). O usuário NAO e apagado.`)) return;
+    setAcaoBusy(true); setMsg(null);
+    const { data, error } = await supabase.rpc("fn_acessos_remover_pessoa", {
+      p_company_id: companyId, p_user_id: p.user_id, p_modo: "desvincular",
+    });
+    setAcaoBusy(false);
+    const res = data as { ok?: boolean; erro?: string } | null;
+    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha." }); return; }
+    setMsg({ ok: true, t: "Removido da empresa." });
+    onSaved();
+  }
+  async function enviarLink() {
+    const acao = p.situacao === "NUNCA_LOGOU" ? "reenviar o convite (com link para criar a senha)" : "enviar o e-mail para criar uma senha nova";
+    if (!confirm(`Enviar link de acesso para ${p.email}?\n\nVai ${acao}.`)) return;
+    setAcaoBusy(true); setMsg(null);
+    const r = await chamarEnviarLink(companyId, { user_id: p.user_id });
+    setAcaoBusy(false);
+    setMsg({ ok: r.ok, t: r.t });
+    if (r.ok) onEnviado(r.envio);
+  }
+  const toggle = <T,>(set: React.Dispatch<React.SetStateAction<Set<T>>>, v: T) =>
+    set((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
+  const ultimo = textoUltimoEnvio(ultimoEnvio);
+
+  return (
+    <div data-testid={`pessoa-${p.email}`} style={{ border: `1px solid ${BD}`, borderRadius: 10, background: BG2, overflow: "hidden" }}>
+      <button onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+        {aberto ? <ChevronDown size={16} color={TXM} /> : <ChevronRight size={16} color={TXM} />}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, color: TX, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {p.nome || p.email}{p.is_master && <Crown size={13} color={GO} />}
+          </div>
+          <div style={{ fontSize: 12, color: TXD }}>{p.email}</div>
+          {ultimo && <div data-testid="ultimo-envio" style={{ fontSize: 11, color: TXM, marginTop: 2 }}>{ultimo}</div>}
+        </div>
+        <span style={{ fontSize: 10, color: TXD }} title="Nível — o que a pessoa VÊ">👁 {PAPEIS.find((x) => x.role === p.role)?.nome || p.role}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: p.is_master ? GO : BL }} title="Papel na empresa — o que a pessoa PODE GERIR">🛡 {PAPEL_GESTAO_LBL[p.papel_gestao ?? ""] ?? "Visualizador"}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: SIT_COR[p.situacao] ?? TXD }}>{SIT_LBL[p.situacao] ?? p.situacao}</span>
+      </button>
+
+      {aberto && (
+        <div style={{ padding: "4px 16px 16px", borderTop: `1px solid ${BD}`, display: "flex", flexDirection: "column", gap: 14 }}>
+          {p.is_master && (
+            <div style={{ fontSize: 12, color: TXM, display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+              <Lock size={13} color={GO} /> Este é o Master da empresa.
+            </div>
+          )}
+          {/* Cadastro da pessoa — Nome / Cargo / Telefone / CPF / Observação / Status (vazio não apaga) */}
+          <Field icon={<Users size={14} color={GO} />} label="Nome">
+            <input
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              placeholder="Nome completo"
+              style={cadInp}
+            />
+          </Field>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Field icon={<Users size={14} color={GO} />} label="Cargo / Função">
+              <input value={cargo} onChange={(e) => setCargo(e.target.value)} placeholder="Ex.: Analista fiscal" style={cadInp} />
+            </Field>
+            <Field icon={<Users size={14} color={GO} />} label="Telefone">
+              <input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(00) 00000-0000" style={cadInp} />
+            </Field>
+            <Field icon={<Users size={14} color={GO} />} label="CPF">
+              <input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" style={cadInp} />
+            </Field>
+          </div>
+          <Field icon={<Users size={14} color={GO} />} label="Observação">
+            <textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2}
+              placeholder="Anotações sobre a pessoa (opcional)"
+              style={{ ...cadInp, maxWidth: "none", fontWeight: 400, resize: "vertical" }} />
+          </Field>
+          <Field icon={<Lock size={14} color={GO} />} label="Status (acesso ao sistema)">
+            <button type="button" onClick={() => setAtivo((v) => !v)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 14px", borderRadius: 999,
+                border: `1px solid ${ativo ? G : R}`, background: ativo ? "#F0FDF4" : "#FEF2F2", color: ativo ? "#15803D" : "#B91C1C",
+                fontWeight: 700, cursor: "pointer", fontSize: 13 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 999, background: ativo ? G : R }} />
+              {ativo ? "Ativo" : "Inativo"}
+            </button>
+          </Field>
+          {/* Áreas (limitado ao teto) */}
+          <Field icon={<Shield size={14} color={GO} />} label="Áreas liberadas (dentro do que a empresa contratou)">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {areasContratadas.map((a) => {
+                const on = areas.has(a.slug);
+                return <Chip key={a.slug} on={on} onClick={() => toggle(setAreas, a.slug)}>{a.nome}</Chip>;
+              })}
+            </div>
+          </Field>
+          {/* Papel */}
+          <Field icon={<Users size={14} color={GO} />} label="Papel (nível de acesso)">
+            <select value={role} onChange={(e) => setRole(e.target.value)}
+              style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320 }}>
+              {PAPEIS.map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
+              {!PAPEIS.some((r) => r.role === role) && <option value={role}>{role} (atual)</option>}
+            </select>
+          </Field>
+          {/* Plantas */}
+          {plantas.length > 0 && (
+            <Field icon={<Factory size={14} color={GO} />} label="Plantas / unidades">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {plantas.map((pl) => <Chip key={pl.id} on={plantasSel.has(pl.id)} onClick={() => toggle(setPlantasSel, pl.id)}>{pl.nome}</Chip>)}
+              </div>
+            </Field>
+          )}
+          {/* Horário (só configuração — Fase 1) */}
+          <Field icon={<Clock size={14} color={GO} />} label="Horário de acesso">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {DIAS.map((d) => <Chip key={d.n} on={dias.has(d.n)} onClick={() => toggle(setDias, d.n)}>{d.l}</Chip>)}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <input type="time" value={ini} onChange={(e) => setIni(e.target.value)} style={inp} />
+              <span style={{ color: TXD }}>até</span>
+              <input type="time" value={fim} onChange={(e) => setFim(e.target.value)} style={inp} />
+              <span style={{ fontSize: 11, color: TXD, fontStyle: "italic" }}>trava de login: em breve (Fase 2)</span>
+            </div>
+          </Field>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button disabled={salvando} onClick={() => void salvar()}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: GO, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontWeight: 700, cursor: salvando ? "default" : "pointer", opacity: salvando ? 0.6 : 1 }}>
+              <Save size={15} /> {salvando ? "Salvando…" : "Salvar"}
+            </button>
+            <button disabled={acaoBusy} onClick={() => void definirMaster(!p.is_master)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: BG2, color: TX, border: `1px solid ${GO}`, borderRadius: 8, padding: "9px 14px", fontWeight: 700, cursor: acaoBusy ? "default" : "pointer", opacity: acaoBusy ? 0.6 : 1 }}>
+              <Crown size={14} color={GO} /> {p.is_master ? "Remover master" : "Tornar master"}
+            </button>
+            <button data-testid="enviar-link" disabled={acaoBusy} onClick={() => void enviarLink()}
+              title={p.situacao === "NUNCA_LOGOU" ? "Nunca entrou: reenvia o convite com link para criar a senha" : "Já tem conta: envia o e-mail para criar uma senha nova"}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: BG2, color: TX, border: `1px solid ${GO}`, borderRadius: 8, padding: "9px 14px", fontWeight: 700, cursor: acaoBusy ? "default" : "pointer", opacity: acaoBusy ? 0.6 : 1 }}>
+              <Send size={14} color={GO} /> Enviar link de acesso
+            </button>
+            <button disabled={acaoBusy} onClick={() => void removerPessoa()}
+              style={{ background: "#fff", color: R, border: `1px solid #E5C2C2`, borderRadius: 8, padding: "9px 14px", fontWeight: 700, cursor: acaoBusy ? "default" : "pointer", opacity: acaoBusy ? 0.6 : 1 }}>
+              Excluir
+            </button>
+            {msg && <span style={{ fontSize: 13, fontWeight: 600, color: msg.ok ? G : R }}>{msg.t}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConviteRow({ c, companyId, ultimoEnvio, onEnviado }: { c: ConvitePendente; companyId: string; ultimoEnvio?: UltimoEnvio; onEnviado: (e: UltimoEnvio) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const expira = c.expires_at ? new Date(c.expires_at) : null;
+  const [agora] = useState(() => Date.now());
+  const vencido = !!expira && expira.getTime() < agora;
+  async function reenviar() {
+    if (!confirm(`Reenviar o convite para ${c.email}?${vencido ? "\n\nO convite está vencido — a validade é renovada por 14 dias." : ""}`)) return;
+    setBusy(true); setMsg(null);
+    const r = await chamarEnviarLink(companyId, { invite_id: c.id });
+    setBusy(false); setMsg({ ok: r.ok, t: r.t });
+    if (r.ok) onEnviado(r.envio);
+  }
+  const ultimo = textoUltimoEnvio(ultimoEnvio);
+  return (
+    <div data-testid={`convite-${c.email}`} style={{ border: `1px dashed ${BD}`, borderRadius: 10, background: BG2, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ fontWeight: 700, color: TX, fontSize: 14 }}>{c.email}</div>
+        <div style={{ fontSize: 11, color: vencido ? R : TXD }}>
+          Convidado em {new Date(c.created_at).toLocaleDateString("pt-BR")}{expira ? ` · ${vencido ? "venceu" : "vale até"} ${expira.toLocaleDateString("pt-BR")}` : ""}
+        </div>
+        {ultimo && <div data-testid="ultimo-envio" style={{ fontSize: 11, color: TXM }}>{ultimo}</div>}
+      </div>
+      <button data-testid="enviar-link" disabled={busy} onClick={() => void reenviar()}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, background: BG2, color: TX, border: `1px solid ${GO}`, borderRadius: 8, padding: "8px 12px", fontWeight: 700, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>
+        <Send size={14} color={GO} /> {busy ? "Enviando…" : "Enviar link de acesso"}
+      </button>
+      {msg && <span style={{ fontSize: 12.5, fontWeight: 600, color: msg.ok ? G : R, width: "100%" }}>{msg.t}</span>}
+    </div>
+  );
+}
+
+// Papel de gestão (o que a pessoa PODE GERIR) — os 4 valores, sem esconder OPERATOR (decisão CEO).
+const PAPEIS_GESTAO: { v: string; l: string }[] = [
+  { v: "CLIENT_VIEWER", l: "Visualizador (só lê)" },
+  { v: "CLIENT_OPERATOR", l: "Operador" },
+  { v: "CLIENT_MANAGER", l: "Gestor" },
+  { v: "CLIENT_OWNER", l: "Master (gere a empresa)" },
+];
+
+// GAP 1 · incluir pessoa nova (genérico p/ qualquer empresa/áreas). Vincula direto se o e-mail já
+// existe; senão gera convite por link. Backend: fn_acessos_convidar_pessoa (guards no servidor).
+function AdicionarPessoa({ areasContratadas, plantas, companyId, onClose, onSaved }: {
+  areasContratadas: Area[]; plantas: Planta[]; companyId: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [nome, setNome] = useState("");
+  const [role, setRole] = useState("viewer");
+  const [papel, setPapel] = useState("CLIENT_VIEWER");
+  const [areas, setAreas] = useState<Set<string>>(new Set(areasContratadas.map((a) => a.slug)));
+  const [plantasSel, setPlantasSel] = useState<Set<string>>(new Set());
+  const [dias, setDias] = useState<Set<number>>(new Set());
+  const [ini, setIni] = useState("");
+  const [fim, setFim] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const toggle = <T,>(set: React.Dispatch<React.SetStateAction<Set<T>>>, v: T) =>
+    set((prev) => { const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n; });
+
+  async function enviar() {
+    setSalvando(true); setMsg(null); setLink(null);
+    const horario = (dias.size || ini || fim)
+      ? { dias_semana: Array.from(dias).sort(), hora_inicio: ini || null, hora_fim: fim || null, timezone: "America/Sao_Paulo", ativo: true }
+      : null;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const { data, error } = await supabase.rpc("fn_acessos_convidar_pessoa", {
+      p_company_id: companyId, p_email: email, p_nome: nome || null,
+      p_areas: Array.from(areas), p_role: role, p_plantas: Array.from(plantasSel),
+      p_horario: horario, p_papel_gestao: papel, p_base_url: origin,
+    });
+    setSalvando(false);
+    const res = data as { ok?: boolean; erro?: string; acao?: string; link?: string; email_enviado?: boolean } | null;
+    if (error || !res?.ok) { setMsg({ ok: false, t: error?.message || res?.erro || "Falha ao adicionar." }); return; }
+    if (res.acao === "vinculado") {
+      setMsg({ ok: true, t: "Pessoa vinculada — já tem login e agora acessa esta empresa." });
+      onSaved();
+    } else {
+      // 🅲 · email + link (os dois). Se o provedor de email ainda não está no Vault, o email
+      // não sai — mas o link fica visível pra enviar manualmente (nunca deixa a pessoa na mão).
+      const full = origin + (res.link || "");
+      setMsg({ ok: true, t: res.email_enviado
+        ? `Convite criado e email enviado para ${email}. O link também está aqui pra copiar.`
+        : "Convite criado. O email ainda não sai (provedor não configurado no Vault) — copie o link e envie." });
+      setLink(full);
+    }
+  }
+
+  return (
+    <div style={{ border: `1px solid ${GO}`, borderRadius: 10, background: BG2, padding: 16, marginBottom: 8, display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ fontWeight: 800, color: TX, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <UserPlus size={16} color={GO} /> Adicionar pessoa
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Field icon={<Users size={14} color={GO} />} label="E-mail *">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pessoa@empresa.com" style={{ ...inp, minWidth: 240 }} />
+        </Field>
+        <Field icon={<Users size={14} color={GO} />} label="Nome">
+          <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da pessoa" style={{ ...inp, minWidth: 200 }} />
+        </Field>
+      </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Field icon={<Users size={14} color={GO} />} label="Nível de acesso (o que VÊ)">
+          <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...inp, fontWeight: 600, minWidth: 220 }}>
+            {PAPEIS.map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
+          </select>
+        </Field>
+        <Field icon={<Crown size={14} color={GO} />} label="Papel na empresa (o que PODE GERIR)">
+          <select value={papel} onChange={(e) => setPapel(e.target.value)} style={{ ...inp, fontWeight: 600, minWidth: 220 }}>
+            {PAPEIS_GESTAO.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Field icon={<Shield size={14} color={GO} />} label="Áreas liberadas (dentro do que a empresa contratou)">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {areasContratadas.length === 0 && <span style={{ color: TXD, fontSize: 13 }}>Nenhuma área contratada.</span>}
+          {areasContratadas.map((a) => <Chip key={a.slug} on={areas.has(a.slug)} onClick={() => toggle(setAreas, a.slug)}>{a.nome}</Chip>)}
+        </div>
+      </Field>
+      {plantas.length > 0 && (
+        <Field icon={<Factory size={14} color={GO} />} label="Plantas / unidades">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {plantas.map((pl) => <Chip key={pl.id} on={plantasSel.has(pl.id)} onClick={() => toggle(setPlantasSel, pl.id)}>{pl.nome}</Chip>)}
+          </div>
+        </Field>
+      )}
+      <Field icon={<Clock size={14} color={GO} />} label="Horário de acesso (opcional)">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {DIAS.map((d) => <Chip key={d.n} on={dias.has(d.n)} onClick={() => toggle(setDias, d.n)}>{d.l}</Chip>)}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <input type="time" value={ini} onChange={(e) => setIni(e.target.value)} style={inp} />
+          <span style={{ color: TXD }}>até</span>
+          <input type="time" value={fim} onChange={(e) => setFim(e.target.value)} style={inp} />
+        </div>
+      </Field>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <button disabled={salvando} onClick={() => void enviar()}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, background: GO, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontWeight: 700, cursor: salvando ? "default" : "pointer", opacity: salvando ? 0.6 : 1 }}>
+          <UserPlus size={15} /> {salvando ? "Enviando…" : "Adicionar"}
+        </button>
+        <button onClick={onClose} style={{ background: "none", border: `1px solid ${BD}`, borderRadius: 8, padding: "9px 16px", color: TXM, cursor: "pointer", fontWeight: 600 }}>Cancelar</button>
+        {msg && <span style={{ fontSize: 13, fontWeight: 600, color: msg.ok ? G : R }}>{msg.t}</span>}
+      </div>
+      {link && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: BG3, border: `1px solid ${BD}`, borderRadius: 8, padding: "10px 12px", flexWrap: "wrap" }}>
+          <Link2 size={15} color={GO} />
+          <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 220, fontSize: 12 }} />
+          <button onClick={() => { if (typeof navigator !== "undefined" && navigator.clipboard) void navigator.clipboard.writeText(link); }}
+            style={{ background: GO, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Copiar</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const inp: React.CSSProperties = { padding: "7px 10px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX };
+function Shell({ children }: { children: React.ReactNode }) {
+  return <div style={{ background: BG, minHeight: "100vh", padding: "18px 14px 48px", maxWidth: 860, margin: "0 auto" }}>{children}</div>;
+}
+function Card({ children }: { children: React.ReactNode }) {
+  return <div style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>{children}</div>;
+}
+function Secao({ icon, titulo }: { icon: React.ReactNode; titulo: string }) {
+  return <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: TXM, fontWeight: 800, margin: "2px 0 8px" }}>{icon}{titulo}</div>;
+}
+function Field({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+  return <div><div style={{ fontSize: 12, fontWeight: 700, color: TXM, marginBottom: 6, display: "inline-flex", alignItems: "center", gap: 6 }}>{icon}{label}</div>{children}</div>;
+}
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return <button onClick={onClick} style={{ padding: "6px 12px", borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 700, border: `1px solid ${on ? GO : BD}`, background: on ? GO : BG2, color: on ? "#fff" : TXM }}>{children}</button>;
+}

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
 
 const C = { bg: '#0C0C0A', bg2: '#141210', bg3: '#1C1A16', esp: '#3D2314', go: '#C8941A', gol: '#E8C872', ow: '#FAF7F2',
   g: '#22C55E', r: '#EF4444', y: '#FBBF24', b: '#60A5FA', tl: '#2DD4BF', p: '#A855F7',
@@ -168,7 +169,7 @@ export default function DiagnosticosPage() {
 
   const loadEmpresas = async () => {
     setLoadEmps(true); setErr('')
-    try { const r = await fetch('/api/assessor/empresas-erp'); const d = await r.json(); setEmpresas(d.empresas || []) }
+    try { const r = await authFetch('/api/assessor/empresas-erp'); const d = await r.json(); setEmpresas(d.empresas || []) }
     catch { setErr('Erro ao carregar') }
     setLoadEmps(false)
   }
@@ -204,7 +205,7 @@ export default function DiagnosticosPage() {
   const gerarParecer = async () => {
     if (!diag) return; setLoadingIA(true)
     try {
-      const r = await fetch('/api/assessor/consultor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ diagnostico: diag, cliente_nome: nomeAn }) })
+      const r = await authFetch('/api/assessor/consultor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ diagnostico: diag, cliente_nome: nomeAn }) })
       const d = await r.json(); setParecer(d.parecer || 'Erro')
     } catch { setParecer('Erro de conexao') }
     setLoadingIA(false)

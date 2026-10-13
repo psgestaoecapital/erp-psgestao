@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import ContratoArquivos from './ContratoArquivos'
 
 interface Cliente {
   id: string
@@ -277,6 +278,16 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
           <Campo label="Observações (opcional)">
             <textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={3} style={{ ...inputStyle, fontFamily: 'inherit' }} placeholder="Algum detalhe importante?" />
           </Campo>
+
+          <div style={{ marginTop: 18, paddingTop: 16, borderTop: '0.5px solid rgba(61,35,20,0.12)' }}>
+            {contrato?.id ? (
+              <ContratoArquivos companyId={companyId} contratoId={contrato.id} />
+            ) : (
+              <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)', fontStyle: 'italic', padding: '4px 0' }}>
+                Salve a cobrança primeiro pra anexar o contrato assinado (PDF/imagem).
+              </div>
+            )}
+          </div>
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20, flexWrap: 'wrap' }}>
             <button type="button" onClick={onClose} disabled={salvando} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '10px 20px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>

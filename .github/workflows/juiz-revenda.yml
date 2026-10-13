@@ -1,0 +1,84 @@
+name: Juiz Revenda (gatilho + semanal)
+
+# Revenda R1e: após cada merge que toca a Revenda, roda as jornadas (R1b) + o juiz (R1d) nas rotas da
+# Demonstração Revenda, com TETO de custo (fn_juiz_orcamento: US$ 5/dia · US$ 50/mês). Varredura completa
+# semanal. Só empresa is_demo. Depende de R1b (script jornadas), R1d (endpoint do juiz) e R1e (orçamento).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/app/dashboard/revenda/**'
+      # 26/09: corrigir a própria jornada também precisa de veredito em produção — sem isto, um spec consertado
+      # (ex.: vistoria.spec.ts, insp_item.modelo_id) ficava vermelho até a varredura de segunda.
+      - 'e2e/jornadas/revenda/**'
+  schedule:
+    - cron: '0 8 * * 1' # segunda 05h BRT — varredura completa semanal
+  workflow_dispatch:
+
+concurrency:
+  group: juiz-revenda
+  cancel-in-progress: false
+
+jobs:
+  auditar:
+    runs-on: ubuntu-latest
+    # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
+    # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
+    # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
+    concurrency:
+      group: demo-e2e
+      cancel-in-progress: false
+      queue: max
+    timeout-minutes: 45
+    env:
+      PROD_BASE_URL: https://erp-psgestao.vercel.app
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      WATCHER_SECRET: ${{ secrets.WATCHER_SECRET }}
+      PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+      PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+      JUIZ_ORIGEM: ${{ github.event_name == 'schedule' && 'semanal' || 'gatilho' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # RD-78 · o juiz pós-merge disparava junto com o merge e julgava o build ANTERIOR: run 36243983120 (#1822,
+      # 26/09 13:06) gravou commit_sha 7a97a0d2 (#1823) — a ficha nova ainda não estava no ar e E1 caiu "vermelho"
+      # em produção sem ser regressão. Mesmo passo do aceitacao-pos-migration.yml (#1823): espera /sw.js servir
+      # o commit do push (ou um posterior); fail-closed em ~20 min. Semanal/manual julgam o que está no ar.
+      - name: Esperar a produção servir o commit (só no push)
+        if: github.event_name == 'push'
+        env:
+          COMMIT: ${{ github.sha }}
+        run: |
+          for i in $(seq 1 60); do
+            servido=$(curl -fsS "$PROD_BASE_URL/sw.js" 2>/dev/null | grep -oE 'ps-shell-[0-9a-f]{7,40}' | head -1 | sed 's/^ps-shell-//')
+            [ -n "$servido" ] && ! git cat-file -e "$servido^{commit}" 2>/dev/null && git fetch -q origin main
+            if [ -n "$servido" ] && git merge-base --is-ancestor "$COMMIT" "$servido" 2>/dev/null; then
+              echo "produção serve $servido (contém $COMMIT)"; exit 0
+            fi
+            echo "tentativa $i: produção serve '${servido:-?}', esperando $COMMIT…"; sleep 20
+          done
+          echo "::error::produção não passou a servir $COMMIT em ~20 min — o juiz não julga build errado"; exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+      - name: Jornadas da Revenda (R1b)
+        run: npm run jornadas:revenda
+      - name: Juiz nas rotas da Revenda (R1d), com teto de custo (R1e)
+        run: npx tsx scripts/juiz-revenda-sweep.ts
+      - name: Upload relatório (em caso de falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: juiz-revenda-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore

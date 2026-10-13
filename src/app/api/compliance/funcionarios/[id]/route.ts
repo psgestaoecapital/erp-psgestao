@@ -4,8 +4,9 @@
 // DELETE /api/compliance/funcionarios/:id          — soft delete (ativo=false)
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas, negar } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
+import { removerSalario, lerSalario, gravarSalario, salarioDoCorpo } from '@/lib/compliance/salario'
 
 function admin() {
   return createClient(
@@ -17,7 +18,13 @@ function admin() {
 // Next.js 15+: params é Promise.
 type Ctx = { params: Promise<{ id: string }> }
 
-export const GET = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) => {
+// Empresas REAIS do funcionário: empregadora e (terceirização) tomadora.
+async function empresasDoFuncionario(sb: ReturnType<typeof admin>, id: string) {
+  const { data } = await sb.from('compliance_funcionarios').select('company_id, empresa_tomadora_id').eq('id', id).maybeSingle()
+  return data as { company_id: string; empresa_tomadora_id: string | null } | null
+}
+
+export const GET = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {
   const { id } = await (ctx as Ctx).params
   const sb = admin()
 
@@ -29,6 +36,12 @@ export const GET = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) =
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   if (!funcionario) {
     return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
+  }
+  // Leitura: empregadora OU tomadora (a lista de funcionários já mostra os terceirizados à tomadora).
+  const permitidas = await u.empresas()
+  const f = funcionario as { company_id: string; empresa_tomadora_id?: string | null }
+  if (!permitidas.has(f.company_id) && !(f.empresa_tomadora_id && permitidas.has(f.empresa_tomadora_id))) {
+    return negar(403, 'Sem acesso a esta empresa.')
   }
 
   // Matriz (status por tipo de documento) e documentos ativos.
@@ -52,17 +65,28 @@ export const GET = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) =
       .limit(200),
   ])
 
+  // LGPD: salário individual só para quem vê salário (função registra o acesso); os demais recebem a média da função
+  const salario = await lerSalario(u.token, id)
+  const funcionarioSeguro = removerSalario(funcionario as Record<string, unknown>) as Record<string, unknown>
+  if (salario?.pode_ver) funcionarioSeguro.salario_base = salario.salario_base
+
   return NextResponse.json({
     ok: true,
-    funcionario,
+    funcionario: funcionarioSeguro,
+    salario: salario ?? { pode_ver: false, cargo: null, pessoas_no_cargo: 0, media_funcao: null },
     matriz: matriz ?? [],
     documentos: documentos ?? [],
     historico: historico ?? [],
   })
 }) as any
 
-export const PATCH = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) => {
+export const PATCH = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {
   const { id } = await (ctx as Ctx).params
+  // Escrita: só quem tem acesso à empregadora (empresa REAL do registro).
+  const atual = await empresasDoFuncionario(admin(), id)
+  if (!atual) return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
+  const negado = await exigirEmpresas(u, [atual.company_id])
+  if (negado) return negado
   const body = await req.json().catch(() => ({}))
   const CAMPOS = [
     'nome_completo', 'cpf', 'rg', 'data_nascimento', 'email', 'telefone',
@@ -72,7 +96,7 @@ export const PATCH = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx)
     'obra_nome', 'ativo', 'observacoes',
   ]
   const payload: Record<string, any> = { updated_at: new Date().toISOString() }
-  for (const k of CAMPOS) if (k in body) payload[k] = body[k]
+  for (const k of CAMPOS) if (k in body && k !== 'salario_base') payload[k] = body[k]
 
   const sb = admin()
   const { data, error } = await sb
@@ -83,12 +107,22 @@ export const PATCH = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx)
     .maybeSingle()
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 })
   if (!data) return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
-  return NextResponse.json({ ok: true, funcionario: data })
+  // LGPD: salário só pela função protegida (JWT do usuário). Quem não vê salário não grava: o campo é ignorado e avisado.
+  let salarioIgnorado = false
+  if ('salario_base' in body) {
+    const sal = salarioDoCorpo(body.salario_base)
+    if (sal !== undefined) salarioIgnorado = !(await gravarSalario(u.token, id, sal))
+  }
+  return NextResponse.json({ ok: true, funcionario: removerSalario(data as Record<string, unknown>), ...(salarioIgnorado ? { salario_ignorado: true } : {}) })
 }) as any
 
-export const DELETE = withAuth(async (req: NextRequest, _authCtx: any, ctx?: Ctx) => {
+export const DELETE = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {
   const { id } = await (ctx as Ctx).params
   const sb = admin()
+  const atual = await empresasDoFuncionario(sb, id)
+  if (!atual) return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
+  const negado = await exigirEmpresas(u, [atual.company_id])
+  if (negado) return negado
   const { error } = await sb
     .from('compliance_funcionarios')
     .update({ ativo: false, data_demissao: new Date().toISOString().slice(0, 10) })

@@ -1,13 +1,9 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: { persistSession: true, autoRefreshToken: true },
-})
+// P0 · Camada 3 (16bc8561): usa o cliente ÚNICO do navegador (evita GoTrueClient extra
+// disputando a trava de sessão). Antes esta tela criava o próprio createClient.
+import { supabase } from '@/lib/supabase'
 
 // ═══ TIPOS ═══
 type Panorama = {

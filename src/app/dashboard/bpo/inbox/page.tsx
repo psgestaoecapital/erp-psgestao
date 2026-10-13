@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { getUsuarioAtual } from '@/lib/AuthProvider'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
 import PSGCButton from '@/components/psgc/PSGCButton'
 
@@ -100,7 +101,7 @@ export default function BPOInboxPage() {
   }, [userId])
 
   async function loadCurrentUser() {
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getUsuarioAtual()
     if (!user) return
 
     const { data: profile } = await supabase

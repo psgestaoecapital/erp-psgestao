@@ -1,0 +1,31 @@
+name: Régua de migrations (versão única · sem colisão com o ledger)
+
+# Trava no PR (RD-52): duas migrations com a mesma versão (14 dígitos), ou uma migration nova cuja versão já está
+# em supabase_migrations.schema_migrations com OUTRO nome, reprovam o PR. Nasce da colisão 20260926140000 de
+# 26/09 (#1811 x #1813): schema_migrations.version é a chave e o `db push` pula a segunda em silêncio.
+# A regra offline não precisa de segredo; a do ledger lê pela RPC fn_migrations_ledger() com a service key
+# (fail-closed sem credenciais em CI, igual ao check-menu).
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check_migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Régua de migrations (versão única + ledger)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run check:migrations

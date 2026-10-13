@@ -1,0 +1,42 @@
+name: Deploy Migrations (Production)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: horsymhsinqcimflrtjo
+    steps:
+      - uses: actions/checkout@v4
+
+      # Última linha de defesa (RD-52): antes do push, falha se alguma migration do repo tiver versão já aplicada
+      # no ledger com OUTRO nome (o db push a pularia em silêncio — colisão 20260926140000 de 26/09) ou se duas
+      # migrations compartilharem versão. O gate de PR (check-migrations.yml) pega antes do merge; este pega o
+      # que passou. Se a RPC fn_migrations_ledger ainda não existir (1º deploy após 20260926160000) o script só avisa.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - name: Régua de migrations (versão única + ledger)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run check:migrations
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      - run: supabase link --project-ref $SUPABASE_PROJECT_ID
+      # --include-all: aplica migrations pendentes mesmo quando uma nova entra com timestamp
+      # ANTERIOR à última já aplicada (ex.: PRs mergeados fora da ordem do nome do arquivo).
+      # Só aplica versões NÃO rastreadas; nunca re-roda migrations já no schema_migrations.
+      # Auditado em 2026-08-14: histórico consistente (0 órfãs), então o efeito é aplicar apenas
+      # as pendentes reais, sem risco de re-executar migrations antigas não-idempotentes.
+      - run: supabase db push --include-all

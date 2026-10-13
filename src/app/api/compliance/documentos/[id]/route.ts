@@ -3,7 +3,7 @@
 // DELETE /api/compliance/documentos/:id   — soft delete + remove do storage
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
 
 const BUCKET = 'compliance'
@@ -18,7 +18,7 @@ function admin() {
 
 type Ctx = { params: Promise<{ id: string }> }
 
-export const GET = withAuth(async (_req: NextRequest, _authCtx: any, ctx?: Ctx) => {
+export const GET = exigirLogin(async (_req: NextRequest, u, ctx?: unknown) => {
   const { id } = await (ctx as Ctx).params
   const sb = admin()
   const { data: doc, error } = await sb
@@ -28,6 +28,9 @@ export const GET = withAuth(async (_req: NextRequest, _authCtx: any, ctx?: Ctx) 
     .maybeSingle()
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   if (!doc) return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
+  // Empresa REAL do documento.
+  const negado = await exigirEmpresas(u, [(doc as { company_id?: string }).company_id])
+  if (negado) return negado
 
   let signedUrl: string | null = null
   const path: string = (doc as any).arquivo_url
@@ -46,14 +49,17 @@ export const GET = withAuth(async (_req: NextRequest, _authCtx: any, ctx?: Ctx) 
   })
 }) as any
 
-export const DELETE = withAuth(async (_req: NextRequest, _authCtx: any, ctx?: Ctx) => {
+export const DELETE = exigirLogin(async (_req: NextRequest, u, ctx?: unknown) => {
   const { id } = await (ctx as Ctx).params
   const sb = admin()
   const { data: doc } = await sb
     .from('compliance_documentos')
-    .select('arquivo_url')
+    .select('arquivo_url, company_id')
     .eq('id', id)
     .maybeSingle()
+  if (!doc) return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
+  const negado = await exigirEmpresas(u, [(doc as { company_id?: string }).company_id])
+  if (negado) return negado
 
   const { error } = await sb
     .from('compliance_documentos')

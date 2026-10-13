@@ -3,8 +3,9 @@
 // POST /api/compliance/funcionarios  { company_id, nome_completo, cpf?, ... }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
+import { removerSalario, gravarSalario, salarioDoCorpo } from '@/lib/compliance/salario'
 
 function admin() {
   return createClient(
@@ -13,7 +14,7 @@ function admin() {
   )
 }
 
-export const GET = withAuth(async (req: NextRequest) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const url = new URL(req.url)
   const companyIdsParam = url.searchParams.get('company_ids')
   const companyIdParam = url.searchParams.get('company_id')
@@ -22,22 +23,28 @@ export const GET = withAuth(async (req: NextRequest) => {
     : companyIdParam
       ? [companyIdParam]
       : []
+  // Lista vazia NÃO é mais "todas as empresas": exige ≥1 e todas do usuário (400/403).
+  const negado = await exigirEmpresas(u, companyIds)
+  if (negado) return negado
   const q = (url.searchParams.get('q') || '').trim()
   const cargo = url.searchParams.get('cargo')
   const setor = url.searchParams.get('setor')
   const empresaTomadora = url.searchParams.get('empresa_tomadora')
   const ativo = url.searchParams.get('ativo')
+  // Terceirização: filtra pelo prestador (aba Funcionários do prestador) e/ou pelo vínculo.
+  const prestadorId = url.searchParams.get('prestador_id')
+  const vinculoTipo = url.searchParams.get('vinculo_tipo')
 
   const sb = admin()
   let query = sb.from('compliance_funcionarios').select('*').order('nome_completo')
-  if (companyIds.length > 0) {
-    // Empregadora (company_id) OU tomadora (empresa_tomadora_id) — terceirização.
-    const idsCsv = companyIds.join(',')
-    query = query.or(`company_id.in.(${idsCsv}),empresa_tomadora_id.in.(${idsCsv})`)
-  }
+  // Empregadora (company_id) OU tomadora (empresa_tomadora_id) — terceirização.
+  const idsCsv = companyIds.join(',')
+  query = query.or(`company_id.in.(${idsCsv}),empresa_tomadora_id.in.(${idsCsv})`)
   if (cargo) query = query.eq('cargo', cargo)
   if (setor) query = query.eq('setor', setor)
   if (empresaTomadora) query = query.eq('empresa_tomadora_nome', empresaTomadora)
+  if (prestadorId) query = query.eq('prestador_id', prestadorId)
+  if (vinculoTipo === 'direto' || vinculoTipo === 'terceirizado') query = query.eq('vinculo_tipo', vinculoTipo)
   if (ativo === 'true') query = query.eq('ativo', true)
   if (ativo === 'false') query = query.eq('ativo', false)
   if (q) {
@@ -68,14 +75,29 @@ export const GET = withAuth(async (req: NextRequest) => {
     }
   }
 
+  // Nome do prestador (razão social) para o badge de vínculo terceirizado.
+  const prestadorIds = Array.from(
+    new Set((data || []).map((f: any) => f.prestador_id).filter(Boolean))
+  ) as string[]
+  const prestadorNomes: Record<string, string> = {}
+  if (prestadorIds.length > 0) {
+    const { data: pres } = await sb
+      .from('compliance_prestadores')
+      .select('id, razao_social')
+      .in('id', prestadorIds)
+    for (const p of (pres as any[]) || []) prestadorNomes[p.id] = p.razao_social
+  }
+
+  // LGPD: a lista nunca leva salário (service_role lê a coluna; o valor individual só sai por fn_compliance_funcionario_salario)
   const funcionarios = (data || []).map((f: any) => ({
-    ...f,
+    ...removerSalario(f),
+    prestador_nome: f.prestador_id ? (prestadorNomes[f.prestador_id] ?? null) : null,
     compliance_resumo: resumo[f.id] ?? { total: 0, em_dia: 0, pct: 0 },
   }))
   return NextResponse.json({ ok: true, funcionarios })
 })
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
   const body = await req.json().catch(() => ({}))
   if (!body.company_id || !body.nome_completo) {
     return NextResponse.json(
@@ -83,6 +105,8 @@ export const POST = withAuth(async (req: NextRequest) => {
       { status: 400 }
     )
   }
+  const negado = await exigirEmpresas(u, [body.company_id])
+  if (negado) return negado
 
   // Whitelist dos campos aceitos para evitar injeção de colunas não esperadas.
   const CAMPOS = [
@@ -95,7 +119,7 @@ export const POST = withAuth(async (req: NextRequest) => {
     'vinculo_tipo', 'prestador_id', 'setor_id',
   ]
   const payload: Record<string, any> = {}
-  for (const k of CAMPOS) if (k in body) payload[k] = body[k]
+  for (const k of CAMPOS) if (k in body && k !== 'salario_base') payload[k] = body[k]
 
   const sb = admin()
   const { data, error } = await sb
@@ -104,5 +128,9 @@ export const POST = withAuth(async (req: NextRequest) => {
     .select('*')
     .single()
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 })
-  return NextResponse.json({ ok: true, funcionario: data })
+  // LGPD: salário só é gravado pela função protegida (com o JWT do usuário): quem não vê salário não grava.
+  let salarioGravado: boolean | undefined
+  const sal = 'salario_base' in body ? salarioDoCorpo(body.salario_base) : undefined
+  if (sal !== undefined && !(sal === null) && data?.id) salarioGravado = await gravarSalario(u.token, data.id, sal)
+  return NextResponse.json({ ok: true, funcionario: removerSalario(data), ...(salarioGravado === false ? { salario_ignorado: true } : {}) })
 })

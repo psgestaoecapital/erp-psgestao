@@ -1,13 +1,34 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { authFetch } from '@/lib/authFetch';
+import PainelCodes from '@/components/dev/PainelCodes';
+import { Activity, FileText, Bot, Wrench } from 'lucide-react';
 
-const C={p:'#3D2314',s:'#C8941A',f:'#FAF7F2',bg:'#1A1208',card:'#2A1A0E',g:'#2D8B4E',r:'#C0392B'};
-const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#918C82";
+// Identidade PS (RD visual): Espresso #3D2314 (estrutura/texto) · Off-white #FAF7F2 (fundos) · Dourado #C8941A (destaques).
+// (Antes a Central estava invertida — fundo escuro. Corrigido para o padrão claro. Verde/amarelo/vermelho ficam só nas 3 barras (performance), em tons com contraste sobre off-white.)
+const C={p:'#3D2314',s:'#C8941A',f:'#3D2314',bg:'#FAF7F2',card:'#FFFFFF',g:'#16A34A',r:'#C0392B'};
+const ONGOLD="#3D2314"; // texto sobre o gradiente dourado (Espresso lê bem no dourado)
+const GO="#C8941A",GOL="#E0B048",BG="#FAF7F2",BG2="#FFFFFF",BG3="#F0ECE3",G="#16A34A",R="#DC2626",Y="#CA8A04",B="#2563EB",P="#7C3AED",BD="#E7DED3",TX="#3D2314",TXM="#6B5D4F",TXD="#9C8E80";
 const STAGING_URL="https://erp-psgestao-git-staging-psgestaoecapitals-projects.vercel.app";
 const PROD_URL="https://erp-psgestao.vercel.app";
 
 export default function DevPage() {
+  // Duas telas irmãs (Leitura · Desenvolvimento) para os quatro usuários. As "Ferramentas do dev"
+  // (SQL/deploy/segurança) são utilitário técnico — ficam FORA do seletor, atrás de porta ?dev=ferramentas.
+  const [view, setView] = useState<'leitura'|'desenvolvimento'|'codes'|'ferramentas'>(()=>{
+    if (typeof window!=='undefined' && new URLSearchParams(window.location.search).get('dev')==='ferramentas') return 'ferramentas';
+    // Aba "Codes" (CEO 07/10): rota própria /dashboard/dev/codes (system_screens) abre a Central já nela.
+    if (typeof window!=='undefined' && (/\/dashboard\/dev\/codes\/?$/.test(window.location.pathname) || new URLSearchParams(window.location.search).get('aba')==='codes')) return 'codes';
+    return 'leitura';
+  });
+  // Aba Codes só aparece no seletor para a equipe PS (mesma regra da RLS: fn_dev_painel_pode_ver).
+  const [podeCodes,setPodeCodes]=useState(false);
+  useEffect(()=>{
+    let vivo=true;
+    void supabase.rpc('fn_dev_painel_pode_ver').then(({data,error})=>{ if(vivo) setPodeCodes(!error && data===true); });
+    return()=>{vivo=false;};
+  },[]);
   const [tab, setTab] = useState('ambientes');
   const [isAdmin,setIsAdmin]=useState(false);
   const [secResults,setSecResults]=useState<any[]>([]);
@@ -17,8 +38,9 @@ export default function DevPage() {
     (async()=>{
       const{data:{user}}=await supabase.auth.getUser();
       if(!user)return;
-      const{data}=await supabase.from("users").select("role").eq("id",user.id).single();
-      if(data?.role==="adm"||data?.role==="adm_investimentos"||data?.role==="acesso_total")setIsAdmin(true);
+      // SEGURANÇA: Central é da PS — system_role (não role, que qualquer 'adm' de cliente tem), nunca o robô.
+      const{data}=await supabase.from("users").select("system_role,is_robo").eq("id",user.id).single();
+      if((data?.system_role==="PS_ADMIN"||data?.system_role==="PS_ADMIN_CVM")&&data?.is_robo!==true)setIsAdmin(true);
     })();
   },[]);
 
@@ -51,36 +73,494 @@ export default function DevPage() {
     {id:'seguranca',label:'🔒 Segurança',icon:'🔒'},
     {id:'changelog',label:'📋 Changelog',icon:'📋'},
     {id:'files',label:'📁 Arquivos',icon:'📁'},
+    {id:'ibpt',label:'🧾 IBPT',icon:'🧾'},
+    {id:'pre-voo',label:'✈️ Pré-voo fiscal',icon:'✈️'},
   ];
 
   return (
-    <div style={{ fontFamily:"'Courier New',monospace", background:C.bg, color:C.f, minHeight:'100vh' }}>
+    <div style={{ fontFamily:"system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", background:C.bg, color:C.f, minHeight:'100vh' }}>
       <div style={{ background:C.card, padding:'12px 20px', borderBottom:'2px solid '+C.s, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div>
-          <span style={{ color:C.s, fontWeight:700, fontSize:16 }}>{'</>'} DEV MODULE</span>
-          <span style={{ color:'#666', fontSize:11, marginLeft:12 }}>PS Gestao ERP — v8.7.5</span>
+          <span style={{ color:C.s, fontWeight:700, fontSize:16 }}>Central de Desenvolvimento</span>
+          <span style={{ color:TXD, fontSize:11, marginLeft:12 }}>PS Gestão ERP</span>
         </div>
         <a href="/dashboard" style={{ color:C.s, fontSize:12, textDecoration:'none' }}>← Dashboard</a>
       </div>
 
-      <div style={{ display:'flex', borderBottom:'1px solid #333', background:C.card, flexWrap:'wrap' }}>
-        {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{ background:tab===t.id?C.p:'transparent', color:tab===t.id?C.s:C.f, border:'none', padding:'8px 14px', fontSize:11, cursor:'pointer', fontFamily:'inherit', borderBottom:tab===t.id?'2px solid '+C.s:'2px solid transparent' }}>
-            {t.label}
+      {/* Seletor das duas telas irmãs (Central de Desenvolvimento) + Ferramentas do dev */}
+      <div style={{ display:'flex', gap:8, background:C.card, borderBottom:`1px solid ${BD}`, padding:'8px 12px', flexWrap:'wrap' }}>
+        {([
+          {id:'leitura',label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Activity size={14} strokeWidth={1.5}/>Leitura e diagnóstico</span>},
+          {id:'desenvolvimento',label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><FileText size={14} strokeWidth={1.5}/>Desenvolvimento</span>},
+          ...(podeCodes || view==='codes' ? [{id:'codes' as const,label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Bot size={14} strokeWidth={1.5}/>Codes</span>}] : []),
+          // 'Ferramentas do dev' fica fora do seletor (porta ?dev=ferramentas) — utilitário técnico.
+          ...(view==='ferramentas' ? [{id:'ferramentas' as const,label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Wrench size={14} strokeWidth={1.5}/>Ferramentas do dev</span>}] : []),
+        ] as const).map(v=>(
+          <button key={v.id} data-testid={`central-aba-${v.id}`} onClick={()=>setView(v.id)}
+            style={{ background:view===v.id?`linear-gradient(135deg,${GO},${GOL})`:'transparent', color:view===v.id?ONGOLD:C.f, border:`1px solid ${view===v.id?'transparent':BD}`, padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+            {v.label}
           </button>
         ))}
       </div>
 
-      <div style={{ padding:16 }}>
-        {tab==='ambientes'&&<Ambientes/>}
-        {tab==='chat'&&<ChatDev/>}
-        {tab==='deploy'&&<DeployManager/>}
-        {tab==='sql'&&<SQLEditor/>}
-        {tab==='seguranca'&&<Seguranca secResults={secResults} secLoading={secLoading} testar={testarSeguranca}/>}
-        {tab==='changelog'&&<Changelog/>}
-        {tab==='files'&&<FileExplorer/>}
+      {view==='leitura' && <div style={{ padding:16 }}><LeituraDiagnostico/></div>}
+      {view==='desenvolvimento' && <div style={{ padding:16 }}><DesenvolvimentoDoc isAdmin={isAdmin}/></div>}
+      {view==='codes' && <div style={{ padding:16 }}><PainelCodes/></div>}
+
+      {view==='ferramentas' && <>
+        <div style={{ display:'flex', borderBottom:`1px solid ${BD}`, background:C.card, flexWrap:'wrap' }}>
+          {TABS.map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)}
+              style={{ background:tab===t.id?C.p:'transparent', color:tab===t.id?C.s:C.f, border:'none', padding:'8px 14px', fontSize:11, cursor:'pointer', fontFamily:'inherit', borderBottom:tab===t.id?'2px solid '+C.s:'2px solid transparent' }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ padding:16 }}>
+          {tab==='ambientes'&&<Ambientes/>}
+          {tab==='chat'&&<ChatDev/>}
+          {tab==='deploy'&&<DeployManager/>}
+          {tab==='sql'&&<SQLEditor/>}
+          {tab==='seguranca'&&<Seguranca secResults={secResults} secLoading={secLoading} testar={testarSeguranca}/>}
+          {tab==='changelog'&&<Changelog/>}
+          {tab==='files'&&<FileExplorer/>}
+          {tab==='ibpt'&&<IbptLink/>}
+          {tab==='pre-voo'&&<PreVooLink/>}
+        </div>
+      </>}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// CENTRAL DE DESENVOLVIMENTO — ① Leitura e diagnóstico (as três barras por vertical)
+// ════════════════════════════════════════
+type BarraRow = {
+  area_slug:string; status_comercial:string; telas:number;
+  construido_pct:number|null; construido_sem_dado:boolean;
+  telas_auditadas:number; auditado_pct:number|null; auditado_sem_dado:boolean;
+  tem_tabelas_proprias:boolean; em_uso_empresas:number|null; em_uso_nomes:string[]|null;
+  em_uso_ultima_escrita:string|null; em_uso_sem_dado:boolean;
+  automacao_rotulo:string|null; automacao_empresas:number|null;
+};
+const NOME_VERTICAL:Record<string,string>={
+  agro:'Agro / Pecuária', bpo:'BPO', compliance:'Compliance', custeio_a:'Custeio A', custeio_b:'Custeio B',
+  gestao_empresarial:'Gestão Empresarial', hub:'Hub (Construção)', industrial:'Industrial', medica:'Médica',
+  odonto:'Odonto', oficina:'Oficina', pm:'P&M (Agência)', revenda_veiculos:'Revenda de Veículos', wealth:'Wealth',
+  estrela_polar:'Estrela Polar',
+};
+// 26/09 (CEO): a Estrela Polar vive em erp_documento_vertical (vertical='estrela_polar'), como as verticais.
+// Não é vertical de produto (não entra em dev_vertical nem nas barras/auditoria): aparece fixa no seletor.
+const ESTRELA_POLAR='estrela_polar';
+function fmtDia(iso:string|null):string{ if(!iso) return 'nunca'; const p=iso.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:iso; }
+
+// Renderizador de markdown LEVE (sem dependência) — o público (CEO, André, Jordana, Rodrigo) não é dev:
+// cabeçalho vira título, ** vira negrito, tabela vira tabela, > vira citação. Nada de #, **, | crus na tela.
+function mdInline(s:string):any[]{
+  const parts:any[]=[]; let key=0,last=0; const re=/(\*\*([^*]+)\*\*|`([^`]+)`)/g; let m:RegExpExecArray|null;
+  while((m=re.exec(s))){
+    if(m.index>last) parts.push(s.slice(last,m.index));
+    if(m[2]!=null) parts.push(<strong key={key++} style={{color:TX,fontWeight:700}}>{m[2]}</strong>);
+    else if(m[3]!=null) parts.push(<code key={key++} style={{background:BG3,padding:'1px 5px',borderRadius:4,fontSize:'0.92em'}}>{m[3]}</code>);
+    last=m.index+m[0].length;
+  }
+  if(last<s.length) parts.push(s.slice(last));
+  return parts;
+}
+function MarkdownView({md}:{md:string}){
+  const lines=(md||'').replace(/\r\n/g,'\n').split('\n'); const blocks:any[]=[]; let i=0,key=0;
+  const isPara=(l:string)=>!/^\s*$/.test(l)&&!/^(#{1,6})\s/.test(l)&&!l.includes('|')&&!/^\s*>\s?/.test(l)&&!/^\s*([-*]|\d+\.)\s+/.test(l)&&!/^\s*([-*_])\1{2,}\s*$/.test(l);
+  while(i<lines.length){
+    const ln=lines[i];
+    if(/^\s*$/.test(ln)){ i++; continue; }
+    const h=/^(#{1,6})\s+(.*)$/.exec(ln);
+    if(h){ const lvl=h[1].length, size=lvl<=1?19:lvl===2?15.5:13.5;
+      blocks.push(<div key={key++} style={{fontSize:size,fontWeight:700,color:lvl<=2?GO:TX,margin:lvl<=1?'18px 0 8px':'13px 0 5px'}}>{mdInline(h[2])}</div>); i++; continue; }
+    if(/^\s*([-*_])\1{2,}\s*$/.test(ln)){ blocks.push(<hr key={key++} style={{border:'none',borderTop:`1px solid ${BD}`,margin:'14px 0'}}/>); i++; continue; }
+    if(ln.includes('|')){
+      const tbl:string[]=[]; while(i<lines.length&&lines[i].includes('|')){ tbl.push(lines[i]); i++; }
+      const rows=tbl.map(r=>r.replace(/^\s*\|/,'').replace(/\|\s*$/,'').split('|').map(c=>c.trim()));
+      const isSep=(r:string[])=>r.every(c=>/^:?-{2,}:?$/.test(c.replace(/\s/g,''))||c==='');
+      const header=rows[0], body=rows.slice(1).filter(r=>!isSep(r));
+      blocks.push(<div key={key++} style={{overflowX:'auto',margin:'10px 0'}}><table style={{borderCollapse:'collapse',width:'100%',fontSize:12}}>
+        <thead><tr>{header.map((c,j)=><th key={j} style={{textAlign:'left',padding:'6px 10px',borderBottom:`2px solid ${BD}`,color:GO,fontWeight:700,background:BG3}}>{mdInline(c)}</th>)}</tr></thead>
+        <tbody>{body.map((r,ri)=><tr key={ri}>{r.map((c,j)=><td key={j} style={{padding:'6px 10px',borderBottom:`1px solid ${BD}`,color:TX,verticalAlign:'top'}}>{mdInline(c)}</td>)}</tr>)}</tbody>
+      </table></div>); continue;
+    }
+    if(/^\s*>\s?/.test(ln)){
+      const q:string[]=[]; while(i<lines.length&&/^\s*>\s?/.test(lines[i])){ q.push(lines[i].replace(/^\s*>\s?/,'')); i++; }
+      blocks.push(<div key={key++} style={{borderLeft:`3px solid ${GO}`,padding:'6px 12px',margin:'10px 0',background:BG3,color:TXM,borderRadius:'0 6px 6px 0'}}>{q.map((l,li)=><div key={li}>{mdInline(l)}</div>)}</div>); continue;
+    }
+    if(/^\s*([-*]|\d+\.)\s+/.test(ln)){
+      const items:string[]=[]; const ordered=/^\s*\d+\.\s+/.test(ln);
+      while(i<lines.length&&/^\s*([-*]|\d+\.)\s+/.test(lines[i])){ items.push(lines[i].replace(/^\s*([-*]|\d+\.)\s+/,'')); i++; }
+      const Tag:any=ordered?'ol':'ul';
+      blocks.push(<Tag key={key++} style={{margin:'6px 0 6px 20px',color:TX,fontSize:13,lineHeight:1.6}}>{items.map((it,ii)=><li key={ii} style={{marginBottom:3}}>{mdInline(it)}</li>)}</Tag>); continue;
+    }
+    const para:string[]=[]; while(i<lines.length&&isPara(lines[i])){ para.push(lines[i]); i++; }
+    blocks.push(<p key={key++} style={{margin:'6px 0',color:TX,fontSize:13,lineHeight:1.65}}>{para.map((l,li)=><span key={li}>{mdInline(l)}{li<para.length-1?<br/>:null}</span>)}</p>);
+  }
+  return <div style={{padding:16,maxHeight:640,overflow:'auto'}}>{blocks}</div>;
+}
+function Barra({label,pct,semDado,cor}:{label:string;pct:number|null;semDado:boolean;cor:string}){
+  const val = semDado ? null : Math.max(0, Math.min(100, Number(pct ?? 0)));
+  return(
+    <div style={{marginBottom:8}}>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:TXM,marginBottom:3}}>
+        <span>{label}</span>
+        <span style={{color:semDado?TXD:TX,fontWeight:600}}>{semDado?'sem dado':`${val}%`}{label==='Construído'&&!semDado?' (estim.)':''}</span>
       </div>
+      <div style={{height:8,borderRadius:6,background:BG3,overflow:'hidden'}}>
+        {!semDado && <div style={{height:'100%',width:`${val}%`,background:cor,borderRadius:6}}/>}
+      </div>
+    </div>
+  );
+}
+function LeituraDiagnostico(){
+  const [rows,setRows]=useState<BarraRow[]|null>(null);
+  // A lista de verticais vem de dev_vertical (MESMA fonte da aba Desenvolvimento) — não mais fixa no código.
+  // As três barras (fn_dev_central_barras) são casadas por slug; vertical sem barra aparece como "sem dado".
+  const [verts,setVerts]=useState<{slug:string;nome:string}[]|null>(null);
+  const [erro,setErro]=useState<string|null>(null);
+  useEffect(()=>{(async()=>{
+    const [rb,rv]=await Promise.all([
+      supabase.rpc('fn_dev_central_barras'),
+      supabase.from('dev_vertical').select('slug,nome,ativo,ordem').eq('ativo',true).order('ordem').order('nome'),
+    ]);
+    if(rb.error){setErro(rb.error.message);return;}
+    if(rv.error){setErro(rv.error.message);return;}
+    setRows((rb.data||[]) as BarraRow[]);
+    setVerts(((rv.data||[]) as {slug:string;nome:string}[]).map(v=>({slug:v.slug,nome:v.nome})));
+  })();},[]);
+  if(erro) return <div style={{color:R,fontSize:12}}>Erro ao carregar: {erro}</div>;
+  if(!rows||!verts) return <div style={{color:TXM,fontSize:12}}>Carregando as três barras…</div>;
+  const byslug=new Map(rows.map(r=>[r.area_slug,r] as const));
+  const devSlugs=new Set(verts.map(v=>v.slug));
+  // dev_vertical dá a lista; qualquer barra cujo slug não esteja em dev_vertical entra ao fim (nenhuma métrica some).
+  const lista=[...verts, ...rows.filter(r=>!devSlugs.has(r.area_slug)).map(r=>({slug:r.area_slug,nome:NOME_VERTICAL[r.area_slug]||r.area_slug}))];
+  return(
+    <div>
+      <div style={{fontSize:13,color:GOL,marginBottom:4,fontWeight:600}}>As três barras por vertical</div>
+      <div style={{fontSize:11,color:TXM,marginBottom:14}}>
+        <b>Construído</b> = estimado por tela · <b>Auditado</b> = telas que o robô exercita (gold buttons) · <b>Em uso</b> = empresas reais que escreveram em tabela da vertical (30d). "sem dado" ≠ 0%.
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>
+        {lista.map(item=>{
+          const r=byslug.get(item.slug);
+          return (
+          <div key={item.slug} style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:10}}>
+              <span style={{fontSize:13,fontWeight:700,color:TX}}>{item.nome}</span>
+              <span style={{fontSize:9,color:TXD,textTransform:'uppercase'}}>{r?`${r.status_comercial}${r.telas>0?` · ${r.telas} telas`:''}`:'sem dado'}</span>
+            </div>
+            <Barra label="Construído" pct={r?r.construido_pct:null} semDado={r?r.construido_sem_dado:true} cor={G}/>
+            <Barra label={r&&!r.auditado_sem_dado?`Auditado (${r.telas_auditadas}/${r.telas})`:'Auditado'} pct={r?r.auditado_pct:null} semDado={r?r.auditado_sem_dado:true} cor={B}/>
+            {/* Em uso — contagem, não %: chip com nomes. Automação é SEMPRE linha separada, nunca somada. */}
+            <div style={{marginTop:6,fontSize:10,color:TXM}}>
+              <div style={{marginBottom:3}}>Em uso</div>
+              {(!r||r.em_uso_sem_dado) ? (
+                <span style={{color:TXD}}>sem dado · núcleo compartilhado</span>
+              ) : (r.em_uso_empresas??0)===0 ? (
+                <span style={{color:Y}}>0 empresas · última escrita {fmtDia(r.em_uso_ultima_escrita)}</span>
+              ) : (
+                <span style={{color:G}}>{r.em_uso_empresas} {r.em_uso_empresas===1?'empresa':'empresas'} · <span style={{color:TX}}>{(r.em_uso_nomes||[]).join(', ')}</span></span>
+              )}
+              {r&&r.automacao_empresas!=null && (
+                <div style={{marginTop:5,paddingTop:5,borderTop:`1px dashed ${BD}`,color:P}}>
+                  automação · {r.automacao_rotulo}, {r.automacao_empresas} {r.automacao_empresas===1?'empresa':'empresas'}
+                  <span style={{color:TXD}}> (não conta como uso)</span>
+                </div>
+              )}
+            </div>
+          </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// CENTRAL DE DESENVOLVIMENTO — ② Desenvolvimento (o documento vivo da vertical)
+// ════════════════════════════════════════
+type Orc={vertical:string;telas:number;custo_estimado:number;tempo_min:number;gasto_dia:number;gasto_mes:number;cap_dia:number;cap_mes:number;pode:boolean;motivo:string|null};
+function DesenvolvimentoDoc({isAdmin}:{isAdmin:boolean}){
+  const [vertical,setVertical]=useState('oficina');
+  const [doc,setDoc]=useState<{titulo:string;versao:number;status:string;conteudo_md:string;criado_em:string;aprovado_por:string|null;aprovado_em:string|null}|null>(null);
+  const [aprovadorNome,setAprovadorNome]=useState<string|null>(null);
+  const [carregando,setCarregando]=useState(false);
+  const [semDoc,setSemDoc]=useState(false);
+  const [orc,setOrc]=useState<Orc|null>(null);
+  const [disparando,setDisparando]=useState(false);
+  const [disparo,setDisparo]=useState<{ok:boolean;msg:string}|null>(null);
+  const [aprovando,setAprovando]=useState(false);
+  const [versoes,setVersoes]=useState<any[]>([]);   // A3 — histórico (todas as versões desta vertical)
+  const [barra,setBarra]=useState<any|null>(null);   // A2 — as 3 barras desta vertical, resumidas
+  const [verVersao,setVerVersao]=useState<any|null>(null); // A3 — versão antiga aberta para leitura
+  const [audit,setAudit]=useState<any|null>(null);   // ⑧ — número VERDADEIRO da auditoria (X de N · sem botão)
+  const [verSemBotao,setVerSemBotao]=useState(false); // ⑧ — expandir a lista das telas sem botão de auditoria
+  // Cadastro de verticais na Central de Dev: a lista vem de dev_vertical (não mais fixa no código).
+  const [verticais,setVerticais]=useState<{id:string;slug:string;nome:string;ativo:boolean;ordem:number}[]>([]);
+  const [gerVert,setGerVert]=useState(false);
+  const [novoSlug,setNovoSlug]=useState(''); const [novoNome,setNovoNome]=useState('');
+  const [nomeEdits,setNomeEdits]=useState<Record<string,string>>({});
+  const [vertBusy,setVertBusy]=useState(false); const [vertMsg,setVertMsg]=useState<string|null>(null);
+  async function carregarVerticais(){
+    const{data}=await supabase.from('dev_vertical').select('id,slug,nome,ativo,ordem').order('ordem').order('nome');
+    const lista=((data||[]) as {id:string;slug:string;nome:string;ativo:boolean;ordem:number}[]);
+    setVerticais(lista);
+    const ativos=lista.filter(v=>v.ativo);
+    if(ativos.length && vertical!==ESTRELA_POLAR && !ativos.some(v=>v.slug===vertical)) setVertical(ativos[0].slug);
+  }
+  useEffect(()=>{ void carregarVerticais(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ },[]);
+  async function incluirVertical(){
+    const slug=novoSlug.trim().toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'');
+    const nome=novoNome.trim();
+    if(!slug||!nome){ setVertMsg('Informe o slug e o nome.'); return; }
+    setVertBusy(true); setVertMsg(null);
+    const ordem=verticais.reduce((m,v)=>Math.max(m,v.ordem||0),0)+1;
+    const{error}=await supabase.from('dev_vertical').insert({slug,nome,ordem});
+    if(error) setVertMsg(/duplicate|unique/i.test(error.message)?'Já existe uma vertical com esse slug.':error.message);
+    else { setNovoSlug(''); setNovoNome(''); await carregarVerticais(); }
+    setVertBusy(false);
+  }
+  async function salvarNomeVert(id:string){
+    const nome=(nomeEdits[id]??'').trim(); if(!nome){ setVertMsg('O nome não pode ficar vazio.'); return; }
+    setVertBusy(true); setVertMsg(null);
+    const{error}=await supabase.from('dev_vertical').update({nome}).eq('id',id);
+    if(error) setVertMsg(error.message); else await carregarVerticais();
+    setVertBusy(false);
+  }
+  async function toggleAtivoVert(id:string,ativo:boolean){
+    setVertBusy(true); setVertMsg(null);
+    const{error}=await supabase.from('dev_vertical').update({ativo:!ativo}).eq('id',id);
+    if(error) setVertMsg(error.message); else await carregarVerticais();
+    setVertBusy(false);
+  }
+  async function carregarDoc(){
+    setCarregando(true);setSemDoc(false);setDoc(null);setAprovadorNome(null);
+    const{data}=await supabase.from('erp_documento_vertical')
+      .select('titulo,versao,status,conteudo_md,criado_em,aprovado_por,aprovado_em')
+      .eq('vertical',vertical).eq('vigente',true).maybeSingle();
+    if(data){ setDoc(data as any);
+      if((data as any).aprovado_por){ const{data:ap}=await supabase.from('users').select('full_name,email').eq('id',(data as any).aprovado_por).maybeSingle(); if(ap)setAprovadorNome((ap as any).full_name||(ap as any).email); }
+    } else setSemDoc(true);
+    // A3 — o histórico já é guardado por construção (índice único garante 1 vigente; anteriores vigente=false).
+    const{data:vs}=await supabase.from('erp_documento_vertical')
+      .select('versao,resumo_mudanca,vigente,criado_em,aprovado_por,aprovado_em,conteudo_md')
+      .eq('vertical',vertical).order('versao',{ascending:false});
+    setVersoes((vs||[]) as any[]);
+    setCarregando(false);
+  }
+  useEffect(()=>{(async()=>{
+    setDisparo(null);setOrc(null);setVerVersao(null);
+    await carregarDoc();
+    // documento-mestre: sem orçamento de auditoria, barras nem telas — só o documento e o histórico
+    if(vertical===ESTRELA_POLAR){ setBarra(null); setAudit(null); return; }
+    const{data:o}=await supabase.rpc('fn_dev_vertical_orcamento',{p_vertical:vertical});
+    if(o)setOrc(o as Orc);
+    // A2 — as 3 barras desta vertical (mesma RPC da aba Leitura), pra não precisar trocar de aba.
+    const{data:barras}=await supabase.rpc('fn_dev_central_barras');
+    setBarra(((barras||[]) as any[]).find(b=>b.area_slug===vertical)||null);
+    // ⑧ — status VERDADEIRO da auditoria desta vertical (X de N auditadas · telas sem botão)
+    const{data:au}=await supabase.rpc('fn_dev_vertical_auditoria_status',{p_vertical:vertical});
+    setAudit(au||null); setVerSemBotao(false);
+  })();},[vertical]);
+
+  async function aprovarDoc(){
+    if(aprovando)return;
+    if(!confirm('Aprovar este documento?\n\nAo aprovar, ele passa a ser a REFERÊNCIA da vertical — a Claude e o auditor vão comparar o sistema contra ele.'))return;
+    setAprovando(true);
+    try{ const{data:d}=await supabase.rpc('fn_dev_documento_aprovar',{p_vertical:vertical}); if((d as any)?.ok)await carregarDoc(); else alert((d as any)?.mensagem||'Falha ao aprovar.'); }
+    catch(e:any){ alert(e.message||'Erro ao aprovar.'); }
+    setAprovando(false);
+  }
+  async function revogarDoc(){
+    if(aprovando)return;
+    if(!confirm('Revogar a aprovação? O documento volta a rascunho e deixa de ser a referência oficial até ser aprovado de novo.'))return;
+    setAprovando(true);
+    try{ const{data:d}=await supabase.rpc('fn_dev_documento_desaprovar',{p_vertical:vertical}); if((d as any)?.ok)await carregarDoc(); else alert((d as any)?.mensagem||'Falha ao revogar.'); }
+    catch(e:any){ alert(e.message||'Erro ao revogar.'); }
+    setAprovando(false);
+  }
+
+  async function atualizarVertical(){
+    if(!orc?.pode||disparando)return;
+    if(!confirm(`Atualizar "${NOME_VERTICAL[vertical]||vertical}"?\n\n${orc.telas} telas · ~US$ ${orc.custo_estimado.toFixed(2)} · ~${orc.tempo_min} min\n\nO robô audita as telas (diagnóstico em minutos). A análise cruzada com o blueprint sai na próxima conversa com a Claude.`))return;
+    setDisparando(true);setDisparo(null);
+    try{
+      const{data:{session}}=await supabase.auth.getSession();
+      const res=await fetch('/api/dev/atualizar-vertical',{method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${session?.access_token||''}`},
+        body:JSON.stringify({vertical})});
+      const d=await res.json();
+      if(!res.ok){setDisparo({ok:false,msg:d.error||'Falha ao disparar.'});}
+      else{setDisparo({ok:true,msg:`Disparei a auditoria de ${d.rotas_disparadas} tela(s) com botão-ouro. Roda em minutos — o número "auditadas" abaixo atualiza quando terminar. Rode de novo para reforçar.`});
+        const{data:o}=await supabase.rpc('fn_dev_vertical_orcamento',{p_vertical:vertical}); if(o)setOrc(o as Orc);
+        const{data:au}=await supabase.rpc('fn_dev_vertical_auditoria_status',{p_vertical:vertical}); if(au)setAudit(au);}
+    }catch(e:any){setDisparo({ok:false,msg:e.message||'Erro de rede.'});}
+    setDisparando(false);
+  }
+  return(
+    <div>
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:12,flexWrap:'wrap'}}>
+        <span style={{fontSize:13,color:GOL,fontWeight:600,display:'inline-flex',alignItems:'center',gap:6}}><FileText size={14} strokeWidth={1.5}/>Documento vivo da vertical</span>
+        <select value={vertical} onChange={e=>setVertical(e.target.value)}
+          style={{background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12,fontFamily:'inherit'}}>
+          <option value={ESTRELA_POLAR}>⭐ Estrela Polar (documento-mestre)</option>
+          {(verticais.filter(v=>v.ativo).length
+            ? verticais.filter(v=>v.ativo).map(v=>({k:v.slug,n:v.nome}))
+            : Object.entries(NOME_VERTICAL).filter(([k])=>k!==ESTRELA_POLAR).map(([k,n])=>({k,n}))
+          ).map(o=><option key={o.k} value={o.k}>{o.n}</option>)}
+        </select>
+        {isAdmin && <button onClick={()=>setGerVert(v=>!v)} style={{background:'transparent',color:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:11.5,cursor:'pointer'}}>{gerVert?'Fechar':'⚙ Gerenciar verticais'}</button>}
+      </div>
+      {isAdmin && gerVert && (
+        <div style={{background:BG2,border:`1px solid ${BD}`,borderRadius:12,padding:14,marginBottom:14}}>
+          <div style={{fontSize:12.5,fontWeight:600,color:TX,marginBottom:2}}>Verticais da Central de Dev</div>
+          <div style={{fontSize:11,color:TXM,marginBottom:10}}>A lista vem do banco (dev_vertical). Inativar tira da lista sem apagar — o histórico e o blueprint continuam.</div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
+            <input value={novoSlug} onChange={e=>setNovoSlug(e.target.value)} placeholder="slug (ex.: corretora_seguros)" style={{flex:'1 1 200px',background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12}} />
+            <input value={novoNome} onChange={e=>setNovoNome(e.target.value)} placeholder="Nome" style={{flex:'1 1 200px',background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'6px 10px',fontSize:12}} />
+            <button onClick={()=>void incluirVertical()} disabled={vertBusy} style={{background:`linear-gradient(135deg,${GO},${GOL})`,color:ONGOLD,border:'none',borderRadius:8,padding:'6px 14px',fontSize:12,fontWeight:600,cursor:vertBusy?'not-allowed':'pointer'}}>Incluir</button>
+          </div>
+          {vertMsg && <div style={{fontSize:11.5,color:Y,marginBottom:8}}>{vertMsg}</div>}
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {verticais.map(v=>(
+              <div key={v.id} style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',opacity:v.ativo?1:0.55}}>
+                <code style={{fontSize:11,color:TXM,minWidth:150}}>{v.slug}</code>
+                <input defaultValue={v.nome} onChange={e=>setNomeEdits(p=>({...p,[v.id]:e.target.value}))} style={{flex:'1 1 200px',background:BG3,color:TX,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 9px',fontSize:12}} />
+                <button onClick={()=>void salvarNomeVert(v.id)} disabled={vertBusy||!(v.id in nomeEdits)} style={{background:'transparent',color:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 10px',fontSize:11.5,cursor:vertBusy?'not-allowed':'pointer'}}>Salvar</button>
+                <button onClick={()=>void toggleAtivoVert(v.id,v.ativo)} disabled={vertBusy} style={{background:'transparent',color:v.ativo?Y:GOL,border:`1px solid ${BD}`,borderRadius:8,padding:'5px 10px',fontSize:11.5,cursor:vertBusy?'not-allowed':'pointer'}}>{v.ativo?'Inativar':'Reativar'}</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {carregando && <div style={{color:TXM,fontSize:12}}>Carregando…</div>}
+      {!carregando && semDoc && (
+        <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:24,textAlign:'center'}}>
+          <div style={{marginBottom:8}}><FileText size={28} strokeWidth={1.5}/></div>
+          <div style={{fontSize:12,color:TXM}}>Ainda não há documento vivo para esta vertical.</div>
+          {!isAdmin && <div style={{fontSize:11,color:TXD,marginTop:6}}>O documento é visível apenas para administradores (CEO).</div>}
+        </div>
+      )}
+      {!carregando && doc && (
+        <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:'hidden'}}>
+          {/* Faixa de rascunho: diz o que é e oferece aprovar (só PS_ADMIN) */}
+          {doc.status!=='aprovado' && (
+            <div style={{background:Y+'14',borderBottom:`1px solid ${Y}33`,padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <span style={{fontSize:11.5,color:Y}}>📝 Este documento está em <b>rascunho</b> — ainda não é a versão oficial da vertical.</span>
+              {isAdmin && (
+                <button onClick={aprovarDoc} disabled={aprovando}
+                  style={{padding:'7px 14px',borderRadius:8,border:'none',fontSize:12,fontWeight:600,cursor:aprovando?'not-allowed':'pointer',background:`linear-gradient(135deg,${GO},${GOL})`,color:ONGOLD,whiteSpace:'nowrap'}}>
+                  {aprovando?'Aprovando…':'Aprovar este documento'}
+                </button>
+              )}
+            </div>
+          )}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:`1px solid ${BD}`,flexWrap:'wrap',gap:8}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:TX}}>{doc.titulo}</div>
+              <div style={{fontSize:10,color:TXD}}>versão {doc.versao} · {doc.conteudo_md.length.toLocaleString('pt-BR')} caracteres</div>
+            </div>
+            {doc.status==='aprovado' ? (
+              <div style={{textAlign:'right'}}>
+                <div style={{fontSize:10.5,color:G}}>✅ Aprovado{aprovadorNome?` por ${aprovadorNome}`:''}{doc.aprovado_em?` em ${fmtDia(doc.aprovado_em.slice(0,10))}`:''}</div>
+                {isAdmin && <button onClick={revogarDoc} disabled={aprovando} style={{marginTop:3,border:'none',background:'none',color:TXD,textDecoration:'underline',fontSize:10,cursor:'pointer'}}>revogar aprovação</button>}
+              </div>
+            ) : (
+              <span style={{fontSize:10,fontWeight:700,padding:'3px 10px',borderRadius:6,background:Y+'20',color:Y,border:`1px solid ${Y}40`}}>📝 rascunho</span>
+            )}
+          </div>
+          {/* A2 · estatísticas da vertical + as 3 barras resumidas (pra não precisar voltar na aba Leitura) */}
+          <div style={{display:'flex',flexWrap:'wrap',gap:16,padding:'12px 16px',borderBottom:`1px solid ${BD}`,background:BG}}>
+            <div style={{flex:'1 1 220px',fontSize:11,color:TXM,lineHeight:1.75}}>
+              <div>versão atual: <b style={{color:TX}}>{doc.versao}</b> · <b style={{color:TX}}>{doc.conteudo_md.length.toLocaleString('pt-BR')}</b> caracteres</div>
+              <div>mudou em: <b style={{color:TX}}>{fmtDia((doc.criado_em||'').slice(0,10))}</b></div>
+              <div>aprovação: {doc.status==='aprovado'?<b style={{color:G}}>{aprovadorNome||'—'} · {fmtDia((doc.aprovado_em||'').slice(0,10))}</b>:<span style={{color:Y}}>rascunho (não aprovado)</span>}</div>
+              <div>{versoes.length} versã{versoes.length===1?'o':'es'} no documento vivo</div>
+              {(()=>{ const mv=versoes.length?Math.min(...versoes.map((v:any)=>Number(v.versao))):Number(doc.versao); return mv>1?<div style={{marginTop:3,color:TXD,fontStyle:'italic'}}>as versões anteriores à v{mv} viveram em arquivo (.md), antes do documento vivo</div>:null; })()}
+            </div>
+            {barra && (
+              <div style={{flex:'1 1 240px',minWidth:200}}>
+                <Barra label="Construído" pct={barra.construido_pct} semDado={barra.construido_sem_dado} cor={G}/>
+                <Barra label={`Auditado${barra.auditado_sem_dado?'':` (${barra.telas_auditadas}/${barra.telas})`}`} pct={barra.auditado_pct} semDado={barra.auditado_sem_dado} cor={B}/>
+                <div style={{fontSize:10,color:TXM,marginTop:2}}>Em uso: {barra.em_uso_sem_dado?<span style={{color:TXD}}>núcleo compartilhado</span>:(barra.em_uso_empresas??0)===0?<span style={{color:Y}}>0 empresas</span>:<span style={{color:G}}>{barra.em_uso_empresas} empresa(s)</span>}</div>
+              </div>
+            )}
+          </div>
+          {verVersao && (
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,padding:'8px 16px',background:P+'12',borderBottom:`1px solid ${P}33`,fontSize:11.5,color:P}}>
+              <span>👁️ Lendo a <b>versão {verVersao.versao}</b> (histórica) — não é a vigente.</span>
+              <button onClick={()=>setVerVersao(null)} style={{border:'none',background:'none',color:P,textDecoration:'underline',cursor:'pointer',fontSize:11.5}}>voltar à versão atual</button>
+            </div>
+          )}
+          <MarkdownView md={verVersao?verVersao.conteudo_md:doc.conteudo_md}/>
+        </div>
+      )}
+      {/* A3 · histórico de versões — a estrutura já guarda por construção (índice único: 1 vigente, resto vigente=false) */}
+      {!carregando && doc && versoes.length>0 && (
+        <div style={{marginTop:14,background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:14}}>
+          <div style={{fontSize:12,fontWeight:700,color:GO,marginBottom:8}}>🕑 Histórico de versões</div>
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {versoes.map((v:any)=>(
+              <div key={v.versao} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,padding:'8px 10px',borderRadius:8,background:v.vigente?G+'10':BG3,border:`1px solid ${v.vigente?G+'44':BD}`}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:12,color:TX,fontWeight:600}}>versão {v.versao}{v.vigente?<span style={{color:G,fontWeight:700}}> · vigente</span>:''}</div>
+                  <div style={{fontSize:10.5,color:TXM,marginTop:2}}>{fmtDia((v.criado_em||'').slice(0,10))}{v.aprovado_em?` · aprovada ${fmtDia(v.aprovado_em.slice(0,10))}`:''}</div>
+                  <div style={{fontSize:11.5,color:v.resumo_mudanca?TX:TXD,marginTop:3,fontStyle:v.resumo_mudanca?'normal':'italic'}}>{v.resumo_mudanca||'— sem resumo do que mudou (obrigatório a partir da próxima versão)'}</div>
+                </div>
+                {!v.vigente && <button onClick={()=>setVerVersao(v)} style={{border:`1px solid ${BD}`,background:BG2,color:TX,borderRadius:6,padding:'5px 10px',fontSize:11,cursor:'pointer',whiteSpace:'nowrap'}}>abrir</button>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* ④ botão atualizar a vertical — só o CEO; custo antes do clique; teto diário/mensal; dois tempos */}
+      {isAdmin && orc && (
+        <div style={{marginTop:14,background:BG2,borderRadius:12,border:`1px solid ${BD}`,padding:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+            <div style={{fontSize:11,color:TXM}}>
+              {orc.telas>0
+                ? <>Atualizar auditoria: <b style={{color:TX}}>{orc.telas} telas · ~US$ {orc.custo_estimado.toFixed(2)} · ~{orc.tempo_min} min</b></>
+                : <>Esta vertical não tem telas catalogadas para auditar.</>}
+              <div style={{fontSize:9.5,color:TXD,marginTop:2}}>Gasto: US$ {orc.gasto_dia.toFixed(2)}/{orc.cap_dia.toFixed(2)} hoje · US$ {orc.gasto_mes.toFixed(2)}/{orc.cap_mes.toFixed(2)} no mês</div>
+            </div>
+            <button onClick={atualizarVertical} disabled={!orc.pode||disparando}
+              title={orc.pode?'':(orc.motivo||'')}
+              style={{padding:'8px 16px',borderRadius:8,border:'none',fontSize:12,fontWeight:600,
+                cursor:orc.pode&&!disparando?'pointer':'not-allowed',
+                background:orc.pode&&!disparando?`linear-gradient(135deg,${GO},${GOL})`:BG3,
+                color:orc.pode&&!disparando?ONGOLD:TXD}}>
+              {disparando?'Disparando…':'🔄 Atualizar a vertical'}
+            </button>
+          </div>
+          {!orc.pode&&orc.motivo&&<div style={{fontSize:10.5,color:Y,marginTop:8}}>{orc.motivo}</div>}
+          {disparo&&<div style={{fontSize:11,color:disparo.ok?G:R,marginTop:8,lineHeight:1.5}}>{disparo.ok?'✅ ':'❌ '}{disparo.msg}</div>}
+          {/* ⑧ — número VERDADEIRO: X de N auditadas · telas sem botão (não-auditáveis) · última auditoria */}
+          {audit&&audit.total>0&&(
+            <div style={{fontSize:11,color:TX,marginTop:8,borderTop:`1px dashed ${BD}`,paddingTop:8,lineHeight:1.6}}>
+              <b style={{color:audit.auditadas>=audit.auditaveis?G:GO}}>{audit.auditadas} de {audit.total} auditadas</b>
+              {audit.sem_botao>0&&<> · <button type="button" onClick={()=>setVerSemBotao(v=>!v)} style={{background:'none',border:'none',color:Y,cursor:'pointer',fontSize:11,textDecoration:'underline',padding:0,fontFamily:'inherit'}}>{audit.sem_botao} sem botão de auditoria</button></>}
+              {audit.ultima_em&&<> · última {new Date(audit.ultima_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</>}
+              {audit.auditaveis>0&&audit.auditadas<audit.auditaveis&&<span style={{color:TXM}}> · rode de novo para as próximas</span>}
+              {audit.auditaveis>0&&audit.auditadas>=audit.auditaveis&&audit.sem_botao>0&&<span style={{color:TXM}}> · é o máximo hoje ({audit.auditaveis} de {audit.total} têm botão)</span>}
+              {verSemBotao&&audit.sem_botao_lista&&(
+                <div style={{marginTop:6,maxHeight:180,overflowY:'auto',background:BG3,borderRadius:8,border:`1px solid ${BD}`,padding:8}}>
+                  <div style={{fontSize:10,color:TXM,marginBottom:4}}>Telas sem botão-ouro (o robô ainda não consegue auditá-las):</div>
+                  {(audit.sem_botao_lista as any[]).map((t:any)=>(
+                    <div key={t.rota} style={{fontSize:10.5,color:TX,padding:'2px 0'}}>· <b>{t.titulo||'(sem título)'}</b> <span style={{color:TXD}}>{t.rota}</span></div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{fontSize:9.5,color:TXD,marginTop:8,borderTop:`1px dashed ${BD}`,paddingTop:8}}>
+            ⏱ O <b>diagnóstico</b> do robô sai <b>em minutos</b>. A <b>análise cruzada com o blueprint</b> só sai <b>na próxima conversa com a Claude</b> — não vem sozinha. O roadmap como indicador separado entra depois.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -150,6 +630,40 @@ function Ambientes(){
 }
 
 // ════════════════════════════════════════
+// IBPT (Lei 12.741) — atalho para o importador da tabela (núcleo, serve todos os tenants)
+// ════════════════════════════════════════
+function IbptLink(){
+  return(
+    <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${BD}`,maxWidth:560}}>
+      <div style={{fontSize:15,fontWeight:700,color:GOL,marginBottom:8}}>🧾 Tabela IBPT — Lei 12.741</div>
+      <div style={{fontSize:12,color:TXM,lineHeight:1.6,marginBottom:14}}>
+        A tabela IBPT é <b>única</b> (alíquotas por NCM×UF, iguais p/ todas as empresas). Uma carga serve
+        <b> todos os tenants</b> — inclusive clientes novos. A API do IBPT está fora do ar; baixe o CSV/ZIP
+        em <b>deolhonoimposto.ibpt.org.br</b> e suba pelo importador. O sistema valida o cabeçalho.
+      </div>
+      <a href="/dashboard/dev/ibpt" style={{display:"inline-block",padding:"9px 18px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:ONGOLD,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>Abrir importador da tabela IBPT →</a>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
+// PRÉ-VOO FISCAL — atalho para a contagem por empresa (quem está pronto para emitir NF-e)
+// ════════════════════════════════════════
+function PreVooLink(){
+  return(
+    <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${BD}`,maxWidth:560}}>
+      <div style={{fontSize:15,fontWeight:700,color:GOL,marginBottom:8}}>✈️ Pré-voo fiscal — NF-e</div>
+      <div style={{fontSize:12,color:TXM,lineHeight:1.6,marginBottom:14}}>
+        Contagem <b>por empresa</b> dos impeditivos de emissão de NF-e (config, produtos, destinatários) —
+        <b> quem está pronto</b> e quem ainda tem pendência. A lista detalhada fica na tela da própria
+        empresa, em <b>Configurações › Fiscal</b>. Mesmos predicados do validador (não reescreve a regra).
+      </div>
+      <a href="/dashboard/dev/fiscal-previo" style={{display:"inline-block",padding:"9px 18px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:ONGOLD,fontSize:12.5,fontWeight:600,textDecoration:"none"}}>Abrir o pré-voo por empresa →</a>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════
 // SEGURANCA
 // ════════════════════════════════════════
 function Seguranca({secResults,secLoading,testar}:{secResults:any[];secLoading:boolean;testar:()=>void}){
@@ -157,7 +671,7 @@ function Seguranca({secResults,secLoading,testar}:{secResults:any[];secLoading:b
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:14,fontWeight:600,color:TX}}>Auditoria de Seguranca — Quem ve o que?</div>
-        <button onClick={testar} disabled={secLoading} style={{padding:"8px 18px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>{secLoading?"Verificando...":"🔍 Verificar Acessos"}</button>
+        <button onClick={testar} disabled={secLoading} style={{padding:"8px 18px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:ONGOLD,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>{secLoading?"Verificando...":"🔍 Verificar Acessos"}</button>
       </div>
       {secResults.length>0&&(
         <div style={{background:BG2,borderRadius:14,border:`1px solid ${BD}`,overflow:"hidden"}}>
@@ -242,7 +756,7 @@ function ChatDev() {
     setMessages(prev => [...prev, { role: 'user', content: msg }]);
     setLoading(true);
     try {
-      const res = await fetch('/api/dev/chat', {
+      const res = await authFetch('/api/dev/chat', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, history: messages.slice(-10) })
@@ -338,7 +852,7 @@ function SQLEditor() {
   async function runQuery() {
     if (!query.trim()) return; setLoading(true); setResult(null);
     try {
-      const res = await fetch('/api/dev/sql', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query.trim() }) });
+      const res = await authFetch('/api/dev/sql', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query.trim() }) });
       setResult(await res.json());
     } catch (e: any) { setResult({ error: e.message }); }
     setLoading(false);

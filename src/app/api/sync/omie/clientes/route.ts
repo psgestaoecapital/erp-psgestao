@@ -2,15 +2,37 @@
 // PS Gestão ERP — Sync Clientes Omie → PS Gestão
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { omiePaginate, getOmieAuthFromDb } from '@/lib/omieClient'
 
 export const maxDuration = 300
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Chamado #1880 — IBGE do tomador (NFS-e). A OMIE traz cidade/UF mas NÃO o código IBGE do município;
+// sem ele a emissão de NFS-e trava. Resolvemos pela tabela oficial (erp_gov_nfse_municipios, 5.570) via a
+// RPC fn_municipio_por_nome_uf (tolerante a acento/caixa). A cidade da OMIE costuma vir como "CHAPECO (SC)" —
+// limpamos o sufixo " (UF)" antes de casar. Cache por município: NÃO chama a RPC por linha em volume.
+const limparCidade = (s?: string) => (s || '').replace(/\s*\(.*\)\s*$/, '').trim()
+
+function criarResolvedorIbge() {
+  const cache = new Map<string, string>()
+  return async (cidade?: string, uf?: string): Promise<string> => {
+    const nome = limparCidade(cidade)
+    const sigla = (uf || '').trim().toUpperCase()
+    if (!nome || sigla.length !== 2) return ''
+    const chave = `${sigla}|${nome.toLowerCase()}`
+    const emCache = cache.get(chave)
+    if (emCache !== undefined) return emCache
+    let cod = ''
+    try {
+      const { data } = await supabase.rpc('fn_municipio_por_nome_uf', { p_nome: nome, p_uf: sigla })
+      const bruto = Array.isArray(data) ? data[0]?.codigo_ibge : (data as { codigo_ibge?: string } | null)?.codigo_ibge
+      cod = String(bruto ?? '').trim()
+    } catch { cod = '' }
+    cache.set(chave, cod)
+    return cod
+  }
+}
 
 function mapOmieCliente(omie: any, companyId: string) {
   return {
@@ -44,11 +66,16 @@ function mapOmieCliente(omie: any, companyId: string) {
 }
 
 export async function POST(req: Request) {
+  // Usuário da empresa, ou máquina (Bearer CRON_SECRET); /sync/omie/full repassa o Authorization.
+  const guarda = await exigirUsuario(req, { cron: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { company_id } = await req.json()
     if (!company_id) {
       return NextResponse.json({ error: 'company_id obrigatório' }, { status: 400 })
     }
+    const negado = await exigirEmpresas(guarda, [company_id])
+    if (negado) return negado
 
     const auth = await getOmieAuthFromDb(supabase, company_id)
     if (!auth) {
@@ -80,6 +107,7 @@ export async function POST(req: Request) {
     let atualizados = 0
     let erros = 0
     const errosDetalhes: string[] = []
+    const resolverIbge = criarResolvedorIbge()
 
     for (const omie of todos as any[]) {
       try {
@@ -88,23 +116,29 @@ export async function POST(req: Request) {
 
         const { data: existing } = await supabase
           .from('erp_clientes')
-          .select('id')
+          .select('id, codigo_ibge_municipio')
           .eq('company_id', company_id)
           .eq('ref_externa_sistema', 'OMIE')
           .eq('ref_externa_id', dados.ref_externa_id)
           .maybeSingle()
 
+        // IBGE do tomador (#1880): resolve por cidade+UF e grava SÓ quando o cliente ainda não tem —
+        // não sobrescreve correção manual existente. Em cliente novo, entra já com o código.
+        const temIbge = !!(existing?.codigo_ibge_municipio ?? '').trim()
+        const ibge = temIbge ? '' : await resolverIbge(dados.cidade, dados.uf)
+        const payload = ibge ? { ...dados, codigo_ibge_municipio: ibge } : dados
+
         if (existing) {
           const { error } = await supabase
             .from('erp_clientes')
-            .update(dados)
+            .update(payload)
             .eq('id', existing.id)
           if (error) throw error
           atualizados++
         } else {
           const { error } = await supabase
             .from('erp_clientes')
-            .insert(dados)
+            .insert(payload)
           if (error) throw error
           inseridos++
         }

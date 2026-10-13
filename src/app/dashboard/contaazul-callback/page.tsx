@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { authFetch } from '@/lib/authFetch';
 
 export default function ContaAzulCallback() {
   const [status, setStatus] = useState<"loading"|"success"|"error">("loading");
@@ -38,7 +39,7 @@ export default function ContaAzulCallback() {
 
       // Exchange code for token via our API
       try {
-        const res = await fetch("/api/contaazul/token", {
+        const res = await authFetch("/api/contaazul/token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

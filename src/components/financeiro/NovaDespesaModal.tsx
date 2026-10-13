@@ -7,6 +7,8 @@ interface NovaDespesaModalProps {
   aberto: boolean
   onFechar: () => void
   onSucesso?: (despesaId: string) => void
+  // #71 · editar = a MESMA tela da inclusão, preenchida com o lançamento
+  editarId?: string
 }
 
 export default function NovaDespesaModal({
@@ -14,12 +16,13 @@ export default function NovaDespesaModal({
   aberto,
   onFechar,
   onSucesso,
+  editarId,
 }: NovaDespesaModalProps) {
   if (!aberto) return null
 
   return (
     <div
-      onClick={onFechar}
+      onClick={editarId ? undefined : onFechar}
       style={{
         position: 'fixed',
         inset: 0,
@@ -45,6 +48,7 @@ export default function NovaDespesaModal({
       >
         <NovaDespesaForm
           companyId={companyId}
+          editarId={editarId}
           onSucesso={(id) => {
             onSucesso?.(id)
             onFechar()

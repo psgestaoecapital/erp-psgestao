@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { BomEditor, type BomLinha } from "@/components/projetos/BomEditor";
+import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
 
 interface Servico {
   id: string;
@@ -47,13 +48,14 @@ interface ConfigBdi {
   margem_minima_pct: number | null;
 }
 
+// Shape REAL devolvido por fn_projetos_servico_completo.preview (medido via MCP):
+// { bdi_pct, custo_total, preco_venda, lucro_estimado }. O breakdown por componente
+// (material/mão de obra/equipamento) NÃO vem aqui — vem do cache do próprio serviço.
 interface Preview {
-  custo_material: number | null;
-  custo_mao_obra: number | null;
-  custo_equipamento: number | null;
   custo_total: number | null;
   preco_venda: number | null;
-  bdi_aplicado_pct: number | null;
+  bdi_pct: number | null;
+  lucro_estimado: number | null;
 }
 
 interface ValidacaoItem {
@@ -62,12 +64,48 @@ interface ValidacaoItem {
   campo?: string | null;
 }
 
+// A RPC devolve validacao como RESUMO de flags (não uma lista). Ex. real:
+// { tem_material, tem_mao_obra, tem_produtividade, tem_custo_calculado, qtd_itens_bom }.
+// Os avisos exibidos são DERIVADOS dessas flags (ver derivarValidacoes).
+interface ValidacaoResumo {
+  tem_material?: boolean;
+  tem_mao_obra?: boolean;
+  tem_produtividade?: boolean;
+  tem_custo_calculado?: boolean;
+  qtd_itens_bom?: number;
+}
+
 interface ServicoCompleto {
   servico: Servico;
   bom: BomLinha[];
   config: ConfigBdi | null;
   preview: Preview | null;
-  validacao: ValidacaoItem[] | null;
+  // objeto de flags (o que a RPC realmente manda) OU lista pronta (defensivo,
+  // caso a RPC evolua) — sempre normalizado por derivarValidacoes.
+  validacao: ValidacaoResumo | ValidacaoItem[] | null;
+}
+
+// Transforma o resumo de flags em avisos legíveis. Nunca renderiza silêncio
+// enganoso (RD-51): flag false vira aviso explícito; tudo ok vira lista vazia
+// (ValidacaoCard mostra "Tudo certo"). Se um dia a RPC mandar a lista pronta,
+// respeita a lista.
+function derivarValidacoes(
+  v: ValidacaoResumo | ValidacaoItem[] | null,
+): ValidacaoItem[] {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
+  const itens: ValidacaoItem[] = [];
+  if (v.tem_material === false)
+    itens.push({ severidade: "alerta", mensagem: "Sem material na composição." });
+  if (v.tem_mao_obra === false)
+    itens.push({ severidade: "alerta", mensagem: "Sem mão de obra na composição." });
+  if (v.tem_produtividade === false)
+    itens.push({ severidade: "info", mensagem: "Produtividade/dia não informada — afeta prazo, não o preço." });
+  if (v.tem_custo_calculado === false)
+    itens.push({ severidade: "erro", mensagem: "Custo ainda não calculado. Edite o BOM para recalcular." });
+  if (!v.qtd_itens_bom)
+    itens.push({ severidade: "alerta", mensagem: "Nenhum item no BOM ainda." });
+  return itens;
 }
 
 function fmtBRL(v: number | null | undefined) {
@@ -93,6 +131,8 @@ export default function ServicoEditorPage({
   const [recalculando, setRecalculando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  // Sinal p/ a tabela CPU recarregar quando o BOM muda (a CPU lê de fn_servico_composicao_detalhe).
+  const [cpuReload, setCpuReload] = useState(0);
 
   // Edição inline metadados (commit no blur)
   const [edits, setEdits] = useState<Partial<Servico>>({});
@@ -135,18 +175,25 @@ export default function ServicoEditorPage({
   const bom = data?.bom ?? [];
   const config = data?.config ?? null;
   const preview = data?.preview ?? null;
-  const validacao = data?.validacao ?? [];
+  // RPC manda validacao como OBJETO de flags — derivamos a lista de avisos.
+  // (era `data?.validacao ?? []`, que deixava o objeto passar e quebrava no .map)
+  const validacaoItens = useMemo(
+    () => derivarValidacoes(data?.validacao ?? null),
+    [data?.validacao],
+  );
 
-  // Custo total (preferir preview, fallback servico)
-  const custoMaterial = preview?.custo_material ?? servico?.custo_material ?? 0;
-  const custoMaoObra = preview?.custo_mao_obra ?? servico?.custo_mao_obra ?? 0;
-  const custoEquipamento = preview?.custo_equipamento ?? servico?.custo_equipamento ?? 0;
+  // Breakdown por componente vem do cache do serviço (o preview traz só o total).
+  const custoMaterial = servico?.custo_material ?? 0;
+  const custoMaoObra = servico?.custo_mao_obra ?? 0;
+  const custoEquipamento = servico?.custo_equipamento ?? 0;
   const custoTotal =
     preview?.custo_total ??
     servico?.custo_unitario_total ??
     custoMaterial + custoMaoObra + custoEquipamento;
 
-  const bdiPct = preview?.bdi_aplicado_pct ?? config?.bdi_total_pct ?? 0;
+  // BDI autoritativo = o que a RPC calculou (preview.bdi_pct). Só cai pro config
+  // se o preview faltar — nunca troca por um número de outra fonte em silêncio (RD-51).
+  const bdiPct = preview?.bdi_pct ?? config?.bdi_total_pct ?? 0;
   const precoVenda = preview?.preco_venda ?? custoTotal * (1 + (bdiPct ?? 0) / 100);
   const margemMinima = config?.margem_minima_pct ?? null;
 
@@ -171,6 +218,19 @@ export default function ServicoEditorPage({
       setTimeout(() => setAviso(null), 2000);
       return;
     }
+    // Obrigatórios (NOT NULL no banco): validar ANTES de enviar e nunca mostrar erro cru de Postgres.
+    const obrigatorios: { k: keyof Servico; msg: string }[] = [
+      { k: "codigo", msg: "Informe o código do serviço." },
+      { k: "nome", msg: "Informe o nome do serviço." },
+      { k: "unidade", msg: "Informe a unidade de medida do serviço (m², m, un)." },
+    ];
+    for (const { k, msg } of obrigatorios) {
+      if (k in edits && !String((edits as any)[k] ?? "").trim()) {
+        setErro(msg);
+        setTimeout(() => setErro(null), 5000);
+        return;
+      }
+    }
     setSalvandoMeta(true);
     setErro(null);
     try {
@@ -192,7 +252,15 @@ export default function ServicoEditorPage({
       setTimeout(() => setAviso(null), 3000);
       await carregar({ soft: true });
     } catch (e: any) {
-      setErro(e.message || "Falha ao salvar");
+      // Nunca expor mensagem crua do banco (RD-51): traduzir para linguagem do usuário.
+      const raw = String(e?.message ?? "");
+      setErro(
+        /unidade/i.test(raw)
+          ? "Informe a unidade de medida do serviço (m², m, un)."
+          : /violates not-null|null value in column/i.test(raw)
+            ? "Preencha os campos obrigatórios: código, nome e unidade."
+            : "Não foi possível salvar. Tente novamente.",
+      );
     } finally {
       setSalvandoMeta(false);
     }
@@ -401,7 +469,7 @@ export default function ServicoEditorPage({
               servicoId={servico.id}
               companyId={servico.company_id}
               bom={bom}
-              onChange={() => carregar({ soft: true })}
+              onChange={() => { carregar({ soft: true }); setCpuReload((n) => n + 1); }}
             />
           </div>
         </div>
@@ -497,10 +565,13 @@ export default function ServicoEditorPage({
             </div>
 
             {/* Validações */}
-            <ValidacaoCard itens={validacao} />
+            <ValidacaoCard itens={validacaoItens} />
           </div>
         </aside>
       </div>
+
+      {/* Composição de Preço Unitário (CPU) completa — padrão de mercado, genérica */}
+      <ComposicaoCpu servicoId={servico.id} companyId={servico.company_id} reloadKey={cpuReload} />
     </main>
   );
 }

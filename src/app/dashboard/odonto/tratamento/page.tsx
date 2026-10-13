@@ -1,0 +1,627 @@
+'use client'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { Plus, Trash2, Check, Printer, FileText, ChevronLeft, CircleCheck, Receipt, Clock, MessageCircle, Sparkles } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import { authFetch } from '@/lib/authFetch'
+import { SaldoBadge } from '@/components/odonto/ui'
+import { PainelPlanos } from '@/components/odonto/PainelPlanos'
+
+const ESP = '#3D2314'
+const BG = '#FAF7F2'
+const GOLD = '#C8941A'
+const LINE = '#E7DECF'
+const ESP60 = 'rgba(61,35,20,0.55)'
+const GREEN = '#166534'
+const RED = '#A32D2D'
+const money = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const dbr = (s: string) => (s ? new Date(s + 'T00:00:00').toLocaleDateString('pt-BR') : '—')
+
+const TOP = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28]
+const BOTTOM = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38]
+
+// Estados aprovados/em execução: o plano sai do editor e entra na visão de execução.
+const EXEC_STATUS = new Set(['aprovado', 'em_andamento', 'concluido'])
+
+function useCompanyId(): string | null {
+  const [id, setId] = useState<string | null>(null)
+  useEffect(() => {
+    const read = () => {
+      if (typeof window === 'undefined') return null
+      const v = localStorage.getItem('ps_empresa_sel')
+      if (!v || v === 'consolidado' || v.startsWith('group_')) return null
+      return v
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setId(read())
+    const t = setInterval(() => {
+      const v = read()
+      setId((prev) => (prev === v ? prev : v))
+    }, 800)
+    return () => clearInterval(t)
+  }, [])
+  return id
+}
+
+type Proc = { id: string; nome: string; cor: string; valor?: number; duracao_min: number }
+type Item = { id?: string; procedimento_id?: string; descricao: string; dente: string | null; valor: number; status?: string; ordem: number }
+type Pac = { id: string; nome: string }
+type Plano = { id: string; titulo: string; status: string; valor_total: number; criado_em: string }
+type Servico = { id: string; descricao_resumida: string }
+type Titulo = {
+  id: string; descricao: string; valor: number; valor_pago: number
+  data_vencimento: string; data_competencia: string; parcela: string; status: string
+  nfse_status: string | null; nfse_numero: string | null
+}
+type Financeiro = { plano_id: string; company_id: string; cliente_id: string | null; total_recebido: number; total_aberto: number; titulos: Titulo[] }
+
+const stFin = (s: string) =>
+  s === 'pago' || s === 'recebido' ? { l: 'Pago', cor: GREEN, bg: '#E7F3EA' }
+    : s === 'vencido' ? { l: 'Vencido', cor: RED, bg: '#FBEBEB' }
+      : s === 'parcial' ? { l: 'Parcial', cor: '#B45309', bg: '#FBF0DF' }
+        : { l: 'Aberto', cor: '#8A6A1E', bg: '#FBF3DE' }
+
+// Estado honesto da NFS-e (RD-58): nunca um selo que mente.
+const stNfse = (s: string | null) =>
+  s === 'autorizada' ? { l: 'NFS-e emitida', cor: GREEN, bg: '#E7F3EA' }
+    : s === 'processando' ? { l: 'NFS-e processando', cor: '#B45309', bg: '#FBF0DF' }
+      : s === 'rejeitada' ? { l: 'NFS-e rejeitada', cor: RED, bg: '#FBEBEB' }
+        : null
+
+export default function TratamentoPage() {
+  const companyId = useCompanyId()
+  const [busca, setBusca] = useState('')
+  const [pacs, setPacs] = useState<Pac[]>([])
+  const [pac, setPac] = useState<Pac | null>(null)
+  const [planos, setPlanos] = useState<Plano[]>([])
+  const [procs, setProcs] = useState<Proc[]>([])
+  const [modo, setModo] = useState<'lista' | 'edit' | 'exec'>('lista')
+  const [planoId, setPlanoId] = useState<string | null>(null)
+  const [itens, setItens] = useState<Item[]>([])
+  const [desconto, setDesconto] = useState(0)
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [procSel, setProcSel] = useState<string>('')
+  const [valorItem, setValorItem] = useState<number>(0)
+
+  // condição de pagamento (aprovação → financeiro)
+  const hoje = new Date().toISOString().slice(0, 10)
+  const [parcelas, setParcelas] = useState(1)
+  const [entrada, setEntrada] = useState(0)
+  const [primeiraVenc, setPrimeiraVenc] = useState(hoje)
+  const [forma, setForma] = useState('boleto')
+
+  // IA-1.5 · envio por WhatsApp + status do aceite + estimativa de aceitação (feature orcamento_ia)
+  const [waBusy, setWaBusy] = useState(false)
+  const [propostaStatus, setPropostaStatus] = useState<{ status: string; visto_em: string | null; respondido_em: string | null } | null>(null)
+  const [iaBusy, setIaBusy] = useState(false)
+  const [iaPred, setIaPred] = useState<{ chance: string; motivo: string; formato_sugerido: string; dica: string } | null>(null)
+  const [iaMsg, setIaMsg] = useState<string | null>(null)
+
+  // execução
+  const [fin, setFin] = useState<Financeiro | null>(null)
+  const [servicos, setServicos] = useState<Servico[]>([])
+  const [servicoSel, setServicoSel] = useState('')
+  const [recebidoAoConcluir, setRecebidoAoConcluir] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!companyId || busca.length < 2) { setPacs([]); return }
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.from('erp_odonto_paciente').select('id,nome')
+        .eq('company_id', companyId).eq('ativo', true).ilike('nome', `%${busca}%`).limit(8)
+      if (alive) setPacs((data as Pac[]) ?? [])
+    })()
+    return () => { alive = false }
+  }, [busca, companyId])
+
+  const carregarProcs = useCallback(async () => {
+    if (!companyId) return
+    const { data } = await supabase.from('erp_odonto_procedimento')
+      .select('id,nome,cor,valor,duracao_min').eq('company_id', companyId).eq('ativo', true)
+    setProcs((data as Proc[]) ?? [])
+  }, [companyId])
+  useEffect(() => { carregarProcs() }, [carregarProcs])
+
+  const carregarPlanos = useCallback(async (p: Pac) => {
+    if (!companyId) return
+    const { data } = await supabase.rpc('fn_odonto_planos_paciente', { p_company_id: companyId, p_paciente_id: p.id })
+    setPlanos((data as Plano[]) ?? [])
+  }, [companyId])
+
+  const carregarServicos = useCallback(async () => {
+    if (!companyId) return
+    const { data } = await supabase.from('erp_servicos').select('id,descricao_resumida')
+      .eq('company_id', companyId).eq('ativo', true).order('descricao_resumida')
+    const list = (data as Servico[]) ?? []
+    setServicos(list)
+    setServicoSel((prev) => prev || (list[0]?.id ?? ''))
+  }, [companyId])
+
+  const carregarExec = useCallback(async (id: string) => {
+    const [obt, finr] = await Promise.all([
+      supabase.rpc('fn_odonto_plano_obter', { p_id: id }),
+      supabase.rpc('fn_odonto_plano_financeiro', { p_plano_id: id }),
+    ])
+    const d = obt.data as { itens: Item[]; plano: { status: string; desconto: number } | null }
+    setItens((d?.itens ?? []).map((i) => ({ ...i })))
+    setFin(finr.data as Financeiro | null)
+  }, [])
+
+  const escolherPac = (p: Pac) => { setPac(p); setPacs([]); setBusca(''); carregarPlanos(p); setModo('lista') }
+
+  const novoPlano = () => {
+    setPlanoId(null); setItens([]); setDesconto(0); setSel(new Set())
+    setParcelas(1); setEntrada(0); setPrimeiraVenc(hoje); setForma('boleto')
+    setPropostaStatus(null); setIaPred(null); setIaMsg(null)
+    setModo('edit')
+  }
+
+  const abrirPlano = async (p: Plano) => {
+    if (EXEC_STATUS.has(p.status)) {
+      setPlanoId(p.id)
+      await Promise.all([carregarExec(p.id), carregarServicos()])
+      setModo('exec')
+      return
+    }
+    const { data } = await supabase.rpc('fn_odonto_plano_obter', { p_id: p.id })
+    const d = data as { itens: Item[]; plano: { desconto: number; status: string } | null }
+    setPlanoId(p.id)
+    setItens((d?.itens ?? []).map((i) => ({ ...i })))
+    setDesconto(Number(d?.plano?.desconto ?? 0))
+    setSel(new Set()); setParcelas(1); setEntrada(0); setPrimeiraVenc(hoje); setForma('boleto')
+    setModo('edit')
+  }
+
+  const toggleDente = (d: number) => {
+    const k = String(d)
+    const n = new Set(sel)
+    if (n.has(k)) n.delete(k); else n.add(k)
+    setSel(n)
+  }
+  const dentesComItem = useMemo(() => {
+    const m: Record<string, string> = {}
+    itens.forEach((i) => { if (i.dente) m[i.dente] = procs.find((p) => p.id === i.procedimento_id)?.cor || GOLD })
+    return m
+  }, [itens, procs])
+
+  const addItem = () => {
+    const proc = procs.find((p) => p.id === procSel)
+    if (!proc) { alert('Escolha um procedimento'); return }
+    const v = valorItem || proc.valor || 0
+    const alvos: (string | null)[] = sel.size ? Array.from(sel) : [null]
+    const novos: Item[] = alvos.map((d, ix) => ({
+      procedimento_id: proc.id, descricao: proc.nome, dente: d,
+      valor: v, ordem: itens.length + ix, status: 'proposto',
+    }))
+    setItens([...itens, ...novos]); setSel(new Set()); setValorItem(0); setProcSel('')
+  }
+  const removerItem = (ix: number) => setItens(itens.filter((_, i) => i !== ix))
+
+  const total = useMemo(
+    () => Math.max(0, itens.reduce((s, i) => s + Number(i.valor || 0), 0) - Number(desconto || 0)),
+    [itens, desconto],
+  )
+
+  const salvar = async (status: 'orcamento' | 'rascunho' = 'orcamento'): Promise<string | null> => {
+    if (!companyId || !pac) return null
+    const { data, error } = await supabase.rpc('fn_odonto_plano_salvar', {
+      p_company_id: companyId,
+      p_plano: { paciente_id: pac.id, titulo: `Plano ${new Date().toLocaleDateString('pt-BR')}`, status, desconto },
+      p_itens: itens,
+      p_plano_id: planoId,
+    })
+    if (error) { alert(error.message); return null }
+    const id = (data as { id: string })?.id ?? null
+    if (id) setPlanoId(id)
+    carregarPlanos(pac)
+    return id
+  }
+
+  // Aprovar → gera as contas a receber reais (Onda 0). Reusa fn_odonto_plano_aprovar_financeiro.
+  const aprovar = async () => {
+    let id = planoId
+    if (!id) id = await salvar('orcamento')
+    if (!id) return
+    setBusy('aprovar')
+    const { error } = await supabase.rpc('fn_odonto_plano_aprovar_financeiro', {
+      p_id: id,
+      p_aprovado_por: 'Paciente',
+      p_itens_ids: null,
+      p_parcelas: Math.max(1, parcelas),
+      p_entrada: Math.max(0, entrada),
+      p_primeira_venc: primeiraVenc || hoje,
+      p_forma: forma,
+    })
+    setBusy(null)
+    if (error) { alert(error.message); return }
+    setPlanoId(id)
+    await Promise.all([carregarExec(id), carregarServicos()])
+    setModo('exec')
+    if (pac) carregarPlanos(pac)
+  }
+
+  // IA-1.5 · carrega o status do último link de proposta do plano (selo no funil)
+  const carregarProposta = useCallback(async (id: string) => {
+    const { data } = await supabase.from('erp_odonto_proposta_link')
+      .select('status, visto_em, respondido_em').eq('plano_id', id).order('created_at', { ascending: false }).limit(1)
+    const r = (data as { status: string; visto_em: string | null; respondido_em: string | null }[] | null)?.[0] ?? null
+    setPropostaStatus(r)
+  }, [])
+
+  useEffect(() => { if (planoId) void carregarProposta(planoId) }, [planoId, carregarProposta])
+
+  // IA-1.5 · gera o link público (token) + abre o WhatsApp da clínica com a mensagem + link
+  const enviarWhatsApp = async () => {
+    if (!companyId || !pac) return
+    let id = planoId
+    if (!id) id = await salvar('orcamento')
+    if (!id) return
+    setWaBusy(true)
+    const { data, error } = await supabase.rpc('fn_odonto_proposta_criar', {
+      p_company_id: companyId, p_plano_id: id, p_parcelas: Math.max(1, parcelas), p_entrada: Math.max(0, entrada), p_forma: forma,
+    })
+    const r = data as { ok?: boolean; token?: string; erro?: string } | null
+    if (error || !r?.ok || !r.token) { setWaBusy(false); alert(r?.erro || error?.message || 'Falha ao gerar o link.'); return }
+    const link = `${window.location.origin}/p/orcamento/${r.token}`
+    const { data: pd } = await supabase.from('erp_odonto_paciente').select('celular, telefone').eq('id', pac.id).maybeSingle()
+    const pf = pd as { celular?: string | null; telefone?: string | null } | null
+    const fone = String(pf?.celular || pf?.telefone || '').replace(/\D/g, '')
+    const msg = `Olá! Segue o seu orçamento de tratamento odontológico: ${link}\n\nÉ rápido de ver pelo celular e você pode aceitar por aí. Qualquer dúvida, estou à disposição! 🦷`
+    const base = fone ? `https://wa.me/${fone.length <= 11 ? '55' + fone : fone}?text=` : 'https://wa.me/?text='
+    window.open(base + encodeURIComponent(msg), '_blank')
+    setWaBusy(false)
+    await carregarProposta(id)
+  }
+
+  // IA-1.5 · estimativa de aceitação (togglável). Degrada honesto se desligada/budget.
+  const preverAceitacao = async () => {
+    if (!companyId) return
+    setIaBusy(true); setIaMsg(null); setIaPred(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) { setIaBusy(false); return }
+      const saldo = fin?.total_aberto ?? undefined
+      const res = await fetch('/api/odonto/orcamento-ia', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ company_id: companyId, contexto: { valor: total, parcelas, entrada, forma, itens: itens.length, saldo_aberto: saldo } }),
+      })
+      const j = await res.json() as { ok?: boolean; chance?: string; motivo?: string; formato_sugerido?: string; dica?: string; aviso?: string }
+      if (j.ok && j.chance) setIaPred({ chance: j.chance, motivo: j.motivo ?? '', formato_sugerido: j.formato_sugerido ?? '', dica: j.dica ?? '' })
+      else setIaMsg(j.aviso || 'Estimativa indisponível agora.')
+    } catch { setIaMsg('Falha ao estimar.') } finally { setIaBusy(false) }
+  }
+
+  const concluirItem = async (item: Item) => {
+    if (!item.id) return
+    setBusy(item.id)
+    const { data, error } = await supabase.rpc('fn_odonto_item_concluir', {
+      p_item_id: item.id,
+      p_baixar: recebidoAoConcluir,
+      p_data: hoje,
+      p_conta_bancaria_id: null,
+      p_forma: 'PIX',
+    })
+    setBusy(null)
+    if (error) { alert(error.message); return }
+    const r = data as { titulos_reconhecidos?: number; baixa?: { sucesso?: boolean; erro?: string } | null }
+    if (r?.baixa && r.baixa.sucesso === false) alert('Procedimento concluído, mas a baixa não entrou: ' + (r.baixa.erro ?? ''))
+    if (planoId) await carregarExec(planoId)
+  }
+
+  const emitirNfse = async (titulo: Titulo) => {
+    if (!fin) return
+    if (!servicoSel) { alert('Cadastre e selecione um serviço odontológico (com item LC116) em Cadastros › Serviços para emitir NFS-e.'); return }
+    setBusy('nfse:' + titulo.id)
+    try {
+      const r = await authFetch('/api/fiscal/nfse/emitir', {
+        method: 'POST',
+        body: JSON.stringify({ companyId: fin.company_id, erpReceberId: titulo.id, servicoId: servicoSel }),
+      })
+      const j = await r.json()
+      if ((!r.ok || !j.ok) && j.status !== 'processando') {
+        alert(j.mensagem ?? j.motivoRejeicao ?? 'Não foi possível emitir a NFS-e.')
+      } else {
+        alert(j.status === 'autorizada' ? `NFS-e autorizada — nº ${j.numero}.` : 'NFS-e em processamento — a prefeitura vai autorizar em instantes.')
+      }
+    } catch (e) {
+      alert('Falha ao chamar a emissão: ' + ((e as Error)?.message ?? 'erro'))
+    } finally {
+      setBusy(null)
+      if (planoId) await carregarExec(planoId)
+    }
+  }
+
+  if (!companyId) return (
+    <div style={{ background: BG, color: ESP60, minHeight: '100%' }} className="p-6 text-sm">
+      Selecione uma empresa especifica no topo do menu para abrir os planos de tratamento.
+    </div>
+  )
+
+  // Painel de Planos & Orçamentos (funil da clínica). A criação/edição do plano continua abaixo, na
+  // Ficha/builder (RD-55: fluxo preservado) — abrir um paciente aqui entra no construtor existente.
+  if (!pac) return <PainelPlanos companyId={companyId} pacs={pacs} busca={busca} setBusca={setBusca} onEscolher={escolherPac} />
+
+  return (
+    <div style={{ background: BG, color: ESP, minHeight: '100%' }} className="p-4 sm:p-6 max-w-3xl mx-auto">
+      <button onClick={() => { setPac(null); setModo('lista') }} className="text-sm inline-flex items-center gap-1 mb-2" style={{ color: ESP60 }}>
+        <ChevronLeft size={16} /> trocar paciente
+      </button>
+      <div className="flex items-center gap-3 flex-wrap">
+        <h1 className="text-2xl font-semibold" style={{ fontFamily: 'ui-serif,Georgia,serif' }}>{pac.nome}</h1>
+        <SaldoBadge pacienteId={pac.id} />
+      </div>
+
+      {modo === 'lista' && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-semibold">Planos</span>
+            <button onClick={novoPlano} className="px-3 py-2 rounded-xl text-sm font-semibold inline-flex items-center gap-1" style={{ background: GOLD, color: '#fff' }}>
+              <Plus size={15} /> Novo plano
+            </button>
+          </div>
+          {planos.length === 0 && (
+            <div className="rounded-xl p-6 text-center text-sm" style={{ border: `1px dashed ${LINE}`, color: ESP60 }}>Nenhum plano ainda.</div>
+          )}
+          {planos.map((p) => (
+            <button key={p.id} onClick={() => abrirPlano(p)} className="w-full flex items-center justify-between px-3 py-3 rounded-xl mb-1" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+              <span className="text-sm"><FileText size={14} className="inline mr-1" />{p.titulo} · <span style={{ color: ESP60 }}>{p.status}</span></span>
+              <b>{money(Number(p.valor_total))}</b>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {modo === 'edit' && (
+        <div className="mt-4 space-y-4">
+          <button onClick={() => setModo('lista')} className="text-sm inline-flex items-center gap-1" style={{ color: ESP60 }}>
+            <ChevronLeft size={15} /> voltar aos planos
+          </button>
+          <div className="rounded-2xl p-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="text-xs font-semibold mb-2" style={{ color: ESP60 }}>Selecione os dentes (FDI)</div>
+            {[TOP, BOTTOM].map((arc, ai) => (
+              <div key={ai} className="flex gap-1 justify-center mb-1 overflow-x-auto">
+                {arc.map((d) => {
+                  const k = String(d)
+                  const has = dentesComItem[k]
+                  const on = sel.has(k)
+                  return (
+                    <button key={d} onClick={() => toggleDente(d)} title={`Dente ${d}`}
+                      style={{ width: 26, height: 34, flexShrink: 0, borderRadius: 6, fontSize: 10, fontWeight: 600,
+                        background: has || (on ? GOLD : '#fff'),
+                        color: has || on ? '#fff' : ESP,
+                        border: on ? `2px solid ${ESP}` : `1px solid ${LINE}` }}>
+                      {d}
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+            <div className="text-[11px] text-center mt-1" style={{ color: ESP60 }}>arcada superior / inferior · toque para marcar</div>
+          </div>
+
+          <div className="rounded-2xl p-3 flex flex-col sm:flex-row gap-2 items-stretch sm:items-end" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="flex-1">
+              <label className="block text-xs font-medium mb-1">Procedimento</label>
+              <select value={procSel} onChange={(e) => { setProcSel(e.target.value); const p = procs.find((x) => x.id === e.target.value); setValorItem(p?.valor ?? 0) }}
+                className="w-full rounded-xl px-3 py-2 text-sm bg-white outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }}>
+                <option value="">Escolher…</option>
+                {procs.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+            </div>
+            <div style={{ width: 120 }}>
+              <label className="block text-xs font-medium mb-1">Valor (R$)</label>
+              <input type="number" value={valorItem} onChange={(e) => setValorItem(Number(e.target.value))} className="w-full rounded-xl px-3 py-2 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+            </div>
+            <button onClick={addItem} className="px-4 py-2 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={{ background: ESP, color: '#fff' }}>
+              <Plus size={15} /> {sel.size ? `Add ${sel.size} dente(s)` : 'Add geral'}
+            </button>
+          </div>
+
+          <div className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            {itens.length === 0 && (
+              <div className="p-5 text-center text-sm" style={{ color: ESP60 }}>Nenhum item. Marque dentes e adicione procedimentos.</div>
+            )}
+            {itens.map((i, ix) => (
+              <div key={ix} className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: procs.find((p) => p.id === i.procedimento_id)?.cor || GOLD }} />
+                <span className="text-sm flex-1">{i.descricao}{i.dente ? ` · dente ${i.dente}` : ' · geral'}</span>
+                <b className="text-sm">{money(Number(i.valor))}</b>
+                <button onClick={() => removerItem(ix)} style={{ color: '#A65A3A' }}><Trash2 size={15} /></button>
+              </div>
+            ))}
+            <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: `1px solid ${LINE}` }}>
+              <span className="text-sm" style={{ color: ESP60 }}>Desconto (R$)</span>
+              <input type="number" value={desconto} onChange={(e) => setDesconto(Number(e.target.value))} className="w-28 text-right rounded-lg px-2 py-1 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+            </div>
+            <div className="flex items-center justify-between px-3 py-3" style={{ background: BG }}>
+              <span className="font-semibold">Total</span>
+              <span className="text-lg font-bold" style={{ color: GOLD }}>{money(total)}</span>
+            </div>
+          </div>
+
+          {/* Condição de pagamento — vira as contas a receber ao aprovar */}
+          <div className="rounded-2xl p-3" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="text-xs font-semibold mb-2" style={{ color: ESP60 }}>Condição de pagamento · ao aprovar, gera a cobrança</div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div>
+                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Parcelas</label>
+                <input type="number" min={1} value={parcelas} onChange={(e) => setParcelas(Math.max(1, Number(e.target.value)))} className="w-full rounded-lg px-2 py-1.5 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+              </div>
+              <div>
+                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Entrada (R$)</label>
+                <input type="number" min={0} value={entrada} onChange={(e) => setEntrada(Math.max(0, Number(e.target.value)))} className="w-full rounded-lg px-2 py-1.5 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+              </div>
+              <div>
+                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>1º vencimento</label>
+                <input type="date" value={primeiraVenc} onChange={(e) => setPrimeiraVenc(e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+              </div>
+              <div>
+                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Forma</label>
+                <select value={forma} onChange={(e) => setForma(e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm bg-white outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }}>
+                  <option value="boleto">Boleto</option>
+                  <option value="pix">PIX</option>
+                  <option value="cartao">Cartão</option>
+                  <option value="dinheiro">Dinheiro</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* IA-1.5 · estimativa de aceitação (togglável orcamento_ia) — assiste, não substitui o clínico */}
+          <div className="rounded-2xl p-3" style={{ background: 'linear-gradient(180deg,#FFFDF8,#fff)', border: `1px solid ${GOLD}` }}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: GOLD }}>
+                <Sparkles size={14} /> Chance de aceitação
+              </div>
+              <button onClick={preverAceitacao} disabled={iaBusy || total <= 0} className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-50" style={{ border: `1px solid ${GOLD}`, background: '#fff', color: GOLD }}>
+                {iaBusy ? 'Estimando…' : (iaPred ? 'Reestimar' : 'Estimar com IA')}
+              </button>
+            </div>
+            {iaPred ? (
+              <div className="mt-2 flex flex-col gap-1.5">
+                <div className="inline-flex items-center gap-2">
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-full" style={{ background: iaPred.chance === 'alta' ? '#E7F3EA' : iaPred.chance === 'baixa' ? '#FBEBEB' : '#FBF3DE', color: iaPred.chance === 'alta' ? GREEN : iaPred.chance === 'baixa' ? RED : '#8A6A1E' }}>Chance {iaPred.chance}</span>
+                  {iaPred.motivo && <span className="text-xs" style={{ color: ESP60 }}>{iaPred.motivo}</span>}
+                </div>
+                {iaPred.formato_sugerido && <div className="text-xs" style={{ color: ESP }}><strong style={{ color: GOLD }}>Formato:</strong> {iaPred.formato_sugerido}</div>}
+                {iaPred.dica && <div className="text-xs" style={{ color: ESP }}><strong style={{ color: GOLD }}>Dica:</strong> {iaPred.dica}</div>}
+              </div>
+            ) : iaMsg ? <div className="mt-2 text-xs" style={{ color: ESP60 }}>{iaMsg}</div>
+              : <div className="mt-2 text-xs" style={{ color: ESP60 }}>Estimativa opcional (assiste o fechamento). Ligue/desligue em Configurações de IA.</div>}
+          </div>
+
+          {/* IA-1.5 · status do aceite por WhatsApp (funil) */}
+          {propostaStatus && (() => {
+            const S: Record<string, { l: string; cor: string; bg: string }> = {
+              enviada: { l: 'Enviada — aguardando o paciente', cor: '#1D4ED8', bg: '#EAF0FE' },
+              vista: { l: 'Vista pelo paciente', cor: '#8A6A1E', bg: '#FBF3DE' },
+              aceita: { l: 'Aceita pelo paciente ✓', cor: GREEN, bg: '#E7F3EA' },
+              recusada: { l: 'Recusada', cor: RED, bg: '#FBEBEB' },
+              expirada: { l: 'Link expirado', cor: '#6B7280', bg: '#F1F1F0' },
+            }
+            const s = S[propostaStatus.status] ?? S.enviada
+            const quando = propostaStatus.respondido_em || propostaStatus.visto_em
+            return (
+              <div className="rounded-xl px-3 py-2 text-xs font-semibold inline-flex items-center gap-2" style={{ background: s.bg, color: s.cor }}>
+                <MessageCircle size={14} /> {s.l}{quando ? ` · ${new Date(quando).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}
+              </div>
+            )
+          })()}
+
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => salvar('orcamento')} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>Salvar orçamento</button>
+            <button onClick={() => void enviarWhatsApp()} disabled={waBusy || total <= 0} className="flex-1 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: '#25D366', color: '#fff' }}>
+              <MessageCircle size={16} /> {waBusy ? 'Gerando link…' : 'Enviar por WhatsApp'}
+            </button>
+            <button onClick={aprovar} disabled={busy === 'aprovar'} className="flex-1 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50" style={{ background: GOLD, color: '#fff' }}>
+              <Check size={16} /> {busy === 'aprovar' ? 'Aprovando…' : 'Aprovar e gerar cobrança'}
+            </button>
+            <button onClick={() => window.print()} className="px-4 py-2.5 rounded-xl text-sm font-semibold inline-flex items-center gap-2" style={{ background: ESP, color: '#fff' }}>
+              <Printer size={16} /> Imprimir
+            </button>
+          </div>
+        </div>
+      )}
+
+      {modo === 'exec' && (
+        <div className="mt-4 space-y-4">
+          <button onClick={() => setModo('lista')} className="text-sm inline-flex items-center gap-1" style={{ color: ESP60 }}>
+            <ChevronLeft size={15} /> voltar aos planos
+          </button>
+
+          {/* Procedimentos — concluir reconhece a receita na competência */}
+          <div className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="flex items-center justify-between gap-2 flex-wrap px-3 py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+              <span className="text-sm font-semibold">Procedimentos</span>
+              <label className="inline-flex items-center gap-1.5 text-[12px]" style={{ color: ESP60 }}>
+                <input type="checkbox" checked={recebidoAoConcluir} onChange={(e) => setRecebidoAoConcluir(e.target.checked)} />
+                Registrar recebimento ao concluir
+              </label>
+            </div>
+            {itens.length === 0 && <div className="p-5 text-center text-sm" style={{ color: ESP60 }}>Plano sem itens.</div>}
+            {itens.map((i) => {
+              const done = i.status === 'concluido'
+              return (
+                <div key={i.id} className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+                  <span className="text-sm flex-1">{i.descricao}{i.dente ? ` · dente ${i.dente}` : ' · geral'}</span>
+                  <b className="text-sm" style={{ minWidth: 78, textAlign: 'right' }}>{money(Number(i.valor))}</b>
+                  {done ? (
+                    <span className="inline-flex items-center gap-1 text-[12px]" style={{ color: GREEN, minWidth: 96, justifyContent: 'flex-end' }}>
+                      <CircleCheck size={15} /> Concluído
+                    </span>
+                  ) : (
+                    <button onClick={() => concluirItem(i)} disabled={busy === i.id} className="px-3 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-50" style={{ background: ESP, color: '#fff', minWidth: 96 }}>
+                      {busy === i.id ? '…' : 'Concluir'}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Financeiro do plano — títulos reais + NFS-e (a ação fiscal reusa o Focus da GE) */}
+          <div className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="flex items-center justify-between gap-2 flex-wrap px-3 py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+              <span className="text-sm font-semibold inline-flex items-center gap-1.5"><Receipt size={15} style={{ color: GOLD }} /> Cobrança do plano</span>
+              {fin && <span className="text-[12px]" style={{ color: ESP60 }}>Recebido <b style={{ color: GREEN }}>{money(fin.total_recebido)}</b> · A receber <b style={{ color: fin.total_aberto > 0 ? RED : ESP60 }}>{money(fin.total_aberto)}</b></span>}
+            </div>
+
+            <div className="px-3 py-2" style={{ borderBottom: `1px solid ${LINE}`, background: BG }}>
+              <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Serviço fiscal (NFS-e)</label>
+              {servicos.length === 0 ? (
+                <div className="text-[12px]" style={{ color: RED }}>Nenhum serviço com item LC116 cadastrado. Configure em Cadastros › Serviços para emitir NFS-e.</div>
+              ) : (
+                <select value={servicoSel} onChange={(e) => setServicoSel(e.target.value)} className="w-full rounded-lg px-2 py-1.5 text-sm bg-white outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }}>
+                  {servicos.map((s) => <option key={s.id} value={s.id}>{s.descricao_resumida}</option>)}
+                </select>
+              )}
+            </div>
+
+            {!fin || fin.titulos.length === 0 ? (
+              <div className="p-5 text-center text-sm" style={{ color: ESP60 }}>Nenhum título gerado.</div>
+            ) : fin.titulos.map((t) => {
+              const S = stFin(t.status)
+              const N = stNfse(t.nfse_status)
+              const pago = t.status === 'pago' || t.status === 'recebido'
+              return (
+                <div key={t.id} className="px-3 py-2.5" style={{ borderBottom: `1px solid ${LINE}` }}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] truncate">{t.descricao}</div>
+                      <div className="text-[11.5px] inline-flex items-center gap-1" style={{ color: ESP60 }}>
+                        <Clock size={11} /> venc. {dbr(t.data_vencimento)} · comp. {dbr(t.data_competencia)}
+                      </div>
+                    </div>
+                    <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: S.bg, color: S.cor }}>{S.l}</span>
+                    <b className="text-[13.5px]" style={{ minWidth: 78, textAlign: 'right' }}>{money(Number(t.valor))}</b>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {N ? (
+                      <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: N.bg, color: N.cor }}>
+                        {N.l}{t.nfse_numero ? ` · nº ${t.nfse_numero}` : ''}
+                      </span>
+                    ) : (
+                      <button onClick={() => emitirNfse(t)} disabled={busy === 'nfse:' + t.id || servicos.length === 0}
+                        className="px-3 py-1.5 rounded-lg text-[11.5px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+                        style={{ background: '#fff', border: `1px solid ${GOLD}`, color: GOLD }}>
+                        <Receipt size={13} /> {busy === 'nfse:' + t.id ? 'Emitindo…' : 'Emitir NFS-e'}
+                      </button>
+                    )}
+                    {N?.l === 'NFS-e rejeitada' && (
+                      <button onClick={() => emitirNfse(t)} disabled={busy === 'nfse:' + t.id} className="px-2.5 py-1 rounded-lg text-[11px] font-semibold disabled:opacity-50" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP60 }}>Reenviar</button>
+                    )}
+                    {pago && <span className="text-[11px]" style={{ color: GREEN }}>recebido {money(Number(t.valor_pago))}</span>}
+                  </div>
+                </div>
+              )
+            })}
+            <div className="px-3 py-2 text-[11px]" style={{ color: 'rgba(61,35,20,0.35)' }}>
+              O financeiro vive na Gestão Empresarial · aqui o plano só dispara a cobrança e a nota. Régua de cobrança (WhatsApp) chega na Onda 3.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

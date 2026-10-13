@@ -1,7 +1,5 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import PessoasList from '@/components/cadastros/PessoasList'
 
@@ -10,38 +8,23 @@ export default function Page() {
   const empresaUnica =
     selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
-  const [hasPlan, setHasPlan] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    let ignore = false
-    if (!empresaUnica) {
-      setHasPlan(null)
-      return
-    }
-    ;(async () => {
-      const { data } = await supabase
-        .from('tenant_subscriptions')
-        .select('id')
-        .eq('company_id', empresaUnica)
-        .eq('plan_id', 'v15_gestao_empresarial_pro')
-        .eq('status', 'active')
-        .maybeSingle()
-      if (!ignore) setHasPlan(!!data)
-    })()
-    return () => {
-      ignore = true
-    }
-  }, [empresaUnica])
-
   if (!empresaUnica) {
     return <div style={{ padding: 32, color: '#A32D2D', background: '#FAF7F2', minHeight: '100vh' }}>Selecione uma empresa para gerenciar fornecedores.</div>
   }
-  if (hasPlan === null) {
-    return <div style={{ padding: 32, color: 'rgba(61,35,20,0.55)', background: '#FAF7F2', minHeight: '100vh' }}>Verificando plano…</div>
-  }
-  if (!hasPlan) {
-    return <div style={{ padding: 32, color: '#A32D2D', background: '#FAF7F2', minHeight: '100vh' }}>Empresa sem plano Gestão Empresarial ativo.</div>
-  }
 
-  return <PessoasList companyId={empresaUnica} tipo="fornecedor" />
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', padding: '12px 16px 0' }}>
+        <a href="/modelos/MODELO_importacao_cadastros_PS_fornecedores.xlsx" download
+          style={{ border: '1px solid #C8941A', color: '#C8941A', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+          ⬇ Baixar planilha modelo
+        </a>
+        <a href="/dashboard/cadastros/fornecedores/importar"
+          style={{ border: '1px solid #3D2314', color: '#3D2314', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+          ⬆ Importar planilha
+        </a>
+      </div>
+      <PessoasList companyId={empresaUnica} tipo="fornecedor" />
+    </>
+  )
 }

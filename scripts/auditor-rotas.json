@@ -1,0 +1,22 @@
+[
+  "/dashboard",
+  "/dashboard/gestao-empresarial",
+  "/dashboard/financeiro/pagar",
+  "/dashboard/financeiro/receber",
+  "/dashboard/financeiro/extrato",
+  "/dashboard/financeiro/inadimplentes",
+  "/dashboard/financeiro/saude",
+  "/dashboard/financeiro/conciliacao",
+  "/dashboard/financeiro/nova-despesa",
+  "/dashboard/financeiro/nova-receita",
+  "/dashboard/dre-divisional",
+  "/dashboard/previsao",
+  "/dashboard/analises",
+  "/dashboard/cadastros/contas-bancarias",
+  "/dashboard/cadastros/clientes",
+  "/dashboard/cadastros/fornecedores",
+  "/dashboard/cadastros/plano-contas",
+  "/dashboard/cadastros/divisoes",
+  "/dashboard/cadastros/contratos-recorrentes",
+  "/dashboard/importar"
+]

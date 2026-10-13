@@ -12,10 +12,13 @@ const SHOW_LEGACY_HOME = false;
 
 import { useEffect, useState, useCallback, Suspense, useMemo } from 'react';
 import { authFetch } from '@/lib/authFetch';
+import { supabase } from '@/lib/supabase';
+import { comPrazo } from '@/lib/comPrazo';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useCompanyIds } from '@/lib/useCompanyIds';
 import ConsultorInsights from '@/components/dashboard/ConsultorInsights';
 import PainelExecutivo from '@/components/dashboard/PainelExecutivo';
+import DashboardConsolidado from '@/components/dashboard/DashboardConsolidado';
 import ToggleRegime from '@/components/dashboard/ToggleRegime';
 import RaioXProfundo from '@/components/dashboard/RaioXProfundo';
 import PeriodoSelector, { type SelecaoPeriodo } from '@/components/dashboard/PeriodoSelector';
@@ -69,8 +72,29 @@ function DashboardUniversalInner() {
   // Esta página NÃO mantém estado local de seleção — eliminado para evitar
   // duplo seletor e estado inconsistente.
   const { sel, companyIds } = useCompanyIds();
-  // Chave estável para useEffect (companyIds é re-criado a cada render do hook)
-  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds]);
+
+  // CONSOLIDAÇÃO POR GRUPO: se a seleção é 1 empresa que pertence a um grupo,
+  // expande pros CNPJs do grupo (via fn_grupo_empresa) — assim TODAS as seções
+  // da home (Saldos, Saúde, Operação, cards) consolidam igual ao topo. Empresa
+  // sem grupo → [ela mesma] (nada muda). Fonte única, sem hardcode.
+  const empresaUnica = sel && sel !== 'consolidado' && !sel.startsWith('group_') ? sel : null;
+  const [grupoIds, setGrupoIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (empresaUnica) {
+      void supabase.rpc('fn_grupo_empresa', { p_company_id: empresaUnica }).then(({ data, error }) => {
+        if (!alive) return;
+        const g = data as { ok?: boolean; company_ids?: string[] } | null;
+        setGrupoIds(!error && g?.ok && Array.isArray(g.company_ids) && g.company_ids.length ? g.company_ids : [empresaUnica]);
+      });
+    } else {
+      setGrupoIds(null);
+    }
+    return () => { alive = false; };
+  }, [empresaUnica]);
+  const effectiveIds = useMemo(() => (grupoIds && grupoIds.length ? grupoIds : (companyIds ?? [])), [grupoIds, companyIds]);
+  // Chave estável para useEffect (effectiveIds é re-criado a cada render)
+  const companyIdsKey = useMemo(() => [...effectiveIds].sort().join(','), [effectiveIds]);
 
   // Lista de grupos/empresas para o modal "Gerenciar Grupos" (não para seleção).
   const [grupos, setGrupos] = useState<Grupo[]>([]);
@@ -142,8 +166,12 @@ function DashboardUniversalInner() {
     }
 
     try {
-      const r = await authFetch(`/api/dashboard/universal?${params}`);
-      const d = await r.json();
+      // P0 (16bc8561): authFetch pode pendurar na trava de sessão do mobile e o finally nunca rodar →
+      // "Carregando Dashboard..." eterno. comPrazo garante que estoura em ≤ 8s (1 retry) → cai no catch.
+      const d = await comPrazo(async () => {
+        const r = await authFetch(`/api/dashboard/universal?${params}`);
+        return await r.json();
+      }, { ms: 8000, tentativas: 1, label: 'dashboard_home_universal' });
       // Defesa contra resposta malformada (API retornou erro ou shape inesperado)
       if (!d || d.error || !d.contexto || !d.camada1) {
         throw new Error(d?.error || 'Resposta inválida do dashboard');
@@ -152,7 +180,7 @@ function DashboardUniversalInner() {
       setErroData(null);
     } catch (e: any) {
       console.error(e);
-      setErroData(e?.message || 'Não foi possível carregar o dashboard');
+      setErroData('Não conseguimos carregar o dashboard. Tente de novo.');
     } finally {
       setLoading(false);
     }
@@ -195,7 +223,7 @@ function DashboardUniversalInner() {
       url.searchParams.set('data_inicio', selecaoPeriodo.data_inicio);
       url.searchParams.set('data_fim', selecaoPeriodo.data_fim);
     }
-    fetch(url.toString())
+    authFetch(url.toString())
       .then((r) => r.json())
       .then((j) => {
         if (j && j.ok) setDashboardHomeData(j);
@@ -219,12 +247,22 @@ function DashboardUniversalInner() {
   
   const planoLabel = PLANOS.find(p => p.id === plano)?.label || plano;
   
+  if (erroData && !data) {
+    // P0 (16bc8561): nunca mais spinner infinito — na falha/timeout, aviso amigável + tentar de novo.
+    return <div style={{ padding: 40, background: '#FAF7F2', minHeight: '100vh', fontFamily: 'Inter, system-ui, sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+      <div style={{ color: '#3D2314', fontSize: 15, textAlign: 'center', maxWidth: 360 }}>Não conseguimos carregar o dashboard. Verifique a conexão e tente de novo.</div>
+      <button type="button" onClick={() => { setErroData(null); void carregar(); }}
+        style={{ background: '#C8941A', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
+        Tentar de novo
+      </button>
+    </div>;
+  }
   if (loading && !data) {
     return <div style={{ padding: 40, background: '#FAF7F2', minHeight: '100vh', fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div style={{ color: '#3D2314' }}>Carregando Dashboard...</div>
     </div>;
   }
-  
+
   return (
     <div style={{ background: '#FAF7F2', minHeight: '100vh', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
@@ -291,6 +329,9 @@ function DashboardUniversalInner() {
       
       {/* ============ CORPO ============ */}
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px 60px' }}>
+
+        {/* Dashboard Consolidado (genérico · grupo ou empresa única · fn_grupo_empresa) */}
+        <DashboardConsolidado />
 
         {/* UX Onda 1: Painel Operacional ContaAzul-like — operacao do dia
             ANTES dos KPIs estrategicos. companyIdsKey vem do useCompanyIds. */}

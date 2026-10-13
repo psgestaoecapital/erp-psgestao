@@ -1,0 +1,1015 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/withAuth'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { createFiscalService } from '@/lib/fiscal/service'
+import { buildNFSeFromReceber } from '@/lib/fiscal/nfse-builder'
+import { validateNFSeRequest } from '@/lib/fiscal/nfse-validator'
+import { isFiscalError } from '@/lib/fiscal/errors'
+import { emitirNFSeViaGovServer } from '@/lib/fiscal/gov-nfse-provider'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
+import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
+import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
+import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
+import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
+import { dataBrasil } from '@/lib/fiscal/dataBrasil'
+import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
+import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
+interface EmitirNFSeBody {
+  companyId: string
+  erpReceberId?: string
+  // receber-nfse-seletor-servico-v1
+  servicoId?: string
+  // chamado #18 · E0370: serviço de construção aponta para a obra (endereço/CNO vêm dela). Fase A:
+  // trava (bloqueia sem obra/CNO) + Fase B: leva o grupo de obra ao payload nacional.
+  obraId?: string
+  // código de tributação (subitem 07.02.01/07.02.02) escolhido POR NOTA — varia por tipo de obra.
+  codigoServicoTributacao?: string
+  // endereço/CNO da obra informados na emissão (E0370). O endereço basta (Rodrigo: não é CNO).
+  obra?: {
+    cno?: string; inscricaoImobiliaria?: string
+    logradouro?: string; numero?: string; complemento?: string; bairro?: string
+    codigoMunicipio?: string; uf?: string; cep?: string
+  }
+  manual?: {
+    descricaoServico: string
+    valorServicos: number
+    cnae?: string
+    codigoServico?: string
+    aliquotaIss?: number
+    retemIss?: boolean
+    tomador: {
+      razaoSocial: string
+      cnpj?: string
+      cpf?: string
+      email?: string
+      // cliente da OS/venda (ou o escolhido na tela): é ELE o tomador, nunca outro cadastro com o mesmo CNPJ
+      clienteId?: string
+    }
+  }
+  overrides?: {
+    descricaoServico?: string
+    cnae?: string
+    codigoServico?: string
+    aliquotaIss?: number
+    retemIss?: boolean
+  }
+  // Observação livre do usuário para as informações complementares da nota (o bloco da Lei
+  // 12.741 é acrescentado automaticamente ao lado desta, não a substitui).
+  observacoes?: string
+  // #90 · retenção do ISS escolhida no modal: 1=Não retido · 2=Retido pelo tomador · 3=Retido pelo intermediário.
+  tipoRetencaoIss?: number
+  // #35 · MEDIÇÃO: parcelas do pedido que esta nota fatura (a nota sai pela SOMA delas). gerarFinanceiro=false →
+  // as parcelas seguem 'previsto' até o "Gerar financeiro desta nota"; true → viram título na autorização.
+  medicao?: { pedidoId: string; parcelaIds: string[]; gerarFinanceiro?: boolean }
+  // #340 · itens do escopo da obra medidos por esta nota (abatem do contratado quando a nota for autorizada)
+  medicaoObra?: { obraId: string; itens: { item_id: string; quantidade: number }[] }
+  // #339 (reaberto) · retenções AJUSTADAS NESTA NOTA (partem do cadastro do serviço; o modal edita). Ausente = cadastro.
+  retencoesNota?: RetencoesNota
+}
+
+interface DadosNFSeRPC {
+  ok?: boolean
+  erro?: string
+  receber_id?: string
+  company_id?: string
+  valor?: number
+  tomador?: {
+    documento: string
+    tipo: 'cpf' | 'cnpj' | 'indefinido'
+    nome: string
+    email: string | null
+  }
+  servico?: {
+    codigo_servico_municipio: string
+    codigo_lc116: string
+    aliquota_iss: number
+    iss_retido: boolean
+    descricao: string
+  }
+}
+
+// #90: o erro cru do schema ("... [facet 'pattern'] The value '...' is not accepted by the pattern
+// ...") é ilegível pro atendente. Traduz para uma ação; mantém o detalhe técnico no fim.
+function humanizarErroFiscal(msg: string | null | undefined): string | null | undefined {
+  if (!msg) return msg
+  const m = String(msg)
+  if (/facet '?pattern'?|is not accepted by the pattern|xInfComp|xDiscrim|caractere n[aã]o/i.test(m)) {
+    return 'A prefeitura recusou a nota por um símbolo não permitido no texto (ex.: •, — ou aspas curvas). ' +
+      'Revise a descrição do serviço e as observações, remova símbolos especiais, e emita de novo. ' +
+      '(Detalhe técnico: ' + m.slice(0, 200) + ')'
+  }
+  return m
+}
+
+export const POST = withAuth(async (req: NextRequest, { userId }) => {
+  try {
+    const body = (await req.json()) as EmitirNFSeBody
+
+    if (!body.companyId || typeof body.companyId !== 'string') {
+      return NextResponse.json({ ok: false, mensagem: 'companyId obrigatorio' }, { status: 400 })
+    }
+    if (body.companyId === 'consolidado' || body.companyId.startsWith('group_')) {
+      return NextResponse.json(
+        { ok: false, mensagem: 'NFSe exige selecao de 1 empresa especifica' },
+        { status: 400 }
+      )
+    }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfse', operacao: 'emissao', endpoint: 'nfse/emitir' } })
+    if (negado) return negado
+
+    // #339 · retenções ajustadas na nota: só booleanos e alíquotas 0–100 (qualquer outra coisa é recusada, nunca
+    // ignorada calada — a nota sairia com a retenção do cadastro sem o usuário saber)
+    let retNota: RetencoesNota | null = null
+    if (body.retencoesNota !== undefined) {
+      retNota = lerRetencoesNota(body.retencoesNota)
+      if (!retNota) return NextResponse.json({ ok: false, mensagem: 'Retenções desta nota inválidas: confira as alíquotas (0 a 100%).' }, { status: 400 })
+      if (!body.servicoId) return NextResponse.json({ ok: false, mensagem: 'Escolha o serviço cadastrado: as retenções desta nota partem do cadastro dele.' }, { status: 400 })
+      // ISS retido da nota manda no tipo de retenção do ISS (2 = retido pelo tomador, 1 = não retido)
+      body.tipoRetencaoIss = retNota.iss_retido ? 2 : 1
+    }
+
+    // receber-nfse-seletor-servico-v1: quando servicoId vem junto, busca os
+    // dados via RPC (servico + tomador) e injeta como overrides confiaveis,
+    // alem de devolver mensagens claras (sem "cadastre em /configuracoes/fiscal").
+    let servicoOverride: NonNullable<EmitirNFSeBody['overrides']> | undefined
+    let dadosRpc: DadosNFSeRPC | null = null
+    if (body.erpReceberId && body.servicoId) {
+      const { data, error } = await supabaseAdmin.rpc('fn_receber_nfse_dados', {
+        p_receber_id: body.erpReceberId,
+        p_servico_id: body.servicoId,
+        p_obra_id: body.obraId ?? null,
+      })
+      if (error) {
+        return NextResponse.json({ ok: false, mensagem: error.message }, { status: 400 })
+      }
+      dadosRpc = (data as DadosNFSeRPC | null) ?? null
+      if (dadosRpc?.erro) {
+        return NextResponse.json({ ok: false, mensagem: dadosRpc.erro }, { status: 400 })
+      }
+      if (dadosRpc?.servico) {
+        servicoOverride = {
+          ...(body.overrides ?? {}),
+          // #18: o subitem escolhido na emissão (07.02.01/07.02.02) manda; senão, o do cadastro.
+          codigoServico: body.codigoServicoTributacao || dadosRpc.servico.codigo_servico_municipio,
+          aliquotaIss: body.overrides?.aliquotaIss ?? dadosRpc.servico.aliquota_iss,
+          retemIss: body.overrides?.retemIss ?? dadosRpc.servico.iss_retido,
+          descricaoServico: body.overrides?.descricaoServico ?? dadosRpc.servico.descricao,
+        }
+      }
+    }
+
+    let nfseReq: NFSeRequest
+    // cadastro do cliente usado como tomador na emissão avulsa — a mensagem de cadastro incompleto diz QUAL é
+    let cadastroTomadorUsado: string | null = null
+    // IBPT por empresa: fonte dos tributos aproximados que foi na nota ('ibpt_empresa' | 'tabela_generica')
+    let ibptFonte: 'ibpt_empresa' | 'tabela_generica' | null = null
+    const { data: cfgIbpt } = await supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas')
+      .eq('company_id', body.companyId).eq('ativo', true).limit(1).maybeSingle()
+    const usarIbptEmpresa = !!(cfgIbpt as { ibpt_empresa_nas_notas?: boolean } | null)?.ibpt_empresa_nas_notas
+    // #286 · retenções federais calculadas do cadastro do serviço (as mesmas da tela) e avisos de grupos não enviados
+    let retencoesCalculadas: RetencoesFederaisNfse | null = null
+    let retCadastro: RetencoesNota | null = null   // #339 · o que o cadastro diria (para o histórico do ajuste)
+    const avisosTributos: string[] = []
+    if (body.erpReceberId) {
+      nfseReq = await buildNFSeFromReceber({
+        companyId: body.companyId,
+        erpReceberId: body.erpReceberId,
+        overrides: servicoOverride ?? body.overrides,
+      })
+      // Sobrescreve tomador pelo cadastro consolidado da RPC (doc/email/nome)
+      if (dadosRpc?.tomador && dadosRpc.tomador.documento) {
+        const tomDoc = dadosRpc.tomador.documento
+        nfseReq.tomador = {
+          ...nfseReq.tomador,
+          razaoSocial: dadosRpc.tomador.nome ?? nfseReq.tomador.razaoSocial,
+          cnpj: dadosRpc.tomador.tipo === 'cnpj' ? tomDoc : undefined,
+          cpf: dadosRpc.tomador.tipo === 'cpf' ? tomDoc : undefined,
+          email: dadosRpc.tomador.email ?? nfseReq.tomador.email,
+        }
+      }
+    } else if (body.manual) {
+      const { data: emp } = await supabaseAdmin
+        .from('companies')
+        .select('cnpj, razao_social, inscricao_municipal')
+        .eq('id', body.companyId)
+        .maybeSingle()
+      if (!emp) {
+        return NextResponse.json({ ok: false, mensagem: 'Empresa nao encontrada' }, { status: 400 })
+      }
+      // Série, CNAE e município do prestador: a MESMA leitura da Configuração Fiscal que a emissão pelo
+      // Recebível usa (nfse-builder). Sem isso a avulsa ia com série '1' e sem município, e travava.
+      const { data: cfgEmissor } = await supabaseAdmin.from('erp_fiscal_provider_config').select(SELECT_CONFIG_EMISSOR)
+        .eq('company_id', body.companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
+      const emissor = dadosEmissorDaConfig(cfgEmissor, body.manual.cnae)
+      nfseReq = {
+        serie: emissor.serie,
+        dataEmissao: new Date().toISOString(),
+        descricaoServico: body.manual.descricaoServico,
+        valorServicos: body.manual.valorServicos,
+        cnaeServico: emissor.cnaeServico,
+        codigoServico: body.manual.codigoServico ?? '',
+        aliquotaIss: body.manual.aliquotaIss,
+        retemIss: body.manual.retemIss ?? false,
+        prestador: {
+          cnpj: String(emp.cnpj ?? '').replace(/\D/g, ''),
+          razaoSocial: emp.razao_social,
+          inscricaoMunicipal: emp.inscricao_municipal ?? undefined,
+          codigoMunicipio: emissor.codigoMunicipio,
+        },
+        tomador: body.manual.tomador,
+      }
+      // NFS-e avulsa: a tela manda só nome + documento (+ o cliente da OS/venda); o endereço (exigido no leiaute
+      // nacional) vem do cadastro de clientes DESTA empresa. O e-mail não é copiado — só vai se a tela mandar.
+      // Qual cadastro (caixa jordana-code 3352399e, OS-2026-0198): o cliente da operação manda; sem ele, só ATIVOS pelo
+      // documento; dois ativos com o mesmo CNPJ → a tela pede para escolher (escolherCadastroTomador).
+      const { clienteId, ...tomadorNota } = body.manual.tomador
+      nfseReq.tomador = tomadorNota
+      if (!nfseReq.tomador.endereco) {
+        const docTom = nfseReq.tomador.cnpj ?? nfseReq.tomador.cpf
+        const filtro = filtroCadastroTomador(docTom, clienteId)
+        if (filtro) {
+          const { data: cands } = await supabaseAdmin.from('erp_clientes').select(CAMPOS_CADASTRO_TOMADOR)
+            .eq('company_id', body.companyId).or(filtro).limit(20)
+          const escolha = escolherCadastroTomador((cands ?? []) as CadastroTomador[], docTom, clienteId)
+          if (escolha.tipo === 'ambiguo') {
+            return NextResponse.json({
+              ok: false,
+              tomadorAmbiguo: true,
+              candidatos: escolha.candidatos.map((c) => ({
+                id: c.id, nome: nomeCadastro(c), cidade: c.cidade ?? null, uf: c.uf ?? null,
+                enderecoCompleto: enderecoFiscalDoCliente(c) !== null,
+              })),
+              mensagem: `Há ${escolha.candidatos.length} cadastros ativos com este CNPJ/CPF nesta empresa. Escolha qual é o tomador desta nota (e depois unifique os cadastros em Clientes).`,
+            }, { status: 409 })
+          }
+          if (escolha.tipo === 'cliente') {
+            const c = escolha.cliente
+            cadastroTomadorUsado = nomeCadastro(c) + (c.cidade ? ` · ${c.cidade}${c.uf ? '/' + c.uf : ''}` : ' · sem cidade') + (c.ativo === false ? ' · INATIVO' : '')
+            const end = enderecoFiscalDoCliente(escolha.cliente)
+            if (end) nfseReq.tomador = { ...nfseReq.tomador, endereco: end }
+          }
+        }
+      }
+    } else {
+      return NextResponse.json(
+        { ok: false, mensagem: 'Forneca erpReceberId OU manual com dados completos' },
+        { status: 400 }
+      )
+    }
+
+    // Observação livre do usuário (opcional) → informações complementares. O bloco da Lei 12.741
+    // é acrescentado depois, sem sobrescrever esta.
+    if (typeof body.observacoes === 'string' && body.observacoes.trim()) {
+      nfseReq.observacoes = body.observacoes.trim()
+    }
+    // #90 · retenção 1/2/3 vinda do modal (default 1 no builder). Aplica-se aos dois caminhos (gov/focus).
+    if (typeof body.tipoRetencaoIss === 'number' && [1, 2, 3].includes(body.tipoRetencaoIss)) {
+      nfseReq.tipoRetencaoISS = body.tipoRetencaoIss
+      nfseReq.retemIss = body.tipoRetencaoIss !== 1  // mantém o boolean coerente p/ o caminho gov
+    }
+
+    // #82① · LIGA a emissão à OBRA. Prioridade: obra apontada na emissão (body.obraId); senão resolve a
+    // cadeia receber→pedido→orçamento→obra no servidor. Os campos digitados na emissão têm prioridade;
+    // o que faltar vem da obra vinculada (Hub). Sem isso a trava E0370 nunca enxerga o que foi salvo lá.
+    let obraIdFinal: string | null = body.obraId ?? null
+    if (body.erpReceberId || body.obraId) {
+      const { data: obraRes } = await supabaseAdmin.rpc('fn_nfse_obra_resolver', {
+        p_company_id: body.companyId,
+        p_erp_receber_id: body.erpReceberId ?? null,
+        p_obra_id: body.obraId ?? null,
+      })
+      const o = obraRes as {
+        encontrada?: boolean; obra_id?: string; cno?: string | null; logradouro?: string | null
+        numero_endereco?: string | null; bairro?: string | null; cidade?: string | null
+        uf?: string | null; cep?: string | null; codigo_ibge?: string | null
+      } | null
+      if (o?.encontrada) {
+        obraIdFinal = o.obra_id ?? obraIdFinal
+        const t = body.obra ?? {}
+        const pick = (a?: string, b?: string | null) => (a && a.trim() ? a : (b ?? undefined))
+        nfseReq.obra = {
+          cno: pick(t.cno, o.cno),
+          inscricaoImobiliaria: t.inscricaoImobiliaria,
+          logradouro: pick(t.logradouro, o.logradouro),
+          numero: pick(t.numero, o.numero_endereco),
+          complemento: t.complemento,
+          bairro: pick(t.bairro, o.bairro),
+          cep: pick(t.cep, o.cep),
+          uf: pick(t.uf, o.uf),
+          codigoMunicipio: pick(t.codigoMunicipio, o.codigo_ibge),
+        }
+      } else if (body.obra) {
+        nfseReq.obra = body.obra
+      }
+    } else if (body.obra) {
+      nfseReq.obra = body.obra
+    }
+
+    // #18/#82① · TRAVA PROATIVA (servidor): se o código exige obra e não há CNO nem endereço (nem
+    // digitado, nem na obra vinculada via obra_id), bloqueia com a mensagem E0370 ANTES de enviar.
+    {
+      const { data: pend } = await supabaseAdmin.rpc('fn_nfse_obra_pendente', {
+        p_company_id: body.companyId,
+        p_codigo_servico: nfseReq.codigoServico,
+        p_obra_id: obraIdFinal,
+        p_cno: nfseReq.obra?.cno ?? null,
+        p_endereco: nfseReq.obra?.logradouro ?? null,
+      })
+      const r = (Array.isArray(pend) ? pend[0] : pend) as { pendente?: boolean; mensagem?: string } | null
+      if (r?.pendente) {
+        return NextResponse.json({ ok: false, mensagem: r.mensagem ?? 'Serviço de construção exige o CNO ou o endereço da obra (regra E0370).', obra_pendente: true }, { status: 400 })
+      }
+    }
+
+    validateNFSeRequest(nfseReq)
+
+    // #35 · MEDIÇÃO: antes de falar com a prefeitura, confere no banco que as parcelas são do pedido, estão
+    // previstas, não têm outra nota ativa e somam o valor da nota. Nota que não fecha com as parcelas não sai.
+    const medicao = body.medicao && Array.isArray(body.medicao.parcelaIds) && body.medicao.parcelaIds.length > 0
+      ? body.medicao : null
+    if (medicao) {
+      const { data: val, error: valErr } = await supabaseAdmin.rpc('fn_nfse_medicao_validar', {
+        p_company_id: body.companyId,
+        p_pedido_id: medicao.pedidoId,
+        p_parcela_ids: medicao.parcelaIds,
+        p_valor: nfseReq.valorServicos,
+      })
+      const v = val as { ok?: boolean; erro?: string } | null
+      if (valErr || !v?.ok) {
+        return NextResponse.json({ ok: false, mensagem: valErr?.message ?? v?.erro ?? 'Medição inválida.' }, { status: 400 })
+      }
+    }
+
+    // #340 · MEDIÇÃO DO ESCOPO DA OBRA: confere no banco que os itens são da obra, cabem no que falta medir e somam
+    // o valor da nota (tolerância R$ 0,01 — decisão do CEO). Não fecha → a nota não sai, e a mensagem diz quanto.
+    const medicaoObra = body.medicaoObra && body.medicaoObra.obraId && Array.isArray(body.medicaoObra.itens) && body.medicaoObra.itens.length > 0
+      ? body.medicaoObra : null
+    if (medicaoObra) {
+      const { data: valO, error: valOErr } = await supabaseAdmin.rpc('fn_nfse_obra_medicao_validar', {
+        p_company_id: body.companyId, p_obra_id: medicaoObra.obraId, p_itens: medicaoObra.itens, p_valor: nfseReq.valorServicos,
+      })
+      const vo = valO as { ok?: boolean; erro?: string } | null
+      if (valOErr || !vo?.ok) {
+        return NextResponse.json({ ok: false, mensagem: valOErr?.message ?? vo?.erro ?? 'Medição do escopo inválida.' }, { status: 400 })
+      }
+    }
+
+    // (a) IDEMPOTÊNCIA FISCAL — nunca emitir 2ª nota p/ o MESMO tomador+valor+competência
+    // enquanto já houver uma AUTORIZADA ou EM PROCESSAMENTO. Foi assim que 1 serviço da PS
+    // (Cleiton · R$1.923,99) virou 4 NFS-e autorizadas em 35min: a emissão é assíncrona e cada
+    // clique gerava um RPS novo. Guard no SERVIDOR (a UI pode ser burlada). Rejeição NÃO bloqueia
+    // reenvio — só autorizada/processando. (RD-51: o desconhecido não vira nem sucesso nem falha.)
+    {
+      const tomDoc = String(nfseReq.tomador.cnpj || nfseReq.tomador.cpf || '').replace(/\D/g, '')
+      // #35 · medição: duas medições do mesmo valor no mês são notas DIFERENTES (parcelas diferentes) —
+      // a duplicidade já foi barrada por parcela em fn_nfse_medicao_validar.
+      if (tomDoc && !medicao) {
+        const compIni = new Date()
+        compIni.setDate(1)
+        compIni.setHours(0, 0, 0, 0)
+        const { data: jaExiste } = await supabaseAdmin
+          .from('erp_nfse_emitidas')
+          .select('id, numero, status')
+          .eq('company_id', body.companyId)
+          .in('status', ['autorizada', 'processando'])
+          .gte('valor_servicos', nfseReq.valorServicos - 0.005)
+          .lte('valor_servicos', nfseReq.valorServicos + 0.005)
+          .gte('data_emissao', compIni.toISOString())
+          .or(`tomador_cnpj.eq.${tomDoc},tomador_cpf.eq.${tomDoc}`)
+          .limit(1)
+        if (jaExiste && jaExiste.length > 0) {
+          const ex = jaExiste[0]
+          return NextResponse.json(
+            {
+              ok: false,
+              duplicada: true,
+              nfseExistenteId: ex.id,
+              mensagem:
+                ex.status === 'autorizada'
+                  ? `Já existe NFS-e AUTORIZADA (nº ${ex.numero}) para este tomador, valor e competência. NÃO reemita — veja em Notas Fiscais. Se for um serviço realmente diferente, mude a descrição ou o valor.`
+                  : `Já existe uma NFS-e EM PROCESSAMENTO para este tomador, valor e competência. ⏳ Aguarde a prefeitura autorizar — NÃO reemita. Isso pode levar alguns minutos.`,
+            },
+            { status: 409 }
+          )
+        }
+      }
+    }
+
+    // Roteamento por provider · gov.br NFSe Nacional NAO usa Focus NFe service
+    const { data: providerCfg } = await supabaseAdmin
+      .from('erp_fiscal_provider_config')
+      .select('id, provider, gov_nfse_municipio_codigo, ambiente, percentual_total_tributos_sn, lei12741_observacao_template, lei12741_ativo')
+      .eq('company_id', body.companyId)
+      .eq('ativo', true)
+      .maybeSingle()
+
+    // DECISÃO DO CEO (23/09): emissão fiscal é EXCLUSIVAMENTE via Focus. ETAPA 1 (reversível, sem
+    // remoção): o caminho gov.br (edge gov-nfse-emitir) deixa de ser chamado — sem exceção nem
+    // bifurcação por município. O bloco abaixo fica INTACTO (nada apagado); só se torna inalcançável
+    // por este flag. Reverter = flag true. ETAPA 2 (aprovação separada) remove código/rota/colunas gov.
+    // Prova (RD-38): 0 NFS-e já saíram pelo gov (todas as 117 via focusnfe); a config de TODAS as
+    // empresas já é focusnfe (inclusive FC Pisos/Iporã) — este branch já era código morto em runtime.
+    const GOV_NFSE_HABILITADO = false
+    if (GOV_NFSE_HABILITADO && providerCfg?.provider === 'gov_nfse_nacional') {
+      const authHeader = req.headers.get('authorization') ?? ''
+      const municipioPrestador = String(providerCfg.gov_nfse_municipio_codigo ?? '').replace(/\D/g, '')
+      if (municipioPrestador.length !== 7) {
+        return NextResponse.json(
+          {
+            ok: false,
+            mensagem:
+              'Configuração gov.br incompleta · cadastre o código IBGE do município do prestador em Configurações › Fiscal',
+          },
+          { status: 400 }
+        )
+      }
+
+      const ambienteGov = providerCfg?.ambiente === 'producao' ? 'producao' : 'homologacao'
+      const resultadoGov = await emitirNFSeViaGovServer(
+        {
+          companyId: body.companyId,
+          ambiente: ambienteGov,
+          erpReceberId: body.erpReceberId ?? null,
+          prestador: {
+            cnpj: nfseReq.prestador.cnpj,
+            razaoSocial: nfseReq.prestador.razaoSocial,
+            inscricaoMunicipal: nfseReq.prestador.inscricaoMunicipal ?? null,
+            municipioIbge: municipioPrestador,
+          },
+          tomador: {
+            cnpj: nfseReq.tomador.cnpj,
+            cpf: nfseReq.tomador.cpf,
+            razaoSocial: nfseReq.tomador.razaoSocial,
+            email: nfseReq.tomador.email,
+            municipioIbge: nfseReq.tomador.endereco?.codigoMunicipio,
+            uf: nfseReq.tomador.endereco?.uf,
+          },
+          servico: {
+            codigoTributacaoNacional: nfseReq.codigoServico ?? null,
+            descricao: nfseReq.descricaoServico,
+            valorServico: nfseReq.valorServicos,
+            aliquotaIss: nfseReq.aliquotaIss ?? null,
+            issRetido: !!nfseReq.retemIss,
+          },
+        },
+        authHeader
+      )
+
+      return NextResponse.json({
+        ok: !!resultadoGov.ok,
+        provider: 'gov_nfse_nacional',
+        dpsId: resultadoGov.dpsId,
+        numeroDps: resultadoGov.numeroDps,
+        status: resultadoGov.status ?? 'processando',
+        mensagem: resultadoGov.mensagem ?? resultadoGov.erro,
+      }, { status: resultadoGov.ok ? 200 : 502 })
+    }
+
+    // Default · Focus NFe (provider='focusnfe' ou nao configurado)
+    // Guard prestador (#90): sem o código do município do prestador, o Focus rejeita com a mensagem
+    // crua "parametro prestador.codigo_municipio nao informado". Bloqueia ANTES com texto acionável.
+    // Normalmente o campo é auto-preenchido do endereço da empresa (trigger cidade_estado->IBGE); só
+    // cai aqui se a cidade não bate no cadastro de municípios (fica pro humano confirmar).
+    {
+      const muniPrestador = String(nfseReq.prestador.codigoMunicipio ?? '').replace(/\D/g, '')
+      if (muniPrestador.length !== 7) {
+        return NextResponse.json({
+          ok: false,
+          mensagem:
+            'Configuração fiscal incompleta: falta o código do município (IBGE) da empresa emitente. ' +
+            'Ele costuma ser preenchido sozinho pelo endereço da empresa — confirme a cidade/UF da empresa ' +
+            'e o campo em Configurações › Fiscal › Município IBGE, e emita de novo.',
+        }, { status: 400 })
+      }
+    }
+    // NFSe NACIONAL VIA FOCUS: se o município do prestador aderiu (erp_gov_nfse_municipios.aderido),
+    // emite no layout nacional pelo endpoint /v2/nfsen (não migra pro gov.br direto). Carrega opção/regime
+    // do Simples Nacional e a numeração atômica da DPS.
+    {
+      const muni = String(nfseReq.prestador.codigoMunicipio ?? '').replace(/\D/g, '')
+      if (muni.length === 7) {
+        const { data: m } = await supabaseAdmin
+          .from('erp_gov_nfse_municipios')
+          .select('aderido')
+          .eq('codigo_ibge', muni)
+          .maybeSingle()
+        if (m?.aderido) {
+          nfseReq.padraoNacional = true
+          const { data: snCfg } = await supabaseAdmin
+            .from('erp_fiscal_provider_config')
+            .select('opcao_simples_nacional, regime_tributario, regime_apuracao_sn, percentual_total_tributos_sn, reforma_finalidade_emissao, reforma_consumidor_final, reforma_indicador_destinatario, reforma_ibs_cbs_cst, reforma_ibs_cbs_classif_trib, serie_nfse_padrao')
+            .eq('company_id', body.companyId)
+            .eq('provider', 'focusnfe')
+            .eq('ativo', true)
+            .maybeSingle()
+          // Série por TIPO DE EMISSOR (correção CEO 24/09): a emissão por INTEGRAÇÃO (nossa, via Focus) usa a
+          // faixa 00001–49999; a faixa 50000+ é do PORTAL NACIONAL (outro tipo de emissor). Uma série de portal
+          // na integração reprova E0010 ("série fora da faixa"). Bloqueia ANTES de enviar, com a faixa explicada
+          // — impede repetir o engano de configurar série de portal aqui.
+          {
+            const serieCfg = Number(String((snCfg as { serie_nfse_padrao?: string } | null)?.serie_nfse_padrao ?? '').replace(/\D/g, ''))
+            if (Number.isFinite(serieCfg) && serieCfg > 49999) {
+              return NextResponse.json({ ok: false, mensagem: `Série da NFS-e (${serieCfg}) fora da faixa da emissão por INTEGRAÇÃO (00001–49999). A faixa 50000+ é do Portal Nacional (outro tipo de emissor) e reprova na integração (E0010). Ajuste a série da empresa em Configurações › Fiscal.` }, { status: 400 })
+            }
+          }
+          // Opção do Simples RESOLVIDA sem adivinhar: usa a cadastrada; se nula, deriva do regime tributário;
+          // regime desconhecido → BLOQUEIA (assumir optante OU não-optante emite nota errada — ex.: VIANZ,
+          // opção nula + regime simples_nacional, não pode virar não-optante).
+          const _opcaoSN = resolverOpcaoSimplesNacional(
+            snCfg?.opcao_simples_nacional as number | null,
+            snCfg?.regime_tributario as string | null,
+          )
+          if (_opcaoSN == null) {
+            return NextResponse.json({ ok: false, mensagem: 'Configuração fiscal incompleta: defina a opção do Simples Nacional (ou o regime tributário) da empresa em Configurações › Fiscal antes de emitir. O sistema não adivinha o regime.' }, { status: 400 })
+          }
+          nfseReq.opcaoSimplesNacional = _opcaoSN
+          nfseReq.regimeTributario = (snCfg?.regime_tributario as string | null) ?? null
+          nfseReq.regimeApuracaoSN = (snCfg?.regime_apuracao_sn as number | null) ?? 1
+          if (snCfg?.percentual_total_tributos_sn != null) nfseReq.percentualTribSN = Number(snCfg.percentual_total_tributos_sn)
+          // DUAS FONTES DISTINTAS (não confundir): percentual_total_tributos_sn = TOTAL de tributos da
+          // Lei 12.741 (pTotTribSN, ex.: 4,02 na nota 57 autorizada da R.R) ≠ alíquota de ISS do Simples
+          // (pAliq, ex.: 4,19), que vem de erp_fiscal_aliquota_sn por competência. Para ME/EPP (opção 3) o
+          // grupo trib exige o totTrib (E0712 proíbe indicador_total_tributacao); sem o total configurado,
+          // não chutar — avisar para o contador preencher (evita cair numa rejeição obscura no provedor).
+          if ((nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3) && nfseReq.percentualTribSN == null) {
+            return NextResponse.json({ ok: false, mensagem: 'Informe o percentual TOTAL de tributos do Simples (Lei 12.741) na Configuração Fiscal — é diferente da alíquota de ISS do Simples. Sem ele a nota não pode ser emitida.' }, { status: 400 })
+          }
+          // ISS POR MUNICÍPIO + TRAVA (decisão CEO 25/09, "opção i"). A tabela fiscal_iss_municipio estava
+          // ÓRFÃ da emissão: Lages 3% cadastrada e nunca lida; o serviço tinha aliquota_iss=0, e o modal
+          // mostrava 0. Para NÃO OPTANTE (regime normal, opc=1) o ISS é devido e precisa de alíquota > 0:
+          // resolve a vigente da tabela (por município da PRESTAÇÃO + LC116) e, se não houver, TRAVA a
+          // emissão (cadastro que funciona). Optante (Simples) NÃO entra aqui — ISS vai no DAS, alíquota 0 é
+          // correta (E0625). retido_na_fonte NÃO é sugerido (CEO): a retenção fica com o operador (modal).
+          if (nfseReq.opcaoSimplesNacional === 1) {
+            const muniPrest = String(nfseReq.obra?.codigoMunicipio || nfseReq.prestador.codigoMunicipio || '').replace(/\D/g, '')
+            let lc116: string | null = null
+            if (body.servicoId) {
+              const { data: sv } = await supabaseAdmin.from('erp_servicos').select('codigo_lc116').eq('id', body.servicoId).maybeSingle()
+              lc116 = (sv?.codigo_lc116 as string | null) ?? null
+            }
+            if (!lc116) {
+              const cs = String(nfseReq.codigoServico ?? '').replace(/\D/g, '')
+              if (cs.length >= 4) lc116 = cs.slice(0, 2) + '.' + cs.slice(2, 4) // 070501 -> 07.05
+            }
+            let aliqMunic: number | null = null
+            if (muniPrest.length === 7 && lc116) {
+              const hoje = dataBrasil()   // #1944 · vigência no dia de Brasília
+              const { data: issRows } = await supabaseAdmin
+                .from('fiscal_iss_municipio')
+                .select('aliquota, vigencia_inicio, vigencia_fim')
+                .eq('company_id', body.companyId).eq('codigo_ibge', muniPrest).eq('codigo_lc116', lc116)
+                .lte('vigencia_inicio', hoje)
+                .order('vigencia_inicio', { ascending: false })
+                .limit(10)
+              const vig = ((issRows ?? []) as Array<{ aliquota: number | string; vigencia_fim: string | null }>)
+                .find((r) => !r.vigencia_fim || String(r.vigencia_fim) >= hoje)
+              if (vig?.aliquota != null) aliqMunic = Number(vig.aliquota)
+            }
+            // RD-93: a alíquota do ISS é a do MUNICÍPIO DE INCIDÊNCIA (tabela por município), nunca a do cadastro do
+            // serviço nem a digitada na tela. Serve só às contas internas (ISS retido no título, trava de ISS zerado);
+            // para o não optante ela NÃO vai na DPS — o Ambiente Nacional aplica a parametrizada (NF 418/421: 3,00).
+            nfseReq.aliquotaIss = aliqMunic != null && aliqMunic > 0 ? aliqMunic : 0
+            if (!(Number(nfseReq.aliquotaIss ?? 0) > 0)) {
+              return NextResponse.json({
+                ok: false,
+                iss_municipio_pendente: true,
+                mensagem: `Alíquota de ISS não configurada para o município da prestação${muniPrest ? ` (IBGE ${muniPrest})` : ''}${lc116 ? ` / LC ${lc116}` : ''}. Empresa de REGIME NORMAL não pode emitir NFS-e com ISS zerado. Cadastre a alíquota em Configurações › Fiscal › ISS por município e emita de novo.`,
+              }, { status: 400 })
+            }
+            // E0713 (FC Pisos · Focus #243166): o Ambiente Nacional exige tributos aproximados (Lei 12.741)
+            // do NÃO optante. Grupo percentual pela IBPT (LC116 × UF do prestador). Sem linha vigente → TRAVA
+            // antes de enviar (RD-74: cadastro que funciona), nunca chuta. Optante (2/3) não passa aqui.
+            {
+              const { data: empUf } = await supabaseAdmin
+                .from('companies').select('uf_fiscal, cnpj').eq('id', body.companyId).maybeSingle()
+              const ufPrest = String((empUf as { uf_fiscal?: string | null } | null)?.uf_fiscal ?? '').trim().toUpperCase()
+              const lc116Digits = (lc116 ?? '').replace(/\D/g, '')   // '07.05' -> '0705'
+              type IbptRow = { federal?: unknown; estadual?: unknown; municipal?: unknown; versao?: unknown }
+              let ibpt: IbptRow | null = null
+              // IBPT por empresa (CEO 28/09): com o uso liberado, 1º a consulta da PRÓPRIA empresa (cache → API);
+              // sem token/erro/IBPT fora do ar → tabela genérica. A nota nunca trava por causa do IBPT da empresa.
+              if (usarIbptEmpresa && lc116Digits.length === 4 && ufPrest.length === 2) {
+                const emp = await aliquotaIbptEmpresa(body.companyId, String((empUf as { cnpj?: string | null } | null)?.cnpj ?? ''), {
+                  tipo: 'servico', codigo: lc116Digits, uf: ufPrest, descricao: nfseReq.descricaoServico || 'serviço', valor: Number(nfseReq.valorServicos) || 1,
+                })
+                if (emp && emp.nacional != null) {
+                  ibpt = { federal: emp.nacional, estadual: emp.estadual ?? 0, municipal: emp.municipal ?? 0, versao: emp.versao }
+                  ibptFonte = 'ibpt_empresa'
+                }
+              }
+              if (!ibpt && lc116Digits.length === 4 && ufPrest.length === 2) {
+                const { data: al } = await supabaseAdmin.rpc('fn_ibpt_aliquota_vigente', {
+                  p_ncm: lc116Digits, p_ex: '0', p_uf: ufPrest, p_origem: '0',
+                })
+                const row = (Array.isArray(al) ? al[0] : al) as IbptRow | null
+                if (row && row.federal != null) { ibpt = row; ibptFonte = 'tabela_generica' }
+              }
+              if (!ibpt) {
+                // trava mantida (decisão do CEO 28/09): sem o código nem na genérica, a NFS-e Nacional rejeitaria (E0713)
+                return NextResponse.json({
+                  ok: false,
+                  ibpt_pendente: true,
+                  mensagem: 'Este serviço não tem os tributos aproximados na tabela do IBPT. Cadastre o token do IBPT da empresa ou fale com a PS.',
+                }, { status: 400 })
+              }
+              nfseReq.tributosAproxPct = {
+                federal: Number(ibpt.federal ?? 0),
+                estadual: Number(ibpt.estadual ?? 0),
+                municipal: Number(ibpt.municipal ?? 0),
+                fonte: `IBPT ${String(ibpt.versao ?? '')}`.trim(),
+              }
+            }
+          }
+          // #90 / Focus #242149 · campos da Reforma (IBS/CBS) por empresa — OPCIONAIS e desligados por
+          // padrão. Só entram no JSON quando a empresa preencheu na config (o builder ignora null/vazio).
+          const rf = {
+            finalidadeEmissao: (snCfg?.reforma_finalidade_emissao as number | null) ?? null,
+            consumidorFinal: (snCfg?.reforma_consumidor_final as number | null) ?? null,
+            indicadorDestinatario: (snCfg?.reforma_indicador_destinatario as number | null) ?? null,
+            ibsCbsCst: (snCfg?.reforma_ibs_cbs_cst as string | null) ?? null,
+            ibsCbsClassifTrib: (snCfg?.reforma_ibs_cbs_classif_trib as string | null) ?? null,
+          }
+          if (rf.finalidadeEmissao != null || rf.consumidorFinal != null || rf.indicadorDestinatario != null || rf.ibsCbsCst || rf.ibsCbsClassifTrib) {
+            nfseReq.reforma = rf
+          }
+          // pAliq no regime SN com regApTribSN=1: a alíquota efetiva do MÊS (config por competência) só
+          // vai na DPS quando o ISS é RETIDO pelo tomador/intermediário (tpRetISSQN=2/3). Sem retenção
+          // (tpRetISSQN=1) a DPS NÃO leva pAliq — a alíquota do SN vai no DAS (E0625) — então NÃO bloqueia
+          // a emissão por falta da alíquota da competência. Se estiver cadastrada, ainda carregamos o valor
+          // (usado em cálculo interno/registro); o builder decide o envio pela retenção.
+          // A alíquota do Simples por competência (erp_fiscal_aliquota_sn) só existe/importa para OPTANTE
+          // (MEI=2 / ME/EPP=3). Empresa NÃO-optante (regime normal, ex.: FC Pisos) usa a alíquota municipal
+          // do resolver e NUNCA pode ser bloqueada por falta da alíquota do Simples — por isso o gate exige
+          // opção 2/3 (antes só olhava regApTribSN, que caía em 1 por default e pegava o não-optante).
+          const _optanteSN = nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3
+          if (_optanteSN && (nfseReq.regimeApuracaoSN ?? 1) === 1) {
+            const tpRet = nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1)
+            const issRetido = tpRet === 2 || tpRet === 3
+            const diaBR = dataBrasil()  // competência = mês de Brasília (igual ao data_competencia da nota) · #1944
+            const compIso = `${diaBR.slice(0, 7)}-01`
+            const { data: aliq } = await supabaseAdmin
+              .from('erp_fiscal_aliquota_sn')
+              .select('aliquota')
+              .eq('company_id', body.companyId)
+              .eq('competencia', compIso)
+              .maybeSingle()
+            if (aliq?.aliquota == null) {
+              if (issRetido) {
+                // ISS retido: a alíquota é obrigatória na nota (o tomador retém sobre ela) → bloqueia sem chutar.
+                const mm = `${diaBR.slice(5, 7)}/${diaBR.slice(0, 4)}`
+                return NextResponse.json({ ok: false, mensagem: `Informe a alíquota de ISS do Simples de ${mm} na Configuração Fiscal antes de emitir (ISS retido pelo tomador).` }, { status: 400 })
+              }
+              // ISS não retido: segue sem pAliq (E0625) — nota autorizada normalmente.
+            } else {
+              nfseReq.aliquotaISSSN = Number(aliq.aliquota)
+            }
+          }
+          // #1944 · IBS/CBS só COMPLETO (reformaIbsCbsDoServico): a config da empresa sozinha não vai mais — sem o
+          // cadastro do serviço (cIndOp só existe lá) a nota sai sem o grupo, como antes da Reforma.
+          const reformaEmpresa = nfseReq.reforma
+          nfseReq.reforma = undefined
+          // codigo_nbs do serviço (opcional — só enviado se preenchido) + #286: tributos federais do cadastro
+          if (body.servicoId) {
+            const { data: sv } = await supabaseAdmin
+              .from('erp_servicos')
+              .select('*')  // '*' (#286): lê cst_pis_cofins quando a coluna existe, sem quebrar antes da migration
+              .eq('id', body.servicoId)
+              .eq('company_id', body.companyId)
+              .maybeSingle()
+            if (sv?.codigo_nbs) nfseReq.codigoNbs = String(sv.codigo_nbs)
+            if (sv) {
+              // #286 · a MESMA conta que a tela mostrou antes de emitir (retencoesFederaisNfse)
+              // #339 · com as retenções ajustadas nesta nota (quando vieram), aplicadas sobre o cadastro
+              const svRet = retNota ? aplicarRetencoesNota(sv as ServicoTributosFederais, retNota) : (sv as ServicoTributosFederais)
+              const ret = calcularRetencoesFederais(Number(nfseReq.valorServicos), svRet)
+              if (ret.erros.length > 0) {
+                return NextResponse.json({ ok: false, mensagem: ret.erros.join(' ') }, { status: 400 })
+              }
+              retencoesCalculadas = ret
+              retCadastro = retencoesNotaDoCadastro(sv as ServicoTributosFederais & { iss_retido?: boolean | null })
+              avisosTributos.push(...ret.avisos)
+              if (ret.totalRetido > 0 || ret.apuracaoPropria) {
+                nfseReq.retencoesFederais = {
+                  valorCp: ret.valorCp, valorIrrf: ret.valorIrrf,
+                  valorRetCsllAgrupado: ret.valorRetCsllAgrupado, tipoRetencaoPisCofins: ret.tipoRetencaoPisCofins,
+                }
+              }
+              if (ret.apuracaoPropria) nfseReq.apuracaoPisCofins = ret.apuracaoPropria
+              // #1944 · grupo IBSCBS só completo: CST e cClassTrib (serviço; na falta, empresa) e cIndOp (6 díg., Anexo C
+              // — E0901, só do serviço). Incompleto → nenhuma chave da Reforma (aviso); nunca adivinhar.
+              {
+                const ib = reformaIbsCbsDoServico(reformaEmpresa, sv as ServicoIbsCbs)
+                nfseReq.reforma = ib.reforma
+                if (ib.aviso) avisosTributos.push(ib.aviso)
+              }
+            }
+          }
+          // #1944 · Simples Nacional: grupo IBS/CBS obrigatório a partir de 01/01/2027 — validação PRONTA e DESLIGADA
+          // (EXIGIR_IBS_CBS_SIMPLES em retencoesFederaisNfse.ts; ligar é decisão do CEO, por PR).
+          {
+            const optanteSN = nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3
+            const msgIbs = validarIbsCbsObrigatorio({ optanteSimples: optanteSN, dataEmissaoBR: dataBrasil(), reforma: nfseReq.reforma })
+            if (msgIbs) return NextResponse.json({ ok: false, mensagem: msgIbs }, { status: 400 })
+          }
+          // Guard XSD (RD-51): o layout nacional EXIGE cMun (IBGE) e nro do tomador. Sem eles o Focus rejeita
+          // no XSD. Bloqueia ANTES de enviar, com mensagem clara — não deixa virar erro fiscal obscuro.
+          const endTom = nfseReq.tomador.endereco
+          const faltando: string[] = []
+          if (!endTom?.codigoMunicipio || !String(endTom.codigoMunicipio).replace(/\D/g, '')) faltando.push('código IBGE do município (preenche sozinho pelo CEP)')
+          if (!endTom?.numero || !String(endTom.numero).trim()) faltando.push('número do endereço')
+          if (faltando.length > 0) {
+            return NextResponse.json({
+              ok: false,
+              mensagem: 'Complete o cadastro fiscal do tomador antes de emitir a NFS-e nacional: ' +
+                faltando.join(' e ') + (cadastroTomadorUsado ? ` (cadastro usado: ${cadastroTomadorUsado})` : '') +
+                '. Edite o cliente em Clientes, informe o CEP (traz o IBGE) e o número, e emita de novo.',
+            }, { status: 400 })
+          }
+        }
+      }
+    }
+
+    // #339 · trava de emissão (todas as telas passam aqui): sem serviço do cadastro não há de onde tirar as
+    // retenções; e o padrão municipal não leva as retenções do cadastro — serviço com retenção só pelo nacional.
+    {
+      let svTrava: Record<string, unknown> | null = null
+      if (body.servicoId && !nfseReq.padraoNacional) {
+        const { data } = await supabaseAdmin.from('erp_servicos').select('*').eq('id', body.servicoId).eq('company_id', body.companyId).maybeSingle()
+        svTrava = (data as Record<string, unknown> | null) ?? null
+        if (svTrava && retNota) svTrava = aplicarRetencoesNota(svTrava as ServicoTributosFederais, retNota) as unknown as Record<string, unknown>
+      }
+      const trava = travaEmissaoNfse({
+        servicoId: body.servicoId ?? null, padraoNacional: !!nfseReq.padraoNacional,
+        servico: svTrava as Parameters<typeof travaEmissaoNfse>[0]['servico'], valor: Number(nfseReq.valorServicos) || 0,
+      })
+      if (trava) return NextResponse.json({ ok: false, mensagem: trava }, { status: 400 })
+    }
+
+    // Lei 12.741/2012 (Transparência Fiscal) — o valor aproximado dos tributos vai nas INFORMAÇÕES
+    // COMPLEMENTARES da nota (Focus: informacoes_complementares no nacional, outras_informacoes no
+    // municipal), não em campo estruturado por esfera. Para Simples Nacional a lei aceita um único
+    // percentual aproximado (percentual_total_tributos_sn, por empresa). valor = % × valor do serviço;
+    // mostra R$ e %. A redação é PARÂMETRO (lei12741_observacao_template) — o contador muda por UPDATE.
+    // Sem percentual (empresa fora do Simples) não compõe o bloco (aí depende da tabela IBPT — adiado).
+    // Anexa a uma observação livre já existente na requisição, sem sobrescrever nem poluir a descrição.
+    // SALVAGUARDA (CEO): só compõe se lei12741_ativo=true na config da empresa — liga/desliga por
+    // empresa SEM PR. Default false: o merge não muda nada até ligar por empresa (rollout controlado;
+    // e rollback instantâneo se a Focus recusar o campo ou a redação vier errada).
+    {
+      const pctTrib = Number(providerCfg?.percentual_total_tributos_sn ?? 0)
+      if (providerCfg?.lei12741_ativo === true && Number.isFinite(pctTrib) && pctTrib > 0 && Number(nfseReq.valorServicos) > 0) {
+        const valorAprox = Math.round((pctTrib / 100) * Number(nfseReq.valorServicos) * 100) / 100
+        const fmt = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const template = (typeof providerCfg?.lei12741_observacao_template === 'string' && providerCfg.lei12741_observacao_template.trim())
+          ? providerCfg.lei12741_observacao_template.trim()
+          : 'Valor aproximado dos tributos: R$ {valor} ({percentual}%) — Fonte: Simples Nacional, Lei 12.741/2012'
+        const blocoLei12741 = template.replace(/\{valor\}/g, fmt(valorAprox)).replace(/\{percentual\}/g, fmt(pctTrib))
+        nfseReq.observacoes = [blocoLei12741, nfseReq.observacoes]
+          .map((s) => (s ?? '').trim())
+          .filter(Boolean)
+          .join(' | ')
+      }
+    }
+
+    const svc = await createFiscalService(body.companyId)
+    let resposta
+    try {
+      resposta = await svc.emitirNFSe(nfseReq)
+    } catch (err) {
+      // PONTO CEGO CORRIGIDO: rejeição de schema/validação do Focus chega como THROW (ex.: 422
+      // "Element 'valores': not expected"), antes de virar nota. Antes disso NADA era gravado — nem
+      // a tentativa, nem o payload — e ficávamos investigando às cegas. Aqui, para uma REJEIÇÃO de
+      // conteúdo (não erro de infra como timeout), persistimos o payload enviado + o motivo como uma
+      // NFS-e 'rejeitada' (aparece na lista, com o payload para depurar) e registramos a tentativa.
+      if (isFiscalError(err)) {
+        const ehRejeicao = err.code === 'PAYLOAD_INVALIDO' || err.code === 'NFSE_REJEITADA'
+          || [400, 422].includes(Number((err.details as { status?: number } | undefined)?.status))
+        const payloadEnviado = (err.details as { payloadEnviado?: unknown } | undefined)?.payloadEnviado ?? null
+        const providerRef = (err.details as { providerReference?: string } | undefined)?.providerReference ?? `nfse-rej-${Date.now()}`
+        try {
+          if (ehRejeicao) {
+            await supabaseAdmin.rpc('fn_registrar_nfse_emitida', {
+              p_company_id: body.companyId,
+              p_erp_receber_id: body.erpReceberId ?? null,
+              p_provider_reference: providerRef,
+              p_ambiente: svc.ambiente,
+              p_dados: {
+                valor_servicos: nfseReq.valorServicos,
+                aliquota_iss: nfseReq.aliquotaIss,
+                retem_iss: nfseReq.retemIss,
+                cnae: nfseReq.cnaeServico,
+                codigo_servico: nfseReq.codigoServico,
+                descricao_servico: nfseReq.descricaoServico,
+                prestador_cnpj: nfseReq.prestador.cnpj,
+                prestador_razao_social: nfseReq.prestador.razaoSocial,
+                prestador_im: nfseReq.prestador.inscricaoMunicipal,
+                tomador_cnpj: nfseReq.tomador.cnpj,
+                tomador_cpf: nfseReq.tomador.cpf,
+                tomador_razao_social: nfseReq.tomador.razaoSocial,
+                tomador_email: nfseReq.tomador.email,
+                tomador_endereco: nfseReq.tomador.endereco,
+                status: 'rejeitada',
+                serie: nfseReq.serie,
+                motivo_rejeicao: err.message,
+                payload_enviado: payloadEnviado,
+              },
+              p_provider_raw: (err.details as { body?: unknown } | undefined)?.body ?? null,
+            })
+          }
+        } catch { /* nunca deixar a persistência do log derrubar a resposta de erro */ }
+        await registrarTentativaFiscal({
+          companyId: body.companyId,
+          notaTipo: 'nfse',
+          operacao: 'emissao',
+          provider: 'focusnfe',
+          endpoint: 'nfse/emitir',
+          referencia: providerRef,
+          providerMensagem: err.message,
+          resultado: ehRejeicao ? 'rejeitada' : 'erro',
+          usuarioId: userId,
+        })
+      }
+      throw err
+    }
+
+    const dadosRegistro = {
+      valor_servicos: nfseReq.valorServicos,
+      aliquota_iss: nfseReq.aliquotaIss,
+      retem_iss: nfseReq.retemIss,
+      cnae: nfseReq.cnaeServico,
+      codigo_servico: nfseReq.codigoServico,
+      descricao_servico: nfseReq.descricaoServico,
+      prestador_cnpj: nfseReq.prestador.cnpj,
+      prestador_razao_social: nfseReq.prestador.razaoSocial,
+      prestador_im: nfseReq.prestador.inscricaoMunicipal,
+      tomador_cnpj: nfseReq.tomador.cnpj,
+      tomador_cpf: nfseReq.tomador.cpf,
+      tomador_razao_social: nfseReq.tomador.razaoSocial,
+      tomador_email: nfseReq.tomador.email,
+      tomador_endereco: nfseReq.tomador.endereco,
+      status: resposta.status,
+      numero: resposta.numero,
+      serie: nfseReq.serie,
+      codigo_verificacao: resposta.codigoVerificacao,
+      xml_url: resposta.xmlUrl,
+      pdf_url: resposta.pdfUrl,
+      motivo_rejeicao: resposta.motivoRejeicao,
+      // #90/#64: guarda o payload enviado (sem cert/token) p/ depurar rejeição sem emitir no escuro.
+      payload_enviado: resposta.payloadEnviado ?? null,
+    }
+
+    const { data: registroId, error: rpcErr } = await supabaseAdmin.rpc(
+      'fn_registrar_nfse_emitida',
+      {
+        p_company_id: body.companyId,
+        p_erp_receber_id: body.erpReceberId ?? null,
+        p_provider_reference: resposta.providerReference,
+        p_ambiente: svc.ambiente,
+        p_dados: dadosRegistro,
+        p_provider_raw: resposta.providerRaw ?? null,
+      }
+    )
+
+    if (rpcErr) {
+      return NextResponse.json(
+        {
+          ok: false,
+          mensagem:
+            'NFSe emitida no Focus mas erro ao registrar no banco · contate suporte. Ref: ' +
+            resposta.providerReference,
+          providerReference: resposta.providerReference,
+          rpcError: rpcErr.message,
+        },
+        { status: 500 }
+      )
+    }
+
+    // #35 · MEDIÇÃO: grava pedido + parcelas + se gera o financeiro. Nota que já voltou autorizada efetiva
+    // aqui; a que ficou em processamento efetiva no gatilho quando a prefeitura autorizar.
+    let medicaoAviso: string | null = null
+    if (registroId && medicao) {
+      const { data: vinc, error: vincErr } = await supabaseAdmin.rpc('fn_nfse_medicao_vincular', {
+        p_nfse_id: registroId,
+        p_pedido_id: medicao.pedidoId,
+        p_parcela_ids: medicao.parcelaIds,
+        p_gerar_financeiro: medicao.gerarFinanceiro !== false,
+      })
+      const vj = vinc as { ok?: boolean; erro?: string } | null
+      if (vincErr || !vj?.ok) {
+        console.error('[nfse/emitir] medição não vinculada', registroId, vincErr?.message ?? vj?.erro)
+        medicaoAviso = 'A nota saiu, mas não foi ligada às parcelas do pedido — avise o suporte antes de faturar de novo. ' +
+          (vincErr?.message ?? vj?.erro ?? '')
+      }
+    }
+
+    // #340 · grava os itens do escopo medidos por esta nota. Já autorizada → lança agora; em processamento → o
+    // gatilho lança na autorização; rejeitada não lança; cancelada estorna (trg_nfse_obra_medicao).
+    if (registroId && medicaoObra) {
+      const { data: vo, error: voErr } = await supabaseAdmin.rpc('fn_nfse_obra_medicao_vincular', {
+        p_nfse_id: registroId, p_obra_id: medicaoObra.obraId, p_itens: medicaoObra.itens,
+      })
+      const voj = vo as { ok?: boolean; erro?: string } | null
+      if (voErr || !voj?.ok) {
+        console.error('[nfse/emitir] medição do escopo não vinculada', registroId, voErr?.message ?? voj?.erro)
+        medicaoAviso = (medicaoAviso ? medicaoAviso + ' ' : '') + 'A nota saiu, mas a medição não foi ligada ao escopo da obra — avise o suporte. ' +
+          (voErr?.message ?? voj?.erro ?? '')
+      }
+    }
+
+    // IBPT por empresa · grava a fonte dos tributos aproximados que foi na nota
+    if (registroId && ibptFonte) {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ ibpt_fonte: ibptFonte }).eq('id', registroId)
+    }
+
+    // #286 · grava na NOTA as retenções federais que foram na DPS — o "Gerar financeiro" usa exatamente estes valores
+    // (nota e título nunca divergem). ISS retido/deduções/desconto seguem no fluxo do financeiro como antes.
+    if (registroId && retencoesCalculadas && retencoesCalculadas.totalRetido > 0) {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({
+        valor_inss_ret: retencoesCalculadas.valorCp,
+        valor_irrf: retencoesCalculadas.valorIrrf,
+        valor_pis_ret: retencoesCalculadas.valorPisRet,
+        valor_cofins_ret: retencoesCalculadas.valorCofinsRet,
+        valor_csll_ret: retencoesCalculadas.valorCsllRet,
+      }).eq('id', registroId)
+    }
+
+    // #339 · histórico: retenção ajustada na nota (≠ cadastro do serviço) fica registrada — quem, quando, de/para
+    if (registroId && retNota && retCadastro && !retencoesNotaIguais(retNota, retCadastro)) {
+      await supabaseAdmin.from('audit_log_global').insert({
+        company_id: body.companyId, user_id: userId, tabela: 'erp_nfse_emitidas', registro_id: registroId,
+        acao: 'RETENCAO_AJUSTADA_NA_NOTA', valor_anterior: { cadastro_do_servico: retCadastro, servico_id: body.servicoId },
+        valor_novo: { nesta_nota: retNota },
+      }).then(() => {}, () => {})
+    }
+
+    // #286 · ISS retido pelo tomador/intermediário (tpRetISSQN 2/3): valor × alíquota usada na emissão (a municipal
+    // resolvida acima; no Simples, a da competência). O Ambiente Nacional calcula igual (XML da NF 421: pAliqAplic 3,00,
+    // vISSQN = vBC × 3%, vTotalRet = retenções federais + ISS). Grava na nota e a tela pré-preenche o título com ele.
+    const issRetido = issRetidoNfse(
+      Number(nfseReq.valorServicos),
+      nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1),
+      nfseReq.aliquotaISSSN ?? nfseReq.aliquotaIss,
+    )
+    if (registroId && issRetido > 0 && resposta.status !== 'rejeitada') {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_iss_retido: issRetido }).eq('id', registroId)
+    }
+
+    // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)
+    if (registroId && obraIdFinal) {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ obra_id: obraIdFinal }).eq('id', registroId)
+    }
+
+    // Registra a EMISSÃO (nada de falha silenciosa) — antes só cancelamento/consulta gravavam tentativa.
+    await registrarTentativaFiscal({
+      companyId: body.companyId,
+      notaTipo: 'nfse',
+      notaId: (registroId as string | null) ?? null,
+      operacao: 'emissao',
+      provider: 'focusnfe',
+      endpoint: 'nfse/emitir',
+      referencia: resposta.providerReference,
+      providerMensagem: resposta.motivoRejeicao ?? null,
+      resultado: resposta.status === 'autorizada' ? 'ok'
+        : resposta.status === 'rejeitada' ? 'rejeitada'
+        : resposta.status === 'processando' ? 'processando' : 'ok',
+      usuarioId: userId,
+    })
+
+    return NextResponse.json({
+      ok: resposta.ok,
+      nfseId: registroId,
+      status: resposta.status,
+      numero: resposta.numero,
+      codigoVerificacao: resposta.codigoVerificacao,
+      xmlUrl: resposta.xmlUrl,
+      pdfUrl: resposta.pdfUrl,
+      motivoRejeicao: humanizarErroFiscal(resposta.motivoRejeicao),
+      providerReference: resposta.providerReference,
+      ambiente: svc.ambiente,
+      medicaoAviso,
+      // #286 · o que foi na nota (a tela usa no "Gerar financeiro", sem redigitar) + grupos não enviados
+      retencoesFederais: retencoesCalculadas ? {
+        inss: retencoesCalculadas.valorCp, irrf: retencoesCalculadas.valorIrrf, pis: retencoesCalculadas.valorPisRet,
+        cofins: retencoesCalculadas.valorCofinsRet, csll: retencoesCalculadas.valorCsllRet, total: retencoesCalculadas.totalRetido,
+      } : null,
+      issRetido: issRetido > 0 ? issRetido : null,
+      avisosTributos: avisosTributos.length ? avisosTributos : undefined,
+    })
+  } catch (err) {
+    if (isFiscalError(err)) {
+      const j = err.toJSON() as Record<string, unknown>
+      if (typeof j.mensagem === 'string') j.mensagem = humanizarErroFiscal(j.mensagem)
+      if (typeof j.motivoRejeicao === 'string') j.motivoRejeicao = humanizarErroFiscal(j.motivoRejeicao)
+      return NextResponse.json(j, { status: 502 })
+    }
+    return NextResponse.json(
+      { ok: false, mensagem: humanizarErroFiscal((err as Error)?.message) ?? 'Erro interno' },
+      { status: 500 }
+    )
+  }
+})

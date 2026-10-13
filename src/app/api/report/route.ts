@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 
@@ -83,6 +84,7 @@ Uma carta pessoal e direta ao empresário, como um conselheiro de confiança. Fa
 
 Use linguagem profissional mas acessível. Cite números específicos dos dados. Seja DIRETO e HONESTO — o empresário precisa da verdade, não de amenidades.`;
 
+    const modelo = modeloPara('relatorio');
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -91,7 +93,7 @@ Use linguagem profissional mas acessível. Cite números específicos dos dados.
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: modelo,
         max_tokens: 4000,
         messages: [{ role: "user", content: prompt }],
       }),
@@ -99,8 +101,9 @@ Use linguagem profissional mas acessível. Cite números específicos dos dados.
 
     const claudeData = await claudeRes.json();
 
-    if (claudeData.error) {
-      return NextResponse.json({ error: `Erro Claude API: ${claudeData.error.message}` }, { status: 500 });
+    if (!claudeRes.ok || claudeData.error) {
+      await registrarFalhaIA({ endpoint: '/api/report', finalidade: 'relatorio', modelo, status: claudeRes.status, erro: claudeData?.error?.message || 'sem corpo' });
+      return NextResponse.json({ error: `Erro Claude API: ${claudeData.error?.message || claudeRes.status}` }, { status: 500 });
     }
 
     const reportText = claudeData.content?.map((c: any) => c.text || "").join("") || "Erro ao gerar relatório";
@@ -109,7 +112,7 @@ Use linguagem profissional mas acessível. Cite números específicos dos dados.
       success: true,
       report: reportText,
       generated_at: new Date().toISOString(),
-      model: "claude-sonnet-4",
+      model: modelo,
     });
     response.headers.set("Cache-Control", "no-store");
     return response;

@@ -1,6 +1,6 @@
-import { Wheat } from 'lucide-react'
-import AreaRootPlaceholder from '@/components/area/AreaRootPlaceholder'
+import { redirect } from 'next/navigation'
 
+// A tela inicial do módulo Agro é o Dashboard da fazenda (DASHBOARD-AGRO Sprint 1).
 export default function AgroRootPage() {
-  return <AreaRootPlaceholder areaId="agro" fallbackNome="Agro" fallbackIcon={<Wheat size={24} />} />
+  redirect('/dashboard/agro/dashboard')
 }

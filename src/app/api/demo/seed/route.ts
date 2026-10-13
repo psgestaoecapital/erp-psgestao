@@ -281,10 +281,16 @@ async function handlerCore(_req: NextRequest, _user: { userId: string; userEmail
     await supabase.from("orcamento").delete().eq("company_id", companyId);
 
     // 3. Create business lines
-    for (const linha of LINHAS) {
+    // Colunas reais de business_lines: name, type, ln_number, is_active (não nome/tipo/produtos/pessoas).
+    // O insert antigo usava colunas inexistentes → linha sem `type` (ou falha), o que "ensina o robô a
+    // auditar errado". Agora grava name/type/ln_number corretos, com type default 'servico'.
+    for (const [idx, linha] of LINHAS.entries()) {
       const { data: bl } = await supabase.from("business_lines").insert({
-        company_id: companyId, nome: linha.nome, tipo: linha.tipo,
-        produtos: linha.produtos, pessoas: linha.pessoas,
+        company_id: companyId,
+        name: linha.nome,
+        type: linha.tipo || 'servico',
+        ln_number: idx + 1,
+        is_active: true,
       }).select().single();
 
       // Create config per month

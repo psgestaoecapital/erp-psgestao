@@ -1,26 +1,51 @@
 "use client";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { APP_URL } from "@/lib/appUrl";
+import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
+import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
+import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
 const BD="var(--ps-border,#E0D8CC)",GO="var(--ps-gold,#C8941A)";
 const G="#22C55E",R="#EF4444",B="#3B82F6",Y="#F59E0B",P="#8B5CF6",T="#14B8A6";
 
+// FEAT-OS-ONDA1-ITENS-SERVICO-BOM-v1 · item polimorfico
 type ItemOrc = {
   id?:string; ordem:number;
+  tipo_item:'produto'|'servico';
   produto_id?:string; produto_codigo:string; produto_nome:string; produto_descricao?:string;
+  servico_id?:string; servico_codigo?:string; servico_descricao?:string;
   unidade:string; quantidade:number; preco_unitario:number; preco_custo?:number;
   desconto_percentual:number; desconto_valor:number;
-  subtotal:number; margem_percentual?:number;
+  subtotal:number; margem_percentual?:number; bdi_percentual?:number;
+  aliquota_iss?:number; // override do ISS por item (default vem do cadastro do serviço)
+  iss_retido?:boolean;  // ISS retido na fonte por item (override do cadastro)
+  valor_iss?:number;    // valor do ISS (subtotal * aliquota/100) — persistido p/ emissão/financeiro
+  setor_id?:string|null; // DEPRECATED (era compliance_setores) — não usar
+  centro_custo_id?:string|null; // rateio gerencial → erp_centros_custo
+  _srv_aliquota_padrao?:number; // só p/ hint "padrão do cadastro" — não persiste
   observacoes?:string;
+  _srv_eng?:boolean; // linha = serviço do catálogo de ENGENHARIA (projetos_servicos), precificado com BDI
+};
+
+// Semáforo de margem (diferencial "Saúde"): negativa (prejuízo) → apertada → saudável.
+const statusMargem=(m?:number|null):{cor:string;label:string}=>{
+  if(m==null||!Number.isFinite(m)) return {cor:TXD,label:'—'};
+  if(m<0) return {cor:R,label:'negativa'};
+  if(m<15) return {cor:Y,label:'apertada'};
+  return {cor:G,label:'saudável'};
 };
 
 type Orcamento = {
   id:string; company_id:string; numero:string; versao:number;
+  pdf_anexo_path?:string|null; // Tryo #264 · PDF do orçamento feito fora (fn_orcamento_anexar_pdf)
   cliente_id:string; cliente_nome:string; cliente_cnpj:string; cliente_email:string; cliente_telefone:string;
-  data_emissao:string; data_validade:string; data_aprovacao:string;
+  data_emissao:string; data_validade:string; data_aprovacao:string; data_previsao_faturamento?:string|null;
   status:string; vendedor_nome:string; comissao_percentual:number;
   condicao_pagamento:string; prazo_entrega_dias:number; forma_pagamento:string;
   frete_tipo:string; frete_valor:number;
@@ -28,6 +53,7 @@ type Orcamento = {
   observacoes:string; observacoes_internas:string; texto_proposta:string;
   hash_publico:string; visualizado_em:string; qtd_visualizacoes:number;
   pedido_id:string; convertido_em:string;
+  eh_obra?:boolean|null; // #82③ · este orçamento é de obra? controla criação automática da obra no Hub
   created_at:string; updated_at:string;
   itens?:ItemOrc[];
 };
@@ -51,21 +77,39 @@ const fmtQ=(v:number)=>(v||0).toLocaleString("pt-BR",{maximumFractionDigits:3});
 const fmtD=(v:string)=>v?new Date(v+'T00:00:00').toLocaleDateString("pt-BR"):'—';
 const addDias=(d:number)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
 
-const EMPTY_ITEM:ItemOrc = {ordem:0,produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
+// Modelo padrão da observação (demanda #3 Jordana): pré-preenche o campo em orçamento
+// novo; a vendedora edita os valores antes de enviar. Sai na proposta pública (PDF).
+const OBS_PADRAO="O presente orçamento pode sofrer variações durante a execução do serviço.\nFormas de pagamento: À vista R$ ____ | Parcelado (cartão ou boleto) R$ ____.";
+const EMPTY_ITEM:ItemOrc = {ordem:0,tipo_item:'produto',produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
+const EMPTY_ITEM_SERVICO:ItemOrc = {ordem:0,tipo_item:'servico',produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
+const EMPTY_ITEM_SERVICO_ENG:ItemOrc = {ordem:0,tipo_item:'servico',_srv_eng:true,produto_codigo:'',produto_nome:'',servico_codigo:'',servico_descricao:'',unidade:'UN',quantidade:1,preco_unitario:0,preco_custo:0,desconto_percentual:0,desconto_valor:0,subtotal:0};
 
 export default function OrcamentosPage(){
+  const router = useRouter();
   const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [orcamentos,setOrcamentos]=useState<Orcamento[]>([]);
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
+  // F2.7 · vínculo com oportunidade: filtro "Sem oportunidade" + recorte por ?oportunidades= (link da coluna do Kanban).
+  const [filtroVinculo,setFiltroVinculo]=useState<'todos'|'sem_oport'>('todos');
+  const [linkedOrcIds,setLinkedOrcIds]=useState<Set<string>>(new Set());
+  const [oportFiltroOrcIds,setOportFiltroOrcIds]=useState<string[]|null>(null);
+  const [oportFiltroAtivo,setOportFiltroAtivo]=useState(false);
   const [showForm,setShowForm]=useState(false);
+  const [showNumeracao,setShowNumeracao]=useState(false);
   const [editing,setEditing]=useState<Orcamento|null>(null);
+  // Tryo #264 · PDF do orçamento escolhido já na criação — sobe assim que o orçamento é criado
+  const [pdfNovo,setPdfNovo]=useState<File|null>(null);
+  const [pdfValor,setPdfValor]=useState<string>("");
+  const [permEdit,setPermEdit]=useState<{pode_editar:boolean;precisa_liberacao:boolean;edicao_liberada:boolean;pode_liberar:boolean;motivo:string;status:string}|null>(null);
   const [msg,setMsg]=useState("");
 
   // Form state
   const [form,setForm]=useState<Partial<Orcamento>>({});
   const [itens,setItens]=useState<ItemOrc[]>([]);
+  // Centros de custo p/ rateio do item (erp_centros_custo — cadastro certo, não setor de RH)
+  const [centrosCusto,setCentrosCusto]=useState<{id:string;nome:string;codigo:string|null}[]>([]);
   
   // Autocomplete
   const [buscaCliente,setBuscaCliente]=useState("");
@@ -74,6 +118,10 @@ export default function OrcamentosPage(){
   const [produtosCache,setProdutosCache]=useState<any[]>([]);
   const [buscaProduto,setBuscaProduto]=useState<{idx:number;termo:string}|null>(null);
   const [produtosBusca,setProdutosBusca]=useState<any[]>([]);
+  // Contexto de ENGENHARIA (Hub/Projetos): BDI + trava de preço. Decidido por presença de config, não por empresa hardcoded.
+  const [bdiPct,setBdiPct]=useState(0);
+  const [temProjetos,setTemProjetos]=useState(false);
+  const [podeAlterarPreco,setPodeAlterarPreco]=useState(true);
 
   // Empresa individual para novos orçamentos
   const companyIdParaCadastro = useMemo(()=>{
@@ -85,11 +133,44 @@ export default function OrcamentosPage(){
     if(companyIds.length>0){loadOrcamentos();loadProdutos();}
   },[companyIds.join(",")]);
 
+  // Carrega os centros de custo da empresa do orçamento (rateio do item).
+  useEffect(()=>{
+    const cid=editing?.company_id||companyIdParaCadastro;
+    if(!showForm||!cid){return;}
+    let alive=true;
+    void(async()=>{
+      const{data}=await supabase.from("erp_centros_custo").select("id,nome,codigo").eq("company_id",cid).eq("ativo",true).order("nome");
+      if(alive)setCentrosCusto((data||[]) as {id:string;nome:string;codigo:string|null}[]);
+    })();
+    return()=>{alive=false;};
+  },[showForm,editing,companyIdParaCadastro]);
+
+  // Contexto de engenharia: se a empresa tem projetos_modulo_config → habilita busca de serviço
+  // de engenharia + BDI. Trava de preço: vendedor_pode_alterar_preco, senão só quem pode gerir (master).
+  useEffect(()=>{
+    const cid=companyIdParaCadastro;
+    if(!cid){setTemProjetos(false);setBdiPct(0);setPodeAlterarPreco(true);return;}
+    (async()=>{
+      const{data:cfg}=await supabase.from("projetos_modulo_config").select("bdi_total_pct,vendedor_pode_alterar_preco").eq("company_id",cid).maybeSingle();
+      if(!cfg){setTemProjetos(false);setBdiPct(0);setPodeAlterarPreco(true);return;}
+      setTemProjetos(true);
+      setBdiPct(Number(cfg.bdi_total_pct)||0);
+      let pode=!!cfg.vendedor_pode_alterar_preco;
+      if(!pode){
+        const{data:g}=await supabase.rpc("fn_acessos_pode_gerir",{p_company_id:cid});
+        pode=!!g;
+      }
+      setPodeAlterarPreco(pode);
+    })();
+  },[companyIdParaCadastro]);
+
   useEffect(()=>{
     if(buscaCliente.length<2){setClientesBusca([]);return;}
     if(companyIds.length===0)return;
+    const orFiltro=orFiltroClienteBusca(buscaCliente);
+    if(!orFiltro){setClientesBusca([]);return;}
     const t=setTimeout(async()=>{
-      const{data}=await supabase.from("erp_clientes").select("id,razao_social,nome_fantasia,cpf_cnpj,email,telefone,company_id").in("company_id",companyIds).eq("ativo",true).or(`razao_social.ilike.%${buscaCliente}%,nome_fantasia.ilike.%${buscaCliente}%,cpf_cnpj.ilike.%${buscaCliente.replace(/\D/g,'')}%`).limit(8);
+      const{data}=await supabase.from("erp_clientes").select("id,razao_social,nome_fantasia,cpf_cnpj,email,telefone,company_id").in("company_id",companyIds).eq("ativo",true).or(orFiltro).limit(8);
       setClientesBusca(data||[]);
     },250);
     return()=>clearTimeout(t);
@@ -105,7 +186,7 @@ export default function OrcamentosPage(){
   const loadOrcamentos=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).order("data_emissao",{ascending:false}).limit(100);
+    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).order("data_emissao",{ascending:false}).order("created_at",{ascending:false}).limit(100);
     if(data)setOrcamentos(data);
     if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
     setLoading(false);
@@ -117,6 +198,41 @@ export default function OrcamentosPage(){
     if(data)setProdutosCache(data);
   };
 
+  // Deep-link: abrir automaticamente o orçamento do ?id= na URL (ex: vindo do
+  // botão "Abrir orçamento vinculado" da ficha da oportunidade). Antes o link
+  // navegava pra cá mas a página ignorava o id → "não abria". Abre 1x quando a
+  // lista carrega. (window.location evita o Suspense-boundary do useSearchParams.)
+  const deepLinkAberto=useRef(false);
+  useEffect(()=>{
+    if(deepLinkAberto.current || orcamentos.length===0) return;
+    const id=typeof window!=='undefined' ? new URLSearchParams(window.location.search).get('id') : null;
+    if(!id) return;
+    const o=orcamentos.find(x=>x.id===id);
+    if(o){ deepLinkAberto.current=true; void abrirEdicao(o); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[orcamentos]);
+
+  // F2.7 · linkagem oportunidade↔orçamento (erp_orcamentos não tem oportunidade_id; o vínculo mora na
+  // oportunidade). Carrega o conjunto de orçamentos vinculados + o recorte do ?oportunidades= da URL.
+  useEffect(()=>{
+    if(companyIds.length===0)return;
+    let alive=true;
+    void(async()=>{
+      const{data}=await supabase.from("erp_crm_oportunidade").select("id,orcamento_id").in("company_id",companyIds).is("deleted_at",null).not("orcamento_id","is",null);
+      if(!alive)return;
+      const rows=(data??[]) as {id:string;orcamento_id:string}[];
+      setLinkedOrcIds(new Set(rows.map(r=>r.orcamento_id)));
+      const param=typeof window!=='undefined'?new URLSearchParams(window.location.search).get('oportunidades'):null;
+      if(param){
+        const opIds=param.split(',').filter(Boolean);
+        setOportFiltroOrcIds(rows.filter(r=>opIds.includes(r.id)).map(r=>r.orcamento_id));
+        setOportFiltroAtivo(true);
+      } else { setOportFiltroOrcIds(null); setOportFiltroAtivo(false); }
+    })();
+    return()=>{alive=false;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[companyIds.join(",")]);
+
   const abrirNovo=async()=>{
     if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa");return;}
     
@@ -125,7 +241,7 @@ export default function OrcamentosPage(){
       if(!confirm(`Novo orçamento será criado em "${empresaNome}". Continuar?`))return;
     }
     
-    setEditing(null);
+    setEditing(null);setPdfNovo(null);setPdfValor("");
     // Gera número automático
     const{data}=await supabase.rpc('next_orcamento_numero',{p_company_id:companyIdParaCadastro});
     const numero=data||`ORC-${new Date().getFullYear()}-0001`;
@@ -134,16 +250,63 @@ export default function OrcamentosPage(){
       status:'rascunho',versao:1,
       condicao_pagamento:'30 dias',prazo_entrega_dias:10,
       subtotal:0,desconto_percentual:0,desconto_valor:0,acrescimo_valor:0,frete_valor:0,total:0,
+      observacoes:OBS_PADRAO,
     });
     setItens([{...EMPTY_ITEM,ordem:1}]);
     setBuscaCliente("");
     setShowForm(true);
   };
 
+  const carregarPerm=async(o:Orcamento)=>{
+    const{data}=await supabase.rpc('fn_orcamento_pode_editar',{p_orcamento_id:o.id});
+    const p=data as {ok:boolean;pode_editar?:boolean;precisa_liberacao?:boolean;edicao_liberada?:boolean;pode_liberar?:boolean;motivo?:string;status?:string;erro?:string}|null;
+    if(!p||p.ok===false){setMsg('Erro: '+(p?.erro||'sem permissao'));return null;}
+    return {
+      pode_editar:!!p.pode_editar, precisa_liberacao:!!p.precisa_liberacao,
+      edicao_liberada:!!p.edicao_liberada, pode_liberar:!!p.pode_liberar,
+      motivo:p.motivo||'', status:p.status||'',
+    };
+  };
+
   const abrirEdicao=async(o:Orcamento)=>{
-    setEditing(o);setForm({...o});
-    const{data}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id).order("ordem");
-    setItens((data||[]).map(i=>({...i,quantidade:Number(i.quantidade),preco_unitario:Number(i.preco_unitario),desconto_percentual:Number(i.desconto_percentual),desconto_valor:Number(i.desconto_valor),subtotal:Number(i.subtotal)})));
+    const perm=await carregarPerm(o);
+    if(!perm)return;
+    setPermEdit(perm);
+    if(!perm.pode_editar){
+      if(perm.precisa_liberacao && !perm.pode_liberar){
+        setMsg('🔒 '+perm.motivo+'. Peça a um gestor para liberar a edição.');
+        setTimeout(()=>setMsg(""),5000);
+        return;
+      }
+      if(!perm.precisa_liberacao){
+        setMsg('🔒 '+perm.motivo);
+        setTimeout(()=>setMsg(""),5000);
+        return;
+      }
+      // precisa_liberacao && pode_liberar: prompt motivo e libera
+      const motivo=prompt('Motivo da liberação da edição (opcional):','Revisão solicitada pelo cliente');
+      if(motivo===null)return;
+      const{data:lib,error}=await supabase.rpc('fn_orcamento_liberar_edicao',{p_orcamento_id:o.id,p_motivo:motivo||null});
+      if(error){setMsg('Erro ao liberar: '+error.message);return;}
+      const r=lib as {ok:boolean;erro?:string}|null;
+      if(!r||r.ok===false){setMsg('Erro ao liberar: '+(r?.erro||'falha'));return;}
+      const perm2=await carregarPerm(o);
+      if(!perm2||!perm2.pode_editar){setMsg('Falha ao reabrir após liberação.');return;}
+      setPermEdit(perm2);
+    }
+    setEditing(o);setForm({...o,observacoes:o.observacoes||OBS_PADRAO});
+    const{data:itensData}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id).order("ordem");
+    setItens((itensData||[]).map(i=>({
+      ...i,
+      tipo_item:(i.tipo_item==='servico'?'servico':'produto') as 'produto'|'servico',
+      _srv_eng: i.tipo_item==='servico' && Number(i.preco_custo||0)>0, // serviço com custo = engenharia (BDI)
+      quantidade:Number(i.quantidade),preco_unitario:Number(i.preco_unitario),
+      desconto_percentual:Number(i.desconto_percentual),desconto_valor:Number(i.desconto_valor),
+      subtotal:Number(i.subtotal),
+      bdi_percentual:i.bdi_percentual!=null?Number(i.bdi_percentual):undefined,
+      margem_percentual:i.margem_percentual!=null?Number(i.margem_percentual):undefined,
+      aliquota_iss:i.aliquota_iss!=null?Number(i.aliquota_iss):undefined,
+    })));
     setBuscaCliente(o.cliente_nome||'');
     setShowForm(true);
   };
@@ -162,6 +325,71 @@ export default function OrcamentosPage(){
   };
 
   const addItem=()=>setItens([...itens,{...EMPTY_ITEM,ordem:itens.length+1}]);
+  const addItemServico=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO,ordem:itens.length+1}]);
+  const addItemServicoEng=()=>setItens([...itens,{...EMPTY_ITEM_SERVICO_ENG,ordem:itens.length+1}]);
+  // Serviço de ENGENHARIA (RD-26): consome a v_projetos_bdi_impacto — custo do BOM, BDI do catálogo e
+  // preço de venda (= custo × (1+BDI)) já calculados pelo "cérebro" do BDI. Não recalcula BDI aqui; só
+  // usa. Fallback: se o serviço não estiver na view (BOM incompleto), usa o BDI padrão da empresa.
+  const selecionarServicoEng=async(idx:number,s:ServicoEngSelecionado)=>{
+    const cid=companyIdParaCadastro;
+    let custo=Number(s.custo_unitario_total)||0;
+    let bdi=bdiPct;
+    let preco=Math.round(custo*(1+bdi/100)*100)/100;
+    if(cid){
+      const{data:v}=await supabase.from('v_projetos_bdi_impacto')
+        .select('custo,bdi_total_pct,preco_venda,margem_aparente_pct')
+        .eq('company_id',cid).eq('servico_id',s.id).maybeSingle();
+      if(v){
+        custo=Number(v.custo)||custo;
+        bdi=Number(v.bdi_total_pct)||bdi;
+        preco=Number(v.preco_venda)||Math.round(custo*(1+bdi/100)*100)/100;
+      }
+    }
+    const novosItens=[...itens];
+    novosItens[idx]={
+      ...novosItens[idx],
+      tipo_item:'servico', _srv_eng:true,
+      servico_id:s.id, servico_codigo:s.codigo ?? '', servico_descricao:s.nome,
+      produto_nome:s.nome, unidade:s.unidade || 'UN',
+      preco_custo:custo, preco_unitario:preco, bdi_percentual:Math.round(bdi*100)/100,
+    };
+    recalcularItem(idx,novosItens); // recalcularItem deriva margem_percentual de (preço-custo)/preço
+  };
+  // FIX4 · editar o BDI% de um item recalcula o preço de venda na hora: preco = custo × (1 + BDI/100).
+  const alterarBdiItem=(idx:number,bdiNovo:number)=>{
+    const novos=[...itens]; const it=novos[idx];
+    const custo=Number(it.preco_custo)||0;
+    it.bdi_percentual=bdiNovo;
+    it.preco_unitario=Math.round(custo*(1+bdiNovo/100)*100)/100;
+    recalcularItem(idx,novos);
+  };
+  const limparServicoEng=(idx:number)=>{
+    const novosItens=[...itens];
+    novosItens[idx]={...novosItens[idx],servico_id:undefined,servico_codigo:'',servico_descricao:'',produto_nome:'',preco_custo:0,preco_unitario:0};
+    setItens(novosItens);
+  };
+  const selecionarServico=(idx:number,s:ServicoSelecionado)=>{
+    const novosItens=[...itens];
+    novosItens[idx]={
+      ...novosItens[idx],
+      tipo_item:'servico',
+      servico_id:s.id,
+      servico_codigo:s.codigo ?? '',
+      servico_descricao:s.descricao_resumida,
+      produto_nome:s.descricao_resumida, // pra exibicao + filtro de "valido"
+      unidade:'SV',
+      preco_unitario:Number(s.valor_unitario ?? 0),
+      // ISS: pré-preenche com o do cadastro (default), editável ali → vira override do item.
+      aliquota_iss:s.aliquota_iss!=null?Number(s.aliquota_iss):undefined,
+      _srv_aliquota_padrao:s.aliquota_iss!=null?Number(s.aliquota_iss):undefined,
+    };
+    recalcularItem(idx,novosItens);
+  };
+  const limparServico=(idx:number)=>{
+    const novosItens=[...itens];
+    novosItens[idx]={...novosItens[idx],servico_id:undefined,servico_codigo:'',servico_descricao:'',produto_nome:''};
+    setItens(novosItens);
+  };
   const removerItem=(idx:number)=>setItens(itens.filter((_,i)=>i!==idx).map((it,i)=>({...it,ordem:i+1})));
   
   const atualizarItem=(idx:number,campo:keyof ItemOrc,valor:any)=>{
@@ -189,7 +417,11 @@ export default function OrcamentosPage(){
 
   const salvar=async()=>{
     if(!form.cliente_id&&!form.cliente_nome){setMsg("❌ Selecione um cliente.");return;}
-    if(itens.length===0||!itens.some(i=>i.produto_nome)){setMsg("❌ Adicione pelo menos um item.");return;}
+    const itensValidosCheck = itens.filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome);
+    // Tryo #264 · orçamento feito FORA do sistema: basta o PDF (sem lista de itens). Com PDF escolhido agora ou já
+    // anexado, não exige item; sem PDF, continua exigindo pelo menos um item.
+    const temPdf = !!pdfNovo || !!editing?.pdf_anexo_path;
+    if(itensValidosCheck.length===0&&!temPdf){setMsg("❌ Adicione pelo menos um item (produto ou serviço) — ou anexe o PDF do orçamento feito fora do sistema.");return;}
 
     // Em modo consolidado, usa a empresa do cliente selecionado (se tiver) ou a primeira
     const clienteSel = clientesBusca.find(c=>c.id===form.cliente_id);
@@ -204,6 +436,7 @@ export default function OrcamentosPage(){
       cliente_id:form.cliente_id,cliente_nome:form.cliente_nome,cliente_cnpj:(form.cliente_cnpj||'').replace(/\D/g,''),
       cliente_email:form.cliente_email,cliente_telefone:form.cliente_telefone,
       data_emissao:form.data_emissao,data_validade:form.data_validade,
+      data_previsao_faturamento:form.data_previsao_faturamento||null,
       status:form.status||'rascunho',
       vendedor_nome:form.vendedor_nome,comissao_percentual:Number(form.comissao_percentual)||0,
       condicao_pagamento:form.condicao_pagamento,prazo_entrega_dias:Number(form.prazo_entrega_dias)||0,
@@ -214,6 +447,8 @@ export default function OrcamentosPage(){
       acrescimo_valor:Number(form.acrescimo_valor)||0,
       subtotal:totalItens,total:totalFinal,
       observacoes:form.observacoes,texto_proposta:form.texto_proposta,
+      // #82③ · este orçamento é de obra? controla a criação automática da obra no Hub (trigger condicional)
+      eh_obra:form.eh_obra??null,
     };
 
     let orcId=editing?.id;
@@ -226,17 +461,56 @@ export default function OrcamentosPage(){
       orcId=data.id;
     }
 
-    // Salvar itens: delete all e re-insert
+    // Salvar itens.
+    // Para orcamento EXISTENTE nao-rascunho: usa fn_orcamento_salvar_itens (valida trava + consome liberacao + log).
+    // Para criacao nova ou rascunho: delete+insert direto (caminho antigo).
     if(orcId){
-      await supabase.from("erp_orcamentos_itens").delete().eq("orcamento_id",orcId);
-      const itensValidos=itens.filter(i=>i.produto_nome).map((i,idx)=>({
-        orcamento_id:orcId,company_id:companyIdOrc,ordem:idx+1,
-        produto_id:i.produto_id,produto_codigo:i.produto_codigo,produto_nome:i.produto_nome,produto_descricao:i.produto_descricao,
-        unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
-        desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,subtotal:i.subtotal,
-        margem_percentual:i.margem_percentual,observacoes:i.observacoes,
-      }));
-      if(itensValidos.length>0)await supabase.from("erp_orcamentos_itens").insert(itensValidos);
+      const usaRpc = !!editing && (editing.status && editing.status !== 'rascunho');
+      const itensValidos=itens
+        .filter(i => i.tipo_item==='servico' ? !!i.servico_id : !!i.produto_nome);
+      if(usaRpc){
+        const payload=itensValidos.map(i=>({
+          tipo_item:i.tipo_item,
+          produto_id:i.tipo_item==='produto'?i.produto_id:null,
+          produto_codigo:i.tipo_item==='produto'?i.produto_codigo:null,
+          produto_nome:i.tipo_item==='produto'?i.produto_nome:null,
+          produto_descricao:i.tipo_item==='produto'?i.produto_descricao:null,
+          servico_id:i.tipo_item==='servico'?i.servico_id:null,
+          servico_codigo:i.tipo_item==='servico'?i.servico_codigo:null,
+          servico_descricao:i.tipo_item==='servico'?(i.servico_descricao || i.produto_nome):null,
+          unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
+          desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,observacoes:i.observacoes,
+          margem_percentual:i.margem_percentual,bdi_percentual:i.bdi_percentual,
+          aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
+          iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
+          setor_id:i.setor_id ?? null, centro_custo_id:i.centro_custo_id ?? null,
+        }));
+        const{data:rpc,error:rpcErr}=await supabase.rpc('fn_orcamento_salvar_itens',{p_orcamento_id:orcId,p_itens:payload});
+        if(rpcErr){setMsg('Erro ao salvar itens: '+rpcErr.message);return;}
+        const r=rpc as {ok:boolean;erro?:string}|null;
+        if(!r||r.ok===false){setMsg('Erro ao salvar itens: '+(r?.erro||'falha'));return;}
+      } else {
+        await supabase.from("erp_orcamentos_itens").delete().eq("orcamento_id",orcId);
+        const insertItens=itensValidos.map((i,idx)=>({
+          orcamento_id:orcId,company_id:companyIdOrc,ordem:idx+1,
+          tipo_item:i.tipo_item,
+          produto_id:i.tipo_item==='produto'?i.produto_id:null,
+          produto_codigo:i.tipo_item==='produto'?i.produto_codigo:null,
+          produto_nome:i.tipo_item==='produto'?i.produto_nome:null,
+          produto_descricao:i.tipo_item==='produto'?i.produto_descricao:null,
+          servico_id:i.tipo_item==='servico'?i.servico_id:null,
+          servico_codigo:i.tipo_item==='servico'?i.servico_codigo:null,
+          servico_descricao:i.tipo_item==='servico'?(i.servico_descricao || i.produto_nome):null,
+          unidade:i.unidade,quantidade:i.quantidade,preco_unitario:i.preco_unitario,preco_custo:i.preco_custo,
+          desconto_percentual:i.desconto_percentual,desconto_valor:i.desconto_valor,subtotal:i.subtotal,
+          margem_percentual:i.margem_percentual,bdi_percentual:i.bdi_percentual,observacoes:i.observacoes,
+          aliquota_iss:i.tipo_item==='servico'?(i.aliquota_iss ?? null):null,
+          iss_retido:i.tipo_item==='servico'?(i.iss_retido ?? null):null,
+          valor_iss:i.tipo_item==='servico'&&(i.aliquota_iss??0)>0?Math.round(i.subtotal*(i.aliquota_iss??0)/100*100)/100:null,
+          setor_id:i.setor_id ?? null, centro_custo_id:i.centro_custo_id ?? null,
+        }));
+        if(insertItens.length>0)await supabase.from("erp_orcamentos_itens").insert(insertItens);
+      }
     }
 
     // Log no histórico
@@ -246,8 +520,23 @@ export default function OrcamentosPage(){
       detalhe:`${editing?'Atualizado':'Criado'} — Total ${fmtR(totalFinal)}`,
     });
 
-    setMsg(`✅ Orçamento ${form.numero} ${editing?'atualizado':'criado'}!`);
-    setShowForm(false);setEditing(null);loadOrcamentos();
+    // Tryo #264 · PDF escolhido na criação: sobe para crm-anexos e grava pela RPC oficial (fn_orcamento_anexar_pdf)
+    let avisoPdf="";
+    if(!editing&&pdfNovo&&orcId){
+      try{
+        const safe=pdfNovo.name.replace(/[^\w.\-]+/g,"_").slice(-80);
+        const pdfPath=`${companyIdOrc}/orcamentos/${orcId}/${Date.now()}-${safe}`;
+        const up=await supabase.storage.from("crm-anexos").upload(pdfPath,pdfNovo,{upsert:false,contentType:"application/pdf"});
+        if(up.error)throw new Error(up.error.message);
+        const vNum=pdfValor.trim()===""?null:Number(pdfValor.replace(/\./g,"").replace(",","."));
+        const{data:rp,error:ep}=await supabase.rpc("fn_orcamento_anexar_pdf",{p_orcamento_id:orcId,p_path:pdfPath,p_valor:vNum!=null&&Number.isFinite(vNum)?vNum:null});
+        if(ep||!(rp as {ok?:boolean}|null)?.ok)throw new Error(ep?.message||"não gravou");
+      }catch{avisoPdf=" (o PDF não subiu — abra o orçamento e anexe de novo)";}
+    }
+    setPdfNovo(null);setPdfValor("");
+
+    setMsg(`✅ Orçamento ${form.numero} ${editing?'atualizado':'criado'}!${avisoPdf}`);
+    setShowForm(false);setEditing(null);setPermEdit(null);loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
   };
 
@@ -255,6 +544,11 @@ export default function OrcamentosPage(){
     const update:any={status:novoStatus};
     if(novoStatus==='aprovado')update.data_aprovacao=new Date().toISOString();
     if(novoStatus==='recusado')update.data_recusa=new Date().toISOString();
+    // Enviar: garante o hash público (link do cliente). enviado_em não existe como coluna —
+    // o histórico abaixo já timestampa o envio (RD-44: não escrever em coluna inexistente).
+    if(novoStatus==='enviado'&&!o.hash_publico){
+      update.hash_publico=(crypto.randomUUID()+crypto.randomUUID()).replace(/-/g,"").slice(0,40);
+    }
     await supabase.from("erp_orcamentos").update(update).eq("id",o.id);
     await supabase.from("erp_orcamento_historico").insert({
       orcamento_id:o.id,company_id:o.company_id,evento:`status_${novoStatus}`,detalhe:`Status alterado para ${STATUS_CFG[novoStatus]?.label}`
@@ -264,12 +558,22 @@ export default function OrcamentosPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  const linkPublico=(o:Orcamento)=>`${APP_URL}/orcamento/${o.hash_publico}`;
+
   const copiarLinkPublico=(o:Orcamento)=>{
-    const url=`${window.location.origin}/orcamento/${o.hash_publico}`;
-    navigator.clipboard.writeText(url);
-    setMsg(`✅ Link copiado: ${url}`);
+    navigator.clipboard.writeText(linkPublico(o));
+    setMsg(`✅ Link copiado: ${linkPublico(o)}`);
     setTimeout(()=>setMsg(""),3000);
   };
+
+  // Compartilha a proposta por WhatsApp (o vendedor escolhe o contato). Só o link do hash — Pilar 2.
+  const enviarWhatsApp=(o:Orcamento)=>{
+    const texto=`Olá! Segue a proposta ${o.numero}: ${linkPublico(o)}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`,"_blank");
+  };
+
+  // Abre a MESMA página pública que o cliente vê (não recria — RD-52/#674).
+  const verComoCliente=(o:Orcamento)=>window.open(linkPublico(o),"_blank");
 
   const duplicar=async(o:Orcamento)=>{
     const{data:numero}=await supabase.rpc('next_orcamento_numero',{p_company_id:o.company_id});
@@ -294,14 +598,19 @@ export default function OrcamentosPage(){
       const b=busca.toLowerCase();
       r=r.filter(o=>(o.numero||'').toLowerCase().includes(b)||(o.cliente_nome||'').toLowerCase().includes(b)||(o.cliente_cnpj||'').includes(b.replace(/\D/g,'')));
     }
+    if(oportFiltroOrcIds!==null)r=r.filter(o=>oportFiltroOrcIds.includes(o.id)); // F2.7 · recorte por oportunidades da coluna
+    if(filtroVinculo==='sem_oport')r=r.filter(o=>!linkedOrcIds.has(o.id));       // F2.7 · só os sem oportunidade
     return r;
-  },[orcamentos,filtroStatus,busca]);
+  },[orcamentos,filtroStatus,busca,oportFiltroOrcIds,filtroVinculo,linkedOrcIds]);
 
-  const kpiTotal=orcamentos.filter(o=>o.status!=='recusado'&&o.status!=='expirado').length;
+  // F2.7 · "Total ativos" deixa de contar rascunho: Ativos e Rascunhos separados (achado P2).
+  const kpiAtivos=orcamentos.filter(o=>!['recusado','expirado','rascunho'].includes(o.status)).length;
+  const kpiRascunhos=orcamentos.filter(o=>o.status==='rascunho').length;
+  const kpiBaseConversao=orcamentos.filter(o=>o.status!=='recusado'&&o.status!=='expirado').length;
   const kpiAprovados=orcamentos.filter(o=>o.status==='aprovado').length;
   const kpiPendentes=orcamentos.filter(o=>['enviado','visualizado'].includes(o.status)).length;
   const kpiValorPendente=orcamentos.filter(o=>['enviado','visualizado','rascunho'].includes(o.status)).reduce((s,o)=>s+Number(o.total||0),0);
-  const kpiTaxaConversao=kpiTotal>0?(kpiAprovados/kpiTotal)*100:0;
+  const kpiTaxaConversao=kpiBaseConversao>0?(kpiAprovados/kpiBaseConversao)*100:0;
 
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:6,padding:"8px 10px",fontSize:12,outline:"none",width:"100%"};
 
@@ -309,7 +618,10 @@ export default function OrcamentosPage(){
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX}}>💰 Orçamentos</div>
+          <div style={{fontSize:22,fontWeight:700,color:TX,display:'flex',alignItems:'center',gap:8}}>
+            💰 Orçamentos
+            <span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:GO+'20',color:GO,fontWeight:700,letterSpacing:0.5}}>v4</span>
+          </div>
           <div style={{fontSize:11,color:TXD,display:"flex",alignItems:"center",gap:6}}>
             <span>Ciclo de vendas — propostas comerciais com aprovação digital</span>
             <span>·</span>
@@ -320,16 +632,34 @@ export default function OrcamentosPage(){
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          {companyIdParaCadastro && (
+            <button onClick={()=>setShowNumeracao(true)} title="Configurar a numeração dos orçamentos"
+              style={{padding:"8px 12px",borderRadius:8,background:"transparent",color:"#3D2314",fontSize:12,fontWeight:600,border:"1px solid rgba(61,35,20,0.15)",cursor:"pointer"}}>⚙ Numeração</button>
+          )}
           <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo Orçamento</button>
         </div>
       </div>
+      {showNumeracao && companyIdParaCadastro && (
+        <NumeracaoConfigModal companyId={companyIdParaCadastro} onClose={()=>setShowNumeracao(false)} />
+      )}
 
       {msg&&<div style={{background:msg.startsWith("✅")?G+"15":msg.startsWith("❌")?R+"15":Y+"15",border:`1px solid ${msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y}40`,borderRadius:8,padding:"8px 14px",marginBottom:12,fontSize:11,color:msg.startsWith("✅")?G:msg.startsWith("❌")?R:Y,cursor:"pointer"}} onClick={()=>setMsg("")}>{msg}</div>}
 
+      {/* F2.7 · aviso honesto quando o link da coluna trouxe um recorte (e pode estar vazio) */}
+      {oportFiltroAtivo && (
+        <div className="no-print" style={{background:GO+"12",border:`1px solid ${GO}55`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11.5,color:"#7A5A0F",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span>{(oportFiltroOrcIds?.length??0)===0
+            ? "Nenhuma oportunidade desta etapa tem orçamento vinculado ainda. Use “+ Gerar orçamento” no card do Kanban."
+            : `Mostrando só os orçamentos das oportunidades desta etapa (${oportFiltroOrcIds?.length}).`}</span>
+          <button onClick={()=>router.push('/dashboard/orcamentos')} style={{border:`1px solid ${GO}`,background:"#fff",color:"#7A5A0F",borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Ver todos</button>
+        </div>
+      )}
+
       {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
+      <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:16}}>
         {[
-          {l:"Total Ativos",v:String(kpiTotal),c:B,icon:"📋"},
+          {l:"Ativos",v:String(kpiAtivos),c:B,icon:"📋"},
+          {l:"Rascunhos",v:String(kpiRascunhos),c:TXM,icon:"📝"},
           {l:"Aguardando",v:String(kpiPendentes),c:Y,icon:"⏳"},
           {l:"Aprovados",v:String(kpiAprovados),c:G,icon:"✅"},
           {l:"Conversão",v:`${kpiTaxaConversao.toFixed(1)}%`,c:kpiTaxaConversao>50?G:kpiTaxaConversao>30?Y:R,icon:"📊"},
@@ -343,7 +673,7 @@ export default function OrcamentosPage(){
       </div>
 
       {/* Filtros */}
-      <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
+      <div className="no-print" style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200,position:"relative"}}>
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por número, cliente, CNPJ..." style={{...inp,paddingLeft:32}}/>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
@@ -353,6 +683,9 @@ export default function OrcamentosPage(){
           {Object.entries(STATUS_CFG).map(([k,cfg])=>(
             <button key={k} onClick={()=>setFiltroStatus(k)} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroStatus===k?cfg.cor:BD}`,background:filtroStatus===k?cfg.cor+"12":"transparent",color:filtroStatus===k?cfg.cor:TXM,cursor:"pointer",fontWeight:filtroStatus===k?600:400}}>{cfg.icon} {cfg.label}</button>
           ))}
+          {/* F2.7 · filtrar os órfãos (sem oportunidade vinculada) */}
+          <button onClick={()=>setFiltroVinculo(v=>v==='sem_oport'?'todos':'sem_oport')} title="Orçamentos que não estão vinculados a nenhuma oportunidade"
+            style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroVinculo==='sem_oport'?GO:BD}`,background:filtroVinculo==='sem_oport'?GO+"12":"transparent",color:filtroVinculo==='sem_oport'?GO:TXM,cursor:"pointer",fontWeight:filtroVinculo==='sem_oport'?600:400}}>🔗 Sem oportunidade</button>
         </div>
       </div>
 
@@ -361,10 +694,15 @@ export default function OrcamentosPage(){
         <div style={{background:BG2,borderRadius:12,padding:20,marginBottom:16,border:`1px solid ${GO}40`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
             <div>
-              <div style={{fontSize:16,fontWeight:700,color:TX}}>{editing?"Editar":"Novo"} Orçamento</div>
+              <div style={{fontSize:16,fontWeight:700,color:TX,display:"flex",alignItems:"center",gap:6}}>
+                {editing?"Editar":"Novo"} Orçamento
+                {editing && permEdit?.edicao_liberada && (
+                  <span title="Liberação consumida ao salvar" style={{fontSize:9,padding:"2px 6px",borderRadius:3,background:"#FEF3C7",color:"#7A5A0F",fontWeight:700,letterSpacing:0.4,textTransform:"uppercase"}}>🟡 Edição liberada</span>
+                )}
+              </div>
               <div style={{fontSize:11,color:TXD}}>Número: <span style={{fontFamily:"monospace",fontWeight:600,color:GO}}>{form.numero}</span>{(form.versao||1)>1&&<span> · v{form.versao}</span>}</div>
             </div>
-            <button onClick={()=>{setShowForm(false);setEditing(null);}} style={{background:"none",border:"none",color:TXD,fontSize:18,cursor:"pointer"}}>✕</button>
+            <button onClick={()=>{setShowForm(false);setEditing(null);setPermEdit(null);}} style={{background:"none",border:"none",color:TXD,fontSize:18,cursor:"pointer"}}>✕</button>
           </div>
 
           {/* Cliente */}
@@ -388,12 +726,30 @@ export default function OrcamentosPage(){
               <input type="date" value={form.data_emissao} onChange={e=>setForm({...form,data_emissao:e.target.value})} style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Validade</div>
               <input type="date" value={form.data_validade} onChange={e=>setForm({...form,data_validade:e.target.value})} style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3}} title="Quando se espera faturar — alimenta a previsão de receita">Previsão de Faturamento</div>
+              <input type="date" value={form.data_previsao_faturamento??''} onChange={e=>setForm({...form,data_previsao_faturamento:e.target.value||null})} style={inp}/></div>
           </div>
+
+          {/* #82③ · obra é ESCOLHA: só aparece p/ empresa com Hub de Obras. Marcado = cria obra ao aprovar. */}
+          {temProjetos && (
+            <div style={{background:GO+"10",border:`1px solid ${GO}40`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"flex-start",gap:8}}>
+              <input type="checkbox" id="orc-eh-obra" checked={form.eh_obra ?? true} onChange={e=>setForm({...form,eh_obra:e.target.checked})} style={{marginTop:2}}/>
+              <label htmlFor="orc-eh-obra" style={{fontSize:11.5,color:"#3D2314",cursor:"pointer",lineHeight:1.4}}>
+                <b>Este orçamento é de obra.</b> Ao aprovar/converter, cria a obra no Hub de Projetos. <b>Desmarque</b> se for só serviço (não cria obra) — é o caso de quem fatura só serviço.
+              </label>
+            </div>
+          )}
 
           {/* Itens */}
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span>📦 Itens do Orçamento</span>
-            <button onClick={addItem} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>+ Adicionar Item</button>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={addItem} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>+ Produto</button>
+              <button onClick={addItemServico} data-testid="orc-add-servico" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:P+"15",color:P,border:`1px solid ${P}40`,cursor:"pointer",fontWeight:600}}>+ Serviço</button>
+              {temProjetos && (
+                <button onClick={addItemServicoEng} data-testid="orc-add-servico-eng" title={`Serviço do catálogo de engenharia (preço = custo + BDI ${bdiPct}%)`} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:"#7C3AED15",color:"#7C3AED",border:`1px solid #7C3AED40`,cursor:"pointer",fontWeight:600}}>+ Serviço eng.</button>
+              )}
+            </div>
           </div>
           <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
             <div style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",fontSize:10,color:TXD,fontWeight:600,padding:"4px 0",borderBottom:`1px solid ${BD}`}}>
@@ -401,28 +757,105 @@ export default function OrcamentosPage(){
             </div>
             {itens.map((it,idx)=>(
               <div key={idx} style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
-                <div style={{fontSize:10,color:TXD,textAlign:"center"}}>{it.ordem}</div>
+                <div style={{fontSize:10,color:TXD,textAlign:"center"}}>
+                  {it.ordem}
+                  <div style={{fontSize:8,fontWeight:700,color:it._srv_eng?"#7C3AED":(it.tipo_item==='servico'?P:GO),marginTop:2}}>{it._srv_eng?'SRV-ENG':(it.tipo_item==='servico'?'SRV':'PRD')}</div>
+                </div>
                 <div style={{position:"relative"}}>
-                  <input value={it.produto_nome} onChange={e=>{atualizarItem(idx,'produto_nome',e.target.value);setBuscaProduto({idx,termo:e.target.value});}} onFocus={()=>setBuscaProduto({idx,termo:it.produto_nome||''})} placeholder="Buscar produto ou digitar manualmente" style={{...inp,padding:"6px 8px",fontSize:11}}/>
-                  {buscaProduto?.idx===idx&&produtosBusca.length>0&&(
-                    <div style={{position:"absolute",top:"100%",left:0,right:0,background:BG2,border:`1px solid ${BD}`,borderRadius:6,marginTop:2,zIndex:20,maxHeight:200,overflowY:"auto",boxShadow:"0 4px 12px rgba(0,0,0,0.1)"}}>
-                      {produtosBusca.map(p=>(
-                        <div key={p.id} onClick={()=>selecionarProduto(idx,p)} style={{padding:"6px 10px",cursor:"pointer",borderBottom:`1px solid ${BD}`,fontSize:11}} onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
-                          <div style={{fontWeight:500,color:TX}}><span style={{color:P,fontFamily:"monospace",fontSize:10}}>{p.codigo}</span> {p.nome}</div>
-                          <div style={{fontSize:9,color:G}}>{fmtR(Number(p.preco_venda))}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {it._srv_eng ? (
+                    <ServicoEngenhariaAutocomplete
+                      companyId={companyIdParaCadastro || ''}
+                      selecionado={it.servico_id ? { id: it.servico_id, codigo: it.servico_codigo ?? null, nome: it.servico_descricao || it.produto_nome, unidade: it.unidade, custo_unitario_total: it.preco_custo ?? 0 } : null}
+                      onSelect={s=>{void selecionarServicoEng(idx,s)}}
+                      onClear={()=>limparServicoEng(idx)}
+                      testId={`orc-servico-eng-${idx}`}
+                    />
+                  ) : it.tipo_item==='servico' ? (
+                    <ServicoAutocomplete
+                      companyId={companyIdParaCadastro || ''}
+                      selecionado={it.servico_id ? { id: it.servico_id, codigo: it.servico_codigo ?? null, descricao_resumida: it.servico_descricao || it.produto_nome, valor_unitario: it.preco_unitario } : null}
+                      onSelect={s=>selecionarServico(idx,s)}
+                      onClear={()=>limparServico(idx)}
+                      testId={`orc-servico-${idx}`}
+                    />
+                  ) : (<>
+                    <input value={it.produto_nome} onChange={e=>{atualizarItem(idx,'produto_nome',e.target.value);setBuscaProduto({idx,termo:e.target.value});}} onFocus={()=>setBuscaProduto({idx,termo:it.produto_nome||''})} placeholder="Buscar produto ou digitar manualmente" style={{...inp,padding:"6px 8px",fontSize:11}}/>
+                    {buscaProduto?.idx===idx&&produtosBusca.length>0&&(
+                      <div style={{position:"absolute",top:"100%",left:0,right:0,background:BG2,border:`1px solid ${BD}`,borderRadius:6,marginTop:2,zIndex:20,maxHeight:200,overflowY:"auto",boxShadow:"0 4px 12px rgba(0,0,0,0.1)"}}>
+                        {produtosBusca.map(p=>(
+                          <div key={p.id} onClick={()=>selecionarProduto(idx,p)} style={{padding:"6px 10px",cursor:"pointer",borderBottom:`1px solid ${BD}`,fontSize:11}} onMouseEnter={e=>(e.currentTarget.style.background=BG3)} onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
+                            <div style={{fontWeight:500,color:TX}}><span style={{color:P,fontFamily:"monospace",fontSize:10}}>{p.codigo}</span> {p.nome}</div>
+                            <div style={{fontSize:9,color:G}}>{fmtR(Number(p.preco_venda))}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>)}
                 </div>
                 <input type="number" step="0.01" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                 <input value={it.unidade} onChange={e=>atualizarItem(idx,'unidade',e.target.value)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
-                <input type="number" step="0.01" value={it.preco_unitario||''} onChange={e=>atualizarItem(idx,'preco_unitario',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                <div>
+                  <input type="number" step="0.01" value={it.preco_unitario||''}
+                    readOnly={!!it._srv_eng && !podeAlterarPreco}
+                    title={(it._srv_eng && !podeAlterarPreco) ? "Preço definido pelo catálogo (custo + BDI). Ajuste requer engenheiro/master." : undefined}
+                    onChange={e=>atualizarItem(idx,'preco_unitario',parseFloat(e.target.value)||0)}
+                    style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right",background:(it._srv_eng && !podeAlterarPreco)?BG3:'#fff',cursor:(it._srv_eng && !podeAlterarPreco)?'not-allowed':'auto'}}/>
+                  {it._srv_eng && (it.preco_custo??0)>0 && (
+                    <div style={{fontSize:8,textAlign:"right",marginTop:1,color:TXD,display:"flex",gap:4,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
+                      <span>custo {fmtR(it.preco_custo||0)}</span>
+                      <span>· BDI {podeAlterarPreco ? (
+                        <input type="number" step="0.1" value={it.bdi_percentual??''} onChange={e=>alterarBdiItem(idx,parseFloat(e.target.value)||0)}
+                          title="BDI % — recalcula o preço de venda na hora"
+                          style={{width:36,fontSize:8,padding:'0 2px',textAlign:'right',border:`1px solid ${BD}`,borderRadius:3}}/>
+                      ) : <b>{it.bdi_percentual!=null?it.bdi_percentual:'—'}</b>}%</span>
+                      <span style={{color:statusMargem(it.margem_percentual).cor,fontWeight:700}}>
+                        · mrg {it.margem_percentual!=null?it.margem_percentual+'%':'—'} ({statusMargem(it.margem_percentual).label})
+                      </span>
+                      {!podeAlterarPreco ? <span>🔒 eng.</span> : null}
+                    </div>
+                  )}
+                </div>
                 <input type="number" step="0.1" value={it.desconto_percentual||''} onChange={e=>atualizarItem(idx,'desconto_percentual',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                 <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:G}}>{fmtR(it.subtotal)}</div>
                 <button onClick={()=>removerItem(idx)} style={{background:"none",border:"none",color:R,cursor:"pointer",fontSize:14}} title="Remover">🗑</button>
+                {it.tipo_item==='servico' && (
+                  <div style={{gridColumn:"2 / -1",display:"flex",alignItems:"center",gap:8,fontSize:10,color:TXD,paddingTop:2,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:600}}>ISS %</span>
+                    <input type="number" step="0.01" value={it.aliquota_iss??''}
+                      onChange={e=>atualizarItem(idx,'aliquota_iss', e.target.value===''?undefined:(parseFloat(e.target.value)||0))}
+                      placeholder={it._srv_aliquota_padrao!=null?`padrão ${it._srv_aliquota_padrao}`:'0'}
+                      title="Alíquota ISS deste orçamento (override do cadastro do serviço)"
+                      style={{width:70,padding:"3px 6px",fontSize:10,textAlign:"right",border:`1px solid ${BD}`,borderRadius:4}}/>
+                    {it._srv_aliquota_padrao!=null && <span>padrão do cadastro: {it._srv_aliquota_padrao}%</span>}
+                    {(it.aliquota_iss??0)>0 && it.subtotal>0 && <span style={{color:P}}>· ISS ≈ {fmtR(it.subtotal*(it.aliquota_iss??0)/100)}</span>}
+                    <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",marginLeft:6}} title="ISS retido na fonte neste orçamento (afeta o a receber e a NFS-e)">
+                      <input type="checkbox" checked={!!it.iss_retido} onChange={e=>atualizarItem(idx,'iss_retido',e.target.checked)} style={{accentColor:P}}/>
+                      <span style={{fontWeight:600,color:it.iss_retido?P:TXD}}>Retido{it.iss_retido?' na fonte':''}</span>
+                    </label>
+                  </div>
+                )}
+                {centrosCusto.length>0 && (
+                  <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",gap:8,fontSize:10,color:TXD,paddingTop:2}}>
+                    <span style={{fontWeight:600}} title="Rateio gerencial deste item — centro de custo (não setor de RH)">Rateio</span>
+                    <select value={it.centro_custo_id??''} onChange={e=>atualizarItem(idx,'centro_custo_id', e.target.value||null)}
+                      style={{flex:1,maxWidth:300,padding:"3px 6px",fontSize:10,border:`1px solid ${BD}`,borderRadius:4,background:'#fff',cursor:'pointer'}}>
+                      <option value="">— sem rateio —</option>
+                      {centrosCusto.map(cc=><option key={cc.id} value={cc.id}>{cc.codigo?`${cc.codigo} · `:''}{cc.nome}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
             ))}
+            {/* FEAT-OS-ONDA1: Subtotais separados Servicos vs Produtos */}
+            {itens.length>0 && (
+              <div style={{display:"flex",justifyContent:"flex-end",gap:18,padding:"8px 4px 0",borderTop:`1px solid ${BD}`,marginTop:4,fontSize:10,color:TXD}}>
+                <span>Serviços: <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+                <span>Produtos: <strong style={{color:GO}}>{fmtR(itens.filter(i=>i.tipo_item==='produto').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+                {itens.some(i=>i.tipo_item==='servico'&&(i.aliquota_iss??0)>0) && (
+                  <span title="ISS embutido (informativo) — não soma ao total">ISS (incl.): <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0)*(i.aliquota_iss??0)/100,0))}</strong></span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Condições */}
@@ -452,7 +885,7 @@ export default function OrcamentosPage(){
               <input type="number" step="0.01" value={form.desconto_valor||''} onChange={e=>setForm({...form,desconto_valor:parseFloat(e.target.value)||0})} style={inp}/></div>
           </div>
 
-          {/* Totais */}
+          {/* Totais · FEAT-ONDA-4-ORCAMENTO-PEDIDO-UX-v1: composicao Servicos/Produtos/Total */}
           <div style={{background:BG3,borderRadius:8,padding:16,marginBottom:12,border:`1px solid ${GO}40`}}>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,fontSize:11}}>
               <div>
@@ -469,8 +902,15 @@ export default function OrcamentosPage(){
               </div>
               <div style={{textAlign:"right"}}>
                 <div style={{color:TXD,fontSize:9}}>TOTAL GERAL</div>
-                <div style={{color:G,fontWeight:700,fontSize:20}}>{fmtR(totalFinal)}</div>
+                <div style={{color:G,fontWeight:700,fontSize:22}}>{fmtR(totalFinal)}</div>
               </div>
+            </div>
+            <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${BD}`,display:"flex",justifyContent:"flex-end",gap:18,fontSize:11,color:TXM}}>
+              <span>Serviços <strong style={{color:P}}>{fmtR(itens.filter(i=>i.tipo_item==='servico').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+              <span>·</span>
+              <span>Produtos <strong style={{color:GO}}>{fmtR(itens.filter(i=>i.tipo_item==='produto').reduce((s,i)=>s+(i.subtotal||0),0))}</strong></span>
+              <span>·</span>
+              <span>Total <strong style={{color:G}}>{fmtR(totalFinal)}</strong></span>
             </div>
           </div>
 
@@ -481,8 +921,33 @@ export default function OrcamentosPage(){
           </div>
           <div style={{marginBottom:16}}>
             <div style={{fontSize:10,color:TXD,marginBottom:3}}>Observações (visível para o cliente)</div>
-            <textarea value={form.observacoes} onChange={e=>setForm({...form,observacoes:e.target.value})} rows={2} style={{...inp,resize:"vertical"}} placeholder="Garantia, condições especiais, etc."/>
+            <textarea value={form.observacoes} onChange={e=>setForm({...form,observacoes:e.target.value})} rows={3} style={{...inp,resize:"vertical"}} placeholder="Garantia, condições especiais, etc."/>
           </div>
+
+          {/* CRM ② (Wesley) · anexar o PDF do orçamento feito FORA do sistema + informar o valor.
+              Só em orçamento já salvo (precisa do id para o caminho no storage). */}
+          {editing?.id ? (
+            <OrcamentoPdfAnexo orcamentoId={editing.id} companyId={editing.company_id} onSaved={loadOrcamentos} />
+          ) : (
+            /* Tryo #264 · no orçamento novo o PDF já pode ser escolhido; sobe ao clicar em "Criar Orçamento" */
+            <div style={{marginBottom:16,background:BG3,borderRadius:8,padding:14,border:`1px solid ${GO}40`}} data-testid="orc-pdf-novo">
+              <div style={{fontSize:12,fontWeight:700,color:TX,marginBottom:2}}>📎 Orçamento em PDF</div>
+              <div style={{fontSize:10,color:TXD,marginBottom:10}}>Orçamento feito fora do sistema? Escolha o PDF aqui — ele é anexado assim que você criar o orçamento.</div>
+              <label style={{display:"inline-block",padding:"8px 14px",borderRadius:6,background:GO,color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                {pdfNovo?`✅ ${pdfNovo.name} (trocar)`:"📎 Escolher PDF do orçamento"}
+                <input type="file" accept="application/pdf,.pdf" data-testid="orc-pdf-novo-input" style={{display:"none"}}
+                  onChange={e=>{const f=e.target.files?.[0]??null;if(f&&f.type!=="application/pdf"&&!f.name.toLowerCase().endsWith(".pdf")){setMsg("Envie um arquivo PDF.");return;}setPdfNovo(f);}}/>
+              </label>
+              {pdfNovo&&<button type="button" onClick={()=>setPdfNovo(null)} style={{marginLeft:8,padding:"6px 12px",borderRadius:6,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:11,cursor:"pointer"}}>Remover</button>}
+              {pdfNovo&&(
+                <div style={{marginTop:10}}>
+                  <div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor do orçamento (R$) — com o PDF, a lista de itens é opcional</div>
+                  <input value={pdfValor} onChange={e=>setPdfValor(e.target.value)} inputMode="decimal" placeholder="0,00" data-testid="orc-pdf-novo-valor"
+                    style={{padding:"8px 10px",border:`1px solid ${BD}`,borderRadius:6,fontSize:13,background:"#fff",color:TX,width:160}}/>
+                </div>
+              )}
+            </div>
+          )}
 
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowForm(false);setEditing(null);}} style={{padding:"10px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
@@ -536,11 +1001,16 @@ export default function OrcamentosPage(){
                       <td style={{padding:"8px"}}>
                         <div style={{display:"flex",gap:3,justifyContent:"flex-end",flexWrap:"wrap"}}>
                           <button onClick={()=>abrirEdicao(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
+                          {/* Tryo #264 · abre o PDF anexado direto da lista */}
+                          {o.pdf_anexo_path&&<button onClick={async()=>{const{data}=await supabase.storage.from("crm-anexos").createSignedUrl(o.pdf_anexo_path as string,3600);if(data?.signedUrl)window.open(data.signedUrl,"_blank");}} data-testid="orc-lista-pdf" title="Abrir o PDF do orçamento" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>📎 PDF</button>}
+                          {o.status==='convertido'&&o.pedido_id&&<button onClick={()=>router.push(`/dashboard/pedidos?abrir=${o.pedido_id}`)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}} title="Abrir o pedido para editar (demandas extras)">🎯 Abrir Pedido →</button>}
                           {o.status==='rascunho'&&<button onClick={()=>mudarStatus(o,'enviado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>📨 Enviar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'aprovado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>✅ Aprovar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'recusado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>❌ Recusar</button>}
                           {o.status==='aprovado'&&<button onClick={async()=>{const{data:{user}}=await supabase.auth.getUser();const{data,error}=await supabase.rpc('converter_orcamento_pedido',{p_orcamento_id:o.id,p_user_id:user?.id});if(error){setMsg("❌ "+error.message);return;}setMsg("✅ Convertido em pedido!");loadOrcamentos();setTimeout(()=>setMsg(""),3000);}} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>🎯 → Pedido</button>}
                           <button onClick={()=>copiarLinkPublico(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:P+"12",color:P,border:`1px solid ${P}25`,cursor:"pointer"}} title="Copiar link público">🔗</button>
+                          <button onClick={()=>enviarWhatsApp(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}} title="Enviar por WhatsApp">📱</button>
+                          <button onClick={()=>verComoCliente(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}} title="Ver como cliente (página pública)">👁</button>
                           <button onClick={()=>duplicar(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:Y+"12",color:Y,border:`1px solid ${Y}25`,cursor:"pointer"}} title="Duplicar/Nova versão">📋</button>
                         </div>
                       </td>
@@ -554,6 +1024,115 @@ export default function OrcamentosPage(){
       )}
 
       <div style={{fontSize:9,color:TXD,textAlign:"center",marginTop:20}}>PS Gestão e Capital — Orçamentos v1.0 · Link público · Histórico · IA de preço em breve</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// CRM ② (Wesley/Tryo) — anexo do PDF do orçamento (feito FORA) + valor manual.
+// O arquivo vai no bucket crm-anexos (privado) sob {company_id}/orcamentos/{id}/... (RLS por empresa).
+// A gravação (path + valor) passa pela RPC fn_orcamento_anexar_pdf (com guarda de empresa).
+function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: string; companyId: string; onSaved: () => void }) {
+  const [path, setPath] = useState<string | null>(null);
+  const [em, setEm] = useState<string | null>(null);
+  const [valor, setValor] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase.from("erp_orcamentos").select("pdf_anexo_path, pdf_anexo_em, total").eq("id", orcamentoId).maybeSingle();
+      if (!alive || !data) return;
+      const d = data as { pdf_anexo_path: string | null; pdf_anexo_em: string | null; total: number | null };
+      setPath(d.pdf_anexo_path); setEm(d.pdf_anexo_em);
+      setValor(d.total != null && Number(d.total) > 0 ? String(d.total) : "");
+    })();
+    return () => { alive = false; };
+  }, [orcamentoId]);
+
+  const gravar = async (novoPath: string | null) => {
+    const valorNum = valor.trim() === "" ? null : Number(valor.replace(",", "."));
+    const { data, error } = await supabase.rpc("fn_orcamento_anexar_pdf", { p_orcamento_id: orcamentoId, p_path: novoPath, p_valor: Number.isFinite(valorNum as number) ? valorNum : null });
+    if (error) throw new Error(error.message);
+    const j = data as { ok?: boolean; erro?: string } | null;
+    if (!j?.ok) throw new Error(j?.erro ?? "falha ao gravar");
+  };
+
+  async function subir(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.type !== "application/pdf" && !f.name.toLowerCase().endsWith(".pdf")) { setErr("Envie um arquivo PDF."); return; }
+    setBusy(true); setErr(null);
+    try {
+      const safe = f.name.replace(/[^\w.\-]+/g, "_").slice(-80);
+      const novoPath = `${companyId}/orcamentos/${orcamentoId}/${Date.now()}-${safe}`;
+      const up = await supabase.storage.from("crm-anexos").upload(novoPath, f, { upsert: false, contentType: "application/pdf" });
+      if (up.error) throw new Error(up.error.message);
+      await gravar(novoPath);
+      setPath(novoPath); setEm(new Date().toISOString());
+      onSaved();
+    } catch (e2) { setErr((e2 as Error).message); }
+    finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
+  }
+
+  async function baixar() {
+    if (!path) return;
+    const { data } = await supabase.storage.from("crm-anexos").createSignedUrl(path, 3600);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+  }
+
+  async function remover() {
+    if (!window.confirm("Remover o PDF anexado deste orçamento?")) return;
+    setBusy(true); setErr(null);
+    try { await gravar(null); setPath(null); setEm(null); onSaved(); }
+    catch (e2) { setErr((e2 as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function salvarValor() {
+    setBusy(true); setErr(null);
+    try { await gravar(path); onSaved(); }
+    catch (e2) { setErr((e2 as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ marginBottom: 16, background: BG3, borderRadius: 8, padding: 14, border: `1px solid ${GO}40` }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: TX, marginBottom: 2 }}>📎 Orçamento em PDF</div>
+      <div style={{ fontSize: 10, color: TXD, marginBottom: 10 }}>
+        Anexe o PDF do orçamento feito fora do sistema e informe o valor — assim o funil soma e o card mostra a proposta.
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 10, color: TXD, marginBottom: 3 }}>Valor do orçamento (R$)</div>
+          <input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)}
+            style={{ padding: "8px 10px", border: `1px solid ${BD}`, borderRadius: 6, fontSize: 13, background: "#fff", color: TX, width: 160 }} placeholder="0,00" />
+        </div>
+        <button type="button" onClick={salvarValor} disabled={busy}
+          style={{ padding: "8px 14px", borderRadius: 6, background: "transparent", border: `1px solid ${GO}`, color: GO, fontSize: 12, fontWeight: 600, cursor: busy ? "wait" : "pointer" }}>
+          Salvar valor
+        </button>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        {path ? (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: TXM }}>
+            <span style={{ color: G, fontWeight: 600 }}>✅ PDF anexado</span>
+            {em && <span style={{ color: TXD, fontSize: 11 }}>em {new Date(em).toLocaleString("pt-BR")}</span>}
+            <button type="button" onClick={baixar} disabled={busy} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", border: `1px solid ${BD}`, color: TX, fontSize: 11, cursor: "pointer" }}>Ver / baixar</button>
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", border: `1px solid ${BD}`, color: TX, fontSize: 11, cursor: "pointer" }}>Substituir</button>
+            <button type="button" onClick={remover} disabled={busy} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", border: `1px solid ${R}`, color: R, fontSize: 11, cursor: "pointer" }}>Remover</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={busy}
+            style={{ padding: "8px 14px", borderRadius: 6, background: GO, color: "#fff", fontSize: 12, fontWeight: 600, border: "none", cursor: busy ? "wait" : "pointer" }}>
+            {busy ? "Enviando…" : "📎 Anexar PDF do orçamento"}
+          </button>
+        )}
+        <input ref={fileRef} type="file" accept="application/pdf,.pdf" onChange={subir} style={{ display: "none" }} />
+      </div>
+      {err && <div style={{ marginTop: 8, fontSize: 12, color: R }}>❌ {err}</div>}
     </div>
   );
 }

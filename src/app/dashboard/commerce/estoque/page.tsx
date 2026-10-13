@@ -11,12 +11,17 @@
 //   - RPC fn_movimentar_estoque(produto, local, tipo, qtd, custo, ...)
 //   - RPC fn_curva_abc_estoque(company_ids uuid[])
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
+import { selecionarTodas } from '@/lib/selecionarTodas'
+import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
+import { BaixarPlanilhaContagemModal, SubirContagemModal } from '@/components/estoque/PlanilhaContagemInventario'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
-  X, Info, Trash2, Pencil,
+  X, Info, Trash2, Pencil, Download, Upload, Car,
 } from 'lucide-react'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -48,7 +53,41 @@ const C = {
   gray: '#94A3B8',
 }
 
-type Tab = 'locais' | 'produtos' | 'movimentacoes' | 'abc'
+type Tab = 'saldo' | 'locais' | 'produtos' | 'movimentacoes' | 'inventario' | 'abc' | 'veiculos'
+
+// F2.2 · Inventarios
+type Inventario = {
+  id: string
+  company_id: string
+  numero: string | null
+  local_id: string | null
+  status: string | null
+  data_inicio: string | null
+  data_fim: string | null
+  responsavel: string | null
+  total_produtos: number | null
+  total_contados: number | null
+  total_divergencias: number | null
+  valor_divergencia: number | null
+  observacoes: string | null
+  created_by: string | null
+  fechado_por: string | null
+  created_at: string | null
+}
+
+type InventarioItem = {
+  id: string
+  inventario_id: string
+  company_id: string
+  produto_id: string
+  quantidade_sistema: number | null
+  quantidade_contada: number | null
+  diferenca: number | null
+  custo_unitario: number | null
+  valor_diferenca: number | null
+  contado_em: string | null
+  observacoes: string | null
+}
 
 type Local = {
   id: string
@@ -91,11 +130,16 @@ type Movimentacao = {
   custo_unitario: number | null
   valor_total: number | null
   ref_tipo: string | null
+  ref_id: string | null
   ref_numero: string | null
   lote: string | null
   validade: string | null
   observacoes: string | null
-  usuario_nome: string | null
+  usuario_nome: string | null            // §6 · coluna órfã (cópia vazia) — não usar; ver usuario_nome_resolvido
+  usuario_id: string | null
+  produto_nome: string | null            // §6 · resolvido na view v_estoque_movimentacoes
+  produto_codigo: string | null
+  usuario_nome_resolvido: string | null  // §6 · full_name resolvido de usuario_id na leitura
   data_movimento: string | null
 }
 
@@ -143,15 +187,48 @@ export default function EstoquePage() {
 }
 
 function EstoqueInner() {
-  const { companyIds, selInfo, loading: companiesLoading, sel } = useCompanyIds()
+  const { companyIds, selInfo, loading: companiesLoading, sel, companies } = useCompanyIds()
   const companyIdUnico = selInfo.tipo === 'empresa' && sel ? sel : null
   const canCreate = !!companyIdUnico
 
-  const [tab, setTab] = useState<Tab>('produtos')
+  // FIX-ESTOQUE-DEEPLINK-ABAS-v1 · deep-link de aba via ?tab=
+  const router = useRouter()
+  const pathname = usePathname()
+  const sp = useSearchParams()
+  const tabUrl = sp?.get('tab') ?? null
+  const TAB_KEYS: Tab[] = ['saldo', 'movimentacoes', 'inventario', 'produtos', 'locais', 'abc', 'veiculos']
+  const initialTab: Tab = (TAB_KEYS as string[]).includes(tabUrl ?? '') ? (tabUrl as Tab) : 'saldo'
+  const [tab, setTabState] = useState<Tab>(initialTab)
+
+  // Sync state -> URL (preserva area= e demais query params)
+  function setTab(nextTab: Tab) {
+    setTabState(nextTab)
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(sp?.toString() ?? '')
+    if (nextTab === 'saldo') params.delete('tab')
+    else params.set('tab', nextTab)
+    const qs = params.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }
+
+  // Sync URL -> state (back/forward + click no menu lateral com ?tab=)
+  useEffect(() => {
+    if (tabUrl && (TAB_KEYS as string[]).includes(tabUrl) && tabUrl !== tab) {
+      setTabState(tabUrl as Tab)
+    }
+    if (!tabUrl && tab !== 'saldo') {
+      setTabState('saldo')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabUrl])
+
   const [locais, setLocais] = useState<Local[]>([])
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [movimentacoes, setMovimentacoes] = useState<Movimentacao[]>([])
   const [curva, setCurva] = useState<CurvaABCRow[]>([])
+  // Bloco D · reserva de estoque como ESTADO (fonte: fn_estoque_reservas). Mapa produto_id → reservado.
+  // Só produtos COM reserva vêm no mapa; disponível = físico − (reservado ?? 0). Nada muda de lugar.
+  const [reservas, setReservas] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [erro, setErro] = useState('')
@@ -161,45 +238,100 @@ function EstoqueInner() {
   const [filtroCategoria, setFiltroCategoria] = useState('')
   const [filtroEstoque, setFiltroEstoque] = useState<'todos' | 'baixo' | 'zero' | 'excedente'>('todos')
 
+  // F2.1 · Filtros saldo
+  const [filtroSaldoProduto, setFiltroSaldoProduto] = useState('')
+  const [filtroSaldoLocal, setFiltroSaldoLocal] = useState('')
+  // cf980ce1 · filtro por situação do saldo (todos / com saldo / zerados / negativos)
+  const [filtroSaldoTipo, setFiltroSaldoTipo] = useState<'todos' | 'com' | 'zero' | 'neg'>('todos')
+
   // Filtros movimentacoes
   const [filtroTipo, setFiltroTipo] = useState('')
+  // F2.1 · novos filtros
+  const hojeIso = new Date().toISOString().slice(0, 10)
+  const trintaDiasAtrasIso = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+  const [filtroMovInicio, setFiltroMovInicio] = useState(trintaDiasAtrasIso)
+  const [filtroMovFim, setFiltroMovFim] = useState(hojeIso)
+  const [filtroMovProduto, setFiltroMovProduto] = useState('')
+  const [filtroMovLocal, setFiltroMovLocal] = useState('')
+  const [filtroMovRefTipo, setFiltroMovRefTipo] = useState('')
 
   const [produtoSel, setProdutoSel] = useState<Produto | null>(null)
   const [localEdit, setLocalEdit] = useState<Local | 'new' | null>(null)
   const [showMovimentar, setShowMovimentar] = useState<{ produto?: Produto } | null>(null)
+  // F2.2 · estados de ajuste/inventario
+  const [showAjuste, setShowAjuste] = useState(false)
+  const [showNovoInventario, setShowNovoInventario] = useState(false)
+  const [inventarios, setInventarios] = useState<Inventario[]>([])
+  const [inventarioSel, setInventarioSel] = useState<Inventario | null>(null)
+  // Planilha de contagem (ida: baixar · volta: subir com prévia) — CEO 01/10
+  const [showBaixarContagem, setShowBaixarContagem] = useState(false)
+  const [showSubirContagem, setShowSubirContagem] = useState(false)
 
-  const companyIdsKey = useMemo(() => [...companyIds].sort().join(','), [companyIds])
+  // #147 · Revenda: o estoque de veículos vem do pátio (fn_veic_estoque_ge). A aba só aparece se a empresa tem veículos.
+  const [veic, setVeic] = useState<(EstoqueVeiculos & { companyId: string }) | null>(null)
+  useEffect(() => {
+    if (!companyIdUnico) return
+    let vivo = true
+    void supabase.rpc('fn_veic_estoque_ge', { p_company_id: companyIdUnico }).then(({ data }) => {
+      const d = data as EstoqueVeiculos | null
+      if (vivo && d?.ok) setVeic({ ...d, companyId: companyIdUnico })
+    })
+    return () => { vivo = false }
+  }, [companyIdUnico])
+  const veicAtual = veic && veic.companyId === companyIdUnico && veic.tem_revenda ? veic : null
 
+  // FIX-VAZAMENTO-JORDANA (07/07): tela operacional — nunca consolida
+  // multi-empresa. Gate estrito em companyIdUnico + .eq (era .in(companyIds)).
   const carregar = useCallback(async () => {
-    if (companyIds.length === 0) {
-      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([])
+    if (!companyIdUnico) {
+      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([]); setInventarios([]); setReservas({})
       return
     }
     setLoading(true)
     setErro('')
-    const [loc, prod, mov, abc] = await Promise.all([
-      supabase.from('erp_estoque_locais').select('*').in('company_id', companyIds).order('principal', { ascending: false }).order('nome'),
-      supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
-        .in('company_id', companyIds).eq('ativo', true).order('nome').limit(500),
-      supabase.from('erp_estoque_movimentacoes').select('*').in('company_id', companyIds).order('data_movimento', { ascending: false }).limit(300),
-      supabase.rpc('fn_curva_abc_estoque', { p_company_ids: companyIds }),
-    ])
-    if (loc.error) setErro('Locais: ' + loc.error.message)
-    else setLocais((loc.data ?? []) as Local[])
-    if (prod.error) setErro('Produtos: ' + prod.error.message)
-    else setProdutos((prod.data ?? []) as Produto[])
-    if (mov.error) setErro('Movimentações: ' + mov.error.message)
-    else setMovimentacoes((mov.data ?? []) as Movimentacao[])
-    if (abc.error) setErro('Curva ABC: ' + abc.error.message)
-    else setCurva((abc.data ?? []) as CurvaABCRow[])
-    setLoading(false)
-  }, [companyIds])
+    // FIX cf980ce1 · "Carregando" preso: qualquer falha de rede fazia o Promise.all rejeitar e o
+    // setLoading(false) nunca rodava. try/finally garante que a tela SEMPRE sai do "Carregando…".
+    try {
+      const [loc, prod, mov, abc, inv, rsv] = await Promise.all([
+        supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
+        // #126: .limit(5000) voltava só 1000 (teto do PostgREST) → 1485 importados, 1000 na tela. Busca em páginas.
+        selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
+          .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').order('id').range(de, ate)),
+        // §6 · lê da view (produto e autor resolvidos na leitura; RD-52 — sem cópia denormalizada)
+        supabase.from('v_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
+        supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
+        supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(50),
+        // Bloco D · reserva por produto (estado; só produtos com reserva voltam)
+        supabase.rpc('fn_estoque_reservas', { p_company_ids: [companyIdUnico] }),
+      ])
+      if (loc.error) setErro('Locais: ' + loc.error.message)
+      else setLocais((loc.data ?? []) as Local[])
+      if (prod.error) setErro('Produtos: ' + prod.error.message)
+      else setProdutos((prod.data ?? []) as Produto[])
+      if (mov.error) setErro('Movimentações: ' + mov.error.message)
+      else setMovimentacoes((mov.data ?? []) as Movimentacao[])
+      if (abc.error) setErro('Curva ABC: ' + abc.error.message)
+      else setCurva((abc.data ?? []) as CurvaABCRow[])
+      if (inv.error) setErro('Inventários: ' + inv.error.message)
+      else setInventarios((inv.data ?? []) as Inventario[])
+      // reserva é auxiliar: se falhar, o resto da tela segue (disponível = físico)
+      if (!rsv.error) {
+        const m: Record<string, number> = {}
+        for (const r of ((rsv.data ?? []) as { produto_id: string; reservado: number }[])) m[r.produto_id] = Number(r.reservado ?? 0)
+        setReservas(m)
+      } else setReservas({})
+    } catch (e) {
+      setErro('Não conseguimos carregar os dados do estoque. Tente de novo. ' + ((e as Error)?.message ?? ''))
+    } finally {
+      setLoading(false)
+    }
+  }, [companyIdUnico])
 
   useEffect(() => {
     if (companiesLoading) return
     void carregar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyIdsKey, companiesLoading])
+  }, [companyIdUnico, companiesLoading])
 
   const flash = (m: string) => {
     setMsg(m); window.setTimeout(() => setMsg(''), 3500)
@@ -248,23 +380,56 @@ function EstoqueInner() {
     quantidade: number; custo_unitario: number; motivo: string | null;
     observacoes: string | null; lote: string | null; validade: string | null;
   }) {
-    const { error } = await supabase.rpc('fn_movimentar_estoque', {
+    // F2.2 · usa RPC eleita (com usuario_id pra rastreio LGPD).
+    // fn_movimentar_estoque ficou [DEPRECATED]. Lote/validade nao sao
+    // passados aqui ainda (gap conhecido F2.3).
+    if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { error } = await supabase.rpc('registrar_movimento_estoque', {
+      p_company_id: companyIdUnico,
       p_produto_id: args.produto_id,
-      p_local_id: args.local_id,
       p_tipo: args.tipo,
       p_quantidade: args.quantidade,
       p_custo_unitario: args.custo_unitario || 0,
       p_motivo: args.motivo,
       p_observacoes: args.observacoes,
-      p_lote: args.lote,
-      p_validade: args.validade,
+      p_usuario_id: user?.id ?? null,
+      p_local_id: args.local_id,
     })
     if (error) {
-      flashErr('Falha na movimentação: ' + error.message)
+      flashErr('Não foi possível registrar a movimentação: ' + error.message)
       return false
     }
-    flash('Movimentação registrada.')
+    flash('Movimentação criada · estoque atualizado.')
     setShowMovimentar(null)
+    void carregar()
+    return true
+  }
+
+  // F2.2 · cria ajuste de estoque via RPC eleita
+  async function criarAjuste(args: {
+    produto_id: string; local_id: string | null; positivo: boolean;
+    quantidade: number; custo_unitario: number; motivo: string; observacoes: string | null;
+  }) {
+    if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { error } = await supabase.rpc('registrar_movimento_estoque', {
+      p_company_id: companyIdUnico,
+      p_produto_id: args.produto_id,
+      p_tipo: args.positivo ? 'ajuste_positivo' : 'ajuste_negativo',
+      p_quantidade: args.quantidade,
+      p_custo_unitario: args.custo_unitario || 0,
+      p_motivo: args.motivo,
+      p_observacoes: args.observacoes,
+      p_usuario_id: user?.id ?? null,
+      p_local_id: args.local_id,
+    })
+    if (error) {
+      flashErr('Não foi possível criar o ajuste: ' + error.message)
+      return false
+    }
+    flash('Ajuste CRIADO · saldo atualizado.')
+    setShowAjuste(false)
     void carregar()
     return true
   }
@@ -294,15 +459,175 @@ function EstoqueInner() {
     })
   }, [produtos, filtroBusca, filtroCategoria, filtroEstoque])
 
+  // FIX-PRODUTOS-BUSCA-SERVERSIDE-v1 · server-side pagination + search pra TabProdutos
+  // Reusa pattern do PR #262 (2 queries paralelas nome/codigo + dedup).
+  // KGF tem 1725 produtos · cliente-side 500 perdia 1225 · OLEO codigo 576 (pos 1074)
+  // ficava invisivel.
+  const PRODUTOS_PAGE_SIZE = 100
+  const [produtosSrv, setProdutosSrv] = useState<Produto[]>([])
+  const [produtosSrvTotal, setProdutosSrvTotal] = useState(0)
+  const [produtosSrvLoading, setProdutosSrvLoading] = useState(false)
+  const [produtosSrvPage, setProdutosSrvPage] = useState(1)
+
+  // Reset pagina quando filtros mudam
+  useEffect(() => { setProdutosSrvPage(1) }, [filtroBusca, filtroCategoria, companyIdUnico])
+
+  // Debounce 300ms · busca server-side
+  useEffect(() => {
+    if (!companyIdUnico) {
+      setProdutosSrv([]); setProdutosSrvTotal(0)
+      return
+    }
+    setProdutosSrvLoading(true)
+    const handle = window.setTimeout(async () => {
+      const t = filtroBusca.trim().replace(/[%,()]/g, '')
+      const cols = 'id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo'
+      function baseQuery() {
+        // FIX-VAZAMENTO-JORDANA (07/07): busca de produtos idem — só empresa unica.
+        // Caller garante companyIdUnico != null antes de disparar essa busca.
+        let q = supabase.from('erp_produtos').select(cols, { count: 'exact' })
+          .eq('company_id', companyIdUnico!).eq('ativo', true)
+        if (filtroCategoria) q = q.eq('categoria', filtroCategoria)
+        return q
+      }
+      try {
+        if (t.length < 2) {
+          // Sem termo · paginado por nome ASC com count exact
+          const from = (produtosSrvPage - 1) * PRODUTOS_PAGE_SIZE
+          const to = from + PRODUTOS_PAGE_SIZE - 1
+          const res = await baseQuery().order('nome', { ascending: true }).range(from, to)
+          if (res.error) throw res.error
+          setProdutosSrv((res.data ?? []) as Produto[])
+          setProdutosSrvTotal(res.count ?? 0)
+        } else {
+          // Com termo · 2 queries paralelas (nome / codigo) + dedup + top 100
+          const [porNome, porCodigo] = await Promise.all([
+            baseQuery().ilike('nome', `%${t}%`).order('nome').limit(PRODUTOS_PAGE_SIZE),
+            baseQuery().ilike('codigo', `%${t}%`).order('nome').limit(PRODUTOS_PAGE_SIZE),
+          ])
+          if (porNome.error) throw porNome.error
+          if (porCodigo.error) throw porCodigo.error
+          const map = new Map<string, Produto>()
+          for (const p of ((porNome.data ?? []) as Produto[])) map.set(p.id, p)
+          for (const p of ((porCodigo.data ?? []) as Produto[])) if (!map.has(p.id)) map.set(p.id, p)
+          const merged = Array.from(map.values()).sort((a, b) => (a.nome ?? '').localeCompare(b.nome ?? '')).slice(0, PRODUTOS_PAGE_SIZE)
+          setProdutosSrv(merged)
+          // total real = soma dos counts unicos (aprox) · usa maior dos dois pra estimativa
+          setProdutosSrvTotal(Math.max(porNome.count ?? 0, porCodigo.count ?? 0, merged.length))
+        }
+      } catch (err) {
+        setErro(err instanceof Error ? `Produtos: ${err.message}` : 'Erro ao buscar produtos')
+      } finally {
+        setProdutosSrvLoading(false)
+      }
+    }, 300)
+    return () => window.clearTimeout(handle)
+  }, [companyIdUnico, filtroBusca, filtroCategoria, produtosSrvPage]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Filtro estoque aplicado client-side na pagina exibida
+  const produtosSrvFiltradosEstoque = useMemo(() => {
+    if (filtroEstoque === 'todos') return produtosSrv
+    return produtosSrv.filter((p) => {
+      const atual = Number(p.estoque_atual ?? 0)
+      const min = Number(p.estoque_minimo ?? 0)
+      const max = Number(p.estoque_maximo ?? 0)
+      if (filtroEstoque === 'baixo' && atual >= min) return false
+      if (filtroEstoque === 'zero' && atual !== 0) return false
+      if (filtroEstoque === 'excedente' && (max === 0 || atual <= max)) return false
+      return true
+    })
+  }, [produtosSrv, filtroEstoque])
+
   const movFiltradas = useMemo(() => {
     return movimentacoes.filter((m) => {
       if (filtroTipo && m.tipo !== filtroTipo) return false
+      if (filtroMovProduto && m.produto_id !== filtroMovProduto) return false
+      if (filtroMovLocal && m.local_id !== filtroMovLocal) return false
+      if (filtroMovRefTipo && m.ref_tipo !== filtroMovRefTipo) return false
+      if (m.data_movimento) {
+        const d = (m.data_movimento ?? '').slice(0, 10)
+        if (filtroMovInicio && d < filtroMovInicio) return false
+        if (filtroMovFim && d > filtroMovFim) return false
+      }
       return true
     })
-  }, [movimentacoes, filtroTipo])
+  }, [movimentacoes, filtroTipo, filtroMovProduto, filtroMovLocal, filtroMovRefTipo, filtroMovInicio, filtroMovFim])
 
   const produtosPorId = useMemo(() => Object.fromEntries(produtos.map((p) => [p.id, p])), [produtos])
   const locaisPorId = useMemo(() => Object.fromEntries(locais.map((l) => [l.id, l])), [locais])
+
+  // FIX-F2.1-ABA-SALDO-v1 · usa RPC fn_curva_abc_estoque (ja carregada
+  // em `curva`) como fonte unica de saldo. Antes derivava de movs+produtos
+  // e dava 0/0/0 em prod. Tabela perdeu granularidade por local · RPC
+  // nao retorna por local (gap conhecido · cf. F2.3 com fn_estoque_saldo_por_local).
+  type SaldoRow = {
+    produto_id: string; produto_nome: string; produto_codigo: string | null
+    local_id: string | null; local_nome: string
+    saldo: number; custo_medio: number; valor_total: number
+    classe_abc: 'A' | 'B' | 'C' | null
+    reservado: number; disponivel: number  // Bloco D · três números onde antes existia um
+  }
+  // cf980ce1 · a aba Saldo lista TODOS os produtos (ativos), não só os da curva ABC. A classe ABC
+  // (quando existe) vem por um mapa auxiliar. Saldo/valor saem de erp_produtos (fonte da verdade).
+  const classeAbcMap = useMemo(() => {
+    const m: Record<string, 'A' | 'B' | 'C' | null> = {}
+    for (const r of curva) m[r.produto_id] = r.classe_abc ?? null
+    return m
+  }, [curva])
+  const saldoRows = useMemo<SaldoRow[]>(() => {
+    const principal = locais.find((l) => l.principal) ?? locais[0] ?? null
+    return produtos.map((p) => {
+      const saldo = Number(p.estoque_atual ?? 0)
+      const custo = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
+      const reservado = Number(reservas[p.id] ?? 0)
+      return {
+        produto_id: p.id,
+        produto_nome: p.nome,
+        produto_codigo: p.codigo,
+        local_id: principal?.id ?? null,
+        local_nome: principal?.nome ?? 'Estoque Principal',
+        saldo,
+        custo_medio: custo,
+        valor_total: saldo * custo,   // pode ser negativo se o saldo for negativo — honesto
+        classe_abc: classeAbcMap[p.id] ?? null,
+        reservado,
+        disponivel: saldo - reservado,
+      }
+    })
+  }, [produtos, locais, reservas, classeAbcMap])
+
+  const saldoFiltrado = useMemo(() => {
+    const q = filtroSaldoProduto.trim().toLowerCase()
+    return saldoRows.filter((r) => {
+      if (filtroSaldoTipo === 'com' && !(r.saldo > 0)) return false
+      if (filtroSaldoTipo === 'zero' && !(r.saldo === 0)) return false
+      if (filtroSaldoTipo === 'neg' && !(r.saldo < 0)) return false
+      if (filtroSaldoLocal && r.local_id !== filtroSaldoLocal) return false
+      if (q) {
+        const hay = `${r.produto_nome} ${r.produto_codigo ?? ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [saldoRows, filtroSaldoProduto, filtroSaldoLocal, filtroSaldoTipo])
+
+  const saldoKpis = useMemo(() => {
+    const totalSku = saldoRows.length
+    const skusComSaldo = saldoRows.filter((r) => r.saldo > 0).length
+    const skusZerados = saldoRows.filter((r) => r.saldo === 0).length
+    const skusNegativos = saldoRows.filter((r) => r.saldo < 0).length
+    const qtdLiquida = saldoRows.reduce((s, r) => s + r.saldo, 0)
+    const valorLiquido = saldoRows.reduce((s, r) => s + r.valor_total, 0)
+    const skusReservados = saldoRows.filter((r) => r.reservado > 0).length
+    return { totalSku, skusComSaldo, skusZerados, skusNegativos, qtdLiquida, valorLiquido, skusReservados }
+  }, [saldoRows])
+
+  // F2.1 · ref_tipos unicos pro filtro de movimentacoes
+  const refTiposUnicos = useMemo(() => {
+    const set = new Set<string>()
+    movimentacoes.forEach((m) => { if (m.ref_tipo) set.add(m.ref_tipo) })
+    return Array.from(set).sort()
+  }, [movimentacoes])
 
   const movimentacoesDoProduto = useMemo(() => {
     if (!produtoSel) return []
@@ -324,31 +649,76 @@ function EstoqueInner() {
             <p style={{ margin: 0, fontSize: 12, color: C.espressoM }}>Multi-depósito, movimentações e classificação ABC</p>
           </div>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {/* Migração por planilha padrão (contexto 9c43a93d) — sempre visível */}
+        <a href="/modelos/MODELO_migracao_estoque_PS.xlsx" download title="Baixar a planilha padrão PS de migração de estoque"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${C.gold}`, color: C.gold, textDecoration: 'none', background: '#fff' }}>
+          <Download size={14} /> Baixar planilha padrão
+        </a>
+        <a href="/dashboard/commerce/estoque/importar" title="Importar/migrar estoque pela planilha padrão"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', color: '#fff', textDecoration: 'none', background: C.gold }}>
+          <Upload size={14} /> Importar planilha
+        </a>
         {tab === 'locais' && (
           <button onClick={() => setLocalEdit('new')} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'} style={btnPrincipal(canCreate)}>
             <Plus size={14} /> Novo Local
           </button>
         )}
-        {tab === 'movimentacoes' && (
-          <button onClick={() => setShowMovimentar({})} disabled={!canCreate || locais.length === 0 || produtos.length === 0} title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local primeiro' : '')} style={btnPrincipal(canCreate && locais.length > 0 && produtos.length > 0)}>
-            <Plus size={14} /> Nova Movimentação
-          </button>
+        {(tab === 'saldo' || tab === 'movimentacoes') && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setShowAjuste(true)}
+              disabled={!canCreate || locais.length === 0 || produtos.length === 0}
+              title={!canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local de estoque primeiro' : (produtos.length === 0 ? 'Importe ou cadastre produtos primeiro (use a planilha padrão acima)' : ''))}
+              data-testid="estoque-nova-mov-btn"
+              style={btnPrincipal(canCreate && locais.length > 0 && produtos.length > 0)}>
+              <Plus size={14} /> Nova Movimentação
+            </button>
+          </div>
         )}
+        {tab === 'inventario' && (() => {
+          const podeInv = canCreate && locais.length > 0 && produtos.length > 0
+          const motivo = !canCreate ? 'Selecione uma empresa específica' : (locais.length === 0 ? 'Cadastre um local de estoque primeiro' : (produtos.length === 0 ? 'Importe ou cadastre produtos primeiro (use a planilha padrão acima)' : ''))
+          return (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => setShowBaixarContagem(true)} disabled={!podeInv} title={motivo}
+                data-testid="inventario-baixar-planilha" style={{ ...btnSec, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: podeInv ? 1 : 0.5 }}>
+                <Download size={14} /> Baixar planilha de contagem
+              </button>
+              <button onClick={() => setShowSubirContagem(true)} disabled={!podeInv} title={motivo}
+                data-testid="inventario-subir-planilha" style={{ ...btnSec, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: podeInv ? 1 : 0.5 }}>
+                <Upload size={14} /> Subir contagem
+              </button>
+              <button
+                onClick={() => setShowNovoInventario(true)}
+                disabled={!podeInv}
+                title={motivo}
+                data-testid="estoque-inventario-btn"
+                style={btnPrincipal(podeInv)}>
+                📋 Iniciar inventário
+              </button>
+            </div>
+          )
+        })()}
+        </div>
       </header>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}`, overflowX: 'auto' }}>
-        <TabBtn ativo={tab === 'locais'} onClick={() => setTab('locais')} icon={<Boxes size={14} />} label="Locais" count={locais.length} />
-        <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} />
+        <TabBtn ativo={tab === 'saldo'} onClick={() => setTab('saldo')} icon={<Boxes size={14} />} label="Saldo" count={saldoRows.length} testid="estoque-tab-saldo-count" />
         <TabBtn ativo={tab === 'movimentacoes'} onClick={() => setTab('movimentacoes')} icon={<ArrowRightLeft size={14} />} label="Movimentações" count={movimentacoes.length} />
+        <TabBtn ativo={tab === 'inventario'} onClick={() => setTab('inventario')} icon={<Package size={14} />} label="Inventário" count={inventarios.length} />
+        <TabBtn ativo={tab === 'produtos'} onClick={() => setTab('produtos')} icon={<Package size={14} />} label="Produtos" count={produtos.length} testid="estoque-tab-produtos-count" />
+        <TabBtn ativo={tab === 'locais'} onClick={() => setTab('locais')} icon={<Boxes size={14} />} label="Locais" count={locais.length} />
         <TabBtn ativo={tab === 'abc'} onClick={() => setTab('abc')} icon={<BarChart3 size={14} />} label="Curva ABC" />
+        {veicAtual && <TabBtn ativo={tab === 'veiculos'} onClick={() => setTab('veiculos')} icon={<Car size={14} />} label="Veículos" count={veicAtual.totais.qtd} testid="estoque-tab-veiculos" />}
       </div>
 
-      {/* Hint multi-empresa */}
+      {/* FIX-VAZAMENTO-JORDANA (07/07): NAO consolida multi-empresa */}
       {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
-        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.goldBg, border: `1px solid ${C.gold}55`, borderRadius: 8, color: C.goldD, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ marginBottom: 12, padding: '10px 14px', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, color: C.amber, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={14} />
-          <span>Exibindo dados de <strong>{selInfo.nome}</strong> ({selInfo.count} {selInfo.count === 1 ? 'empresa' : 'empresas'}). Para criar/movimentar, selecione uma empresa específica.</span>
+          <span>Selecione uma empresa específica no menu superior. Estoque é operacional por empresa — não exibe dados consolidados.</span>
         </div>
       )}
 
@@ -361,31 +731,142 @@ function EstoqueInner() {
         <div style={{ padding: 40, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>Carregando…</div>
       ) : companyIds.length === 0 ? (
         <EmptyState titulo="Nenhuma empresa disponível" texto="Selecione uma empresa no menu superior ou peça ao administrador para te vincular." />
+      ) : !companyIdUnico ? (
+        <EmptyState titulo="Selecione uma empresa" texto="Estoque é operacional por empresa. Escolha uma empresa específica no menu superior." />
+      ) : tab === 'saldo' ? (
+        <TabSaldo
+          rows={saldoFiltrado} total={saldoRows.length} kpis={saldoKpis}
+          locais={locais} produtos={produtos}
+          filtroSaldoProduto={filtroSaldoProduto} setFiltroSaldoProduto={setFiltroSaldoProduto}
+          filtroSaldoLocal={filtroSaldoLocal} setFiltroSaldoLocal={setFiltroSaldoLocal}
+          filtroSaldoTipo={filtroSaldoTipo} setFiltroSaldoTipo={setFiltroSaldoTipo}
+        />
       ) : tab === 'locais' ? (
         <TabLocais locais={locais} onEdit={(l) => setLocalEdit(l)} onDelete={deletarLocal} canCreate={canCreate} onCreate={() => setLocalEdit('new')} />
       ) : tab === 'produtos' ? (
         <TabProdutos
-          rows={produtosFiltrados} total={produtos.length}
+          rows={produtosSrvFiltradosEstoque}
+          total={produtosSrvTotal}
+          loading={produtosSrvLoading}
           categorias={categoriasUnicas}
           filtroBusca={filtroBusca} setFiltroBusca={setFiltroBusca}
           filtroCategoria={filtroCategoria} setFiltroCategoria={setFiltroCategoria}
           filtroEstoque={filtroEstoque} setFiltroEstoque={setFiltroEstoque}
+          page={produtosSrvPage} setPage={setProdutosSrvPage} pageSize={PRODUTOS_PAGE_SIZE}
+          buscando={filtroBusca.trim().length >= 2}
+          reservas={reservas}
           onSelect={setProdutoSel}
+          onEditar={(id) => router.push(`/dashboard/cadastros/produtos?edit=${id}`)}
         />
       ) : tab === 'movimentacoes' ? (
         <TabMovimentacoes
           rows={movFiltradas} total={movimentacoes.length}
           filtroTipo={filtroTipo} setFiltroTipo={setFiltroTipo}
-          produtosPorId={produtosPorId} locaisPorId={locaisPorId}
+          locais={locais} produtos={produtos}
+          refTiposUnicos={refTiposUnicos}
+          filtroMovProduto={filtroMovProduto} setFiltroMovProduto={setFiltroMovProduto}
+          filtroMovLocal={filtroMovLocal} setFiltroMovLocal={setFiltroMovLocal}
+          filtroMovRefTipo={filtroMovRefTipo} setFiltroMovRefTipo={setFiltroMovRefTipo}
+          filtroMovInicio={filtroMovInicio} setFiltroMovInicio={setFiltroMovInicio}
+          filtroMovFim={filtroMovFim} setFiltroMovFim={setFiltroMovFim}
+          locaisPorId={locaisPorId}
         />
+      ) : tab === 'inventario' ? (
+        <TabInventario rows={inventarios} locaisPorId={locaisPorId} onSelect={setInventarioSel} />
+      ) : tab === 'veiculos' ? (
+        veicAtual
+          ? <TabVeiculosRevenda dados={veicAtual} />
+          : <EmptyState titulo="Sem veículos" texto="Esta empresa não tem veículos no pátio da Revenda." />
       ) : (
         <TabCurvaABC rows={curva} />
+      )}
+
+      {/* F2.2 · Modal Ajuste */}
+      {showAjuste && companyIdUnico && (
+        <ModalAjuste
+          companyId={companyIdUnico}
+          locais={locais}
+          movimentacoes={movimentacoes}
+          onClose={() => setShowAjuste(false)}
+          onSubmit={criarAjuste}
+        />
+      )}
+
+      {/* F2.2 · Modal Novo Inventario */}
+      {showNovoInventario && companyIdUnico && (
+        <ModalNovoInventario
+          companyId={companyIdUnico}
+          locais={locais}
+          onClose={() => setShowNovoInventario(false)}
+          onCreated={async (inventarioId) => {
+            setShowNovoInventario(false)
+            await carregar()
+            const inv = inventarios.find((x) => x.id === inventarioId)
+            if (inv) setInventarioSel(inv)
+            else {
+              const r = (await supabase.from('erp_inventarios').select('*').eq('id', inventarioId).single()).data as Inventario | null
+              if (r) setInventarioSel(r)
+            }
+            flash('Inventário CRIADO.')
+            setTab('inventario')
+          }}
+          flashErr={flashErr}
+        />
+      )}
+
+      {/* Planilha de contagem · ida (baixar) e volta (subir com prévia; o estoque só muda no Fechar inventário) */}
+      {showBaixarContagem && companyIdUnico && (() => {
+        const emp = (companies as { id: string; nome_fantasia?: string | null; razao_social?: string | null; cnpj?: string | null }[]).find((c) => c.id === companyIdUnico)
+        return (
+          <BaixarPlanilhaContagemModal
+            companyId={companyIdUnico}
+            empresa={emp?.razao_social || emp?.nome_fantasia || selInfo.nome}
+            cnpj={emp?.cnpj ?? null}
+            locais={locais}
+            onClose={() => setShowBaixarContagem(false)}
+            flashErr={flashErr}
+          />
+        )
+      })()}
+      {showSubirContagem && companyIdUnico && (
+        <SubirContagemModal
+          companyId={companyIdUnico}
+          locais={locais}
+          onClose={() => setShowSubirContagem(false)}
+          onCriado={async (inventarioId) => {
+            setShowSubirContagem(false)
+            await carregar()
+            const r = (await supabase.from('erp_inventarios').select('*').eq('id', inventarioId).single()).data as Inventario | null
+            if (r) setInventarioSel(r)
+            flash('Inventário CRIADO com as contagens da planilha. Confira e use Fechar inventário para ajustar o estoque.')
+            setTab('inventario')
+          }}
+          flashErr={flashErr}
+        />
+      )}
+
+      {/* F2.2 · Drawer Inventario (contar + fechar) */}
+      {inventarioSel && (
+        <DrawerInventario
+          inventario={inventarioSel}
+          produtos={produtos}
+          locaisPorId={locaisPorId}
+          onClose={() => setInventarioSel(null)}
+          onFechado={async () => {
+            await carregar()
+            setInventarioSel(null)
+            flash('Inventário FECHADO · ajustes gerados.')
+          }}
+          flash={flash}
+          flashErr={flashErr}
+        />
       )}
 
       {/* Drawer produto */}
       {produtoSel && (
         <DrawerProduto
           produto={produtoSel}
+          reservado={reservas[produtoSel.id] ?? 0}
           movimentacoes={movimentacoesDoProduto}
           locaisPorId={locaisPorId}
           onClose={() => setProdutoSel(null)}
@@ -453,43 +934,60 @@ function TabLocais({ locais, onEdit, onDelete, canCreate, onCreate }: { locais: 
   )
 }
 
-function TabProdutos({ rows, total, categorias, filtroBusca, setFiltroBusca, filtroCategoria, setFiltroCategoria, filtroEstoque, setFiltroEstoque, onSelect }: {
-  rows: Produto[]; total: number; categorias: string[];
+function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroBusca, filtroCategoria, setFiltroCategoria, filtroEstoque, setFiltroEstoque, page, setPage, pageSize, buscando, reservas, onSelect, onEditar }: {
+  rows: Produto[]; total: number; loading: boolean; categorias: string[];
   filtroBusca: string; setFiltroBusca: (v: string) => void;
   filtroCategoria: string; setFiltroCategoria: (v: string) => void;
   filtroEstoque: 'todos' | 'baixo' | 'zero' | 'excedente'; setFiltroEstoque: (v: 'todos' | 'baixo' | 'zero' | 'excedente') => void;
+  page: number; setPage: (n: number) => void; pageSize: number;
+  buscando: boolean;
+  reservas: Record<string, number>;  // Bloco D · produto_id → reservado
   onSelect: (p: Produto) => void;
+  onEditar: (id: string) => void;  // #118 (Jordana): abre a ficha do produto (cadastro) p/ editar dados fiscais
 }) {
+  // FIX-PRODUTOS-BUSCA-SERVERSIDE-v1 · paginacao real (sem teto cego de 500)
+  const totalPaginas = Math.max(1, Math.ceil(total / pageSize))
+  const inicio = buscando ? 1 : (page - 1) * pageSize + 1
+  const fim = buscando ? rows.length : Math.min(page * pageSize, total)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
         <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
-          <input type="text" placeholder="Buscar por nome ou código…" value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)} style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
+          <input type="text" placeholder="Buscar por nome ou código (busca em todo cadastro)…" value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
+            data-testid="produtos-busca" style={{ width: '100%', padding: '8px 10px 8px 32px', minHeight: 44, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
         </div>
-        <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={selInpStyle}>
+        <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...selInpStyle, minHeight: 44 }}>
           <option value="">Todas as categorias</option>
           {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select value={filtroEstoque} onChange={(e) => setFiltroEstoque(e.target.value as 'todos' | 'baixo' | 'zero' | 'excedente')} style={selInpStyle}>
+        <select value={filtroEstoque} onChange={(e) => setFiltroEstoque(e.target.value as 'todos' | 'baixo' | 'zero' | 'excedente')} style={{ ...selInpStyle, minHeight: 44 }}>
           <option value="todos">Todos os estoques</option>
           <option value="baixo">Abaixo do mínimo</option>
           <option value="zero">Estoque zerado</option>
           <option value="excedente">Acima do máximo</option>
         </select>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>{rows.length} de {total}</span>
+        <span data-testid="produtos-contador" style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM, fontWeight: 600 }}>
+          {loading ? 'Buscando…' : buscando
+            ? `${rows.length} resultado(s) de busca`
+            : `${inicio}–${fim} de ${total}`}
+        </span>
       </div>
 
-      {rows.length === 0 ? (
-        total === 0
+      {loading ? (
+        <div style={{ padding: 30, textAlign: 'center', color: C.gold, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Buscando produtos…</div>
+      ) : rows.length === 0 ? (
+        total === 0 && !buscando
           ? <EmptyState titulo="Nenhum produto cadastrado" texto="Os produtos vêm de erp_produtos (cadastro fiscal completo). Importe via Importar Dados ou cadastre manualmente." />
-          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhum produto corresponde aos filtros.</div>
+          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>
+              {buscando ? `Nenhum produto encontrado para "${filtroBusca.trim()}".` : 'Nenhum produto corresponde aos filtros.'}
+            </div>
       ) : (
         <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 900 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1080 }}>
               <thead style={{ background: C.cream }}>
-                <tr><Th>Código</Th><Th>Nome</Th><Th>Categoria</Th><Th>Unid.</Th><Th align="right">Estoque</Th><Th align="right">Mín/Máx</Th><Th align="right">Custo médio</Th><Th align="right">Valor estoque</Th><Th>Status</Th></tr>
+                <tr><Th>Código</Th><Th>Nome</Th><Th>Categoria</Th><Th>Unid.</Th><Th align="right">Físico</Th><Th align="right">Reservado</Th><Th align="right">Disponível</Th><Th align="right">Mín/Máx</Th><Th align="right">Custo médio</Th><Th align="right">Valor estoque</Th><Th>Status</Th><Th align="right">Editar</Th></tr>
               </thead>
               <tbody>
                 {rows.map((p) => {
@@ -499,13 +997,19 @@ function TabProdutos({ rows, total, categorias, filtroBusca, setFiltroBusca, fil
                   const custo = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
                   const valor = atual * custo
                   const status = atual === 0 ? 'zero' : atual < min ? 'baixo' : (max > 0 && atual > max) ? 'excedente' : 'ok'
+                  // Bloco D · reservado (estado) e disponível = físico − reservado (negativo = furo, em vermelho)
+                  const reservado = Number(reservas[p.id] ?? 0)
+                  const disponivel = atual - reservado
+                  const corDisp = disponivel < 0 ? C.red : reservado > 0 ? C.goldD : C.espresso
                   return (
                     <tr key={p.id} onClick={() => onSelect(p)} style={{ cursor: 'pointer', borderTop: `1px solid ${C.borderL}` }} onMouseEnter={(e) => (e.currentTarget.style.background = C.cream)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
                       <Td><span style={{ fontFamily: 'monospace', fontSize: 11 }}>{p.codigo ?? '—'}</span></Td>
                       <Td><span style={{ fontWeight: 600 }}>{p.nome}</span></Td>
                       <Td>{p.categoria ?? '—'}</Td>
                       <Td>{p.unidade ?? '—'}</Td>
-                      <Td align="right"><strong>{fmtNum(atual)}</strong></Td>
+                      <Td align="right"><span>{fmtNum(atual)}</span></Td>
+                      <Td align="right">{reservado > 0 ? <span style={{ color: C.blue, fontWeight: 600 }} title="Comprometido em OS pronta/entregue não faturada">{fmtNum(reservado)}</span> : <span style={{ color: C.espressoL }}>—</span>}</Td>
+                      <Td align="right"><strong style={{ color: corDisp }} title="Físico menos reservado — só o disponível pode ser vendido">{fmtNum(disponivel)}</strong></Td>
                       <Td align="right"><span style={{ fontSize: 11, color: C.espressoM }}>{fmtNum(min, 0)} / {max > 0 ? fmtNum(max, 0) : '∞'}</span></Td>
                       <Td align="right">{fmtBRL(custo)}</Td>
                       <Td align="right"><strong>{fmtBRL(valor)}</strong></Td>
@@ -514,6 +1018,145 @@ function TabProdutos({ rows, total, categorias, filtroBusca, setFiltroBusca, fil
                           status === 'baixo' ? <Badge cor={C.red}>Abaixo mín</Badge> :
                             status === 'excedente' ? <Badge cor={C.amber}>Excedente</Badge> :
                               <Badge cor={C.green}>OK</Badge>}
+                      </Td>
+                      <Td align="right">
+                        {/* #118 (Jordana): editar os dados do produto (nome, unidade, fiscal) na ficha do cadastro */}
+                        <button type="button" title="Editar dados do produto" onClick={(e) => { e.stopPropagation(); onEditar(p.id) }} style={btnIcon}><Pencil size={14} /></button>
+                      </Td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {!buscando && totalPaginas > 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderTop: `1px solid ${C.borderL}`, background: C.cream, fontSize: 12 }}>
+              <div style={{ color: C.espressoM }}>Página <strong>{page}</strong> de <strong>{totalPaginas}</strong></div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" disabled={page <= 1} onClick={() => setPage(Math.max(1, page - 1))} data-testid="produtos-pag-anterior"
+                  style={{ ...btnSec, padding: '6px 12px', opacity: page <= 1 ? 0.4 : 1, cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>← Anterior</button>
+                <button type="button" disabled={page >= totalPaginas} onClick={() => setPage(Math.min(totalPaginas, page + 1))} data-testid="produtos-pag-proximo"
+                  style={{ ...btnSec, padding: '6px 12px', opacity: page >= totalPaginas ? 0.4 : 1, cursor: page >= totalPaginas ? 'not-allowed' : 'pointer' }}>Próximo →</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, locaisPorId,
+  locais, produtos, refTiposUnicos,
+  filtroMovProduto, setFiltroMovProduto, filtroMovLocal, setFiltroMovLocal,
+  filtroMovRefTipo, setFiltroMovRefTipo,
+  filtroMovInicio, setFiltroMovInicio, filtroMovFim, setFiltroMovFim,
+}: {
+  rows: Movimentacao[]; total: number;
+  filtroTipo: string; setFiltroTipo: (v: string) => void;
+  locais: Local[]; produtos: Produto[];
+  refTiposUnicos: string[];
+  filtroMovProduto: string; setFiltroMovProduto: (v: string) => void;
+  filtroMovLocal: string; setFiltroMovLocal: (v: string) => void;
+  filtroMovRefTipo: string; setFiltroMovRefTipo: (v: string) => void;
+  filtroMovInicio: string; setFiltroMovInicio: (v: string) => void;
+  filtroMovFim: string; setFiltroMovFim: (v: string) => void;
+  locaisPorId: Record<string, Local>;
+}) {
+  function refHref(ref_tipo: string | null, ref_id: string | null): string | null {
+    if (!ref_id) return null
+    if (ref_tipo === 'compra') return `/dashboard/commerce/compras?area=gestao_empresarial`
+    if (ref_tipo === 'venda') return `/dashboard/commerce/otc?area=gestao_empresarial`
+    return null
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          De
+          <input type="date" value={filtroMovInicio} onChange={(e) => setFiltroMovInicio(e.target.value)} style={selInpStyle} />
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Até
+          <input type="date" value={filtroMovFim} onChange={(e) => setFiltroMovFim(e.target.value)} style={selInpStyle} />
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Tipo
+          <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={selInpStyle}>
+            <option value="">Todos</option>
+            {TIPOS_MOV.map((t) => <option key={t.value} value={t.value}>{t.sinal} {t.label}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Produto
+          <select value={filtroMovProduto} onChange={(e) => setFiltroMovProduto(e.target.value)} style={selInpStyle}>
+            <option value="">Todos</option>
+            {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Local
+          <select value={filtroMovLocal} onChange={(e) => setFiltroMovLocal(e.target.value)} style={selInpStyle}>
+            <option value="">Todos</option>
+            {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Origem
+          <select value={filtroMovRefTipo} onChange={(e) => setFiltroMovRefTipo(e.target.value)} style={selInpStyle}>
+            <option value="">Todas</option>
+            {refTiposUnicos.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+      </div>
+      <div style={{ fontSize: 11, color: C.espressoM, paddingLeft: 4 }}>{rows.length} de {total} movimento(s)</div>
+
+      {rows.length === 0 ? (
+        total === 0
+          ? <EmptyState titulo="Nenhuma movimentação registrada" texto="Movimentações chegam aqui automaticamente quando você cria compras, vendas ou ajustes." />
+          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhuma movimentação no período.</div>
+      ) : (
+        <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
+              <thead style={{ background: C.cream }}>
+                <tr><Th>Data</Th><Th>Tipo</Th><Th>Produto</Th><Th>Local</Th><Th align="right">Quantidade</Th><Th align="right">Custo un.</Th><Th align="right">Valor total</Th><Th>Origem</Th><Th>Autor</Th></tr>
+              </thead>
+              <tbody>
+                {rows.map((m) => {
+                  const t = TIPOS_MOV.find((x) => x.value === m.tipo)
+                  const sinal = t?.sinal ?? '='
+                  const cor = sinal === '+' ? C.green : sinal === '-' ? C.red : C.amber
+                  const local = m.local_id ? locaisPorId[m.local_id] : null
+                  const origemHref = refHref(m.ref_tipo ?? null, m.ref_id ?? null)
+                  const origemLabel = m.ref_tipo ? `${m.ref_tipo} ${m.ref_numero ?? ''}`.trim() : (m.motivo ?? '—')
+                  return (
+                    <tr key={m.id} style={{ borderTop: `1px solid ${C.borderL}` }}>
+                      <Td>{fmtDateTime(m.data_movimento)}</Td>
+                      <Td>
+                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: cor + '20', color: cor, fontWeight: 700, textTransform: 'uppercase' }}>
+                          {sinal} {t?.label ?? m.tipo}
+                        </span>
+                      </Td>
+                      <Td>
+                        <div style={{ fontWeight: 600 }}>{m.produto_nome ?? 'Produto removido'}</div>
+                        {m.produto_codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{m.produto_codigo}</span>}
+                      </Td>
+                      <Td>{local?.nome ?? '—'}</Td>
+                      <Td align="right"><strong style={{ color: cor }}>{sinal} {fmtNum(Math.abs(Number(m.quantidade)))}</strong></Td>
+                      <Td align="right">{Number(m.custo_unitario) > 0 ? fmtBRL(Number(m.custo_unitario)) : '—'}</Td>
+                      <Td align="right">{Number(m.valor_total) > 0 ? fmtBRL(Number(m.valor_total)) : '—'}</Td>
+                      <Td>
+                        {origemHref ? (
+                          <a href={origemHref} style={{ color: C.gold, textDecoration: 'underline', fontSize: 11 }}>{origemLabel}</a>
+                        ) : (
+                          <span style={{ fontSize: 11, color: C.espressoM }}>{origemLabel}</span>
+                        )}
+                      </Td>
+                      <Td>
+                        {m.usuario_id
+                          ? <span style={{ fontSize: 11 }}>{m.usuario_nome_resolvido ?? 'Usuário removido'}</span>
+                          : <span style={{ fontSize: 11, color: C.espressoM }}>—</span>}
                       </Td>
                     </tr>
                   )
@@ -527,56 +1170,155 @@ function TabProdutos({ rows, total, categorias, filtroBusca, setFiltroBusca, fil
   )
 }
 
-function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorId, locaisPorId }: {
-  rows: Movimentacao[]; total: number;
-  filtroTipo: string; setFiltroTipo: (v: string) => void;
-  produtosPorId: Record<string, Produto>; locaisPorId: Record<string, Local>;
+// F2.1 · Tab Saldo · KPIs + filtros + tabela
+function TabSaldo({
+  rows, total, kpis, locais, produtos,
+  filtroSaldoProduto, setFiltroSaldoProduto,
+  filtroSaldoLocal, setFiltroSaldoLocal,
+  filtroSaldoTipo, setFiltroSaldoTipo,
+}: {
+  rows: { produto_id: string; produto_nome: string; produto_codigo: string | null;
+    local_id: string | null; local_nome: string; saldo: number; custo_medio: number; valor_total: number;
+    classe_abc?: 'A' | 'B' | 'C' | null; reservado: number; disponivel: number }[];
+  total: number;
+  kpis: { totalSku: number; skusComSaldo: number; skusZerados: number; skusNegativos: number; qtdLiquida: number; valorLiquido: number; skusReservados: number };
+  locais: Local[]; produtos: Produto[];
+  filtroSaldoProduto: string; setFiltroSaldoProduto: (v: string) => void;
+  filtroSaldoLocal: string; setFiltroSaldoLocal: (v: string) => void;
+  filtroSaldoTipo: 'todos' | 'com' | 'zero' | 'neg'; setFiltroSaldoTipo: (v: 'todos' | 'com' | 'zero' | 'neg') => void;
 }) {
+  // #96 (Jordana): clicar num card mostra, na tabela abaixo, o que compõe o número do card.
+  type CardSaldo = 'total' | 'com' | 'zero' | 'neg' | 'qtd' | 'valor'
+  const [cardAtivo, setCardAtivo] = useState<CardSaldo | null>(null)
+  const tabelaRef = useRef<HTMLDivElement | null>(null)
+  const abrirCard = (c: CardSaldo) => {
+    setCardAtivo(c)
+    setFiltroSaldoProduto(''); setFiltroSaldoLocal('')   // o card é da empresa toda: a composição também
+    setFiltroSaldoTipo(c === 'com' || c === 'zero' || c === 'neg' ? c : 'todos')
+    setTimeout(() => tabelaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
+  const ordem = cardAtivo === 'valor' ? 'valor' : cardAtivo === 'qtd' ? 'qtd' : null
+  const linhas = ordem === 'valor' ? [...rows].sort((a, b) => b.valor_total - a.valor_total)
+    : ordem === 'qtd' ? [...rows].sort((a, b) => Math.abs(b.saldo) - Math.abs(a.saldo)) : rows
+  const somaValor = linhas.reduce((acc, r) => acc + r.valor_total, 0)
+  const somaQtd = linhas.reduce((acc, r) => acc + r.saldo, 0)
+  const ROTULO_CARD: Record<CardSaldo, string> = {
+    total: 'Total de itens', com: 'Com saldo', zero: 'Zerados', neg: 'Negativos', qtd: 'Quantidade líquida', valor: 'Valor do estoque líquido',
+  }
+  const chips: { k: 'todos' | 'com' | 'zero' | 'neg'; label: string; n: number; cor?: string }[] = [
+    { k: 'todos', label: 'Todos', n: kpis.totalSku },
+    { k: 'com', label: 'Com saldo', n: kpis.skusComSaldo, cor: C.green },
+    { k: 'zero', label: 'Zerados', n: kpis.skusZerados, cor: C.amber },
+    { k: 'neg', label: 'Negativos', n: kpis.skusNegativos, cor: C.red },
+  ]
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-        <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={selInpStyle}>
-          <option value="">Todos os tipos</option>
-          {TIPOS_MOV.map((t) => <option key={t.value} value={t.value}>{t.sinal} {t.label}</option>)}
-        </select>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>{rows.length} de {total}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* KPIs (cf980ce1 · a realidade: total, com saldo, zerados, NEGATIVOS, qtd líquida, valor líquido) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+        <KpiCard label="Total de itens" valor={String(kpis.totalSku)} cor={C.espressoM} onClick={() => abrirCard('total')} ativo={cardAtivo === 'total'} testid="saldo-card-total" />
+        <KpiCard label="Com saldo" valor={String(kpis.skusComSaldo)} cor={C.green} onClick={() => abrirCard('com')} ativo={cardAtivo === 'com'} testid="saldo-card-com" />
+        <KpiCard label="Zerados" valor={String(kpis.skusZerados)} cor={C.amber} onClick={() => abrirCard('zero')} ativo={cardAtivo === 'zero'} testid="saldo-card-zero" />
+        <KpiCard label="Negativos" valor={String(kpis.skusNegativos)} cor={C.red} destaque={kpis.skusNegativos > 0} onClick={() => abrirCard('neg')} ativo={cardAtivo === 'neg'} testid="saldo-card-neg" />
+        <KpiCard label="Quantidade líquida" valor={fmtNum(kpis.qtdLiquida)} cor={kpis.qtdLiquida < 0 ? C.red : C.espresso} onClick={() => abrirCard('qtd')} ativo={cardAtivo === 'qtd'} testid="saldo-card-qtd" />
+        <KpiCard label="Valor do estoque líquido" valor={fmtBRL(kpis.valorLiquido)} cor={C.gold} destaque onClick={() => abrirCard('valor')} ativo={cardAtivo === 'valor'} testid="saldo-card-valor" />
       </div>
+
+      {/* Filtros */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Produto
+          <input
+            type="text"
+            value={filtroSaldoProduto}
+            onChange={(e) => setFiltroSaldoProduto(e.target.value)}
+            placeholder="Buscar por nome ou código"
+            style={selInpStyle}
+            list="saldo-produtos-list"
+            data-testid="saldo-filtro-produto"
+          />
+          <datalist id="saldo-produtos-list">
+            {produtos.map((p) => <option key={p.id} value={p.nome} />)}
+          </datalist>
+        </label>
+        <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          Local
+          <select value={filtroSaldoLocal} onChange={(e) => setFiltroSaldoLocal(e.target.value)} style={selInpStyle} data-testid="saldo-filtro-local">
+            <option value="">Todos os locais</option>
+            {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+        </label>
+        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {chips.map((c) => {
+            const on = filtroSaldoTipo === c.k
+            return (
+              <button key={c.k} type="button" onClick={() => setFiltroSaldoTipo(c.k)} data-testid={`saldo-filtro-${c.k}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
+                  fontSize: 12, fontWeight: 700, border: `1px solid ${on ? (c.cor ?? C.gold) : C.border}`,
+                  background: on ? (c.cor ?? C.gold) : C.white, color: on ? C.white : C.espressoM }}>
+                {c.label} <span style={{ opacity: 0.85 }}>({c.n})</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div ref={tabelaRef} style={{ fontSize: 11, color: C.espressoM, paddingLeft: 4 }}>{rows.length} de {total} linha(s)</div>
+      {cardAtivo && (
+        <div data-testid="saldo-composicao" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap',
+          background: '#FDF7E8', border: `1px solid ${C.gold}55`, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: C.espresso }}>
+          <span>
+            Composição de <b>{ROTULO_CARD[cardAtivo]}</b>: {linhas.length} linha(s)
+            {ordem === 'valor' && <> · do maior para o menor valor · soma <b data-testid="saldo-composicao-soma">{fmtBRL(somaValor)}</b></>}
+            {ordem === 'qtd' && <> · da maior para a menor quantidade · soma <b data-testid="saldo-composicao-soma">{fmtNum(somaQtd)}</b></>}
+          </span>
+          <button type="button" onClick={() => { setCardAtivo(null); setFiltroSaldoTipo('todos') }}
+            style={{ border: 'none', background: 'transparent', color: C.goldD, fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>limpar</button>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         total === 0
-          ? <EmptyState titulo="Nenhuma movimentação registrada" texto="Use o botão Nova Movimentação para registrar entradas, saídas, ajustes e inventários." />
-          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Sem movimentações neste filtro.</div>
+          ? <EmptyState titulo="Sem produtos no estoque" texto="Baixe a planilha padrão, preencha e importe pelo botão “Importar planilha” acima — o estoque (inclusive negativos) aparece aqui." />
+          : <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13, background: C.offWhite, border: `1px dashed ${C.border}`, borderRadius: 10 }}>Nenhum item bate com os filtros.</div>
       ) : (
         <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 800 }}>
               <thead style={{ background: C.cream }}>
-                <tr><Th>Data</Th><Th>Tipo</Th><Th>Produto</Th><Th>Local</Th><Th align="right">Quantidade</Th><Th align="right">Antes → Depois</Th><Th align="right">Valor</Th><Th>Motivo</Th></tr>
+                <tr>
+                  <Th>Produto</Th>
+                  <Th>Local</Th>
+                  <Th align="right">Físico</Th>
+                  <Th align="right">Reservado</Th>
+                  <Th align="right">Disponível</Th>
+                  <Th align="right">Custo médio</Th>
+                  <Th align="right">Valor total</Th>
+                  <Th>Classe</Th>
+                </tr>
               </thead>
               <tbody>
-                {rows.map((m) => {
-                  const t = TIPOS_MOV.find((x) => x.value === m.tipo)
-                  const sinal = t?.sinal ?? '='
-                  const cor = sinal === '+' ? C.green : sinal === '-' ? C.red : C.blue
-                  const prod = produtosPorId[m.produto_id]
-                  const local = m.local_id ? locaisPorId[m.local_id] : null
+                {linhas.map((r) => {
+                  const corClasse = r.classe_abc === 'A' ? C.gold : r.classe_abc === 'B' ? C.blue : C.espressoM
+                  // Bloco D · disponível = físico − reservado. Só o disponível pode ser vendido.
+                  // Negativo = prometeu mais do que tem (o furo, agora visível) → vermelho.
+                  const corDisp = r.disponivel < 0 ? C.red : r.reservado > 0 ? C.goldD : (r.disponivel > 0 ? C.green : C.espressoL)
                   return (
-                    <tr key={m.id} style={{ borderTop: `1px solid ${C.borderL}` }}>
-                      <Td>{fmtDateTime(m.data_movimento)}</Td>
+                    <tr key={`${r.produto_id}|${r.local_id ?? ''}`} style={{ borderTop: `1px solid ${C.borderL}` }} data-testid="saldo-row">
                       <Td>
-                        <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: cor + '20', color: cor, fontWeight: 700, textTransform: 'uppercase' }}>
-                          {sinal} {t?.label ?? m.tipo}
-                        </span>
+                        <div style={{ fontWeight: 600 }}>{r.produto_nome}</div>
+                        {r.produto_codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{r.produto_codigo}</span>}
                       </Td>
+                      <Td>{r.local_nome}</Td>
+                      <Td align="right"><span style={{ color: r.saldo < 0 ? C.red : (r.saldo > 0 ? C.espresso : C.espressoL), fontWeight: r.saldo < 0 ? 700 : 400 }}>{fmtNum(r.saldo)}</span></Td>
+                      <Td align="right">{r.reservado > 0 ? <span style={{ color: C.blue, fontWeight: 600 }} title="Comprometido em OS pronta/entregue não faturada">{fmtNum(r.reservado)}</span> : <span style={{ color: C.espressoL }}>—</span>}</Td>
+                      <Td align="right"><strong style={{ color: corDisp }} title="Físico menos reservado — só o disponível pode ser vendido">{fmtNum(r.disponivel)}</strong></Td>
+                      <Td align="right">{r.custo_medio > 0 ? fmtBRL(r.custo_medio) : '—'}</Td>
+                      <Td align="right"><strong>{r.valor_total > 0 ? fmtBRL(r.valor_total) : '—'}</strong></Td>
                       <Td>
-                        <div style={{ fontWeight: 600 }}>{prod?.nome ?? '—'}</div>
-                        {prod?.codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{prod.codigo}</span>}
+                        {r.classe_abc ? (
+                          <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: corClasse + '20', color: corClasse, fontWeight: 700 }}>{r.classe_abc}</span>
+                        ) : <span style={{ color: C.espressoL }}>—</span>}
                       </Td>
-                      <Td>{local?.nome ?? '—'}</Td>
-                      <Td align="right"><strong style={{ color: cor }}>{sinal} {fmtNum(Math.abs(Number(m.quantidade)))}</strong></Td>
-                      <Td align="right"><span style={{ fontSize: 11, color: C.espressoM }}>{fmtNum(Number(m.quantidade_antes))} → <strong style={{ color: C.espresso }}>{fmtNum(Number(m.quantidade_depois))}</strong></span></Td>
-                      <Td align="right">{Number(m.valor_total) > 0 ? fmtBRL(Number(m.valor_total)) : '—'}</Td>
-                      <Td>{m.motivo ?? m.ref_numero ?? '—'}</Td>
                     </tr>
                   )
                 })}
@@ -585,6 +1327,26 @@ function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, produtosPorI
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function KpiCard({ label, valor, cor, destaque, onClick, ativo, testid }: { label: string; valor: string; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean; testid?: string }) {
+  return (
+    <div role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined} onClick={onClick} data-testid={testid}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
+      title={onClick ? 'Clique para ver o que compõe este número' : undefined}
+      style={{
+      background: destaque ? '#FDF7E8' : C.white,
+      border: `1px solid ${ativo ? cor : C.border}`,
+      borderLeft: `3px solid ${cor}`,
+      borderRadius: 10,
+      padding: '12px 14px',
+      cursor: onClick ? 'pointer' : undefined,
+      boxShadow: ativo ? `0 0 0 2px ${cor}33` : undefined,
+    }}>
+      <div style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: cor, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
     </div>
   )
 }
@@ -679,11 +1441,14 @@ function TabCurvaABC({ rows }: { rows: CurvaABCRow[] }) {
 // Drawer/Modal
 // ════════════════════════════════════════════════════════════
 
-function DrawerProduto({ produto, movimentacoes, locaisPorId, onClose, onMovimentar }: { produto: Produto; movimentacoes: Movimentacao[]; locaisPorId: Record<string, Local>; onClose: () => void; onMovimentar: () => void }) {
+function DrawerProduto({ produto, reservado, movimentacoes, locaisPorId, onClose, onMovimentar }: { produto: Produto; reservado: number; movimentacoes: Movimentacao[]; locaisPorId: Record<string, Local>; onClose: () => void; onMovimentar: () => void }) {
   const atual = Number(produto.estoque_atual ?? 0)
   const min = Number(produto.estoque_minimo ?? 0)
   const custo = Number(produto.preco_custo_medio ?? produto.preco_custo ?? 0)
   const valor = atual * custo
+  // Bloco D · disponível = físico − reservado; negativo = prometeu mais do que tem
+  const disponivel = atual - reservado
+  const corDisp = disponivel < 0 ? C.red : reservado > 0 ? C.goldD : C.green
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
@@ -707,7 +1472,11 @@ function DrawerProduto({ produto, movimentacoes, locaisPorId, onClose, onMovimen
           </Card>
 
           <Card titulo="Estoque">
-            <Row label="Atual" value={<strong style={{ fontSize: 16, color: atual < min ? C.red : C.green }}>{fmtNum(atual)} {produto.unidade}</strong>} />
+            <Row label="Físico" value={<strong style={{ fontSize: 16, color: atual < min ? C.red : C.espresso }}>{fmtNum(atual)} {produto.unidade}</strong>} />
+            <Row label="Reservado" value={reservado > 0
+              ? <span style={{ color: C.blue, fontWeight: 600 }} title="Comprometido em OS pronta/entregue não faturada">{fmtNum(reservado)} {produto.unidade}</span>
+              : <span style={{ color: C.espressoL }}>—</span>} />
+            <Row label="Disponível" value={<strong style={{ fontSize: 16, color: corDisp }} title="Físico menos reservado — só o disponível pode ser vendido">{fmtNum(disponivel)} {produto.unidade}</strong>} />
             <Row label="Mínimo" value={fmtNum(min, 0)} />
             <Row label="Máximo" value={produto.estoque_maximo ? fmtNum(Number(produto.estoque_maximo), 0) : '∞'} />
             <Row label="Valor em estoque" value={<strong style={{ color: C.gold }}>{fmtBRL(valor)}</strong>} />
@@ -914,11 +1683,11 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
 // Helpers visuais
 // ════════════════════════════════════════════════════════════
 
-function TabBtn({ ativo, onClick, icon, label, count }: { ativo: boolean; onClick: () => void; icon: React.ReactNode; label: string; count?: number }) {
+function TabBtn({ ativo, onClick, icon, label, count, testid }: { ativo: boolean; onClick: () => void; icon: React.ReactNode; label: string; count?: number; testid?: string }) {
   return (
     <button onClick={onClick} style={{ padding: '10px 16px', background: 'transparent', border: 'none', borderBottom: ativo ? `2px solid ${C.gold}` : '2px solid transparent', color: ativo ? C.goldD : C.espressoM, fontWeight: ativo ? 700 : 500, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
       {icon} {label}
-      {typeof count === 'number' && <span style={{ fontSize: 10, padding: '1px 8px', borderRadius: 999, background: ativo ? C.goldBg : C.cream, color: ativo ? C.goldD : C.espressoM, fontWeight: 700 }}>{count}</span>}
+      {typeof count === 'number' && <span data-testid={testid} style={{ fontSize: 10, padding: '1px 8px', borderRadius: 999, background: ativo ? C.goldBg : C.cream, color: ativo ? C.goldD : C.espressoM, fontWeight: 700 }}>{count}</span>}
     </button>
   )
 }
@@ -1006,4 +1775,548 @@ function btnPrincipal(enabled: boolean): React.CSSProperties {
     cursor: enabled ? 'pointer' : 'not-allowed',
     display: 'inline-flex', alignItems: 'center', gap: 6,
   }
+}
+
+// ════════════════════════════════════════════════════════════
+// F2.2 · ModalAjuste — focado em ajustes positivo/negativo
+// ════════════════════════════════════════════════════════════
+
+function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
+  companyId: string
+  locais: Local[]
+  movimentacoes: Movimentacao[]
+  onClose: () => void
+  onSubmit: (args: { produto_id: string; local_id: string | null; positivo: boolean;
+    quantidade: number; custo_unitario: number; motivo: string; observacoes: string | null }) => Promise<boolean>
+}) {
+  // FIX-PRODUTO-AUTOCOMPLETE-REUSE-262-v1 · usa componente compartilhado
+  // (server-side · acaba com filtro client-side fragil)
+  const [produtoSel, setProdutoSel] = useState<ProdutoSelecionado | null>(null)
+  const localPrincipal = locais.find((l) => l.principal) ?? locais[0] ?? null
+  const [localId, setLocalId] = useState<string>(localPrincipal?.id ?? '')
+  const [positivo, setPositivo] = useState(true)
+  const [quantidade, setQuantidade] = useState('')
+  const [custo, setCusto] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [obs, setObs] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  // Saldo atual do produto (no local escolhido se possivel; senao estoque_atual do produto)
+  const saldoAtual = useMemo(() => {
+    if (!produtoSel) return null
+    for (const m of movimentacoes) {
+      if (m.produto_id !== produtoSel.id) continue
+      if (localId && m.local_id && m.local_id !== localId) continue
+      return Number(m.quantidade_depois ?? 0)
+    }
+    return Number(produtoSel.estoque_atual ?? 0)
+  }, [produtoSel, localId, movimentacoes])
+
+  // Quando seleciona produto, preenche custo sugerido
+  function aoSelecionar(p: ProdutoSelecionado) {
+    setProdutoSel(p)
+    if (!custo) {
+      const c = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
+      if (c > 0) setCusto(c.toFixed(2).replace('.', ','))
+    }
+  }
+
+  const qtdN = Number(quantidade.replace(',', '.')) || 0
+  const custoN = Number(custo.replace(',', '.')) || 0
+  const saldoFinal = saldoAtual != null ? (positivo ? saldoAtual + qtdN : saldoAtual - qtdN) : null
+
+  async function salvar() {
+    setErro(null)
+    if (!produtoSel) { setErro('Escolha um produto da lista.'); return }
+    if (!localId) { setErro('Escolha o local.'); return }
+    if (qtdN <= 0) { setErro('Quantidade deve ser maior que zero.'); return }
+    if (!motivo.trim()) { setErro('Informe o motivo do ajuste.'); return }
+    if (!positivo && saldoAtual != null && qtdN > saldoAtual) {
+      setErro(`Não dá pra ajustar -${qtdN}: saldo atual é ${saldoAtual}.`); return
+    }
+    setSalvando(true)
+    const ok = await onSubmit({
+      produto_id: produtoSel.id,
+      local_id: localId || null,
+      positivo, quantidade: qtdN, custo_unitario: custoN,
+      motivo: motivo.trim(), observacoes: obs.trim() || null,
+    })
+    setSalvando(false)
+    if (!ok) setErro('Falha ao salvar ajuste.')
+  }
+
+  return (
+    <div onClick={(e) => { if (e.target === e.currentTarget && !salvando) onClose() }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.offWhite, borderRadius: 12, padding: 22, width: '100%', maxWidth: 560, maxHeight: '92vh', overflowY: 'auto', border: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Ajuste de estoque</h3>
+          <button onClick={onClose} disabled={salvando} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Produto · componente compartilhado FIX-PRODUTO-AUTOCOMPLETE-REUSE-262-v1 */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Produto *</label>
+            <div style={{ marginTop: 4 }}>
+              <ProdutoAutocomplete
+                companyId={companyId}
+                selecionado={produtoSel}
+                onSelect={aoSelecionar}
+                onClear={() => setProdutoSel(null)}
+                autoFocus
+                testId="ajuste-prod"
+                detalheSelecionado={(p) => saldoAtual != null
+                  ? (<>Saldo atual: <strong>{fmtNum(saldoAtual)} {p.unidade ?? ''}</strong></>)
+                  : null}
+              />
+            </div>
+          </div>
+
+          {/* Local */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Local *</label>
+            <select value={localId} onChange={(e) => setLocalId(e.target.value)} data-testid="ajuste-local"
+              style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
+              {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          </div>
+
+          {/* Tipo · radio */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Tipo *</label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button type="button" onClick={() => setPositivo(true)} data-testid="ajuste-tipo-pos"
+                style={{
+                  flex: 1, padding: '10px 14px', borderRadius: 8, border: `1.5px solid ${positivo ? C.green : C.border}`,
+                  background: positivo ? '#ECFDF5' : '#fff', color: positivo ? '#047857' : C.espresso, fontWeight: 600, cursor: 'pointer', fontSize: 13,
+                }}>
+                + Positivo (entrou estoque)
+              </button>
+              <button type="button" onClick={() => setPositivo(false)} data-testid="ajuste-tipo-neg"
+                style={{
+                  flex: 1, padding: '10px 14px', borderRadius: 8, border: `1.5px solid ${!positivo ? C.red : C.border}`,
+                  background: !positivo ? '#FEE2E2' : '#fff', color: !positivo ? '#B91C1C' : C.espresso, fontWeight: 600, cursor: 'pointer', fontSize: 13,
+                }}>
+                – Negativo (perda/saída)
+              </button>
+            </div>
+          </div>
+
+          {/* Qtd + Custo */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div>
+              <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Quantidade *</label>
+              <input type="text" inputMode="decimal" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="0"
+                data-testid="ajuste-qtd" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Custo unitário</label>
+              <input type="text" inputMode="decimal" value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="0,00"
+                data-testid="ajuste-custo" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
+            </div>
+          </div>
+
+          {/* Preview */}
+          {produtoSel && saldoAtual != null && qtdN > 0 && (
+            <div style={{ padding: 10, background: C.cream, borderRadius: 8, fontSize: 12, color: C.espresso }}>
+              Saldo atual: <strong>{fmtNum(saldoAtual)}</strong> → Saldo após ajuste: <strong style={{ color: positivo ? C.green : C.red }}>{fmtNum(saldoFinal ?? 0)}</strong>
+            </div>
+          )}
+
+          {/* Motivo */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Motivo *</label>
+            <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex: avaria · encontrado no fundo · contagem física"
+              data-testid="ajuste-motivo" style={{ ...selInpStyle, marginTop: 4, width: '100%' }} />
+          </div>
+
+          {/* Observacoes */}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Observações</label>
+            <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2}
+              style={{ ...selInpStyle, marginTop: 4, width: '100%', resize: 'vertical' }} />
+          </div>
+
+          {erro && (
+            <div style={{ padding: 10, background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 8, color: C.red, fontSize: 12 }}>{erro}</div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+            <button type="button" onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
+            <button type="button" onClick={salvar} disabled={salvando || !produtoSel || qtdN <= 0 || !motivo.trim()}
+              data-testid="ajuste-salvar" style={btnPrincipal(!salvando && !!produtoSel && qtdN > 0 && !!motivo.trim())}>
+              {salvando ? 'Salvando…' : 'Criar ajuste'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════
+// F2.2 · Tab Inventário (lista) + Modal Novo Inventário
+// ════════════════════════════════════════════════════════════
+
+function TabInventario({ rows, locaisPorId, onSelect }: {
+  rows: Inventario[]; locaisPorId: Record<string, Local>; onSelect: (i: Inventario) => void
+}) {
+  if (rows.length === 0) {
+    return <EmptyState titulo="Nenhum inventário ainda" texto="Use o botão Iniciar inventário pra fazer a contagem física e gerar ajustes automaticamente pelas diferenças." />
+  }
+  return (
+    <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 720 }}>
+          <thead style={{ background: C.cream }}>
+            <tr><Th>Número</Th><Th>Local</Th><Th>Status</Th><Th>Início</Th><Th>Fim</Th><Th align="right">Itens</Th><Th align="right">Divergências</Th></tr>
+          </thead>
+          <tbody>
+            {rows.map((i) => {
+              const corStatus = i.status === 'fechado' ? C.green : i.status === 'em_andamento' ? C.blue : C.espressoM
+              const local = i.local_id ? locaisPorId[i.local_id] : null
+              return (
+                <tr key={i.id} onClick={() => onSelect(i)} data-testid="inventario-row"
+                  style={{ cursor: 'pointer', borderTop: `1px solid ${C.borderL}` }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = C.cream)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+                  <Td><span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{i.numero ?? '—'}</span></Td>
+                  <Td>{local?.nome ?? '—'}</Td>
+                  <Td>
+                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: corStatus + '20', color: corStatus, fontWeight: 700, textTransform: 'uppercase' }}>
+                      {i.status ?? '—'}
+                    </span>
+                  </Td>
+                  <Td>{i.data_inicio ? new Date(i.data_inicio).toLocaleDateString('pt-BR') : '—'}</Td>
+                  <Td>{i.data_fim ? new Date(i.data_fim).toLocaleDateString('pt-BR') : '—'}</Td>
+                  <Td align="right">{i.total_produtos ?? 0}</Td>
+                  <Td align="right"><strong style={{ color: (i.total_divergencias ?? 0) > 0 ? C.amber : C.espressoL }}>{i.total_divergencias ?? 0}</strong></Td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }: {
+  companyId: string; locais: Local[];
+  onClose: () => void; onCreated: (id: string) => void | Promise<void>;
+  flashErr: (m: string) => void
+}) {
+  const principal = locais.find((l) => l.principal) ?? locais[0] ?? null
+  const [localId, setLocalId] = useState<string>(principal?.id ?? '')
+  const [obs, setObs] = useState('')
+  const [categoria, setCategoria] = useState('')
+  const [marca, setMarca] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  // FIX-INVENTARIO-INICIAR-SALDO-v1
+  // Fonte unica de verdade: erp_produtos.estoque_atual GLOBAL (mesma fonte
+  // da aba Saldo · fn_curva_abc_estoque). NAO usar texto localizacao nem
+  // depender de produtos do parent (pode estar paginado/stale).
+  // Sistema single-local por enquanto · saldo por local fica pra depois
+  // quando houver multi-deposito real (deriva por local_id das movimentacoes).
+  const [universo, setUniverso] = useState<Produto[]>([])
+  const [carregandoUniv, setCarregandoUniv] = useState(false)
+
+  useEffect(() => {
+    if (!companyId) { setUniverso([]); return }
+    setCarregandoUniv(true)
+    let cancelado = false
+    void (async () => {
+      const cols = 'id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo'
+      // #126: mesmo teto de 1000 do PostgREST — o inventário também precisa do universo inteiro.
+      const { data } = await selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select(cols)
+        .eq('company_id', companyId).eq('ativo', true).gt('estoque_atual', 0)
+        .order('nome').order('id').range(de, ate))
+      if (cancelado) return
+      setUniverso((data ?? []) as Produto[])
+      setCarregandoUniv(false)
+    })()
+    return () => { cancelado = true }
+  }, [companyId])
+
+  const categorias = useMemo(() => Array.from(new Set(universo.map((p) => p.categoria).filter(Boolean) as string[])).sort(), [universo])
+  const marcasUnique = useMemo(() => Array.from(new Set(universo.map((p) => (p as Produto & { marca?: string | null }).marca).filter(Boolean) as string[])).sort(), [universo])
+
+  // Snapshot: estoque_atual GLOBAL > 0 + filtros opcionais.
+  const snapshot = useMemo(() => {
+    return universo.filter((p) => {
+      if (Number(p.estoque_atual ?? 0) <= 0) return false
+      if (categoria && p.categoria !== categoria) return false
+      if (marca && (p as Produto & { marca?: string | null }).marca !== marca) return false
+      return true
+    })
+  }, [universo, categoria, marca])
+
+  async function criar() {
+    if (!localId) { flashErr('Escolha o local.'); return }
+    if (snapshot.length === 0) { flashErr('Nenhum produto pra inventariar com os filtros.'); return }
+    setSalvando(true)
+    try {
+      // Numero
+      const { data: numero } = await supabase.rpc('next_inventario_numero', { p_company_id: companyId })
+      const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+      const { data: inv, error: e1 } = await supabase.from('erp_inventarios').insert({
+        company_id: companyId,
+        numero: numero ?? `INV-${Date.now().toString().slice(-6)}`,
+        local_id: localId,
+        status: 'em_andamento',
+        data_inicio: new Date().toISOString().slice(0, 10),
+        responsavel: user?.email ?? null,
+        total_produtos: snapshot.length,
+        observacoes: obs.trim() || null,
+        created_by: user?.id ?? null,
+      }).select('id').single()
+      if (e1 || !inv) throw new Error(e1?.message ?? 'Falha ao criar inventário')
+
+      const itens = snapshot.map((p) => ({
+        inventario_id: inv.id,
+        company_id: companyId,
+        produto_id: p.id,
+        quantidade_sistema: Number(p.estoque_atual ?? 0),
+        custo_unitario: Number(p.preco_custo_medio ?? p.preco_custo ?? 0),
+      }))
+      const { error: e2 } = await supabase.from('erp_inventario_itens').insert(itens)
+      if (e2) throw new Error(e2.message)
+      await onCreated(inv.id)
+    } catch (err) {
+      flashErr(err instanceof Error ? err.message : 'Erro ao criar inventário')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div onClick={(e) => { if (e.target === e.currentTarget && !salvando) onClose() }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.offWhite, borderRadius: 12, padding: 22, width: '100%', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', border: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>📋 Iniciar inventário</h3>
+          <button onClick={onClose} disabled={salvando} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Local *</label>
+            <select value={localId} onChange={(e) => setLocalId(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
+              {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          </div>
+          {categorias.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div>
+                <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Filtrar categoria (opc.)</label>
+                <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
+                  <option value="">Todas</option>
+                  {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Filtrar marca (opc.)</label>
+                <select value={marca} onChange={(e) => setMarca(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
+                  <option value="">Todas</option>
+                  {marcasUnique.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          <div>
+            <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Observações</label>
+            <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2}
+              style={{ ...selInpStyle, marginTop: 4, width: '100%', resize: 'vertical' }} />
+          </div>
+          <div style={{ padding: 10, background: C.goldBg, borderRadius: 8, fontSize: 12, color: C.goldD }}>
+            {carregandoUniv
+              ? 'Carregando produtos com saldo…'
+              : <>Vai inventariar <strong>{snapshot.length}</strong> produto(s) com saldo &gt; 0.</>}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+            <button type="button" onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
+            <button type="button" onClick={criar} disabled={salvando || carregandoUniv || snapshot.length === 0} data-testid="inventario-criar"
+              style={btnPrincipal(!salvando && !carregandoUniv && snapshot.length > 0)}>
+              {salvando ? 'Criando…' : 'Criar inventário'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechado, flash, flashErr }: {
+  inventario: Inventario
+  produtos: Produto[]
+  locaisPorId: Record<string, Local>
+  onClose: () => void
+  onFechado: () => void | Promise<void>
+  flash: (m: string) => void
+  flashErr: (m: string) => void
+}) {
+  const [itens, setItens] = useState<InventarioItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [salvandoIdx, setSalvandoIdx] = useState<string | null>(null)
+  const [fechando, setFechando] = useState(false)
+  const fechado = inventario.status === 'fechado'
+  const produtosPorId = useMemo(() => Object.fromEntries(produtos.map((p) => [p.id, p])), [produtos])
+  const local = inventario.local_id ? locaisPorId[inventario.local_id] : null
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      setLoading(true)
+      const { data } = await supabase
+        .from('erp_inventario_itens')
+        .select('*').eq('inventario_id', inventario.id)
+      if (alive) {
+        setItens((data ?? []) as InventarioItem[])
+        setLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [inventario.id])
+
+  async function alterarContado(it: InventarioItem, novaQtd: number) {
+    setSalvandoIdx(it.id)
+    // FIX-INVENTARIO-CONTAGEM-PERSIST-v1
+    // UPDATE direto falhava silenciosamente (diferenca e GENERATED) · usa RPC.
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { error } = await supabase.rpc('fn_inventario_registrar_contagem', {
+      p_item_id: it.id,
+      p_quantidade_contada: novaQtd,
+      p_usuario: user?.email ?? null,
+    })
+    if (error) {
+      flashErr('Não foi possível salvar a contagem: ' + error.message)
+      setSalvandoIdx(null)
+      return
+    }
+    // Releitura do item pra refletir diferenca generated + valor_diferenca.
+    const { data: row } = await supabase.from('erp_inventario_itens').select('*').eq('id', it.id).single()
+    if (row) {
+      setItens((prev) => prev.map((x) => x.id === it.id ? (row as InventarioItem) : x))
+    }
+    setSalvandoIdx(null)
+  }
+
+  async function fechar() {
+    if (!confirm('Fechar o inventário? Vai gerar movimentações de ajuste pelas diferenças.')) return
+    setFechando(true)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { error } = await supabase.rpc('fechar_inventario', {
+      p_inventario_id: inventario.id,
+      p_usuario_id: user?.id ?? null,
+    })
+    if (error) {
+      flashErr('Falha ao fechar: ' + error.message)
+      setFechando(false)
+      return
+    }
+    flash('Inventário FECHADO · ajustes criados.')
+    setFechando(false)
+    await onFechado()
+  }
+
+  // FIX-INVENTARIO-CONTAGEM-PERSIST-v1: divergencia so existe pra item contado.
+  // (diferenca e GENERATED · vem != 0 antes da contagem · nao e divergencia real)
+  const contados = itens.filter((i) => i.quantidade_contada != null).length
+  const divergencias = itens.filter((i) => i.quantidade_contada != null && Number(i.diferenca ?? 0) !== 0).length
+
+  return (
+    <div onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
+      <aside onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(780px, 100%)', height: '100%', background: C.offWhite, overflowY: 'auto', boxShadow: '-8px 0 24px rgba(0,0,0,0.15)' }}>
+        <header style={{ position: 'sticky', top: 0, background: C.offWhite, borderBottom: `1px solid ${C.border}`, padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', fontWeight: 600 }}>Inventário</div>
+            <h2 style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 700, fontFamily: 'monospace' }}>{inventario.numero ?? '—'}</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: C.espressoM }}>{local?.nome ?? '—'} · {contados}/{itens.length} contados · {divergencias} divergência(s)</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: C.espressoM }}><X size={16} /></button>
+        </header>
+
+        <div style={{ padding: 20 }}>
+          {loading ? (
+            <div style={{ padding: 30, textAlign: 'center', color: C.espressoM }}>Carregando itens…</div>
+          ) : itens.length === 0 ? (
+            <div style={{ padding: 30, textAlign: 'center', color: C.espressoM, fontSize: 13 }}>Sem itens.</div>
+          ) : (
+            <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead style={{ background: C.cream }}>
+                  <tr><Th>Produto</Th><Th align="right">Sistema</Th><Th align="right">Contado</Th><Th align="right">Diferença</Th></tr>
+                </thead>
+                <tbody>
+                  {itens.map((it) => {
+                    const p = produtosPorId[it.produto_id]
+                    const sistema = Number(it.quantidade_sistema ?? 0)
+                    const contado = it.quantidade_contada
+                    const diff = it.diferenca ?? (contado != null ? Number(contado) - sistema : 0)
+                    const corDiff = diff > 0 ? C.green : diff < 0 ? C.red : C.espressoL
+                    return (
+                      <tr key={it.id} style={{ borderTop: `1px solid ${C.borderL}` }}>
+                        <Td>
+                          <div style={{ fontWeight: 600 }}>{p?.nome ?? '—'}</div>
+                          {p?.codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{p.codigo}</span>}
+                        </Td>
+                        <Td align="right">{fmtNum(sistema)}</Td>
+                        <Td align="right">
+                          {fechado ? (
+                            <span>{contado != null ? fmtNum(Number(contado)) : '—'}</span>
+                          ) : (
+                            <input
+                              type="number" step="0.001"
+                              defaultValue={contado ?? ''}
+                              onBlur={(e) => {
+                                const v = parseFloat(e.target.value)
+                                if (!isNaN(v)) void alterarContado(it, v)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  ;(e.target as HTMLInputElement).blur()
+                                }
+                              }}
+                              data-testid={`inv-contado-${it.id}`}
+                              disabled={salvandoIdx === it.id}
+                              style={{ width: 90, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 12, textAlign: 'right' }}
+                            />
+                          )}
+                        </Td>
+                        <Td align="right">
+                          {contado != null ? (
+                            <strong style={{ color: corDiff }}>{diff > 0 ? '+' : ''}{fmtNum(diff)}</strong>
+                          ) : <span style={{ color: C.espressoL }}>—</span>}
+                        </Td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!fechado && (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <button type="button" onClick={onClose} disabled={fechando} style={btnSec}>Continuar depois</button>
+              <button type="button" onClick={fechar} disabled={fechando || contados === 0} data-testid="inv-fechar"
+                style={btnPrincipal(!fechando && contados > 0)}>
+                {fechando ? 'Fechando…' : '🔒 Fechar inventário'}
+              </button>
+            </div>
+          )}
+          {fechado && (
+            <div style={{ marginTop: 14, padding: 12, background: C.greenBg, borderRadius: 8, color: C.green, fontSize: 12 }}>
+              ✓ Inventário FECHADO. Ajustes gerados nas movimentações.
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  )
 }

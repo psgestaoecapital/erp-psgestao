@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas, negar } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
-export const POST = withAuth(async (req: NextRequest, { userId }) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
+  const { userId } = u
   const body = await req.json()
   const {
     unidade_id, data, turno,
@@ -15,6 +16,11 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 
   if (!unidade_id || !data || !turno)
     return NextResponse.json({ error: 'unidade_id, data e turno sao obrigatorios' }, { status: 400 })
+  // Empresa REAL da unidade.
+  const { data: unidade } = await supabaseAdmin.from('ind_unidades').select('company_id').eq('id', unidade_id).maybeSingle()
+  if (!unidade) return negar(404, 'Unidade não encontrada.')
+  const negado = await exigirEmpresas(u, [unidade.company_id])
+  if (negado) return negado
 
   const { data: turnoRec, error: errTurno } = await supabaseAdmin
     .from('ind_turnos')

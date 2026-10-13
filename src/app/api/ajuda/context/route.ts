@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -10,7 +11,9 @@ function getSupabase() {
   return createClient(url, key)
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   let supabase
   try {
     supabase = getSupabase()

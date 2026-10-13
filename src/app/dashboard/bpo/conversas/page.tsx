@@ -6,7 +6,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { rpc, supabaseBrowser } from "@/lib/authFetch";
+import { rpc } from "@/lib/authFetch";
+import { getUsuarioId } from "@/lib/AuthProvider";
 
 interface Conversa {
   id: string;
@@ -42,16 +43,15 @@ export default function ConversasLandingPage() {
     setLoading(true);
     setErro(null);
     try {
-      const supabase = supabaseBrowser();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const uid = await getUsuarioId();
+      if (!uid) {
         router.replace("/");
         return;
       }
-      setUserId(user.id);
+      setUserId(uid);
 
       const data = await rpc<Conversa[]>("fn_bpo_listar_conversas_operador", {
-        p_user_id: user.id,
+        p_user_id: uid,
         p_filtro: filtro,
       });
       setConversas(data || []);

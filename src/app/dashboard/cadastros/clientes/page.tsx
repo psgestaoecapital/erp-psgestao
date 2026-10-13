@@ -1,47 +1,46 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useState } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import PessoasList from '@/components/cadastros/PessoasList'
+import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
 
 export default function Page() {
   const { companyIds, selInfo } = useCompanyIds()
   const empresaUnica =
     selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
-
-  const [hasPlan, setHasPlan] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    let ignore = false
-    if (!empresaUnica) {
-      setHasPlan(null)
-      return
-    }
-    ;(async () => {
-      const { data } = await supabase
-        .from('tenant_subscriptions')
-        .select('id')
-        .eq('company_id', empresaUnica)
-        .eq('plan_id', 'v15_gestao_empresarial_pro')
-        .eq('status', 'active')
-        .maybeSingle()
-      if (!ignore) setHasPlan(!!data)
-    })()
-    return () => {
-      ignore = true
-    }
-  }, [empresaUnica])
+  // #59 PDOIS parte 2: entrada "Solicitar elaboração de contrato" a partir do cadastro de clientes
+  const [solicitar, setSolicitar] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   if (!empresaUnica) {
     return <div style={{ padding: 32, color: '#A32D2D', background: '#FAF7F2', minHeight: '100vh' }}>Selecione uma empresa para gerenciar clientes.</div>
   }
-  if (hasPlan === null) {
-    return <div style={{ padding: 32, color: 'rgba(61,35,20,0.55)', background: '#FAF7F2', minHeight: '100vh' }}>Verificando plano…</div>
-  }
-  if (!hasPlan) {
-    return <div style={{ padding: 32, color: '#A32D2D', background: '#FAF7F2', minHeight: '100vh' }}>Empresa sem plano Gestão Empresarial ativo.</div>
-  }
 
-  return <PessoasList companyId={empresaUnica} tipo="cliente" />
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', padding: '12px 16px 0' }}>
+        <a href="/modelos/MODELO_importacao_cadastros_PS_clientes.xlsx" download
+          style={{ border: '1px solid #C8941A', color: '#C8941A', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+          ⬇ Baixar planilha modelo
+        </a>
+        <a href="/dashboard/cadastros/clientes/importar"
+          style={{ border: '1px solid #3D2314', color: '#3D2314', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+          ⬆ Importar planilha
+        </a>
+        <button type="button" onClick={() => setSolicitar(true)}
+          style={{ background: '#C8941A', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+          🧾 Solicitar elaboração de contrato
+        </button>
+      </div>
+      <PessoasList companyId={empresaUnica} tipo="cliente" />
+      {solicitar && (
+        <SolicitarContratoModal companyId={empresaUnica} onClose={() => setSolicitar(false)}
+          onSolicitado={(r) => { setSolicitar(false); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.`) }} />
+      )}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: '#3D2314', color: '#fff', padding: '10px 18px', borderRadius: 8, fontSize: 13, zIndex: 2000 }} onClick={() => setToast(null)}>{toast}</div>
+      )}
+    </>
+  )
 }

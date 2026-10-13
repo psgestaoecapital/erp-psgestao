@@ -1,0 +1,50 @@
+name: Jornadas Revenda (Playwright)
+
+# Jornadas e2e da Revenda ("clicar, salvar, conferir no banco"), só na Demonstração Revenda (is_demo).
+# Roda sob demanda e semanalmente. O gatilho pós-merge que toca src/app/dashboard/revenda/** entra no R1e.
+# RD-78: e2e/jornadas/aceitacao/** (a jornada de aceitação de cada PR, que roda no preview via aceitacao-pr.yml)
+# também entra nesta varredura — o testDir é ./e2e/jornadas, então a pasta vira banco de regressão automaticamente.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 7 * * 1' # segunda 04h BRT (07h UTC) — varredura semanal
+
+jobs:
+  jornadas:
+    runs-on: ubuntu-latest
+    # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
+    # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
+    # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
+    concurrency:
+      group: demo-e2e
+      cancel-in-progress: false
+      queue: max
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+      - name: Rodar jornadas da Revenda
+        env:
+          PROD_BASE_URL: https://erp-psgestao.vercel.app
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+          PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+        run: npm run jornadas:revenda
+      - name: Upload relatório (em caso de falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jornadas-revenda-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore

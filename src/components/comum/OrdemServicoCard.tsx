@@ -1,0 +1,1061 @@
+'use client'
+
+// FEAT-OS-ONDA4-O41-FICHA-GENERICA-v1
+// Card de Ordem de Servico GENERICA (zero referencia a vertical).
+// Le erp_os por pedido_id · cria via fn_os_criar_de_pedido · edita via fn_os_salvar.
+// Mobile-first · touch 44px+ · linguagem CRIOU/ALTEROU.
+
+import { useCallback, useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
+import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'   // chamado #20 §2.4 · "Gerar financeiro"
+import EmitirNFSeOSButton from '@/components/comum/EmitirNFSeOSButton'   // chamado #20 Fase 2 · NFS-e (serviços) da OS
+import EmitirNFeOSButton from '@/components/comum/EmitirNFeOSButton'   // chamado #20 Fase 3 · NF-e (peças) da OS
+import { orFiltroClienteBusca } from '@/lib/clienteBusca'
+import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
+
+interface OS {
+  id: string
+  numero: string | null
+  status: string
+  total: number | null
+  company_id: string
+  pedido_id: string | null
+  cliente_id: string | null
+  cliente_nome: string | null
+  cliente_cnpj: string | null
+  placa?: string | null
+  titulos_gerados: boolean | null
+  lancamento_id: string | null
+  equipamento: string | null
+  defeito_relatado: string | null
+  descricao_servico: string | null
+  endereco_servico: string | null
+  observacoes_cliente: string | null
+  observacoes_internas: string | null
+  // O4.2 · execucao
+  tecnico_nome: string | null
+  horas_previstas: number | null
+  horas_executadas: number | null
+  valor_hora: number | null
+  // #108 · desconto na OS (antes de faturar): grava em valor; % é derivado; autoria/data de quem concedeu.
+  desconto_valor: number | null
+  desconto_percentual: number | null
+  desconto_concedido_em: string | null
+  // O4.3 · assinatura
+  assinatura_cliente: string | null
+  assinatura_data: string | null
+  data_abertura: string | null
+  data_execucao: string | null
+  data_conclusao: string | null
+}
+
+interface Props {
+  pedidoId?: string
+  osId?: string
+  onFlash?: (msg: string) => void
+  onExcluida?: (acao: 'excluida' | 'cancelada', numero: string | null) => void
+  // CRUD-OS · o botão excluir/cancelar só aparece onde a missão é GERIR a OS
+  // (tela /dashboard/os). No fluxo OTC o contexto é venda/faturamento — um 🗑️
+  // ali é perigoso (regra CEO: "uma tela, uma missão"). Default: escondido.
+  podeExcluir?: boolean
+}
+
+const C = {
+  espresso: '#3D2314',
+  espressoM: '#6B5D4F',
+  espressoL: '#9C8E80',
+  white: '#FFFFFF',
+  cream: '#F0ECE3',
+  border: '#E0D8CC',
+  borderL: '#EDE7DA',
+  gold: '#C8941A',
+  goldD: '#A57A15',
+  goldBg: '#FDF7E8',
+  green: '#10B981',
+  greenBg: '#ECFDF5',
+  greenD: '#047857',
+  amber: '#C88A1A',
+  amberBg: '#FFF8E1',
+  red: '#EF4444',
+  redBg: '#FEE2E2',
+  neutralBg: '#F5F2EB',
+}
+
+const fmtBRL = (v: number) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// RD-41 · data/hora do selo pós-entrega (DD/MM/AAAA HH:MM), tolerante a valor inválido.
+const fmtQuando = (iso: string) => {
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? String(iso) : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+const STATUS: Array<{ value: string; label: string; cor: string; bg: string }> = [
+  { value: 'aberta',                 label: 'Aberta',                  cor: C.espresso, bg: C.neutralBg },
+  { value: 'em_execucao',            label: 'Em execução',             cor: C.goldD,    bg: C.goldBg },
+  { value: 'aguardando_peca',        label: 'Aguardando peça/material', cor: C.amber,    bg: C.amberBg },
+  { value: 'aguardando_aprovacao',   label: 'Aguardando aprovação',     cor: C.amber,    bg: C.amberBg },
+  { value: 'aprovada',               label: 'Aprovada',                 cor: C.greenD,   bg: C.goldBg },   // #134
+  { value: 'pronta',                 label: 'Pronta',                  cor: C.green,    bg: C.greenBg },
+  { value: 'entregue',               label: 'Entregue',                cor: C.greenD,   bg: C.greenBg },
+  { value: 'cancelada',              label: 'Cancelada',               cor: C.red,      bg: C.redBg },
+]
+
+const inp: React.CSSProperties = {
+  width: '100%', minHeight: 44, padding: '10px 12px',
+  border: `1px solid ${C.border}`, borderRadius: 8,
+  fontSize: 13, color: C.espresso, background: C.white, outline: 'none',
+}
+const ta: React.CSSProperties = { ...inp, minHeight: 64, resize: 'vertical' }
+const lbl: React.CSSProperties = { display: 'block', fontSize: 11, color: C.espressoM, fontWeight: 600, marginBottom: 4 }
+const btnPri: React.CSSProperties = {
+  minHeight: 44, padding: '10px 18px', borderRadius: 8,
+  border: 'none', background: C.gold, color: C.white,
+  fontSize: 13, fontWeight: 700, cursor: 'pointer',
+}
+const btnSec: React.CSSProperties = {
+  minHeight: 36, padding: '6px 12px', borderRadius: 6,
+  border: `1px solid ${C.border}`, background: 'transparent',
+  color: C.espressoM, fontSize: 11, cursor: 'pointer',
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS.find((x) => x.value === status) ?? STATUS[0]
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center',
+      padding: '4px 10px', borderRadius: 999,
+      background: s.bg, color: s.cor,
+      fontSize: 11, fontWeight: 700, letterSpacing: 0.2,
+    }}>
+      {s.label}
+    </span>
+  )
+}
+
+export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, podeExcluir = false }: Props) {
+  const [os, setOs] = useState<OS | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [criando, setCriando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [msgOk, setMsgOk] = useState<string | null>(null)
+  // CRUD-OS · exclusão / cancelamento
+  const [excluirAberto, setExcluirAberto] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
+  const [erroExcluir, setErroExcluir] = useState<string | null>(null)
+  // OS → GE · faturar (gera título em Contas a Receber)
+  const [faturando, setFaturando] = useState(false)
+  // RD-41 · edição pós-entrega restrita a Master (CLIENT_OWNER) — e agora também ao BPO (BUG #16b).
+  const [papel, setPapel] = useState<string | null>(null)
+  const [isBpo, setIsBpo] = useState(false)
+  const [reabrindo, setReabrindo] = useState(false)
+  const [selo, setSelo] = useState<{ user_email?: string; quando?: string } | null>(null)
+  // RD-41 · itens do diagnóstico (peças + serviços). A ficha reabria SEM eles → impresso zerado.
+  const [itensDiag, setItensDiag] = useState<Array<{ id?: string | null; tipo?: string; produto_id?: string | null; descricao?: string; quantidade?: number | string | null; preco?: number | null; subtotal?: number | null; status_item?: string | null }>>([])
+  // A2 Path 2 · substituir item texto-livre por peça do estoque (na tela de finalização, sem preço)
+  const [substItem, setSubstItem] = useState<string | null>(null)
+  const [substTermo, setSubstTermo] = useState('')
+  const [substResult, setSubstResult] = useState<Array<{ id: string; nome: string; codigo: string | null; estoque_atual: number | null }>>([])
+  const [substindo, setSubstindo] = useState(false)
+  // OS avulsa · banco da cobrança escolhido no faturamento (OS via pedido usa a conta das parcelas, #1211)
+  const [receitaAberta, setReceitaAberta] = useState(false)   // #20 §2.4 · form de receita a partir da OS
+  // #108 · desconto na OS (ponto único, antes de faturar): entrada em R$ OU %, grava sempre em valor.
+  const [descInput, setDescInput] = useState('')
+  const [descModo, setDescModo] = useState<'valor' | 'pct'>('valor')
+  const [aplicandoDesc, setAplicandoDesc] = useState(false)
+  const [descPrecisaAprovacao, setDescPrecisaAprovacao] = useState(false)
+
+  const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
+  const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
+  // RD-41 · OS entregue: só Master (CLIENT_OWNER) ajusta. Não-Master fica somente-leitura.
+  const entregue = os?.status === 'entregue'
+  const isMaster = papel === 'CLIENT_OWNER'
+  const podeAjustarEntregue = isMaster || isBpo             // BUG #16b: Master OU BPO ajustam pós-entrega
+  const bloqueadoEntrega = Boolean(entregue && !podeAjustarEntregue)
+  const roEntrega = bloqueadoEntrega                         // readOnly nos campos quando bloqueado
+  const tipEntrega = 'OS entregue — ajustes só por Master ou BPO.'
+
+  async function faturar() {
+    if (!os) return
+    setFaturando(true); setErro(null); setMsgOk(null)
+    // OS avulsa: repassa a conta escolhida; OS via pedido ignora (conta vem das parcelas)
+    const { data, error } = await supabase.rpc('fn_os_faturar', { p_os_id: os.id, p_conta_bancaria_id: null })
+    setFaturando(false)
+    const r = data as { ok?: boolean; erro?: string; valor?: number } | null
+    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao faturar'); return }
+    const v = r?.valor != null ? ` — R$ ${Number(r.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''
+    flash(`Financeiro gravado ✓ título gerado na GE${v}. Veja em Financeiro → Contas a Receber.`)
+    void carregar()
+  }
+
+  // #20 §2.4 · "Gerar financeiro" (OS avulsa): o form de receita cria o(s) título(s) com forma de
+  // pagamento/parcelas; aqui só VINCULO à OS + baixa de estoque/snapshot (fn_os_vincular_financeiro).
+  async function vincularFinanceiro(receberId: string) {
+    if (!os) return
+    const { data, error } = await supabase.rpc('fn_os_vincular_financeiro', { p_os_id: os.id, p_receber_id: receberId })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Financeiro criado, mas falhou ao vincular à OS. Confira em Contas a Receber.'); return }
+    flash('Financeiro lançado ✓ vinculado à OS. Veja em Financeiro → Contas a Receber.')
+    void carregar()
+  }
+
+  // #108 · aplica desconto na OS (ponto único). Converte % → valor pelo BRUTO; acima do teto pede aprovação
+  // (Master/BPO aplicam com a própria alçada). Bloqueado se já faturada (o servidor também recusa).
+  async function aplicarDesconto(aprovar = false, override?: number) {
+    if (!os) return
+    const bruto = (Number(os.total) || 0) + (Number(os.desconto_valor) || 0)
+    const raw = Number((descInput || '0').replace(',', '.')) || 0
+    const valor = override != null ? Math.round(override * 100) / 100
+      : descModo === 'pct' ? Math.round(bruto * raw) / 100 : Math.round(raw * 100) / 100
+    if (valor < 0) { setErro('Desconto não pode ser negativo.'); return }
+    if (valor > bruto) { setErro(`Desconto não pode ultrapassar o total da OS (${fmtBRL(bruto)}).`); return }
+    setAplicandoDesc(true); setErro(null)
+    let aprovadoPor: string | null = null
+    if (aprovar) { const { data: u } = await supabase.auth.getUser(); aprovadoPor = u?.user?.id ?? null }
+    const { data, error } = await supabase.rpc('fn_os_aplicar_desconto', { p_os_id: os.id, p_desconto_valor: valor, p_aprovado_por: aprovadoPor })
+    setAplicandoDesc(false)
+    const r = data as { ok?: boolean; erro?: string; precisa_aprovacao?: boolean; teto_valor?: number; total?: number } | null
+    if (error || r?.ok === false) {
+      if (r?.precisa_aprovacao) {
+        setDescPrecisaAprovacao(true)
+        setErro((isMaster || isBpo)
+          ? `Desconto acima do teto (máx ${fmtBRL(r.teto_valor ?? 0)}). Você tem alçada — confirme em "Aplicar com aprovação".`
+          : `Desconto acima do teto (máx ${fmtBRL(r.teto_valor ?? 0)}). Precisa de aprovação de quem tem alçada.`)
+        return
+      }
+      setErro(error?.message || r?.erro || 'Falha ao aplicar desconto'); return
+    }
+    setDescInput(''); setDescPrecisaAprovacao(false)
+    flash(valor > 0 ? `Desconto aplicado ✓ ${fmtBRL(valor)}` : 'Desconto removido ✓')
+    void carregar()
+  }
+
+  function flash(msg: string) {
+    setMsgOk(msg)
+    onFlash?.(msg)
+    window.setTimeout(() => setMsgOk((m) => (m === msg ? null : m)), 3500)
+  }
+
+  // A2 Path 2 · busca de peça no estoque para substituir um item texto-livre
+  useEffect(() => {
+    const cid = os?.company_id
+    if (!substItem || !cid || substTermo.trim().length < 2) { setSubstResult([]); return }
+    let alive = true
+    const t = setTimeout(() => {
+      void supabase.rpc('fn_oficina_pecas_buscar', { p_company_id: cid, p_termo: substTermo.trim() })
+        .then(({ data }) => { if (alive) setSubstResult((Array.isArray(data) ? data : []) as typeof substResult) })
+    }, 300)
+    return () => { alive = false; clearTimeout(t) }
+  }, [substTermo, substItem, os?.company_id])
+
+  async function substituirPeca(itemId: string, produtoId: string) {
+    setSubstindo(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_diag_item_substituir', { p_diag_item_id: itemId, p_produto_id: produtoId })
+    setSubstindo(false)
+    // #257: com a OS faturada o servidor liga só o produto e dá a saída de estoque; o que não puder ser feito
+    // volta em `erro` (sem saldo, OS cancelada…) e aparece aqui — nunca some em silêncio.
+    const r = data as { ok?: boolean; erro?: string; aviso?: string | null; faturada?: boolean; baixado?: boolean; quantidade?: number } | null
+    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao substituir a peça'); return }
+    setSubstItem(null); setSubstTermo(''); setSubstResult([])
+    if (r?.aviso) flash(`Peça ligada ao estoque ✓ ${r.aviso}`)
+    else if (r?.faturada && r?.baixado) flash(`Peça ligada ao estoque ✓ saída de ${r.quantidade ?? 1} registrada. Valor da OS e título não mudam.`)
+    else flash('Peça vinculada ao estoque ✓')
+    void carregar()
+  }
+
+  // Form state
+  const [equipamento, setEquipamento] = useState('')
+  const [defeito, setDefeito] = useState('')
+  const [descricao, setDescricao] = useState('')
+  const [endereco, setEndereco] = useState('')
+  const [obsCliente, setObsCliente] = useState('')
+  // O4.2 · execucao (strings pra preservar input vazio sem sobrescrever DB)
+  const [tecnicoNome, setTecnicoNome] = useState('')
+  const [horasPrevistas, setHorasPrevistas] = useState('')
+  const [horasExecutadas, setHorasExecutadas] = useState('')
+  const [valorHora, setValorHora] = useState('')
+  // FIX 1 · cliente editável/re-vinculável em qualquer status (KGF/Kleiton)
+  const [clienteId, setClienteId] = useState<string | null>(null)
+  const [clienteNome, setClienteNome] = useState('')
+  const [clienteCnpj, setClienteCnpj] = useState('')
+  const [trocarCli, setTrocarCli] = useState(false)          // abre a busca de re-vínculo
+  // #121 (Gean) · placa editável na ficha: "OKG8B38" lançada no lugar de "OKG8D38" não tinha como corrigir.
+  const [placaEdit, setPlacaEdit] = useState('')
+  const [salvandoPlaca, setSalvandoPlaca] = useState(false)
+  const [msgPlaca, setMsgPlaca] = useState<string | null>(null)
+  const [buscaCli, setBuscaCli] = useState('')
+  const [cliOpts, setCliOpts] = useState<Array<{ id: string; nome: string; doc: string | null }>>([])
+
+  const carregar = useCallback(async () => {
+    setLoading(true)
+    // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
+    const cols = 'id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const q = supabase.from('erp_os').select(cols)
+    const { data, error } = osId
+      ? await q.eq('id', osId).maybeSingle()
+      : await q.eq('pedido_id', pedidoId as string).neq('status', 'cancelada').order('created_at', { ascending: false }).limit(1).maybeSingle()
+    if (error) setErro(error.message)
+    const row = (data ?? null) as OS | null
+    setOs(row)
+    if (row) {
+      setEquipamento(row.equipamento ?? '')
+      setDefeito(row.defeito_relatado ?? '')
+      setDescricao(row.descricao_servico ?? '')
+      setEndereco(row.endereco_servico ?? '')
+      setObsCliente(row.observacoes_cliente ?? '')
+      setTecnicoNome(row.tecnico_nome ?? '')
+      setHorasPrevistas(row.horas_previstas != null ? String(row.horas_previstas) : '')
+      setHorasExecutadas(row.horas_executadas != null ? String(row.horas_executadas) : '')
+      setValorHora(row.valor_hora != null ? String(row.valor_hora) : '')
+      setClienteId(row.cliente_id ?? null)
+      setPlacaEdit(row.placa ?? '')
+      setClienteNome(row.cliente_nome ?? '')
+      setClienteCnpj(row.cliente_cnpj ?? '')
+      setTrocarCli(false); setBuscaCli(''); setCliOpts([])
+    }
+    // RD-41 · carrega os itens do diagnóstico (a ficha reabria SEM eles ao editar OS entregue → impresso zerado)
+    if (row?.id && row.company_id) {
+      const { data: diag } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: row.company_id, p_os_id: row.id })
+      const dd = diag as { itens?: typeof itensDiag } | null   // o retorno traz {diagnostico,km,itens,resumo} (sem 'ok')
+      setItensDiag(Array.isArray(dd?.itens) ? (dd?.itens ?? []) : [])
+    } else {
+      setItensDiag([])
+    }
+    setLoading(false)
+  }, [pedidoId, osId])
+
+  // Busca de cliente pra RE-VINCULAR (reusa o filtro compartilhado — RD-26). Escopo da empresa da OS.
+  useEffect(() => {
+    const termo = buscaCli.trim()
+    const filtro = orFiltroClienteBusca(termo)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!trocarCli || !filtro || !os?.company_id) { setCliOpts([]); return }
+    const companyId = os.company_id
+    let alive = true
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from('erp_clientes')
+        .select('id, razao_social, nome_fantasia, cpf_cnpj')
+        .eq('company_id', companyId).eq('ativo', true)
+        .or(filtro).limit(8)
+      if (!alive) return
+      const list = (data ?? []) as Array<{ id: string; razao_social: string | null; nome_fantasia: string | null; cpf_cnpj: string | null }>
+      setCliOpts(list.map((c) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social || '—', doc: c.cpf_cnpj })))
+    }, 250)
+    return () => { alive = false; clearTimeout(t) }
+  }, [buscaCli, trocarCli, os?.company_id])
+
+  function escolherCliente(c: { id: string; nome: string; doc: string | null }) {
+    setClienteId(c.id); setClienteNome(c.nome); setClienteCnpj(c.doc ?? '')
+    setTrocarCli(false); setBuscaCli(''); setCliOpts([])
+  }
+
+  useEffect(() => { void carregar() }, [carregar])
+
+  // #134 · OS aprovada pelo cliente com parte dos itens recusada: o status vira "Aprovada" (há o que executar),
+  // mas a oficina precisa ver que nem tudo foi aprovado.
+  const [recusadosDe, setRecusadosDe] = useState<{ osId: string; n: number } | null>(null)
+  useEffect(() => {
+    const oid = os?.id
+    if (!oid || os?.status !== 'aprovada') return
+    let alive = true
+    void (async () => {
+      const { count } = await supabase.from('erp_os_diagnostico_item')
+        .select('id', { count: 'exact', head: true }).eq('os_id', oid).eq('aprovado', false)
+      if (alive) setRecusadosDe({ osId: oid, n: count ?? 0 })
+    })()
+    return () => { alive = false }
+  }, [os?.id, os?.status])
+  const recusados = os?.status === 'aprovada' && recusadosDe?.osId === os.id ? recusadosDe.n : 0
+
+  // RD-41 · papel do usuário na empresa da OS (Master = CLIENT_OWNER) + selo "editada após entrega".
+  useEffect(() => {
+    const cid = os?.company_id; const oid = os?.id
+    if (!cid || !oid) { setPapel(null); setSelo(null); return }
+    let alive = true
+    void (async () => {
+      const { data: userData } = await supabase.auth.getUser()
+      const uid = userData?.user?.id
+      const [p, s, b] = await Promise.all([
+        supabase.rpc('fn_oficina_papel', { p_company_id: cid }),
+        supabase.rpc('fn_os_editado_pos_entrega', { p_os_id: oid }),
+        uid
+          ? supabase.from('bpo_companies_assignment').select('id').eq('company_id', cid).eq('user_id', uid).eq('ativo', true).limit(1)
+          : Promise.resolve({ data: null }),
+      ])
+      if (!alive) return
+      setPapel(typeof p.data === 'string' ? p.data : null)
+      setIsBpo(Array.isArray(b.data) && b.data.length > 0)
+      const sel = s.data as { user_email?: string; quando?: string } | null
+      setSelo(sel ?? null)
+    })()
+    return () => { alive = false }
+  }, [os?.id, os?.company_id, os?.status])
+
+  async function abrirOS() {
+    setCriando(true)
+    setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_criar_de_pedido', { p_pedido_id: pedidoId })
+    setCriando(false)
+    if (error) { setErro(error.message); return }
+    const resp = data as { ok?: boolean; erro?: string; ja_existia?: boolean; numero?: string; os_id?: string }
+    if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao criar OS'); return }
+    // FIX-OS-ABRIR-COM-OS-ID-v1
+    // Abrir ficha SEMPRE com resp.os_id (campo da RPC), independente de
+    // ja_existia. Fetch direto por id e mais robusto que filtrar por
+    // pedido_id + status na re-query.
+    if (resp?.os_id) {
+      const { data: row } = await supabase
+        .from('erp_os')
+        .select('id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
+        .eq('id', resp.os_id)
+        .maybeSingle()
+      if (row) {
+        const r = row as OS
+        setOs(r)
+        setEquipamento(r.equipamento ?? '')
+        setDefeito(r.defeito_relatado ?? '')
+        setDescricao(r.descricao_servico ?? '')
+        setEndereco(r.endereco_servico ?? '')
+        setObsCliente(r.observacoes_cliente ?? '')
+        setTecnicoNome(r.tecnico_nome ?? '')
+        setHorasPrevistas(r.horas_previstas != null ? String(r.horas_previstas) : '')
+        setHorasExecutadas(r.horas_executadas != null ? String(r.horas_executadas) : '')
+        setValorHora(r.valor_hora != null ? String(r.valor_hora) : '')
+        setClienteId(r.cliente_id ?? null); setClienteNome(r.cliente_nome ?? ''); setClienteCnpj(r.cliente_cnpj ?? '')
+      } else {
+        await carregar() // fallback
+      }
+    } else {
+      await carregar()
+    }
+    flash(resp?.ja_existia ? `Ordem de serviço Nº ${resp.numero} já existia.` : `Ordem de serviço CRIADA · Nº ${resp.numero}.`)
+  }
+
+  async function alterarStatus(novoStatus: string) {
+    if (!os) return
+    // BUG #16a · não deixar "entregar" com os valores zerados sem avisar (não passa silencioso).
+    if (novoStatus === 'entregue' && Number(os.total ?? 0) === 0) {
+      if (!window.confirm('Esta OS está com total R$ 0,00 (sem peças/mão de obra fechados). Entregar assim mesmo? O custo/lucro sairá zerado nos relatórios.')) return
+    }
+    setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_salvar', {
+      p_os_id: os.id,
+      p_dados: { status: novoStatus },
+    })
+    if (error) { setErro(error.message); return }
+    const resp = data as { ok?: boolean; erro?: string }
+    if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao alterar status'); return }
+    flash('Status ALTERADO.')
+    await carregar()
+  }
+
+  // BUG #16b · reabrir OS entregue → em_execucao (Master/BPO/admin), com log. Destrava o ajuste de valores.
+  async function reabrir() {
+    if (!os) return
+    const motivo = window.prompt('Reabrir esta OS entregue para ajustar valores. Motivo (fica no log):', '')
+    if (motivo === null) return
+    setReabrindo(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_reabrir', { p_os_id: os.id, p_motivo: motivo.trim() || null })
+    setReabrindo(false)
+    if (error) { setErro(error.message); return }
+    const resp = data as { ok?: boolean; erro?: string; faturada?: boolean }
+    if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao reabrir'); return }
+    flash(resp?.faturada ? 'OS reaberta — atenção: já faturada, os valores seguem travados na GE.' : 'OS reaberta para ajuste. Lance os valores e reentregue.')
+    await carregar()
+  }
+
+  async function salvar() {
+    if (!os) return
+    setSalvando(true)
+    setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_salvar', {
+      p_os_id: os.id,
+      p_dados: {
+        // FIX 1 · cliente (nome sempre; cliente_id só quando re-vinculado a um cadastro)
+        cliente_nome: clienteNome.trim() || null,
+        cliente_cnpj: clienteCnpj.trim() || null,
+        ...(clienteId ? { cliente_id: clienteId } : {}),
+        equipamento: equipamento.trim() || null,
+        defeito_relatado: defeito.trim() || null,
+        descricao_servico: descricao.trim() || null,
+        endereco_servico: endereco.trim() || null,
+        observacoes_cliente: obsCliente.trim() || null,
+        // O4.2 · execucao · NULLIF no server descarta '' sem sobrescrever
+        tecnico_nome: tecnicoNome.trim() || null,
+        horas_previstas: horasPrevistas.replace(',', '.'),
+        horas_executadas: horasExecutadas.replace(',', '.'),
+        valor_hora: valorHora.replace(',', '.'),
+      },
+    })
+    setSalvando(false)
+    if (error) { setErro(error.message); return }
+    const resp = data as { ok?: boolean; erro?: string }
+    if (resp?.ok === false) { setErro(resp.erro ?? 'Falha ao salvar OS'); return }
+    flash('Ordem de serviço ALTERADA.')
+    await carregar()
+  }
+
+  // CRUD-OS · exclusão (soft-delete) / cancelamento (se faturada) — servidor decide
+  async function excluir(motivo: string) {
+    if (!os) return
+    setExcluindo(true)
+    setErroExcluir(null)
+    const { data, error } = await supabase.rpc('fn_os_excluir', {
+      p_os_id: os.id,
+      p_motivo: motivo || null,
+    })
+    setExcluindo(false)
+    if (error) { setErroExcluir(error.message); return }
+    const resp = data as { ok?: boolean; erro?: string; acao?: 'excluida' | 'cancelada'; numero?: string } | null
+    if (!resp?.ok) { setErroExcluir(resp?.erro ?? 'Falha ao excluir OS'); return }
+    setExcluirAberto(false)
+    flash(resp.acao === 'cancelada' ? 'Ordem de serviço CANCELADA.' : 'Ordem de serviço EXCLUÍDA.')
+    if (onExcluida) onExcluida(resp.acao ?? 'excluida', resp.numero ?? os.numero)
+    else await carregar() // sem handler (ex.: OTC) — atualiza o status na própria ficha
+  }
+
+  if (loading) {
+    return <p style={{ fontSize: 12, color: C.espressoM, fontStyle: 'italic', margin: 0 }}>Carregando…</p>
+  }
+
+  if (!os) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
+          Nenhuma ordem de serviço aberta para este pedido.
+        </p>
+        <button
+          type="button"
+          onClick={abrirOS}
+          disabled={criando}
+          data-testid="os-abrir"
+          style={{ ...btnPri, alignSelf: 'flex-start', opacity: criando ? 0.6 : 1 }}
+        >
+          {criando ? 'Abrindo…' : 'Abrir Ordem de Serviço'}
+        </button>
+        {erro && <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {erro}</p>}
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 13, color: C.espresso, fontFamily: 'monospace' }}>OS Nº {os.numero ?? '—'}</strong>
+        <StatusBadge status={os.status} />
+      </div>
+
+      {recusados > 0 && (
+        <div data-testid="os-aviso-recusados" style={{ fontSize: 12, color: C.espresso, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '8px 10px' }}>
+          ⚠️ Aprovada com {recusados === 1 ? '1 item recusado' : `${recusados} itens recusados`} pelo cliente — execute só os itens aprovados.
+        </div>
+      )}
+      {/* RD-41 · selo de auditoria: OS ajustada após a entrega (controle pedido pela Jordana) */}
+      {selo && (
+        <div data-testid="os-selo-pos-entrega" style={{ fontSize: 11.5, color: C.espresso, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px' }}>
+          ✏️ Editada após entrega{selo.user_email ? ` por ${selo.user_email}` : ''}{selo.quando ? ` em ${fmtQuando(selo.quando)}` : ''}
+        </div>
+      )}
+      {/* RD-41 · avisos de edição pós-entrega */}
+      {entregue && podeAjustarEntregue && (
+        <div data-testid="os-aviso-master" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12, color: C.espresso, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '8px 10px' }}>
+          <span>⚠️ OS já entregue — você ({isMaster ? 'Master' : 'BPO'}) pode ajustar os valores. A alteração fica registrada.</span>
+          <button type="button" onClick={reabrir} disabled={reabrindo} data-testid="os-reabrir"
+            style={{ ...btnSec, borderColor: C.amber, color: C.goldD, background: C.white }}>
+            {reabrindo ? 'Reabrindo…' : '↩︎ Reabrir OS (voltar p/ execução)'}
+          </button>
+        </div>
+      )}
+      {bloqueadoEntrega && (
+        <div data-testid="os-bloqueio-entrega" style={{ fontSize: 12, color: C.espresso, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px' }}>
+          🔒 {tipEntrega}
+        </div>
+      )}
+
+      <label style={{ display: 'block' }}>
+        <span style={lbl}>Status</span>
+        <select
+          value={os.status}
+          onChange={(e) => void alterarStatus(e.target.value)}
+          data-testid="os-status-select"
+          disabled={bloqueadoEntrega}
+          title={bloqueadoEntrega ? tipEntrega : undefined}
+          style={{ ...inp, cursor: bloqueadoEntrega ? 'not-allowed' : 'pointer', opacity: bloqueadoEntrega ? 0.6 : 1 }}
+        >
+          {STATUS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
+      </label>
+
+      {/* #121 · placa editável (erro de digitação ao abrir a OS). Mesma RPC do pátio (fn_oficina_os_set_placa):
+          normaliza (maiúsculas, sem traço) e exige ≥ 5 caracteres. Salva na hora, separado do "Salvar" da ficha. */}
+      <div style={{ display: 'block' }}>
+        <span style={lbl}>Placa</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            value={placaEdit}
+            onChange={(e) => { setPlacaEdit(e.target.value.toUpperCase()); setMsgPlaca(null) }}
+            placeholder="ABC1D23"
+            data-testid="os-placa"
+            readOnly={roEntrega}
+            style={{ ...inp, maxWidth: 160, fontFamily: 'ui-monospace, Menlo, monospace', fontWeight: 700, letterSpacing: 1 }}
+          />
+          {!roEntrega && placaEdit.replace(/[^A-Za-z0-9]/g, '').toUpperCase() !== (os.placa ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase() && (
+            <button
+              type="button"
+              data-testid="os-placa-salvar"
+              disabled={salvandoPlaca}
+              onClick={async () => {
+                if (placaEdit.replace(/[^A-Za-z0-9]/g, '').length < 5) { setMsgPlaca('Placa inválida: informe ao menos 5 letras/números.'); return }
+                setSalvandoPlaca(true)
+                const { data, error } = await supabase.rpc('fn_oficina_os_set_placa', { p_company_id: os.company_id, p_os_id: os.id, p_placa: placaEdit })
+                setSalvandoPlaca(false)
+                const j = data as { ok?: boolean; placa?: string; erro?: string } | null
+                if (error || !j?.ok || !j.placa) { setMsgPlaca(`Não salvou a placa: ${error?.message || j?.erro || 'erro desconhecido'}`); return }
+                setOs({ ...os, placa: j.placa })
+                setPlacaEdit(j.placa)
+                setMsgPlaca(`Placa SALVA: ${j.placa}`)
+              }}
+              style={{ background: C.gold, color: C.espresso, border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 12, fontWeight: 700, cursor: salvandoPlaca ? 'wait' : 'pointer', minHeight: 36 }}
+            >
+              {salvandoPlaca ? 'Salvando…' : 'Salvar placa'}
+            </button>
+          )}
+        </div>
+        {msgPlaca && <div data-testid="os-placa-msg" style={{ fontSize: 12, marginTop: 4, color: msgPlaca.startsWith('Placa SALVA') ? C.green : C.red }}>{msgPlaca}</div>}
+      </div>
+
+      {/* FIX 1 · cliente editável em qualquer status + re-vínculo a outro cadastro */}
+      <div style={{ display: 'block' }}>
+        <span style={lbl}>Cliente</span>
+        <input
+          value={clienteNome}
+          onChange={(e) => setClienteNome(e.target.value)}
+          placeholder="Nome do cliente"
+          data-testid="os-cliente-nome"
+          readOnly={roEntrega}
+          style={inp}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+          {clienteCnpj && <span style={{ fontSize: 11, color: C.espressoM }}>Doc: {clienteCnpj}</span>}
+          {!roEntrega && (
+            <button type="button" onClick={() => { setTrocarCli((v) => !v); setBuscaCli('') }}
+              style={{ background: 'none', border: 'none', color: C.gold, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+              {trocarCli ? '− cancelar' : '🔍 Trocar / re-vincular cliente'}
+            </button>
+          )}
+        </div>
+        {trocarCli && (
+          <div style={{ marginTop: 6, position: 'relative' }}>
+            <input
+              value={buscaCli}
+              onChange={(e) => setBuscaCli(e.target.value)}
+              placeholder="Buscar por nome ou CNPJ/CPF…"
+              autoFocus
+              style={inp}
+            />
+            {cliOpts.length > 0 && (
+              <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, marginTop: 4, background: C.white, maxHeight: 220, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,.06)' }}>
+                {cliOpts.map((c) => (
+                  <button key={c.id} type="button" onClick={() => escolherCliente(c)}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'none', padding: '8px 10px', fontSize: 13, cursor: 'pointer', color: C.espresso }}>
+                    {c.nome}{c.doc ? <span style={{ color: C.espressoM, fontSize: 11, marginLeft: 6 }}>· {c.doc}</span> : null}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {os.pedido_id && (
+          <div style={{ marginTop: 8, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 8, padding: '8px 10px', fontSize: 12, color: C.espresso }}>
+            ⚠️ Esta OS já gerou um pedido/faturamento. Alterar o cliente aqui atualiza a OS; o pedido mantém o cliente original.
+          </div>
+        )}
+      </div>
+
+      <label style={{ display: 'block' }}>
+        <span style={lbl}>Equipamento / Item</span>
+        <input
+          value={equipamento}
+          onChange={(e) => setEquipamento(e.target.value)}
+          placeholder="Ex: Compressor 3HP / Notebook Dell / etc"
+          data-testid="os-equipamento"
+          readOnly={roEntrega}
+          style={inp}
+        />
+      </label>
+
+      <label style={{ display: 'block' }}>
+        <span style={lbl}>Problema ou solicitação relatada</span>
+        <textarea
+          value={defeito}
+          onChange={(e) => setDefeito(e.target.value)}
+          rows={2}
+          placeholder="O que o cliente relatou?"
+          data-testid="os-defeito"
+          readOnly={roEntrega}
+          style={ta}
+        />
+      </label>
+
+      <label style={{ display: 'block' }}>
+        <span style={lbl}>Descrição do serviço</span>
+        <textarea
+          value={descricao}
+          onChange={(e) => setDescricao(e.target.value)}
+          rows={2}
+          placeholder="O que foi/será feito"
+          data-testid="os-descricao"
+          readOnly={roEntrega}
+          style={ta}
+        />
+      </label>
+
+      <label style={{ display: 'block' }}>
+        <span style={lbl}>Local de execução</span>
+        <input
+          value={endereco}
+          onChange={(e) => setEndereco(e.target.value)}
+          placeholder="Ex: no cliente / endereço de execução"
+          data-testid="os-endereco"
+          readOnly={roEntrega}
+          style={inp}
+        />
+      </label>
+
+      <label style={{ display: 'block' }}>
+        <span style={lbl}>Observações ao cliente</span>
+        <textarea
+          value={obsCliente}
+          onChange={(e) => setObsCliente(e.target.value)}
+          rows={2}
+          data-testid="os-obs-cliente"
+          readOnly={roEntrega}
+          style={ta}
+        />
+      </label>
+
+      {/* FEAT-OS-ONDA4-O42-EXECUCAO-v1 · bloco Execução */}
+      <div style={{
+        marginTop: 4, padding: '12px 0 0',
+        borderTop: `1px solid ${C.border}`,
+        display: 'flex', flexDirection: 'column', gap: 12,
+      }}>
+        <div style={{
+          fontSize: 10, fontWeight: 700, color: C.espressoM,
+          textTransform: 'uppercase', letterSpacing: 1,
+        }}>Execução</div>
+
+        <label style={{ display: 'block' }}>
+          <span style={lbl}>Responsável</span>
+          <input
+            value={tecnicoNome}
+            onChange={(e) => setTecnicoNome(e.target.value)}
+            placeholder="Nome do responsável pela execução"
+            data-testid="os-tecnico"
+            readOnly={roEntrega}
+            style={inp}
+          />
+        </label>
+
+        {/* Horas NÃO são digitadas (regra CEO): previstas vêm do Tempário e
+            executadas do Apontamento (início/fim). Aqui são só LEITURA — o tempo
+            é MEDIDO, não chutado (protege tempário/eficiência/custo real). */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div>
+            <span style={lbl}>Horas previstas</span>
+            <div data-testid="os-horas-previstas" style={{ ...inp, background: C.neutralBg, color: C.espresso, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 600 }}>{horasPrevistas ? `${horasPrevistas}h` : '—'}</span>
+              <span style={{ fontSize: 10, color: '#9C8E80' }}>via Tempário</span>
+            </div>
+          </div>
+          <div>
+            <span style={lbl}>Horas executadas</span>
+            <div data-testid="os-horas-executadas" style={{ ...inp, background: C.neutralBg, color: C.espresso, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 600 }}>{horasExecutadas ? `${horasExecutadas}h` : '—'}</span>
+              <span style={{ fontSize: 10, color: '#9C8E80' }}>via Apontamento</span>
+            </div>
+          </div>
+        </div>
+
+        <label style={{ display: 'block' }}>
+          <span style={lbl}>Valor/hora (R$)</span>
+          <input
+            type="number" inputMode="decimal" step="0.01" min="0"
+            value={valorHora}
+            onChange={(e) => setValorHora(e.target.value)}
+            data-testid="os-valor-hora"
+            readOnly={roEntrega || faturada}
+            title={faturada ? 'Valores travados: OS já lançada na GE.' : (roEntrega ? tipEntrega : undefined)}
+            style={{ ...inp, ...(faturada ? { background: C.neutralBg, color: C.espressoM } : {}) }}
+          />
+          {faturada && <span style={{ fontSize: 10, color: C.espressoL, fontStyle: 'italic' }}>🔒 Valores travados: OS já lançada na GE. Dados de veículo/cliente permanecem editáveis.</span>}
+        </label>
+
+        <div style={{
+          padding: '10px 12px', borderRadius: 8, background: C.neutralBg,
+          fontSize: 12, color: C.espresso, display: 'flex', flexDirection: 'column', gap: 4,
+        }}>
+          <span>
+            Mão de obra estimada: <strong style={{ color: C.gold }}>
+              {fmtBRL((Number((horasExecutadas || '0').replace(',', '.')) || 0) * (Number((valorHora || '0').replace(',', '.')) || 0))}
+            </strong>
+          </span>
+          <span style={{ fontSize: 10, color: C.espressoL, fontStyle: 'italic' }}>
+            valor informativo — o faturamento é pelo pedido.
+          </span>
+        </div>
+      </div>
+
+      {/* RD-41 · a assinatura única "de recebimento da OS" saiu daqui. Agora são 2
+          assinaturas operacionais tipadas: "Ciente do checklist" (na Recepção) e
+          "Entrega" (no Pátio), gravadas em erp_os_assinatura via AssinaturaModal.
+          O orçamento é aprovado por WhatsApp (fn_oficina_aprovacao_registrar). */}
+
+      {erro && <p style={{ fontSize: 12, color: C.red, margin: 0 }}>❌ {erro}</p>}
+      {msgOk && <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>✓ {msgOk}</p>}
+
+      {/* RD-41 · Itens da OS (peças + serviços). Vinham vazios ao reabrir OS entregue → impresso zerado. */}
+      {itensDiag.length > 0 && (
+        <div data-testid="os-itens" style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: 10, padding: 12, background: C.white }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, marginBottom: 8 }}>Itens da OS ({itensDiag.length})</div>
+          {itensDiag.map((it, i) => {
+            const qtd = it.quantidade != null && String(it.quantidade) !== '' ? Number(it.quantidade) : 1
+            const val = it.subtotal ?? it.preco
+            const ehPeca = it.tipo === 'peca' || it.tipo === 'peça'
+            const pecaLivre = ehPeca && !it.produto_id && !!it.id       // digitada, sem vínculo de estoque
+            const pecaLigada = ehPeca && !!it.produto_id
+            return (
+              <div key={it.id ?? i} style={{ borderTop: i ? '1px solid rgba(61,35,20,0.07)' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 12.5 }}>
+                  <span>{it.tipo === 'servico' ? '🔧' : '📦'}</span>
+                  <span style={{ flex: 1, minWidth: 0, color: C.espresso, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {it.descricao || (it.tipo === 'servico' ? 'Serviço' : 'Peça')}
+                    {pecaLigada && <span style={{ fontSize: 9.5, fontWeight: 700, color: '#1B3608', background: '#E8F4DC', borderRadius: 6, padding: '1px 5px', marginLeft: 6 }}>estoque</span>}
+                    {pecaLivre && <span style={{ fontSize: 9.5, fontWeight: 700, color: C.espressoL, background: 'rgba(61,35,20,0.06)', borderRadius: 6, padding: '1px 5px', marginLeft: 6 }}>texto livre</span>}
+                  </span>
+                  {/* A2 Path 2 · substituir peça digitada por peça do estoque. #257: também com a OS faturada
+                      (liga só o produto + saída de estoque; preço/quantidade travados). Cancelada: não. */}
+                  {pecaLivre && os.status !== 'cancelada' && (
+                    <button type="button" data-testid={`os-item-substituir-${i}`}
+                      onClick={() => { setSubstItem(substItem === it.id ? null : (it.id ?? null)); setSubstTermo(''); setSubstResult([]) }}
+                      style={{ fontSize: 10.5, fontWeight: 700, color: C.gold, background: 'none', border: `1px solid ${C.gold}`, borderRadius: 6, padding: '2px 7px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      🔍 estoque
+                    </button>
+                  )}
+                  <span style={{ color: C.espressoL, whiteSpace: 'nowrap' }}>{qtd.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}×</span>
+                  {it.status_item === 'recusado'
+                    ? <span style={{ fontSize: 11, fontWeight: 700, color: C.espressoL }}>recusado</span>
+                    : val != null
+                      ? <span style={{ fontWeight: 700, color: C.espresso, whiteSpace: 'nowrap' }}>{fmtBRL(Number(val))}</span>
+                      : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap' }}>precificar</span>}
+                </div>
+                {substItem === it.id && (
+                  <div style={{ padding: '2px 0 8px 26px' }}>
+                    <input value={substTermo} onChange={(e) => setSubstTermo(e.target.value)} placeholder="Buscar peça no estoque (nome/código)…" autoFocus
+                      style={{ width: '100%', minHeight: 34, padding: '6px 8px', fontSize: 12, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
+                    {substResult.length > 0 && (
+                      <div style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: 'auto', background: C.white }}>
+                        {substResult.map((p) => (
+                          <button key={p.id} type="button" disabled={substindo} onClick={() => void substituirPeca(it.id as string, p.id)}
+                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '7px 9px', background: 'none', border: 'none', borderBottom: '1px solid rgba(61,35,20,0.06)', cursor: 'pointer', fontSize: 12 }}>
+                            <span style={{ fontWeight: 600, color: C.espresso }}>{p.nome}</span>
+                            <span style={{ color: C.espressoL, marginLeft: 6, fontSize: 11 }}>{p.codigo ? `${p.codigo} · ` : ''}estoque {p.estoque_atual ?? '—'}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10.5, color: C.espressoL, marginTop: 4 }} data-testid="os-substituir-ajuda">
+                      {faturada
+                        ? 'OS faturada: liga a peça ao produto e registra a saída dela do estoque agora · quantidade, preço, valor da OS e título não mudam.'
+                        : 'Substitui só o vínculo de estoque · o preço não muda.'}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          {itensDiag.some((it) => (it.subtotal ?? it.preco) == null && it.status_item !== 'recusado') && (
+            <div style={{ fontSize: 11.5, color: C.amber, marginTop: 8 }}>
+              ⚠️ Itens sem preço. Precifique no diagnóstico da OS para o total e o impresso saírem com valores.
+            </div>
+          )}
+          {(() => {
+            const total = itensDiag.filter((it) => it.status_item !== 'recusado').reduce((a, it) => a + Number(it.subtotal ?? it.preco ?? 0), 0)
+            return total > 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(61,35,20,0.12)', fontSize: 13, fontWeight: 800, color: C.espresso }}>
+                Total: {fmtBRL(total)}
+              </div>
+            ) : null
+          })()}
+        </div>
+      )}
+
+      {/* #108 · Desconto na OS (ponto único, antes de faturar) + consulta valor real × cobrado */}
+      {os.total != null && (() => {
+        const desc = Number(os.desconto_valor) || 0
+        const aCobrar = Number(os.total) || 0
+        const bruto = aCobrar + desc
+        return (
+          <div data-testid="os-desconto" style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, background: C.white, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 1 }}>Desconto</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: C.espresso }}><span>Valor bruto</span><strong>{fmtBRL(bruto)}</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: desc > 0 ? C.red : C.espressoL }}>
+              <span>Desconto{desc > 0 && os.desconto_percentual != null ? ` (${Number(os.desconto_percentual).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%)` : ''}</span>
+              <strong>− {fmtBRL(desc)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800, color: C.espresso, borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
+              <span>A cobrar</span><strong style={{ color: C.gold }} data-testid="os-desconto-acobrar">{fmtBRL(aCobrar)}</strong>
+            </div>
+            {faturada ? (
+              desc > 0 ? <span style={{ fontSize: 10.5, color: C.espressoL, fontStyle: 'italic' }}>🔒 OS faturada — desconto travado (alterar exige estorno){os.desconto_concedido_em ? ` · concedido em ${fmtQuando(os.desconto_concedido_em)}` : ''}.</span> : null
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'inline-flex', border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
+                    <button type="button" onClick={() => setDescModo('valor')} style={{ padding: '8px 10px', border: 'none', fontSize: 12, cursor: 'pointer', fontWeight: 700, background: descModo === 'valor' ? C.gold : C.white, color: descModo === 'valor' ? C.white : C.espressoM }}>R$</button>
+                    <button type="button" onClick={() => setDescModo('pct')} style={{ padding: '8px 10px', border: 'none', fontSize: 12, cursor: 'pointer', fontWeight: 700, background: descModo === 'pct' ? C.gold : C.white, color: descModo === 'pct' ? C.white : C.espressoM }}>%</button>
+                  </div>
+                  <input value={descInput} onChange={(e) => { setDescInput(e.target.value); setDescPrecisaAprovacao(false) }} inputMode="decimal" placeholder={descModo === 'pct' ? 'ex: 5' : 'ex: 50,00'} data-testid="os-desconto-input" style={{ ...inp, flex: 1, minWidth: 120 }} />
+                  <button type="button" onClick={() => void aplicarDesconto(false)} disabled={aplicandoDesc} data-testid="os-desconto-aplicar" style={{ ...btnSec, minHeight: 44, borderColor: C.gold, color: C.goldD }}>{aplicandoDesc ? 'Aplicando…' : 'Aplicar desconto'}</button>
+                  {desc > 0 && <button type="button" onClick={() => void aplicarDesconto(false, 0)} disabled={aplicandoDesc} style={{ ...btnSec, minHeight: 44, color: C.red }}>Remover</button>}
+                </div>
+                {descPrecisaAprovacao && (isMaster || isBpo) && (
+                  <button type="button" onClick={() => void aplicarDesconto(true)} disabled={aplicandoDesc} data-testid="os-desconto-aprovar" style={{ ...btnSec, minHeight: 40, borderColor: C.amber, color: C.goldD, background: C.amberBg }}>✓ Aplicar com aprovação (você tem alçada)</button>
+                )}
+                <span style={{ fontSize: 10.5, color: C.espressoL, fontStyle: 'italic' }}>Entrada em R$ ou %; grava sempre em valor. Até o teto da empresa quem fatura concede; acima, exige aprovação de quem tem alçada.</span>
+              </>
+            )}
+          </div>
+        )
+      })()}
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
+        {podeExcluir && (
+          <button
+            type="button"
+            onClick={() => { setErroExcluir(null); setExcluirAberto(true) }}
+            data-testid="os-excluir"
+            style={{ ...btnSec, minHeight: 44, padding: '10px 14px', fontSize: 12, fontWeight: 700, color: C.red, borderColor: C.redBg, background: C.redBg }}
+          >
+            {(os.titulos_gerados || os.lancamento_id) ? '🚫 Cancelar OS' : '🗑️ Excluir OS'}
+          </button>
+        )}
+        <span style={{ fontSize: 10, color: C.espressoL, marginRight: 'auto' }}>
+          {os.data_abertura && <>Aberta em {fmtData(os.data_abertura)}</>}
+          {os.data_execucao && <> · em execução desde {fmtData(os.data_execucao)}</>}
+          {os.data_conclusao && <> · concluída {fmtData(os.data_conclusao)}</>}
+        </span>
+        <button
+          type="button"
+          onClick={() => void carregar()}
+          style={btnSec}
+        >
+          Recarregar
+        </button>
+        {/* FEAT-OS-ONDA4-O44-IMPRESSAO-v1 */}
+        <button
+          type="button"
+          onClick={() => window.open(`/dashboard/commerce/otc/imprimir/${os.id}`, '_blank', 'noopener,noreferrer')}
+          data-testid="os-imprimir"
+          title={entregue ? 'Reimprimir a OS (documento atualizado) para reenviar ao cliente/comprador' : undefined}
+          style={btnSec}
+        >
+          🖨️ {entregue ? 'Reimprimir OS' : 'Imprimir OS'}
+        </button>
+        {faturada ? (
+          // §2.5 · mostra o estado e LEVA à GE (alterar o título é ação da GE, não da OS — fronteira [→GE])
+          <>
+            <a href="/dashboard/financeiro/receber" data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
+              style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+              ✓ Faturada · ver na GE →
+            </a>
+            {/* #20 Fase 2 · financeiro antes da nota (§3): faturada a OS avulsa, libera a NFS-e de serviços.
+                OS via pedido emite pelo fluxo do pedido (DrawerPedido), não aqui. */}
+            {!os.pedido_id && (
+              <>
+                <EmitirNFSeOSButton
+                  osId={os.id}
+                  companyId={os.company_id}
+                  buttonStyle={btnSec}
+                  onEmitida={() => onFlash?.('NFS-e enviada — o status atualiza sozinho em Notas Fiscais.')}
+                />
+                {/* #20 Fase 3 · NF-e de peça (produto). Só peça de catálogo com NCM entra; texto livre fica de fora. */}
+                <EmitirNFeOSButton
+                  osId={os.id}
+                  companyId={os.company_id}
+                  buttonStyle={btnSec}
+                  onEmitida={() => onFlash?.('NF-e enviada — o status atualiza sozinho em Notas Fiscais.')}
+                />
+              </>
+            )}
+          </>
+        ) : podeFaturar ? (
+          !os.pedido_id ? (
+            // OS avulsa (oficina): abre o lançamento de receita COMPLETO (forma de pagamento, parcelas),
+            // pré-preenchido com cliente e valor da OS — chamado #20 §2.4. Não emite NF.
+            <button
+              type="button"
+              onClick={() => setReceitaAberta(true)}
+              data-testid="os-faturar"
+              title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
+              style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
+            >
+              💰 Gerar Financeiro
+            </button>
+          ) : (
+            // OS via pedido: o financeiro vem das parcelas do pedido (fn_os_faturar → fn_faturar)
+            <button
+              type="button"
+              onClick={() => void faturar()}
+              disabled={faturando}
+              data-testid="os-faturar"
+              title="Gera o título em Contas a Receber (GE) pelas parcelas do pedido. Não emite NF."
+              style={{ ...btnPri, background: C.gold, color: '#3D2314', opacity: faturando ? 0.6 : 1 }}
+            >
+              {faturando ? 'Gravando…' : '💰 Gravar Financeiro'}
+            </button>
+          )
+        ) : null}
+        <button
+          type="button"
+          onClick={salvar}
+          disabled={salvando || bloqueadoEntrega}
+          data-testid="os-salvar"
+          title={bloqueadoEntrega ? tipEntrega : undefined}
+          style={{ ...btnPri, opacity: (salvando || bloqueadoEntrega) ? 0.5 : 1, cursor: bloqueadoEntrega ? 'not-allowed' : 'pointer' }}
+        >
+          {salvando ? 'Salvando…' : 'Salvar OS'}
+        </button>
+      </div>
+
+      {excluirAberto && (
+        <ConfirmarExclusaoOS
+          numero={os.numero}
+          faturada={Boolean(os.titulos_gerados) || os.lancamento_id != null}
+          busy={excluindo}
+          erro={erroExcluir}
+          onConfirm={(motivo) => void excluir(motivo)}
+          onClose={() => { if (!excluindo) { setExcluirAberto(false); setErroExcluir(null) } }}
+        />
+      )}
+
+      {/* #20 §2.4 · "Gerar financeiro": form de receita completo, pré-preenchido com cliente e valor da OS.
+          Ao salvar, o receber é vinculado à OS (fn_os_vincular_financeiro) e a ficha recarrega. */}
+      {os && (
+        <NovaReceitaModal
+          companyId={os.company_id}
+          aberto={receitaAberta}
+          onFechar={() => setReceitaAberta(false)}
+          onSucesso={(receberId) => void vincularFinanceiro(receberId)}
+          initial={{
+            clienteId: os.cliente_id ?? undefined,
+            clienteNome: os.cliente_nome ?? undefined,
+            valor: os.total != null ? String(os.total) : undefined,
+            descricao: `${os.numero} — ${os.defeito_relatado?.trim() || 'serviço'}`,
+          }}
+        />
+      )}
+    </div>
+  )
+}

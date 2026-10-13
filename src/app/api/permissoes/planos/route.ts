@@ -1,12 +1,11 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
 import { NextRequest, NextResponse } from 'next/server';
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req)
+  if (guarda instanceof NextResponse) return guarda
   const { searchParams } = new URL(req.url);
   const planoId = searchParams.get('id');
 
@@ -31,6 +30,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   const body = await req.json();
   const { id, nome, preco_min, preco_max, max_usuarios, max_empresas, descricao, modulos } = body;
 

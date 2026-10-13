@@ -1,0 +1,47 @@
+'use client'
+
+// RD-41 · papel de gestão do usuário na empresa (fonte canônica: fn_acesso_efetivo →
+// papel_gestao, de tenant_user_roles). Usado pra gating de UI (Auxiliar = OPERATOR).
+// O gating de UI é conveniência — a defesa real é no backend (RPCs não devolvem R$ a OPERATOR).
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import { getUsuarioId } from '@/lib/AuthProvider'
+
+export type PapelGestao =
+  | 'CLIENT_OWNER' | 'CLIENT_MANAGER' | 'CLIENT_OPERATOR' | 'CLIENT_VIEWER'
+  | 'OFICINA_DONO' | 'OFICINA_MECANICO'
+  | null
+
+export function useAcesso(companyId: string | null) {
+  const [papel, setPapel] = useState<PapelGestao>(null)
+  const [carregando, setCarregando] = useState<boolean>(!!companyId)
+
+  useEffect(() => {
+    if (!companyId) { setPapel(null); setCarregando(false); return }
+    let alive = true
+    setCarregando(true)
+    ;(async () => {
+      // Camada 2b: getUsuarioId() usa getSession (sem disputar a trava navigator.locks do mobile).
+      const uid = await getUsuarioId()
+      if (!alive) return
+      if (!uid) { setPapel(null); setCarregando(false); return }
+      const { data } = await supabase.rpc('fn_acesso_efetivo', { p_user: uid, p_company: companyId })
+      if (!alive) return
+      const p = (data as { papel_gestao?: string | null } | null)?.papel_gestao ?? null
+      setPapel((p as PapelGestao) ?? null)
+      setCarregando(false)
+    })()
+    return () => { alive = false }
+  }, [companyId])
+
+  return {
+    papel,
+    carregando,
+    isOperator: papel === 'CLIENT_OPERATOR',
+    isGerencial: papel === 'CLIENT_OWNER' || papel === 'CLIENT_MANAGER',
+    isViewer: papel === 'CLIENT_VIEWER',
+    // Papeis da vertical Oficina (por empresa, tenant_user_roles).
+    isDono: papel === 'OFICINA_DONO',
+    isMecanico: papel === 'OFICINA_MECANICO',
+  }
+}

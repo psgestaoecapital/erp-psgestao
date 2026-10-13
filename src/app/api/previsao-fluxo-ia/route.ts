@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi';
 
 function getAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -9,10 +11,14 @@ function getAdmin() {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   try {
     const body = await req.json();
     const { company_id, projecao, saldo_inicial, alertas, periodo_dias } = body;
     if (!company_id || !projecao) return NextResponse.json({ error: 'Dados incompletos' }, { status: 400 });
+    const negado = await exigirEmpresas(guarda, [company_id]);
+    if (negado) return negado;
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return NextResponse.json({ error: 'ANTHROPIC_API_KEY não configurada' }, { status: 500 });
@@ -72,6 +78,7 @@ O que fazer com saldo excedente (aplicação, quitação antecipada de dívidas,
 
 Seja específico com valores em R$ e datas. Use linguagem direta de gestão financeira. Se os números forem saudáveis, diga claramente.`;
 
+    const modelo = modeloPara('previsao');
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -80,7 +87,7 @@ Seja específico com valores em R$ e datas. Use linguagem direta de gestão fina
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: modelo,
         max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -88,6 +95,7 @@ Seja específico com valores em R$ e datas. Use linguagem direta de gestão fina
 
     if (!claudeRes.ok) {
       const errText = await claudeRes.text();
+      await registrarFalhaIA({ endpoint: '/api/previsao-fluxo-ia', finalidade: 'previsao', modelo, status: claudeRes.status, erro: errText, companyId: company_id });
       return NextResponse.json({ error: `Claude API: ${claudeRes.status} - ${errText.slice(0, 200)}` }, { status: 500 });
     }
 

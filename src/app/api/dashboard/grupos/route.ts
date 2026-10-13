@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { withAuth } from '@/lib/withAuth';
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -44,6 +44,9 @@ async function postHandler(req: NextRequest, user: any) {
     if (!nome || !Array.isArray(company_ids) || company_ids.length === 0) {
       return NextResponse.json({ erro: 'nome e pelo menos 1 empresa obrigatórios' }, { status: 400 });
     }
+    // Grupo só pode conter empresas do próprio usuário (senão os dashboards por grupo_id abririam as dos outros).
+    const negado = await exigirEmpresas(user, company_ids);
+    if (negado) return negado;
     
     const supabase = supabaseAdmin;
     
@@ -100,6 +103,6 @@ async function deleteHandler(req: NextRequest, user: any) {
   return NextResponse.json({ sucesso: true });
 }
 
-export const GET = withAuth(getHandler);
-export const POST = withAuth(postHandler);
-export const DELETE = withAuth(deleteHandler);
+export const GET = exigirLogin(getHandler);
+export const POST = exigirLogin(postHandler);
+export const DELETE = exigirLogin(deleteHandler);

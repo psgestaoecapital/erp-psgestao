@@ -1,0 +1,1738 @@
+'use client'
+
+// Revenda de Veículos · Ondas 1-2 — ficha do veículo. Dados, custos (com os 3 estados fiscais),
+// custo acumulado + preço mínimo (rotulado "antes de impostos" §3.5), linha do tempo, situação por RPC.
+
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useParams } from 'next/navigation'
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { supabase } from '@/lib/supabase'
+import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
+
+const C = {
+  esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
+  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC',
+}
+const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
+const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const brDate = (d: string) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
+const SIT = ['em_preparacao', 'disponivel', 'reservado', 'vendido', 'entregue', 'devolvido']
+// R7b (Tela 5): tipo do veículo — valor gravado (sem acento) × rótulo exibido.
+const TIPOS: { v: string; l: string }[] = [{ v: 'carro', l: 'carro' }, { v: 'moto', l: 'moto' }, { v: 'caminhao', l: 'caminhão' }, { v: 'maquina', l: 'máquina' }]
+const CATS = ['aquisicao', 'documentacao', 'despachante', 'preparacao', 'peca', 'mao_de_obra', 'debito_assumido', 'frete', 'comissao', 'outro']
+
+type Veic = { id: string; company_id: string; chassi: string; placa: string | null; marca: string | null; modelo: string | null; versao: string | null; ano_fabricacao: number | null; ano_modelo: number | null; cor: string | null; combustivel: string | null; potencia_cv: number | null; cilindradas: number | null; portas: number | null; cambio: string | null; renavam: string | null; km_entrada: number | null; km_atual: number | null; situacao: string; origem: string | null; data_entrada: string; valor_aquisicao: number | null; tipo: string | null; crlv_storage_path: string | null; preco_venda: number | null; observacao: string | null; anuncio_texto: string | null; tem_manual?: boolean | null; tem_chave_reserva?: boolean | null }
+type Compl = { fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }
+type Custo = { id: string; categoria: string; descricao: string | null; valor: number; fornecedor_nome: string | null; data_custo: string; entra_base_fiscal: boolean | null; pagar_id: string | null }
+type Evento = { id: string; tipo: string; descricao: string | null; data_evento: string }
+type Reserva = { id: string; cliente_nome: string | null; valor_sinal: number | null; reservado_ate: string | null; situacao: string; receber_id: string | null }
+type Venda = { id: string; cliente_nome: string | null; valor_venda: number | null; desconto_embutido_troca: number | null; valor_entrada: number | null; valor_financiado: number | null; banco_nome: string | null; retorno_banco: number | null; situacao: string }
+// Onda 1 · composição real do negócio (fn_veic_venda_composicao). As duas margens, badge de incerteza honesto.
+type UsadoRecebido = { placa: string | null; marca: string | null; modelo: string | null; entrou_no_estoque_por: number | null }
+type Composicao = {
+  venda_id: string; valor_venda: number | null; valor_aquisicao: number | null; custos_lancados: number; custo_total: number
+  sobrepreco_troca: number | null; usado_recebido: UsadoRecebido | null
+  financiamento: { entrada: number | null; financiado: number | null; banco: string | null; retorno_banco: number | null }
+  margem_aparente: number; margem_real: number; margem_aparente_pct: number | null; margem_real_pct: number | null
+  dias_em_estoque: number | null; tem_nota: boolean; incerteza: string | null
+}
+const INCERTEZA_BADGE: Record<string, string> = {
+  troca_sem_avaliacao_sobrepreco_desconhecido: 'Sobrepreço desconhecido — avaliação do usado não informada',
+  veiculo_sem_valor_de_aquisicao: 'Sem valor de aquisição — margem não calculável',
+  nenhum_custo_lancado_neste_veiculo: 'Nenhum custo lançado — a margem pode estar otimista',
+}
+
+export default function FichaPage() {
+  return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
+}
+
+function Inner() {
+  const params = useParams()
+  const id = typeof params?.id === 'string' ? params.id : Array.isArray(params?.id) ? params!.id[0] : ''
+  const [v, setV] = useState<Veic | null>(null)
+  const [custos, setCustos] = useState<Custo[]>([])
+  const [eventos, setEventos] = useState<Evento[]>([])
+  const [precoHist, setPrecoHist] = useState<{ preco_venda: number | null; preco_minimo: number | null; criado_em: string }[]>([]) // R3-fix T4: linha do tempo do valor
+  const [reserva, setReserva] = useState<Reserva | null>(null)
+  const [venda, setVenda] = useState<Venda | null>(null)
+  const [compl, setCompl] = useState<Compl | null>(null)
+  const [comp, setComp] = useState<Composicao | null>(null)
+  const [margem, setMargem] = useState(20)
+  // R0.1 (RD-65): preço mínimo vem da FONTE ÚNICA no banco (fn_veic_preco_minimo) — a ficha NÃO calcula.
+  // undefined = ainda calculando (a margem da config chega antes do RPC: sem isso a ficha dizia "não calcula ·
+  // informe a aquisição primeiro" enquanto carregava); null = RPC recusou.
+  const [pm, setPm] = useState<{ preco_minimo: number | null; piso_sem_margem: number | null; margem_pct: number | null } | null | undefined>(undefined)
+  const [fiscalKey, setFiscalKey] = useState(0) // Onda 0: força recarregar a barra de completude após salvar dados
+  const [erro, setErro] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [modal, setModal] = useState<'reserva' | 'venda' | null>(null)
+  const [lancarPagar, setLancarPagar] = useState<Custo | null>(null) // Onda 9: lançar conta a pagar de um custo já existente
+  const [contaKey, setContaKey] = useState(0) // #138 (Fábio): a faixa "A conta deste carro" recarrega a cada carregar()
+
+  const carregar = useCallback(async () => {
+    if (!id) return
+    const { data: vd, error: ve } = await supabase.from('veic_veiculo').select('*').eq('id', id).is('deleted_at', null).maybeSingle()
+    if (ve) { setErro(ve.message); return }
+    setV(vd as Veic | null)
+    const comp = (vd as Veic | null)?.company_id
+    const [cs, es, cfg, rs, vs, cp] = await Promise.all([
+      supabase.from('veic_custo').select('*').eq('veiculo_id', id).is('deleted_at', null).order('data_custo'),
+      supabase.from('veic_veiculo_evento').select('*').eq('veiculo_id', id).order('data_evento', { ascending: false }),
+      comp ? supabase.from('veic_config').select('margem_alvo_pct').eq('company_id', comp).maybeSingle() : Promise.resolve({ data: null }),
+      supabase.from('veic_reserva').select('id,cliente_nome,valor_sinal,reservado_ate,situacao,receber_id').eq('veiculo_id', id).eq('situacao', 'ativa').is('deleted_at', null).order('created_at', { ascending: false }).limit(1),
+      supabase.from('veic_venda').select('id,cliente_nome,valor_venda,desconto_embutido_troca,valor_entrada,valor_financiado,banco_nome,retorno_banco,situacao').eq('veiculo_id', id).is('deleted_at', null).neq('situacao', 'cancelada').order('created_at', { ascending: false }).limit(1),
+      // completude (fiscais_faltantes + sugestão de ano) vem da MESMA regra do pátio (v_veic_patio)
+      supabase.from('v_veic_patio').select('fiscais_faltantes,sugestao_ano_chassi').eq('id', id).maybeSingle(),
+    ])
+    setCustos((cs.data as Custo[]) ?? [])
+    setEventos((es.data as Evento[]) ?? [])
+    // R3-fix T4: linha do tempo do VALOR (piso × anunciado ao longo do tempo) — histórico de precificação
+    const { data: ph } = await supabase.from('veic_precificacao_hist').select('preco_venda, preco_minimo, criado_em').eq('veiculo_id', id).order('criado_em', { ascending: false })
+    setPrecoHist((ph as { preco_venda: number | null; preco_minimo: number | null; criado_em: string }[]) ?? [])
+    setReserva(((rs.data as Reserva[]) ?? [])[0] ?? null)
+    setVenda(((vs.data as Venda[]) ?? [])[0] ?? null)
+    setCompl((cp.data as Compl | null) ?? null)
+    const m = (cfg.data as { margem_alvo_pct?: number } | null)?.margem_alvo_pct
+    if (m != null) setMargem(Number(m))
+    // R0.1: preço mínimo pela fonte única (fn_veic_preco_minimo). Mesma conta da precificação.
+    const { data: pmData } = await supabase.rpc('fn_veic_preco_minimo', { p_veiculo_id: id })
+    const pmr = pmData as { ok?: boolean; preco_minimo?: number | null; piso_sem_margem?: number | null; margem_pct?: number | null } | null
+    setPm(pmr?.ok ? { preco_minimo: pmr.preco_minimo ?? null, piso_sem_margem: pmr.piso_sem_margem ?? null, margem_pct: pmr.margem_pct ?? null } : null)
+    setContaKey((k) => k + 1)
+  }, [id])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+
+  // Composição real do negócio: só existe quando há venda. RPC de leitura (fn_veic_venda_composicao).
+  // setComp só é chamado dentro do IIFE async (nunca síncrono no corpo do efeito).
+  useEffect(() => {
+    const vid = venda?.id
+    let vivo = true
+    void (async () => {
+      const r = vid
+        ? ((await supabase.rpc('fn_veic_venda_composicao', { p_venda_id: vid })).data as (Composicao & { ok?: boolean }) | null)
+        : null
+      if (vivo) setComp(r && r.ok !== false ? r : null)
+    })()
+    return () => { vivo = false }
+  }, [venda?.id])
+
+  const custoAcumulado = useMemo(() => (v?.valor_aquisicao ?? 0) + custos.reduce((s, c) => s + (Number(c.valor) || 0), 0), [v, custos])
+  // R0.1 (RD-65): preço mínimo NÃO é calculado aqui — vem de fn_veic_preco_minimo (pm), a mesma fonte da
+  // tela de precificação. Assim ficha e precificação nunca divergem.
+  const margemPm = pm?.margem_pct ?? margem
+
+  async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
+
+  async function mudarSituacao(nova: string) {
+    const { data, error } = await supabase.rpc('fn_veic_mudar_situacao', { p_veiculo_id: id, p_nova: nova, p_user: await userId(), p_obs: null })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    setMsg('Situação atualizada.'); void carregar()
+  }
+  async function excluirCusto(custoId: string) {
+    const { data, error } = await supabase.rpc('fn_veic_custo_excluir', { p_custo_id: custoId, p_user: await userId() })
+    const r = data as { ok?: boolean; erro?: string; tinha_titulo?: boolean } | null
+    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    setMsg(r.tinha_titulo ? '⚠️ Custo excluído. O título em Contas a Pagar NÃO foi excluído — trate-o no financeiro.' : 'Custo excluído.')
+    void carregar()
+  }
+  async function cancelarReserva() {
+    if (!reserva) return
+    const { data, error } = await supabase.rpc('fn_veic_reserva_cancelar', { p_reserva_id: reserva.id, p_user: await userId() })
+    const r = data as { ok?: boolean; erro?: string; tinha_sinal?: boolean } | null
+    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    setMsg(r.tinha_sinal ? '⚠️ Reserva cancelada. O título do sinal NÃO foi excluído — trate-o no financeiro.' : 'Reserva cancelada.')
+    void carregar()
+  }
+  async function entregarVenda() {
+    if (!venda) return
+    const { data, error } = await supabase.rpc('fn_veic_venda_entregar', { p_venda_id: venda.id, p_user: await userId(), p_obs: null })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    setMsg('Veículo entregue.'); void carregar()
+  }
+  async function cancelarVenda() {
+    if (!venda) return
+    const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: venda.id, p_user: await userId(), p_motivo: null })
+    const r = data as { ok?: boolean; erro?: string; titulos_nao_excluidos?: number } | null
+    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    setMsg(r.titulos_nao_excluidos ? `⚠️ Venda cancelada. ${r.titulos_nao_excluidos} título(s) em Contas a Receber NÃO foram excluídos — trate-os no financeiro.` : 'Venda cancelada.')
+    void carregar()
+  }
+
+  if (!v) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>{erro ?? 'Carregando veículo…'}</div>
+  // #115 (Fábio/Alliance): consignado não tem custo de aquisição nem preço mínimo — só valor de venda.
+  const consignado = v.origem === 'consignacao'
+
+  return (
+    <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 980, margin: '0 auto', color: C.esp }}>
+      <a href="/dashboard/revenda/patio" style={{ fontSize: 12, color: C.gold, textDecoration: 'none' }}>← voltar ao pátio</a>
+      {msg && <div style={{ background: C.amberBg, color: C.amber, padding: '9px 13px', borderRadius: 8, fontSize: 13, margin: '10px 0' }} onClick={() => setMsg(null)}>{msg}</div>}
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, margin: '10px 0' }} onClick={() => setErro(null)}>{erro}</div>}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{v.marca || ''} {v.modelo || 'Veículo'} {v.ano_modelo ? `· ${v.ano_modelo}` : ''}</h1>
+          <div style={{ fontSize: 13, color: C.espM, fontFamily: 'monospace' }}>{v.placa || 'sem placa'} · chassi {v.chassi}</div>
+          {consignado && <span data-testid="chip-consignado" title="Carro consignado: sem custo de aquisição, só valor de venda" style={{ display: 'inline-block', marginTop: 4, fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>consignado</span>}
+        </div>
+        <label style={{ fontSize: 12, color: C.espM }}>Situação&nbsp;
+          <select value={v.situacao} onChange={(e) => void mudarSituacao(e.target.value)} style={inp}>{SIT.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}</select>
+        </label>
+      </div>
+
+      {/* R3d · A CONTA DESTE CARRO — faixa em linguagem de dono, fonte única fn_veic_conta_do_carro. */}
+      <ContaDoCarroFaixa veiculoId={id} situacao={v.situacao} refreshKey={contaKey} consignado={consignado} />
+
+      {/* R3-fix T4 · Trilha de estado (entrada→…→garantia) com o motivo da trava atual. */}
+      <TrilhaEstado situacao={v.situacao} temReserva={!!reserva} venda={venda} temCusto={custos.length > 0} temPreco={precoHist.length > 0} />
+
+      {/* Alliance · veículo sem custo de aquisição não pode passar como completo (margem/preço mínimo
+          não calculam). Não bloqueia a entrada rápida no pátio — só não finge que está pronto.
+          #115: consignado não tem aquisição por natureza — não é pendência, não avisa. */}
+      {!consignado && !(v.valor_aquisicao && v.valor_aquisicao > 0) && (
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 10, padding: '10px 12px', margin: '14px 0 0', fontSize: 12.5, color: '#8A4B08', lineHeight: 1.5 }}>
+          ⚠️ <b>Sem custo de aquisição</b> — sem ele a <b>margem e o preço mínimo não calculam</b>{v.ano_modelo ? '' : ', e o ano não está informado (a base fiscal de PIS/COFINS depende dele)'}. Informe na entrada do veículo. A entrada rápida no pátio é ok — só ainda não está completa.
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, margin: '14px 0' }}>
+        <Card l="Entrada" v={brDate(v.data_entrada)} />
+        {consignado ? (
+          <>
+            {/* #115: consignado = só valor de venda (sem aquisição, sem preço mínimo/piso) */}
+            <Card l="Aquisição" v="consignado" />
+            <Card l="Valor de venda" v={v.preco_venda != null ? brl(v.preco_venda) : 'sem preço'} destaque />
+          </>
+        ) : (
+          <>
+            <Card l="Aquisição" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(v.valor_aquisicao) : 'sem custo'} />
+            <Card l="Custo acumulado" v={v.valor_aquisicao && v.valor_aquisicao > 0 ? brl(custoAcumulado) : '—'} destaque />
+            {pm === undefined
+              ? <Card l="Preço mínimo" v="calculando…" />
+              : <Card l={`Preço mínimo (margem ${margemPm}%)`} v={pm?.preco_minimo != null ? brl(pm.preco_minimo) : 'não calcula'} sub={pm?.preco_minimo != null ? `cobre custo + encargos + margem · piso sem margem ${brl(pm.piso_sem_margem ?? 0)}` : 'informe a aquisição primeiro'} />}
+          </>
+        )}
+      </div>
+
+      <CompletudeFiscalBloco veiculoId={id} refreshKey={fiscalKey} />
+
+      <Bloco titulo="Dados do veículo">
+        <DadosVeiculo v={v} faltantes={compl?.fiscais_faltantes ?? null} sugestaoAno={compl?.sugestao_ano_chassi ?? null}
+          onSaved={() => { setMsg('Dados do veículo atualizados.'); setFiscalKey((k) => k + 1); void carregar() }} onErro={setErro} />
+      </Bloco>
+
+      <Bloco titulo="Fotos do veículo">
+        <FotosVeiculo veiculoId={id} companyId={v.company_id} onErro={setErro} onMsg={setMsg} />
+      </Bloco>
+
+      {/* R8b · Anúncio do veículo — texto gerado da ficha (editável) + preço + feed p/ portais. */}
+      <Bloco titulo="Anúncio">
+        <AnuncioVeiculo v={v} onErro={setErro} onMsg={setMsg} onSaved={() => void carregar()} />
+      </Bloco>
+
+      {/* R7b (Tela 5) · CRLV do veículo — documento (PDF ou foto) no bucket privado; caminho, nunca URL pública. */}
+      <Bloco titulo="CRLV (documento do veículo)">
+        <CrlvVeiculo veiculoId={id} companyId={v.company_id} crlvPath={v.crlv_storage_path}
+          onErro={setErro} onMsg={setMsg} onChange={() => { setFiscalKey((k) => k + 1); void carregar() }} />
+      </Bloco>
+
+      <Bloco titulo="Negociação">
+        {!venda && !reserva && !['vendido', 'entregue'].includes(v.situacao) && (
+          <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginBottom: 8 }}>Sem reserva ou venda. Reserve o veículo ou registre a venda.</div>
+        )}
+        {reserva && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, padding: '8px 0' }}>
+            <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>RESERVADO</span>
+            <b>{reserva.cliente_nome || '—'}</b>
+            {reserva.valor_sinal ? <span>sinal {brl(reserva.valor_sinal)}{reserva.receber_id ? ' · em contas a receber' : ''}</span> : null}
+            {reserva.reservado_ate && <span style={{ color: C.espM }}>até {brDate(reserva.reservado_ate)}</span>}
+            <button onClick={() => void cancelarReserva()} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontSize: 12 }}>cancelar reserva</button>
+          </div>
+        )}
+        {venda && (
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginTop: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: venda.situacao === 'entregue' ? C.greenBg : C.cream, color: venda.situacao === 'entregue' ? C.green : C.gold, fontWeight: 700 }}>{venda.situacao.toUpperCase()}</span>
+              <b>{venda.cliente_nome || '—'}</b>
+              <span style={{ fontWeight: 700 }}>{brl(venda.valor_venda ?? 0)}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: C.espM, marginTop: 6 }}>
+              {venda.valor_entrada ? <span>entrada {brl(venda.valor_entrada)}</span> : null}
+              {venda.valor_financiado ? <span>financiado {brl(venda.valor_financiado)} · {venda.banco_nome || 'banco'}</span> : null}
+              {venda.retorno_banco ? <span>retorno banco {brl(venda.retorno_banco)}</span> : null}
+              {venda.desconto_embutido_troca ? <span style={{ color: C.amber }} title="valor de troca − valor de avaliação">desconto embutido na troca {brl(venda.desconto_embutido_troca)}</span> : null}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              {venda.situacao !== 'entregue' && <button onClick={() => void entregarVenda()} style={{ padding: '6px 12px', border: 'none', borderRadius: 8, background: C.green, color: C.white, fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>marcar entregue</button>}
+              <button onClick={() => void cancelarVenda()} style={{ padding: '6px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.red, cursor: 'pointer', fontSize: 12 }}>cancelar venda</button>
+            </div>
+          </div>
+        )}
+        {!venda && !['vendido', 'entregue'].includes(v.situacao) && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            {!reserva && <button onClick={() => setModal('reserva')} style={{ padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: 'pointer' }}>Reservar</button>}
+            <button onClick={() => setModal('venda')} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: C.gold, color: C.white, fontWeight: 700, cursor: 'pointer' }}>Registrar venda</button>
+          </div>
+        )}
+      </Bloco>
+
+      {comp && <ComposicaoBloco comp={comp} margemAlvo={margem} />}
+
+      <InteressadosBloco veiculoId={id} companyId={v.company_id} veiculoLabel={`${v.marca || ''} ${v.modelo || ''}`.trim()} onMsg={setMsg} onErro={setErro} />
+
+      <VistoriaBloco veiculoId={id} />
+
+      <PreparacaoBloco veiculoId={id} companyId={v.company_id} onMsg={setMsg} onErro={setErro} onChange={() => void carregar()} />
+
+      <PrecificacaoBloco veiculoId={id} consignado={consignado} />
+
+      <Bloco titulo="Custos no chassi">
+        <a href={`/dashboard/revenda/veiculo/${id}/custos`} style={{ display: 'inline-block', fontSize: 12, color: C.gold, textDecoration: 'underline', marginBottom: 8 }}>→ abrir a tela de custos (previsto × realizado, carrego, fora da curva)</a>
+        <NovoCusto veiculoId={id} onSaved={() => { setMsg('Custo lançado.'); void carregar() }} onErro={setErro} />
+        {custos.length === 0 ? <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 8 }}>Nenhum custo ainda.</div> : (
+          <div style={{ marginTop: 10 }}>
+            {custos.map((c) => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, borderTop: `1px solid ${C.cream}`, padding: '7px 0', flexWrap: 'wrap' }}>
+                <b style={{ minWidth: 110 }}>{c.categoria.replace('_', ' ')}</b>
+                <span>{brl(c.valor)}</span>
+                {c.fornecedor_nome && <span style={{ color: C.espM }}>· {c.fornecedor_nome}</span>}
+                <span style={{ color: C.espL, fontSize: 11 }}>{brDate(c.data_custo)}</span>
+                {/* 3 estados fiscais — NULL nunca vira "fora da base" (§3.2/§4.1) */}
+                {c.entra_base_fiscal === null
+                  ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber }} title="Item 2.5 do questionário do contador">aguarda contador</span>
+                  : c.entra_base_fiscal
+                    ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.greenBg, color: C.green }}>entra na base fiscal</span>
+                    : <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM }}>fora da base</span>}
+                {c.pagar_id && <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.gold }}>tem título</span>}
+                {!c.pagar_id && <button onClick={() => setLancarPagar(c)} style={{ marginLeft: 'auto', border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 7, padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>lançar conta a pagar</button>}
+                <button onClick={() => void excluirCusto(c.id)} style={{ marginLeft: c.pagar_id ? 'auto' : 8, border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontSize: 12 }}>excluir</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Bloco>
+
+      {/* R3-fix T4 · Histórico do veículo (CRIOU/ALTEROU/EXCLUIU) — eventos reais do veículo. */}
+      <Bloco titulo="Histórico de alterações">
+        {eventos.length === 0 ? <div style={{ fontSize: 12, color: C.espL }}>Nenhuma alteração registrada ainda.</div> : eventos.map((e) => (
+          <div key={e.id} style={{ fontSize: 12.5, borderLeft: `2px solid ${C.gold}`, paddingLeft: 10, margin: '6px 0' }}>
+            <b>{e.tipo}</b> · {e.descricao} <span style={{ color: C.espL }}>· {brDate(e.data_evento)} {String(e.data_evento).slice(11, 16)}</span>
+          </div>
+        ))}
+      </Bloco>
+
+      {/* R3-fix T4 · Linha do tempo do VALOR — piso × anunciado a cada reprecificação (fonte: precificação hist). */}
+      <Bloco titulo="Linha do tempo do valor">
+        {precoHist.length === 0 ? (
+          <div style={{ fontSize: 12, color: C.espL }}>Sem reprecificações ainda — o histórico do piso e do anúncio aparece aqui a cada mudança de preço.</div>
+        ) : precoHist.map((h, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, borderTop: i ? `1px solid ${C.cream}` : 'none', padding: '6px 0' }}>
+            <span style={{ color: C.espM }}>{brDate(h.criado_em)}</span>
+            <span style={{ fontFamily: 'monospace' }}>{consignado ? '' : `piso ${h.preco_minimo != null ? brl(h.preco_minimo) : '—'} · `}anunciado <b>{h.preco_venda != null ? brl(h.preco_venda) : '—'}</b></span>
+          </div>
+        ))}
+      </Bloco>
+
+      {lancarPagar && <LancarPagarModal custo={lancarPagar} onClose={() => setLancarPagar(null)} onSaved={(venc) => { setLancarPagar(null); setMsg(`Conta a pagar lançada (vencimento ${brDate(venc)}).`); void carregar() }} onErro={setErro} />}
+      {modal === 'reserva' && v && <ReservaModal companyId={v.company_id} veiculoId={id} onClose={() => setModal(null)} onSaved={() => { setModal(null); setMsg('Veículo reservado.'); void carregar() }} onErro={setErro} />}
+      {modal === 'venda' && v && <VendaModal companyId={v.company_id} veiculoId={id} custoTotal={custoAcumulado} margemAlvo={margem} onClose={() => setModal(null)} onSaved={() => { setModal(null); setMsg('Venda registrada.'); void carregar() }} onErro={setErro} />}
+    </div>
+  )
+}
+
+function Modal({ titulo, children, onClose }: { titulo: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 12, padding: 18, width: 'min(560px,100%)', maxHeight: '92vh', overflowY: 'auto' }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>{titulo}</div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
+  const [f, setF] = useState({ cliente_nome: '', valor_sinal: '', forma_sinal: 'pix', reservado_ate: '', gerar: true })
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [campo, setCampo] = useState<string | null>(null)
+  const sinalNum = Number(String(f.valor_sinal).replace(',', '.'))
+  const sinalOk = !f.gerar || (f.valor_sinal.trim() !== '' && Number.isFinite(sinalNum) && sinalNum > 0)
+  const podeEnviar = !!f.cliente_nome.trim() && sinalOk && !busy
+  async function salvar() {
+    setErro(null); setCampo(null)
+    if (!f.cliente_nome.trim()) { setErro('Informe o nome do cliente.'); setCampo('cliente_nome'); return }
+    if (!sinalOk) { setErro('Para lançar o sinal em contas a receber, informe um valor maior que zero.'); setCampo('valor_sinal'); return }
+    setBusy(true)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { data, error } = await supabase.rpc('fn_veic_reserva_criar', {
+      p_company_id: companyId, p_veiculo_id: veiculoId,
+      p_reserva: { cliente_nome: f.cliente_nome.trim() || null, valor_sinal: f.valor_sinal ? sinalNum : null, forma_sinal: f.forma_sinal, reservado_ate: f.reservado_ate || null },
+      p_gerar_receber: f.gerar, p_user: user?.id ?? null,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; campo?: string } | null
+    if (error || !r?.ok) {
+      if (error && !r) { onErro('Não foi possível salvar agora. Tente de novo em instantes.'); return }
+      setErro(mensagemDeResultado(r)); setCampo(r?.campo ?? null); return
+    }
+    onSaved()
+  }
+  return (
+    <Modal titulo="Reservar veículo" onClose={onClose}>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <input value={f.cliente_nome} onChange={(e) => setF({ ...f, cliente_nome: e.target.value })} placeholder="cliente *" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'cliente_nome' ? 'x' : null) }} />
+        <input value={f.valor_sinal} onChange={(e) => setF({ ...f, valor_sinal: e.target.value })} placeholder="valor do sinal" inputMode="decimal" style={{ ...inp, ...estiloBordaInput(campo === 'valor_sinal' ? 'x' : null) }} />
+        <select value={f.forma_sinal} onChange={(e) => setF({ ...f, forma_sinal: e.target.value })} style={inp}>
+          <option value="pix">pix</option><option value="dinheiro">dinheiro</option><option value="cartao">cartão</option><option value="transferencia">transferência</option>
+        </select>
+        <label style={{ fontSize: 12, color: C.espM }}>reservado até<input type="date" value={f.reservado_ate} onChange={(e) => setF({ ...f, reservado_ate: e.target.value })} style={{ ...inp, marginLeft: 4 }} /></label>
+        <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <input type="checkbox" checked={f.gerar} onChange={(e) => setF({ ...f, gerar: e.target.checked })} /> lançar sinal em contas a receber
+        </label>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !podeEnviar ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: !podeEnviar ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Reservar'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; custoTotal: number; margemAlvo: number; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
+  const [f, setF] = useState({ cliente_nome: '', vendedor_nome: '', valor_venda: '', valor_entrada: '', valor_financiado: '', banco_nome: '', retorno_banco: '' })
+  const [troca, setTroca] = useState({ on: false, chassi: '', modelo: '', valor_troca: '', valor_avaliacao: '' })
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [campo, setCampo] = useState<string | null>(null)
+  // Simulador ao vivo (§3.2): o vendedor vê as duas margens recalcularem ANTES de fechar — o momento
+  // em que a decisão ainda pode mudar. Mesma conta da fn_veic_venda_composicao, só que client-side.
+  const n = (s: string): number => Number(String(s).replace(',', '.')) || 0
+  const vendaN = n(f.valor_venda)
+  const retornoN = n(f.retorno_banco)
+  const trocaValPreenchido = troca.on && troca.valor_troca.trim() !== ''
+  const avalPreenchida = troca.valor_avaliacao.trim() !== ''
+  // sobrepreço só existe com os DOIS valores; sem avaliação é desconhecido (não zero) — RD-51/58
+  const sobrepreco: number | null = trocaValPreenchido && avalPreenchida ? n(troca.valor_troca) - n(troca.valor_avaliacao) : null
+  const trocaSemAval = trocaValPreenchido && !avalPreenchida
+  const margemAparente = vendaN - custoTotal
+  const margemReal = vendaN - (sobrepreco ?? 0) - custoTotal + retornoN
+  const pct = (m: number): number | null => custoTotal > 0 ? Math.round((m / custoTotal * 100) * 100) / 100 : null
+  const realPct = pct(margemReal)
+  const abaixoMeta = realPct != null && realPct < margemAlvo
+  const descontoEmbutido = (Number(troca.valor_troca) || 0) - (Number(troca.valor_avaliacao) || 0)
+  const vvNum = Number(String(f.valor_venda).replace(',', '.'))
+  const vvOk = f.valor_venda.trim() !== '' && Number.isFinite(vvNum) && vvNum > 0
+  const podeEnviar = !!f.cliente_nome.trim() && vvOk && !busy
+  async function salvar() {
+    setErro(null); setCampo(null)
+    if (!f.cliente_nome.trim()) { setErro('Informe o nome do cliente.'); setCampo('cliente_nome'); return }
+    if (!vvOk) { setErro('Informe o valor da venda (maior que zero).'); setCampo('valor_venda'); return }
+    setBusy(true)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const recebimentos: { tipo: string; devedor: string; valor: number }[] = []
+    if (Number(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: Number(f.valor_entrada) })
+    if (Number(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: Number(f.valor_financiado) })
+    if (Number(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: Number(f.retorno_banco) })
+    // sem entrada/financiamento explícitos: à vista, o cliente deve o valor da venda
+    if (recebimentos.length === 0 && Number(f.valor_venda) > 0) recebimentos.push({ tipo: 'parcela', devedor: 'cliente', valor: Number(f.valor_venda) })
+    const { data, error } = await supabase.rpc('fn_veic_venda_registrar', {
+      p_company_id: companyId, p_veiculo_id: veiculoId,
+      p_venda: { cliente_nome: f.cliente_nome.trim() || null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? Number(f.valor_venda) : null, valor_entrada: f.valor_entrada ? Number(f.valor_entrada) : null, valor_financiado: f.valor_financiado ? Number(f.valor_financiado) : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: f.retorno_banco ? Number(f.retorno_banco) : null },
+      p_recebimentos: recebimentos,
+      p_troca: troca.on ? { chassi: troca.chassi.trim() || null, modelo: troca.modelo.trim() || null, valor_troca: troca.valor_troca ? Number(troca.valor_troca) : null, valor_avaliacao: troca.valor_avaliacao ? Number(troca.valor_avaliacao) : null } : null,
+      p_user: user?.id ?? null,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; situacao?: string; campo?: string } | null
+    if (error || !r?.ok) {
+      if (error && !r) { onErro('Não foi possível salvar agora. Tente de novo em instantes.'); return }
+      setErro(mensagemDeResultado(r)); setCampo(r?.campo ?? null); return
+    }
+    onSaved()
+  }
+  return (
+    <Modal titulo="Registrar venda" onClose={onClose}>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <input value={f.cliente_nome} onChange={(e) => setF({ ...f, cliente_nome: e.target.value })} placeholder="cliente *" style={{ ...inp, ...estiloBordaInput(campo === 'cliente_nome' ? 'x' : null) }} />
+        <input value={f.vendedor_nome} onChange={(e) => setF({ ...f, vendedor_nome: e.target.value })} placeholder="vendedor" style={inp} />
+        <input value={f.valor_venda} onChange={(e) => setF({ ...f, valor_venda: e.target.value })} placeholder="valor da venda *" inputMode="decimal" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
+      </div>
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Pagamento</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <input value={f.valor_entrada} onChange={(e) => setF({ ...f, valor_entrada: e.target.value })} placeholder="entrada (cliente)" style={inp} />
+        <input value={f.valor_financiado} onChange={(e) => setF({ ...f, valor_financiado: e.target.value })} placeholder="financiado (banco)" style={inp} />
+        <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
+        <input value={f.retorno_banco} onChange={(e) => setF({ ...f, retorno_banco: e.target.value })} placeholder="retorno do banco (receita)" style={inp} />
+      </div>
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo.</div>
+
+      <label style={{ fontSize: 13, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 6, margin: '12px 0 4px', fontWeight: 700 }}>
+        <input type="checkbox" checked={troca.on} onChange={(e) => setTroca({ ...troca, on: e.target.checked })} /> Tem veículo na troca
+      </label>
+      {troca.on && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <input value={troca.chassi} onChange={(e) => setTroca({ ...troca, chassi: e.target.value })} placeholder="chassi do usado (p/ entrar no estoque)" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'troca_chassi' ? 'x' : null) }} />
+            <input value={troca.modelo} onChange={(e) => setTroca({ ...troca, modelo: e.target.value })} placeholder="modelo" style={{ ...inp, gridColumn: '1 / -1' }} />
+            <input value={troca.valor_troca} onChange={(e) => setTroca({ ...troca, valor_troca: e.target.value })} placeholder="valor dado na troca" style={inp} />
+            <input value={troca.valor_avaliacao} onChange={(e) => setTroca({ ...troca, valor_avaliacao: e.target.value })} placeholder="valor de avaliação (quanto vale)" style={inp} />
+          </div>
+          <div style={{ fontSize: 11.5, color: descontoEmbutido > 0 ? C.amber : C.espL, marginTop: 6 }}>
+            {descontoEmbutido > 0
+              ? `Desconto embutido na venda: ${brl(descontoEmbutido)}. O usado entra no estoque pelo valor de avaliação (${brl(Number(troca.valor_avaliacao) || 0)}), não pelo valor dado — assim as duas margens ficam certas.`
+              : 'O usado entra no estoque pelo valor de avaliação. Se o valor dado for maior, a diferença vira desconto embutido na venda.'}
+          </div>
+        </div>
+      )}
+
+      {/* §3.2 · simulador ao vivo — as duas margens antes de fechar */}
+      {trocaSemAval && (
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 8, padding: '8px 11px', marginTop: 12, fontSize: 12, color: '#8A4B08' }}>
+          ⚠️ Sem a avaliação do usado não é possível saber a margem real deste negócio.
+        </div>
+      )}
+      {vendaN > 0 && (
+        <div style={{ background: C.cream, borderRadius: 10, padding: 12, marginTop: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>Margem antes de fechar</div>
+          {custoTotal > 0 ? (
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <div>
+                <div style={{ fontSize: 10, color: C.espM }}>aparente</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.espM }}>{pct(margemAparente)}% <span style={{ fontSize: 11, fontWeight: 400 }}>{brl(margemAparente)}</span></div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: C.gold }}>real {sobrepreco == null && troca.on ? '(sem avaliação)' : ''}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: abaixoMeta ? C.red : C.green }}>{realPct}% <span style={{ fontSize: 11, fontWeight: 400, color: C.espM }}>{brl(margemReal)}</span></div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: C.amber }}>⚠️ Veículo sem custo de aquisição — a margem não é calculável.</div>
+          )}
+          {abaixoMeta && <div style={{ fontSize: 11.5, color: C.red, marginTop: 6 }}>Margem real abaixo da meta ({margemAlvo}%) — este negócio precisa de aprovação.</div>}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !podeEnviar ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: !podeEnviar ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Registrar venda'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+// Onda 9 · lançar conta a pagar de um custo JÁ existente (ação separada, deliberada — veto ao gerar_pagar
+// automático). Pede fornecedor + vencimento; vencimento é obrigatório para o título (regra da GE), e é o
+// usuário quem define a data — nunca a conclusão da OS (que nasceria vencida). Chama fn_veic_custo_gerar_pagar.
+function LancarPagarModal({ custo, onClose, onSaved, onErro }: { custo: Custo; onClose: () => void; onSaved: (vencimento: string) => void; onErro: (m: string) => void }) {
+  const [f, setF] = useState({ fornecedor_nome: custo.fornecedor_nome ?? '', vencimento: '' })
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const podeEnviar = !!f.vencimento && !busy
+  async function salvar() {
+    setErro(null)
+    if (!f.vencimento) { setErro('Informe o vencimento — o título precisa de uma data para nascer certo na GE.'); return }
+    setBusy(true)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { data, error } = await supabase.rpc('fn_veic_custo_gerar_pagar', {
+      p_custo_id: custo.id,
+      p_dados: { fornecedor_nome: f.fornecedor_nome.trim() || null, vencimento: f.vencimento },
+      p_user: user?.id ?? null,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; ja_lancado?: boolean } | null
+    if (error || !r?.ok) {
+      if (error && !r) { onErro('Não foi possível salvar agora. Tente de novo em instantes.'); return }
+      setErro(r?.erro === 'vencimento_obrigatorio_para_titulo' ? 'Informe o vencimento.' : mensagemDeResultado(r)); return
+    }
+    onSaved(f.vencimento)
+  }
+  return (
+    <Modal titulo="Lançar conta a pagar" onClose={onClose}>
+      <div style={{ fontSize: 12.5, color: C.espM, marginBottom: 10, lineHeight: 1.5 }}>
+        Custo <b>{custo.categoria.replace('_', ' ')}</b> de <b>{brl(custo.valor)}</b>{custo.descricao ? ` · ${custo.descricao}` : ''}. Vira um título em <b>Contas a Pagar</b> da GE.
+      </div>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
+      <div style={{ display: 'grid', gap: 8 }}>
+        <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={inp} />
+        <label style={{ fontSize: 12, color: C.espM }}>vencimento *<input type="date" value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} style={{ ...inp, marginLeft: 6, ...estiloBordaInput(erro && !f.vencimento ? 'x' : null) }} /></label>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !podeEnviar ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: !podeEnviar ? 'not-allowed' : 'pointer' }}>{busy ? 'Lançando…' : 'Lançar título'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+// NovoCusto · valida ANTES de enviar (valor>0, categoria, descrição). O erro nunca chega ao banco;
+// se algum escapar, é traduzido pelo catálogo (contratoSalvar) e aparece AQUI, ao lado do campo —
+// nunca no topo da ficha e nunca o texto cru do Postgres. Bug de produção Alliance (04/09).
+function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved: () => void; onErro: (m: string) => void }) {
+  const vazio = { categoria: 'despachante', valor: '', descricao: '', fornecedor_nome: '', data_custo: '', gerar: false, vencimento: '' }
+  const [f, setF] = useState(vazio)
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [campo, setCampo] = useState<string | null>(null)
+  const valorNum = Number(String(f.valor).replace(',', '.'))
+  const valorOk = f.valor.trim() !== '' && Number.isFinite(valorNum) && valorNum > 0
+  const podeEnviar = valorOk && !!f.categoria.trim() && !!f.descricao.trim() && (!f.gerar || !!f.vencimento) && !busy
+  async function salvar() {
+    setErro(null); setCampo(null)
+    if (!valorOk) { setErro('Informe um valor maior que zero.'); setCampo('valor'); return }
+    if (!f.descricao.trim()) { setErro('Descreva o custo (ex.: "troca de pneus").'); setCampo('descricao'); return }
+    setBusy(true)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { data, error } = await supabase.rpc('fn_veic_custo_salvar', {
+      p_veiculo_id: veiculoId,
+      p_custo: { categoria: f.categoria, valor: valorNum, descricao: f.descricao.trim(), fornecedor_nome: f.fornecedor_nome.trim() || null, data_custo: f.data_custo || null },
+      p_gerar_pagar: f.gerar, p_vencimento: f.gerar ? (f.vencimento || null) : null, p_user: user?.id ?? null,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; campo?: string } | null
+    if (error || !r?.ok) {
+      // erro de transporte (raro) vai pro topo; erro de regra é traduzido e mostrado aqui, no campo
+      if (error && !r) { onErro('Não foi possível salvar agora. Tente de novo em instantes.'); return }
+      setErro(mensagemDeResultado(r)); setCampo(r?.campo ?? null); return
+    }
+    setF(vazio); onSaved()
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={{ ...inp, ...estiloBordaInput(campo === 'categoria' ? 'x' : null) }}>{CATS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}</select>
+        <input value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} placeholder="valor *" inputMode="decimal" style={{ ...inp, width: 90, ...estiloBordaInput(campo === 'valor' ? 'x' : null) }} />
+        <input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descrição *" style={{ ...inp, width: 170, ...estiloBordaInput(campo === 'descricao' ? 'x' : null) }} />
+        <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={{ ...inp, width: 130 }} />
+        <input type="date" value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} style={inp} />
+        <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <input type="checkbox" checked={f.gerar} onChange={(e) => setF({ ...f, gerar: e.target.checked })} /> gerar título em contas a pagar
+        </label>
+        {f.gerar && <label style={{ fontSize: 11, color: C.espM }}>venc.<input type="date" value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} style={{ ...inp, marginLeft: 4, ...estiloBordaInput(campo === 'vencimento' ? 'x' : null) }} /></label>}
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: podeEnviar ? C.gold : C.espL, color: C.white, fontWeight: 700, cursor: podeEnviar ? 'pointer' : 'not-allowed' }}>{busy ? 'Salvando…' : '+ Custo'}</button>
+      </div>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{erro}</div>}
+      <div style={{ fontSize: 10.5, color: C.espL, marginTop: 4 }}>* valor, categoria e descrição são obrigatórios.</div>
+    </div>
+  )
+}
+
+// R3d · A conta deste carro (fonte única fn_veic_conta_do_carro — a ficha NÃO recalcula). RD-51: componente
+// sem dado mostra "não configurado · configurar" (link /config), nunca R$ 0.
+type Comp3 = { valor: number | null; status: string }
+type Conta = {
+  ok?: boolean; comprei: number | null; custos_lancados: number | null; previsao_vistoria: number | null
+  carrego: { ocupacao: Comp3; capital: Comp3; depreciacao: Comp3 & { fonte?: string }; total: number | null; total_status: string; sangria_dia: number | null }
+  custo_real_total: number | null; piso_sem_margem: number | null; preco_minimo: number | null; anunciado: number | null
+  lucro_real_projetado: number | null; roi_anualizado_pct: number | null; sangria_dia: number | null
+  data_vira_prejuizo: string | null; dias_parado: number | null
+}
+function ContaDoCarroFaixa({ veiculoId, situacao, refreshKey, consignado }: { veiculoId: string; situacao: string; refreshKey: number; consignado?: boolean }) {
+  const [c, setC] = useState<Conta | null>(null)
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.rpc('fn_veic_conta_do_carro', { p_veiculo_id: veiculoId })
+      const r = data as Conta | null
+      if (vivo) setC(r?.ok ? r : null)
+    })()
+    return () => { vivo = false }
+  }, [veiculoId, refreshKey])
+  if (!c) return null
+
+  const cfgLink = <a href="/dashboard/revenda/config" style={{ color: C.gold, fontSize: 11, textDecoration: 'underline' }}>configurar</a>
+  const compTxt = (x: Comp3) => x.status === 'ok' ? brl(x.valor ?? 0)
+    : x.status === 'travado_d7' ? <span style={{ color: C.amber, fontSize: 11.5 }}>FIPE em breve (D7)</span>
+    : x.status === 'nao_calcular' ? <span style={{ color: C.espL, fontSize: 11.5 }}>não calcula</span>
+    : <span style={{ color: C.amber, fontSize: 11.5 }}>não configurado · {cfgLink}</span>
+
+  // #115: no consignado o valor de venda não é lucro da loja — sem lucro/ROI/vira-prejuízo (o banco já manda
+  // null após a migration 20260926240000; a tela não depende disso para não mostrar a conta errada)
+  const vira = !consignado && c.data_vira_prejuizo ? new Date(c.data_vira_prejuizo + 'T00:00:00') : null
+  const diasAteVira = vira ? Math.round((vira.getTime() - Date.now()) / 86400000) : null
+  const viraUrgente = diasAteVira != null && diasAteVira <= 15
+  const lucro = consignado ? null : c.lucro_real_projetado
+  const roi = consignado ? null : c.roi_anualizado_pct
+  const vendido = ['vendido', 'entregue'].includes(situacao)
+
+  return (
+    <div style={{ background: C.esp, color: '#fff', borderRadius: 14, padding: '16px 18px', margin: '16px 0 0' }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: '#E9C77A', fontWeight: 700, marginBottom: 10 }}>A conta deste carro</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px 18px' }}>
+        {/* #115: consignado não foi comprado — sem "comprei por" nem "posso vender no mínimo" */}
+        <Item l="Comprei por" v={consignado ? <span style={{ color: '#C9B79F', fontSize: 12 }}>consignado</span> : c.comprei != null ? brl(c.comprei) : '—'} />
+        <Item l="Gastei (custos)" v={brl(c.custos_lancados ?? 0)} />
+        <Item l="Previsão da vistoria" v={c.previsao_vistoria != null ? brl(c.previsao_vistoria) : '—'} />
+        <Item l={`Carrego (${c.dias_parado ?? '—'} dias parado)`} v={c.carrego.total_status === 'ok' ? brl(c.carrego.total ?? 0) : <span>{brl(c.carrego.total ?? 0)} <span style={{ color: C.amber, fontSize: 10.5 }}>parcial</span></span>} />
+        <Item l="Custo real" v={c.custo_real_total != null ? brl(c.custo_real_total) : '—'} forte />
+        {!consignado && <Item l="Posso vender no mínimo" v={c.preco_minimo != null ? brl(c.preco_minimo) : <span style={{ color: C.amber, fontSize: 12 }}>informe a aquisição</span>} />}
+        <Item l="Anunciei por" v={c.anunciado != null ? brl(c.anunciado) : <span style={{ color: '#C9B79F', fontSize: 12 }}>sem preço</span>} />
+        <Item l={vendido ? 'Lucro real' : 'Lucro real hoje'} v={lucro != null ? <span style={{ color: lucro >= 0 ? '#7ED4A0' : '#F0A0A0', fontWeight: 800 }}>{brl(lucro)}</span> : '—'} forte />
+        <Item l="ROI anualizado" v={roi != null ? `${roi}%` : '—'} />
+      </div>
+
+      {/* carrego aberto em 3 componentes (RD-51: badge honesto quando faltar) */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12, paddingTop: 10, borderTop: '1px solid #5A4636', fontSize: 12.5 }}>
+        <span style={{ color: '#C9B79F' }}>Ocupação: <b style={{ color: '#fff' }}>{compTxt(c.carrego.ocupacao)}</b></span>
+        <span style={{ color: '#C9B79F' }}>Capital: <b style={{ color: '#fff' }}>{compTxt(c.carrego.capital)}</b></span>
+        <span style={{ color: '#C9B79F' }}>Depreciação: <b style={{ color: '#fff' }}>{compTxt(c.carrego.depreciacao)}</b></span>
+        {c.sangria_dia != null && <span style={{ color: '#C9B79F' }}>Sangria/dia: <b style={{ color: '#fff' }}>{brl(c.sangria_dia)}</b></span>}
+      </div>
+
+      {/* vira prejuízo (semáforo real: vermelho só quando ≤ 15 dias) */}
+      {!vendido && vira && (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: viraUrgente ? '#F0A0A0' : '#E9C77A' }}>
+          {viraUrgente ? '🔴 ' : '🟡 '}Vira prejuízo em <b>{brDate(c.data_vira_prejuizo!)}</b>{diasAteVira != null ? ` (${diasAteVira} dias)` : ''} — mantendo o preço anunciado.
+        </div>
+      )}
+      {!vendido && !vira && lucro != null && lucro <= 0 && (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: '#F0A0A0' }}>🔴 Já está no prejuízo com o preço anunciado.</div>
+      )}
+    </div>
+  )
+}
+function Item({ l, v, forte }: { l: string; v: React.ReactNode; forte?: boolean }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: '#C9B79F' }}>{l}</div>
+      <div style={{ fontSize: forte ? 17 : 14, fontWeight: forte ? 800 : 600, marginTop: 2 }}>{v}</div>
+    </div>
+  )
+}
+
+// R3-fix T4 · Trilha de estado do veículo: entrada → vistoria → preparação → anúncio → negociação →
+// venda → entrega → garantia. Marca feito/atual pelo estado REAL e diz o motivo da trava atual.
+function TrilhaEstado({ situacao, temReserva, venda, temCusto, temPreco }: { situacao: string; temReserva: boolean; venda: Venda | null; temCusto: boolean; temPreco: boolean }) {
+  const entregue = situacao === 'entregue' || venda?.situacao === 'entregue'
+  const vendido = !!venda || situacao === 'vendido' || entregue
+  const negociando = temReserva || vendido
+  const anunciado = temPreco || ['disponivel', 'reservado', 'vendido', 'entregue'].includes(situacao)
+  const preparado = temCusto || anunciado || negociando || situacao !== 'em_preparacao'
+  const passos = [
+    { k: 'entrada', l: 'Entrada', ok: true },
+    { k: 'preparacao', l: 'Preparação', ok: preparado },
+    { k: 'anuncio', l: 'Anúncio', ok: anunciado },
+    { k: 'negociacao', l: 'Negociação', ok: negociando },
+    { k: 'venda', l: 'Venda', ok: vendido },
+    { k: 'entrega', l: 'Entrega', ok: entregue },
+    { k: 'garantia', l: 'Garantia', ok: entregue },
+  ]
+  const atualIdx = passos.findIndex((p) => !p.ok)
+  const motivo = atualIdx < 0 ? null
+    : passos[atualIdx].k === 'anuncio' ? 'trava: defina o preço na precificação'
+    : passos[atualIdx].k === 'preparacao' ? 'trava: conclua a preparação/lance os custos'
+    : passos[atualIdx].k === 'venda' ? 'trava: registre a venda'
+    : passos[atualIdx].k === 'entrega' ? 'trava: entrega exige nota (ou selo demo)'
+    : `próximo passo: ${passos[atualIdx].l.toLowerCase()}`
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, margin: '14px 0' }}>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Trilha do veículo</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        {passos.map((p, i) => (
+          <span key={p.k} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11.5, padding: '3px 9px', borderRadius: 999, fontWeight: 700,
+              background: p.ok ? C.greenBg : i === atualIdx ? C.amberBg : C.cream,
+              color: p.ok ? C.green : i === atualIdx ? C.amber : C.espL }}>
+              {p.ok ? '✓ ' : i === atualIdx ? '➤ ' : ''}{p.l}
+            </span>
+            {i < passos.length - 1 && <span style={{ color: C.espL, fontSize: 11 }}>→</span>}
+          </span>
+        ))}
+      </div>
+      {motivo && <div style={{ marginTop: 8, fontSize: 12, color: C.amber }}>{motivo}</div>}
+    </div>
+  )
+}
+
+function Bloco({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}><div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{titulo}</div>{children}</div>
+}
+function Card({ l, v, sub, destaque }: { l: string; v: string; sub?: string; destaque?: boolean }) {
+  return (
+    <div style={{ background: destaque ? '#FDF7E8' : C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
+      {/* sem textTransform uppercase: o CSS mudava o texto que a tela expõe ("PREÇO MÍNIMO (MARGEM 25%)") —
+          a ficha passa a dizer o preço mínimo com as mesmas palavras da precificação (jornada precificacao) */}
+      <div style={{ fontSize: 10.5, letterSpacing: 0.4, color: C.espM }}>{l}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: destaque ? C.gold : C.esp, marginTop: 2 }}>{v}</div>
+      {sub && <div style={{ fontSize: 10.5, color: C.amber, marginTop: 2 }}>{sub}</div>}
+    </div>
+  )
+}
+
+// Onda 5B · seção Vistoria na ficha (§4). Estados: sem vistoria / em andamento / concluída.
+// Auto-carrega a última vistoria do veículo (RLS por company_id). setSt só dentro do async (nunca síncrono).
+function VistoriaBloco({ veiculoId }: { veiculoId: string }) {
+  const [st, setSt] = useState<{ loading: boolean; situacao?: string; total?: number; avaliados?: number; previsao?: number; reparo?: number; troca?: number; fotosOk?: number; fotosObrig?: number }>({ loading: true })
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data: vs } = await supabase.from('insp_vistoria').select('id,situacao,previsao_total').eq('alvo_tabela', 'veic_veiculo').eq('alvo_id', veiculoId).neq('situacao', 'cancelada').order('iniciada_em', { ascending: false }).limit(1)
+      const row = ((vs as { id: string; situacao: string; previsao_total: number }[]) ?? [])[0]
+      if (!row) { if (vivo) setSt({ loading: false }); return }
+      const { data: j } = await supabase.rpc('fn_insp_vistoria_obter', { p_vistoria_id: row.id })
+      const r = j as { ok?: boolean; itens_total?: number; itens_avaliados?: number; vistoria?: { previsao_total?: number }; regioes?: { foto_obrigatoria: boolean; tem_foto: boolean; itens: { estado: string | null }[] }[] } | null
+      if (!vivo) return
+      if (!r?.ok) { setSt({ loading: false, situacao: row.situacao, previsao: row.previsao_total }); return }
+      const its = (r.regioes ?? []).flatMap((x) => x.itens)
+      setSt({
+        loading: false, situacao: row.situacao, total: r.itens_total, avaliados: r.itens_avaliados,
+        previsao: r.vistoria?.previsao_total ?? row.previsao_total,
+        reparo: its.filter((i) => i.estado === 'reparo').length, troca: its.filter((i) => i.estado === 'troca').length,
+        fotosOk: (r.regioes ?? []).filter((x) => x.foto_obrigatoria && x.tem_foto).length,
+        fotosObrig: (r.regioes ?? []).filter((x) => x.foto_obrigatoria).length,
+      })
+    })()
+    return () => { vivo = false }
+  }, [veiculoId])
+
+  const rota = `/dashboard/revenda/veiculo/${veiculoId}/vistoria`
+  if (st.loading) return null
+  return (
+    <Bloco titulo="Vistoria">
+      {!st.situacao ? (
+        <div>
+          <div style={{ fontSize: 12.5, color: C.espM, lineHeight: 1.5 }}>Este veículo ainda não foi vistoriado. A vistoria é o que faz o custo aparecer.</div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, background: C.gold, color: '#fff', padding: '9px 16px', borderRadius: 8, textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>Iniciar vistoria →</a>
+        </div>
+      ) : st.situacao === 'concluida' ? (
+        <div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Previsão de gastos</div><div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{brl(st.previsao ?? 0)}</div></div>
+            <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Cobertura</div><div style={{ fontSize: 16, fontWeight: 700 }}>{st.avaliados} de {st.total} itens{(st.total ?? 0) > (st.avaliados ?? 0) ? <span style={{ color: C.amber, fontSize: 11, fontWeight: 400 }}> · {(st.total ?? 0) - (st.avaliados ?? 0)} não avaliados</span> : null}</div></div>
+          </div>
+          <div style={{ fontSize: 12.5, color: C.espM, marginTop: 8 }}>{st.reparo} em reparo · {st.troca} em troca · fotos {st.fotosOk}/{st.fotosObrig} regiões</div>
+          <div style={{ fontSize: 11.5, color: C.espL, marginTop: 6 }}>A previsão alimenta a precificação. O custo em Contas a Pagar nasce quando o gasto acontece (lançar como custo — Onda 9).</div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, color: C.gold, fontSize: 13, textDecoration: 'none' }}>ver detalhes da vistoria →</a>
+        </div>
+      ) : (
+        <div>
+          <div style={{ fontSize: 13, color: C.esp }}>Vistoria <b>em andamento</b> — {st.avaliados ?? 0} de {st.total ?? 80} itens.</div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, background: C.gold, color: '#fff', padding: '9px 16px', borderRadius: 8, textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>Continuar ({st.avaliados ?? 0} de {st.total ?? 80}) →</a>
+        </div>
+      )}
+    </Bloco>
+  )
+}
+
+// Onda 6A · seção Precificação na ficha. Sem preço → "não precificado" que ensina; com preço → mostra.
+function PrecificacaoBloco({ veiculoId, consignado }: { veiculoId: string; consignado?: boolean }) {
+  const [st, setSt] = useState<{ loading: boolean; preco_venda?: number | null; preco_minimo?: number | null; precificado_em?: string | null }>({ loading: true })
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('veic_veiculo').select('preco_venda, preco_minimo, precificado_em').eq('id', veiculoId).maybeSingle()
+      if (!vivo) return
+      const r = data as { preco_venda: number | null; preco_minimo: number | null; precificado_em: string | null } | null
+      setSt({ loading: false, preco_venda: r?.preco_venda ?? null, preco_minimo: r?.preco_minimo ?? null, precificado_em: r?.precificado_em ?? null })
+    })()
+    return () => { vivo = false }
+  }, [veiculoId])
+  const rota = `/dashboard/revenda/veiculo/${veiculoId}/precificacao`
+  if (st.loading) return null
+  return (
+    <Bloco titulo="Precificação">
+      {st.preco_venda == null ? (
+        <div>
+          <div style={{ fontSize: 12.5, color: C.espM, lineHeight: 1.5 }}>Este veículo ainda não foi precificado — ninguém definiu por quanto ele sai.</div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, background: C.gold, color: '#fff', padding: '9px 16px', borderRadius: 8, textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>Precificar →</a>
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>{consignado ? 'Valor de venda' : 'Preço de venda'}</div><div style={{ fontSize: 20, fontWeight: 700, color: C.gold }}>{brl(st.preco_venda)}</div></div>
+            {/* #115: consignado não tem piso (o R$ 0,00 gravado antes da migration não aparece) */}
+            {!consignado && st.preco_minimo != null && <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.espM }}>Piso</div><div style={{ fontSize: 15, fontWeight: 700 }}>{brl(st.preco_minimo)}</div></div>}
+          </div>
+          <a href={rota} style={{ display: 'inline-block', marginTop: 10, color: C.gold, fontSize: 13, textDecoration: 'none' }}>ver / reprecificar →</a>
+        </div>
+      )}
+    </Bloco>
+  )
+}
+
+// Onda 9 · seção Preparação na ficha (§4.1/§4.2). Reusa erp_os (não recria módulo de serviços):
+// confronto previsto (vistoria) × realizado (OS), abre OS a partir do veículo, concluir vira custo [→GE].
+type PrepOS = { os_id: string; numero: string; status: string; prioridade: string; descricao_servico: string | null; tecnico_nome: string | null; data_abertura: string | null; data_prevista: string | null; data_conclusao: string | null; dias_corridos: number | null; total: number; coluna: string; concluida: boolean; custo_id: string | null }
+type Confronto = { ok: boolean; status: string; previsto?: number; itens_previstos?: number; realizado?: number; em_andamento?: number; desvio_valor?: number; desvio_pct?: number; os_abertas?: number; os_concluidas?: number }
+
+function PreparacaoBloco({ veiculoId, companyId, onMsg, onErro, onChange }: { veiculoId: string; companyId: string; onMsg: (m: string) => void; onErro: (m: string) => void; onChange: () => void }) {
+  const [conf, setConf] = useState<Confronto | null>(null)
+  const [oss, setOss] = useState<PrepOS[]>([])
+  const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const [c, l] = await Promise.all([
+        supabase.rpc('fn_veic_preparacao_confronto', { p_veiculo_id: veiculoId }),
+        supabase.rpc('fn_veic_preparacao_listar', { p_company_id: companyId, p_veiculo_id: veiculoId }),
+      ])
+      if (!vivo) return
+      setConf((c.data as Confronto) ?? null)
+      const ld = l.data as { ok?: boolean; os?: PrepOS[] } | null
+      setOss(ld?.ok ? (ld.os ?? []) : [])
+      setLoading(false)
+    })()
+    return () => { vivo = false }
+  }, [veiculoId, companyId, tick])
+
+  async function concluir(os: PrepOS) {
+    setBusy(os.os_id)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { data, error } = await supabase.rpc('fn_veic_preparacao_concluir', { p_os_id: os.os_id, p_user: user?.id ?? null })
+    setBusy(null)
+    const r = data as { ok?: boolean; erro?: string; ja_lancado?: boolean; valor?: number; sem_custo?: boolean } | null
+    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao concluir a OS.'); return }
+    if (r.ja_lancado) onMsg(`OS ${os.numero} já estava lançada — nenhum custo duplicado.`)
+    else if (r.sem_custo) onMsg(`OS ${os.numero} concluída (sem valor lançado — nenhum custo criado).`)
+    else onMsg(`OS ${os.numero} concluída. CRIOU o custo de ${brl(r.valor ?? 0)} no veículo. A conta a pagar é opcional: lance em "Custos no chassi" quando tiver fornecedor e vencimento.`)
+    setTick((t) => t + 1); onChange()
+  }
+
+  if (loading) return null
+  const semPrev = !conf || conf.status === 'sem_previsao'
+  const prevZero = conf?.status === 'previsao_zero'
+  const temPrev = !!conf && !semPrev && !prevZero
+  const desvio = conf?.desvio_valor ?? 0
+
+  return (
+    <Bloco titulo="Preparação">
+      <div style={{ display: 'grid', gap: 4, fontSize: 13, maxWidth: 460 }}>
+        {temPrev && (
+          <Linha l="A vistoria previu" v={brl(conf!.previsto ?? 0)} nota={`${conf!.itens_previstos ?? 0} ${(conf!.itens_previstos ?? 0) === 1 ? 'item' : 'itens'}`} cor={C.esp} />
+        )}
+        <Linha l="Em andamento" v={brl(conf?.em_andamento ?? 0)} nota={`${conf?.os_abertas ?? 0} OS`} cor={C.espM} />
+        <Linha l="Já realizado" v={brl(conf?.realizado ?? 0)} nota={`${conf?.os_concluidas ?? 0} OS ✓`} cor={C.green} />
+        {temPrev && (
+          <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 4, paddingTop: 4 }}>
+            <Linha l="Desvio até agora" v={`${desvio > 0 ? '+' : ''}${brl(desvio)}`} nota={`${(conf!.desvio_pct ?? 0) > 0 ? '+' : ''}${conf!.desvio_pct ?? 0}%`} cor={desvio > 0 ? C.red : C.green} bold />
+          </div>
+        )}
+      </div>
+      {semPrev && <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 8 }}>Sem vistoria — não há previsão para comparar. A OS não depende da vistoria; a comparação sim.</div>}
+      {prevZero && <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 8 }}>A vistoria não previu itens de reparo/troca — nada a comparar.</div>}
+
+      <button onClick={() => setModal(true)} style={{ marginTop: 12, background: C.gold, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>Abrir OS de preparação</button>
+
+      {oss.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          {oss.map((os) => (
+            <div key={os.os_id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5, borderTop: `1px solid ${C.cream}`, padding: '8px 0' }}>
+              <b style={{ fontFamily: 'monospace' }}>{os.numero}</b>
+              <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: os.concluida ? C.greenBg : C.amberBg, color: os.concluida ? C.green : C.amber, fontWeight: 700 }}>{os.status.replace('_', ' ')}</span>
+              <span style={{ color: C.espM }}>{brl(os.total)}</span>
+              {os.dias_corridos != null && <span style={{ color: C.espL, fontSize: 11 }}>{os.dias_corridos} dia(s)</span>}
+              {os.custo_id
+                ? <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.gold }}>custo lançado</span>
+                : <button disabled={busy === os.os_id} onClick={() => void concluir(os)} style={{ marginLeft: 'auto', border: `1px solid ${C.green}`, background: C.white, color: C.green, borderRadius: 7, padding: '4px 10px', fontSize: 11.5, fontWeight: 700, cursor: busy === os.os_id ? 'wait' : 'pointer' }}>{busy === os.os_id ? '…' : 'concluir → vira custo'}</button>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal && <PreparacaoModal veiculoId={veiculoId} onClose={() => setModal(false)} onErro={onErro} onSaved={(numero) => { setModal(false); onMsg(`CRIOU a OS de preparação ${numero}.`); setTick((t) => t + 1); onChange() }} />}
+    </Bloco>
+  )
+}
+
+function Linha({ l, v, nota, cor, bold }: { l: string; v: string; nota?: string; cor?: string; bold?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <span style={{ color: C.espM, minWidth: 150 }}>{l}</span>
+      <span style={{ fontWeight: bold ? 700 : 600, color: cor ?? C.esp, fontSize: bold ? 15 : 13 }}>{v}</span>
+      {nota && <span style={{ color: C.espL, fontSize: 11 }}>{nota}</span>}
+    </div>
+  )
+}
+
+function PreparacaoModal({ veiculoId, onClose, onSaved, onErro }: { veiculoId: string; onClose: () => void; onSaved: (numero: string) => void; onErro: (m: string) => void }) {
+  const [f, setF] = useState({ descricao_servico: '', prioridade: 'normal', data_prevista: '' })
+  const [busy, setBusy] = useState(false)
+  async function salvar() {
+    setBusy(true)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { data, error } = await supabase.rpc('fn_veic_preparacao_abrir', {
+      p_veiculo_id: veiculoId,
+      p_dados: { descricao_servico: f.descricao_servico.trim() || null, prioridade: f.prioridade, data_prevista: f.data_prevista || null },
+      p_user: user?.id ?? null,
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; numero?: string } | null
+    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao abrir a OS.'); return }
+    onSaved(r.numero ?? '')
+  }
+  return (
+    <Modal titulo="Abrir OS de preparação" onClose={onClose}>
+      <div style={{ fontSize: 12, color: C.espM, marginBottom: 10, lineHeight: 1.5 }}>Placa, marca, modelo, ano, KM e chassi já vêm do veículo. Se houver vistoria concluída, os itens em reparo/troca entram como sugestão na descrição.</div>
+      <textarea value={f.descricao_servico} onChange={(e) => setF({ ...f, descricao_servico: e.target.value })} placeholder="descrição do serviço (opcional — se vazio, usa os itens da vistoria)" rows={3} style={{ ...inp, width: '100%', resize: 'vertical' }} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 12, color: C.espM }}>prioridade&nbsp;
+          <select value={f.prioridade} onChange={(e) => setF({ ...f, prioridade: e.target.value })} style={inp}>
+            <option value="baixa">baixa</option><option value="normal">normal</option><option value="alta">alta</option><option value="urgente">urgente</option>
+          </select>
+        </label>
+        <label style={{ fontSize: 12, color: C.espM }}>prazo&nbsp;<input type="date" value={f.data_prevista} onChange={(e) => setF({ ...f, data_prevista: e.target.value })} style={inp} /></label>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
+        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Abrindo…' : 'Abrir OS'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+// Onda 10 · bloco "Interessados" na ficha (§4.1). Estende o CRM da GE: mostra as oportunidades
+// abertas com veic_interesse_id = este carro. Vazio = "ninguém demonstrou interesse ainda" (não "0 leads").
+type Interessado = { oportunidade_id: string; cliente: string; contato: string | null; etapa: string; valor_estimado: number | null; responsavel_nome: string | null; dias_na_etapa: number }
+const ETAPA_LABEL: Record<string, string> = {
+  prospeccao: 'Prospecção', visita_agendada: 'Visita agendada', visita_feita: 'Visita', orcando: 'Orçando',
+  proposta_enviada: 'Proposta enviada', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido',
+}
+function waLink(contato: string, msg: string) {
+  const d = contato.replace(/\D/g, '')
+  return `https://wa.me/${d.length <= 11 ? '55' + d : d}?text=${encodeURIComponent(msg)}`
+}
+
+function InteressadosBloco({ veiculoId, companyId, veiculoLabel, onMsg, onErro }: { veiculoId: string; companyId: string; veiculoLabel: string; onMsg: (m: string) => void; onErro: (m: string) => void }) {
+  const [st, setSt] = useState<{ loading: boolean; total: number; lista: Interessado[] }>({ loading: true, total: 0, lista: [] })
+  const [modal, setModal] = useState(false)
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.rpc('fn_veic_interessados', { p_veiculo_id: veiculoId })
+      if (!vivo) return
+      const r = data as { ok?: boolean; total?: number; interessados?: Interessado[] } | null
+      setSt({ loading: false, total: r?.total ?? 0, lista: r?.ok ? (r.interessados ?? []) : [] })
+    })()
+    return () => { vivo = false }
+  }, [veiculoId, tick])
+  if (st.loading) return null
+  return (
+    <Bloco titulo={`Interessados${st.total ? ` · ${st.total}` : ''}`}>
+      {st.lista.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>Ninguém demonstrou interesse ainda.</div>
+      ) : (
+        <div>
+          {st.lista.map((i) => (
+            <div key={i.oportunidade_id} style={{ borderTop: `1px solid ${C.cream}`, padding: '9px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 160 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{i.cliente}</div>
+                <div style={{ fontSize: 11.5, color: C.espM }}>
+                  <span style={{ fontWeight: 700, color: C.gold }}>{ETAPA_LABEL[i.etapa] ?? i.etapa.replace('_', ' ')}</span>
+                  {' · '}{i.dias_na_etapa} {i.dias_na_etapa === 1 ? 'dia' : 'dias'} na etapa
+                </div>
+              </div>
+              {i.contato && <span style={{ fontSize: 12, color: C.espM, fontFamily: 'monospace' }}>{i.contato}</span>}
+              {i.contato && <a href={waLink(i.contato, `Olá! Sobre o ${veiculoLabel || 'veículo'} que você tem interesse…`)} target="_blank" rel="noreferrer" style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: '#128C7E', textDecoration: 'none', border: '1px solid #128C7E', borderRadius: 7, padding: '4px 10px' }}>WhatsApp</a>}
+            </div>
+          ))}
+        </div>
+      )}
+      <button onClick={() => setModal(true)} style={{ marginTop: 12, background: C.gold, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>+ Registrar interesse</button>
+      {modal && <RegistrarInteresseModal veiculoId={veiculoId} companyId={companyId} onClose={() => setModal(false)}
+        onSaved={(nome, temProcura) => { setModal(false); onMsg(`CRIOU o interesse de ${nome}${temProcura ? ' · e registrou a procura sem estoque' : ''}.`); setTick((t) => t + 1) }} onErro={onErro} />}
+    </Bloco>
+  )
+}
+
+// Registra o interesse neste carro (abre oportunidade no funil da GE via fn_veic_oportunidade_abrir).
+// E, no mesmo formulário (§4.4), opcionalmente registra o que o cliente procura e a loja não tem —
+// o único momento em que essa informação existe (depois se perde).
+function RegistrarInteresseModal({ veiculoId, companyId, onClose, onSaved, onErro }: { veiculoId: string; companyId: string; onClose: () => void; onSaved: (nome: string, temProcura: boolean) => void; onErro: (m: string) => void }) {
+  const [f, setF] = useState({ nome: '', contato: '' })
+  const [proc, setProc] = useState({ on: false, marca: '', modelo: '', ano_min: '', ano_max: '', valor_ate: '', cambio: '' })
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const procOk = !proc.on || !!proc.marca.trim() || !!proc.modelo.trim()
+  const podeEnviar = !!f.nome.trim() && procOk && !busy
+  async function salvar() {
+    setErro(null)
+    if (!f.nome.trim()) { setErro('Informe o nome do interessado.'); return }
+    if (proc.on && !proc.marca.trim() && !proc.modelo.trim()) { setErro('Para registrar a procura, informe ao menos marca ou modelo.'); return }
+    setBusy(true)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const uid = user?.id ?? null
+    const { data, error } = await supabase.rpc('fn_veic_oportunidade_abrir', {
+      p_veiculo_id: veiculoId,
+      p_cliente: { nome: f.nome.trim(), contato: f.contato.trim() || null },
+      p_user: uid,
+    })
+    const r = data as { ok?: boolean; erro?: string; oportunidade_id?: string } | null
+    if (error || !r?.ok) { setBusy(false); onErro(error?.message || r?.erro || 'Falha ao registrar o interesse.'); return }
+    if (proc.on && (proc.marca.trim() || proc.modelo.trim())) {
+      await supabase.rpc('fn_veic_procura_registrar', {
+        p_company_id: companyId,
+        p_dados: {
+          oportunidade_id: r.oportunidade_id, cliente_nome: f.nome.trim(), contato: f.contato.trim() || null,
+          marca: proc.marca.trim() || null, modelo: proc.modelo.trim() || null,
+          ano_min: proc.ano_min || null, ano_max: proc.ano_max || null, valor_ate: proc.valor_ate || null, cambio: proc.cambio.trim() || null,
+        },
+        p_user: uid,
+      })
+    }
+    setBusy(false)
+    onSaved(f.nome.trim(), proc.on && (!!proc.marca.trim() || !!proc.modelo.trim()))
+  }
+  return (
+    <Modal titulo="Registrar interesse" onClose={onClose}>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} placeholder="nome do cliente *" style={{ ...inp, gridColumn: '1 / -1' }} />
+        <input value={f.contato} onChange={(e) => setF({ ...f, contato: e.target.value })} placeholder="telefone / WhatsApp" inputMode="tel" style={{ ...inp, gridColumn: '1 / -1' }} />
+      </div>
+      <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>Abre uma oportunidade no funil do CRM com este carro como interesse.</div>
+
+      <label style={{ fontSize: 13, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 6, margin: '14px 0 4px', fontWeight: 700 }}>
+        <input type="checkbox" checked={proc.on} onChange={(e) => setProc({ ...proc, on: e.target.checked })} /> O cliente procura algo que não está no pátio
+      </label>
+      {proc.on && (
+        <div style={{ background: C.cream, borderRadius: 10, padding: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <input value={proc.marca} onChange={(e) => setProc({ ...proc, marca: e.target.value })} placeholder="marca" style={inp} />
+            <input value={proc.modelo} onChange={(e) => setProc({ ...proc, modelo: e.target.value })} placeholder="modelo" style={inp} />
+            <input value={proc.ano_min} onChange={(e) => setProc({ ...proc, ano_min: e.target.value })} placeholder="ano de" inputMode="numeric" style={inp} />
+            <input value={proc.ano_max} onChange={(e) => setProc({ ...proc, ano_max: e.target.value })} placeholder="ano até" inputMode="numeric" style={inp} />
+            <input value={proc.valor_ate} onChange={(e) => setProc({ ...proc, valor_ate: e.target.value })} placeholder="até R$" inputMode="decimal" style={inp} />
+            <input value={proc.cambio} onChange={(e) => setProc({ ...proc, cambio: e.target.value })} placeholder="câmbio (opcional)" style={inp} />
+          </div>
+          <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>Vira demanda em &quot;O que comprar&quot; — a procura que a loja não atendeu.</div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
+        <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: !podeEnviar ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: !podeEnviar ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Registrar'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+// Onda 0 · barra de completude fiscal. Mostra o que falta pra emitir nota (fn_veic_completude_fiscal).
+// Chips clicáveis rolam até o campo no formulário de Dados. RD-51: falta é falta, nunca traço/zero;
+// só os 7 campos fiscais contam; renavam/KM/placa vêm em linha separada e neutra (não são bloqueio).
+type CompletudeFiscal = { ok?: boolean; apto_nota?: boolean; faltantes?: string[]; preenchidos?: number; total?: number; outros_vazios?: string[] }
+const CAMPO_ID_FISCAL: Record<string, string> = {
+  'cor': 'campo-cor', 'combustível': 'campo-combustivel', 'potência': 'campo-potencia_cv',
+  'cilindradas': 'campo-cilindradas', 'ano de fabricação': 'campo-ano_fabricacao', 'ano do modelo': 'campo-ano_modelo',
+}
+function CompletudeFiscalBloco({ veiculoId, refreshKey }: { veiculoId: string; refreshKey: number }) {
+  const [cf, setCf] = useState<CompletudeFiscal | null>(null)
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.rpc('fn_veic_completude_fiscal', { p_veiculo_id: veiculoId })
+      const r = data as (CompletudeFiscal & { ok?: boolean }) | null
+      if (vivo) setCf(r && r.ok !== false ? r : null)
+    })()
+    return () => { vivo = false }
+  }, [veiculoId, refreshKey])
+  if (!cf) return null
+  const irCampo = (fal: string) => {
+    const el = document.getElementById(CAMPO_ID_FISCAL[fal])
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLInputElement | HTMLSelectElement).focus?.() }
+  }
+  const preenchidos = cf.preenchidos ?? 0, total = cf.total ?? 7
+  const outros = cf.outros_vazios ?? []
+  if (cf.apto_nota) {
+    return (
+      <div style={{ background: C.greenBg, border: `1px solid ${C.green}55`, borderLeft: `4px solid ${C.green}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: C.green }}>✅ Pronto para emitir nota</div>
+        <div style={{ fontSize: 12, color: C.espM, marginTop: 2 }}>Os {total} campos fiscais estão preenchidos.</div>
+        {outros.length > 0 && <div style={{ fontSize: 11.5, color: C.espL, marginTop: 6 }}>Fora da nota, mas em branco: {outros.join(' · ')}</div>}
+      </div>
+    )
+  }
+  return (
+    <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#8A4B08', textTransform: 'uppercase', letterSpacing: 0.4 }}>Pronto para emitir nota</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+        <div style={{ flex: 1, height: 8, background: '#EFDFC5', borderRadius: 999, overflow: 'hidden' }}>
+          <div style={{ width: `${total ? (preenchidos / total * 100) : 0}%`, height: '100%', background: C.amber }} />
+        </div>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#8A4B08', whiteSpace: 'nowrap' }}>{preenchidos} de {total} campos</span>
+      </div>
+      <div style={{ marginTop: 10, fontSize: 12.5, color: '#8A4B08' }}>
+        Faltam:
+        <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', marginLeft: 6 }}>
+          {(cf.faltantes ?? []).map((f) => (
+            <button key={f} onClick={() => irCampo(f)} disabled={!CAMPO_ID_FISCAL[f]}
+              style={{ background: C.white, border: `1px solid ${C.amber}`, color: '#8A4B08', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: CAMPO_ID_FISCAL[f] ? 'pointer' : 'default' }}>
+              {f}{CAMPO_ID_FISCAL[f] ? ' ↧' : ''}
+            </button>
+          ))}
+        </span>
+      </div>
+      {outros.length > 0 && <div style={{ fontSize: 11.5, color: C.espL, marginTop: 8, borderTop: `1px solid ${C.amber}33`, paddingTop: 6 }}>Fora da nota, mas em branco: {outros.join(' · ')}</div>}
+    </div>
+  )
+}
+
+// Composição real do negócio · Onda 1. Mostra as DUAS margens (aparente × real), o sobrepreço da troca
+// e o valor pelo qual o usado entrou no estoque. Badge honesto de incerteza (RD-51/58). A margem real
+// abaixo da meta sinaliza aprovação — sinal visual; a alçada formal ainda não existe (fora do escopo).
+function LinhaComp({ label, valor, sinal = '', destaque }: { label: string; valor: number | null; sinal?: '' | '−' | '+'; destaque?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0', color: destaque ? C.esp : C.espM }}>
+      <span>{label}</span>
+      <span style={{ fontFamily: 'monospace', fontWeight: destaque ? 700 : 400 }}>{sinal}{brl(valor ?? 0)}</span>
+    </div>
+  )
+}
+function ComposicaoBloco({ comp, margemAlvo }: { comp: Composicao; margemAlvo: number }) {
+  const abaixoMeta = comp.margem_real_pct != null && comp.margem_real_pct < margemAlvo
+  const badge = comp.incerteza ? (INCERTEZA_BADGE[comp.incerteza] ?? comp.incerteza) : null
+  const u = comp.usado_recebido
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Composição real do negócio</div>
+      {badge && (
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}55`, borderLeft: `4px solid ${C.amber}`, borderRadius: 8, padding: '7px 10px', marginBottom: 10, fontSize: 12, color: '#8A4B08' }}>⚠️ {badge}</div>
+      )}
+      <div style={{ borderBottom: `1px solid ${C.cream}`, paddingBottom: 6, marginBottom: 8 }}>
+        <LinhaComp label="Venda" valor={comp.valor_venda} destaque />
+        <LinhaComp label="Aquisição" valor={comp.valor_aquisicao} sinal="−" />
+        <LinhaComp label={comp.custos_lancados > 0 ? 'Custos lançados' : 'Custos lançados (nenhum)'} valor={comp.custos_lancados} sinal="−" />
+        {comp.sobrepreco_troca != null && <LinhaComp label="Sobrepreço na troca" valor={comp.sobrepreco_troca} sinal="−" />}
+        {!!comp.financiamento.retorno_banco && <LinhaComp label="Retorno do banco" valor={comp.financiamento.retorno_banco} sinal="+" />}
+      </div>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <div>
+          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM }}>Margem aparente</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: C.espM }}>{comp.margem_aparente_pct != null ? `${comp.margem_aparente_pct}%` : brl(comp.margem_aparente)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.gold }}>Margem real ← a verdadeira</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: abaixoMeta ? C.red : C.green }}>{comp.margem_real_pct != null ? `${comp.margem_real_pct}%` : brl(comp.margem_real)} <span style={{ fontSize: 12, fontWeight: 400, color: C.espM }}>{brl(comp.margem_real)}</span></div>
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: C.espL, marginTop: 8 }}>
+        {comp.dias_em_estoque != null && <span>{comp.dias_em_estoque} dia(s) em estoque</span>}
+        {!comp.tem_nota && <span style={{ color: C.amber }}> · ⚠️ sem nota fiscal</span>}
+      </div>
+      {u && (
+        <div style={{ background: '#FBF7EF', border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginTop: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.esp }}>Usado recebido{u.placa ? ` — ${u.placa}` : ''}{u.modelo ? ` · ${u.marca ?? ''} ${u.modelo}` : ''}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4 }}>
+            <span style={{ color: C.espM }}>Entrou no estoque por</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{u.entrou_no_estoque_por != null ? brl(u.entrou_no_estoque_por) : 'avaliação não informada'}</span>
+          </div>
+          {comp.sobrepreco_troca != null && comp.sobrepreco_troca > 0 && (
+            <div style={{ fontSize: 11.5, color: '#8A4B08', marginTop: 6, lineHeight: 1.5 }}>
+              Você deu {brl(comp.sobrepreco_troca)} a mais no usado para fechar. Isso é desconto, não avaliação. O usado entra no estoque pelo valor de avaliação — o que ele realmente vale.
+            </div>
+          )}
+        </div>
+      )}
+      {abaixoMeta && (
+        <div style={{ background: C.redBg, border: `1px solid ${C.red}44`, borderRadius: 8, padding: '7px 10px', marginTop: 10, fontSize: 12, color: C.red }}>
+          Margem real ({comp.margem_real_pct}%) abaixo da meta ({margemAlvo}%). Este negócio precisa de aprovação.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Dados do veículo · completude "nível 2" (SPEC Onda 3B parte 1). Nomeia o que falta SEM afirmar
+// "não emite" (veicProd é do 0km; usado é decisão do contador — Opção 1 do CEO, RD-58). A sugestão
+// de ano vem do chassi (VIN pos.10) e é SEMPRE confirmada pelo usuário — nada é gravado sozinho (§6.4).
+const COMBS = ['gasolina', 'etanol', 'flex', 'diesel', 'gnv', 'elétrico', 'híbrido']
+const simNao = (b: boolean | null | undefined) => (b == null ? '' : b ? 'sim' : 'nao')
+// #101 (Fábio): 3 veículos da Alliance com modelo = "2009"/"2021"/"2025" — o ano foi digitado no modelo.
+const pareceAno = (m: string) => /^(19|20)\d{2}$/.test(m.trim())
+function SimNao({ id, rotulo, valor, onC }: { id: string; rotulo: string; valor: string; onC: (v: string) => void }) {
+  return (
+    <label htmlFor={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.espM }}>
+      {rotulo}
+      <select id={id} value={valor} onChange={(e) => onC(e.target.value)} style={{ ...inp, width: 72 }}>
+        <option value="">—</option><option value="sim">sim</option><option value="nao">não</option>
+      </select>
+    </label>
+  )
+}
+function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic; faltantes: string[] | null; sugestaoAno: number | null; onSaved: () => void; onErro: (m: string) => void }) {
+  const num = (n: number | null) => (n == null ? '' : String(n))
+  const vf = v as unknown as { valor_fipe?: number | null; ncm?: string | null; lugares?: number | null }
+  const [f, setF] = useState({
+    marca: v.marca ?? '', modelo: v.modelo ?? '', versao: v.versao ?? '', cor: v.cor ?? '',
+    combustivel: v.combustivel ?? '', potencia_cv: num(v.potencia_cv), cilindradas: num(v.cilindradas),
+    portas: num(v.portas), cambio: v.cambio ?? '', ano_fabricacao: num(v.ano_fabricacao),
+    ano_modelo: num(v.ano_modelo), renavam: v.renavam ?? '',
+    // #26 #49 #143 (Fábio · Alliance): KM, manual, chave reserva e especificação no lugar de potência/cilindrada
+    km_atual: num(v.km_atual), tem_manual: simNao(v.tem_manual), tem_chave_reserva: simNao(v.tem_chave_reserva),
+    observacao: v.observacao ?? '',
+    // R7b (Tela 5): tipo do veículo — também alimenta a sugestão de NCM
+    tipo: v.tipo ?? '',
+    // item 2c-c: fiscal do veículo
+    valor_fipe: vf.valor_fipe == null ? '' : String(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
+  })
+  const [busy, setBusy] = useState(false)
+  const [ncmMsg, setNcmMsg] = useState<string | null>(null)
+  // #140/#141 (Fábio): o salvar falhava em silêncio (HTTP 400 com "72.956,00") e o aviso ia pro topo da ficha.
+  // Agora o erro aparece AQUI, ao lado do botão, com o campo marcado.
+  const [erroLocal, setErroLocal] = useState<string | null>(null)
+  const [campo, setCampo] = useState<string | null>(null)
+  async function sugerirNcm() {
+    // a tabela de NCM sugere por carro/moto; caminhão/máquina caem no padrão da empresa (contador confirma)
+    const tp = f.tipo === 'moto' ? 'moto' : 'carro'
+    const { data } = await supabase.rpc('fn_veic_veiculo_fiscal', { p_veiculo_id: v.id, p_tipo: tp })
+    const r = data as { ok?: boolean; ncm_sugerido?: string | null; ncm_padrao?: string | null } | null
+    const sug = r?.ncm_sugerido ?? r?.ncm_padrao ?? null
+    if (sug) { setF((p) => ({ ...p, ncm: sug })); setNcmMsg(`NCM ${r?.ncm_sugerido ? 'sugerido pela tabela' : 'do padrão da empresa'}: ${sug}`) }
+    else setNcmMsg('Sem sugestão para este veículo — informe o NCM com o seu contador.')
+  }
+  const anoSugerido = sugestaoAno != null && (!f.ano_modelo || !f.ano_fabricacao)
+  const ROT: Record<string, string> = { km_atual: 'KM', tem_manual: 'manual', tem_chave_reserva: 'chave reserva', potencia_cv: 'potência (cv)', cilindradas: 'cilindradas', portas: 'portas', ano_fabricacao: 'ano fab.', ano_modelo: 'ano mod.', valor_fipe: 'valor FIPE', lugares: 'lugares', km_entrada: 'km', valor_aquisicao: 'aquisição', ncm: 'NCM', tipo: 'tipo' }
+  async function salvar() {
+    setBusy(true); setErroLocal(null); setCampo(null)
+    const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
+    const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: v.id, p_dados: f, p_user: user?.id ?? null })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; campo?: string; valor?: string } | null
+    if (error || !r?.ok) {
+      const rotulo = ROT[r?.campo ?? ''] ?? r?.campo ?? 'campo'
+      const m = r?.erro === 'valor_invalido' ? `Valor inválido em "${rotulo}"${r?.valor ? ` ("${r.valor}")` : ''}: use só números — ex.: 72956 ou 72.956,00.`
+        : r?.erro === 'ncm_invalido' ? 'NCM inválido — use 8 dígitos (ou deixe em branco).'
+        : r?.erro === 'tipo_invalido' ? 'Tipo inválido — escolha carro, moto, caminhão ou máquina.'
+        : r?.erro ? mensagemDeResultado(r)
+        : 'Não foi possível salvar agora. Tente de novo em instantes.'
+      setErroLocal(m); setCampo(r?.campo ?? null); onErro(m); return
+    }
+    onSaved()
+  }
+  const F = (k: keyof typeof f, ph: string, w?: number) => (
+    <input id={`campo-${String(k)}`} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w, ...estiloBordaInput(campo === String(k) ? 'x' : null) }} />
+  )
+  return (
+    <div>
+      {(faltantes?.length ?? 0) > 0 && (
+        <div style={{ background: C.cream, border: `1px solid ${C.gold}44`, borderLeft: `4px solid ${C.gold}`, borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12.5, color: C.esp, lineHeight: 1.5 }}>
+          🚙 <b>Faltam dados do veículo:</b> {faltantes!.join(', ')}. <span style={{ color: C.espM }}>Necessário para veículo novo; para usado, a confirmar com o contador (item 6.1). Preencha abaixo.</span>
+        </div>
+      )}
+      {anoSugerido && (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.amberBg, borderRadius: 8, padding: '5px 10px', marginBottom: 10, fontSize: 12, color: '#8A4B08' }}>
+          💡 sugestão pelo chassi: ano <b>{sugestaoAno}</b>
+          <button onClick={() => setF({ ...f, ano_modelo: f.ano_modelo || String(sugestaoAno), ano_fabricacao: f.ano_fabricacao || String(sugestaoAno) })}
+            style={{ border: `1px solid ${C.amber}`, background: C.white, color: C.amber, borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>usar</button>
+          <span style={{ color: C.espL }}>(você confirma — não grava sozinho)</span>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select id="campo-tipo" value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} style={inp} title="tipo do veículo — usado na sugestão de NCM">
+          <option value="">tipo…</option>{TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+        </select>
+        {F('marca', 'marca', 130)}{F('modelo', 'modelo (ex.: Onix)', 150)}{F('versao', 'versão', 130)}{F('cor', 'cor', 100)}
+        <select id="campo-combustivel" value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
+          <option value="">combustível…</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <input id="campo-km_atual" value={f.km_atual} onChange={(e) => setF({ ...f, km_atual: e.target.value })} inputMode="numeric"
+          placeholder={v.km_entrada != null ? `KM (entrada ${Number(v.km_entrada).toLocaleString('pt-BR')})` : 'KM'} title="quilometragem atual"
+          style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'km_atual' ? 'x' : null) }} />
+        <SimNao id="campo-tem_manual" rotulo="manual" valor={f.tem_manual} onC={(x) => setF({ ...f, tem_manual: x })} />
+        <SimNao id="campo-tem_chave_reserva" rotulo="chave reserva" valor={f.tem_chave_reserva} onC={(x) => setF({ ...f, tem_chave_reserva: x })} />
+        {F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}
+        {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
+        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
+      </div>
+      {pareceAno(f.modelo) && (
+        <div style={{ background: C.amberBg, color: '#8A4B08', padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>
+          O modelo está como <b>{f.modelo}</b>, que parece o ano. Escreva o nome do modelo (ex.: Onix, L200, CB 500) e o ano nos campos de ano.
+        </div>
+      )}
+      <textarea id="campo-observacao" value={f.observacao} onChange={(e) => setF({ ...f, observacao: e.target.value })} rows={2} maxLength={2000}
+        placeholder="especificação (opcionais, estado, detalhes — entra no texto do anúncio)"
+        style={{ ...inp, width: '100%', marginTop: 8, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+      {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{erroLocal}</div>}
+      {/* item 2c-c: Fiscal do veículo — FIPE (comissão/frescor) e NCM (nota; 8 dígitos) */}
+      <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Fiscal do veículo <span style={{ fontWeight: 400, color: C.espL }}>· FIPE, NCM, potência e cilindradas (dados da nota)</span></div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {F('potencia_cv', 'potência (cv)', 110)}{F('cilindradas', f.tipo === 'moto' ? 'cilindradas (moto: define o NCM)' : 'cilindradas', f.tipo === 'moto' ? 210 : 110)}
+          <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
+          <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace', ...estiloBordaInput(campo === 'ncm' ? 'x' : null) }} />
+          {F('lugares', 'lugares', 80)}
+          <button type="button" onClick={() => void sugerirNcm()} title={f.tipo ? `sugere pelo tipo: ${f.tipo}` : 'defina o tipo acima para uma sugestão melhor'} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>sugerir NCM</button>
+        </div>
+        {ncmMsg && <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>{ncmMsg}</div>}
+      </div>
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Campos vazios não apagam o que já existe — só completam. Manual e chave reserva: &ldquo;—&rdquo; é não informado. Combustível, potência, cilindradas e ano podem vir do catálogo de modelos (tela Completar). O NCM sugerido vem da tabela TIPI por faixa (item 2c) — confirme com o seu contador.</div>
+    </div>
+  )
+}
+
+// Fotos do veículo · reusa o padrão da Central de Melhorias (bucket privado + anexo + ordem).
+// Várias fotos, uma principal (aparece no cartão do Pátio), ordem editável. Mobile: capture=environment
+// abre a câmera — o vendedor fotografa no pátio pelo celular. Bucket PRIVADO → URLs assinadas.
+type Foto = { id: string; storage_path: string; principal: boolean; ordem: number }
+function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: string; companyId: string; onErro: (m: string) => void; onMsg: (m: string) => void }) {
+  const [fotos, setFotos] = useState<Foto[]>([])
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  // #48 (Fábio): fotos da VISTORIA (insp_foto) — fallback read-only quando a galeria do veículo está vazia.
+  const [fotosVist, setFotosVist] = useState<{ path: string; legenda: string | null; url: string }[]>([])
+  const [busy, setBusy] = useState(false)
+  // #21/#22/#48/#139 (Fábio): resultado do envio mostrado AQUI, embaixo do botão (o aviso do topo passava despercebido)
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null)
+  // R8a · marca d'água da loja (logo + toggle na Configuração da garagem) — overlay na prévia das fotos.
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [marcaAtiva, setMarcaAtiva] = useState(false)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('veic_veiculo_foto').select('id, storage_path, principal, ordem').eq('veiculo_id', veiculoId).order('ordem')
+    const list = (data as Foto[]) ?? []
+    setFotos(list)
+    if (list.length) {
+      const { data: signed } = await supabase.storage.from('revenda-veiculos').createSignedUrls(list.map((f) => f.storage_path), 3600)
+      const m: Record<string, string> = {}
+      ;(signed ?? []).forEach((s) => { if (s.signedUrl && s.path) m[s.path] = s.signedUrl })
+      setUrls(m)
+    } else setUrls({})
+    // #48 (Fábio · Alliance): a galeria (veic_veiculo_foto) estava vazia mas havia fotos da VISTORIA
+    // (insp_foto, subidas pela tela de vistoria). Antes sumiam da tela do veículo. Fallback read-only:
+    // quando a galeria está vazia, mostra as fotos da vistoria (mesmo bucket 'revenda-veiculos', ligadas
+    // por insp_vistoria: alvo_tabela='veic_veiculo' + alvo_id). Não migra nada — só exibe e deixa baixar.
+    if (list.length === 0) {
+      const { data: vis } = await supabase.from('insp_vistoria').select('id')
+        .eq('company_id', companyId).eq('alvo_tabela', 'veic_veiculo').eq('alvo_id', veiculoId)
+      const vIds = ((vis as { id: string }[] | null) ?? []).map((x) => x.id)
+      if (vIds.length) {
+        const { data: ifs } = await supabase.from('insp_foto').select('storage_path, legenda, criado_em')
+          .in('vistoria_id', vIds).order('criado_em')
+        const rows = ((ifs as { storage_path: string; legenda: string | null }[] | null) ?? [])
+        if (rows.length) {
+          const { data: signedV } = await supabase.storage.from('revenda-veiculos').createSignedUrls(rows.map((r) => r.storage_path), 3600)
+          const byPath: Record<string, string> = {}
+          ;(signedV ?? []).forEach((s) => { if (s.signedUrl && s.path) byPath[s.path] = s.signedUrl })
+          setFotosVist(rows.filter((r) => byPath[r.storage_path]).map((r) => ({ path: r.storage_path, legenda: r.legenda, url: byPath[r.storage_path] })))
+        } else setFotosVist([])
+      } else setFotosVist([])
+    } else setFotosVist([])
+    // marca d'água da empresa (config da garagem) — sem logo ou desligada → não sobrepõe nada (RD-51)
+    const { data: cfg } = await supabase.rpc('fn_veic_config_obter', { p_company_id: companyId })
+    const c = (cfg as { config?: { logo_storage_path?: string | null; marca_dagua_ativa?: boolean | null } } | null)?.config
+    const ativa = !!c?.marca_dagua_ativa && !!c?.logo_storage_path
+    setMarcaAtiva(ativa)
+    if (ativa && c?.logo_storage_path) {
+      const { data: ls } = await supabase.storage.from('revenda-veiculos').createSignedUrl(c.logo_storage_path, 3600)
+      setLogoUrl(ls?.signedUrl ?? null)
+    } else setLogoUrl(null)
+  }, [veiculoId, companyId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void load() }, [load])
+
+  async function uid() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
+
+  // CAUSA RAIZ dos 4 chamados de foto (contexto 8304b8a3): o onChange passava o FileList VIVO e logo limpava o input
+  // (`e.currentTarget.value = ''`). Depois do 1º await o FileList já estava com length 0 → o loop rodava 0 vezes →
+  // ZERO requisições ao Storage (provado nos edge_logs: Chrome do Fábio subiu CRLV no mesmo bucket e nunca uma foto).
+  // A PR #1580 corrigiu só a mensagem e a #1773 só a exibição. Agora recebe File[] já copiado (Array.from) antes do reset.
+  async function subir(files: File[]) {
+    if (!files.length) { const t = 'Nenhum arquivo selecionado.'; setAviso({ ok: false, texto: t }); return }
+    // R0 (23752d5a): sem company_id o path vira "undefined/…" e a RLS do bucket (split_part(name,'/',1)
+    // IN get_user_company_ids) NEGA o upload — a foto "aparecia enviada" mas não subia. Guarda como a vistoria.
+    if (!companyId) { const t = 'Empresa do veículo ainda não carregou — recarregue a página e tente de novo.'; onErro(t); setAviso({ ok: false, texto: t }); return }
+    setBusy(true); setAviso(null)
+    try {
+      const user = await uid()
+      let ok = 0, falhas = 0, ultimoErro = ''
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const ext = ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'jpg'
+        const path = `${companyId}/${veiculoId}/${Date.now()}-${i}.${ext}`
+        const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
+        if (upErr) { falhas++; ultimoErro = 'Falha no upload: ' + upErr.message; onErro(ultimoErro); continue }
+        const { data, error } = await supabase.rpc('fn_veic_foto_registrar', { p_veiculo_id: veiculoId, p_storage_path: path, p_user: user })
+        const r = data as { ok?: boolean; erro?: string } | null
+        if (error || !r?.ok) {
+          // upload subiu mas o registro falhou → remove o objeto órfão (mesmo padrão provado na vistoria)
+          falhas++
+          ultimoErro = r?.erro || error?.message || 'Falha ao registrar foto'
+          onErro(ultimoErro)
+          await supabase.storage.from('revenda-veiculos').remove([path])
+          continue
+        }
+        ok++
+      }
+      // R0: só diz "enviada" se ALGUMA foto realmente persistiu.
+      if (ok > 0) {
+        const t = ok === 1 ? 'Foto enviada.' : `${ok} fotos enviadas.`
+        onMsg(t); setAviso({ ok: true, texto: falhas > 0 ? `${t} ${falhas} falharam: ${ultimoErro}` : t })
+      } else {
+        const t = falhas > 0 ? `Não foi possível salvar a(s) foto(s). ${ultimoErro}` : 'Não foi possível salvar a(s) foto(s). Tente de novo.'
+        onErro(t); setAviso({ ok: false, texto: t })
+      }
+      await load()
+    } finally { setBusy(false) }
+  }
+
+  async function tornarPrincipal(id: string) {
+    const { data, error } = await supabase.rpc('fn_veic_foto_principal', { p_foto_id: id, p_user: await uid() })
+    if (error || !(data as { ok?: boolean } | null)?.ok) { onErro('Falha ao definir principal'); return }
+    await load()
+  }
+
+  // R8a · arrastar para ordenar (dnd-kit). Persiste a nova ordem via fn_veic_foto_reordenar; reverte no erro.
+  async function aoArrastar(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const de = fotos.findIndex((f) => f.id === active.id)
+    const para = fotos.findIndex((f) => f.id === over.id)
+    if (de < 0 || para < 0) return
+    const arr = arrayMove(fotos, de, para).map((f, k) => ({ ...f, ordem: k }))
+    setFotos(arr)
+    const ordens = arr.map((f, k) => ({ id: f.id, ordem: k }))
+    const { error } = await supabase.rpc('fn_veic_foto_reordenar', { p_veiculo_id: veiculoId, p_ordens: ordens, p_user: await uid() })
+    if (error) { onErro('Falha ao reordenar'); await load() }
+  }
+
+  async function remover(id: string) {
+    const { data, error } = await supabase.rpc('fn_veic_foto_remover', { p_foto_id: id, p_user: await uid() })
+    const r = data as { ok?: boolean; storage_path_removido?: string } | null
+    if (error || !r?.ok) { onErro('Falha ao remover'); return }
+    if (r.storage_path_removido) await supabase.storage.from('revenda-veiculos').remove([r.storage_path_removido])
+    await load()
+  }
+
+  return (
+    <div>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 14px', border: `1px dashed ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 13 }}>
+        {busy ? 'Enviando…' : '📷 Adicionar fotos'}
+        <input type="file" accept="image/*" capture="environment" multiple disabled={busy} onChange={(e) => { const arr = Array.from(e.target.files ?? []); e.currentTarget.value = ''; void subir(arr) }} style={{ display: 'none' }} />
+      </label>
+      <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>Tire pelo celular no pátio. Arraste (⠿) para ordenar — a 1ª some no anúncio; a ⭐ principal aparece no cartão do Pátio.{marcaAtiva ? ' A marca d’água da loja aparece na prévia.' : ''}</div>
+      {aviso && <div style={{ background: aviso.ok ? C.greenBg : C.redBg, color: aviso.ok ? C.green : C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{aviso.texto}</div>}
+      {fotos.length === 0 ? (
+        fotosVist.length > 0 ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 6 }}>Ainda não há fotos na galeria. Mostrando as <b>{fotosVist.length} foto(s) da vistoria</b> deste veículo — clique para abrir/baixar. Para usá-las no anúncio ou no cartão do Pátio, reenvie em “Adicionar fotos”.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+              {fotosVist.map((fv) => (
+                <a key={fv.path} href={fv.url} target="_blank" rel="noreferrer" download style={{ display: 'block', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, textDecoration: 'none' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={fv.url} alt={fv.legenda ?? 'Foto da vistoria'} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
+                  {fv.legenda ? <div style={{ fontSize: 10.5, color: C.espM, padding: '4px 6px' }}>{fv.legenda}</div> : null}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 10 }}>Sem fotos ainda. Frente, lateral, interior, motor.</div>
+        )
+      ) : (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={aoArrastar}>
+          <SortableContext items={fotos.map((f) => f.id)} strategy={rectSortingStrategy}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginTop: 12 }}>
+              {fotos.map((f) => (
+                <FotoCard key={f.id} f={f} url={urls[f.storage_path]} logoUrl={marcaAtiva ? logoUrl : null}
+                  onPrincipal={() => void tornarPrincipal(f.id)} onRemover={() => void remover(f.id)} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      )}
+    </div>
+  )
+}
+
+// R8a · cartão de foto arrastável. A alça (⠿) inicia o arraste; os botões seguem clicáveis.
+function FotoCard({ f, url, logoUrl, onPrincipal, onRemover }: { f: Foto; url: string | undefined; logoUrl: string | null; onPrincipal: () => void; onRemover: () => void }) {
+  const sortable = useSortable({ id: f.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition,
+    border: `1px solid ${f.principal ? C.gold : C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream,
+    position: 'relative', opacity: sortable.isDragging ? 0.6 : 1,
+  }
+  return (
+    <div ref={sortable.setNodeRef} style={style}>
+      <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {url ? <img src={url} alt="foto do veículo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 11, color: C.espL }}>carregando…</span>}
+        {url && logoUrl && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={logoUrl} alt="marca d'água" style={{ position: 'absolute', right: 6, bottom: 6, maxWidth: '42%', maxHeight: 34, opacity: 0.72, pointerEvents: 'none', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.5))' }} />
+        )}
+      </div>
+      {f.principal && <span style={{ position: 'absolute', top: 6, left: 6, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: C.gold, color: C.white }}>⭐ principal</span>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, background: C.white }}>
+        <span {...sortable.attributes} {...sortable.listeners} title="arrastar para ordenar" style={{ cursor: 'grab', color: C.espL, fontSize: 15, touchAction: 'none', userSelect: 'none' }}>⠿</span>
+        {!f.principal && <button onClick={onPrincipal} title="tornar principal" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14 }}>☆</button>}
+        <button onClick={onRemover} title="remover" style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: C.red, fontSize: 13 }}>🗑</button>
+      </div>
+    </div>
+  )
+}
+
+// R8b · Anúncio do veículo — texto gerado da ficha (editável) + preço anunciado + feed p/ portais.
+// Trava: OS de preparação aberta bloqueia salvar/publicar ("preparação em andamento"). Feed só inclui
+// veículos DISPONÍVEIS (a rota já filtra), então carro em preparo não vaza pro anúncio.
+function AnuncioVeiculo({ v, onErro, onMsg, onSaved }: { v: Veic; onErro: (m: string) => void; onMsg: (m: string) => void; onSaved: () => void }) {
+  const [texto, setTexto] = useState(v.anuncio_texto ?? '')
+  const [busy, setBusy] = useState(false)
+  const [prepAberta, setPrepAberta] = useState(false)
+
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      const { data } = await supabase.rpc('fn_veic_preparacao_listar', { p_company_id: v.company_id, p_veiculo_id: v.id })
+      const pl = data as { ok?: boolean; os?: { veiculo_id: string; concluida: boolean }[] } | null
+      if (vivo) setPrepAberta(!!(pl?.ok && (pl.os ?? []).some((o) => !o.concluida)))
+    })()
+    return () => { vivo = false }
+  }, [v.company_id, v.id])
+
+  function gerar() {
+    const titulo = [v.marca, v.modelo, v.versao].filter(Boolean).join(' ').trim()
+    const ano = v.ano_fabricacao && v.ano_modelo ? `${v.ano_fabricacao}/${v.ano_modelo}` : String(v.ano_modelo ?? v.ano_fabricacao ?? '')
+    const km = v.km_atual ?? v.km_entrada
+    const det = [ano ? `Ano ${ano}` : '', km != null ? `${Number(km).toLocaleString('pt-BR')} km` : '', v.cor ? `Cor ${v.cor}` : '',
+      v.combustivel, v.cambio ? `Câmbio ${v.cambio}` : '', v.portas ? `${v.portas} portas` : ''].filter(Boolean).join(' · ')
+    const itens = [v.tem_manual ? 'manual' : '', v.tem_chave_reserva ? 'chave reserva' : ''].filter(Boolean)
+    const linhas = [titulo, det, itens.length ? `Com ${itens.join(' e ')}.` : '']
+    if (v.observacao) linhas.push(String(v.observacao).trim())
+    if (v.preco_venda != null) linhas.push(`Valor: ${brl(Number(v.preco_venda))}`)
+    linhas.push('Aceita troca e financiamento. Agende sua visita.')
+    setTexto(linhas.filter(Boolean).join('\n'))
+  }
+
+  async function salvar() {
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_veic_anuncio_salvar', { p_veiculo_id: v.id, p_texto: texto })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : (error?.message || 'Falha ao salvar o anúncio.')); return }
+    onMsg('Anúncio salvo.'); onSaved()
+  }
+
+  async function baixarFeed() {
+    setBusy(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`/api/revenda/anuncios-feed?companyId=${encodeURIComponent(v.company_id)}`, { headers: { Authorization: `Bearer ${session?.access_token ?? ''}` } })
+      if (!res.ok) { onErro('Falha ao gerar o feed de anúncios.'); return }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = `anuncios-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+      URL.revokeObjectURL(url)
+    } catch { onErro('Falha ao baixar o feed.') } finally { setBusy(false) }
+  }
+
+  return (
+    <div>
+      {prepAberta && (
+        <div style={{ background: C.amberBg, border: `1px solid ${C.amber}`, color: '#8A4B08', borderRadius: 8, padding: '8px 12px', fontSize: 12.5, marginBottom: 10, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>🔒 OS de preparação <b>aberta</b> trava o anúncio — conclua a preparação para poder salvar/publicar.</span>
+          <a href="/dashboard/revenda/preparacao" style={{ color: C.gold, textDecoration: 'none', fontWeight: 700 }}>ver preparação →</a>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+        <button onClick={gerar} disabled={busy} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 13px', fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 12.5 }}>✨ Gerar texto da ficha</button>
+        <span style={{ fontSize: 12.5, color: C.espM }}>Preço anunciado: <b style={{ color: C.esp }}>{v.preco_venda != null ? brl(Number(v.preco_venda)) : 'não precificado'}</b></span>
+      </div>
+      <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={7} placeholder="Gere a partir da ficha e edite o texto do anúncio…"
+        style={{ width: '100%', boxSizing: 'border-box', padding: 10, fontSize: 13.5, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white, resize: 'vertical' }} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <button onClick={() => void salvar()} disabled={busy || prepAberta} title={prepAberta ? 'Conclua a preparação antes de publicar' : undefined}
+          style={{ border: 'none', borderRadius: 10, background: (busy || prepAberta) ? C.espL : C.gold, color: C.white, padding: '9px 18px', fontWeight: 700, cursor: (busy || prepAberta) ? 'not-allowed' : 'pointer', fontSize: 14 }}>
+          {busy ? '…' : 'Salvar anúncio'}
+        </button>
+        <button onClick={() => void baixarFeed()} disabled={busy} style={{ border: `1px solid ${C.border}`, background: C.white, color: C.esp, borderRadius: 10, padding: '9px 16px', fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 13 }}>⬇ Baixar feed (CSV) dos disponíveis</button>
+      </div>
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>O feed traz os veículos <b>disponíveis</b> da loja (modelo, ano, km, preço, texto e fotos) para subir no portal. Integração direta com portal específico só com sua decisão.</div>
+    </div>
+  )
+}
+
+// R7b (Tela 5) · CRLV do veículo — um documento (PDF ou foto) por veículo. Reusa o bucket PRIVADO
+// 'revenda-veiculos' (mesma RLS por company_id/'/' das fotos) → URL assinada para visualizar. O caminho
+// é persistido em veic_veiculo.crlv_storage_path via fn_veic_atualizar_dados; trocar remove o anterior.
+function CrlvVeiculo({ veiculoId, companyId, crlvPath, onErro, onMsg, onChange }: { veiculoId: string; companyId: string; crlvPath: string | null; onErro: (m: string) => void; onMsg: (m: string) => void; onChange: () => void }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const ehPdf = !!crlvPath && crlvPath.toLowerCase().endsWith('.pdf')
+
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      if (!crlvPath) { if (vivo) setUrl(null); return }
+      const { data } = await supabase.storage.from('revenda-veiculos').createSignedUrl(crlvPath, 3600)
+      if (vivo) setUrl(data?.signedUrl ?? null)
+    })()
+    return () => { vivo = false }
+  }, [crlvPath])
+
+  async function uid() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
+
+  async function enviar(files: File[]) {
+    if (!files.length) return
+    // mesma guarda das fotos: sem company_id o path vira "undefined/…" e a RLS do bucket NEGA o upload.
+    if (!companyId) { onErro('Empresa do veículo ainda não carregou — recarregue a página e tente de novo.'); return }
+    setBusy(true)
+    try {
+      const file = files[0]
+      const ext = ((file.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'pdf'
+      const path = `${companyId}/${veiculoId}/crlv-${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'application/pdf', upsert: false })
+      if (upErr) { onErro('Falha no upload: ' + upErr.message); return }
+      const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: veiculoId, p_dados: { crlv_storage_path: path }, p_user: await uid() })
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (error || !r?.ok) {
+        // registro falhou → remove o objeto órfão (mesmo padrão das fotos/vistoria)
+        onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : (r?.erro || error?.message || 'Falha ao registrar o CRLV'))
+        await supabase.storage.from('revenda-veiculos').remove([path])
+        return
+      }
+      // troca: remove o CRLV anterior (se havia e mudou) para não deixar órfão no bucket
+      if (crlvPath && crlvPath !== path) await supabase.storage.from('revenda-veiculos').remove([crlvPath])
+      onMsg('CRLV anexado.'); onChange()
+    } finally { setBusy(false) }
+  }
+
+  async function remover() {
+    if (!crlvPath) return
+    setBusy(true)
+    try {
+      const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: veiculoId, p_dados: { crlv_storage_path: '' }, p_user: await uid() })
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (error || !r?.ok) { onErro(r?.erro || error?.message || 'Falha ao remover o CRLV'); return }
+      await supabase.storage.from('revenda-veiculos').remove([crlvPath])
+      onMsg('CRLV removido.'); onChange()
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 14px', border: `1px dashed ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', fontSize: 13 }}>
+          {busy ? 'Enviando…' : (crlvPath ? '📄 Trocar CRLV' : '📄 Anexar CRLV')}
+          <input type="file" accept="application/pdf,image/*" disabled={busy} onChange={(e) => { const arr = Array.from(e.target.files ?? []); e.currentTarget.value = ''; void enviar(arr) }} style={{ display: 'none' }} />
+        </label>
+        {crlvPath && url && <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5, color: C.gold, fontWeight: 700, textDecoration: 'underline' }}>abrir em nova aba</a>}
+        {crlvPath && <button onClick={() => void remover()} disabled={busy} style={{ border: 'none', background: 'none', color: C.red, cursor: busy ? 'wait' : 'pointer', fontSize: 12.5 }}>remover</button>}
+      </div>
+      <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>PDF ou foto do documento. Fica no armazenamento privado da empresa — só quem tem acesso ao veículo consegue abrir.</div>
+      {!crlvPath ? (
+        <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginTop: 10 }}>Sem CRLV anexado ainda.</div>
+      ) : !url ? (
+        <div style={{ fontSize: 12, color: C.espL, marginTop: 10 }}>carregando documento…</div>
+      ) : ehPdf ? (
+        <iframe title="CRLV do veículo" src={url} style={{ width: '100%', height: 460, border: `1px solid ${C.border}`, borderRadius: 10, marginTop: 12, background: C.cream }} />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt="CRLV do veículo" style={{ maxWidth: '100%', maxHeight: 460, border: `1px solid ${C.border}`, borderRadius: 10, marginTop: 12 }} />
+      )}
+    </div>
+  )
+}

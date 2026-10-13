@@ -6,7 +6,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { rpc, supabaseBrowser } from "@/lib/authFetch";
+import { rpc } from "@/lib/authFetch";
+import { getUsuarioId } from "@/lib/AuthProvider";
 
 interface EmpresaFoco {
   company_id: string;
@@ -30,14 +31,13 @@ export default function FocoLandingPage() {
   useEffect(() => {
     (async () => {
       try {
-        const supabase = supabaseBrowser();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        const uid = await getUsuarioId();
+        if (!uid) {
           router.replace("/");
           return;
         }
         const data = await rpc<EmpresaFoco[]>("fn_bpo_listar_empresas_foco", {
-          p_user_id: user.id,
+          p_user_id: uid,
         });
         setEmpresas(data || []);
       } catch (e: any) {

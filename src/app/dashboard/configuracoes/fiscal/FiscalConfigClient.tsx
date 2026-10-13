@@ -1,0 +1,581 @@
+'use client'
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import CertificadoUploadCard from '@/components/fiscal/CertificadoUploadCard'
+import ConfigFiscalEditCard from '@/components/fiscal/ConfigFiscalEditCard'
+import FocusNFeConfigCard from '@/components/fiscal/FocusNFeConfigCard'
+import TestarConexaoButton from '@/components/fiscal/TestarConexaoButton'
+import WebhookConfigCard from '@/components/fiscal/WebhookConfigCard'
+import CardBoundary from '@/components/fiscal/CardBoundary'
+import PreVooFiscalCard from '@/components/fiscal/PreVooFiscalCard'
+import IbptTokenCard from '@/components/fiscal/IbptTokenCard'
+import { ShieldCheck, AlertCircle, Loader2, FileCheck, CheckCircle2, XCircle, Lock } from 'lucide-react'
+
+// FIX-FISCAL-UX-v1 · Saneamento V1 Fase 1
+// Bugs corrigidos:
+//   1. Banner sempre "incompleta" mesmo com tudo configurado · agora reflete
+//      checklist explicito (cert / cfg / IM / municipio / numeracao / SN fields).
+//   2. Apos salvar cert, refetch acontecia mas dependia da query direta ·
+//      mantemos onAtualizado={carregar} e adicionamos refetch tambem da
+//      empresa (IM).
+//   3. Checklist mostra OK/Falta em linguagem do usuario.
+
+interface CertificadoRow {
+  id: string
+  razao_social_certificado: string | null
+  cnpj_certificado: string | null
+  validade_inicio: string | null
+  validade_fim: string | null
+  criado_em: string | null
+  status: string | null
+  // #segurança · referência do segredo no Vault. NULL = senha ainda no formato antigo (base64),
+  // precisa reenvio p/ migrar. A senha em si nunca vem ao front.
+  senha_vault_id: string | null
+}
+
+interface ConfigRow {
+  id: string
+  provider: string | null
+  ambiente: string | null
+  // #1944 · o token nunca vem para a tela (nem o legado em base64): só o id do cofre, para mostrar "configurado"
+  focus_token_vault_id: string | null
+  gov_nfse_municipio_codigo: string | null
+  gov_nfse_municipio_aderido: boolean | null
+  gov_nfse_endpoint_base: string | null
+  serie_nfse_padrao: string | null
+  proxima_numeracao_nfse: number | null
+  serie_nfe_padrao: string | null
+  proxima_numeracao_nfe: number | null
+  cnae_padrao: string | null
+  regime_tributario: string | null
+  opcao_simples_nacional: number | null
+  percentual_total_tributos_sn: number | string | null
+  regime_apuracao_sn: number | null
+}
+
+interface EmpresaRow {
+  cnpj: string | null
+  razao_social: string | null
+  inscricao_municipal: string | null
+}
+
+interface FiscalState {
+  loading: boolean
+  companyId: string | null
+  config: ConfigRow | null
+  certificado: CertificadoRow | null
+  empresa: EmpresaRow | null
+  erro: string | null
+  // HOTFIX 0829eca5: usuário logado mas SEM vínculo à empresa selecionada. As queries diretas voltam
+  // vazias por RLS (não dá pra distinguir de "empresa nova"); o sinal confiável é fn_fiscal_config_checklist
+  // devolvendo {ok:false}. Quando true, mostramos a mensagem de acesso no lugar dos cards.
+  semAcesso: boolean
+}
+
+function resolveSelectedCompanyId(): { kind: 'ok'; id: string } | { kind: 'erro'; mensagem: string } {
+  if (typeof window === 'undefined') return { kind: 'erro', mensagem: 'Carregando…' }
+  const sel = localStorage.getItem('ps_empresa_sel')
+  if (!sel || sel === 'consolidado') {
+    return { kind: 'erro', mensagem: 'Selecione uma empresa específica no trocador da TopNav (consolidado / grupo não emitem nota).' }
+  }
+  if (sel.startsWith('group_')) {
+    return { kind: 'erro', mensagem: 'Configuração fiscal é por empresa — selecione uma empresa do grupo.' }
+  }
+  return { kind: 'ok', id: sel }
+}
+
+const fmtCnpj = (raw: string | null) => {
+  if (!raw) return '—'
+  const v = raw.replace(/\D/g, '')
+  if (v.length !== 14) return raw
+  return v.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')
+}
+
+const fmtData = (iso: string | null) => {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleDateString('pt-BR')
+  } catch {
+    return '—'
+  }
+}
+
+function isFocusProvider(p: string | null | undefined): boolean {
+  return p === 'focusnfe' || p === 'focus_nfe'
+}
+
+function isGovProvider(p: string | null | undefined): boolean {
+  return p === 'gov_nfse_nacional'
+}
+
+interface ChecklistItem {
+  label: string
+  ok: boolean
+  detalhe?: string
+  critico: boolean // se false, eh recomendado mas nao quebra emissao
+}
+
+function buildChecklist(state: FiscalState): ChecklistItem[] {
+  const cfg = state.config
+  const cert = state.certificado
+  const emp = state.empresa
+  const isSnOptante = cfg?.opcao_simples_nacional === 2 || cfg?.opcao_simples_nacional === 3
+  const items: ChecklistItem[] = [
+    {
+      label: 'Certificado digital A1',
+      ok: !!cert,
+      detalhe: cert
+        ? `${cert.razao_social_certificado ?? 'Cert salvo'} · válido até ${fmtData(cert.validade_fim)}`
+        : 'Envie o arquivo .pfx/.p12 + senha',
+      critico: true,
+    },
+    {
+      label: 'Emissor configurado',
+      ok: !!cfg,
+      detalhe: cfg
+        ? (isGovProvider(cfg.provider)
+            ? `NFSe Nacional gov.br · ambiente ${cfg.ambiente ?? '—'}`
+            : isFocusProvider(cfg.provider)
+              ? 'Focus NFe'
+              : `${cfg.provider ?? 'desconhecido'}`)
+        : 'Escolha entre NFSe Nacional gov.br ou Focus NFe',
+      critico: true,
+    },
+    {
+      label: 'Município (IBGE)',
+      ok: !!cfg?.gov_nfse_municipio_codigo,
+      detalhe: cfg?.gov_nfse_municipio_codigo
+        ? `${cfg.gov_nfse_municipio_codigo}${cfg.gov_nfse_municipio_aderido ? ' · aderido ao NFSe Nacional' : ''}`
+        : 'Defina o código IBGE da prestação',
+      critico: true,
+    },
+    {
+      label: 'Inscrição municipal',
+      ok: !!(emp?.inscricao_municipal && String(emp.inscricao_municipal).trim()),
+      detalhe: emp?.inscricao_municipal && String(emp.inscricao_municipal).trim()
+        ? `IM ${emp.inscricao_municipal}`
+        : 'Preencha a IM da empresa (necessária pra NFS-e)',
+      critico: true,
+    },
+    {
+      label: 'Numeração da série',
+      ok: !!(cfg?.serie_nfse_padrao && cfg.proxima_numeracao_nfse != null),
+      detalhe: cfg?.serie_nfse_padrao
+        ? `Série ${cfg.serie_nfse_padrao} · próximo número ${cfg.proxima_numeracao_nfse ?? '—'}`
+        : 'Configure série + próximo número da DPS',
+      critico: true,
+    },
+  ]
+  if (isSnOptante) {
+    items.push(
+      {
+        label: 'Opção Simples Nacional',
+        ok: cfg?.opcao_simples_nacional != null,
+        detalhe: cfg?.opcao_simples_nacional === 2
+          ? 'MEI'
+          : cfg?.opcao_simples_nacional === 3
+            ? 'ME/EPP optante'
+            : 'Defina MEI ou ME/EPP',
+        critico: true,
+      },
+      {
+        label: 'Regime de apuração SN',
+        ok: cfg?.regime_apuracao_sn != null,
+        detalhe: cfg?.regime_apuracao_sn === 1
+          ? 'Federais + municipal pelo SN'
+          : cfg?.regime_apuracao_sn === 2
+            ? 'Federais SN + ISS fora'
+            : cfg?.regime_apuracao_sn === 3
+              ? 'Federais e municipal fora'
+              : 'Defina regApTribSN (1/2/3)',
+        critico: true,
+      },
+      {
+        label: 'Percentual total tributos SN',
+        ok: cfg?.percentual_total_tributos_sn != null,
+        detalhe: cfg?.percentual_total_tributos_sn != null
+          ? `${Number(cfg.percentual_total_tributos_sn).toFixed(2)}%`
+          : 'Defina o percentual aproximado da alíquota Simples (Lei 12.741)',
+        critico: true,
+      },
+    )
+  } else if (cfg?.opcao_simples_nacional === 1) {
+    // Não optante (Lucro Presumido/Real): itens exclusivos do Simples não se aplicam (neutro, não pendência).
+    items.push(
+      {
+        label: 'Opção Simples Nacional',
+        ok: true,
+        detalhe: 'Não se aplica · Não optante (Lucro Presumido/Real)',
+        critico: false,
+      },
+      {
+        label: 'Regime de apuração SN',
+        ok: true,
+        detalhe: 'Não se aplica · fora do Simples',
+        critico: false,
+      },
+    )
+  }
+  return items
+}
+
+export default function FiscalConfigClient() {
+  const [state, setState] = useState<FiscalState>({
+    loading: true,
+    companyId: null,
+    config: null,
+    certificado: null,
+    empresa: null,
+    erro: null,
+    semAcesso: false,
+  })
+
+  // HOTFIX Configuração Fiscal: o spinner de página inteira só aparece na PRIMEIRA carga. Nos
+  // refetches (após salvar certificado/config via onAtualizado/onSalvo) mantemos os cards montados e
+  // só atualizamos os dados no lugar. Antes, todo refetch trocava a árvore inteira pelo spinner —
+  // desmontava e remontava todos os cards (cada um refazendo seus fetches de montagem), o que
+  // multiplicava requisições a cada salvar. Uma fonte a menos de remonta em cascata na tela.
+  const jaCarregouRef = useRef(false)
+
+  const carregar = useCallback(async () => {
+    if (!jaCarregouRef.current) setState((s) => ({ ...s, loading: true }))
+    const sel = resolveSelectedCompanyId()
+    if (sel.kind === 'erro') {
+      jaCarregouRef.current = true
+      setState({ loading: false, companyId: null, config: null, certificado: null, empresa: null, erro: sel.mensagem, semAcesso: false })
+      return
+    }
+
+    try {
+      // fn_fiscal_config_checklist devolve {ok:false} quando o usuário não pertence à empresa — é o
+      // único sinal que distingue "sem vínculo" de "empresa ainda não configurada" (as tabelas voltam
+      // vazias por RLS nos dois casos). Falha da RPC não bloqueia a tela (semAcesso só vira true no ok:false).
+      const [certRes, cfgRes, empRes, chkRes] = await Promise.all([
+        supabase
+          .from('erp_certificados_a1')
+          .select(
+            'id, razao_social_certificado, cnpj_certificado, validade_inicio, validade_fim, criado_em, status, senha_vault_id'
+          )
+          .eq('company_id', sel.id)
+          .eq('status', 'ativo')
+          .is('removido_em', null)
+          .order('criado_em', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('erp_fiscal_provider_config')
+          .select(
+            'id, provider, ambiente, focus_token_vault_id, gov_nfse_municipio_codigo, gov_nfse_municipio_aderido, gov_nfse_endpoint_base, serie_nfse_padrao, proxima_numeracao_nfse, serie_nfe_padrao, proxima_numeracao_nfe, cnae_padrao, regime_tributario, opcao_simples_nacional, percentual_total_tributos_sn, regime_apuracao_sn'
+          )
+          .eq('company_id', sel.id)
+          .eq('ativo', true)
+          .order('atualizado_em', { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('companies')
+          .select('cnpj, razao_social, inscricao_municipal')
+          .eq('id', sel.id)
+          .maybeSingle(),
+        supabase.rpc('fn_fiscal_config_checklist', { p_company_id: sel.id }),
+      ])
+
+      if (certRes.error) throw certRes.error
+      if (cfgRes.error) throw cfgRes.error
+      if (empRes.error) throw empRes.error
+
+      // Só marca sem-acesso quando a RPC RESPONDE {ok:false}. Erro/timeout da RPC não bloqueia a tela.
+      const chk = (chkRes.data as { ok?: boolean } | null)
+      const semAcesso = !chkRes.error && chk != null && chk.ok === false
+
+      jaCarregouRef.current = true
+      setState({
+        loading: false,
+        companyId: sel.id,
+        certificado: (certRes.data as CertificadoRow | null) ?? null,
+        config: (cfgRes.data as ConfigRow | null) ?? null,
+        empresa: (empRes.data as EmpresaRow | null) ?? null,
+        erro: null,
+        semAcesso,
+      })
+    } catch (err) {
+      const mensagem = err instanceof Error ? err.message : 'Erro ao carregar configuração'
+      jaCarregouRef.current = true
+      setState({ loading: false, companyId: sel.id, config: null, certificado: null, empresa: null, erro: mensagem, semAcesso: false })
+    }
+  }, [])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  if (state.loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="animate-spin text-[#C8941A]" size={28} />
+      </div>
+    )
+  }
+
+  if (state.erro && !state.companyId) {
+    return (
+      <div className="bg-[#FCEBEB] border-l-4 border-[#C94544] rounded-lg p-4 flex items-start gap-3">
+        <AlertCircle className="text-[#C94544] flex-shrink-0 mt-0.5" size={18} />
+        <div className="text-[13px] text-[#791F1F]">{state.erro}</div>
+      </div>
+    )
+  }
+
+  // HOTFIX 0829eca5: usuário logado mas sem vínculo à empresa selecionada — mensagem clara no lugar
+  // dos cards, em vez de tela preta. O vínculo é feito pelo admin (Administração → Acessos).
+  if (state.semAcesso) {
+    return (
+      <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-xl p-5 flex items-start gap-3">
+        <Lock className="text-[#BA7517] flex-shrink-0 mt-0.5" size={20} />
+        <div className="text-[13px] text-[#633806]">
+          <div className="font-medium">Você não está vinculado a esta empresa.</div>
+          <div className="mt-1 text-[#5C3A06]">
+            Peça ao administrador para liberar seu acesso em <strong>Administração → Acessos</strong>.
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const checklist = buildChecklist(state)
+  const itensCriticos = checklist.filter((i) => i.critico)
+  const okCriticos = itensCriticos.filter((i) => i.ok).length
+  const totalCriticos = itensCriticos.length
+  const completo = okCriticos === totalCriticos
+  const provider = state.config?.provider ?? null
+
+  return (
+    <div className="space-y-5">
+      {/* Banner */}
+      <div
+        className={`rounded-xl p-4 flex items-start gap-3 ${
+          completo
+            ? 'bg-[#E8F4DC] border border-[#C0DD97]'
+            : okCriticos > 0
+              ? 'bg-[#FAEEDA] border border-[#E8C387]'
+              : 'bg-[#FCEBEB] border border-[#E8A6A5]'
+        }`}
+      >
+        {completo ? (
+          <ShieldCheck className="text-[#3F7012] flex-shrink-0 mt-0.5" size={20} />
+        ) : okCriticos > 0 ? (
+          <FileCheck className="text-[#BA7517] flex-shrink-0 mt-0.5" size={20} />
+        ) : (
+          <AlertCircle className="text-[#C94544] flex-shrink-0 mt-0.5" size={20} />
+        )}
+        <div className="flex-1 min-w-0">
+          <div
+            className={`text-[13.5px] font-medium ${
+              completo ? 'text-[#1B3608]' : okCriticos > 0 ? 'text-[#633806]' : 'text-[#791F1F]'
+            }`}
+          >
+            {completo
+              ? 'Configuração fiscal completa'
+              : okCriticos > 0
+                ? `Configuração parcial · ${okCriticos} de ${totalCriticos} OK`
+                : 'Configuração fiscal incompleta'}
+          </div>
+          <div
+            className={`text-[12px] mt-1 ${
+              completo ? 'text-[#1B3608]/80' : okCriticos > 0 ? 'text-[#5C3A06]' : 'text-[#791F1F]/85'
+            }`}
+          >
+            {completo
+              ? 'Empresa pronta pra emitir NFS-e em produção.'
+              : 'Veja o checklist abaixo · cada item explica o que falta.'}
+          </div>
+        </div>
+        {completo && state.companyId && isFocusProvider(provider) && (
+          <TestarConexaoButton companyId={state.companyId} />
+        )}
+      </div>
+
+      {/* Checklist explicito */}
+      <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-[#3D2314]/10">
+          <div className="text-[11px] text-[#3D2314]/55 tracking-[0.8px] uppercase font-medium">Checklist</div>
+          <h2 className="text-[14px] font-medium text-[#3D2314]">O que está pronto</h2>
+        </div>
+        <ul className="divide-y divide-[#3D2314]/8">
+          {checklist.map((item, i) => (
+            <li key={i} className="px-5 py-3 flex items-start gap-3" data-testid={`checklist-item-${i}`}>
+              {item.ok ? (
+                <CheckCircle2 className="text-[#3F7012] flex-shrink-0 mt-0.5" size={16} />
+              ) : (
+                <XCircle className="text-[#C94544] flex-shrink-0 mt-0.5" size={16} />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className={`text-[13px] font-medium ${item.ok ? 'text-[#1B3608]' : 'text-[#3D2314]'}`}>
+                  {item.label}
+                </div>
+                {item.detalhe && (
+                  <div className={`text-[11.5px] mt-0.5 ${item.ok ? 'text-[#1B3608]/70' : 'text-[#3D2314]/65'}`}>
+                    {item.detalhe}
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Pré-voo NF-e · o que impede emitir (config + produtos + destinatários) e o que já está pronto */}
+      {state.companyId && (
+        <CardBoundary nome="PreVooFiscalCard">
+          <PreVooFiscalCard companyId={state.companyId} />
+        </CardBoundary>
+      )}
+
+      {/* IBPT por empresa (CEO 28/09): token da própria empresa, "Salvar e testar", nunca volta para a tela */}
+      {state.companyId && (
+        <CardBoundary nome="IbptTokenCard">
+          <IbptTokenCard companyId={state.companyId} />
+        </CardBoundary>
+      )}
+
+      {/* Detalhe certificado salvo */}
+      {state.certificado && (
+        <div className="bg-white border border-[#3D2314]/10 rounded-xl px-4 py-3 flex items-start gap-3">
+          <FileCheck className="text-[#3F7012] flex-shrink-0 mt-0.5" size={16} />
+          <div className="flex-1 min-w-0 text-[12.5px]">
+            <div className="font-medium text-[#3D2314]">
+              Certificado salvo · {state.certificado.razao_social_certificado ?? 'Sem razão social'}
+            </div>
+            <div className="text-[#3D2314]/70 mt-0.5">
+              CNPJ {fmtCnpj(state.certificado.cnpj_certificado)} · válido até{' '}
+              {fmtData(state.certificado.validade_fim)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* #segurança · trocar a senha do certificado (renovação ou decisão do cliente). A migração
+          das senhas antigas para o Vault é feita in-place pela migration — aqui sobra só o caso
+          legítimo de troca, recolhido por padrão para não virar ruído. */}
+      {state.certificado && (
+        <CertTrocarSenhaCard certificadoId={state.certificado.id} onSalvo={carregar} />
+      )}
+
+      <CardBoundary nome="CertificadoUploadCard">
+        <CertificadoUploadCard
+          companyId={state.companyId!}
+          certificadoAtual={state.certificado as unknown as Record<string, unknown> | null}
+          onAtualizado={carregar}
+        />
+      </CardBoundary>
+
+      {/* BRAND-1 · atalho do logo (o upload mora em Dados da Empresa — fonte única, RD-52) */}
+      <a
+        href="/dashboard/configuracoes/empresa"
+        className="bg-white border border-[#3D2314]/10 rounded-xl px-4 py-3 flex items-center gap-3 hover:border-[#C8941A] transition-colors"
+      >
+        <span className="text-[18px]" aria-hidden>🎨</span>
+        <div className="flex-1 min-w-0 text-[12.5px]">
+          <div className="font-medium text-[#3D2314]">Logo da empresa</div>
+          <div className="text-[#3D2314]/70 mt-0.5">Usado nos documentos (orçamentos, OS) e no topo do sistema.</div>
+        </div>
+        <span className="text-[12.5px] font-medium text-[#C8941A] whitespace-nowrap">Alterar →</span>
+      </a>
+
+      <CardBoundary nome="ConfigFiscalEditCard">
+        <ConfigFiscalEditCard
+          companyId={state.companyId!}
+          imAtual={state.empresa?.inscricao_municipal ?? null}
+          onSalvo={carregar}
+        />
+      </CardBoundary>
+
+      <CardBoundary nome="FocusNFeConfigCard">
+        <FocusNFeConfigCard
+          companyId={state.companyId!}
+          configAtual={state.config as unknown as Record<string, unknown> | null}
+          certificadoOk={!!state.certificado}
+          onAtualizado={carregar}
+        />
+      </CardBoundary>
+
+      <CardBoundary nome="WebhookConfigCard">
+        <WebhookConfigCard
+          companyId={state.companyId!}
+          habilitado={!!state.config && !!state.certificado && isFocusProvider(provider)}
+        />
+      </CardBoundary>
+
+      <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 text-[12px] text-[#3D2314]/70 leading-relaxed">
+        <strong className="text-[#3D2314] font-medium">Emissores disponíveis:</strong>{' '}
+        <strong>NFSe Nacional gov.br</strong> (oficial Receita Federal · grátis · obrigatório SET/2026
+        pra Simples Nacional) ou{' '}
+        <a href="https://focusnfe.com.br" target="_blank" rel="noopener" className="text-[#BA7517] underline">
+          Focus NFe
+        </a>{' '}
+        (terceirizado · pago · útil pra prefeituras não aderidas ao gov.br).
+      </div>
+    </div>
+  )
+}
+
+// #segurança · trocar a senha do certificado (renovação / decisão do cliente). fn_certificado_senha_salvar
+// grava no Vault e apaga qualquer resquício antigo. A senha nunca é lida do banco pelo front — só
+// digitada aqui e enviada à RPC. Recolhido por padrão (o caso comum é não mexer).
+function CertTrocarSenhaCard({ certificadoId, onSalvo }: { certificadoId: string; onSalvo: () => void }) {
+  const [aberto, setAberto] = useState(false)
+  const [senha, setSenha] = useState('')
+  const [mostrar, setMostrar] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function salvar() {
+    if (!senha.trim()) { setMsg('Informe a senha do certificado.'); return }
+    setSalvando(true); setMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_certificado_senha_salvar', {
+        p_certificado_id: certificadoId, p_senha: senha,
+      })
+      if (error) throw error
+      const j = data as { ok?: boolean; erro?: string } | null
+      if (!j?.ok) { setMsg('Erro: ' + (j?.erro ?? 'não foi possível salvar')); return }
+      setSenha(''); setMsg('Senha atualizada no cofre seguro.'); onSalvo()
+    } catch (e) {
+      setMsg('Erro ao salvar: ' + (e as Error).message)
+    } finally { setSalvando(false) }
+  }
+  if (!aberto) {
+    return (
+      <button type="button" onClick={() => setAberto(true)}
+        className="text-left text-[12px] text-[#3D2314]/60 hover:text-[#C8941A] px-1">
+        🔑 Trocar senha do certificado
+      </button>
+    )
+  }
+  return (
+    <div className="bg-white border border-[#3D2314]/10 rounded-xl px-4 py-3">
+      <div className="text-[12.5px] font-medium text-[#3D2314]">Trocar senha do certificado</div>
+      <div className="text-[11.5px] text-[#3D2314]/70 mt-0.5 leading-snug">
+        A senha vai direto para o cofre seguro (Vault) — não fica guardada em texto.
+      </div>
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <input
+          type={mostrar ? 'text' : 'password'}
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          placeholder="nova senha do certificado"
+          autoComplete="off"
+          className="bg-white border border-[#3D2314]/15 rounded-md px-3 py-1.5 text-[13px] text-[#3D2314] w-56"
+        />
+        <button type="button" onClick={() => setMostrar((v) => !v)} className="text-[11.5px] text-[#3D2314]/60 hover:text-[#3D2314]">
+          {mostrar ? 'ocultar' : 'mostrar'}
+        </button>
+        <button type="button" onClick={() => void salvar()} disabled={salvando || !senha.trim()}
+          className="px-3 py-1.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[12.5px] hover:bg-[#B07F12] disabled:opacity-50 inline-flex items-center gap-1.5">
+          {salvando ? <><Loader2 size={13} className="animate-spin" /> Salvando…</> : 'Salvar senha'}
+        </button>
+        <button type="button" onClick={() => { setAberto(false); setSenha(''); setMsg(null) }}
+          className="text-[11.5px] text-[#3D2314]/50 hover:text-[#3D2314]">cancelar</button>
+      </div>
+      {msg && <div className={`text-[11.5px] mt-1.5 ${msg.startsWith('Erro') ? 'text-[#A32D2D]' : 'text-[#3F7012]'}`}>{msg}</div>}
+    </div>
+  )
+}

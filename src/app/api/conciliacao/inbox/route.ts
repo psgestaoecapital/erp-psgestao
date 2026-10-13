@@ -5,13 +5,13 @@
 // Polimórfico: serve bancário, cartão despesa, cartão venda.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas, negar } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export const GET = withAuth(async (req: NextRequest, { userId }) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const { searchParams } = new URL(req.url)
   const lote_id = searchParams.get('lote_id')
   const status = searchParams.get('status') || 'pendente'
@@ -28,6 +28,12 @@ export const GET = withAuth(async (req: NextRequest, { userId }) => {
   }
 
   try {
+    // Empresa REAL do lote (antes de qualquer leitura dos movimentos).
+    const { data: dono } = await supabaseAdmin.from('conciliacao_lote').select('company_id').eq('id', lote_id).maybeSingle()
+    if (!dono) return negar(404, 'O lote pedido não foi encontrado ou foi arquivado.')
+    const negado = await exigirEmpresas(u, [(dono as { company_id: string }).company_id])
+    if (negado) return negado
+
     // RPC: banco já retorna movimentos + top sugestão IA em uma chamada
     const { data: movimentos, error: errMov } = await supabaseAdmin.rpc(
       'fn_conciliacao_inbox',

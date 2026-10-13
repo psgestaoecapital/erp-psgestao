@@ -1,0 +1,443 @@
+'use client'
+
+// Sidebar dinamico (PR #441):
+// SEMPRE chama fn_modulos_sidebar_por_area(area, company, user) e renderiza
+// o retorno. SIDEBAR_GESTAO_EMPRESARIAL hardcoded vira fallback de
+// emergencia (so usado em rpc-error). Antes a area GE curto-circuitava
+// pro hardcoded — causava bug de "Frioeste/Compliance" mostrar menu GE
+// porque ate a deteccao de area falhasse uma vez, voltava pra GE.
+//
+// Loading/empty estados expostos pro consumer decidir.
+
+import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
+import { comPrazo } from '@/lib/comPrazo'
+import {
+  SIDEBAR_GESTAO_EMPRESARIAL,
+  type SidebarModuleNode,
+  type SidebarSubItemNode,
+  type SidebarStatus,
+} from './sidebar-config'
+import { useAreasVisiveis } from '@/hooks/useAreasVisiveis'
+import { useUsuario } from '@/lib/AuthProvider'
+import { ehEquipePS } from '@/lib/menu/equipe-ps'
+import { ramoConfig, RAMOS, type Ramo } from '@/lib/oficina/ramo'
+
+const AREA_STORAGE_KEY = 'ps_area_sel'
+const EMPRESA_STORAGE_KEY = 'ps_empresa_sel'
+const AREA_GE = 'gestao_empresarial'
+
+// surfacing-admin-owner · atalho "Usuários & Acessos" no rodapé pro CLIENT_OWNER
+// ativo (Master da empresa) que NAO e PS_ADMIN. Fase 1 (tela em cascata): o atalho
+// aponta pra /dashboard/admin/acessos (Empresa → Áreas contratadas → Master → Pessoas),
+// que autoriza+escopa o dono via fn_acessos_pode_gerir. As 9 abas antigas seguem vivas
+// em /dashboard/admin (coexistem, não foram aposentadas). Aditivo, por papel, reversível.
+const OWNER_ADMIN_MODULO: SidebarModuleNode = {
+  id: 'usuarios-acessos-owner',
+  label: 'Usuários & Acessos',
+  href: '/dashboard/admin/acessos',
+  status: 'pronto',
+  separator: true,
+  matchPaths: ['/dashboard/admin/acessos', '/dashboard/admin'],
+}
+
+// Item 3 · Cotações na Oficina — só para o CLIENT_OWNER (decisão CEO; Pilar 2: compras é
+// sensível, viewer/operador ficam de fora). Aponta para a tela EXISTENTE de Compras/Cotações
+// do GE (default tab = Cotações) — NÃO recria a janela, preservando a Fronteira GE. Atalho
+// por papel, aditivo e reversível, no mesmo padrão de OWNER_ADMIN_MODULO acima. Expandir para
+// CLIENT_VIEWER depois = só afrouxar a condição (ownerAtalho) no push. Premissa auditada:
+// commerce_compras.surface_in_groups=['gestao_empresarial'] (não entra na oficina pela RPC),
+// e o gate de nível da RPC (permissoes_nivel) é por módulo/area-agnóstico — não sabe
+// CLIENT_OWNER. Por isso o gate mora no front, único lugar que já consulta tenant_user_roles.
+const OFICINA_COTACOES_OWNER_MODULO: SidebarModuleNode = {
+  id: 'oficina-cotacoes-owner',
+  label: 'Cotações',
+  href: '/dashboard/commerce/compras',
+  status: 'pronto',
+  separator: true,
+  matchPaths: ['/dashboard/commerce/compras'],
+}
+
+// B.3 · na área Oficina, o OFICINA_DONO (tenant_user_roles) ganha o atalho "Usuários da
+// Oficina" — a tela onde ele convida MECÂNICO (fn_acessos_convidar_pessoa). Mesmo padrão por
+// papel dos atalhos acima; o gate mora no front (único lugar que já lê tenant_user_roles) e,
+// no backend, fn_acessos_pode_gerir + o escopo do dono (só concede OFICINA_MECANICO).
+const OFICINA_USUARIOS_DONO_MODULO: SidebarModuleNode = {
+  id: 'oficina-usuarios-dono',
+  label: 'Usuários da Oficina',
+  href: '/dashboard/oficina/usuarios',
+  status: 'pronto',
+  separator: true,
+  matchPaths: ['/dashboard/oficina/usuarios'],
+}
+
+export type SidebarModoFonte = 'hardcoded' | 'rpc' | 'rpc-empty' | 'rpc-error'
+
+interface RpcRow {
+  secao: string | null
+  secao_label: string | null
+  modulo_id: string
+  nome: string
+  rota: string | null
+  icone: string | null
+  ordem: number
+  status: string | null
+  badge_label: string | null
+  badge_color: string | null
+  diferencial: boolean | null
+}
+
+function resolveCompanyId(): string | null {
+  if (typeof window === 'undefined') return null
+  const sel = localStorage.getItem(EMPRESA_STORAGE_KEY)
+  if (!sel || sel === 'consolidado') return null
+  if (sel.startsWith('group_')) return null
+  return sel
+}
+
+function lerAreaPersistida(): string | null {
+  if (typeof window === 'undefined') return null
+  try { return localStorage.getItem(AREA_STORAGE_KEY) } catch { return null }
+}
+
+function statusFromRpc(s: string | null): SidebarStatus {
+  if (s === 'pronto' || s === 'parcial' || s === 'em_breve') return s
+  return 'pronto' // default defensivo
+}
+
+// Labels amigaveis pra secoes que vem cruas da RPC (ex.: PM em 4 blocos).
+// Mantemos no front pra nao precisar de migration por cada apresentacao.
+const SECAO_LABEL_OVERRIDE: Record<string, string> = {
+  PM_COMERCIAL: '1 · Comercial & Entrada',
+  PM_PRODUCAO: '2 · Produção & Controle',
+  PM_FINANCEIRO: '3 · Financeiro da Produção',
+  PM_INTELIGENCIA: '4 · Inteligência & IA',
+  // Wealth (consultoria de investimentos): 13 módulos em 4 seções (subgrupo → secao)
+  WEALTH_CARTEIRA: '1 · Carteira & Clientes',
+  WEALTH_COMPLIANCE: '2 · Onboarding & Compliance',
+  WEALTH_DADOS: '3 · Dados & Cotações',
+  WEALTH_ANALISE: '4 · Análise & Entrega',
+  // Oficina: acentos + rótulos sem "Oficina" redundante (o usuário já está na área Oficina)
+  PATIO: 'Pátio',
+  OPERACAO: 'Operação',
+  OFICINA_ATENDIMENTO: 'Atendimento',
+  OFICINA_OPERACAO: 'Veículos & Comissão',
+  OFICINA_INTELIGENCIA_IA: 'Inteligência IA',
+  // Industrial: acentos + Title Case (o menu segue o dia de quem usa)
+  ABASTECIMENTO: 'Abastecimento',
+  VISAO_EXECUTIVA: 'Visão Executiva',
+  INTELIGENCIA_PROTECAO: 'Inteligência & Proteção',
+  INTELIGENCIA_BI: 'Inteligência (BI)',
+}
+
+function rpcRowsToModulos(rows: RpcRow[], isPS: boolean, areaSlug: string, labelOverride?: Record<string, string>): SidebarModuleNode[] {
+  // RPC ja vem ordenada (secao_ordem, ordem). Agrupar preservando a ordem
+  // de aparicao da secao na lista (1a ocorrencia define a posicao).
+  const grupos = new Map<string, { label: string; items: SidebarSubItemNode[] }>()
+
+  for (const r of rows) {
+    const secaoKey = r.secao ?? 'outros'
+    const labelRaw = r.secao_label ?? r.secao ?? 'Outros'
+    const label = SECAO_LABEL_OVERRIDE[secaoKey] ?? SECAO_LABEL_OVERRIDE[labelRaw] ?? labelRaw
+    if (!grupos.has(secaoKey)) {
+      grupos.set(secaoKey, { label, items: [] })
+    }
+    const grp = grupos.get(secaoKey)!
+    // FIX-MENU-WEALTH-LANDING · o módulo landing (id === area, ex.: 'wealth' →
+    // /dashboard/wealth) casa a rota EXATA. Sem isto, ele casaria todo
+    // '/dashboard/wealth/*' e o auto-expand/realce grudaria na seção 1, fazendo as
+    // seções 2–4 parecerem subordinadas. Padroniza o comportamento com P&M (que não
+    // tem módulo id === area). Vale pra qualquer área com landing homônimo.
+    const ehLanding = r.modulo_id === areaSlug
+    grp.items.push({
+      id: r.modulo_id,
+      label: labelOverride?.[r.modulo_id] ?? r.nome,
+      href: r.rota ?? '#',
+      status: statusFromRpc(r.status),
+      ...(ehLanding ? { exact: true } : {}),
+      ...(isPS && r.badge_label ? { badge: r.badge_label } : {}),
+    })
+  }
+
+  const modulos: SidebarModuleNode[] = []
+  for (const [secaoKey, { label, items }] of grupos.entries()) {
+    modulos.push({
+      id: secaoKey,
+      label,
+      status: 'pronto',
+      items,
+    })
+  }
+  return modulos
+}
+
+interface State {
+  modulos: SidebarModuleNode[]
+  loading: boolean
+  mode: SidebarModoFonte
+}
+
+export function useSidebarModulos(): State {
+  const pathname = usePathname() || ''
+  const searchParams = useSearchParams()
+  const queryArea = searchParams?.get('area') ?? null
+
+  // P0 · Camada 2 (16bc8561): userId vem da sessão única (useUsuario) — a Sidebar não chama mais
+  // supabase.auth.getUser() (eram 4 chamadas por montagem, todas disputando a trava de sessão do mobile).
+  const { userId } = useUsuario()
+  const [companyId, setCompanyId] = useState<string | null>(null)
+  const [areaPersistida, setAreaPersistida] = useState<string | null>(null)
+  const [rpcRows, setRpcRows] = useState<RpcRow[] | null>(null)
+  const [rpcErro, setRpcErro] = useState<string | null>(null)
+  const [rpcLoading, setRpcLoading] = useState(false)
+
+  // company_id · resolve do localStorage e revalida via interval (mesmo
+  // padrao do AreaSwitcher · permite reagir a troca de empresa)
+  // FALLBACK (#455): se localStorage nao da company valida, consulta
+  // user_companies do usuario logado. Single-company auto-seleciona ela.
+  // Sem isso: companyId=null -> aguardandoContexto=true -> loading eterno.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let alive = true
+    const aplicar = (v: string | null) => {
+      if (!alive) return
+      setCompanyId((p) => (p === v ? p : v))
+    }
+    aplicar(resolveCompanyId())
+    setAreaPersistida(lerAreaPersistida())
+
+    // Auto-select user_companies se localStorage nao deu (usa o userId da sessão única)
+    ;(async () => {
+      if (resolveCompanyId() || !userId) return
+      const { data } = await supabase
+        .from('user_companies')
+        .select('company_id')
+        .eq('user_id', userId)
+        .limit(2)
+      if (!alive) return
+      if (data && data.length === 1) aplicar((data[0] as { company_id: string }).company_id)
+    })()
+
+    const interval = setInterval(() => {
+      const atual = resolveCompanyId()
+      if (atual) aplicar(atual) // so promove com valor valido — preserva auto-select
+      const areaAtual = lerAreaPersistida()
+      setAreaPersistida((prev) => (prev === areaAtual ? prev : areaAtual))
+    }, 800)
+    return () => { alive = false; clearInterval(interval) }
+  }, [userId])
+
+  // RD-41 Fase 2 · ramo da oficina → renomeia itens de menu (Recepção da Peça / Entregas)
+  // quando ramo≠automotiva. So consulta na area oficina; automotiva mantem os nomes da RPC.
+  const [ramoOficina, setRamoOficina] = useState<Ramo | null>(null)
+  useEffect(() => {
+    let alive = true
+    if (!companyId) { setRamoOficina(null); return }
+    void supabase.rpc('fn_oficina_ramo', { p_company_id: companyId }).then(({ data }) => {
+      if (!alive) return
+      setRamoOficina(typeof data === 'string' && RAMOS.includes(data as Ramo) ? (data as Ramo) : null)
+    })
+    return () => { alive = false }
+  }, [companyId])
+
+  // surfacing-admin-owner · e CLIENT_OWNER ativo e NAO PS_ADMIN? (mesma regra do
+  // checkAuth de /dashboard/admin: scoped = isOwner && !isSystemAdmin). Se sim,
+  // o rodape ganha o atalho "Usuarios & Acessos". Pilar 2: operador/viewer nao entram.
+  const [ownerAtalho, setOwnerAtalho] = useState(false)
+  // B.3 · dono da OFICINA (papel por empresa) ganha o atalho "Usuários da Oficina".
+  const [oficinaDono, setOficinaDono] = useState(false)
+  // badge-so-ps · o badge de estado (Pronto/Parcial/Previsto) e dado interno da PS.
+  // Cliente nunca ve. So a equipe PS (ehEquipePS: PS_ADMIN, PS_ADMIN_CVM, PS_SUPPORT) recebe o badge no menu.
+  const [isPS, setIsPS] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      if (!userId) { if (alive) { setOwnerAtalho(false); setIsPS(false) } return }
+      const { data: up } = await supabase.from('users').select('system_role').eq('id', userId).maybeSingle()
+      if (alive) setIsPS(ehEquipePS(up?.system_role))
+      if (up?.system_role) { if (alive) setOwnerAtalho(false); return } // PS_ADMIN ja tem o painel via RPC
+      const { data: owner } = await supabase
+        .from('tenant_user_roles')
+        .select('company_id')
+        .eq('user_id', userId)
+        .eq('role', 'CLIENT_OWNER')
+        .eq('is_active', true)
+        .limit(1)
+      if (alive) setOwnerAtalho(!!(owner && owner.length > 0))
+    })()
+    return () => { alive = false }
+  }, [userId])
+
+  // B.3 · OFICINA_DONO desta empresa? (papel por empresa → filtra por companyId)
+  useEffect(() => {
+    if (!companyId || !userId) { setOficinaDono(false); return }
+    let alive = true
+    void (async () => {
+      const { data } = await supabase
+        .from('tenant_user_roles')
+        .select('company_id')
+        .eq('user_id', userId)
+        .eq('company_id', companyId)
+        .eq('role', 'OFICINA_DONO')
+        .eq('is_active', true)
+        .limit(1)
+      if (alive) setOficinaDono(!!(data && data.length > 0))
+    })()
+    return () => { alive = false }
+  }, [companyId, userId])
+
+  // Resolve area atual (cascata: ?area= > persistida > path > primeira permitida > GE)
+  const { areas } = useAreasVisiveis(companyId)
+  const areaSlugDoPath = useMemo(() => {
+    if (!pathname || areas.length === 0) return null
+    let melhor: { slug: string; len: number } | null = null
+    for (const a of areas) {
+      if (!a.rota_raiz) continue
+      if (pathname === a.rota_raiz || pathname.startsWith(a.rota_raiz + '/')) {
+        if (!melhor || a.rota_raiz.length > melhor.len) {
+          melhor = { slug: a.area_slug, len: a.rota_raiz.length }
+        }
+      }
+    }
+    return melhor?.slug ?? null
+  }, [areas, pathname])
+
+  const slugsPermitidos = useMemo(
+    () => (areas.length > 0 ? new Set(areas.map((a) => a.area_slug)) : null),
+    [areas],
+  )
+  const primeiraPermitida = areas[0]?.area_slug ?? null
+
+  // Cascata bruta
+  const cascadeBrute = queryArea ?? areaPersistida ?? areaSlugDoPath ?? AREA_GE
+
+  // Se a area do cascade NAO esta nas permitidas do usuario (caso CLIENT
+  // com user_areas_allowed.restricted=true), forca para a 1a permitida.
+  // Isso elimina o caso "engenheira de Compliance cai em GE e nao monta o menu".
+  // slugsPermitidos==null = nao temos dado ainda (useAreasVisiveis carregando)
+  // → mantem cascade bruto pra nao trocar prematuramente.
+  const areaSlug = slugsPermitidos && !slugsPermitidos.has(cascadeBrute) && primeiraPermitida
+    ? primeiraPermitida
+    : cascadeBrute
+
+  // Sem company/user ainda — espera para evitar GE hardcoded por engano
+  const aguardandoContexto = !companyId || !userId
+
+  // Normalizar hifen->underscore: URLs usam 'gestao-empresarial' (cascade
+  // vem da rota) mas module_catalog.grupo e area_menu_config.area_slug usam
+  // 'gestao_empresarial'. Sem normalizar, a RPC filtra `mc.grupo = p_area_id`
+  // e retorna 0 linhas — CEO empiricamente confirmado (SPEC):
+  //   fn_modulos_sidebar_por_area('gestao_empresarial', KGF, NULL) -> 70 modulos
+  //   fn_modulos_sidebar_por_area('gestao-empresarial',  KGF, NULL) -> 0
+  // Serve pra TODAS areas com hifen na URL, nao so GE.
+  const areaSlugRpc = areaSlug.replace(/-/g, '_')
+
+  // Carrega RPC sempre que tiver contexto (SEMPRE inclusive para GE)
+  useEffect(() => {
+    if (aguardandoContexto) return
+    let alive = true
+    setRpcLoading(true)
+    setRpcErro(null)
+    // eslint-disable-next-line no-console
+    console.debug('[sidebar] fn_modulos_sidebar_por_area chamando', { areaSlug, areaSlugRpc, companyId, userId })
+    void (async () => {
+      try {
+        // 3 args explicitos (a RPC aceita p_user_id opcional; passar sempre
+        // evita ambiguidade de overload). areaSlugRpc ja com hifen normalizado.
+        const rpcName = 'fn_modulos_sidebar_por_area'
+        const rpcArgs = {
+          p_area_id: areaSlugRpc,
+          p_company_id: companyId,
+          p_user_id: userId,
+        }
+        // P0 (16bc8561): a RPC do menu pode pendurar (trava de sessão do mobile, rede que some) →
+        // rpcLoading nunca desligava → Sidebar presa em "Carregando…" eterno. comPrazo corre contra
+        // um prazo (1 retry); estourou → cai no catch abaixo (rpcErro → fallback hardcoded GE), nunca fica preso.
+        const { data, error } = await comPrazo(async () => await supabase.rpc(rpcName, rpcArgs), { ms: 8000, tentativas: 1, label: 'sidebar_modulos' })
+        if (!alive) return
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.warn('[sidebar] fn_modulos_sidebar_por_area falhou · fallback hardcoded', error.message)
+          setRpcErro(error.message)
+          setRpcRows(null)
+        } else {
+          // eslint-disable-next-line no-console
+          console.debug('[sidebar] fn_modulos_sidebar_por_area ok', { areaSlug, linhas: (data ?? []).length })
+          setRpcRows((data ?? []) as RpcRow[])
+        }
+      } catch (e) {
+        if (alive) {
+          setRpcErro(e instanceof Error ? e.message : String(e))
+          setRpcRows(null)
+        }
+      } finally {
+        // SEMPRE desliga loading se ainda vivo — evita sidebar travada em "Carregando…"
+        if (alive) setRpcLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [aguardandoContexto, areaSlugRpc, companyId, userId])
+
+  // FIX-MENU-GE-FANTASMA (07/07 · CEO decisao): NUNCA renderizar hardcoded
+  // como menu real da empresa. Antes: sem contexto na area GE devolvia
+  // SIDEBAR_GESTAO_EMPRESARIAL (menu antigo com "Vendas & Fiscal" agrupado),
+  // enquanto Gean (com contexto ok) via o menu real da RPC (VENDAS + NF + PDV
+  // separados) — inconsistencia entre empresas do mesmo plano.
+  // Agora: aguardandoContexto -> loading. Menu real ou nada.
+  if (aguardandoContexto) {
+    return { modulos: [], loading: true, mode: 'rpc' }
+  }
+
+  if (rpcErro) {
+    // Fallback defensivo APENAS quando a RPC nao roda por erro real (rede,
+    // policy, etc). Nao usado no fluxo normal. Estrutura hardcoded foi
+    // realinhada em sidebar-config.ts pra bater com a RPC (Fix 1 CEO).
+    return { modulos: SIDEBAR_GESTAO_EMPRESARIAL, loading: false, mode: 'rpc-error' }
+  }
+
+  if (rpcLoading && !rpcRows) {
+    return { modulos: [], loading: true, mode: 'rpc' }
+  }
+
+  const rows = rpcRows ?? []
+  if (rows.length === 0) {
+    return { modulos: [], loading: false, mode: 'rpc-empty' }
+  }
+
+  // RD-41 Fase 2 · nomes de menu por ramo (só na oficina, só quando ramo≠automotiva).
+  // automotiva mantém EXATAMENTE os nomes da RPC (regressão zero).
+  const overrideNomes = (areaSlugRpc === 'oficina' && ramoOficina && ramoOficina !== 'automotiva')
+    ? { oficina_recepcao: ramoConfig(ramoOficina).menuRecepcao, oficina_entregues: ramoConfig(ramoOficina).menuEntregues }
+    : undefined
+  const modulos = rpcRowsToModulos(rows, isPS, areaSlugRpc, overrideNomes)
+  // Rodape de apoio da Gestao Empresarial: Guia de Implantacao (onboarding
+  // sob demanda). Hardcoded aqui pra evitar migration por cada apresentacao
+  // — segue o mesmo padrao de SECAO_LABEL_OVERRIDE acima.
+  if (areaSlugRpc === AREA_GE) {
+    modulos.push({
+      id: 'guia_implantacao',
+      label: 'Guia de Implantação',
+      href: '/dashboard/gestao-empresarial/implantacao',
+      status: 'pronto',
+      separator: true,
+    })
+  }
+  // surfacing-admin-owner · dono da empresa ganha o atalho pro painel escopado.
+  // Dedupe: nao adiciona se algum modulo/RPC ja aponta pra /dashboard/admin.
+  if (ownerAtalho && !modulos.some((m) => m.href === '/dashboard/admin/acessos' || m.items?.some((s) => s.href === '/dashboard/admin/acessos'))) {
+    modulos.push(OWNER_ADMIN_MODULO)
+  }
+  // Item 3 · na área Oficina, o CLIENT_OWNER (ownerAtalho) ganha o atalho "Cotações" pra tela
+  // de Compras/Cotações do GE. Dedupe: não duplica se a RPC já surfou compras nesta área.
+  if (areaSlugRpc === 'oficina' && ownerAtalho
+    && !modulos.some((m) => m.href?.startsWith('/dashboard/commerce/compras') || m.items?.some((s) => s.href?.startsWith('/dashboard/commerce/compras')))) {
+    modulos.push(OFICINA_COTACOES_OWNER_MODULO)
+  }
+  // B.3 · na área Oficina, o OFICINA_DONO ganha o atalho "Usuários da Oficina" (convidar mecânico).
+  if (areaSlugRpc === 'oficina' && oficinaDono
+    && !modulos.some((m) => m.href === '/dashboard/oficina/usuarios' || m.items?.some((s) => s.href === '/dashboard/oficina/usuarios'))) {
+    modulos.push(OFICINA_USUARIOS_DONO_MODULO)
+  }
+  return { modulos, loading: false, mode: 'rpc' }
+}

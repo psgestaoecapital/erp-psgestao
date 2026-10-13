@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import JSZip from 'jszip'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -38,7 +38,7 @@ function yyyymmdd(): string {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
 }
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
   const body = await req.json().catch(() => null)
   if (!body) return fail(400, 'Corpo da requisição inválido.')
 
@@ -47,6 +47,8 @@ export const POST = withAuth(async (req: NextRequest) => {
   const prestadorIdsInput = Array.isArray(body.prestador_ids) ? (body.prestador_ids as string[]) : null
 
   if (!company_id) return fail(400, 'company_id é obrigatório.')
+  const negado = await exigirEmpresas(u, [company_id])
+  if (negado) return negado
 
   // Empresa
   const { data: empresa, error: empErr } = await supabaseAdmin

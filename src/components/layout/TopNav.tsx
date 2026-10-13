@@ -1,0 +1,366 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { Bell, LogOut, Lightbulb, HelpCircle, Gauge } from 'lucide-react'
+import MobileDrawer from './MobileDrawer'
+import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import { useAjuda } from '@/lib/stores/ajuda-store'
+
+interface UserResumo {
+  email: string
+  iniciais: string
+}
+
+interface Alerta {
+  id: string
+  tipo: string | null
+  titulo: string | null
+  mensagem: string | null
+  severidade: string | null
+  link_acao: string | null
+}
+
+// BRAND-1 · iniciais da empresa quando ela não tem logo (nunca espaço vazio nem imagem quebrada)
+function iniciaisDe(nome: string): string {
+  const partes = nome.split(/\s+/).filter(Boolean)
+  const ini = partes.slice(0, 2).map((p) => p[0]).join('')
+  return (ini || nome[0] || '').toUpperCase()
+}
+
+export default function TopNav() {
+  const [user, setUser] = useState<UserResumo | null>(null)
+  // BRAND-1 · logo da EMPRESA SELECIONADA no topo (troca junto com o seletor). Multi-empresa: cada
+  // empresa mostra o seu; consolidado/grupo não mostra logo de empresa (não é de uma só).
+  const { selInfo, sel, companies } = useCompanyIds()
+  const abrirAjuda = useAjuda((s) => s.abrir)
+  const pathname = usePathname()
+  const empresaRow = selInfo.tipo === 'empresa' ? companies.find((c) => c.id === sel) : null
+  const empresaNome = selInfo.tipo === 'empresa' ? selInfo.nome : ''
+  const empresaLogo: string | null = (empresaRow?.logo_url as string | undefined) || null
+  const [alertas, setAlertas] = useState<Alerta[]>([])
+  // Notificações de CHAMADO (Central de Melhorias) — por PESSOA (sugestao_notificacao), não por
+  // empresa. Chamado é conversa entre duas pessoas; o sino soma as duas coisas, separadas.
+  const [notifsChamado, setNotifsChamado] = useState<{ id: string; titulo: string; mensagem: string | null; lida: boolean; tipo?: string; sugestao_id?: string }[]>([])
+  // #120 · avisos POR PESSOA do próprio trabalho (ex.: oportunidade/orçamento mudou de etapa — erp_notificacao_usuario).
+  const [notifsUsuario, setNotifsUsuario] = useState<{ id: string; titulo: string; mensagem: string | null; link: string | null; lida: boolean }[]>([])
+  const temNotificacao = alertas.length > 0 || notifsChamado.some((n) => !n.lida) || notifsUsuario.some((n) => !n.lida)
+  const [sinoAberto, setSinoAberto] = useState(false)
+  const [menuAberto, setMenuAberto] = useState(false)
+  // ⑤ medidor da Central de Desenvolvimento — só admin (CEO). Chamada LEVE (fn_dev_medidor_badge):
+  // número = travado no CEO (rascunhos aguardando aprovação); cor = saúde (tela quebrada→vermelho).
+  const [devBadge, setDevBadge] = useState<{ numero: number; cor: string } | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const sinoRef = useRef<HTMLDivElement>(null)
+
+  // fecha o menu da conta ao clicar fora ou apertar Esc
+  useEffect(() => {
+    if (!menuAberto) return
+    const onDoc = (e: MouseEvent) => { if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuAberto(false) }
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuAberto(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onEsc)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc) }
+  }, [menuAberto])
+
+  // fecha o dropdown do sino ao clicar fora ou apertar Esc
+  useEffect(() => {
+    if (!sinoAberto) return
+    const onDoc = (e: MouseEvent) => { if (sinoRef.current && !sinoRef.current.contains(e.target as Node)) setSinoAberto(false) }
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setSinoAberto(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onEsc)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc) }
+  }, [sinoAberto])
+
+  // Logout: encerra a sessão Supabase e volta pro login (raiz `/` é a tela de login).
+  // window.location garante estado limpo (zera caches/estados do app).
+  const sair = async () => {
+    try { await supabase.auth.signOut() } finally { window.location.href = '/' }
+  }
+
+  useEffect(() => {
+    let ignore = false
+    ;(async () => {
+      const { data: { session } } = await supabase.auth.getSession(); const authUser = session?.user
+      if (authUser?.email && !ignore) {
+        const partes = authUser.email.split('@')[0].split('.')
+        const iniciais = (partes[0]?.[0] ?? '') + (partes[1]?.[0] ?? '')
+        setUser({
+          email: authUser.email,
+          iniciais: iniciais.toUpperCase() || authUser.email[0].toUpperCase(),
+        })
+      }
+      // sino real: alertas proativos ABERTOS (erp_alerta_proativo, RLS escopa por empresa).
+      // Antes o sino acendia sempre (setTemNotificacao(true)) e não abria — botão morto com
+      // urgência falsa. Agora o ponto vermelho só aparece se há alerta, e o clique mostra quais.
+      // Corte de idade: o sino mostra alertas RECENTES (30 dias), mais novos primeiro. Alerta
+      // aberto há meses não é notificação — é pendência esquecida, e vira ruído que o usuário
+      // aprende a ignorar (o oposto do que queremos depois de consertar as falhas silenciosas).
+      // O lugar de pendência antiga é a tela da área, não o sino.
+      const corte = new Date(Date.now() - 30 * 86400000).toISOString()
+      const { data: al } = await supabase
+        .from('erp_alerta_proativo')
+        .select('id, tipo, titulo, mensagem, severidade, link_acao')
+        .eq('resolvido', false).eq('dispensado', false)
+        .gte('criado_em', corte)
+        .order('criado_em', { ascending: false })
+        .limit(12)
+      if (!ignore) setAlertas((al as Alerta[]) ?? [])
+
+      // ⑤ medidor: SÓ equipe PS (system_role PS_ADMIN/PS_ADMIN_CVM, nunca o robô) — não role, que
+      // qualquer 'adm' de empresa cliente tem. Busca só o contador (leve); a tela carrega no clique.
+      if (authUser?.id) {
+        const { data: urow } = await supabase.from('users').select('system_role, is_robo').eq('id', authUser.id).single()
+        const ehPsAdmin = ['PS_ADMIN', 'PS_ADMIN_CVM'].includes((urow?.system_role as string) || '') && urow?.is_robo !== true
+        if (ehPsAdmin && !ignore) {
+          const { data: badge } = await supabase.rpc('fn_dev_medidor_badge')
+          if (badge && !ignore) setDevBadge(badge as { numero: number; cor: string })
+        }
+      }
+
+      // Notificações de chamado do próprio usuário (RLS: destinatario_id = auth.uid()).
+      if (authUser?.id) {
+        const { data: nc } = await supabase
+          .from('sugestao_notificacao')
+          .select('id, titulo, mensagem, lida, tipo, sugestao_id')
+          .eq('destinatario_id', authUser.id)
+          .order('criado_em', { ascending: false })
+          .limit(12)
+        if (!ignore) setNotifsChamado((nc as { id: string; titulo: string; mensagem: string | null; lida: boolean; tipo?: string; sugestao_id?: string }[]) ?? [])
+
+        // #120 · avisos do próprio trabalho (RLS: destinatario_id = auth.uid()) — últimos 30 dias
+        const { data: nu } = await supabase
+          .from('erp_notificacao_usuario')
+          .select('id, titulo, mensagem, link, lida')
+          .eq('destinatario_id', authUser.id)
+          .gte('criado_em', corte)
+          .order('criado_em', { ascending: false })
+          .limit(12)
+        if (!ignore) setNotifsUsuario((nu as { id: string; titulo: string; mensagem: string | null; link: string | null; lida: boolean }[]) ?? [])
+      }
+    })()
+    return () => { ignore = true }
+  }, [])
+
+  return (
+    <header className="sticky top-0 z-20 bg-[#FAF7F2] border-b border-[#3D2314]/10 h-14 px-3 sm:px-4 flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <div className="md:hidden bg-[#3D2314] rounded-lg">
+          <MobileDrawer />
+        </div>
+        <Link
+          href="/dashboard/home"
+          className="md:hidden flex items-center gap-2 text-[#3D2314]"
+        >
+          <span className="w-8 h-8 bg-[#C8941A] rounded-md flex items-center justify-center text-[#3D2314] font-medium text-[12px]">
+            PS
+          </span>
+          <span className="text-[14px] font-medium">PS Gestão</span>
+        </Link>
+      </div>
+
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* BRAND-1 · logo/iniciais da empresa selecionada, à esquerda do sino */}
+        {selInfo.tipo === 'empresa' && (
+          <div className="flex items-center pr-1 sm:pr-2 sm:border-r sm:border-[#3D2314]/10" title={empresaNome} data-testid="topnav-empresa-logo">
+            {empresaLogo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={empresaLogo} alt={empresaNome} className="h-6 sm:h-8 w-auto max-w-[92px] sm:max-w-[128px] object-contain" />
+            ) : (
+              <span className="w-8 h-8 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[12px] flex items-center justify-center ring-[1.5px] ring-[#3D2314]/15">
+                {iniciaisDe(empresaNome)}
+              </span>
+            )}
+          </div>
+        )}
+        {/* ⑤ Medidor · Central de Desenvolvimento (só admin/CEO). Número = travado no CEO;
+            cor do ponto = saúde do sistema. O clique abre a tela (que aí sim carrega pesado). */}
+        {devBadge && (
+          <Link
+            href="/dashboard/dev"
+            aria-label="Central de Desenvolvimento"
+            title={`Central de Desenvolvimento · ${devBadge.numero} aguardando você · saúde: ${devBadge.cor}`}
+            data-testid="header-central-dev"
+            className="relative w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+          >
+            <Gauge size={18} />
+            <span
+              className="absolute top-[6px] right-[6px] w-[8px] h-[8px] rounded-full ring-[1.5px] ring-[#FAF7F2]"
+              style={{ background: devBadge.cor === 'vermelho' ? '#E24B4A' : devBadge.cor === 'amarelo' ? '#C8941A' : '#166534' }}
+            />
+            {devBadge.numero > 0 && (
+              <span className="absolute -top-[3px] -right-[3px] min-w-[15px] h-[15px] px-[3px] rounded-full bg-[#3D2314] text-[#FAF7F2] text-[9px] font-semibold flex items-center justify-center ring-[1.5px] ring-[#FAF7F2]">
+                {devBadge.numero > 9 ? '9+' : devBadge.numero}
+              </span>
+            )}
+          </Link>
+        )}
+        {/* Melhorias · registrar dificuldade/sugestão pela própria tela (mobile-first). Estava só via
+            WhatsApp; agora é um toque no cabeçalho — leva à Central de Melhorias. */}
+        <Link
+          href={`/dashboard/melhorias?from=${encodeURIComponent(pathname || '')}`}
+          aria-label="Central de Melhorias"
+          title="Melhorias"
+          data-testid="header-melhorias"
+          className="w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+        >
+          <Lightbulb size={18} />
+        </Link>
+        {/* Ajuda · saiu do FAB flutuante para o cabeçalho (pedido do CEO). Abre o mesmo painel. */}
+        <button
+          type="button"
+          aria-label="Ajuda"
+          title="Ajuda"
+          data-testid="header-ajuda"
+          onClick={() => abrirAjuda()}
+          className="w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+        >
+          <HelpCircle size={18} />
+        </button>
+        <div className="relative" ref={sinoRef}>
+          <button
+            type="button"
+            aria-label="Notificações"
+            aria-haspopup="menu"
+            aria-expanded={sinoAberto}
+            data-testid="bell-notifications"
+            onClick={() => setSinoAberto((s) => !s)}
+            className="relative w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+          >
+            <Bell size={18} />
+            {temNotificacao && (
+              <span className="absolute top-[7px] right-[8px] w-[7px] h-[7px] bg-[#E24B4A] rounded-full ring-[1.5px] ring-[#FAF7F2]" />
+            )}
+          </button>
+          {sinoAberto && (
+            <div role="menu" className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-lg border border-[#3D2314]/10 py-1 z-30">
+              <div className="px-4 py-2.5 border-b border-[#3D2314]/8 text-[10.5px] uppercase tracking-wide text-[#3D2314]/45">
+                Notificações
+              </div>
+              {alertas.length === 0 && notifsChamado.length === 0 && notifsUsuario.length === 0 ? (
+                <div className="px-4 py-6 text-[12.5px] text-[#3D2314]/50 text-center">Nenhuma notificação no momento.</div>
+              ) : (
+                <div className="max-h-[60vh] overflow-y-auto">
+                  {/* #120 · Para você (por PESSOA) — mudança de etapa da oportunidade/orçamento em que você é responsável ou vendedor */}
+                  {notifsUsuario.length > 0 && (
+                    <>
+                      <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Para você</div>
+                      {notifsUsuario.map((n) => (
+                        <Link key={n.id} href={n.link || '/dashboard/projetos/oportunidades'} data-testid="notif-usuario"
+                          onClick={() => {
+                            setSinoAberto(false)
+                            setNotifsUsuario((l) => l.map((x) => (x.id === n.id ? { ...x, lida: true } : x)))
+                            void supabase.from('erp_notificacao_usuario').update({ lida: true, lida_em: new Date().toISOString() }).eq('id', n.id).then(() => undefined)
+                          }}>
+                          <div className="px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 hover:bg-[#3D2314]/4 cursor-pointer">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${n.lida ? 'bg-[#3D2314]/20' : 'bg-[#C8941A]'}`} />
+                              <span className="text-[13px] font-medium text-[#3D2314] truncate">{n.titulo}</span>
+                            </div>
+                            {n.mensagem && <div className="text-[11.5px] text-[#3D2314]/55 mt-1 line-clamp-3">{n.mensagem}</div>}
+                          </div>
+                        </Link>
+                      ))}
+                    </>
+                  )}
+                  {/* Chamados (por PESSOA) — resposta ao SEU chamado. Separado dos alertas do sistema. */}
+                  {notifsChamado.length > 0 && (
+                    <>
+                      <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Seus chamados</div>
+                      {notifsChamado.map((n) => (
+                        <Link key={n.id} href={n.tipo === 'atendimento' && n.sugestao_id ? `/dashboard/atendimento?id=${n.sugestao_id}` : '/dashboard/melhorias'}
+                          onClick={() => { setSinoAberto(false); void supabase.from('sugestao_notificacao').update({ lida: true, lida_em: new Date().toISOString() }).eq('id', n.id).then(() => undefined) }}>
+                          <div className="px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 hover:bg-[#3D2314]/4 cursor-pointer">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${n.lida ? 'bg-[#3D2314]/20' : 'bg-[#166534]'}`} />
+                              <span className="text-[13px] font-medium text-[#3D2314] truncate">{n.titulo}</span>
+                            </div>
+                            {n.mensagem && <div className="text-[11.5px] text-[#3D2314]/55 mt-1 line-clamp-3">{n.mensagem}</div>}
+                          </div>
+                        </Link>
+                      ))}
+                    </>
+                  )}
+                  {/* Alertas do sistema (por EMPRESA) */}
+                  {alertas.length > 0 && (
+                    <>
+                      {(notifsChamado.length > 0 || notifsUsuario.length > 0) && <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[#3D2314]/40">Alertas do sistema</div>}
+                      {alertas.map((a) => {
+                        const clicavel = !!a.link_acao
+                        const corpo = (
+                          <div className={`px-4 py-2.5 transition-colors border-b border-[#3D2314]/6 last:border-b-0 ${clicavel ? 'hover:bg-[#3D2314]/4 cursor-pointer' : 'cursor-default'}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${a.severidade === 'alta' || a.severidade === 'critica' ? 'bg-[#E24B4A]' : 'bg-[#C8941A]'}`} />
+                              <span className="text-[13px] font-medium text-[#3D2314] truncate">{a.titulo || 'Alerta'}</span>
+                            </div>
+                            {a.mensagem && <div className="text-[11.5px] text-[#3D2314]/55 mt-1 line-clamp-3">{a.mensagem}</div>}
+                            {!clicavel && <div className="text-[10px] text-[#3D2314]/35 mt-1">— sem tela para abrir</div>}
+                          </div>
+                        )
+                        return clicavel ? (
+                          <Link key={a.id} href={a.link_acao!} onClick={() => setSinoAberto(false)}>{corpo}</Link>
+                        ) : (
+                          <div key={a.id}>{corpo}</div>
+                        )
+                      })}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {user && (
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              aria-label={`Conta de ${user.email}`}
+              aria-haspopup="menu"
+              aria-expanded={menuAberto}
+              data-testid="user-avatar"
+              onClick={() => setMenuAberto((v) => !v)}
+              className="w-9 h-9 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[13px] flex items-center justify-center hover:opacity-95 transition-opacity ring-[1.5px] ring-[#3D2314]/15"
+            >
+              {user.iniciais}
+            </button>
+            {menuAberto && (
+              <div role="menu" className="absolute right-0 top-full mt-2 w-60 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-lg border border-[#3D2314]/10 py-1 z-30">
+                <div className="px-4 py-2.5 border-b border-[#3D2314]/8">
+                  <div className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/45">Conectado como</div>
+                  <div className="text-[13px] font-medium text-[#3D2314] truncate">{user.email}</div>
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  data-testid="logout-button"
+                  onClick={() => { setMenuAberto(false); void sair() }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium text-[#3D2314] hover:bg-[#3D2314]/8 transition-colors text-left"
+                >
+                  <LogOut size={15} /> Sair
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {/* Sair · botão explícito e sempre visível no cabeçalho. Antes só existia dentro do menu da
+            conta (o CEO não achava, ainda mais no mobile). Agora é um toque direto. */}
+        {user && (
+          <button
+            type="button"
+            aria-label="Sair"
+            title="Sair"
+            data-testid="header-logout"
+            onClick={() => void sair()}
+            className="w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+          >
+            <LogOut size={18} />
+          </button>
+        )}
+      </div>
+    </header>
+  )
+}

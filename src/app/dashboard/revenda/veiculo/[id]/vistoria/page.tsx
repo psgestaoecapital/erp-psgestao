@@ -1,0 +1,677 @@
+'use client'
+
+// Revenda · Onda 5B — vistoria no pátio, tela mobile. Fluxo LINEAR guiado (decisão do CEO 06/09):
+// uma região por vez, uma pergunta por vez, na ordem em que a pessoa anda em volta do carro.
+// Salva item a item no servidor (fn_insp_responder); a tolerância vem da RETOMADA (vistoria fica
+// em_andamento e fn_insp_vistoria_abrir devolve ela de volta). SEM localStorage (RD/pátio).
+
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
+import { useParams } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
+
+const C = {
+  esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
+  border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5',
+  red: '#B42318', redBg: '#FDECEC',
+}
+const BUCKET = 'revenda-veiculos'
+const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+type Estado = 'ok' | 'desgaste' | 'reparo' | 'troca'
+type Item = { item_id: string; nome: string; ordem: number; categoria_custo: string | null; estado: Estado | null; descricao: string | null; gasto_previsto: number | null; gasto_realizado: number | null; custo_id: string | null }
+type FotoR = { foto_id: string; storage_path: string; legenda: string | null }
+type Regiao = { regiao_id: string; codigo: string; nome: string; ordem: number; foto_obrigatoria: boolean; foto_rotulo: string | null; tem_foto: boolean; fotos: FotoR[]; itens: Item[] }
+type Vistoria = { id: string; situacao: string; km: number | null; previsao_total: number; concluida_em: string | null; observacao: string | null }
+type Obter = { ok?: boolean; vistoria?: Vistoria; itens_total?: number; itens_avaliados?: number; regioes?: Regiao[] }
+
+const ESTADO_COR: Record<Estado, { bg: string; fg: string }> = {
+  ok: { bg: C.greenBg, fg: C.green }, desgaste: { bg: C.amberBg, fg: C.amber },
+  reparo: { bg: '#FDEEDD', fg: '#B4530F' }, troca: { bg: C.redBg, fg: C.red },
+}
+
+export default function VistoriaPage() {
+  return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
+}
+
+function Inner() {
+  const params = useParams()
+  const veiculoId = typeof params?.id === 'string' ? params.id : Array.isArray(params?.id) ? params!.id[0] : ''
+  const [companyId, setCompanyId] = useState<string | null>(null)
+  const [vistoriaId, setVistoriaId] = useState<string | null>(null)
+  const [data, setData] = useState<Obter | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [carregando, setCarregando] = useState(true)
+  const [modo, setModo] = useState<'fluxo' | 'resumo'>('fluxo')
+  const [regIdx, setRegIdx] = useState(0)
+  const [itemIdx, setItemIdx] = useState(0)
+  const [urls, setUrls] = useState<Record<string, string>>({})
+  const [saveState, setSaveState] = useState<Record<string, 'salvando' | 'salvo' | 'falhou'>>({})
+  const [modoAtivo, setModoAtivo] = useState<'rapida' | 'completa' | null>(null)  // R0.3
+  // R0.3b: abrir a página NÃO cria vistoria (evita fantasmas a cada espiada). Sem vistoria em andamento,
+  // mostra "Iniciar vistoria" com a escolha; só o botão cria.
+  const [precisaIniciar, setPrecisaIniciar] = useState(false)
+  const [modoPadrao, setModoPadrao] = useState<'rapida' | 'completa'>('rapida')
+  const [iniciando, setIniciando] = useState(false)
+  const [concluidaPor, setConcluidaPor] = useState<string | null>(null) // T6: quem fez a vistoria concluída
+  // T6 diferenciais (juiz): sugestão de custo pelo histórico da empresa por item + realizado da preparação.
+  const [sugItens, setSugItens] = useState<Record<string, { ocorrencias: number; min: number; max: number }>>({})
+  const [realizadoPrep, setRealizadoPrep] = useState<number | null>(null)
+  const bootRef = useRef(false)
+
+  // T6 · "Nova vistoria" a partir do resumo concluído: volta pra tela de escolha (não cria nada até clicar).
+  function novaVistoria() {
+    setVistoriaId(null); setData(null); setModoAtivo(null); setConcluidaPor(null); setModo('fluxo'); setRegIdx(0); setPrecisaIniciar(true)
+  }
+
+  async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
+
+  const carregarVistoria = useCallback(async (vid: string) => {
+    const { data: j } = await supabase.rpc('fn_insp_vistoria_obter', { p_vistoria_id: vid })
+    const r = j as Obter | null
+    if (r?.ok) {
+      setData(r)
+      const paths = (r.regioes ?? []).flatMap((rg) => rg.fotos?.map((f) => f.storage_path) ?? [])
+      if (paths.length) {
+        const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrls(paths, 3600)
+        const m: Record<string, string> = {}
+        ;(signed ?? []).forEach((s) => { if (s.signedUrl && s.path) m[s.path] = s.signedUrl })
+        setUrls((prev) => ({ ...prev, ...m }))
+      }
+    }
+  }, [])
+
+  // R0.3: abre (ou retoma) a vistoria no MODO pedido — pega o modelo desse modo (semeia a rápida se faltar).
+  const abrirNoModo = useCallback(async (comp: string, uid: string | null, modo: 'rapida' | 'completa') => {
+    let modeloId: string | null = null
+    const { data: mod } = await supabase.from('insp_modelo').select('id')
+      .eq('company_id', comp).eq('escopo', 'veiculo_revenda').eq('modo', modo).eq('ativo', true)
+      .order('padrao', { ascending: false }).limit(1).maybeSingle()
+    modeloId = (mod as { id?: string } | null)?.id ?? null
+    if (!modeloId) {
+      const rpc = modo === 'rapida' ? 'fn_insp_modelo_semear_rapido' : 'fn_insp_modelo_semear'
+      const args = modo === 'rapida' ? { p_company_id: comp } : { p_company_id: comp, p_escopo: 'veiculo_revenda', p_tipo_alvo: 'carro' }
+      const { data: sem } = await supabase.rpc(rpc, args)
+      modeloId = (sem as { modelo_id?: string } | null)?.modelo_id ?? null
+    }
+    if (!modeloId) { setErro('Não foi possível preparar o checklist da vistoria.'); return }
+    const { data: ab } = await supabase.rpc('fn_insp_vistoria_abrir', { p_company_id: comp, p_alvo_tabela: 'veic_veiculo', p_alvo_id: veiculoId, p_modelo_id: modeloId, p_user: uid })
+    const abr = ab as { ok?: boolean; vistoria_id?: string; erro?: string } | null
+    if (!abr?.ok || !abr.vistoria_id) { setErro(abr?.erro || 'Não foi possível abrir a vistoria.'); return }
+    setModoAtivo(modo)
+    setVistoriaId(abr.vistoria_id)
+    setRegIdx(0)
+    await carregarVistoria(abr.vistoria_id)
+  }, [veiculoId, carregarVistoria])
+
+  // R0.3b: só o clique cria a vistoria (no modo escolhido).
+  async function iniciar(m: 'rapida' | 'completa') {
+    if (!companyId || iniciando) return
+    setIniciando(true); setErro(null)
+    try { await abrirNoModo(companyId, await userId(), m); setPrecisaIniciar(false) } finally { setIniciando(false) }
+  }
+
+  // boot: descobre empresa e RETOMA a vistoria em andamento existente (SEM criar nada). Se não houver,
+  // pede para iniciar (a tela mostra "Iniciar vistoria"). Abrir a página nunca cria vistoria (sem fantasmas).
+  useEffect(() => {
+    if (bootRef.current || !veiculoId) return
+    bootRef.current = true
+    void (async () => {
+      setCarregando(true)
+      try {
+        const { data: veic } = await supabase.from('veic_veiculo').select('company_id').eq('id', veiculoId).maybeSingle()
+        const comp = (veic as { company_id?: string } | null)?.company_id
+        if (!comp) { setErro('Veículo não encontrado.'); return }
+        setCompanyId(comp)
+        // modo padrão da empresa (Config da garagem); fallback 'completa'
+        const { data: cfg } = await supabase.from('veic_config').select('vistoria_modo_padrao').eq('company_id', comp).maybeSingle()
+        setModoPadrao(((cfg as { vistoria_modo_padrao?: string } | null)?.vistoria_modo_padrao === 'rapida') ? 'rapida' : 'completa')
+        // vistoria EM ANDAMENTO já existente? retoma (mantém o modelo em que começou).
+        const { data: vx } = await supabase.from('insp_vistoria')
+          .select('id, modelo_id').eq('company_id', comp).eq('alvo_tabela', 'veic_veiculo').eq('alvo_id', veiculoId)
+          .eq('situacao', 'em_andamento').order('iniciada_em', { ascending: false }).limit(1).maybeSingle()
+        const existente = vx as { id?: string; modelo_id?: string } | null
+        if (existente?.id) {
+          if (existente.modelo_id) {
+            const { data: m } = await supabase.from('insp_modelo').select('modo').eq('id', existente.modelo_id).maybeSingle()
+            setModoAtivo(((m as { modo?: string } | null)?.modo === 'rapida') ? 'rapida' : 'completa')
+          }
+          setVistoriaId(existente.id)
+          await carregarVistoria(existente.id)
+          return
+        }
+        // T6 (juiz): sem vistoria em andamento, mas há uma CONCLUÍDA? mostra o RESULTADO (resumo somente-leitura),
+        // não a tela de "Iniciar". Antes o carro já vistoriado caía em "Iniciar vistoria" e o resultado sumia.
+        const { data: vc } = await supabase.from('insp_vistoria')
+          .select('id, modelo_id, criado_por').eq('company_id', comp).eq('alvo_tabela', 'veic_veiculo').eq('alvo_id', veiculoId)
+          .eq('situacao', 'concluida').order('concluida_em', { ascending: false }).limit(1).maybeSingle()
+        const concl = vc as { id?: string; modelo_id?: string; criado_por?: string } | null
+        if (concl?.id) {
+          if (concl.modelo_id) {
+            const { data: m } = await supabase.from('insp_modelo').select('modo').eq('id', concl.modelo_id).maybeSingle()
+            setModoAtivo(((m as { modo?: string } | null)?.modo === 'rapida') ? 'rapida' : 'completa')
+          }
+          if (concl.criado_por) {
+            const { data: u } = await supabase.from('users').select('email').eq('id', concl.criado_por).maybeSingle()
+            setConcluidaPor((u as { email?: string } | null)?.email ?? null)
+          }
+          setVistoriaId(concl.id)
+          await carregarVistoria(concl.id)
+        } else {
+          setPrecisaIniciar(true)
+        }
+      } catch { setErro('Falha ao abrir a vistoria.') }
+      finally { setCarregando(false) }
+    })()
+  }, [veiculoId, carregarVistoria])
+
+  const regioes = useMemo(() => data?.regioes ?? [], [data])
+  const regiao = regioes[regIdx] ?? null
+  const concluida = data?.vistoria?.situacao === 'concluida'
+
+  // T6 diferenciais · quando a vistoria está CONCLUÍDA, carrega (a) a sugestão de custo pelo histórico da
+  // empresa para cada item de reparo/troca (fn_insp_sugestao_gasto) e (b) o REALIZADO da preparação = soma
+  // dos custos lançados nas OS ligadas ao veículo (veic_custo.os_id). Previsto × realizado no nível da vistoria.
+  useEffect(() => {
+    if (!concluida || !companyId || !data) return
+    let vivo = true
+    void (async () => {
+      const itens = (data.regioes ?? []).flatMap((rg) => rg.itens).filter((i) => i.estado === 'reparo' || i.estado === 'troca')
+      const ids = [...new Set(itens.map((i) => i.item_id))]
+      const sug: Record<string, { ocorrencias: number; min: number; max: number }> = {}
+      await Promise.all(ids.map(async (id) => {
+        const { data: s } = await supabase.rpc('fn_insp_sugestao_gasto', { p_company_id: companyId, p_item_id: id })
+        const r = s as { tem_historico?: boolean; ocorrencias?: number; min?: number; max?: number } | null
+        if (r?.tem_historico && r.min != null && r.max != null) sug[id] = { ocorrencias: r.ocorrencias ?? 0, min: r.min, max: r.max }
+      }))
+      const { data: custos } = await supabase.from('veic_custo').select('valor').eq('veiculo_id', veiculoId).not('os_id', 'is', null).is('deleted_at', null)
+      const real = ((custos as { valor: number | null }[]) ?? []).reduce((s, c) => s + (Number(c.valor) || 0), 0)
+      if (vivo) { setSugItens(sug); setRealizadoPrep(real) }
+    })()
+    return () => { vivo = false }
+  }, [concluida, companyId, data, veiculoId])
+
+  // primeiro item não respondido da região (retomada visual)
+  useEffect(() => {
+    if (!regiao) return
+    const prox = regiao.itens.findIndex((i) => i.estado == null)
+    setItemIdx(prox >= 0 ? prox : Math.max(0, regiao.itens.length - 1))
+  }, [regIdx, regiao?.regiao_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function responder(item: Item, estado: Estado | null, descricao: string | null, gasto: number | null, avancar: boolean) {
+    if (!vistoriaId) return
+    setSaveState((s) => ({ ...s, [item.item_id]: 'salvando' }))
+    const { data: j } = await supabase.rpc('fn_insp_responder', { p_vistoria_id: vistoriaId, p_item_id: item.item_id, p_estado: estado, p_descricao: descricao, p_gasto: gasto, p_user: await userId() })
+    const r = j as { ok?: boolean; previsao_total?: number } | null
+    if (!r?.ok) { setSaveState((s) => ({ ...s, [item.item_id]: 'falhou' })); return }
+    setSaveState((s) => ({ ...s, [item.item_id]: 'salvo' }))
+    // atualiza local sem recarregar tudo
+    setData((prev) => {
+      if (!prev) return prev
+      const rg = (prev.regioes ?? []).map((x) => x.regiao_id !== regiao?.regiao_id ? x : {
+        ...x, itens: x.itens.map((it) => it.item_id === item.item_id ? { ...it, estado, descricao, gasto_previsto: gasto } : it),
+      })
+      const avaliados = rg.reduce((s, x) => s + x.itens.filter((it) => it.estado != null).length, 0)
+      const vist = prev.vistoria ? { ...prev.vistoria, previsao_total: r.previsao_total ?? prev.vistoria.previsao_total } : prev.vistoria
+      return { ...prev, regioes: rg, itens_avaliados: avaliados, vistoria: vist }
+    })
+    if (avancar) proximoItem()
+  }
+
+  function proximoItem() {
+    if (!regiao) return
+    if (itemIdx < regiao.itens.length - 1) setItemIdx(itemIdx + 1)
+    // fim da região: não pula sozinho (a foto obrigatória pode faltar) — o botão de avançar região cuida
+  }
+  function avancarRegiao() {
+    if (regIdx < regioes.length - 1) setRegIdx(regIdx + 1)
+    else setModo('resumo')
+  }
+  function voltarRegiao() {
+    if (regIdx > 0) setRegIdx(regIdx - 1)
+  }
+
+  async function uploadFoto(rg: Regiao, file: File) {
+    if (!vistoriaId || !companyId) return
+    const ext = ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'jpg'
+    // Storage RLS do bucket (revenda-veiculos) exige o company_id como PRIMEIRO segmento do path
+    // (split_part(name,'/',1) IN get_user_company_ids) — as políticas veic_foto_* de 2026-09-03.
+    // O path antigo começava por 'vistorias/' → a policy negava o INSERT e a foto NUNCA subia
+    // (#21/#22/#33 do Fábio: "não sobe a foto no pátio"). company_id primeiro reusa a policy provada.
+    const path = `${companyId}/vistorias/${vistoriaId}/${rg.regiao_id}/${Date.now()}.${ext}`
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
+    if (upErr) { setErro('Falha no upload da foto: ' + upErr.message); return }
+    const { data: j } = await supabase.rpc('fn_insp_foto_registrar', { p_vistoria_id: vistoriaId, p_regiao_id: rg.regiao_id, p_storage_path: path, p_legenda: rg.foto_rotulo, p_user: await userId() })
+    const r = j as { ok?: boolean; erro?: string } | null
+    if (!r?.ok) { setErro(r?.erro || 'Falha ao registrar a foto.'); await supabase.storage.from(BUCKET).remove([path]); return }
+    await carregarVistoria(vistoriaId)
+  }
+  async function removerFoto(f: FotoR) {
+    if (!vistoriaId) return
+    const { data: j } = await supabase.rpc('fn_insp_foto_remover', { p_foto_id: f.foto_id, p_user: await userId() })
+    const r = j as { ok?: boolean; storage_path_removido?: string } | null
+    if (!r?.ok) { setErro('Falha ao remover a foto.'); return }
+    if (r.storage_path_removido) await supabase.storage.from(BUCKET).remove([r.storage_path_removido])
+    await carregarVistoria(vistoriaId)
+  }
+  async function setKm(km: string) {
+    if (!vistoriaId) return
+    const n = Number(String(km).replace(',', '.'))
+    await supabase.from('insp_vistoria').update({ km: Number.isFinite(n) && n > 0 ? n : null }).eq('id', vistoriaId)
+    setData((prev) => prev?.vistoria ? { ...prev, vistoria: { ...prev.vistoria, km: Number.isFinite(n) ? n : null } } : prev)
+  }
+
+  const totais = useMemo(() => {
+    const its = regioes.flatMap((r) => r.itens)
+    return {
+      total: data?.itens_total ?? its.length,
+      avaliados: data?.itens_avaliados ?? its.filter((i) => i.estado != null).length,
+      reparo: its.filter((i) => i.estado === 'reparo').length,
+      troca: its.filter((i) => i.estado === 'troca').length,
+      previsao: data?.vistoria?.previsao_total ?? 0,
+      fotosOk: regioes.filter((r) => r.foto_obrigatoria && r.tem_foto).length,
+      fotosObrig: regioes.filter((r) => r.foto_obrigatoria).length,
+    }
+  }, [regioes, data])
+
+  if (carregando) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Preparando a vistoria…</div>
+  if (erro && !data) return <div style={{ padding: 28, background: C.bg, minHeight: '100vh' }}><div style={{ background: C.redBg, color: C.red, padding: 14, borderRadius: 10 }}>{erro}</div><a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ color: C.espM, fontSize: 13, display: 'inline-block', marginTop: 12 }}>← voltar à ficha</a></div>
+
+  // R0.3b: sem vistoria em andamento — a página NÃO cria nada; o operador escolhe e o BOTÃO cria.
+  if (precisaIniciar && !vistoriaId) {
+    const opcoes: { m: 'rapida' | 'completa'; titulo: string; sub: string }[] = [
+      { m: 'rapida', titulo: 'Vistoria rápida', sub: '9 itens · foto só no que for reparo/troca' },
+      { m: 'completa', titulo: 'Vistoria completa', sub: '80 itens · checklist detalhado por região' },
+    ]
+    return (
+      <div style={{ background: C.bg, minHeight: '100vh', color: C.esp, maxWidth: 560, margin: '0 auto', padding: '18px 16px 40px' }}>
+        <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ fontSize: 12, color: C.espM, textDecoration: 'none' }}>← voltar à ficha</a>
+        <h1 style={{ fontSize: 20, fontWeight: 700, margin: '10px 0 4px' }}>Iniciar vistoria</h1>
+        <p style={{ fontSize: 13, color: C.espM, margin: '0 0 16px' }}>Escolha o tipo de vistoria para começar. Nada é criado até você iniciar.</p>
+        {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
+        <div style={{ display: 'grid', gap: 12 }}>
+          {opcoes.map((o) => (
+            <button key={o.m} onClick={() => void iniciar(o.m)} disabled={iniciando}
+              style={{ textAlign: 'left', border: `1px solid ${o.m === modoPadrao ? C.gold : C.border}`, background: C.white, borderRadius: 12, padding: 14, cursor: iniciando ? 'wait' : 'pointer' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: C.esp }}>{o.titulo}</span>
+                {o.m === modoPadrao && <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: C.gold, borderRadius: 999, padding: '2px 8px' }}>padrão</span>}
+              </div>
+              <div style={{ fontSize: 12, color: C.espM, marginTop: 3 }}>{o.sub}</div>
+            </button>
+          ))}
+        </div>
+        {iniciando && <div style={{ fontSize: 12, color: C.espM, marginTop: 12 }}>Iniciando…</div>}
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ background: C.bg, minHeight: '100vh', color: C.esp, maxWidth: 560, margin: '0 auto', paddingBottom: 40 }}>
+      {/* Barra de progresso permanente (§2.6) */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.white, borderBottom: `1px solid ${C.border}`, padding: '10px 14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5 }}>
+          <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ color: C.gold, textDecoration: 'none' }}>← ficha</a>
+          <span style={{ fontWeight: 700, color: C.esp }}>{totais.avaliados}/{totais.total} itens</span>
+          <span style={{ color: C.gold, fontWeight: 700 }}>{brl(totais.previsao)}</span>
+        </div>
+        <div style={{ height: 6, background: C.cream, borderRadius: 999, marginTop: 8, overflow: 'hidden' }}>
+          <div style={{ width: `${totais.total ? (totais.avaliados / totais.total * 100) : 0}%`, height: '100%', background: C.gold, transition: 'width .3s' }} />
+        </div>
+      </div>
+
+      {/* R0.3b: o modo é escolhido na tela "Iniciar vistoria" (antes de criar). Aqui mostramos só qual está ativo. */}
+      {!concluida && modoAtivo && (
+        <div style={{ padding: '6px 14px', fontSize: 11, color: C.espM, borderBottom: `1px solid ${C.border}` }}>
+          Vistoria {modoAtivo === 'rapida' ? 'rápida (9 itens)' : 'completa (80 itens)'}
+        </div>
+      )}
+
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 14px', fontSize: 13 }} onClick={() => setErro(null)}>{erro}</div>}
+
+      {concluida ? (
+        <ResumoConcluida regioes={regioes} totais={totais} vistoria={data?.vistoria ?? null}
+          modo={modoAtivo} quem={concluidaPor} urls={urls} veiculoId={veiculoId} onNova={novaVistoria}
+          sugItens={sugItens} realizadoPrep={realizadoPrep} />
+      ) : modo === 'resumo' ? (
+        <Resumo totais={totais} onVoltar={() => setModo('fluxo')} vistoriaId={vistoriaId} userId={userId}
+          onConcluida={() => { if (vistoriaId) void carregarVistoria(vistoriaId) }} onErro={setErro}
+          regioes={regioes} onIrRegiao={(idx) => { setRegIdx(idx); setModo('fluxo') }} />
+      ) : regiao ? (
+        <div style={{ padding: 14 }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>Região {regiao.ordem}/{regioes.length}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 10 }}>{regiao.nome}</div>
+
+          {/* Foto da região (§2.4) */}
+          {/* Vistoria RÁPIDA: nenhuma região tem foto obrigatória, mas item em reparo/troca exige foto para concluir
+              (fn_insp_vistoria_concluir, guard 1b). Sem este campo não havia onde anexá-la e a vistoria nunca concluía. */}
+          {(regiao.foto_obrigatoria || (regiao.foto_rotulo ?? '') !== '' || regiao.itens.some((i) => i.estado === 'reparo' || i.estado === 'troca')) && (
+            <FotoRegiao rg={regiao} urls={urls} onUpload={(f) => void uploadFoto(regiao, f)} onRemover={(f) => void removerFoto(f)}
+              exigida={regiao.foto_obrigatoria || regiao.itens.some((i) => i.estado === 'reparo' || i.estado === 'troca')} />
+          )}
+
+          {/* KM (só interior) */}
+          {regiao.codigo === 'interior' && (
+            <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+              <label style={{ fontSize: 12.5, color: C.espM, fontWeight: 700 }}>KM do veículo</label>
+              <input defaultValue={data?.vistoria?.km ?? ''} inputMode="numeric" onBlur={(e) => void setKm(e.target.value)}
+                placeholder="ex.: 84500" style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: '12px', fontSize: 18, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
+            </div>
+          )}
+
+          {/* Item atual — o coração (§2.2) */}
+          {regiao.itens[itemIdx] && (
+            <ItemCard key={regiao.itens[itemIdx].item_id} item={regiao.itens[itemIdx]} idx={itemIdx} total={regiao.itens.length}
+              regiaoNome={regiao.nome} companyId={companyId} save={saveState[regiao.itens[itemIdx].item_id]}
+              onResponder={(estado, desc, gasto, avancar) => void responder(regiao.itens[itemIdx], estado, desc, gasto, avancar)}
+              onPular={() => { void responder(regiao.itens[itemIdx], null, null, null, true) }} />
+          )}
+
+          {/* Navegação da região */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
+            <button onClick={() => itemIdx > 0 ? setItemIdx(itemIdx - 1) : voltarRegiao()} style={btnGhost}>‹ anterior</button>
+            <div style={{ flex: 1 }} />
+            {itemIdx < regiao.itens.length - 1
+              ? <button onClick={() => setItemIdx(itemIdx + 1)} style={btnGhost}>próximo ›</button>
+              : <AvancarRegiao regiao={regiao} onAvancar={avancarRegiao} />}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const btnGhost: React.CSSProperties = { background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, color: C.espM, cursor: 'pointer' }
+
+function AvancarRegiao({ regiao, onAvancar }: { regiao: Regiao; onAvancar: () => void }) {
+  const bloqueado = regiao.foto_obrigatoria && !regiao.tem_foto
+  return (
+    <div style={{ textAlign: 'right' }}>
+      <button disabled={bloqueado} onClick={onAvancar}
+        style={{ background: bloqueado ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 700, cursor: bloqueado ? 'not-allowed' : 'pointer' }}>
+        {regiao.ordem >= 7 ? 'ir ao resumo →' : 'próxima região →'}
+      </button>
+      {bloqueado && <div style={{ fontSize: 11, color: C.amber, marginTop: 4 }}>Tire a foto obrigatória desta região para avançar.</div>}
+    </div>
+  )
+}
+
+function FotoRegiao({ rg, urls, onUpload, onRemover, exigida }: { rg: Regiao; urls: Record<string, string>; onUpload: (f: File) => void; onRemover: (f: FotoR) => void; exigida: boolean }) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <div style={{ background: C.white, border: `1px solid ${exigida && !rg.tem_foto ? C.amber : C.border}`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.esp }}>📷 {rg.foto_rotulo || (rg.foto_obrigatoria ? 'Foto da região' : 'Foto do reparo/troca')}{exigida && <span style={{ color: C.amber }}> · obrigatória</span>}</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+        {rg.fotos.map((f) => (
+          <div key={f.foto_id} style={{ position: 'relative', width: 84, height: 84, borderRadius: 8, overflow: 'hidden', background: C.cream, border: `1px solid ${C.border}` }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {urls[f.storage_path] ? <img src={urls[f.storage_path]} alt="foto" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: 10, color: C.espL, display: 'block', padding: 6 }}>carregando…</span>}
+            <button onClick={() => onRemover(f)} aria-label="remover" style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,.55)', color: '#fff', border: 'none', borderRadius: 999, width: 22, height: 22, cursor: 'pointer', fontSize: 13 }}>✕</button>
+          </div>
+        ))}
+        <label style={{ width: 84, height: 84, borderRadius: 8, border: `1px dashed ${C.gold}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.gold, fontSize: 24, cursor: busy ? 'wait' : 'pointer' }}>
+          {busy ? '…' : '＋'}
+          <input type="file" accept="image/*" capture="environment" disabled={busy} style={{ display: 'none' }}
+            onChange={async (e) => { const f = e.target.files?.[0]; e.currentTarget.value = ''; if (f) { setBusy(true); try { await onUpload(f) } finally { setBusy(false) } } }} />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+function ItemCard({ item, idx, total, regiaoNome, companyId, save, onResponder, onPular }: {
+  item: Item; idx: number; total: number; regiaoNome: string; companyId: string | null
+  save?: 'salvando' | 'salvo' | 'falhou'
+  onResponder: (estado: Estado, desc: string | null, gasto: number | null, avancar: boolean) => void
+  onPular: () => void
+}) {
+  const [expandido, setExpandido] = useState<null | 'reparo' | 'troca'>(item.estado === 'reparo' || item.estado === 'troca' ? item.estado : null)
+  const [desc, setDesc] = useState(item.descricao ?? '')
+  const [valor, setValor] = useState(item.gasto_previsto != null ? String(item.gasto_previsto) : '')
+  const [sug, setSug] = useState<{ tem_historico?: boolean; ocorrencias?: number; min?: number; max?: number } | null>(null)
+
+  useEffect(() => {
+    if (!expandido || !companyId) return  // painel fechado: mantém sug (não seta síncrono no efeito)
+    let vivo = true
+    void supabase.rpc('fn_insp_sugestao_gasto', { p_company_id: companyId, p_item_id: item.item_id }).then(({ data }) => {
+      if (vivo) setSug(data as { tem_historico?: boolean; ocorrencias?: number; min?: number; max?: number } | null)
+    })
+    return () => { vivo = false }
+  }, [expandido, companyId, item.item_id])
+
+  const escolher = (estado: Estado) => {
+    if (estado === 'reparo' || estado === 'troca') { setExpandido(estado) }
+    else onResponder(estado, null, null, true) // OK/DESGASTE avança sozinho
+  }
+  const salvarValor = () => {
+    if (!expandido) return
+    const n = Number(String(valor).replace(',', '.'))
+    onResponder(expandido, desc.trim() || null, Number.isFinite(n) && n > 0 ? n : null, true)
+  }
+
+  const cor = item.estado ? ESTADO_COR[item.estado] : null
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 }}>
+      <div style={{ fontSize: 21, fontWeight: 700, textAlign: 'center' }}>{item.nome}</div>
+      <div style={{ fontSize: 12, color: C.espM, textAlign: 'center', marginTop: 2 }}>
+        item {idx + 1} de {total} · {regiaoNome}
+        {cor && <span style={{ marginLeft: 8, padding: '1px 8px', borderRadius: 999, background: cor.bg, color: cor.fg, fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase' }}>{item.estado}</span>}
+        {save === 'salvando' && <span style={{ marginLeft: 8, color: C.espL }}>salvando…</span>}
+        {save === 'salvo' && <span style={{ marginLeft: 8, color: C.green }}>salvo ✓</span>}
+        {save === 'falhou' && <span style={{ marginLeft: 8, color: C.red }}>falhou ↻</span>}
+      </div>
+
+      {!expandido ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16 }}>
+            {(['ok', 'desgaste', 'reparo', 'troca'] as Estado[]).map((e) => {
+              const c = ESTADO_COR[e]
+              const sel = item.estado === e
+              return (
+                <button key={e} onClick={() => escolher(e)}
+                  style={{ padding: '20px 8px', borderRadius: 12, border: `2px solid ${sel ? c.fg : C.border}`, background: sel ? c.bg : C.white, color: c.fg, fontSize: 16, fontWeight: 700, textTransform: 'uppercase', cursor: 'pointer', minHeight: 64 }}>
+                  {e}
+                </button>
+              )
+            })}
+          </div>
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <button onClick={onPular} style={{ background: 'none', border: 'none', color: C.espL, fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>pular</button>
+          </div>
+        </>
+      ) : (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12.5, color: C.espM, fontWeight: 700 }}>O que precisa?</div>
+          <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="ex.: Reparo tecido/couro"
+            style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: 12, fontSize: 15, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
+          <div style={{ fontSize: 12.5, color: C.espM, fontWeight: 700, marginTop: 12 }}>Quanto vai custar?</div>
+          <input value={valor} onChange={(e) => setValor(e.target.value)} inputMode="decimal" placeholder="R$ 0,00"
+            style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: 12, fontSize: 18, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
+          {/* sugestão só com histórico real (§2.3) — nunca faixa inventada */}
+          {sug?.tem_historico && sug.min != null && sug.max != null && (
+            <div style={{ background: C.amberBg, borderRadius: 8, padding: '8px 10px', marginTop: 8, fontSize: 12, color: '#8A4B08' }}>
+              💡 Nas últimas {sug.ocorrencias} vezes você pagou entre {brl(sug.min)} e {brl(sug.max)}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'space-between' }}>
+            <button onClick={() => setExpandido(null)} style={btnGhost}>‹ voltar</button>
+            <button onClick={salvarValor} style={{ background: C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>salvar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Resumo({ totais, onVoltar, vistoriaId, userId, onConcluida, onErro, regioes, onIrRegiao }: {
+  totais: { total: number; avaliados: number; reparo: number; troca: number; previsao: number; fotosOk: number; fotosObrig: number }
+  onVoltar: () => void; vistoriaId: string | null; userId: () => Promise<string | null>
+  onConcluida: () => void; onErro: (m: string) => void; regioes: Regiao[]; onIrRegiao: (idx: number) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [pend, setPend] = useState<{ fotos: string[]; gastos: string[] } | null>(null)
+  const naoAvaliados = totais.total - totais.avaliados
+
+  async function concluir() {
+    if (!vistoriaId) return
+    setBusy(true); setPend(null)
+    const { data: j } = await supabase.rpc('fn_insp_vistoria_concluir', { p_vistoria_id: vistoriaId, p_user: await userId() })
+    setBusy(false)
+    const r = j as { ok?: boolean; erro?: string; fotos_faltando?: string[]; fotos_reparo_troca_faltando?: string[]; gastos_faltando?: string[] } | null
+    if (r?.ok) { onConcluida(); return }
+    if (r?.erro === 'pendencias') {
+      // Vistoria RÁPIDA: a foto que falta é a do item em reparo/troca (fotos_reparo_troca_faltando), não a da
+      // região — antes a tela só lia fotos_faltando e o bloqueio acontecia em silêncio (botão "não fazia nada").
+      const fotos = [...(r.fotos_faltando ?? []), ...(r.fotos_reparo_troca_faltando ?? [])]
+      const gastos = r.gastos_faltando ?? []
+      if (fotos.length === 0 && gastos.length === 0) { onErro('A vistoria ainda tem pendências para concluir.'); return }
+      setPend({ fotos, gastos }); return
+    }
+    onErro(r?.erro || 'Não foi possível concluir a vistoria.')
+  }
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>Resumo</div>
+      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginTop: 8 }}>
+        <Linha label="Avaliados" valor={`${totais.avaliados} de ${totais.total} itens`} alerta={naoAvaliados > 0 ? `⚠️ ${naoAvaliados} não avaliados` : undefined} />
+        <Linha label="Precisa reparo" valor={`${totais.reparo} ${totais.reparo === 1 ? 'item' : 'itens'}`} />
+        <Linha label="Precisa troca" valor={`${totais.troca} ${totais.troca === 1 ? 'item' : 'itens'}`} />
+        <div style={{ borderTop: `1px solid ${C.cream}`, margin: '10px 0', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>PREVISÃO DE GASTOS</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: C.gold }}>{brl(totais.previsao)}</span>
+        </div>
+        <Linha label="Fotos" valor={`${totais.fotosOk} de ${totais.fotosObrig} regiões`} ok={totais.fotosOk === totais.fotosObrig} />
+      </div>
+
+      {pend && (pend.fotos.length > 0 || pend.gastos.length > 0) && (
+        <div style={{ background: C.redBg, border: `1px solid ${C.red}44`, borderRadius: 12, padding: 12, marginTop: 12, fontSize: 13, color: C.red }}>
+          <b>Falta para concluir:</b>
+          {/* rótulo em elemento próprio: os links (região/item) vêm DEPOIS dele, não dentro — "o próximo botão
+              após 'Foto obrigatória'" é o link do item, e não "continuar avaliando" */}
+          {pend.fotos.length > 0 && <div style={{ marginTop: 6 }}><span>📷 Foto obrigatória:</span>{' '}{pend.fotos.map((nome) => {
+            // o nome pode ser da região (modelo completo) ou do item em reparo/troca (modelo rápido)
+            const idx = regioes.findIndex((r) => r.nome === nome || r.itens.some((i) => i.nome === nome))
+            return <button key={nome} onClick={() => idx >= 0 && onIrRegiao(idx)} style={{ background: 'none', border: 'none', color: C.red, textDecoration: 'underline', cursor: 'pointer', fontSize: 13, padding: 0, marginRight: 8 }}>{nome}</button>
+          })}</div>}
+          {pend.gastos.length > 0 && <div style={{ marginTop: 6 }}>💰 Valor faltando em: {pend.gastos.join(', ')}</div>}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+        <button onClick={onVoltar} style={btnGhost}>‹ continuar avaliando</button>
+        <div style={{ flex: 1 }} />
+        <button disabled={busy} onClick={() => void concluir()}
+          style={{ background: busy ? C.espL : C.green, color: '#fff', border: 'none', borderRadius: 10, padding: '12px 22px', fontSize: 15, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>
+          {busy ? 'Concluindo…' : 'CONCLUIR VISTORIA'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// T6 (juiz) · RESUMO somente-leitura de uma vistoria CONCLUÍDA. Antes o carro já vistoriado abria em
+// "Iniciar vistoria" e o resultado sumia. Aqui mostra data/quem/modo/KM, previsão × realizado, cada item
+// com seu estado (OK/desgaste/reparo/troca) + descrição + previsto×realizado, as fotos por região, o link
+// para a precificação que ela alimenta, e "Nova vistoria".
+function ResumoConcluida({ regioes, totais, vistoria, modo, quem, urls, veiculoId, onNova, sugItens, realizadoPrep }: {
+  regioes: Regiao[]
+  totais: { total: number; avaliados: number; reparo: number; troca: number; previsao: number; fotosOk: number; fotosObrig: number }
+  vistoria: Vistoria | null; modo: 'rapida' | 'completa' | null; quem: string | null
+  urls: Record<string, string>; veiculoId: string; onNova: () => void
+  sugItens: Record<string, { ocorrencias: number; min: number; max: number }>; realizadoPrep: number | null
+}) {
+  const brDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('pt-BR') : '—'
+  const realizado = realizadoPrep ?? 0
+  const avaliadas = regioes.filter((r) => r.itens.some((i) => i.estado != null))
+  const naoAvaliados = totais.total - totais.avaliados
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <span style={{ fontSize: 28 }}>✅</span>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Vistoria concluída</div>
+          <div style={{ fontSize: 12, color: C.espM }}>
+            {brDate(vistoria?.concluida_em)}{quem ? ` · ${quem}` : ''}{modo ? ` · ${modo === 'rapida' ? 'rápida' : 'completa'}` : ''}{vistoria?.km != null ? ` · ${vistoria.km.toLocaleString('pt-BR')} km` : ''}
+          </div>
+        </div>
+      </div>
+
+      {/* cabeçalho de números: previsto × realizado */}
+      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 }}>
+        <Linha label="Avaliados" valor={`${totais.avaliados} de ${totais.total} itens`} alerta={naoAvaliados > 0 ? `${naoAvaliados} não avaliados` : undefined} />
+        <Linha label="Precisa reparo" valor={`${totais.reparo} ${totais.reparo === 1 ? 'item' : 'itens'}`} />
+        <Linha label="Precisa troca" valor={`${totais.troca} ${totais.troca === 1 ? 'item' : 'itens'}`} />
+        <div style={{ borderTop: `1px solid ${C.cream}`, margin: '10px 0 0', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>PREVISÃO DE GASTOS</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: C.gold }}>{brl(totais.previsao)}</span>
+        </div>
+        {/* T6 · previsto × realizado (nível vistoria): realizado = custos lançados nas OS de preparação do veículo */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+          <span style={{ fontSize: 12.5, color: C.espM }}>realizado (custos de preparação lançados)</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: realizadoPrep == null ? C.espL : realizado > totais.previsao ? C.red : C.green }}>{realizadoPrep == null ? '—' : brl(realizado)}</span>
+        </div>
+        {realizadoPrep != null && (
+          <div style={{ fontSize: 11, color: C.espM, marginTop: 2, textAlign: 'right' }}>
+            {realizado > totais.previsao ? `estourou a previsão em ${brl(realizado - totais.previsao)}` : realizado > 0 ? `${brl(totais.previsao - realizado)} abaixo da previsão` : 'nenhum custo de preparação lançado ainda'}
+          </div>
+        )}
+      </div>
+
+      {/* itens por região, com estado + descrição + previsto×realizado; fotos da região */}
+      <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+        {avaliadas.map((r) => (
+          <div key={r.regiao_id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.esp, marginBottom: 6 }}>{r.nome}</div>
+            {r.fotos.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                {r.fotos.map((f) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  urls[f.storage_path] ? <img key={f.foto_id} src={urls[f.storage_path]} alt="foto" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: `1px solid ${C.border}` }} /> : null
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'grid', gap: 4 }}>
+              {r.itens.filter((i) => i.estado != null).map((i) => {
+                const cor = i.estado ? ESTADO_COR[i.estado] : null
+                return (
+                  <div key={i.item_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, borderTop: `1px solid ${C.cream}`, paddingTop: 4 }}>
+                    {cor && <span style={{ padding: '1px 7px', borderRadius: 999, background: cor.bg, color: cor.fg, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{i.estado}</span>}
+                    <span style={{ flex: 1, minWidth: 0, color: C.esp }}>{i.nome}{i.descricao ? <span style={{ color: C.espM }}> — {i.descricao}</span> : ''}</span>
+                    {/* T6 · sugestão de custo pelo histórico da empresa para este item (fn_insp_sugestao_gasto) */}
+                    {sugItens[i.item_id] && (
+                      <span title={`Nas últimas ${sugItens[i.item_id].ocorrencias} vezes, a empresa pagou entre ${brl(sugItens[i.item_id].min)} e ${brl(sugItens[i.item_id].max)} neste item`}
+                        style={{ whiteSpace: 'nowrap', fontSize: 10, padding: '1px 6px', borderRadius: 999, background: C.amberBg, color: '#8A4B08', fontWeight: 700 }}>
+                        💡 {brl(sugItens[i.item_id].min)}–{brl(sugItens[i.item_id].max)}
+                      </span>
+                    )}
+                    {(i.gasto_previsto != null || i.gasto_realizado != null) && (
+                      <span style={{ whiteSpace: 'nowrap', color: C.espM, fontSize: 11.5 }}>
+                        {i.gasto_previsto != null ? `prev. ${brl(i.gasto_previsto)}` : ''}
+                        {i.gasto_realizado != null ? <b style={{ color: i.gasto_realizado > (i.gasto_previsto ?? 0) ? C.red : C.green }}> · real. {brl(i.gasto_realizado)}</b> : ''}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* link para a precificação que a vistoria alimenta + nova vistoria */}
+      <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+        <a href={`/dashboard/revenda/veiculo/${veiculoId}`} style={{ background: C.gold, color: '#fff', padding: '11px 18px', borderRadius: 10, textDecoration: 'none', fontWeight: 700, fontSize: 14 }}>Ver precificação na ficha →</a>
+        <button onClick={onNova} style={{ ...btnGhost, padding: '11px 16px', fontSize: 14 }}>Nova vistoria</button>
+      </div>
+    </div>
+  )
+}
+
+function Linha({ label, valor, alerta, ok }: { label: string; valor: string; alerta?: string; ok?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', fontSize: 14 }}>
+      <span style={{ color: C.espM }}>{label}</span>
+      <span style={{ fontWeight: 700, color: C.esp }}>{valor} {alerta && <span style={{ color: C.amber, fontWeight: 400, fontSize: 12 }}>{alerta}</span>}{ok && <span style={{ color: C.green }}> ✅</span>}</span>
+    </div>
+  )
+}

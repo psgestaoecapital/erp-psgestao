@@ -1,0 +1,927 @@
+import { FiscalError } from '../errors'
+import { resolverOpcaoSimplesNacional } from '../types'
+import { dataBrasil, isoBrasilia } from '../dataBrasil'
+import type {
+  FiscalProvider,
+  NFSeRequest,
+  NFSeResponse,
+  NFeRequest,
+  NFeResponse,
+  MDeListaRequest,
+  MDeListaResponse,
+  MDeManifestarRequest,
+  MDeManifestarResponse,
+  TestarConexaoResponse,
+  FiscalAmbiente,
+} from '../types'
+import type {
+  FocusNFeBaseUrl,
+  FocusNFeNFSePayload,
+  FocusNFeNFSeResponse,
+  FocusNFeNFeResponse,
+  FocusNFeAPIError,
+} from './focusnfe.types'
+
+interface FocusNFeClientOptions {
+  apiKey: string
+  ambiente: FiscalAmbiente
+  cnpjEmpresa: string
+  diasParaExpirarCert?: number
+  timeoutMs?: number
+}
+
+const BASE_URLS: Record<FiscalAmbiente, FocusNFeBaseUrl> = {
+  homologacao: 'https://homologacao.focusnfe.com.br',
+  producao: 'https://api.focusnfe.com.br',
+}
+
+// #90 — Sanitização de texto livre para o XSD da NFS-e nacional. O schema aceita só o range
+// [ -ÿ] (0x20–0xFF); um "·" (ponto médio), travessão, aspas curvas ou reticências tipográficas
+// (que entram por copiar-colar OU que o próprio sistema montava, ex.: "NFSe emitida em … · ref …")
+// fazem a prefeitura REJEITAR a nota inteira com um erro de facet/pattern ilegível. Normaliza os
+// caracteres tipográficos para ASCII, remove o que estiver fora do range e apara (o XSD exige
+// começar/terminar com não-espaço). Aplicar a TODO texto livre: descrição do serviço e observações.
+export function sanitizeTextoFiscal(s: string | null | undefined): string {
+  if (!s) return ''
+  return String(s)
+    .normalize('NFC')
+    .replace(/[·•∙‧⋅]/g, '-')      // pontos médios / bullets
+    .replace(/[—–‒―]/g, '-')       // travessões (em/en dash)
+    .replace(/[“”„‟]/g, '"')       // aspas duplas curvas
+    .replace(/[‘’‚‛]/g, "'")       // aspas simples curvas
+    .replace(/…/g, '...')          // reticências
+    .replace(/ /g, ' ')       // espaço não-quebrável
+    .replace(/[\t\r\n]+/g, ' ')    // quebras/tabs viram espaço
+    .replace(/[^\x20-\xFF]/g, '')  // remove qualquer coisa fora do range aceito pelo XSD
+    .replace(/ {2,}/g, ' ')
+    .trim()
+}
+
+// ── NFSe Nacional (Focus POST /v2/nfsen) ────────────────────────────────────────────────
+// Layout do padrão nacional (doc Focus · exemplos Lages/SC e Porto Feliz/SP), pra a
+// emissão VIA FOCUS (município aderido) em vez do /v2/nfse municipal.
+// Data/hora de Brasília: src/lib/fiscal/dataBrasil.ts (#1944 — uma regra para NF-e, NFC-e e NFS-e, RD-71).
+export function buildNacionalNFSePayload(req: NFSeRequest): Record<string, unknown> {
+  const muni = Number(String(req.prestador.codigoMunicipio ?? '').replace(/\D/g, ''))
+  // Opção do Simples resolvida sem adivinhar (o route já resolve/bloqueia; aqui é defesa: regime desconhecido → erro, nunca chute).
+  const opc = resolverOpcaoSimplesNacional(req.opcaoSimplesNacional, req.regimeTributario)
+  if (opc == null) {
+    throw new FiscalError('PAYLOAD_INVALIDO', 'Configuração fiscal incompleta: defina a opção do Simples Nacional (ou o regime tributário) da empresa antes de emitir.')
+  }
+  const agora = new Date()
+  const p: Record<string, unknown> = {
+    // Sem serie_rps/numero_rps: o /v2/nfsen usa data_emissao (Focus numera).
+    data_emissao: isoBrasilia(agora),
+    data_competencia: dataBrasil(agora),
+    codigo_municipio_emissora: muni,
+    codigo_municipio_prestacao: muni,
+    cnpj_prestador: req.prestador.cnpj.replace(/\D/g, ''),
+    codigo_tributacao_nacional_iss: req.codigoServico,
+    descricao_servico: sanitizeTextoFiscal(req.descricaoServico),
+    valor_servico: req.valorServicos,
+    tributacao_iss: 1,
+    // #90 · retenção 1/2/3 escolhida no modal (default 1). retemIss (boolean) mantido p/ compat.
+    tipo_retencao_iss: req.tipoRetencaoISS ?? (req.retemIss ? 2 : 1),
+    // Grupo regTrib (Simples Nacional): opção + regEspTrib + regime.
+    // regime_especial_tributacao (regEspTrib) é EXIGIDO pelo XSD dentro do grupo regTrib (0 = Nenhum · SN).
+    codigo_opcao_simples_nacional: opc,
+    regime_especial_tributacao: 0,
+  }
+  // regApTribSN (regime de apuração do Simples): SÓ para OPTANTE (opSimpNac 2/3). NÃO OPTANTE (opc=1) e
+  // MEI NÃO podem preencher — a NFS-e Nacional rejeita E0162 ("Não é permitido ao não optante do Simples
+  // Nacional e o MEI preencherem o campo de indicação do regime de apuração dos tributos apurados").
+  // Provado no payload_enviado da FC Pisos (lucro presumido, opc=1): mandávamos
+  // regime_tributario_simples_nacional=1 → E0162. Confirmado na NF 418: "Regime de Apuração pelo SN: -".
+  if (opc === 2 || opc === 3) {
+    p.regime_tributario_simples_nacional = req.regimeApuracaoSN ?? 1
+  }
+  // totTrib por regime (opSimpNac): 1=NÃO optante · 2=MEI · 3=ME/EPP.
+  //  - ME/EPP (3): percentual_total_tributos_simples_nacional (E0712 proíbe indicador_total_tributacao).
+  //  - MEI (2): indicador_total_tributacao (optante, comportamento anterior preservado).
+  //  - NÃO optante (1): envia o GRUPO percentual da Lei 12.741 —
+  //    percentual_total_tributos_{federais,estaduais,municipais} (pTotTribFed/Est/Mun via IBPT LC116 × UF).
+  //    Continua SEM indicador_total_tributacao e SEM percentual_total_tributos_simples_nacional (esses são
+  //    exclusivos do SN — E0713 da FC Pisos veio justamente disso). Resposta oficial da Focus no ticket
+  //    #243166 (25/09): o Ambiente Nacional passou a exigir um dos dois grupos (vTotTrib* ou pTotTrib*)
+  //    do não optante; a mensagem do E0713 é enganosa porque cita os campos do SN, mas o que faltava era
+  //    ADICIONAR o grupo pTotTrib*, não remover. Os percentuais vêm resolvidos do route (nunca chuta).
+  if (opc === 3) {
+    if (req.percentualTribSN != null) p.percentual_total_tributos_simples_nacional = req.percentualTribSN
+  } else if (opc === 2) {
+    p.indicador_total_tributacao = '0'
+  } else {
+    // opc === 1 · NÃO optante. E0713 (FC Pisos · Focus #243166, 25/09): o Ambiente Nacional passou a EXIGIR
+    // os tributos aproximados do não optante — um dos grupos vTotTrib* ou pTotTrib*. Enviamos o PERCENTUAL
+    // (IBPT LC116 × UF), resolvido no route; aqui é só o último anteparo (nunca chuta um número).
+    // Nomes: guia Focus "Campos do Provedor" → percentual_total_tributos_{federais,estaduais,municipais}.
+    const t = req.tributosAproxPct
+    if (!t) {
+      throw new FiscalError('PAYLOAD_INVALIDO', 'Regime normal: faltam os tributos aproximados (Lei 12.741 · IBPT) para a NFS-e Nacional. Atualize a tabela IBPT e emita de novo.')
+    }
+    const pct2 = (n: number) => Number(Number(n).toFixed(2))
+    p.percentual_total_tributos_federais = pct2(t.federal)
+    p.percentual_total_tributos_estaduais = pct2(t.estadual)
+    p.percentual_total_tributos_municipais = pct2(t.municipal)
+  }
+  // pAliq (percentual_aliquota_relativa_municipio) — E0625 (tabela de validações da NFS-e Nacional):
+  // "não é permitido informar alíquota quando não há indicação de retenção do ISSQN (tpRetISSQN=1), para
+  // o prestador ME/EPP (opSimpNac=3), com apuração do ISSQN pelo Simples Nacional (regApTribSN=1), sem
+  // benefício municipal". Ou seja, no regime 1 (ISS apurado pelo SN) a alíquota efetiva vai no DAS, NÃO na
+  // DPS — só se informa pAliq quando o ISS é RETIDO pelo tomador/intermediário (tpRetISSQN=2/3), pois aí a
+  // retenção precisa da alíquota. O #1551 mandava pAliq sempre no regime 1 e derrubava a nota (E0625) das
+  // empresas do Simples sem retenção. regApTribSN≠1 (ISS por fora) segue como antes (não envia pAliq aqui).
+  const _tpRetPAliq = Number(p.tipo_retencao_iss) || 1   // 1 não retido · 2 retido tomador · 3 retido interm.
+  const _issRetido = _tpRetPAliq === 2 || _tpRetPAliq === 3
+  // pAliq do Simples só para OPTANTE (2/3). Não-optante não carrega a alíquota efetiva do SN aqui.
+  if ((opc === 2 || opc === 3) && (req.regimeApuracaoSN ?? 1) === 1 && req.aliquotaISSSN != null && _issRetido) {
+    p.percentual_aliquota_relativa_municipio = req.aliquotaISSSN
+  }
+  if (req.codigoNbs) p.codigo_nbs = req.codigoNbs
+  // Informações complementares do padrão nacional (DPS <infoCompl>/<xInfComp>, máx. 2000) —
+  // é o campo livre da nota, onde vai o "valor aproximado dos tributos" da Lei 12.741/2012.
+  {
+    const infoCompl = sanitizeTextoFiscal(req.observacoes).slice(0, 2000)
+    if (infoCompl) p.informacoes_complementares = infoCompl
+  }
+  if (req.prestador.inscricaoMunicipal && String(req.prestador.inscricaoMunicipal).trim()) {
+    p.inscricao_municipal_prestador = String(req.prestador.inscricaoMunicipal).trim()
+  }
+  // Tomador COMPLETO. ORDEM sensível ao XSD (endereço): cMun → cep → logradouro → numero → complemento → bairro.
+  const docTom = (req.tomador.cnpj ?? req.tomador.cpf ?? '').replace(/\D/g, '')
+  if (docTom.length === 14) p.cnpj_tomador = docTom
+  else if (docTom.length === 11) p.cpf_tomador = docTom
+  if (req.tomador.razaoSocial) p.razao_social_tomador = req.tomador.razaoSocial
+  if (req.tomador.email) p.email_tomador = req.tomador.email
+  const end = req.tomador.endereco
+  if (end) {
+    if (end.codigoMunicipio) p.codigo_municipio_tomador = Number(String(end.codigoMunicipio).replace(/\D/g, ''))
+    if (end.cep) p.cep_tomador = String(end.cep).replace(/\D/g, '')
+    if (end.logradouro) p.logradouro_tomador = end.logradouro
+    if (end.numero) p.numero_tomador = end.numero
+    if (end.complemento) p.complemento_tomador = end.complemento
+    if (end.bairro) p.bairro_tomador = end.bairro
+  }
+  // #90 · E0370: grupo de OBRA em CAMPOS PLANOS na RAIZ (layout NACIONAL da Focus —
+  // campos.focusnfe.com.br/nfse_nacional/EmissaoDPSXml.html). O #1536 usou o guia dos municípios
+  // INTEGRADOS (obra.endereco aninhado); no layout Nacional a Focus não acha a chave "obra" e a
+  // DESCARTA em silêncio → E0370. Mapa (raiz do JSON, ticket Focus #242149):
+  //   codigo_obra          -> cObra (CNO/CEI)
+  //   inscricao_imobiliaria-> inscImobFisc   (antes ia ERRADO para codigo_cib/cCIB)
+  //   codigo_cib_obra      -> cCIB (8 díg., só quando houver o campo — não temos, então não enviamos)
+  //   cep_obra/logradouro_obra/numero_obra/complemento_obra/bairro_obra -> endereço da obra
+  //   município da obra continua FORA, em codigo_municipio_prestacao (cLocIncid).
+  const o = req.obra
+  if (o && (o.cno || o.inscricaoImobiliaria || o.logradouro)) {
+    if (o.cno) p.codigo_obra = String(o.cno).trim()                                  // cObra (preserva o formato do CNO)
+    if (o.inscricaoImobiliaria) p.inscricao_imobiliaria = String(o.inscricaoImobiliaria).trim()  // inscImobFisc
+    if (o.cep) p.cep_obra = String(o.cep).replace(/\D/g, '')
+    if (o.logradouro) p.logradouro_obra = o.logradouro
+    if (o.numero) p.numero_obra = o.numero
+    if (o.complemento) p.complemento_obra = o.complemento
+    if (o.bairro) p.bairro_obra = o.bairro
+    // #82② · cLocIncid: o ISS da obra incide no MUNICÍPIO DA OBRA (fica FORA do grupo obra).
+    if (o.codigoMunicipio) p.codigo_municipio_prestacao = Number(String(o.codigoMunicipio).replace(/\D/g, ''))
+  }
+  // #90 / Focus #242149 · campos da Reforma Tributária (IBS/CBS). PLANOS na raiz, OPCIONAIS: cada chave
+  // só entra quando a empresa preencheu na config (req.reforma). Config vazia → NENHUMA chave → o JSON
+  // fica IDÊNTICO ao de antes (diff zero). Nenhum valor default aqui — a Focus/contador definem os valores.
+  const rt = req.reforma
+  if (rt) {
+    if (rt.finalidadeEmissao != null) p.finalidade_emissao = rt.finalidadeEmissao
+    if (rt.consumidorFinal != null) p.consumidor_final = rt.consumidorFinal
+    if (rt.indicadorDestinatario != null) p.indicador_destinatario = rt.indicadorDestinatario
+    if (rt.ibsCbsCst != null && String(rt.ibsCbsCst).trim() !== '') p.ibs_cbs_situacao_tributaria = String(rt.ibsCbsCst).trim()
+    if (rt.ibsCbsClassifTrib != null && String(rt.ibsCbsClassifTrib).trim() !== '') p.ibs_cbs_classificacao_tributaria = String(rt.ibsCbsClassifTrib).trim()
+    if (rt.codigoIndicadorOperacao != null && String(rt.codigoIndicadorOperacao).trim() !== '') p.codigo_indicador_operacao = String(rt.codigoIndicadorOperacao).trim()
+  }
+  // #286 · tributos federais (grupo tribFed da DPS). Campos PLANOS na raiz, nomes da Focus conferidos com o
+  // leiaute oficial (Anexo I v1.01, linhas 314–323). Só entram quando há o que informar:
+  //   valor_cp (vRetCP · INSS retido) · valor_irrf (vRetIRRF) · valor_csll (vRetCSLL = PIS+COFINS+CSLL retidos)
+  //   tipo_retencao_pis_cofins (tpRetPisCofins) — com 0 NÃO se informa valor_csll (E0720).
+  const rf = req.retencoesFederais
+  if (rf) {
+    if (rf.valorCp > 0) p.valor_cp = rf.valorCp
+    if (rf.valorIrrf > 0) p.valor_irrf = rf.valorIrrf
+    // tpRetPisCofins/vRetCSLL são do grupo piscofins (exige CST): a rota só chega aqui com tipo>0 se houver CST.
+    if (rf.tipoRetencaoPisCofins > 0 && req.apuracaoPisCofins) {
+      p.tipo_retencao_pis_cofins = rf.tipoRetencaoPisCofins
+      if (rf.valorRetCsllAgrupado > 0) p.valor_csll = rf.valorRetCsllAgrupado
+    }
+  }
+  // Apuração PRÓPRIA de PIS/COFINS (vPis/vCofins = base × alíquota — E0694/E0696). Só com CST (linha 314).
+  const ap = req.apuracaoPisCofins
+  if (ap) {
+    p.situacao_tributaria_pis_cofins = ap.cst
+    p.base_calculo_pis_cofins = ap.base
+    p.aliquota_pis = ap.aliqPis
+    p.aliquota_cofins = ap.aliqCofins
+    p.valor_pis = ap.valorPis
+    p.valor_cofins = ap.valorCofins
+    // o grupo piscofins leva tpRetPisCofins mesmo sem retenção (0 = nenhuma retida)
+    if (p.tipo_retencao_pis_cofins == null) p.tipo_retencao_pis_cofins = 0
+  }
+  return p
+}
+
+export class FocusNFeProvider implements FiscalProvider {
+  readonly name = 'focusnfe'
+  private readonly baseUrl: FocusNFeBaseUrl
+  private readonly authHeader: string
+  private readonly timeoutMs: number
+
+  constructor(private readonly opts: FocusNFeClientOptions) {
+    if (!opts.apiKey) throw new FiscalError('API_KEY_INVALIDA', 'api_key ausente')
+    if (!opts.cnpjEmpresa) throw new FiscalError('PAYLOAD_INVALIDO', 'cnpjEmpresa ausente')
+    this.baseUrl = BASE_URLS[opts.ambiente]
+    // Focus NFe usa Basic Auth · api_key como username · senha vazia
+    this.authHeader = 'Basic ' + Buffer.from(`${opts.apiKey}:`).toString('base64')
+    this.timeoutMs = opts.timeoutMs ?? 30_000
+  }
+
+  private async request<T>(
+    method: 'GET' | 'POST' | 'DELETE',
+    path: string,
+    body?: unknown
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs)
+
+    try {
+      const resp = await fetch(url, {
+        method,
+        headers: {
+          Authorization: this.authHeader,
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal,
+      })
+
+      const text = await resp.text()
+      let parsed: unknown = null
+      try {
+        parsed = text ? JSON.parse(text) : null
+      } catch {
+        parsed = { raw: text }
+      }
+
+      if (!resp.ok) {
+        const apiErr = parsed as FocusNFeAPIError
+        const msg = apiErr?.mensagem ?? apiErr?.erros?.[0]?.mensagem ?? `HTTP ${resp.status}`
+
+        if (resp.status === 401 || resp.status === 403) {
+          throw new FiscalError('API_KEY_INVALIDA', msg, { status: resp.status, body: parsed })
+        }
+        if (resp.status === 404) {
+          throw new FiscalError('CHAVE_NAO_ENCONTRADA', msg, { status: resp.status, body: parsed })
+        }
+        if (resp.status === 429) {
+          throw new FiscalError('PROVIDER_RATE_LIMIT', msg, { status: resp.status }, true)
+        }
+        if (resp.status >= 500) {
+          throw new FiscalError('PROVIDER_ERRO_INTERNO', msg, { status: resp.status }, true)
+        }
+        if (resp.status === 422 || resp.status === 400) {
+          throw new FiscalError('PAYLOAD_INVALIDO', msg, { status: resp.status, body: parsed })
+        }
+        throw new FiscalError('PROVIDER_ERRO_INTERNO', msg, { status: resp.status, body: parsed })
+      }
+
+      return parsed as T
+    } catch (err) {
+      if (err instanceof FiscalError) throw err
+      if ((err as Error)?.name === 'AbortError') {
+        throw new FiscalError('TIMEOUT', `Timeout em ${this.timeoutMs}ms · ${url}`, undefined, true)
+      }
+      throw new FiscalError('API_INACESSIVEL', (err as Error).message ?? 'Erro de rede', undefined, true)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  async testarConexao(): Promise<TestarConexaoResponse> {
+    try {
+      // Focus NFe nao tem endpoint "ping" formal.
+      // Estrategia: GET /v2/empresas (lista empresas vinculadas a api_key).
+      await this.request<unknown>('GET', '/v2/empresas')
+      return {
+        ok: true,
+        ambiente: this.opts.ambiente,
+        apiAlcancavel: true,
+        // #1944 · aqui só a API responde; o certificado é conferido no cadastro da empresa na Focus (rota testar-conexao)
+        certificadoOk: false,
+        diasParaExpirarCert: this.opts.diasParaExpirarCert,
+        mensagem: `API ${this.opts.ambiente} OK`,
+      }
+    } catch (err) {
+      if (err instanceof FiscalError) {
+        return {
+          ok: false,
+          ambiente: this.opts.ambiente,
+          apiAlcancavel: err.code !== 'API_INACESSIVEL' && err.code !== 'TIMEOUT',
+          certificadoOk: false,
+          mensagem: err.message,
+          detalhes: { code: err.code, ...err.details },
+        }
+      }
+      throw err
+    }
+  }
+
+  async emitirNFSe(req: NFSeRequest): Promise<NFSeResponse> {
+    const referencia = `nfse-${Date.now()}`
+
+    // NFSe Nacional (município aderido): mesmo provider Focus, endpoint /v2/nfsen, layout nacional.
+    // Formato espelhado da edge gov-nfse-emitir (já provada): codigo_tributacao_nacional_iss,
+    // codigo_municipio_emissora, data_competencia, opção/regime Simples Nacional.
+    if (req.padraoNacional) {
+      const nacional = buildNacionalNFSePayload(req)
+      let data: FocusNFeNFSeResponse
+      try {
+        data = await this.request<FocusNFeNFSeResponse>(
+          'POST',
+          `/v2/nfsen?ref=${encodeURIComponent(referencia)}`,
+          nacional
+        )
+      } catch (err) {
+        // Rejeição de schema/validação (ex.: "Element 'valores': not expected") chega como throw ANTES
+        // de virar nota. Sem anexar o payload aqui, a rota não teria o que persistir e ficaríamos cegos
+        // (o mesmo ponto cego do Sicredi/#1786, agora na NFS-e). Anexa o payload enviado + a referência.
+        if (err instanceof FiscalError) {
+          throw new FiscalError(err.code, err.message, { ...(err.details ?? {}), payloadEnviado: nacional, providerReference: referencia }, err.retryable)
+        }
+        throw err
+      }
+      // #90/#64: devolve o payload ENVIADO (só o corpo da NFSe — cert/token ficam no header, não aqui)
+      // para persistir e parar de emitir no escuro.
+      return { ...this.mapFocusNFSeResponse(referencia, data), payloadEnviado: nacional }
+    }
+
+    // Padrão municipal (ABRASF) · /v2/nfse
+    const payload: FocusNFeNFSePayload = {
+      // #1944 · horário de Brasília (o ISO em UTC virava o dia seguinte depois das 21h)
+      data_emissao: isoBrasilia(req.dataEmissao ? new Date(req.dataEmissao) : new Date()),
+      prestador: {
+        cnpj: req.prestador.cnpj.replace(/\D/g, ''),
+        inscricao_municipal: req.prestador.inscricaoMunicipal,
+        codigo_municipio: req.prestador.codigoMunicipio,
+      },
+      tomador: {
+        cnpj: req.tomador.cnpj?.replace(/\D/g, ''),
+        cpf: req.tomador.cpf?.replace(/\D/g, ''),
+        razao_social: req.tomador.razaoSocial,
+        email: req.tomador.email,
+        endereco: req.tomador.endereco
+          ? {
+              logradouro: req.tomador.endereco.logradouro,
+              numero: req.tomador.endereco.numero,
+              complemento: req.tomador.endereco.complemento,
+              bairro: req.tomador.endereco.bairro,
+              codigo_municipio: req.tomador.endereco.codigoMunicipio,
+              uf: req.tomador.endereco.uf,
+              cep: req.tomador.endereco.cep.replace(/\D/g, ''),
+            }
+          : undefined,
+      },
+      servico: {
+        aliquota: req.aliquotaIss,
+        discriminacao: sanitizeTextoFiscal(req.descricaoServico),
+        iss_retido: req.retemIss ? 'true' : 'false',
+        codigo_cnae: req.cnaeServico,
+        codigo_tributario_municipio: req.codigoServico,
+        valor_servicos: req.valorServicos,
+        valor_iss: req.valorIss,
+      },
+    }
+    // Informações complementares do ABRASF municipal — onde vai o "valor aproximado dos
+    // tributos" da Lei 12.741/2012. NÃO misturar na discriminação (que é o que o cliente lê
+    // como "o que comprei").
+    {
+      const outras = sanitizeTextoFiscal(req.observacoes).slice(0, 2000)
+      if (outras) payload.outras_informacoes = outras
+    }
+
+    let data: FocusNFeNFSeResponse
+    try {
+      data = await this.request<FocusNFeNFSeResponse>(
+        'POST',
+        `/v2/nfse?ref=${encodeURIComponent(referencia)}`,
+        payload
+      )
+    } catch (err) {
+      if (err instanceof FiscalError) {
+        throw new FiscalError(err.code, err.message, { ...(err.details ?? {}), payloadEnviado: payload, providerReference: referencia }, err.retryable)
+      }
+      throw err
+    }
+
+    return { ...this.mapFocusNFSeResponse(referencia, data), payloadEnviado: payload }
+  }
+
+  async consultarNFSe(referenceOrNumero: string): Promise<NFSeResponse> {
+    const enc = encodeURIComponent(referenceOrNumero)
+    // NFSe Nacional (/v2/nfsen) primeiro — é onde as notas de municípios aderidos são registradas.
+    // Se o Focus não achar lá (nota municipal antiga), cai no /v2/nfse. Sem isso, notas nacionais
+    // ficavam eternamente 'processando' (o consultar batia no endpoint errado).
+    try {
+      const data = await this.request<FocusNFeNFSeResponse>('GET', `/v2/nfsen/${enc}`)
+      return this.mapFocusNFSeResponse(referenceOrNumero, data)
+    } catch (err) {
+      if (err instanceof FiscalError && err.code === 'CHAVE_NAO_ENCONTRADA') {
+        const data = await this.request<FocusNFeNFSeResponse>('GET', `/v2/nfse/${enc}`)
+        return this.mapFocusNFSeResponse(referenceOrNumero, data)
+      }
+      throw err
+    }
+  }
+
+  async cancelarNFSe(referenceOrNumero: string, justificativa: string): Promise<NFSeResponse> {
+    const enc = encodeURIComponent(referenceOrNumero)
+    const qs = `justificativa=${encodeURIComponent(justificativa)}`
+    // Espelha o consultarNFSe: nota de município aderido vive no /v2/nfsen (nacional);
+    // se o Focus não achar lá (nota municipal antiga), cai no /v2/nfse. Sem isso, cancelar
+    // NFS-e nacional batia no endpoint errado e voltava "não encontrada".
+    try {
+      const data = await this.request<FocusNFeNFSeResponse>('DELETE', `/v2/nfsen/${enc}?${qs}`)
+      return this.mapFocusNFSeResponse(referenceOrNumero, data)
+    } catch (err) {
+      if (err instanceof FiscalError && err.code === 'CHAVE_NAO_ENCONTRADA') {
+        const data = await this.request<FocusNFeNFSeResponse>('DELETE', `/v2/nfse/${enc}?${qs}`)
+        return this.mapFocusNFSeResponse(referenceOrNumero, data)
+      }
+      throw err
+    }
+  }
+
+  private mapFocusNFSeResponse(referencia: string, data: FocusNFeNFSeResponse): NFSeResponse {
+    const status =
+      data.status === 'autorizado'
+        ? 'autorizada'
+        : data.status === 'cancelado'
+          ? 'cancelada'
+          : data.status === 'erro_autorizacao'
+            ? 'rejeitada'
+            : 'processando'
+
+    return {
+      ok: status === 'autorizada',
+      numero: data.numero,
+      codigoVerificacao: data.codigo_verificacao,
+      protocolo: data.numero_rps,
+      xmlUrl: data.caminho_xml_nota_fiscal ? `${this.baseUrl}${data.caminho_xml_nota_fiscal}` : undefined,
+      pdfUrl: data.url_danfse,
+      status,
+      // #90: no layout NACIONAL o motivo da rejeição (ex.: E0370) NÃO vem em mensagem_sefaz — vem em
+      // mensagem OU erros[]. Sem esse fallback, a rejeição chegava sem texto ("Rejeitada" e nada mais).
+      motivoRejeicao: data.mensagem_sefaz
+        ?? data.mensagem
+        ?? (Array.isArray(data.erros) && data.erros.length
+              ? data.erros.map((e) => [e.codigo, e.mensagem].filter(Boolean).join(': ')).join(' | ')
+              : undefined),
+      providerReference: referencia,
+      providerRaw: data,
+    }
+  }
+
+  // FIX-NFE-FRETE-RATEIO-v1 (#1351 mandava só o total): a SEFAZ exige que a soma do frete/seguro/
+  // outras dos ITENS bata com o total da nota (ICMSTot). Sem ratear, o total ia com valor e os itens
+  // com 0 → "Total do Frete difere do somatório dos itens" (devolução 111040 da Jordana, 10/09).
+  // Rateia proporcional ao valor de cada item; o RESÍDUO de centavos vai no último (fecha exato).
+  // Genérico: 1 item recebe o total inteiro; N itens, proporcional. Soma == total sempre.
+  private ratearValor(total: number, pesos: number[]): number[] {
+    const n = pesos.length
+    if (n === 0) return []
+    const totalCent = Math.round(total * 100)
+    if (totalCent === 0) return pesos.map(() => 0)
+    const somaPesos = pesos.reduce((a, b) => a + b, 0)
+    const out: number[] = []
+    let acumulado = 0
+    for (let i = 0; i < n - 1; i++) {
+      const parcela = somaPesos > 0
+        ? Math.round(totalCent * (pesos[i] / somaPesos))
+        : Math.round(totalCent / n)
+      out.push(parcela)
+      acumulado += parcela
+    }
+    out.push(totalCent - acumulado) // resíduo no último → soma bate exatamente com o total
+    return out.map((c) => c / 100)
+  }
+
+  // GE-F5 NFe produto
+  async emitirNFe(req: NFeRequest): Promise<NFeResponse> {
+    const referencia = `nfe-${Date.now()}`
+    const finalidadeNum =
+      req.finalidade === 'normal' ? 1
+        : req.finalidade === 'complementar' ? 2
+          : req.finalidade === 'ajuste' ? 3 : 4
+
+    // fiscal-devolucao-compra-v1: grupo NFref · refNFe com chave 44 digitos.
+    // FIX-NFE-NFREF-v1: a API Focus espera 'notas_referenciadas' com a chave interna
+    // 'chave_nfe' (mesma convencao de chave_nfe das RESPOSTAS Focus neste arquivo,
+    // linha ~522). O nome antigo ('nfes_referenciadas'/'chave') NAO existe na Focus:
+    // era aceito no HTTP, ignorado, e a nota saia SEM o grupo NFref. Devolucao com
+    // finalidade_emissao=4 sem a nota referenciada e invalida (glosa na 1a fiscalizacao).
+    // Sintoma: 0 notas com finalidade='devolucao' emitidas ate hoje (nunca exercitado).
+    const chaveRef = req.chaveReferenciada?.replace(/\D/g, '')
+    const notasReferenciadas = chaveRef && chaveRef.length === 44
+      ? [{ chave_nfe: chaveRef }]
+      : undefined
+
+    // IE do destinatario (so digitos). Se vazia, destinatario e tratado como nao contribuinte (9).
+    const ieDestinatario = req.destinatario.inscricaoEstadual?.replace(/\D/g, '') || undefined
+    // indIEDest: usa o INDICADOR declarado no cadastro quando houver (1 contribuinte / 2 isento /
+    // 9 nao contribuinte); senao deriva de ter IE. "isento" (2) e "nao contribuinte" (9) NAO mandam
+    // numero de IE — so o contribuinte (1) manda. Isento declarado != sem IE (dado ausente).
+    const indIEDest: 1 | 2 | 9 = req.destinatario.indicadorIE ?? (ieDestinatario ? 1 : 9)
+
+    // FIX-NFE-FRETE-RATEIO-v1 · rateia frete/seguro/outras pelos itens (proporcional ao valor; resíduo
+    // no último) pra a soma dos itens bater com o total da nota. Só quando o total é informado.
+    const pesosItens = req.itens.map((i) => i.valorTotal)
+    const freteItem = req.totais?.frete ? this.ratearValor(req.totais.frete, pesosItens) : null
+    const seguroItem = req.totais?.seguro ? this.ratearValor(req.totais.seguro, pesosItens) : null
+    const outrasItem = req.totais?.outrasDespesas ? this.ratearValor(req.totais.outrasDespesas, pesosItens) : null
+
+    const payload = {
+      natureza_operacao: req.naturezaOperacao,
+      finalidade_emissao: finalidadeNum,
+      ...(notasReferenciadas ? { notas_referenciadas: notasReferenciadas } : {}),
+      // Frete/seguro/outras/desconto (Lei Kandir: o frete entra na base do ICMS). Sem declarar o frete, o
+      // total (vNF=produtos) ficava MENOR que a base do ICMS (com frete) e a SEFAZ rejeitava. Só saem quando
+      // informados; modalidade_frete default 9 (sem frete) quando não vem da nota.
+      modalidade_frete: req.totais?.modalidadeFrete ?? 9,
+      ...(req.totais?.frete ? { valor_frete: req.totais.frete } : {}),
+      ...(req.totais?.seguro ? { valor_seguro: req.totais.seguro } : {}),
+      ...(req.totais?.outrasDespesas ? { valor_outras_despesas: req.totais.outrasDespesas } : {}),
+      ...(req.totais?.desconto ? { desconto: req.totais.desconto } : {}),
+      // FIX-NFE-SERIE-PAYLOAD-v1
+      // Sem este campo, Focus numerava na sua serie padrao (1) ·
+      // colidia com numeracao Omie historica → rejeicao SEFAZ 539
+      // (duplicidade). req.serie vem de erp_fiscal_provider_config
+      // .serie_nfe_padrao (KGF='2'). NAO enviar 'numero': Focus numera
+      // sozinha por serie/empresa.
+      serie: Number(req.serie ?? '2'),
+      data_emissao: isoBrasilia(),   // #1944 · horário de Brasília
+      presenca_comprador: 1,
+      tipo_documento: 1,
+      // indFinal (operação com consumidor final). Nome do campo Focus na NF-e modelo 55 A CONFIRMAR na
+      // doc oficial (NotaFiscalXML.html/DSL 4.0) — o CEO confirma; usamos 'consumidor_final' porque é o
+      // nome que a própria Focus usa no grupo equivalente (reforma da NFS-e neste arquivo). 0=não · 1=sim.
+      ...(req.consumidorFinal != null ? { consumidor_final: req.consumidorFinal ? 1 : 0 } : {}),
+      cnpj_emitente: req.emitente.cnpj,
+      nome_emitente: req.emitente.razaoSocial,
+      inscricao_estadual_emitente: req.emitente.inscricaoEstadual,
+      cnpj_destinatario: req.destinatario.cnpj,
+      cpf_destinatario: req.destinatario.cpf,
+      nome_destinatario: req.destinatario.razaoSocial,
+      email_destinatario: req.destinatario.email,
+      // FIX-NFE-IE-DESTINATARIO-v1 · SEFAZ rejeita "IE do destinatario nao informada" numa
+      // devolucao a fornecedor contribuinte (Impave/KGF, 09/09). indIEDest: 1=contribuinte (manda
+      // a IE), 9=nao contribuinte (sem IE). Com IE presente -> 1 + inscricao_estadual_destinatario.
+      indicador_inscricao_estadual_destinatario: indIEDest,
+      ...(indIEDest === 1 && ieDestinatario ? { inscricao_estadual_destinatario: ieDestinatario } : {}),
+      logradouro_destinatario: req.destinatario.endereco?.logradouro,
+      numero_destinatario: req.destinatario.endereco?.numero,
+      bairro_destinatario: req.destinatario.endereco?.bairro,
+      municipio_destinatario: req.destinatario.endereco?.cidade,
+      uf_destinatario: req.destinatario.endereco?.uf,
+      cep_destinatario: req.destinatario.endereco?.cep,
+      // Informações Complementares (tag infCpl · doc oficial Focus NotaFiscalXML.html/DSL 4.0). É onde a
+      // DANFE imprime, e onde vai o "valor aproximado dos tributos" da Lei 12.741 (composto no route,
+      // gated por consumidor final). Campo único de até 5000 — o route já concatenou eventuais observações.
+      ...(req.observacoes ? { informacoes_adicionais_contribuinte: sanitizeTextoFiscal(req.observacoes).slice(0, 5000) } : {}),
+      itens: req.itens.map((item, idx) => ({
+        numero_item: idx + 1,
+        codigo_produto: item.codigo,
+        descricao: item.descricao,
+        cfop: item.cfop,
+        unidade_comercial: item.unidade,
+        quantidade_comercial: item.quantidade,
+        valor_unitario_comercial: item.valorUnitario,
+        valor_bruto: item.valorTotal,
+        unidade_tributavel: item.unidade,
+        quantidade_tributavel: item.quantidade,
+        valor_unitario_tributavel: item.valorUnitario,
+        codigo_ncm: item.ncm.replace(/\D/g, ''),
+        cest: item.cest,
+        // FIX-NFE-ICMS-ORIGEM-v1
+        // SEFAZ 966: chave correta da API Focus e 'icms_origem' (grupo ICMS) ·
+        // antes mandavamos 'origem' solto · rejeitava com "obrigatorio o
+        // preenchimento da origem da mercadoria"
+        icms_origem: String(item.origem ?? '0'),
+        icms_situacao_tributaria: item.icms?.cst,
+        icms_aliquota: item.icms?.aliquota,
+        // CST 60 / 500 · ICMS cobrado anteriormente por ST (NT 2018.005). Campos Focus:
+        // Nomes EXATOS da doc oficial Focus (campos.focusnfe.com.br/nfe/NotaFiscalXML.html; NT 2018/005):
+        // vBCSTRet=icms_base_calculo_retido_st · pST=icms_aliquota_final ·
+        // vICMSSubstituto=icms_valor_substituto · vICMSSTRet=icms_valor_retido_st. Aceitam ZERO — o
+        // guard != null preserva 0 (não omite). Nomes de segunda mão (…_st_retido) eram ignorados em silêncio.
+        ...(item.icms?.stRet?.vBcstRet != null ? { icms_base_calculo_retido_st: item.icms.stRet.vBcstRet } : {}),
+        ...(item.icms?.stRet?.pst != null ? { icms_aliquota_final: item.icms.stRet.pst } : {}),
+        ...(item.icms?.stRet?.vIcmsSubstituto != null ? { icms_valor_substituto: item.icms.stRet.vIcmsSubstituto } : {}),
+        ...(item.icms?.stRet?.vIcmsStRet != null ? { icms_valor_retido_st: item.icms.stRet.vIcmsStRet } : {}),
+        // devolucao-icms-espelho: base/valor/modalidade so saem quando informados (CSOSN 900 na
+        // devolucao do Simples devolve o credito da entrada). Sem isto o ICMS zerava (CSOSN 102).
+        ...(item.icms?.base != null ? { icms_base_calculo: item.icms.base } : {}),
+        ...(item.icms?.valor != null ? { icms_valor: item.icms.valor } : {}),
+        ...(item.icms?.modBc != null ? { icms_modalidade_base_calculo: item.icms.modBc } : {}),
+        ...(item.ipi?.cst ? { ipi_situacao_tributaria: item.ipi.cst, ipi_aliquota: item.ipi.aliquota } : {}),
+        pis_situacao_tributaria: item.pis?.cst,
+        pis_aliquota_porcentual: item.pis?.aliquota,
+        cofins_situacao_tributaria: item.cofins?.cst,
+        cofins_aliquota_porcentual: item.cofins?.aliquota,
+        // Grupo comb (NT 2016/002) · combustível/lubrificante. Nomes EXATOS da doc oficial Focus
+        // (campos.focusnfe.com.br/nfe/ItemNotaFiscalXML.html): cProdANP=combustivel_codigo_anp ·
+        // descANP=combustivel_descricao_anp · UFCons=combustivel_sigla_uf. Sem eles → rejeição (grupo comb).
+        ...(item.comb?.cProdANP != null ? { combustivel_codigo_anp: item.comb.cProdANP } : {}),
+        ...(item.comb?.descANP ? { combustivel_descricao_anp: item.comb.descANP } : {}),
+        ...(item.comb?.ufCons ? { combustivel_sigla_uf: item.comb.ufCons } : {}),
+        // FIX-NFE-FRETE-RATEIO-v1 · frete/seguro/outras rateados por item (soma = total da nota)
+        ...(freteItem ? { valor_frete: freteItem[idx] } : {}),
+        ...(seguroItem ? { valor_seguro: seguroItem[idx] } : {}),
+        ...(outrasItem ? { valor_outras_despesas: outrasItem[idx] } : {}),
+      })),
+    }
+
+    // Recusa síncrona (400/422 por schema — OS-0179): o erro leva o payload e a referência, para a rota
+    // gravar a nota como 'rejeitada' com o que foi enviado (RD-67). Espelho do que a NFS-e já faz.
+    let data: FocusNFeNFeResponse
+    try {
+      data = await this.request<FocusNFeNFeResponse>(
+        'POST',
+        `/v2/nfe?ref=${encodeURIComponent(referencia)}`,
+        payload
+      )
+    } catch (err) {
+      if (err instanceof FiscalError) {
+        throw new FiscalError(err.code, err.message, { ...(err.details ?? {}), payloadEnviado: payload, providerReference: referencia }, err.retryable)
+      }
+      throw err
+    }
+    // Devolve o payload ENVIADO (só o corpo — cert/token ficam no header) para persistir e parar de
+    // depurar rejeição no escuro (espelho do que a NFS-e já faz). Ver erp_nfe_emitidas.payload_enviado.
+    return { ...this.mapFocusNFeResponse(referencia, data), payloadEnviado: payload }
+  }
+
+  // NFC-e (modelo 65 · consumidor final / balcão). POST /v2/nfce.
+  // O CSC/idToken vive na config da empresa NO FOCUS (habilita_nfce); aqui só emitimos.
+  // Consumidor final: sem CNPJ/IE/endereço obrigatório; CPF opcional; exige forma de pagamento.
+  async emitirNFCe(req: NFeRequest): Promise<NFeResponse> {
+    const referencia = `nfce-${Date.now()}`
+    // Focus: '01' dinheiro · '03' crédito · '04' débito · '17' PIX. Default dinheiro.
+    const formaPagRaw = (req.pagamento?.formaPagamento ?? '01').toLowerCase()
+    const formaPag =
+      /cr[eé]dito|credit/.test(formaPagRaw) ? '03'
+        : /d[eé]bito|debit/.test(formaPagRaw) ? '04'
+          : /pix/.test(formaPagRaw) ? '17'
+            : /^\d{2}$/.test(formaPagRaw) ? formaPagRaw : '01'
+    const totalNota = req.itens.reduce((acc, i) => acc + i.valorTotal, 0)
+
+    const payload = {
+      natureza_operacao: req.naturezaOperacao ?? 'Venda ao consumidor',
+      data_emissao: isoBrasilia(),   // #1944 · horário de Brasília
+      presenca_comprador: 1,            // 1 = presencial (balcão)
+      // indFinal (consumidor_final) é OBRIGATÓRIO; NFC-e (modelo 65) é SEMPRE consumidor final → 1.
+      // Campo ausente = rejeição esperando. Fonte: doc Focus NotaFiscalXML.html (tag indFinal).
+      consumidor_final: 1,
+      modalidade_frete: 9,
+      serie: Number(req.serie ?? '1'),  // NFC-e costuma ter série própria
+      cnpj_emitente: req.emitente.cnpj,
+      nome_emitente: req.emitente.razaoSocial,
+      inscricao_estadual_emitente: req.emitente.inscricaoEstadual,
+      // consumidor final: CPF opcional, sem endereço/IE
+      cpf_destinatario: req.destinatario.cpf,
+      nome_destinatario: req.destinatario.cpf ? req.destinatario.razaoSocial : undefined,
+      itens: req.itens.map((item, idx) => ({
+        numero_item: idx + 1,
+        codigo_produto: item.codigo,
+        descricao: item.descricao,
+        cfop: item.cfop,
+        unidade_comercial: item.unidade,
+        quantidade_comercial: item.quantidade,
+        valor_unitario_comercial: item.valorUnitario,
+        valor_bruto: item.valorTotal,
+        unidade_tributavel: item.unidade,
+        quantidade_tributavel: item.quantidade,
+        valor_unitario_tributavel: item.valorUnitario,
+        codigo_ncm: item.ncm.replace(/\D/g, ''),
+        cest: item.cest,
+        icms_origem: String(item.origem ?? '0'),
+        icms_situacao_tributaria: item.icms?.cst,
+        icms_aliquota: item.icms?.aliquota,
+        pis_situacao_tributaria: item.pis?.cst,
+        pis_aliquota_porcentual: item.pis?.aliquota,
+        cofins_situacao_tributaria: item.cofins?.cst,
+        cofins_aliquota_porcentual: item.cofins?.aliquota,
+        // Grupo comb (NT 2016/002) · combustível/lubrificante — mesmos nomes oficiais Focus da NF-e.
+        ...(item.comb?.cProdANP != null ? { combustivel_codigo_anp: item.comb.cProdANP } : {}),
+        ...(item.comb?.descANP ? { combustivel_descricao_anp: item.comb.descANP } : {}),
+        ...(item.comb?.ufCons ? { combustivel_sigla_uf: item.comb.ufCons } : {}),
+      })),
+      formas_pagamento: [{ forma_pagamento: formaPag, valor_pagamento: req.pagamento?.valor ?? totalNota }],
+    }
+
+    let data: FocusNFeNFeResponse
+    try {
+      data = await this.request<FocusNFeNFeResponse>(
+        'POST',
+        `/v2/nfce?ref=${encodeURIComponent(referencia)}`,
+        payload
+      )
+    } catch (err) {
+      if (err instanceof FiscalError) {
+        throw new FiscalError(err.code, err.message, { ...(err.details ?? {}), payloadEnviado: payload, providerReference: referencia }, err.retryable)
+      }
+      throw err
+    }
+    return { ...this.mapFocusNFeResponse(referencia, data), payloadEnviado: payload }
+  }
+
+  async consultarNFe(referenceOrChave: string): Promise<NFeResponse> {
+    const data = await this.request<FocusNFeNFeResponse>(
+      'GET',
+      `/v2/nfe/${encodeURIComponent(referenceOrChave)}`
+    )
+    return this.mapFocusNFeResponse(referenceOrChave, data)
+  }
+
+  // Baixa o XML AUTORIZADO da NF-e: consulta a nota (traz caminho_xml_nota_fiscal) e faz um GET bruto
+  // desse caminho (mesma Basic Auth). Retorna o XML como texto (não é JSON, por isso não usa request()).
+  // Usado para guardar o resultado no Storage e parsear o vTotTrib (prova da Lei 12.741).
+  async baixarXmlNota(referenceOrChave: string): Promise<{ xml: string; chave?: string }> {
+    const meta = await this.request<FocusNFeNFeResponse>(
+      'GET',
+      `/v2/nfe/${encodeURIComponent(referenceOrChave)}`
+    )
+    const caminho = meta.caminho_xml_nota_fiscal
+    if (!caminho) {
+      throw new FiscalError('CHAVE_NAO_ENCONTRADA', 'XML ainda não disponível para esta nota (sem caminho_xml_nota_fiscal).')
+    }
+    const url = caminho.startsWith('http') ? caminho : `${this.baseUrl}${caminho}`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs)
+    try {
+      const resp = await fetch(url, { method: 'GET', headers: { Authorization: this.authHeader }, signal: ctrl.signal })
+      if (!resp.ok) {
+        throw new FiscalError('PROVIDER_ERRO_INTERNO', `Falha ao baixar XML (HTTP ${resp.status})`, { status: resp.status }, resp.status >= 500)
+      }
+      const xml = await resp.text()
+      return { xml, chave: meta.chave_nfe }
+    } catch (err) {
+      if (err instanceof FiscalError) throw err
+      if ((err as Error)?.name === 'AbortError') throw new FiscalError('TIMEOUT', `Timeout ao baixar XML · ${url}`, undefined, true)
+      throw new FiscalError('API_INACESSIVEL', (err as Error).message ?? 'Erro de rede ao baixar XML', undefined, true)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  async cancelarNFe(chave: string, justificativa: string): Promise<NFeResponse> {
+    if (justificativa.length < 15) {
+      throw new FiscalError('PAYLOAD_INVALIDO', 'Justificativa de cancelamento exige minimo 15 caracteres')
+    }
+    // O cancelamento de NF-e na Focus (/v2/nfe) espera a justificativa no CORPO (JSON).
+    // Enviando so na query string, o corpo vai vazio e a Focus responde
+    // "Recebida requisicao vazia quando eram esperados dados" -> a nota NAO e cancelada
+    // (era o caso da NF-e nº8 KGF: 0 NF-e canceladas historicamente). Mantemos a query
+    // string por compatibilidade e passamos tambem o corpo. (A NFS-e usa outro endpoint e
+    // aceita so a query string, por isso o cancelamento de NFS-e ja funcionava.)
+    const data = await this.request<FocusNFeNFeResponse>(
+      'DELETE',
+      `/v2/nfe/${encodeURIComponent(chave)}?justificativa=${encodeURIComponent(justificativa)}`,
+      { justificativa }
+    )
+    return this.mapFocusNFeResponse(chave, data)
+  }
+
+  // fiscal-carta-correcao-nfe-v1 · POST /v2/nfe/{ref}/carta_correcao
+  async cartaCorrecaoNFe(chave: string, correcao: string): Promise<{
+    status: 'registrado' | 'rejeitado' | 'processando'
+    protocolo?: string
+    motivoRejeicao?: string
+    providerRaw: unknown
+  }> {
+    if (correcao.length < 15 || correcao.length > 1000) {
+      throw new FiscalError('PAYLOAD_INVALIDO', 'Correcao da CC-e exige entre 15 e 1000 caracteres')
+    }
+    const data = await this.request<Record<string, unknown>>(
+      'POST',
+      `/v2/nfe/${encodeURIComponent(chave)}/carta_correcao`,
+      { correcao }
+    )
+    const statusRaw = String(data?.status ?? '')
+    const status: 'registrado' | 'rejeitado' | 'processando' =
+      statusRaw === 'registrado' ? 'registrado'
+        : statusRaw === 'erro' || statusRaw === 'rejeitado' ? 'rejeitado'
+          : 'processando'
+    return {
+      status,
+      protocolo: (data?.protocolo as string) ?? (data?.numero_protocolo as string) ?? undefined,
+      motivoRejeicao: (data?.mensagem_sefaz as string) ?? (data?.mensagem as string) ?? undefined,
+      providerRaw: data,
+    }
+  }
+
+  private mapFocusNFeResponse(referencia: string, data: FocusNFeNFeResponse): NFeResponse {
+    const status =
+      data.status === 'autorizado' ? 'autorizada'
+        : data.status === 'cancelado' ? 'cancelada'
+          : data.status === 'denegado' ? 'denegada'
+            : data.status === 'erro_autorizacao' ? 'rejeitada'
+              : 'processando'
+
+    return {
+      ok: status === 'autorizada',
+      numero: data.numero,
+      chave: data.chave_nfe,
+      protocolo: data.protocolo,
+      xmlUrl: data.caminho_xml_nota_fiscal ? `${this.baseUrl}${data.caminho_xml_nota_fiscal}` : undefined,
+      danfeUrl: data.caminho_danfe ? `${this.baseUrl}${data.caminho_danfe}` : data.url_danfe,
+      status,
+      motivoRejeicao: data.mensagem_sefaz,
+      providerReference: referencia,
+      providerRaw: data,
+    }
+  }
+
+  // Conferência Focus × local (dívida de visibilidade, 25/09): traz o objeto BRUTO da empresa no
+  // Focus (todos os campos que a Focus expõe: regime, optante Simples, série, IM, habilita_*), para
+  // comparar com a nossa config. NUNCA damos PUT em /v2/empresas — só GET — então o que a Focus tem
+  // cadastrado era caixa-preta e CARIMBA o que enviamos (foi o que injetou o pTotTribSN no E0713 da
+  // FC). Só leitura. Devolve o objeto bruto da empresa (por CNPJ) ou null se não achar.
+  async obterEmpresa(cnpj: string): Promise<Record<string, unknown> | null> {
+    const alvo = String(cnpj ?? '').replace(/\D/g, '')
+    if (!alvo) return null
+    const url = `${this.baseUrl}/v2/empresas`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs)
+    try {
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: this.authHeader, 'Content-Type': 'application/json' },
+        signal: ctrl.signal,
+      })
+      if (!resp.ok) return null
+      const text = await resp.text()
+      let parsed: unknown = null
+      try { parsed = text ? JSON.parse(text) : null } catch { parsed = null }
+      const lista = Array.isArray(parsed) ? (parsed as Record<string, unknown>[]) : []
+      return lista.find((e) => String((e?.cnpj as string | number | undefined) ?? '').replace(/\D/g, '') === alvo) ?? null
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  // GE-F8 implementa MDe
+  async mdeListar(_req: MDeListaRequest): Promise<MDeListaResponse> {
+    throw new FiscalError('PROVIDER_ERRO_INTERNO', 'mdeListar sera implementado no GE-F8')
+  }
+  async mdeManifestar(_req: MDeManifestarRequest): Promise<MDeManifestarResponse> {
+    throw new FiscalError('PROVIDER_ERRO_INTERNO', 'mdeManifestar sera implementado no GE-F8')
+  }
+  async mdeBaixarXml(_chave: string): Promise<string> {
+    throw new FiscalError('PROVIDER_ERRO_INTERNO', 'mdeBaixarXml sera implementado no GE-F8')
+  }
+
+  // FEAT-NFE-DIAGNOSTICO-FOCUS-v1 · GET /v2/empresas · zero emissao · sanitiza
+  async diagnosticoEmpresas(): Promise<{
+    status: number
+    autenticou: boolean
+    empresas: Array<{
+      cnpj: string; nome: string;
+      habilita_nfe: boolean; habilita_nfce: boolean;
+      habilita_nfse: boolean; habilita_cte: boolean; habilita_mdfe: boolean;
+    }>
+  }> {
+    const url = `${this.baseUrl}/v2/empresas`
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs)
+    try {
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: this.authHeader, 'Content-Type': 'application/json' },
+        signal: ctrl.signal,
+      })
+      const text = await resp.text()
+      let parsed: unknown = null
+      try { parsed = text ? JSON.parse(text) : null } catch { parsed = null }
+      const lista = Array.isArray(parsed) ? parsed : []
+      const empresas = lista.map((e: Record<string, unknown>) => ({
+        cnpj: String(e?.cnpj ?? ''),
+        nome: String(e?.nome ?? e?.nome_fantasia ?? ''),
+        habilita_nfe: Boolean(e?.habilita_nfe),
+        habilita_nfce: Boolean(e?.habilita_nfce),
+        habilita_nfse: Boolean(e?.habilita_nfse),
+        habilita_cte: Boolean(e?.habilita_cte),
+        habilita_mdfe: Boolean(e?.habilita_mdfe),
+      }))
+      return { status: resp.status, autenticou: resp.status === 200, empresas }
+    } catch {
+      return { status: 0, autenticou: false, empresas: [] }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+}

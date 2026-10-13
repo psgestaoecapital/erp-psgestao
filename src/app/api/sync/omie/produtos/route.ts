@@ -2,15 +2,11 @@
 // PS Gestão ERP — Sync Produtos Omie → PS Gestão
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { omiePaginate, getOmieAuthFromDb } from '@/lib/omieClient'
 
 export const maxDuration = 300
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 function mapOmieProduto(omie: any, companyId: string) {
   const isServico = omie.tipoItem === '04' || omie.tipoItem === '05' || omie.descr_detalhada?.toLowerCase().includes('servi')
@@ -40,11 +36,16 @@ function mapOmieProduto(omie: any, companyId: string) {
 }
 
 export async function POST(req: Request) {
+  // Usuário da empresa, ou máquina (Bearer CRON_SECRET); /sync/omie/full repassa o Authorization.
+  const guarda = await exigirUsuario(req, { cron: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { company_id } = await req.json()
     if (!company_id) {
       return NextResponse.json({ error: 'company_id obrigatório' }, { status: 400 })
     }
+    const negado = await exigirEmpresas(guarda, [company_id])
+    if (negado) return negado
 
     const auth = await getOmieAuthFromDb(supabase, company_id)
     if (!auth) {
@@ -60,7 +61,11 @@ export async function POST(req: Request) {
       (pagina) => ({
         pagina,
         registros_por_pagina: 50,
-        apenas_importado_api: 'N',
+        // BUG-OMIE-SYNC-PRODUTOS-v1: param comprovado empiricamente via pg_net
+        // (Eng Chefe 04/06). apenas_importado_api e IRRELEVANTE · filtrar_apenas_omiepdv:'N'
+        // e o UNICO param que destrava ListarProdutos pra catalogos cadastrados via
+        // UI Omie (1725 produtos KGF confirmados). Espelha body do main route v6.
+        filtrar_apenas_omiepdv: 'N',
       }),
       (response) => ({
         items: response.produto_servico_cadastro || [],

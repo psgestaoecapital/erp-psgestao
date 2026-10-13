@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { authFetch } from '@/lib/authFetch'
 
 const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', espresso: '#3D2314' }
 
@@ -19,7 +20,7 @@ export default function OnboardingPage() {
   })
 
   useEffect(() => {
-    fetch('/api/assessor/onboarding')
+    authFetch('/api/assessor/onboarding')
       .then(r => r.json())
       .then(data => {
         if (data.assessorias && data.assessorias.length > 0) {
@@ -41,7 +42,7 @@ export default function OnboardingPage() {
     setLoading(true); setError(''); setSaved(false)
 
     try {
-      const resp = await fetch('/api/assessor/onboarding', {
+      const resp = await authFetch('/api/assessor/onboarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, id: existingId }),

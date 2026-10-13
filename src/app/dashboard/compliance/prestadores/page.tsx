@@ -6,6 +6,7 @@ import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtR } from '@/lib/psgc-tokens'
 import { C } from '../_components/ui'
+import { CLASSIFICACAO_SERVICO, TIPOS_SERVICO, ATIVIDADES_ESPECIAIS } from '../_components/prestador-opts'
 
 type Prestador = {
   id: string
@@ -233,7 +234,15 @@ function NovoPrestadorModal({
   const [telefone, setTelefone] = useState('')
   const [valorMensal, setValorMensal] = useState('')
   const [servico, setServico] = useState('')
+  // #87 · pré-cadastro (Compras/Manutenção) — base para as NRs (fase 2)
+  const [localServico, setLocalServico] = useState('')
+  const [classificacao, setClassificacao] = useState<'fixo' | 'eventual' | ''>('')
+  const [tiposServico, setTiposServico] = useState<string[]>([])
+  const [atividades, setAtividades] = useState<string[]>([])
   const [maisDetalhes, setMaisDetalhes] = useState(false)
+
+  const toggle = (arr: string[], v: string, set: (x: string[]) => void) =>
+    set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
   const [cep, setCep] = useState('')
   const [logradouro, setLogradouro] = useState('')
   const [cidade, setCidade] = useState('')
@@ -260,6 +269,10 @@ function NovoPrestadorModal({
         telefone: telefone.trim() || null,
         valor_contrato_mensal: valorMensal ? Number(valorMensal) : null,
         servico_descricao: servico.trim() || null,
+        local_servico: localServico.trim() || null,
+        classificacao_servico: classificacao || null,
+        tipos_servico: tiposServico,
+        atividades_especiais: atividades,
         ativo: true,
       }
       if (cep) body.cep = cep
@@ -323,6 +336,23 @@ function NovoPrestadorModal({
           <textarea value={servico} onChange={(e: any) => setServico(e.target.value)} style={{ ...inputStyle(), minHeight: 60 }} />
         </Field>
 
+        {/* #87 · pré-cadastro para as NRs — Compras/Manutenção informa o serviço e os riscos.
+            Base da automação de NRs + link do terceiro (fase 2). Tudo opcional no pré-cadastro. */}
+        <div style={{ padding: 12, background: C.beigeLt, borderRadius: 8, margin: '4px 0 12px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: C.muted, marginBottom: 8 }}>Serviço e riscos (para as NRs)</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+            <Field label="Local do serviço"><input value={localServico} onChange={(e) => setLocalServico(e.target.value)} style={inputStyle()} /></Field>
+            <Field label="Classificação">
+              <select value={classificacao} onChange={(e) => setClassificacao(e.target.value as 'fixo' | 'eventual' | '')} style={inputStyle()}>
+                <option value="">— selecione —</option>
+                {CLASSIFICACAO_SERVICO.map((o) => (<option key={o.v} value={o.v}>{o.l}</option>))}
+              </select>
+            </Field>
+          </div>
+          <ChecklistGroup titulo="Tipo de serviço executado" opts={TIPOS_SERVICO} sel={tiposServico} onToggle={(v) => toggle(tiposServico, v, setTiposServico)} />
+          <ChecklistGroup titulo="Atividades especiais" opts={ATIVIDADES_ESPECIAIS} sel={atividades} onToggle={(v) => toggle(atividades, v, setAtividades)} />
+        </div>
+
         <button
           type="button"
           onClick={() => setMaisDetalhes((v) => !v)}
@@ -359,6 +389,29 @@ function NovoPrestadorModal({
   )
 }
 
+// #87 · grade de checkboxes para tipo de serviço / atividades especiais
+function ChecklistGroup({ titulo, opts, sel, onToggle }: { titulo: string; opts: readonly { v: string; l: string }[]; sel: string[]; onToggle: (v: string) => void }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>{titulo}</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {opts.map((o) => {
+          const on = sel.includes(o.v)
+          return (
+            <button
+              key={o.v}
+              type="button"
+              onClick={() => onToggle(o.v)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${on ? C.espresso : C.borderLt}`, background: on ? C.espresso : 'white', color: on ? 'white' : C.espresso }}
+            >
+              {on ? '✓' : '+'} {o.l}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 function Field({ label, children }: { label: string; children: any }) {
   return (
     <div style={{ marginBottom: 12 }}>

@@ -100,8 +100,9 @@ export default function PrivacidadePage(){
               <DataItem titulo="Não retenção" desc="Os dados são processados em tempo real e NÃO são retidos após o processamento, exceto por período mínimo para fins de segurança e abuso (máximo 30 dias)."/>
               <DataItem titulo="Transferência internacional" desc="Os dados são temporariamente processados em servidores nos EUA, em conformidade com o Capítulo V da LGPD (Transferência Internacional de Dados), com base no art. 33, II, alínea 'b' (cláusulas contratuais específicas)."/>
             </Sub>
-            <Sub titulo="5.4 Direito de Recusa">
-              <p>O Titular pode solicitar que seus dados NÃO sejam processados por IA, mantendo apenas o processamento manual. Neste caso, funcionalidades automáticas como classificação IA e relatórios com análise serão desabilitadas para a empresa do Titular.</p>
+            <Sub titulo="5.4 Base Legal e Direito de Oposição">
+              <p>O processamento por IA é <strong>condição de uso</strong> da Plataforma (ERP AI-native) e tem como base legal a <strong>execução de contrato</strong> (art. 7º, V da LGPD), não o consentimento — a classificação, a análise anti-fraude e os relatórios são parte indissociável do serviço contratado.</p>
+              <p>O Titular mantém o <strong>direito de oposição</strong> (art. 18, §2º). Como o tratamento por IA é essencial ao funcionamento do sistema, a oposição implica <strong>encerrar o uso do produto</strong> — para isso, entre em contato com o suporte. A oposição não é executada automaticamente.</p>
             </Sub>
           </Section>
 
@@ -255,7 +256,8 @@ function DireitoItem({n,t,d}:{n:string;t:string;d:string}){
 function BasesTable(){
   const rows=[
     {b:'Execução de contrato (art. 7º, V)',f:'Prestação dos serviços de BPO Financeiro e ERP',d:'Dados financeiros, contábeis e cadastrais'},
-    {b:'Consentimento (art. 7º, I)',f:'Processamento por Inteligência Artificial (classificação, relatórios, anti-fraude)',d:'Dados financeiros enviados à API de IA'},
+    {b:'Execução de contrato (art. 7º, V)',f:'Processamento por Inteligência Artificial (classificação, relatórios, anti-fraude) — condição de uso do ERP AI-native',d:'Dados financeiros enviados à API de IA'},
+    {b:'Consentimento (art. 7º, I)',f:'Comunicações de marketing (opcional, revogável)',d:'E-mail e preferências de contato'},
     {b:'Legítimo interesse (art. 7º, IX)',f:'Melhoria contínua da Plataforma, análise de uso, suporte técnico',d:'Dados de navegação e logs'},
     {b:'Obrigação legal (art. 7º, II)',f:'Cumprimento de obrigações fiscais, contábeis e regulatórias',d:'Dados contábeis e fiscais'},
     {b:'Exercício regular de direitos (art. 7º, VI)',f:'Defesa em processos judiciais ou administrativos',d:'Logs de auditoria e registros de acesso'},

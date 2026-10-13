@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi';
 
 function getAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -9,6 +11,8 @@ function getAdmin() {
 }
 
 export async function POST(req: NextRequest) {
+  const guarda = await exigirUsuario(req);
+  if (guarda instanceof NextResponse) return guarda;
   try {
     const body = await req.json();
     const { cliente_id } = body;
@@ -26,6 +30,9 @@ export async function POST(req: NextRequest) {
       .eq('id', cliente_id)
       .maybeSingle();
     if (!cliente) return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 });
+    // Empresa REAL do cliente (lida com service_role acima) — antes de ler qualquer outra coisa.
+    const negado = await exigirEmpresas(guarda, [cliente.company_id]);
+    if (negado) return negado;
 
     // Busca histórico de score (últimos 6 registros)
     const { data: historico } = await sb
@@ -35,11 +42,13 @@ export async function POST(req: NextRequest) {
       .order('calculado_em', { ascending: false })
       .limit(6);
 
-    // Busca últimos 20 lançamentos
+    // Busca últimos 20 lançamentos (view consolidada · so cliente_id ·
+    // cliente_cnpj nao existe nem em erp_lancamentos nem na view ·
+    // referencia antiga removida).
     const { data: lancamentos } = await sb
-      .from('erp_lancamentos')
+      .from('v_lancamentos_consolidado')
       .select('valor, data_emissao, data_vencimento, data_pagamento, status, descricao')
-      .or(`cliente_id.eq.${cliente_id},cliente_cnpj.eq.${cliente.cpf_cnpj}`)
+      .eq('cliente_id', cliente_id)
       .eq('company_id', cliente.company_id)
       .in('tipo', ['receita', 'entrada', 'receber'])
       .order('data_emissao', { ascending: false })
@@ -108,6 +117,7 @@ Projeção pros próximos 3 meses.
 Use linguagem profissional mas acessível. Seja específico com números. Se houver poucos dados, diga isso claramente.`;
 
     // Chama Claude API
+    const modelo = modeloPara('consultor');
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -116,7 +126,7 @@ Use linguagem profissional mas acessível. Seja específico com números. Se hou
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: modelo,
         max_tokens: 1500,
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -124,6 +134,7 @@ Use linguagem profissional mas acessível. Seja específico com números. Se hou
 
     if (!claudeRes.ok) {
       const errText = await claudeRes.text();
+      await registrarFalhaIA({ endpoint: '/api/analise-cliente-ia', finalidade: 'consultor', modelo, status: claudeRes.status, erro: errText, companyId: cliente?.company_id ?? null });
       return NextResponse.json({ error: `Claude API erro: ${claudeRes.status} - ${errText.slice(0, 200)}` }, { status: 500 });
     }
 

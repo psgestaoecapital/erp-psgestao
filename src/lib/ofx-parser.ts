@@ -10,7 +10,7 @@ export interface MovimentoOFX {
   natureza: 'credito' | 'debito';
   descricao: string;            // texto original ate 300 chars
   descricao_limpa: string;      // upper, sem acento/pontuacao, ate 300
-  id_externo: string;           // FITID (ou gerado se ausente)
+  id_externo: string;           // FITID > CHECKNUM > REFNUM; '' se nenhum (NÃO gerar aleatório — quebra dedup)
   documento: string | null;     // CHECKNUM
   tipo_ofx: string;             // TRNTYPE original (CREDIT/DEBIT/etc)
 }
@@ -94,6 +94,7 @@ export function parseOFX(texto: string): ResultadoParseOFX {
       const valorStr = getTag('TRNAMT');
       const idExterno = getTag('FITID');
       const checkNum = getTag('CHECKNUM');
+      const refNum = getTag('REFNUM');
       const memo = getTag('MEMO') || getTag('NAME') || '';
 
       // Skip silencioso se faltam campos obrigatorios
@@ -142,15 +143,17 @@ export function parseOFX(texto: string): ResultadoParseOFX {
         natureza,
         descricao,
         descricao_limpa: descricaoLimpa,
-        id_externo: idExterno || `${dataISO}-${valorRaw}-${Math.random().toString(36).substring(2, 8)}`,
+        // FITID > CHECKNUM > REFNUM; '' se nenhum. NUNCA gerar aleatório: id volátil impede a dedup
+        // por transação (cada import viraria "novo"). Sem id → dedup por chave natural na RPC (FIX #8).
+        id_externo: idExterno || checkNum || refNum || '',
         documento: checkNum || null,
         tipo_ofx: tipoOfx || (valorRaw >= 0 ? 'CREDIT' : 'DEBIT'),
       });
     }
-  } catch (e: any) {
+  } catch (e) {
     return {
       movimentos: [],
-      erro: 'Erro ao processar OFX: ' + (e?.message || String(e)),
+      erro: 'Erro ao processar OFX: ' + (e instanceof Error ? e.message : String(e)),
       total_brutos: totalBrutos,
     };
   }
@@ -179,6 +182,122 @@ export function parseOFX(texto: string): ResultadoParseOFX {
     aviso,
     total_brutos: totalBrutos,
   };
+}
+
+// SPEC SONDA-SALDO (diagnóstico, temporário): detecta se o OFX traz saldo de fechamento.
+// NÃO altera parseOFX nem seu retorno. Só olha. Registra o VALOR CRU da <BALAMT>/<DTASOF>
+// (o saldo e sua data — não é dado de terceiro) e a presença das tags. Nada de descrição/nome/CPF.
+export interface SondaSaldoOFX {
+  ledgerbal_presente: boolean;   // <LEDGERBAL> (saldo contábil de fechamento)
+  availbal_presente: boolean;    // <AVAILBAL> (saldo disponível)
+  balamt_bruto: string | null;   // <BALAMT> dentro de <LEDGERBAL>, cru (pode vir com vírgula/sinal)
+  dtasof_bruto: string | null;   // <DTASOF> dentro de <LEDGERBAL>, cru (data do saldo)
+  availbal_balamt_bruto: string | null; // <BALAMT> dentro de <AVAILBAL>, cru
+  tags_detectadas: string[];     // quais das tags de saldo apareceram no arquivo
+}
+
+export function detectarSaldoOFX(texto: string): SondaSaldoOFX {
+  const temTag = (t: string): boolean => new RegExp(`<${t}[\\s>]`, 'i').test(texto);
+  const pegarEm = (bloco: string, t: string): string | null => {
+    const m = bloco.match(new RegExp(`<${t}>([^<\\n\\r]+)`, 'i'));
+    return m ? m[1].trim() : null;
+  };
+  const ledger = texto.match(/<LEDGERBAL>([\s\S]*?)<\/LEDGERBAL>/i)?.[1] ?? '';
+  const avail = texto.match(/<AVAILBAL>([\s\S]*?)<\/AVAILBAL>/i)?.[1] ?? '';
+  const tags = ['LEDGERBAL', 'BALAMT', 'DTASOF', 'AVAILBAL'].filter(temTag);
+  return {
+    ledgerbal_presente: temTag('LEDGERBAL'),
+    availbal_presente: temTag('AVAILBAL'),
+    balamt_bruto: pegarEm(ledger, 'BALAMT'),
+    dtasof_bruto: pegarEm(ledger, 'DTASOF'),
+    availbal_balamt_bruto: pegarEm(avail, 'BALAMT'),
+    tags_detectadas: tags,
+  };
+}
+
+// Saldo Bancário (18/09): converte o saldo CRU lido por detectarSaldoOFX em valor numérico e data
+// timestamptz, para gravar erp_banco_contas.saldo_extrato via fn_conciliacao_criar_lote. REUSA
+// detectarSaldoOFX (não reescreve o leitor). Função PURA e testável.
+export interface SaldoFechamentoOFX {
+  presente: boolean         // havia <LEDGERBAL><BALAMT> no arquivo
+  valor: number | null      // BALAMT → number (aceita vírgula e sinal)
+  dataISO: string | null    // DTASOF → ISO timestamptz (respeita o fuso do OFX quando presente)
+  balamt_bruto: string | null
+  dtasof_bruto: string | null
+}
+
+// BALAMT cru → number. OFX padrão usa '.' decimal; bancos BR às vezes mandam ','. Preserva o sinal.
+export function parseValorOFX(raw: string | null): number | null {
+  if (!raw) return null
+  let s = raw.trim().replace(/\s/g, '')
+  if (s.includes('.') && s.includes(',')) s = s.replace(/\./g, '').replace(',', '.') // 1.234,56 → 1234.56
+  else if (s.includes(',')) s = s.replace(',', '.')                                   // 500,00 → 500.00
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
+
+// DTASOF cru (YYYYMMDD[HHMMSS][.mmm][-3:BRT]) → ISO com offset quando o OFX traz o fuso.
+export function parseDataOFX(raw: string | null): string | null {
+  if (!raw) return null
+  const m = raw.trim().match(/^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?(?:\.\d+)?(?:\[\s*([+-]?\d+(?:\.\d+)?)\s*(?::[A-Za-z]+)?\s*\])?/)
+  if (!m) return null
+  const [, Y, Mo, D, h, mi, s, tz] = m
+  let offset = ''
+  if (tz !== undefined && tz !== '') {
+    const off = parseFloat(tz)
+    const sign = off < 0 ? '-' : '+'
+    const abs = Math.abs(off)
+    const oh = String(Math.floor(abs)).padStart(2, '0')
+    const om = String(Math.round((abs % 1) * 60)).padStart(2, '0')
+    offset = `${sign}${oh}:${om}`
+  }
+  return `${Y}-${Mo}-${D}T${h ?? '00'}:${mi ?? '00'}:${s ?? '00'}${offset}`
+}
+
+export function parseSaldoFechamento(texto: string): SaldoFechamentoOFX {
+  const sonda = detectarSaldoOFX(texto)
+  if (!sonda.ledgerbal_presente || !sonda.balamt_bruto) {
+    return { presente: false, valor: null, dataISO: null, balamt_bruto: sonda.balamt_bruto, dtasof_bruto: sonda.dtasof_bruto }
+  }
+  return {
+    presente: true,
+    valor: parseValorOFX(sonda.balamt_bruto),
+    dataISO: parseDataOFX(sonda.dtasof_bruto),
+    balamt_bruto: sonda.balamt_bruto,
+    dtasof_bruto: sonda.dtasof_bruto,
+  }
+}
+
+// Saldo Anterior (adendo #1541): alguns bancos (ex.: Sicredi/Sicoob) emitem o saldo do
+// extrato como uma LINHA <STMTTRN> com MEMO "SALDO ANTERIOR" / "SALDO DO DIA" / só "SALDO".
+// Isso NÃO é movimento — vira ruído em conciliacao_movimento e desalinha o total. Este helper
+// PURO decide se a descrição normalizada de uma linha OFX é, na verdade, uma linha de saldo.
+//
+// Aceita (é saldo, NÃO é movimento):
+//   "SALDO", "SALDO ANTERIOR", "SALDO DO DIA", "SALDO ANTERIOR 1234", "SALDO 123456"
+// Recusa (é movimento de verdade — mantém):
+//   "SALDO REMUNERADO", "SALDO DEVEDOR", "APLIC SALDO", "RESGATE SALDO REMUNERADO"
+//
+// Trabalha sobre o MESMO texto normalizado de descricao_limpa (upper, sem acento/pontuação).
+export function ehLinhaSaldoOFX(descricao: string): boolean {
+  if (!descricao) return false
+  const norm = descricao
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // remove acentos
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!norm.startsWith('SALDO')) return false
+  // Resto após "SALDO ": vazio, "ANTERIOR[...]", "DO DIA[...]", ou só dígitos → é linha de saldo.
+  // "REMUNERADO"/"DEVEDOR"/qualquer outra palavra → é movimento, não é saldo.
+  const resto = norm.slice('SALDO'.length).trim()
+  if (resto === '') return true
+  if (/^ANTERIOR(\s.*)?$/.test(resto)) return true
+  if (/^DO DIA(\s.*)?$/.test(resto)) return true
+  if (/^DIA(\s.*)?$/.test(resto)) return true
+  if (/^\d[\d\s]*$/.test(resto)) return true // "SALDO 123456" (valor colado)
+  return false
 }
 
 /**

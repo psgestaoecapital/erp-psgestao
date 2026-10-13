@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { authFetch } from '@/lib/authFetch';
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -42,9 +43,9 @@ export default function PrevisaoPage(){
   };
 
   const loadSaldo=async()=>{
-    const{data}=await supabase.from("erp_banco_contas").select("saldo_atual").eq("company_id",sel).eq("ativo",true);
-    const total=(data||[]).reduce((s,c)=>s+Number(c.saldo_atual||0),0);
-    setSaldoInicial(total);
+    const{data,error}=await supabase.rpc('fn_saldo_bancos_dinamico',{p_company_ids:[sel]});
+    if(error){setSaldoInicial(0);return;}
+    setSaldoInicial(Number(data)||0);
   };
 
   const calcularPrevisao=async()=>{
@@ -94,7 +95,7 @@ export default function PrevisaoPage(){
     setAnalisando(true);
     setParecer("");
     try{
-      const r=await fetch("/api/previsao-fluxo-ia",{
+      const r=await authFetch("/api/previsao-fluxo-ia",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({

@@ -86,6 +86,11 @@ export default function FornecedoresPage(){
     if(companyIds.length>0)loadFornecedores();
   },[companyIds.join(",")]);
 
+  // #7a.3 · deep-link da remessa ("cadastrar chave PIX · <fornecedor>") pré-filtra por nome.
+  useEffect(()=>{
+    try{ const q=new URLSearchParams(window.location.search).get("busca"); if(q)setBusca(q); }catch{ /* SSR/sem window */ }
+  },[]);
+
   const loadFornecedores=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);

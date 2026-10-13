@@ -1,0 +1,102 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/withAuth'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { createFiscalService } from '@/lib/fiscal/service'
+import { isFiscalError } from '@/lib/fiscal/errors'
+import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
+import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
+
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
+export const GET = withAuth(async (
+  _req: NextRequest,
+  { userId },
+  routeCtx?: { params: Promise<{ id: string }> }
+) => {
+  try {
+    const params = await routeCtx?.params
+    const id = params?.id
+    if (!id) {
+      return NextResponse.json({ ok: false, mensagem: 'id ausente' }, { status: 400 })
+    }
+
+    const { data: nota, error } = await supabaseAdmin
+      .from('erp_nfse_emitidas')
+      .select('id, company_id, provider_reference, status, numero, xml_url, pdf_url, motivo_rejeicao')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (error || !nota) {
+      return NextResponse.json({ ok: false, mensagem: 'NFSe nao encontrada' }, { status: 404 })
+    }
+
+    const negado = await guardaEmpresaFiscal({ userId, companyId: nota.company_id, papelMinimo: 'membro', log: { notaTipo: 'nfse', notaId: id, operacao: 'consulta', endpoint: 'nfse/consultar' } })
+    if (negado) return negado
+
+    if (nota.status === 'processando') {
+      try {
+        const svc = await createFiscalService(nota.company_id)
+        const atual = await svc.consultarNFSe(nota.provider_reference)
+
+        if (atual.status !== 'processando') {
+          await supabaseAdmin
+            .from('erp_nfse_emitidas')
+            .update({
+              status: atual.status,
+              numero: atual.numero ?? nota.numero,
+              codigo_verificacao: atual.codigoVerificacao,
+              xml_url: atual.xmlUrl,
+              pdf_url: atual.pdfUrl,
+              motivo_rejeicao: atual.motivoRejeicao,
+              provider_raw: atual.providerRaw ?? null,
+            })
+            .eq('id', id)
+        }
+
+        // Registra a consulta (nada de falha silenciosa): resultado real da prefeitura.
+        await registrarTentativaFiscal({
+          companyId: nota.company_id,
+          notaTipo: 'nfse',
+          notaId: id,
+          operacao: 'consulta',
+          endpoint: 'nfse/consultar',
+          referencia: nota.provider_reference,
+          providerMensagem: atual.motivoRejeicao ?? null,
+          resultado: atual.status === 'autorizada' ? 'ok'
+            : atual.status === 'rejeitada' ? 'rejeitada'
+            : atual.status === 'processando' ? 'processando' : 'ok',
+          usuarioId: userId,
+        })
+
+        return NextResponse.json({
+          ok: atual.status === 'autorizada',
+          status: atual.status,
+          numero: atual.numero,
+          xmlUrl: atual.xmlUrl,
+          pdfUrl: atual.pdfUrl,
+          motivoRejeicao: atual.motivoRejeicao,
+        })
+      } catch (err) {
+        if (isFiscalError(err)) {
+          return NextResponse.json(err.toJSON(), { status: 502 })
+        }
+        throw err
+      }
+    }
+
+    return NextResponse.json({
+      ok: nota.status === 'autorizada',
+      status: nota.status,
+      numero: nota.numero,
+      xmlUrl: nota.xml_url,
+      pdfUrl: nota.pdf_url,
+      motivoRejeicao: nota.motivo_rejeicao,
+    })
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, mensagem: (err as Error)?.message ?? 'Erro' },
+      { status: 500 }
+    )
+  }
+})

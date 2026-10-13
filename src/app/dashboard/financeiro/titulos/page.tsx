@@ -33,7 +33,7 @@ import {
 export const dynamic = 'force-dynamic'
 
 type TipoFiltro = 'todos' | 'pagar' | 'receber'
-type StatusFiltro = 'todos' | 'aberto' | 'vencido' | 'agendado' | 'pago' | 'cancelado'
+type StatusFiltro = 'todos' | 'aberto' | 'vencido' | 'incluido_remessa' | 'agendado' | 'pago' | 'conciliado' | 'cancelado'
 
 type Titulo = {
   id: string
@@ -61,12 +61,18 @@ function fmtDate(d: string | null): string {
   if (!d) return '—'
   return new Date(d + 'T00:00:00').toLocaleDateString('pt-BR')
 }
-function statusBadge(status: string): { bg: string; tx: string; label: string } {
+function statusBadge(status: string, tipoLinha?: string): { bg: string; tx: string; label: string } {
   switch (status) {
     case 'pago':
-      return { bg: 'bg-emerald-50', tx: 'text-emerald-700', label: 'Pago' }
+      // Pilar 3: conta a RECEBER quitada = "Recebido" (entrou dinheiro), não "Pago".
+      return { bg: 'bg-emerald-50', tx: 'text-emerald-700', label: tipoLinha === 'receber' ? 'Recebido' : 'Pago' }
+    case 'conciliado':
+      // RD-41 · Conciliado = pago + confirmado no extrato (derivado de conciliado=true). Verde mais forte.
+      return { bg: 'bg-teal-100', tx: 'text-teal-800', label: 'Conciliado' }
     case 'agendado':
       return { bg: 'bg-blue-50', tx: 'text-blue-700', label: 'Agendado' }
+    case 'incluido_remessa':
+      return { bg: 'bg-indigo-50', tx: 'text-indigo-700', label: 'Incluído na remessa' }
     case 'aberto':
       return { bg: 'bg-amber-50', tx: 'text-amber-700', label: 'Aberto' }
     case 'vencido':
@@ -170,7 +176,7 @@ function TitulosInner() {
 
   // KPIs agregados
   const kpiPagar = aggregados
-    .filter((t) => t.tipo === 'pagar' && ['aberto', 'vencido', 'agendado'].includes(t.status_calculado))
+    .filter((t) => t.tipo === 'pagar' && ['aberto', 'vencido', 'incluido_remessa', 'agendado'].includes(t.status_calculado))
     .reduce((a, t) => a + (Number(t.valor) || 0), 0)
   const kpiReceber = aggregados
     .filter((t) => t.tipo === 'receber' && ['aberto', 'vencido', 'agendado'].includes(t.status_calculado))
@@ -239,8 +245,10 @@ function TitulosInner() {
                 { v: 'todos', l: 'Todos' },
                 { v: 'aberto', l: 'Aberto' },
                 { v: 'vencido', l: 'Vencido' },
+                { v: 'incluido_remessa', l: 'Incluído na remessa' },
                 { v: 'agendado', l: 'Agendado' },
                 { v: 'pago', l: 'Pago' },
+                { v: 'conciliado', l: 'Conciliado' },
                 { v: 'cancelado', l: 'Cancelado' },
               ]}
               atual={status}
@@ -303,7 +311,7 @@ function TitulosInner() {
                 </thead>
                 <tbody className="divide-y divide-[#3D2314]/5">
                   {titulos.map((t) => {
-                    const sb = statusBadge(t.status_calculado)
+                    const sb = statusBadge(t.status_calculado, t.tipo)
                     return (
                       <tr key={`${t.tipo}-${t.id}`} className="hover:bg-[#FAF7F2]/60">
                         <td className="whitespace-nowrap px-4 py-3 md:px-5">

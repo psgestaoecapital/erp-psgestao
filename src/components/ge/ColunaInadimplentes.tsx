@@ -47,7 +47,7 @@ export default function ColunaInadimplentes({ companyId }: { companyId: string }
         {(data.qtd_total_clientes_atrasados ?? 0) > 0 && (
           <button
             type="button"
-            onClick={() => router.push('/dashboard/contas-receber?filtro=vencido')}
+            onClick={() => router.push('/dashboard/financeiro/inadimplentes')}
             style={{ background: 'transparent', border: 'none', color: '#C8941A', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
           >
             Ver todos ({data.qtd_total_clientes_atrasados})
@@ -66,7 +66,7 @@ export default function ColunaInadimplentes({ companyId }: { companyId: string }
             <button
               key={`${c.cliente_id ?? 'sem-id'}-${i}`}
               type="button"
-              onClick={() => router.push(c.cliente_id ? `/dashboard/contas-receber?cliente_id=${c.cliente_id}` : '/dashboard/contas-receber?filtro=vencido')}
+              onClick={() => router.push('/dashboard/financeiro/inadimplentes')}
               style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 6px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', borderRadius: 6 }}
             >
               <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#F2E9D8', color: '#3D2314', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>

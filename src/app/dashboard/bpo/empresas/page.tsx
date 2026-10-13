@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
+import { getUsuarioId } from '@/lib/AuthProvider'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
 import PSGCCard from '@/components/psgc/PSGCCard'
 import PSGCButton from '@/components/psgc/PSGCButton'
@@ -54,10 +55,10 @@ export default function EmpresasPage() {
 
   async function carregar() {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
+    const uid = await getUsuarioId()
+    if (!uid) { setLoading(false); return }
 
-    const { data, error } = await supabase.rpc('fn_bpo_minhas_empresas', { p_user_id: user.id })
+    const { data, error } = await supabase.rpc('fn_bpo_minhas_empresas', { p_user_id: uid })
     if (error) {
       console.error('Erro fn_bpo_minhas_empresas:', error)
     }

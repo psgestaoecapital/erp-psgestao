@@ -160,7 +160,7 @@ export class OmieConnector implements Connector {
     if (module === 'clientes') {
       const res = await fetch(`${this.ctx.baseUrl}/api/sync/omie/clientes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(this.ctx.authorization ? { Authorization: this.ctx.authorization } : {}) },
         body: JSON.stringify({ company_id: this.ctx.companyId }),
       })
       const j: any = await res.json().catch(() => ({}))
@@ -176,7 +176,7 @@ export class OmieConnector implements Connector {
     if (module === 'contas_pagar' || module === 'contas_receber') {
       const res = await fetch(`${this.ctx.baseUrl}/api/omie/promote`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(this.ctx.authorization ? { Authorization: this.ctx.authorization } : {}) },
         body: JSON.stringify({
           company_id: this.ctx.companyId,
           import_types: [module],

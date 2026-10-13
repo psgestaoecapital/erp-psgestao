@@ -1,0 +1,633 @@
+'use client'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { supabase } from '@/lib/supabase'
+import SeletorUsuario from '@/components/crm/SeletorUsuario'
+import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
+import { telefoneDoCliente, tituloOportunidade, erroOportunidade } from '@/lib/crm/oportunidadeCliente'
+
+// FIX 2 · caixa alta nos campos de texto (título/endereço/cidade/bairro). Não toca e-mail/CEP/números/responsável.
+const up = (s: string | null): string | null => { const t = (s ?? '').trim(); return t ? t.toUpperCase() : null }
+
+type ClienteOpt = { id: string; nome: string; cpf_cnpj: string | null; telefone?: string | null; celular?: string | null; whatsapp?: string | null }
+// coluna de onde veio o telefone mostrado — a edição grava de volta nela (#110)
+type ColTel = 'celular' | 'whatsapp' | 'telefone'
+const colunaDoTelefone = (c: ClienteOpt): ColTel => (c.celular?.trim() ? 'celular' : c.whatsapp?.trim() ? 'whatsapp' : 'telefone')
+type UserOpt = { id: string; email: string | null; full_name?: string | null }
+
+export type OportunidadeRow = {
+  id?: string
+  company_id?: string
+  cliente_id: string | null
+  titulo: string
+  etapa: string
+  valor_estimado: number | null
+  origem: string | null
+  obra_endereco: string | null
+  obra_cidade: string | null
+  obra_bairro: string | null
+  responsavel_id: string | null
+  responsavel_nome: string | null
+  data_prevista_fechamento: string | null
+  probabilidade: number | null
+  observacoes: string | null
+}
+
+const ETAPAS: { v: string; l: string }[] = [
+  { v: 'prospeccao',       l: 'Prospecção' },
+  { v: 'visita_agendada',  l: 'Visita agendada' },
+  { v: 'visita_feita',     l: 'Visita feita' },
+  { v: 'orcando',          l: 'Orçando' },
+  { v: 'proposta_enviada', l: 'Proposta enviada' },
+  { v: 'negociacao',       l: 'Negociação' },
+  { v: 'ganho',            l: 'Ganho' },
+  { v: 'perdido',          l: 'Perdido' },
+]
+
+const ORIGENS = ['indicacao', 'instagram', 'site', 'obra_vizinha', 'outro']
+
+const empty = (): OportunidadeRow => ({
+  cliente_id: null, titulo: '', etapa: 'prospeccao',
+  valor_estimado: null, origem: null,
+  obra_endereco: null, obra_cidade: null, obra_bairro: null,
+  responsavel_id: null, responsavel_nome: null, data_prevista_fechamento: null,
+  probabilidade: 50, observacoes: null,
+})
+
+interface Props {
+  companyId: string
+  initial?: OportunidadeRow | null
+  onClose: () => void
+  onSaved: (id: string, aviso?: string) => void
+}
+
+// Máscara BR de moeda por CENTAVOS (sem ambiguidade de milhar/decimal): o usuário digita só dígitos
+// e o valor cresce da direita (16468920 → "164.689,20"). Corrige a causa raiz do bug "164,69"
+// (o input type=number quebrava "164.689,20"). Grava o número em reais (164689.20), não 164.69.
+const fmtBR = (n: number): string => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+export default function OportunidadeFormModal({ companyId, initial, onClose, onSaved }: Props) {
+  const [form, setForm] = useState<OportunidadeRow>(initial ?? empty())
+  const [valorStr, setValorStr] = useState<string>(
+    initial?.valor_estimado != null ? fmtBR(initial.valor_estimado) : '',
+  )
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const isEdit = !!initial?.id
+  // Tryo #266 · anexos (fotos, PDF, DWG) já na criação: ficam em espera e são presos à oportunidade no CRIAR
+  const anexosRef = useRef<AnexosCardHandle>(null)
+  const fechar = () => { if (!isEdit) void anexosRef.current?.limpar(); onClose() }
+
+  // Tryo #110 · telefone do cliente (mostrado e editável; grava no cadastro do cliente)
+  const [telCli, setTelCli] = useState('')
+  const [telCliOrig, setTelCliOrig] = useState('')
+  const [telCol, setTelCol] = useState<ColTel>('telefone')
+
+  // Cliente autocomplete
+  const [buscaCli, setBuscaCli] = useState('')
+  const [cliOpts, setCliOpts] = useState<ClienteOpt[]>([])
+  const [cliSel, setCliSel] = useState<ClienteOpt | null>(null)
+  const [showOpts, setShowOpts] = useState(false)
+
+  // Quick add cliente (grava no cadastro central erp_clientes, escopo empresa)
+  const [novoCliOpen, setNovoCliOpen] = useState(false)
+  const [novoCliNome, setNovoCliNome] = useState('')
+  const [novoCliTel, setNovoCliTel] = useState('')
+  const [novoCliTipo, setNovoCliTipo] = useState<'PJ' | 'PF'>('PJ')
+  const [novoCliDoc, setNovoCliDoc] = useState('')
+  const [novoCliSaving, setNovoCliSaving] = useState(false)
+
+  // CEP lookup (reusa /api/cep-lookup · ViaCEP)
+  const [cep, setCep] = useState('')
+  const [cepLoading, setCepLoading] = useState(false)
+
+  // Responsavel
+  const [users, setUsers] = useState<UserOpt[]>([])
+
+  // Load initial cliente label
+  useEffect(() => {
+    if (!form.cliente_id) return
+    supabase
+      .from('erp_clientes')
+      .select('id, razao_social, nome_fantasia, cpf_cnpj, telefone, celular, whatsapp')
+      .eq('id', form.cliente_id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) return
+        const d = data as { id: string; razao_social: string | null; nome_fantasia: string | null; cpf_cnpj: string | null; telefone: string | null; celular: string | null; whatsapp: string | null }
+        const nome = d.nome_fantasia || d.razao_social || ''
+        const opt: ClienteOpt = { id: d.id, nome, cpf_cnpj: d.cpf_cnpj, telefone: d.telefone, celular: d.celular, whatsapp: d.whatsapp }
+        setCliSel(opt)
+        setBuscaCli(nome)
+        const tel = telefoneDoCliente(opt)
+        setTelCli(tel); setTelCliOrig(tel); setTelCol(colunaDoTelefone(opt))
+      })
+  }, [form.cliente_id])
+
+  // Load users
+  useEffect(() => {
+    // Usuários via RPC SECURITY DEFINER (users tem RLS: join direto vem vazio p/ não-admin).
+    supabase
+      .rpc('fn_usuarios_da_empresa', { p_company_id: companyId })
+      .then(({ data }) => {
+        setUsers((data ?? []) as UserOpt[])
+      })
+  }, [companyId])
+
+  // Cliente search
+  useEffect(() => {
+    if (buscaCli.length < 2 || cliSel) { setCliOpts([]); return }
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from('erp_clientes')
+        .select('id, razao_social, nome_fantasia, cpf_cnpj, telefone, celular, whatsapp')
+        .eq('company_id', companyId)
+        .or(`razao_social.ilike.%${buscaCli}%,nome_fantasia.ilike.%${buscaCli}%`)
+        .limit(8)
+      const list = (data ?? []) as Array<{ id: string; razao_social: string | null; nome_fantasia: string | null; cpf_cnpj: string | null; telefone: string | null; celular: string | null; whatsapp: string | null }>
+      setCliOpts(list.map((c) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social || '—', cpf_cnpj: c.cpf_cnpj, telefone: c.telefone, celular: c.celular, whatsapp: c.whatsapp })))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [buscaCli, companyId, cliSel])
+
+  const setF = <K extends keyof OportunidadeRow>(k: K, v: OportunidadeRow[K]) =>
+    setForm((f) => ({ ...f, [k]: v }))
+
+  function escolherCliente(c: ClienteOpt) {
+    setCliSel(c)
+    setBuscaCli(c.nome)
+    setShowOpts(false)
+    // #262 · o cliente identifica o card no kanban; a descrição do serviço fica no próprio campo (não é mais
+    // preenchida com o nome do cliente).
+    setForm((f) => ({ ...f, cliente_id: c.id }))
+    const tel = telefoneDoCliente(c)
+    setTelCli(tel); setTelCliOrig(tel); setTelCol(colunaDoTelefone(c))
+  }
+
+  function limparCliente() {
+    setCliSel(null)
+    setBuscaCli('')
+    setF('cliente_id', null)
+    setTelCli(''); setTelCliOrig(''); setTelCol('telefone')
+  }
+
+  async function criarClienteRapido() {
+    if (!novoCliNome.trim()) { setErr('Nome do cliente obrigatorio.'); return }
+    setNovoCliSaving(true)
+    setErr(null)
+    const doc = novoCliDoc.trim() || null
+    // Grava no cadastro central erp_clientes (escopo empresa, RLS). Espelha
+    // cpf_cnpj (canonica) + cnpj_cpf (legada) igual a tela Clientes (#589).
+    const { data, error } = await supabase
+      .from('erp_clientes')
+      .insert({
+        company_id: companyId, tipo_pessoa: novoCliTipo,
+        nome_fantasia: novoCliNome.trim(), razao_social: novoCliNome.trim(),
+        cpf_cnpj: doc, cnpj_cpf: doc,
+        telefone: novoCliTel.trim() || null, ativo: true,
+      })
+      .select('id, nome_fantasia, cpf_cnpj, telefone')
+      .single()
+    setNovoCliSaving(false)
+    if (error) { setErr(`Erro ao criar cliente: ${error.message}`); return }
+    const d = data as { id: string; nome_fantasia: string | null; cpf_cnpj: string | null; telefone: string | null }
+    escolherCliente({ id: d.id, nome: d.nome_fantasia ?? novoCliNome.trim(), cpf_cnpj: d.cpf_cnpj, telefone: d.telefone })
+    setNovoCliOpen(false)
+    setNovoCliNome(''); setNovoCliTel(''); setNovoCliDoc(''); setNovoCliTipo('PJ')
+  }
+
+  async function buscarCep() {
+    const digits = cep.replace(/\D/g, '')
+    if (digits.length !== 8) { setErr('CEP deve ter 8 dígitos.'); return }
+    setCepLoading(true); setErr(null)
+    try {
+      const r = await fetch(`/api/cep-lookup?cep=${digits}`)
+      const d = await r.json()
+      if (!r.ok || d.error) { setErr(d.error || 'CEP não encontrado.'); return }
+      setForm((f) => ({
+        ...f,
+        obra_endereco: [d.logradouro, d.complemento].filter(Boolean).join(', ') || f.obra_endereco,
+        obra_bairro: d.bairro || f.obra_bairro,
+        obra_cidade: [d.cidade, d.uf].filter(Boolean).join('/') || f.obra_cidade,
+      }))
+    } catch {
+      setErr('Erro ao buscar CEP.')
+    } finally {
+      setCepLoading(false)
+    }
+  }
+
+  // #262 · nome digitado no campo Cliente sem escolher da lista: reusa o cadastro de mesmo nome (sem diferenciar
+  // maiúsculas) ou cria um novo — antes o nome não era gravado e "sumia" ao reabrir. Devolve o id do cliente.
+  async function resolverClienteDigitado(nome: string): Promise<string | null> {
+    const alvo = nome.trim()
+    // igualdade sem diferenciar maiúsculas (ilike sem curinga; % e _ do nome são escapados)
+    const exato = alvo.replace(/[\\%_]/g, (c) => `\\${c}`)
+    for (const col of ['nome_fantasia', 'razao_social'] as const) {
+      const { data: achados } = await supabase
+        .from('erp_clientes').select('id')
+        .eq('company_id', companyId).eq('ativo', true).ilike(col, exato).limit(1)
+      const existente = (achados ?? [])[0] as { id: string } | undefined
+      if (existente) return existente.id
+    }
+    const { data, error } = await supabase
+      .from('erp_clientes')
+      .insert({
+        company_id: companyId, nome_fantasia: alvo.toUpperCase(), razao_social: alvo.toUpperCase(),
+        telefone: telCli.trim() || null, ativo: true,
+      })
+      .select('id')
+      .single()
+    if (error) { setErr(`Erro ao cadastrar o cliente: ${error.message}`); return null }
+    setTelCliOrig(telCli.trim())
+    return (data as { id: string }).id
+  }
+
+  // Tryo #263 · oportunidade salva na etapa "Orçando" (pelo seletor de Etapa) gera o orçamento, igual ao arrastar
+  // no kanban — antes só o arrastar gerava, e o card ia para "Orçando" sem orçamento na lista. A RPC é idempotente.
+  async function garantirOrcamento(id: string): Promise<string | undefined> {
+    if (form.etapa !== 'orcando') return undefined
+    const { data, error } = await supabase.rpc('fn_oportunidade_gerar_orcamento', { p_oportunidade_id: id })
+    const j = data as { ok?: boolean; erro?: string; mensagem?: string; numero?: string; ja_existia?: boolean } | null
+    if (error || !j?.ok) return `Orçamento não gerado: ${j?.mensagem ?? error?.message ?? j?.erro ?? 'falha'}`
+    return j.ja_existia ? undefined : `Orçamento ${j.numero} criado na lista de orçamentos.`
+  }
+
+  async function salvar() {
+    const nomeCliente = cliSel?.nome ?? buscaCli
+    const invalido = erroOportunidade(form.titulo, nomeCliente)
+    if (invalido) { setErr(invalido); return }
+    setSaving(true)
+    setErr(null)
+    let clienteId = form.cliente_id
+    if (!clienteId && buscaCli.trim()) {
+      clienteId = await resolverClienteDigitado(buscaCli)
+      if (!clienteId) { setSaving(false); return }
+    }
+    // #110 · telefone editado aqui vai para o cadastro do cliente (mesma coluna de onde veio)
+    if (clienteId && telCli.trim() !== telCliOrig.trim()) {
+      const { error: eTel } = await supabase.from('erp_clientes').update({ [telCol]: telCli.trim() || null }).eq('id', clienteId)
+      if (eTel) { setSaving(false); setErr(`Erro ao gravar o telefone do cliente: ${eTel.message}`); return }
+    }
+    // Whitelist das colunas reais — ao editar via ficha [id], o `initial` chega com
+    // campos extras (erp_clientes aninhado, valor_proposta, orcamento_id…) que NÃO
+    // são colunas de update. Enviar só o que existe evita erro de coluna fantasma.
+    const payload = {
+      company_id: companyId,
+      cliente_id: clienteId,
+      titulo: tituloOportunidade(form.titulo, nomeCliente), // FIX 2 · caixa alta · #262 sem descrição = nome do cliente
+      etapa: form.etapa,
+      valor_estimado: form.valor_estimado,             // número — não mexe
+      origem: form.origem,
+      obra_endereco: up(form.obra_endereco),           // FIX 2 · caixa alta
+      obra_cidade: up(form.obra_cidade),               // FIX 2 · caixa alta
+      obra_bairro: up(form.obra_bairro),               // FIX 2 · caixa alta
+      responsavel_id: form.responsavel_id,             // FIX 3 · uuid do usuário
+      responsavel_nome: form.responsavel_nome,         // nome de pessoa — não força caixa alta
+      data_prevista_fechamento: form.data_prevista_fechamento,
+      probabilidade: form.probabilidade,
+      observacoes: form.observacoes,
+    }
+    if (isEdit && initial?.id) {
+      const { error } = await supabase.from('erp_crm_oportunidade').update(payload).eq('id', initial.id)
+      if (error) { setSaving(false); setErr(error.message); return }
+      const avisoOrc = await garantirOrcamento(initial.id)
+      setSaving(false)
+      onSaved(initial.id, avisoOrc)
+    } else {
+      const { data, error } = await supabase
+        .from('erp_crm_oportunidade')
+        .insert(payload)
+        .select('id')
+        .single()
+      if (error) { setSaving(false); setErr(error.message); return }
+      const novoId = (data as { id: string }).id
+      // #266 · anexos em espera (tmp/) passam a pertencer à oportunidade; um que falhe não perde a oportunidade
+      if (anexosRef.current?.temPendentes()) {
+        const r = await anexosRef.current.confirmar(novoId)
+        if (r.erros.length > 0) { setSaving(false); setErr(`Oportunidade criada, mas ${r.erros.length} anexo(s) não subiram — anexe de novo na ficha.`); onSaved(novoId); return }
+      }
+      const avisoOrc = await garantirOrcamento(novoId)
+      setSaving(false)
+      onSaved(novoId, avisoOrc)
+    }
+  }
+
+  return (
+    <div style={overlay}>
+      <div style={card}>
+        <div style={head}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#3D2314', margin: 0 }}>
+            {isEdit ? 'Editar oportunidade' : 'Nova oportunidade'}
+          </h2>
+          <button onClick={fechar} style={closeBtn} aria-label="Fechar">✕</button>
+        </div>
+
+        {/* Cliente autocomplete · #262: o cliente vem primeiro e identifica o card no kanban */}
+        <div>
+          <div style={lblTxt}>Nome do cliente</div>
+          {cliSel ? (
+            <div style={selectedRow}>
+              <span style={{ fontSize: 13, color: '#3D2314' }}>
+                {cliSel.nome}{cliSel.cpf_cnpj ? ` · ${cliSel.cpf_cnpj}` : ''}
+              </span>
+              <button onClick={limparCliente} style={linkBtn}>trocar</button>
+            </div>
+          ) : (
+            <>
+              <input
+                value={buscaCli}
+                onChange={(e) => { setBuscaCli(e.target.value); setShowOpts(true) }}
+                onFocus={() => setShowOpts(true)}
+                placeholder="Digite o nome do cliente…"
+                data-testid="oport-cliente"
+                style={inp}
+              />
+              {showOpts && cliOpts.length > 0 && (
+                <div style={dropdown}>
+                  {cliOpts.map((c) => (
+                    <button key={c.id} onClick={() => escolherCliente(c)} style={dropItem}>
+                      <span style={{ color: '#3D2314' }}>{c.nome}</span>
+                      {c.cpf_cnpj && <span style={{ color: '#6b5444', fontSize: 11, marginLeft: 6 }}>· {c.cpf_cnpj}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button onClick={() => setNovoCliOpen((v) => !v)} style={linkBtn}>
+                {novoCliOpen ? '− Cancelar' : '+ Novo cliente rápido'}
+              </button>
+              {novoCliOpen && (
+                <div style={quickAddBox}>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                    {(['PJ', 'PF'] as const).map((t) => (
+                      <button key={t} type="button" onClick={() => setNovoCliTipo(t)}
+                        style={{ flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${novoCliTipo === t ? '#C8941A' : '#E7DED3'}`, background: novoCliTipo === t ? 'rgba(200,148,26,0.10)' : '#fff', color: novoCliTipo === t ? '#A57A15' : '#6b5444' }}>
+                        {t === 'PJ' ? '🏢 PJ' : '👤 PF'}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    value={novoCliNome}
+                    onChange={(e) => setNovoCliNome(e.target.value)}
+                    placeholder={novoCliTipo === 'PF' ? 'Nome completo *' : 'Nome / razão social *'}
+                    style={inp}
+                  />
+                  <input
+                    value={novoCliDoc}
+                    onChange={(e) => setNovoCliDoc(e.target.value)}
+                    placeholder={novoCliTipo === 'PF' ? 'CPF (opcional)' : 'CNPJ (opcional)'}
+                    style={{ ...inp, marginTop: 6 }}
+                  />
+                  <input
+                    value={novoCliTel}
+                    onChange={(e) => setNovoCliTel(e.target.value)}
+                    placeholder="Telefone (opcional)"
+                    style={{ ...inp, marginTop: 6 }}
+                  />
+                  <button
+                    onClick={criarClienteRapido}
+                    disabled={novoCliSaving || !novoCliNome.trim()}
+                    style={{ ...btnPrimary, marginTop: 8 }}
+                  >
+                    {novoCliSaving ? 'Criando…' : 'CRIAR cliente'}
+                  </button>
+                  <div style={{ fontSize: 10, color: '#6b5444', marginTop: 6 }}>Grava no cadastro central de clientes (disponível em GE/BPO/Financeiro).</div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* #110 · telefone do cliente — grava no cadastro do cliente e aparece no card do kanban */}
+        {(cliSel || buscaCli.trim()) && (
+          <label style={{ ...lbl, marginTop: 12 }}>
+            Telefone do cliente
+            <input
+              value={telCli}
+              onChange={(e) => setTelCli(e.target.value)}
+              placeholder="(49) 99999-9999"
+              inputMode="tel"
+              data-testid="oport-telefone-cliente"
+              style={inp}
+            />
+          </label>
+        )}
+
+        {/* #262 · descrição do serviço/produto (coluna titulo). Vazia = o card leva o nome do cliente */}
+        <label style={{ ...lbl, marginTop: 12 }}>
+          Descrição do serviço / produto
+          <input
+            value={form.titulo}
+            onChange={(e) => setF('titulo', e.target.value)}
+            placeholder="Forro de gesso · Residência"
+            data-testid="oport-descricao"
+            style={inpUpper}
+          />
+        </label>
+
+        {/* Grid: etapa | valor | origem | data_prevista | probabilidade | responsavel */}
+        <div style={grid}>
+          <label style={lbl}>
+            Etapa
+            <select value={form.etapa} onChange={(e) => setF('etapa', e.target.value)} style={inp} data-testid="oport-etapa">
+              {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
+            </select>
+          </label>
+          <label style={lbl}>
+            Valor estimado (R$)
+            <input
+              inputMode="decimal"
+              value={valorStr}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, '')
+                if (!digits) { setValorStr(''); setF('valor_estimado', null); return }
+                const num = parseInt(digits, 10) / 100      // centavos → reais (sem perder milhar)
+                setValorStr(fmtBR(num))
+                setF('valor_estimado', num)
+              }}
+              placeholder="0,00"
+              style={inp}
+            />
+          </label>
+          <label style={lbl}>
+            Origem
+            <input
+              list="origens-list"
+              value={form.origem ?? ''}
+              onChange={(e) => setF('origem', e.target.value || null)}
+              placeholder="Escolha ou digite uma nova"
+              style={inp}
+            />
+            <datalist id="origens-list">
+              {ORIGENS.map((o) => <option key={o} value={o} />)}
+            </datalist>
+          </label>
+          <label style={lbl}>
+            Data prevista de fechamento
+            <input
+              type="date"
+              value={form.data_prevista_fechamento ?? ''}
+              onChange={(e) => setF('data_prevista_fechamento', e.target.value || null)}
+              style={inp}
+            />
+          </label>
+          <label style={lbl}>
+            Probabilidade (%)
+            <input
+              type="number" min={0} max={100}
+              value={form.probabilidade ?? ''}
+              onChange={(e) => setF('probabilidade', e.target.value === '' ? null : Number(e.target.value))}
+              style={inp}
+            />
+          </label>
+          <label style={lbl}>
+            Responsável
+            {/* FIX 3 · seletor de usuários do tenant (fn_usuarios_da_empresa). Grava responsavel_id +
+                responsavel_nome (full_name). Sem mais prefixo de e-mail / responsavel_id nulo. */}
+            <SeletorUsuario
+              users={users}
+              value={form.responsavel_id}
+              onChange={(id, nome) => setForm((f) => ({ ...f, responsavel_id: id, responsavel_nome: nome }))}
+            />
+          </label>
+        </div>
+
+        {/* Obra */}
+        <div style={{ marginTop: 14 }}>
+          <div style={secHead}>Obra</div>
+          {/* Buscador de CEP (ViaCEP) — preenche endereço/bairro/cidade automático.
+              O usuário pode digitar tudo à mão também (os campos abaixo continuam livres). */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 4 }}>
+            <label style={{ ...lbl, flex: '0 0 160px' }}>
+              CEP
+              <input
+                value={cep}
+                onChange={(e) => setCep(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void buscarCep() } }}
+                placeholder="00000-000"
+                inputMode="numeric"
+                style={inp}
+              />
+            </label>
+            <button type="button" onClick={buscarCep} disabled={cepLoading} style={{ ...btnGhost, minHeight: 40 }}>
+              {cepLoading ? 'Buscando…' : '🔍 Buscar CEP'}
+            </button>
+          </div>
+          <div style={grid}>
+            <label style={lbl}>
+              Endereço
+              <input
+                value={form.obra_endereco ?? ''}
+                onChange={(e) => setF('obra_endereco', e.target.value || null)}
+                style={inpUpper}
+              />
+            </label>
+            <label style={lbl}>
+              Cidade
+              <input
+                value={form.obra_cidade ?? ''}
+                onChange={(e) => setF('obra_cidade', e.target.value || null)}
+                style={inpUpper}
+              />
+            </label>
+            <label style={lbl}>
+              Bairro
+              <input
+                value={form.obra_bairro ?? ''}
+                onChange={(e) => setF('obra_bairro', e.target.value || null)}
+                style={inpUpper}
+              />
+            </label>
+          </div>
+        </div>
+
+        <label style={{ ...lbl, marginTop: 12 }}>
+          Observações
+          <textarea
+            rows={3}
+            value={form.observacoes ?? ''}
+            onChange={(e) => setF('observacoes', e.target.value || null)}
+            style={{ ...inp, resize: 'vertical' }}
+          />
+        </label>
+
+        {/* Tryo #266 · anexos: fotos, PDF, DWG (planta) e links */}
+        <div style={{ marginTop: 12 }} data-testid="oport-anexos">
+          <AnexosCard ref={anexosRef} companyId={companyId} vinculoTipo="oportunidade" vinculoId={initial?.id ?? null} />
+        </div>
+
+        {err && <p style={{ color: '#b00', fontSize: 13, marginTop: 8 }}>Erro: {err}</p>}
+
+        <div style={actions}>
+          <button onClick={fechar} style={btnGhost}>Cancelar</button>
+          <button onClick={salvar} disabled={saving} style={btnPrimary}>
+            {saving ? 'Salvando…' : isEdit ? 'SALVAR' : 'CRIAR'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const overlay: CSSProperties = {
+  position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
+  display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+  padding: 16, zIndex: 50, overflow: 'auto',
+}
+const card: CSSProperties = {
+  background: '#fff', borderRadius: 16, padding: 20, width: '100%', maxWidth: 720,
+}
+const head: CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12,
+}
+const closeBtn: CSSProperties = {
+  border: 'none', background: 'none', fontSize: 20, cursor: 'pointer', minWidth: 44, minHeight: 44,
+}
+const secHead: CSSProperties = {
+  fontSize: 13, fontWeight: 600, color: '#C8941A', marginBottom: 8,
+  borderBottom: '1px solid #efe9e2', paddingBottom: 4,
+}
+const grid: CSSProperties = {
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 8,
+}
+const lbl: CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#6b6b6b',
+}
+const lblTxt: CSSProperties = { fontSize: 12, color: '#6b6b6b', marginBottom: 4 }
+const inp: CSSProperties = {
+  border: '1px solid #E7DED3', borderRadius: 8, padding: '8px 10px', fontSize: 13, minHeight: 40,
+  background: '#fff', color: '#3D2314',
+  colorScheme: 'light' as CSSProperties['colorScheme'],
+}
+// FIX 2 · feedback visual imediato de caixa alta (o valor é gravado em maiúsculo no submit).
+const inpUpper: CSSProperties = { ...inp, textTransform: 'uppercase' }
+const selectedRow: CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  border: '1px solid #E7DED3', borderRadius: 8, padding: '8px 10px',
+  background: '#fff', color: '#3D2314',
+}
+const linkBtn: CSSProperties = {
+  background: 'none', border: 'none', color: '#C8941A', fontSize: 12,
+  cursor: 'pointer', padding: '6px 0', textAlign: 'left',
+}
+const dropdown: CSSProperties = {
+  border: '1px solid #E7DED3', borderRadius: 8, marginTop: 4,
+  background: '#fff', maxHeight: 240, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,.06)',
+}
+const dropItem: CSSProperties = {
+  display: 'block', width: '100%', textAlign: 'left',
+  border: 'none', background: 'none', padding: '8px 10px', fontSize: 13, cursor: 'pointer',
+}
+const quickAddBox: CSSProperties = {
+  border: '1px dashed #E7DED3', borderRadius: 8, padding: 10, marginTop: 6, background: '#FAF7F2',
+}
+const actions: CSSProperties = {
+  display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16,
+}
+const btnGhost: CSSProperties = {
+  border: '1px solid #E7DED3', background: '#fff', borderRadius: 10,
+  padding: '10px 16px', cursor: 'pointer', minHeight: 44,
+}
+const btnPrimary: CSSProperties = {
+  border: 'none', background: '#C8941A', color: '#fff', borderRadius: 10,
+  padding: '10px 16px', cursor: 'pointer', fontWeight: 600, minHeight: 44,
+}

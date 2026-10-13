@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { categorizeRota, colorForScore, type CategoriaArea } from '@/lib/auditores/categorizeRota'
+import ScreenshotAssinado from './ScreenshotAssinado'
+import CardQualidadeVertical from './CardQualidadeVertical'
 
 interface Insight {
   rota: string
@@ -49,6 +51,8 @@ export default function PainelAuditores() {
   const [selecionada, setSelecionada] = useState<Insight | null>(null)
   const [disparando, setDisparando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  // rotas que o robô nunca alcança (módulo não habilitado para o auditor): não ficam em branco.
+  const [naoAuditaveis, setNaoAuditaveis] = useState<{ rota: string; motivo_nao_auditavel: string | null }[]>([])
 
   async function load() {
     setLoading(true)
@@ -61,6 +65,12 @@ export default function PainelAuditores() {
       .order('analisado_em', { ascending: false })
     if (error) setErro(error.message)
     else setInsights((data as Insight[]) ?? [])
+    const { data: na } = await supabase
+      .from('system_screens')
+      .select('rota, motivo_nao_auditavel')
+      .eq('auditavel_robo', false)
+      .order('rota')
+    setNaoAuditaveis((na as { rota: string; motivo_nao_auditavel: string | null }[]) ?? [])
     setLoading(false)
   }
 
@@ -152,6 +162,7 @@ export default function PainelAuditores() {
       </header>
 
       <main style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 28px' }}>
+        <CardQualidadeVertical />
         {msg && (
           <div style={{ background: '#FFF7E6', border: '0.5px solid rgba(200,148,26,0.3)', color: COLORS.espresso, padding: '10px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>
             {msg}
@@ -263,6 +274,27 @@ export default function PainelAuditores() {
             </div>
           )}
         </section>
+
+        {!loading && naoAuditaveis.length > 0 && (
+          <section style={{ marginTop: 20 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: COLORS.espresso, marginBottom: 2 }}>
+              Não auditáveis pelo robô ({naoAuditaveis.length})
+            </h2>
+            <p style={{ fontSize: 12, color: COLORS.espressoLight, marginBottom: 10 }}>
+              O auditor não alcança estas telas (módulo não habilitado para a empresa do robô). Não têm score — é limitação conhecida, não tela quebrada.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {naoAuditaveis.map((r) => (
+                <div key={r.rota} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: '#FFFFFF', border: COLORS.border, borderRadius: 8, padding: '8px 12px' }}>
+                  <span style={{ fontSize: 12, fontFamily: 'monospace', color: COLORS.espresso }}>{r.rota}</span>
+                  <span style={{ fontSize: 11, color: COLORS.espressoLight, textAlign: 'right' }}>
+                    {r.motivo_nao_auditavel || 'não auditável — módulo não habilitado para o auditor'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
 
       {selecionada && <ModalDrillDown insight={selecionada} onClose={() => setSelecionada(null)} />}
@@ -378,12 +410,7 @@ function ModalDrillDown({ insight, onClose }: { insight: Insight; onClose: () =>
           {insight.screenshot_url_analisado && (
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 10, color: COLORS.espressoLight, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, fontWeight: 700 }}>Screenshot analisado</div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={insight.screenshot_url_analisado}
-                alt={`Screenshot de ${insight.rota}`}
-                style={{ width: '100%', maxHeight: 420, objectFit: 'contain', background: '#FFFFFF', border: COLORS.border, borderRadius: 8 }}
-              />
+              <ScreenshotAssinado key={insight.screenshot_url_analisado} valor={insight.screenshot_url_analisado} alt={`Screenshot de ${insight.rota}`} style={{ width: '100%', maxHeight: 420, objectFit: 'contain', background: '#FFFFFF', border: COLORS.border, borderRadius: 8 }} />
             </div>
           )}
 

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verificarEstado, usuarioTemAcessoEmpresa } from "@/lib/auth/contaazulState";
+import { gravarCredencialEmpresa } from "@/lib/credenciais/servidor";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -12,15 +14,14 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.redirect(new URL(`/dashboard/conectores?ca_error=${encodeURIComponent(error)}`, req.url));
   if (!code) return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=no_code", req.url));
 
-  let clientId = "", clientSecret = "", companyId = "";
-  if (state) {
-    try {
-      const d = JSON.parse(atob(decodeURIComponent(state)));
-      clientId = d.ci || ""; clientSecret = d.cs || ""; companyId = d.cid || "";
-    } catch {}
+  // Redirect do navegador (sem Bearer): a prova de quem iniciou é o state ASSINADO (HMAC + validade 10 min),
+  // gerado em /api/contaazul/state. State forjado/expirado ou usuário sem acesso à empresa = nada é gravado.
+  const est = verificarEstado(state);
+  if (!est) return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=invalid_state", req.url));
+  if (!(await usuarioTemAcessoEmpresa(est.uid, est.cid))) {
+    return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=forbidden", req.url));
   }
-
-  if (!clientId || !clientSecret) return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=missing_credentials", req.url));
+  const clientId = est.ci, clientSecret = est.cs, companyId = est.cid;
 
   try {
     const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
@@ -35,13 +36,13 @@ export async function GET(req: NextRequest) {
 
     if (tokenData.access_token) {
       if (companyId) {
+        // PR E (CEO 28/09): token, refresh e client_secret vão para o Vault; em companies fica só o client_id.
+        const ok = (await gravarCredencialEmpresa(companyId, "contaazul", "token", tokenData.access_token, "ContaAzul · token"))
+          && (!tokenData.refresh_token || await gravarCredencialEmpresa(companyId, "contaazul", "refresh_token", tokenData.refresh_token, "ContaAzul · refresh"))
+          && (!clientSecret || await gravarCredencialEmpresa(companyId, "contaazul", "client_secret", clientSecret, "ContaAzul · client secret"));
+        if (!ok) return NextResponse.redirect(new URL("/dashboard/conectores?ca_error=cofre", req.url));
         const supabase = createClient(supabaseUrl, supabaseKey);
-        await supabase.from("companies").update({
-          contaazul_token: tokenData.access_token,
-          contaazul_refresh_token: tokenData.refresh_token || "",
-          contaazul_client_id: clientId,
-          contaazul_client_secret: clientSecret,
-        }).eq("id", companyId);
+        await supabase.from("companies").update({ contaazul_client_id: clientId }).eq("id", companyId);
       }
       return NextResponse.redirect(new URL(`/dashboard/conectores?ca_success=true`, req.url));
     }

@@ -3,12 +3,12 @@
 import { useRouter } from 'next/navigation'
 
 const ATALHOS: Array<{ icone: string; label: string; rota: string }> = [
-  { icone: '📋', label: 'Lançamentos', rota: '/dashboard/lancamentos' },
-  { icone: '💰', label: 'A Pagar', rota: '/dashboard/contas-pagar' },
-  { icone: '📈', label: 'A Receber', rota: '/dashboard/contas-receber' },
-  { icone: '🔄', label: 'Conciliar', rota: '/dashboard/conciliacao' },
-  { icone: '📥', label: 'Importar', rota: '/dashboard/importer-universal' },
-  { icone: '📊', label: 'Relatórios', rota: '/dashboard/relatorios' },
+  { icone: '📋', label: 'Lançamentos', rota: '/dashboard/financeiro/extrato' },
+  { icone: '💰', label: 'A Pagar', rota: '/dashboard/financeiro/pagar' },
+  { icone: '📈', label: 'A Receber', rota: '/dashboard/financeiro/receber' },
+  { icone: '🔄', label: 'Conciliar', rota: '/dashboard/financeiro/conciliacao' },
+  { icone: '📥', label: 'Importar', rota: '/dashboard/importar' },
+  { icone: '📊', label: 'Relatórios', rota: '/dashboard/dre-divisional' },
 ]
 
 export default function AtalhosRapidos() {

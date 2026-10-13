@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 
@@ -18,13 +19,16 @@ export async function GET(req: NextRequest) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: modeloPara('relatorio'),
         max_tokens: 50,
         messages: [{ role: "user", content: "Diga apenas: OK" }],
       }),
     });
     const data = await res.json();
-    if (data.error) return NextResponse.json({ status: "ERRO_API", msg: data.error.message, tipo: data.error.type });
+    if (!res.ok || data.error) {
+      await registrarFalhaIA({ endpoint: '/api/report/test', finalidade: 'relatorio', modelo: modeloPara('relatorio'), status: res.status, erro: data?.error?.message || 'sem corpo' });
+      return NextResponse.json({ status: "ERRO_API", msg: data.error?.message, tipo: data.error?.type });
+    }
     return NextResponse.json({ status: "OK", resposta: data.content?.[0]?.text, msg: "Claude API funcionando!" });
   } catch (e: any) {
     return NextResponse.json({ status: "ERRO_REDE", msg: e.message });

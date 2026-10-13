@@ -1,15 +1,8 @@
-import ModuloEmConstrucao from '@/components/shared/ModuloEmConstrucao'
+'use client'
+import ModuloPreview from '@/components/pm/ModuloPreview'
+import { PM_MODULOS } from '@/components/pm/modulos-conteudo'
 
-export default function PmIaPrecoPage() {
-  return (
-    <ModuloEmConstrucao
-      area="P&M"
-      titulo="IA Preco Otimo"
-      descricao="Sugestao de precificacao por job baseada em historico interno + benchmark de mercado. Considera escopo, prazo, complexidade e margem-alvo."
-      previsao="Q4 2026"
-      atalhos={[
-        { label: 'Workspace da Agencia', href: '/dashboard/producao' },
-      ]}
-    />
-  )
+export default function Page() {
+  const c = PM_MODULOS['ia-preco']
+  return <ModuloPreview {...c} icone={<span>{c.icone}</span>} />
 }

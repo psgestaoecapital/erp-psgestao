@@ -39,29 +39,14 @@ export default function PortalClientePage({
     (async () => {
       try {
         const supabase = supabaseBrowser();
-        // Lookup pelo token unico do portal
-        const { data, error } = await supabase
-          .from("bpo_fechamento_mensal")
-          .select("dados_consolidados, link_portal_acessado_em, status")
-          .eq("company_id", company_id)
-          .eq("link_portal", token)
-          .order("mes_referencia", { ascending: false })
-          .limit(1)
-          .single();
-
-        if (error) throw new Error("Link inválido ou expirado");
-        if (!data?.dados_consolidados) throw new Error("Dados ainda não disponíveis");
-
-        setDados(data.dados_consolidados as Dados);
-
-        // Marcar acesso (best effort)
-        if (!data.link_portal_acessado_em) {
-          await supabase
-            .from("bpo_fechamento_mensal")
-            .update({ link_portal_acessado_em: new Date().toISOString() })
-            .eq("company_id", company_id)
-            .eq("link_portal", token);
+        // Segurança PR A (CEO 28/09): o portal lia bpo_fechamento_mensal direto como anon e a RLS barrava tudo (51
+        // links gerados, 0 acessos). Agora lê pela RPC, que confere empresa + token do link e marca o 1º acesso.
+        const { data, error } = await supabase.rpc("fn_portal_cliente_obter", { p_company_id: company_id, p_token: token });
+        const r = data as { ok?: boolean; erro?: string; dados?: Dados } | null;
+        if (error || !r?.ok) {
+          throw new Error(r?.erro === "sem_dados" ? "Dados ainda não disponíveis" : "Link inválido ou expirado");
         }
+        setDados(r.dados as Dados);
       } catch (e: any) {
         setErro(e.message || "Não foi possível carregar relatório");
       } finally {

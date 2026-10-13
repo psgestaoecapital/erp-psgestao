@@ -9,6 +9,9 @@ const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-t
 const BD="var(--ps-border,#E0D8CC)",GO="var(--ps-gold,#C8941A)";
 const G="#22C55E",R="#EF4444",B="#3B82F6",Y="#F59E0B",P="#8B5CF6",T="#14B8A6";
 
+// Normaliza igual ao fn_remove_acentos do banco (lower + sem acento): o matcher da tela precisa
+// comparar como o banco compara, senao a tela sugere uma linha e o sistema outra (RD-52).
+const norm=(s:string)=>(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
 const fmtR=(v:number)=>v===0?"—":`R$ ${Math.abs(v).toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
 const fmtP=(v:number)=>v===0?"—":`${v>0?"+":""}${v.toFixed(1)}%`;
 const STATUS_EXCL=new Set(["CANCELADO","CANCELADA","ESTORNADO","ESTORNADA","DEVOLVIDO","DEVOLVIDA","ANULADO","ANULADA"]);
@@ -124,17 +127,17 @@ function ContadorPageInner(){
       if(imp.import_type==="clientes"){const cls=imp.import_data?.clientes_cadastro||[];if(Array.isArray(cls))for(const c of cls){const cod=c.codigo_cliente_omie||c.codigo_cliente||c.codigo;cliMap[String(cod)]=c.nome_fantasia||c.razao_social||c.nome||"";}}
       if(imp.import_type==="categorias"){const cats=imp.import_data?.categoria_cadastro||[];if(Array.isArray(cats))for(const c of cats){const cod=c.codigo||c.cCodigo||"";if(cod)catMap[cod]=c.descricao||c.cDescricao||"";}}
     }
-    const lns=(blData||[]).map((b:any)=>({id:b.id,nome:b.name||b.nome||"",keywords:(b.business_line_keywords||[]).map((k:any)=>({kw:(k.keyword||"").toLowerCase(),pr:k.prioridade||1})).sort((a:any,b:any)=>b.pr-a.pr)}));
-    const matchLinha=(catN:string):string=>{let best="Geral";let bestScore=0;for(const ln of lns){const catLow=catN.toLowerCase();for(const k of ln.keywords){if(catLow.includes(k.kw)&&k.pr>bestScore){bestScore=k.pr;best=ln.nome;}}if(bestScore===0&&ln.nome&&catLow.includes(ln.nome.toLowerCase())){bestScore=1;best=ln.nome;}}return best;};
+    const lns=(blData||[]).map((b:any)=>({id:b.id,nome:b.name||b.nome||"",keywords:(b.business_line_keywords||[]).map((k:any)=>({kw:norm(k.keyword||""),pr:k.prioridade||1})).sort((a:any,b:any)=>b.pr-a.pr)}));
+    const matchLinha=(catN:string):string=>{let best="Geral";let bestScore=0;for(const ln of lns){const catLow=norm(catN);for(const k of ln.keywords){if(catLow.includes(k.kw)&&k.pr>bestScore){bestScore=k.pr;best=ln.nome;}}if(bestScore===0&&ln.nome&&catLow.includes(norm(ln.nome))){bestScore=1;best=ln.nome;}}return best;};
 
     const result:Lanc[]=[];
     if(imports)for(const imp of imports){
       if(imp.import_type==="contas_receber"){const regs=imp.import_data?.conta_receber_cadastro||[];if(Array.isArray(regs))for(const r of regs){const st=(r.status_titulo||"").toUpperCase();if(STATUS_EXCL.has(st))continue;const v=Number(r.valor_documento)||0;if(v<=0)continue;const dt=r.data_previsao||r.data_vencimento||"";if(!parseMesAno(dt))continue;const cf=String(r.codigo_cliente_fornecedor||"");const nome=cliMap[cf]||`Cliente ${cf}`;const cat=r.codigo_categoria||"";const catN=catMap[cat]||r.descricao_categoria||cat;result.push({valor:v,categoria:catN,catCod:cat,tipo:"receber",nome,doc:r.numero_documento||"",data:dt,status:r.status_titulo||"",linha:matchLinha(catN)});}}
       if(imp.import_type==="contas_pagar"){const regs=imp.import_data?.conta_pagar_cadastro||[];if(Array.isArray(regs))for(const r of regs){const st=(r.status_titulo||"").toUpperCase();if(STATUS_EXCL.has(st))continue;const v=Number(r.valor_documento)||0;if(v<=0)continue;const dt=r.data_previsao||r.data_vencimento||"";if(!parseMesAno(dt))continue;const cat=r.codigo_categoria||"sem_cat";const catN=catMap[cat]||r.descricao_categoria||cat;const cf=String(r.codigo_cliente_fornecedor||"");const forn=r.observacao||cliMap[cf]||`Forn ${cf}`;result.push({valor:v,categoria:catN,catCod:cat,tipo:"pagar",nome:forn,doc:r.numero_documento||"",data:dt,status:r.status_titulo||"",linha:matchLinha(catN)});}}
     }
-    const{data:erpRec}=await supabase.from("erp_lancamentos").select("*").eq("tipo","receber").in("company_id",cIds).neq("status","CANCELADO");
+    const{data:erpRec}=await supabase.from("v_lancamentos_consolidado").select("*").eq("tipo","receber").in("company_id",cIds).neq("status","CANCELADO");
     if(erpRec)for(const r of erpRec){const v=Number(r.valor_documento)||0;if(v<=0)continue;const dt=r.data_previsao||r.data_vencimento||"";if(!parseMesAno(dt))continue;result.push({valor:v,categoria:r.subcategoria||r.categoria||"Outros",catCod:"",tipo:"receber",nome:r.nome_pessoa||"Cliente",doc:r.numero_documento||"",data:dt,status:r.status||"",linha:matchLinha(r.subcategoria||r.categoria||"")});}
-    const{data:erpPag}=await supabase.from("erp_lancamentos").select("*").eq("tipo","pagar").in("company_id",cIds).neq("status","CANCELADO");
+    const{data:erpPag}=await supabase.from("v_lancamentos_consolidado").select("*").eq("tipo","pagar").in("company_id",cIds).neq("status","CANCELADO");
     if(erpPag)for(const r of erpPag){const v=Number(r.valor_documento)||0;if(v<=0)continue;const dt=r.data_previsao||r.data_vencimento||"";if(!parseMesAno(dt))continue;result.push({valor:v,categoria:r.subcategoria||r.categoria||"Outros",catCod:"",tipo:"pagar",nome:r.nome_pessoa||"Fornecedor",doc:r.numero_documento||"",data:dt,status:r.status||"",linha:matchLinha(r.subcategoria||r.categoria||"")});}
     setLancamentos(result);setLoading(false);
   };
@@ -281,6 +284,8 @@ function ContadorPageInner(){
           <div style={{fontSize:11,color:TXD}}>Portal contábil completo — DRE, Balancete, Razão, Impostos, SPED ECD, Reforma Tributária</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {/* Contábil Fase 1 · de-para do plano do contador (pré-requisito do exportador) */}
+          <a href="/dashboard/contador/plano-depara" title="Importar o plano do contador e montar o de-para de contas" style={{...selSt,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:6,fontWeight:600,cursor:"pointer"}}>📒 Plano do contador</a>
           <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
             {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
           </select>

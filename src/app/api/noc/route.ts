@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 export const dynamic = "force-dynamic";
 
@@ -7,11 +8,16 @@ const supabaseUrl = "https://horsymhsinqcimflrtjo.supabase.co";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "";
 
 export async function GET(req: NextRequest) {
+  const guarda = await exigirUsuario(req, { admin: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const sb = createClient(supabaseUrl, supabaseKey);
 
     // 1. EMPRESAS
-    const { data: companies } = await sb.from("companies").select("id, nome, created_at, omie_app_key");
+    const { data: companies } = await sb.from("companies").select("id, nome, created_at");
+    // PR E (CEO 28/09): segredo do Omie vive no Vault; "tem Omie" = credencial ativa no Cofre
+    const { data: credOmie } = await sb.from("erp_credencial").select("company_id").eq("provider", "omie").eq("chave", "app_secret").eq("ativo", true);
+    const comOmie = new Set((credOmie || []).map((r: any) => r.company_id));
     const totalEmpresas = companies?.length || 0;
 
     // 2. USUÁRIOS
@@ -72,7 +78,7 @@ export async function GET(req: NextRequest) {
         id: c.id,
         nome: c.nome || "Sem nome",
         criadoEm: c.created_at,
-        temOmie: !!c.omie_app_key,
+        temOmie: comOmie.has(c.id),
         tiposImport: imp.tipos,
         registrosImportados: imp.registros,
         ultimaSync: imp.ultimaSync,
@@ -100,10 +106,27 @@ export async function GET(req: NextRequest) {
     const temGithubToken = !!process.env.GITHUB_TOKEN;
     servicos.push({ nome: "GitHub (Deploy)", status: temGithubToken ? "configurado" : "sem token", detalhe: temGithubToken ? "Deploy automático ativo" : "GITHUB_TOKEN não configurado" });
 
+    // ═══ SAÚDE DA IA ═══ (investigar) + alertas ATIVOS (parou de rodar / falhou)
+    const { data: iaSaude } = await sb.from("v_ia_saude")
+      .select("surface, descricao, ultimo_sucesso, horas_desde_sucesso, limite_horas, parada, link");
+    const { data: iaFalhas } = await sb.from("v_ia_saude_endpoints")
+      .select("endpoint, finalidade, ultima_falha, falhas_24h, abertas, ultimo_status, ultimo_modelo");
+    const { data: iaAlertas } = await sb.from("erp_alerta_proativo")
+      .select("tipo, severidade, titulo, mensagem, link_acao, criado_em")
+      .like("tipo", "ia_%").eq("resolvido", false).eq("dispensado", false)
+      .order("criado_em", { ascending: false });
+
     // ═══ RESPOSTA ═══
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
+      iaSaude: {
+        surfaces: iaSaude || [],
+        falhasPorEndpoint: iaFalhas || [],
+        alertasAbertos: iaAlertas || [],
+        paradas: (iaSaude || []).filter((s: any) => s.parada).length,
+        endpointsComFalhaAberta: (iaFalhas || []).filter((f: any) => (f.abertas || 0) > 0).length,
+      },
       resumo: {
         empresas: totalEmpresas,
         usuarios: totalUsuarios,

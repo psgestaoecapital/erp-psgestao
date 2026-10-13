@@ -137,8 +137,8 @@ export default function DadosPage() {
               <div style={{ marginTop: 10, fontSize: 10, color: C.txd }}>Conectores ativos: Omie, ContaAzul</div>
             </a>
 
-            {/* EXCEL */}
-            <a href="/dashboard/importar" style={{ background: C.card, borderRadius: 12, padding: 20, border: '1px solid ' + C.bd, borderLeft: '4px solid ' + C.b, textDecoration: 'none', display: 'block' }}>
+            {/* EXCEL — aponta pro importador ativo (/dashboard/importar está inativo) */}
+            <a href="/dashboard/importar-universal" style={{ background: C.card, borderRadius: 12, padding: 20, border: '1px solid ' + C.bd, borderLeft: '4px solid ' + C.b, textDecoration: 'none', display: 'block' }}>
               <div style={{ fontSize: 36, marginBottom: 8 }}>📊</div>
               <div style={{ fontSize: 16, fontWeight: 700, color: C.tx, marginBottom: 4 }}>Importar Planilha</div>
               <div style={{ fontSize: 12, color: C.b, fontWeight: 600, marginBottom: 8 }}>CSV, Excel, OFX</div>

@@ -1,0 +1,555 @@
+'use client'
+
+// PontoView — tela de ponto eletronico provider-agnostic (DIRETRIZ CEO 07/07,
+// cristalizada em erp_contexto_projeto): dados de ponto em tabela UNICA
+// (ind_ponto_colaborador / ind_ponto_horas / ind_ponto_provider_config —
+// qualquer fornecedor: IO Point, Pontotel, Dominio), expostos em DUAS lentes:
+//   - /dashboard/industrial/ponto  (lente='industrial')  · sync + operacao
+//   - /dashboard/compliance/ponto  (lente='compliance')  · mesmos dados +
+//     botao "Importar pro Compliance" (fn_compliance_projetar_de_ind_ponto)
+// Mesma fonte, duas lentes, todo o historico. Gating por plan_modules.
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import { hhmmParaDecimal } from '@/lib/ponto/hhmm'
+import PontoPainelDia from './PontoPainelDia'
+
+const ESP = '#3D2314'
+const BG = '#FAF7F2'
+const GOLD = '#C8941A'
+const LINE = '#E7DECF'
+const MUT = 'rgba(61,35,20,0.55)'
+const GREEN = '#166534'
+const GREEN_BG = '#DCFCE7'
+const RED = '#A32D2D'
+const RED_BG = '#FCEBEB'
+
+// Semaforo (mesma semantica de cor do componente SemaforoSaude · GE): verde/
+// amarelo/vermelho SO aqui, nunca fora do semaforo (inviolavel de cores).
+type Tom = 'verde' | 'amarelo' | 'vermelho'
+const SEMAFORO: Record<Tom, { fg: string; bg: string; dot: string }> = {
+  verde:    { fg: '#3B6D11', bg: '#EAF3DE', dot: '🟢' },
+  amarelo:  { fg: '#854F0B', bg: '#FAEEDA', dot: '🟡' },
+  vermelho: { fg: '#A32D2D', bg: '#FCEBEB', dot: '🔴' },
+}
+const h1 = (n: number) => `${n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}h`
+
+type Lente = 'industrial' | 'compliance'
+
+type ProviderConfig = {
+  id: string
+  plant_id: string
+  provider: string
+  base_url: string
+  vault_secret_name: string
+  ativo: boolean
+  nome_planta?: string
+}
+
+type Colaborador = {
+  id: string
+  cpf: string | null
+  matricula: string | null
+  nome: string | null
+  email: string | null
+  funcao: string | null
+  departamento: string | null
+  equipe: string | null
+  admissao: string | null
+  sincronizado_em: string | null
+}
+
+type HoraRow = {
+  id: string
+  cpf: string | null
+  periodo_inicio: string | null
+  periodo_fim: string | null
+  total_horas: number | null
+  funcao: string | null
+  departamento: string | null
+  sincronizado_em: string | null
+  raw?: unknown // { linhas: [{ total_hours: {37 campos HH:MM} }] } — pro drill-down
+}
+
+// Retorno de fn_ponto_bi_agregado (Painel de Jornada · BI)
+type BiTotais = {
+  horas_trabalhadas: number; horas_extras: number; faltas: number; faltas_pct: number
+  afastados_qtd: number; afastados_horas: number; folga_dsr: number
+  noturno: number; banco: number; headcount: number; headcount_ativo: number
+}
+type BiDepto = { departamento: string; trabalhadas: number; extras: number; faltas: number; faltas_pct: number; afastados_qtd: number; folga_dsr: number; headcount: number }
+type BiColab = { cpf: string | null; nome: string | null; departamento: string; trabalhadas: number; extras: number; faltas: number; folga_dsr: number; noturno: number }
+type BiAfastado = { nome: string | null; departamento: string; afast_horas: number }
+type BiResult = { totais: BiTotais; afastados_lista: BiAfastado[]; por_departamento: BiDepto[]; por_colaborador: BiColab[] }
+
+const toISO = (d: Date) => d.toISOString().slice(0, 10)
+const inicioMes = () => { const d = new Date(); return toISO(new Date(d.getFullYear(), d.getMonth(), 1)) }
+const fmtD = (d: string | null) => (d ? new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('pt-BR') : '—')
+const fmtDT = (d: string | null) => (d ? new Date(d).toLocaleString('pt-BR') : '—')
+
+export default function PontoView({ lente }: { lente: Lente }) {
+  const { selInfo, sel } = useCompanyIds()
+  const empresaUnica = selInfo.tipo === 'empresa' && sel ? sel : null
+
+  const [config, setConfig] = useState<ProviderConfig | null>(null)
+  const [vaultOk, setVaultOk] = useState(false)
+  const [ultimaSync, setUltimaSync] = useState<string | null>(null)
+  const [colabs, setColabs] = useState<Colaborador[]>([])
+  const [horas, setHoras] = useState<HoraRow[]>([])
+  const [aba, setAba] = useState<'painel' | 'colaboradores' | 'horas'>('painel')
+  const [busca, setBusca] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [ok, setOk] = useState<string | null>(null)
+
+  const [beginDate, setBeginDate] = useState(inicioMes())
+  const [endDate, setEndDate] = useState(toISO(new Date()))
+  const [sincronizando, setSincronizando] = useState(false)
+  const [sincronizandoDiario, setSincronizandoDiario] = useState(false)
+  const [sincDiarioProg, setSincDiarioProg] = useState<string | null>(null)
+  const [importando, setImportando] = useState(false)
+
+  const carregar = useCallback(async () => {
+    if (!empresaUnica) { setLoading(false); return }
+    setLoading(true)
+    setErro(null)
+    const [cfgRes, credRes, syncRes, colabRes, horasRes] = await Promise.all([
+      supabase
+        .from('ind_ponto_provider_config')
+        .select('id, plant_id, provider, base_url, vault_secret_name, ativo, industrial_plants:plant_id ( nome_planta )')
+        .eq('company_id', empresaUnica)
+        .eq('ativo', true)
+        .maybeSingle(),
+      supabase
+        .from('erp_credencial')
+        .select('id')
+        .eq('escopo', 'empresa')
+        .eq('company_id', empresaUnica)
+        .eq('provider', 'iopoint')
+        .eq('ativo', true)
+        .limit(1),
+      supabase
+        .from('erp_banco_sync_log')
+        .select('criado_em, status, qtd, mensagem')
+        .eq('company_id', empresaUnica)
+        .eq('tipo', 'ponto_sync')
+        .order('criado_em', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('ind_ponto_colaborador')
+        .select('id, cpf, matricula, nome, email, funcao, departamento, equipe, admissao, sincronizado_em')
+        .eq('company_id', empresaUnica)
+        .order('nome')
+        .limit(1000),
+      supabase
+        .from('ind_ponto_horas')
+        .select('id, cpf, periodo_inicio, periodo_fim, total_horas, funcao, departamento, sincronizado_em, raw')
+        .eq('company_id', empresaUnica)
+        .order('periodo_inicio', { ascending: false })
+        .limit(500),
+    ])
+    type CfgRow = ProviderConfig & { industrial_plants: { nome_planta: string | null } | { nome_planta: string | null }[] | null }
+    const cfgRaw = cfgRes.data as CfgRow | null
+    if (cfgRaw) {
+      const ip = Array.isArray(cfgRaw.industrial_plants) ? cfgRaw.industrial_plants[0] : cfgRaw.industrial_plants
+      setConfig({ ...cfgRaw, nome_planta: ip?.nome_planta ?? undefined })
+    } else {
+      setConfig(null)
+    }
+    setVaultOk(((credRes.data ?? []) as unknown[]).length > 0)
+    const s = syncRes.data as { criado_em: string; status: string } | null
+    setUltimaSync(s ? `${fmtDT(s.criado_em)} (${s.status})` : null)
+    setColabs((colabRes.data ?? []) as Colaborador[])
+    setHoras((horasRes.data ?? []) as HoraRow[])
+    setLoading(false)
+  }, [empresaUnica])
+
+  useEffect(() => { void carregar() }, [carregar])
+
+  async function sincronizar() {
+    if (!empresaUnica || !config) return
+    setSincronizando(true)
+    setErro(null); setOk(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setErro('Sessão expirada. Faça login de novo.'); return }
+      const params = new URLSearchParams({
+        company_id: empresaUnica,
+        plant_id: config.plant_id,
+        begin_date: beginDate,
+        end_date: endDate,
+      })
+      const r = await fetch(`/api/industrial/ponto/sync?${params.toString()}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${session.access_token}` },
+      })
+      const j = await r.json()
+      if (!r.ok || !j.ok) { setErro(j.erro || j.detalhe || `HTTP ${r.status}`); return }
+      // FIX-PONTO-SYNC-TIMEOUT: horas pode falhar (endpoint lento) sem derrubar
+      // os colaboradores. Mostra sucesso + aviso ambar quando so as horas faltaram.
+      if (j.horas_aviso) {
+        setOk(`SINCRONIZOU · ${j.colaboradores} colaboradores (${j.provider}). ⚠️ ${j.horas_aviso}`)
+      } else {
+        setOk(`SINCRONIZOU · ${j.colaboradores} colaboradores e ${j.horas_registros ?? 0} registros de horas (${j.provider}).`)
+      }
+      await carregar()
+    } catch (e) {
+      setErro((e as Error).message || 'erro de rede')
+    } finally {
+      setSincronizando(false)
+    }
+  }
+
+  // Sync DIÁRIO (marcação por dia · /point/getFromPeriod) → ind_ponto_dia + ind_ponto_marcacao.
+  // É o que dá granularidade por dia pro BI (o filtro de data passa a filtrar).
+  // A API do IO Point limita 31 dias por chamada → fatiamos [begin,end] em lotes
+  // de CHUNK_DIAS e chamamos em sequência, acumulando dias/batidas. Se um lote
+  // falhar (rate limit), reporta quantos vieram (parcial) em vez de zerar tudo.
+  async function sincronizarDiario() {
+    if (!empresaUnica) return
+    setSincronizandoDiario(true)
+    setErro(null); setOk(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setErro('Sessão expirada. Faça login de novo.'); return }
+
+      const CHUNK_DIAS = 15
+      const addDias = (iso: string, n: number) => {
+        const d = new Date(iso + 'T00:00:00')
+        d.setDate(d.getDate() + n)
+        return toISO(d)
+      }
+      // monta os lotes ≤ CHUNK_DIAS
+      const lotes: Array<{ b: string; e: string }> = []
+      let cursor = beginDate
+      while (cursor <= endDate) {
+        const fimLote = addDias(cursor, CHUNK_DIAS - 1)
+        const e = fimLote > endDate ? endDate : fimLote
+        lotes.push({ b: cursor, e })
+        cursor = addDias(e, 1)
+      }
+
+      let diasAc = 0, batidasAc = 0, cpfsMax = 0
+      const falhas: string[] = []
+      for (let i = 0; i < lotes.length; i++) {
+        setSincDiarioProg(`Sincronizando… ${colabs.length} colaboradores (lote ${i + 1}/${lotes.length})`)
+        const { b, e } = lotes[i]
+        const params = new URLSearchParams({ company_id: empresaUnica, begin_date: b, end_date: e })
+        try {
+          const r = await fetch(`/api/industrial/ponto/sync-diario?${params.toString()}`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${session.access_token}` },
+          })
+          const j = await r.json().catch(() => ({}))
+          if (!r.ok || !j.ok) { falhas.push(`${fmtD(b)}–${fmtD(e)}: ${j.erro || j.detalhe || `HTTP ${r.status}`}`); continue }
+          diasAc += Number(j.dias ?? 0)
+          batidasAc += Number(j.batidas ?? 0)
+          cpfsMax = Math.max(cpfsMax, Number(j.cpfs ?? 0))
+        } catch (e2) {
+          falhas.push(`${fmtD(b)}–${fmtD(e)}: ${(e2 as Error).message || 'rede'}`)
+        }
+      }
+
+      if (falhas.length && diasAc === 0) {
+        setErro(`Não sincronizou. ${falhas[0]}`)
+      } else if (falhas.length) {
+        setErro(`⚠️ Parcial (rate limit da API): ${lotes.length - falhas.length}/${lotes.length} lotes. Repita pra completar o resto.`)
+        setOk(`✓ Sincronizado: ${diasAc} dias-colaborador · ${cpfsMax} pessoas · ${batidasAc} batidas.`)
+      } else {
+        setOk(`✓ Sincronizado: ${diasAc} dias-colaborador · ${cpfsMax} pessoas · ${batidasAc} batidas.`)
+      }
+      await carregar()
+    } catch (e) {
+      setErro((e as Error).message || 'erro de rede')
+    } finally {
+      setSincronizandoDiario(false)
+      setSincDiarioProg(null)
+    }
+  }
+
+  async function importarCompliance() {
+    if (!empresaUnica) return
+    if (!window.confirm('Importar colaboradores do ponto pra ficha do Compliance?\n\nCampos já preenchidos à mão (RG, endereço, salário, ASO…) NÃO serão sobrescritos — só completa o que está vazio.')) return
+    setImportando(true)
+    setErro(null); setOk(null)
+    const { data, error } = await supabase.rpc('fn_compliance_projetar_de_ind_ponto', { p_company_id: empresaUnica })
+    setImportando(false)
+    if (error) { setErro('Erro na importação: ' + error.message); return }
+    const j = data as { criados?: number; atualizados?: number; ignorados_sem_cpf?: number; total_processados?: number } | null
+    setOk(`IMPORTOU ${j?.total_processados ?? 0} colaboradores pro Compliance · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
+  }
+
+  // GATE LGPD (diretriz CEO): o Ponto mostra NOMES (dado pessoal) → só quem opera o ponto.
+  // Reusa fn_bi_gente_setores_visiveis: bypass (PS_ADMIN/OWNER) ou quem tem escopo no
+  // domínio 'gente'. Sem acesso → tela restrita (não renderiza nomes).
+  const [acessoPonto, setAcessoPonto] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!empresaUnica) { setAcessoPonto(null); return }
+    let alive = true
+    void supabase.rpc('fn_bi_gente_setores_visiveis', { p_company_id: empresaUnica }).then(({ data }) => {
+      if (!alive) return
+      const s = data as { ve_tudo?: boolean; setores?: string[] } | null
+      setAcessoPonto(!!(s?.ve_tudo || (s?.setores && s.setores.length > 0)))
+    })
+    return () => { alive = false }
+  }, [empresaUnica])
+
+  const colabsFiltrados = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    if (!q) return colabs
+    return colabs.filter((c) =>
+      (c.nome ?? '').toLowerCase().includes(q) ||
+      (c.matricula ?? '').toLowerCase().includes(q) ||
+      (c.funcao ?? '').toLowerCase().includes(q) ||
+      (c.departamento ?? '').toLowerCase().includes(q) ||
+      (c.cpf ?? '').includes(q)
+    )
+  }, [colabs, busca])
+
+  // cpf -> nome: a aba horas mostra NOME (nunca CPF · P1 LGPD dado RH sensivel)
+  const nomePorCpf = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const c of colabs) if (c.cpf) m.set(c.cpf, c.nome ?? '—')
+    return m
+  }, [colabs])
+
+  const rotuloArea = lente === 'industrial' ? 'Industrial · RH / Ponto' : 'Compliance · SST'
+
+  // ── Gates ──────────────────────────────────────────────────────────
+  if (!empresaUnica) {
+    return (
+      <Casca rotulo={rotuloArea}>
+        <EmptyBox titulo="Selecione uma empresa" texto="Ponto eletrônico é operacional por empresa. Escolha uma empresa específica no menu superior (sem modo consolidado/grupo)." />
+      </Casca>
+    )
+  }
+
+  // GATE LGPD: o Ponto expõe NOMES → só renderiza pra quem opera o ponto (acesso confirmado).
+  // Enquanto verifica, não mostra nada nominal.
+  if (acessoPonto !== true) {
+    return (
+      <Casca rotulo={rotuloArea}>
+        {acessoPonto === null
+          ? <EmptyBox titulo="Verificando acesso…" texto="Checando permissão para abrir o Ponto Eletrônico." />
+          : <EmptyBox titulo="Acesso restrito" texto="O Ponto Eletrônico mostra dados de jornada por pessoa (nomes) e é restrito a quem opera o ponto. Indicadores agregados (sem nomes) estão em Inteligência → Indicadores de Gente. Fale com o administrador se você precisa operar o ponto." />}
+      </Casca>
+    )
+  }
+
+  return (
+    <Casca rotulo={rotuloArea}>
+      {/* Header provider + sync */}
+      <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 18, marginBottom: 14 }}>
+        {loading ? (
+          <div style={{ fontSize: 13, color: MUT }}>Carregando…</div>
+        ) : !config ? (
+          <EmptyBox
+            titulo="Nenhum provider de ponto conectado"
+            texto="Conecte um fornecedor de ponto eletrônico (IO Point, Pontotel, Domínio) pra esta empresa."
+            cta={{ label: 'Ir pra Central de Conectores →', href: '/dashboard/conectores' }}
+          />
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: ESP, textTransform: 'capitalize' }}>{config.provider}</span>
+              {config.nome_planta && <span style={{ fontSize: 12, color: MUT }}>· {config.nome_planta}</span>}
+              {vaultOk && (
+                <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, background: GREEN_BG, color: GREEN, fontWeight: 700, letterSpacing: 0.5 }}>
+                  🔒 VAULT OK
+                </span>
+              )}
+              <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>
+                Última sync: <b style={{ color: ultimaSync ? ESP : RED }}>{ultimaSync ?? 'Nunca'}</b>
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={lbl}>Início do período</label>
+                <input type="date" value={beginDate} onChange={(e) => setBeginDate(e.target.value)} style={inp} />
+              </div>
+              <div>
+                <label style={lbl}>Fim do período</label>
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={inp} />
+              </div>
+              <button
+                type="button"
+                onClick={sincronizar}
+                disabled={sincronizando}
+                style={{ ...btnGold, opacity: sincronizando ? 0.6 : 1, cursor: sincronizando ? 'not-allowed' : 'pointer' }}
+              >
+                {sincronizando ? 'Sincronizando…' : '⟳ Sincronizar (período)'}
+              </button>
+              <button
+                type="button"
+                onClick={sincronizarDiario}
+                disabled={sincronizandoDiario}
+                title="Puxa a marcação por DIA em lotes de 15 dias (habilita o Painel por dia e o filtro por dia no BI)"
+                style={{ ...btnOutlineGold, opacity: sincronizandoDiario ? 0.6 : 1, cursor: sincronizandoDiario ? 'not-allowed' : 'pointer' }}
+              >
+                {sincronizandoDiario ? (sincDiarioProg ?? 'Sincronizando dia a dia…') : '📅 Sincronizar dia a dia'}
+              </button>
+              {lente === 'compliance' && (
+                <button
+                  type="button"
+                  onClick={importarCompliance}
+                  disabled={importando || colabs.length === 0}
+                  title={colabs.length === 0 ? 'Sincronize primeiro pra ter colaboradores' : 'Projeta em compliance_funcionarios preservando dados manuais'}
+                  style={{ ...btnOutlineGold, opacity: importando || colabs.length === 0 ? 0.5 : 1, cursor: importando || colabs.length === 0 ? 'not-allowed' : 'pointer' }}
+                >
+                  {importando ? 'Importando…' : `⬇ Importar pro Compliance (${colabs.length})`}
+                </button>
+              )}
+            </div>
+            <p style={{ fontSize: 10, color: MUT, margin: '8px 0 0' }}>
+              &quot;Sincronizar (período)&quot; puxa o total de horas (máx. 31 dias). &quot;Sincronizar dia a dia&quot; puxa a marcação
+              diária — fatiada em lotes de 15 dias, então períodos longos (ex.: 60 dias) funcionam.
+            </p>
+          </>
+        )}
+      </section>
+
+      {erro && <div style={{ background: RED_BG, color: RED, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+      {ok && <div style={{ background: GREEN_BG, color: GREEN, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 600 }}>✓ {ok}</div>}
+
+      {/* Painel de Jornada (BI) MIGROU para /dashboard/inteligencia (área Inteligência,
+          hierárquico por escopo · RBAC 2D). Ponto Eletrônico = só CAPTURA (buscar/sincronizar). */}
+
+      {/* Abas */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        <button onClick={() => setAba('painel')} style={aba === 'painel' ? tabOn : tabOff}>
+          📊 Painel por dia
+        </button>
+        <button onClick={() => setAba('colaboradores')} style={aba === 'colaboradores' ? tabOn : tabOff}>
+          👥 Colaboradores ({colabs.length})
+        </button>
+        <button onClick={() => setAba('horas')} style={aba === 'horas' ? tabOn : tabOff}>
+          🕐 Histórico de horas ({horas.length})
+        </button>
+      </div>
+
+      {aba === 'painel' ? (
+        <PontoPainelDia companyId={empresaUnica} />
+      ) : aba === 'colaboradores' ? (
+        <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: 12, borderBottom: `0.5px solid ${LINE}` }}>
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por nome, matrícula, função, departamento…"
+              style={{ ...inp, width: '100%' }}
+            />
+          </div>
+          {colabs.length === 0 ? (
+            <div style={{ padding: 32, textAlign: 'center', fontSize: 13, color: MUT }}>
+              Nenhum colaborador sincronizado ainda. Clique em <b>⟳ Sincronizar</b> acima pra puxar do provider.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
+                <thead style={{ background: BG }}>
+                  <tr>
+                    <Th>Nome</Th><Th>Matrícula</Th><Th>Função</Th><Th>Departamento</Th><Th>Admissão</Th><Th>Sync</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {colabsFiltrados.map((c) => (
+                    <tr key={c.id} style={{ borderTop: `0.5px solid ${LINE}` }}>
+                      <Td><b>{c.nome ?? '—'}</b>{c.email && <div style={{ fontSize: 10, color: MUT }}>{c.email}</div>}</Td>
+                      <Td>{c.matricula ?? '—'}</Td>
+                      <Td>{c.funcao ?? '—'}</Td>
+                      <Td>{c.departamento ?? '—'}{c.equipe ? ` · ${c.equipe}` : ''}</Td>
+                      <Td>{fmtD(c.admissao)}</Td>
+                      <Td><span style={{ fontSize: 10, color: MUT }}>{fmtDT(c.sincronizado_em)}</span></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ) : (
+        <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, overflow: 'hidden' }}>
+          {horas.length === 0 ? (
+            <div style={{ padding: 32, textAlign: 'center', fontSize: 13, color: MUT }}>
+              Nenhum registro de horas ainda. A sincronização traz o histórico do período escolhido.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 680 }}>
+                <thead style={{ background: BG }}>
+                  <tr>
+                    <Th>Colaborador</Th><Th>Período</Th><Th>Total horas</Th><Th>Função</Th><Th>Departamento</Th><Th>Sync</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {horas.map((h) => (
+                    <tr key={h.id} style={{ borderTop: `0.5px solid ${LINE}` }}>
+                      <Td><b>{(h.cpf && nomePorCpf.get(h.cpf)) || '—'}</b></Td>
+                      <Td>{fmtD(h.periodo_inicio)} → {fmtD(h.periodo_fim)}</Td>
+                      <Td><b style={{ color: GOLD }}>{Number(h.total_horas ?? 0).toFixed(2)}h</b></Td>
+                      <Td>{h.funcao ?? '—'}</Td>
+                      <Td>{h.departamento ?? '—'}</Td>
+                      <Td><span style={{ fontSize: 10, color: MUT }}>{fmtDT(h.sincronizado_em)}</span></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+    </Casca>
+  )
+}
+
+// ── Peças visuais ────────────────────────────────────────────────────
+
+function Casca({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: BG, minHeight: '100vh', padding: '24px 16px' }}>
+      <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+        <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, margin: 0 }}>{rotulo}</p>
+        <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>Ponto Eletrônico</h1>
+        <p style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
+          Colaboradores e horas do provider de ponto (IO Point, Pontotel, Domínio) — mesma fonte pra Industrial e Compliance.
+        </p>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function EmptyBox({ titulo, texto, cta }: { titulo: string; texto: string; cta?: { label: string; href: string } }) {
+  return (
+    <div style={{ padding: '28px 20px', textAlign: 'center' }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: ESP, marginBottom: 6 }}>{titulo}</div>
+      <div style={{ fontSize: 13, color: MUT, maxWidth: 460, margin: '0 auto' }}>{texto}</div>
+      {cta && (
+        <Link href={cta.href} style={{ display: 'inline-block', marginTop: 14, padding: '10px 18px', borderRadius: 8, background: GOLD, color: '#FFF', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+          {cta.label}
+        </Link>
+      )}
+    </div>
+  )
+}
+
+function Th({ children }: { children?: React.ReactNode }) {
+  return <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>{children}</th>
+}
+function Td({ children, style }: { children?: React.ReactNode; style?: React.CSSProperties }) {
+  return <td style={{ padding: '10px 14px', verticalAlign: 'middle', color: ESP, ...style }}>{children}</td>
+}
+
+const lbl: React.CSSProperties = { display: 'block', fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }
+const inp: React.CSSProperties = { padding: '9px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 13, color: ESP, background: '#FFF', boxSizing: 'border-box' }
+const btnGold: React.CSSProperties = { padding: '10px 18px', borderRadius: 8, border: 'none', background: GOLD, color: '#FFF', fontSize: 13, fontWeight: 700, minHeight: 40 }
+const btnOutlineGold: React.CSSProperties = { padding: '10px 18px', borderRadius: 8, border: `1px solid ${GOLD}`, background: 'transparent', color: GOLD, fontSize: 13, fontWeight: 700, minHeight: 40 }
+const tabOn: React.CSSProperties = { padding: '8px 14px', borderRadius: 8, border: `1px solid ${GOLD}`, background: 'rgba(200,148,26,0.10)', color: '#A57A15', fontSize: 12, fontWeight: 700, cursor: 'pointer' }
+const tabOff: React.CSSProperties = { padding: '8px 14px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#FFF', color: MUT, fontSize: 12, fontWeight: 600, cursor: 'pointer' }
+

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { PSGC_COLORS, corScore, variantPorNivel } from '@/lib/psgc-tokens'
 import PSGCCard from '@/components/psgc/PSGCCard'
 import PSGCButton from '@/components/psgc/PSGCButton'
+import AnaliseBoletoIndividualCard from '@/components/anti-fraude/AnaliseBoletoIndividualCard'
 
 const C = {
   bg: PSGC_COLORS.offWhite,
@@ -370,6 +371,8 @@ export default function AntiFraudePage() {
           </PSGCButton>
         </div>
       </div>
+
+      <AnaliseBoletoIndividualCard />
 
       {/* 11 CAMADAS */}
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 14 }}>

@@ -1,12 +1,20 @@
 'use client'
 
+import { Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import NovaDespesaForm from '@/components/financeiro/NovaDespesaForm'
 
-export default function Page() {
+// FIX-CONCILIACAO-NOVA-CONTA (07/07): useSearchParams em Next 16 exige
+// Suspense boundary + force-dynamic. Sem isso, ?origem_conciliacao,
+// ?valor, ?data, ?descricao nao hidratam no fluxo "Incluir nova conta"
+// vindo da Conciliacao — form abre vazio, nao concilia, redireciona errado.
+export const dynamic = 'force-dynamic'
+
+function NovaDespesaPageInner() {
   const { companyIds, selInfo } = useCompanyIds()
-  // Bug 1 (PR #145+): useCompanyIds NÃO expõe selInfo.companyId.
-  // Empresa única = tipo 'empresa' && companyIds.length === 1.
+  // #71 · ?editar=<id> abre o lançamento existente nesta MESMA tela (modo edição)
+  const editarId = useSearchParams()?.get('editar') ?? undefined
   const empresaUnica =
     selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
@@ -38,5 +46,19 @@ export default function Page() {
     )
   }
 
-  return <NovaDespesaForm companyId={empresaUnica} />
+  return <NovaDespesaForm companyId={empresaUnica} editarId={editarId} />
+}
+
+export default function Page() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ padding: 32, color: 'rgba(61,35,20,0.7)', background: '#FAF7F2', minHeight: '100vh' }}>
+          Carregando…
+        </div>
+      }
+    >
+      <NovaDespesaPageInner />
+    </Suspense>
+  )
 }

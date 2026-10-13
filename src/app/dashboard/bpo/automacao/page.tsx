@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { getUsuarioAtual } from "@/lib/AuthProvider";
 import { authFetch } from "@/lib/authFetch";
 import { PSGC_COLORS } from "@/lib/psgc-tokens";
 import PSGCCard from "@/components/psgc/PSGCCard";
@@ -65,16 +66,16 @@ export default function BPOAutoPage() {
   useEffect(() => { if (selectedComp) loadData(); }, [selectedComp]);
 
   const loadCompanies = async () => {
-    const { data: { user: authU } } = await supabase.auth.getUser();
-    const { data: uP } = authU
-      ? await supabase.from("users").select("role").eq("id", authU.id).single()
+    const uid = await getUsuarioAtual().then(u => u?.id ?? null);
+    const { data: uP } = uid
+      ? await supabase.from("users").select("role").eq("id", uid).single()
       : { data: null };
     let data: any[] = [];
     if (uP?.role === "adm" || uP?.role === "acesso_total") {
       const r = await supabase.from("companies").select("*").order("nome_fantasia");
       data = r.data || [];
-    } else if (authU) {
-      const r = await supabase.from("user_companies").select("companies(*)").eq("user_id", authU.id);
+    } else if (uid) {
+      const r = await supabase.from("user_companies").select("companies(*)").eq("user_id", uid);
       data = (r.data || []).map((u: any) => u.companies).filter(Boolean);
     }
     if (data && data.length > 0) {

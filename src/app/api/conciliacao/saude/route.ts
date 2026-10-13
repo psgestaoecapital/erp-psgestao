@@ -5,15 +5,18 @@
 // Usa view canônica v_conciliacao_saude
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-export const GET = withAuth(async (req: NextRequest, { userId }) => {
+export const GET = exigirLogin(async (req: NextRequest, u) => {
   const { searchParams } = new URL(req.url)
   const company_id = searchParams.get('company_id')
+  // Empresa obrigatória (antes, sem ela, devolvia TODAS as empresas) e do usuário.
+  const negado = await exigirEmpresas(u, [company_id])
+  if (negado) return negado
 
   try {
     // 1. Saúde por empresa+tipo (via view canônica)

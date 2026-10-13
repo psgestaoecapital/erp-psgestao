@@ -14,10 +14,15 @@ import {
   Repeat,
   Loader2,
   CheckCircle2,
+  DollarSign,
+  Gauge,
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { comPrazo } from "@/lib/comPrazo";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
+import PrecificacaoConfigPanel from "@/components/projetos/PrecificacaoConfigPanel";
+import ProdutividadePanel from "@/components/projetos/ProdutividadePanel";
 import {
   BdiPreview,
   type BdiComponentes,
@@ -108,6 +113,7 @@ export default function ConfiguracoesPage() {
     sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const empresa = companies.find((c) => c.id === companyId);
 
+  const [aba, setAba] = useState<"projetos" | "precificacao" | "produtividade">("projetos");
   const [config, setConfig] = useState<Config | null>(null);
   const [impactos, setImpactos] = useState<ImpactoServico[]>([]);
   const [loading, setLoading] = useState(true);
@@ -136,7 +142,7 @@ export default function ConfiguracoesPage() {
     setErro(null);
     try {
       const supabase = supabaseBrowser();
-      const [cfgR, impR] = await Promise.all([
+      const [cfgR, impR] = await comPrazo(() => Promise.all([
         supabase
           .from("projetos_modulo_config")
           .select("*")
@@ -148,7 +154,7 @@ export default function ConfiguracoesPage() {
           .eq("company_id", companyId)
           .order("custo", { ascending: false })
           .limit(10),
-      ]);
+      ]), { ms: 8000, tentativas: 1, label: 'projetos_configuracoes' });
       if (cfgR.error && cfgR.error.code !== "PGRST116") throw cfgR.error;
       // Impactos: view pode nao existir em todos ambientes; ignora erro silenciosamente
       let dadosImp: ImpactoServico[] = [];
@@ -364,18 +370,9 @@ export default function ConfiguracoesPage() {
     );
   }
 
-  if (loading || !config) {
-    return (
-      <main className="mx-auto max-w-7xl px-6 py-20 text-center">
-        <Loader2 className="mx-auto animate-spin text-[#C8941A]" size={28} />
-        <p className="mt-3 text-sm text-[#3D2314]/60">Carregando configurações…</p>
-      </main>
-    );
-  }
-
   const empresaNome = empresa?.nome_fantasia || empresa?.razao_social || "—";
 
-  const exemploNumero = `${config.prefixo_orcamento || "ORC"}-${new Date().getFullYear()}-0001`;
+  const exemploNumero = `${config?.prefixo_orcamento || "ORC"}-${new Date().getFullYear()}-0001`;
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-6">
@@ -399,9 +396,31 @@ export default function ConfiguracoesPage() {
             <p className="mt-0.5 text-sm text-[#3D2314]/60">{empresaNome}</p>
           </div>
         </div>
-        <SaveIndicator state={savingState} savedAt={savedAt} />
+        {aba === "projetos" && <SaveIndicator state={savingState} savedAt={savedAt} />}
       </header>
 
+      {/* Abas */}
+      <div className="mb-6 flex gap-1 border-b border-[#3D2314]/10">
+        <TabBtn active={aba === "projetos"} onClick={() => setAba("projetos")}>Módulo Projetos</TabBtn>
+        <TabBtn active={aba === "precificacao"} onClick={() => setAba("precificacao")}>
+          <DollarSign size={13} className="mr-1 inline" /> Precificação
+        </TabBtn>
+        <TabBtn active={aba === "produtividade"} onClick={() => setAba("produtividade")}>
+          <Gauge size={13} className="mr-1 inline" /> Produtos &amp; Produtividade
+        </TabBtn>
+      </div>
+
+      {aba === "precificacao" ? (
+        <PrecificacaoConfigPanel companyId={companyId} />
+      ) : aba === "produtividade" ? (
+        <ProdutividadePanel companyId={companyId} />
+      ) : loading || !config ? (
+        <div className="rounded-2xl border border-[#3D2314]/8 bg-white p-16 text-center shadow-sm">
+          <Loader2 className="mx-auto animate-spin text-[#C8941A]" size={28} />
+          <p className="mt-3 text-sm text-[#3D2314]/60">Carregando configurações…</p>
+        </div>
+      ) : (
+        <>
       {erro && (
         <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{erro}</div>
       )}
@@ -617,9 +636,11 @@ export default function ConfiguracoesPage() {
             />
             <Toggle
               label="Exige aprovação do engenheiro"
-              hint="Take-off precisa ser revisado antes de virar proposta"
+              badge="Em breve"
+              hint="Ainda não ativo — o fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto."
               valor={!!config.exige_aprovacao_engenheiro}
               onChange={(v) => setField("exige_aprovacao_engenheiro", v)}
+              disabled
             />
           </div>
         </div>
@@ -692,7 +713,22 @@ export default function ConfiguracoesPage() {
           </div>
         </div>
       )}
+        </>
+      )}
     </main>
+  );
+}
+
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+        active ? "border-[#C8941A] text-[#3D2314]" : "border-transparent text-[#3D2314]/50 hover:text-[#3D2314]/80"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -799,25 +835,35 @@ function Toggle({
   hint,
   valor,
   onChange,
+  disabled = false,
+  badge,
 }: {
   label: string;
   hint: string;
   valor: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
+  badge?: string;
 }) {
   return (
-    <label className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-[#3D2314]/8 bg-white p-3 hover:bg-[#FAF7F2]">
+    <label className={`flex items-start justify-between gap-3 rounded-xl border border-[#3D2314]/8 bg-white p-3 ${disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer hover:bg-[#FAF7F2]"}`}>
       <div className="flex-1">
-        <div className="text-sm font-medium text-[#3D2314]">{label}</div>
+        <div className="text-sm font-medium text-[#3D2314]">
+          {label}
+          {badge && (
+            <span className="ml-2 rounded-full bg-[#3D2314]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#3D2314]/60">{badge}</span>
+          )}
+        </div>
         <div className="text-xs text-[#3D2314]/60">{hint}</div>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={valor}
-        onClick={() => onChange(!valor)}
+        disabled={disabled}
+        onClick={() => { if (!disabled) onChange(!valor); }}
         className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-          valor ? "bg-[#C8941A]" : "bg-[#3D2314]/15"
+          disabled ? "bg-[#3D2314]/15 cursor-not-allowed" : valor ? "bg-[#C8941A]" : "bg-[#3D2314]/15"
         }`}
       >
         <span

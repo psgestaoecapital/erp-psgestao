@@ -3,28 +3,64 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
-const GRUPOS_RECEITA = [
-  { value: 'receita_bruta', label: 'Receita Bruta' },
-  { value: 'receita_financeira', label: 'Receita Financeira' },
-  { value: 'outras_receitas', label: 'Outras Receitas' },
+export type TipoConta = 'receita' | 'despesa' | 'custo' | 'financeiro' | 'investimento'
+
+export const TIPOS: Array<{ value: TipoConta; label: string; icone: string; cor: string }> = [
+  { value: 'receita',      label: 'Receita',      icone: '📈', cor: '#16A34A' },
+  { value: 'despesa',      label: 'Despesa',      icone: '📉', cor: '#DC2626' },
+  { value: 'custo',        label: 'Custo',        icone: '💸', cor: '#EA580C' },
+  { value: 'financeiro',   label: 'Financeiro',   icone: '🏦', cor: '#3B82F6' },
+  { value: 'investimento', label: 'Investimento', icone: '📊', cor: '#8B5CF6' },
 ]
-const GRUPOS_DESPESA = [
-  { value: 'custo_variavel', label: 'Custo Variável' },
-  { value: 'despesa_pessoal', label: 'Despesa Pessoal' },
-  { value: 'despesa_administrativa', label: 'Despesa Administrativa' },
-  { value: 'tributos', label: 'Tributos' },
-  { value: 'despesas_financeiras', label: 'Despesas Financeiras' },
-]
+
+const GRUPOS_POR_TIPO: Record<TipoConta, Array<{ value: string; label: string }>> = {
+  receita: [
+    { value: 'receita_bruta', label: 'Receita Bruta' },
+    { value: 'receita_financeira', label: 'Receita Financeira' },
+    { value: 'outras_receitas', label: 'Outras Receitas' },
+  ],
+  despesa: [
+    { value: 'despesa_pessoal', label: 'Despesa Pessoal' },
+    { value: 'despesa_administrativa', label: 'Despesa Administrativa' },
+    { value: 'tributos', label: 'Tributos' },
+    { value: 'despesas_financeiras', label: 'Despesas Financeiras' },
+  ],
+  custo: [
+    { value: 'custo_mercadoria', label: 'Custo de Mercadoria' },
+    { value: 'custo_servico', label: 'Custo de Serviço' },
+    { value: 'custo_direto', label: 'Custo Direto' },
+    { value: 'custo_indireto', label: 'Custo Indireto' },
+    { value: 'custo_variavel', label: 'Custo Variável' },
+  ],
+  financeiro: [
+    { value: 'juros', label: 'Juros' },
+    { value: 'taxas_bancarias', label: 'Taxas Bancárias' },
+    { value: 'rendimentos', label: 'Rendimentos' },
+    { value: 'tarifas', label: 'Tarifas' },
+    { value: 'iof', label: 'IOF' },
+  ],
+  investimento: [
+    { value: 'aquisicao', label: 'Aquisição' },
+    { value: 'manutencao', label: 'Manutenção' },
+    { value: 'aporte', label: 'Aporte' },
+    { value: 'resgate', label: 'Resgate' },
+  ],
+}
+
+function grupoDefault(tipo: TipoConta): string {
+  return GRUPOS_POR_TIPO[tipo][0].value
+}
 
 export interface ContaPlano {
   id: string
   codigo: string
   descricao: string
   grupo: string
-  tipo: 'receita' | 'despesa'
+  tipo: TipoConta
   pai_codigo: string | null
   nivel: number | null
   ativo: boolean
+  is_totalizador: boolean
 }
 
 interface Props {
@@ -49,32 +85,28 @@ const inputStyle: React.CSSProperties = {
 export default function PlanoContasForm({ companyId, conta, contasExistentes, onClose, onSaved }: Props) {
   const [codigo, setCodigo] = useState(conta?.codigo ?? '')
   const [descricao, setDescricao] = useState(conta?.descricao ?? '')
-  const [tipo, setTipo] = useState<'receita' | 'despesa'>(conta?.tipo ?? 'despesa')
-  const [grupo, setGrupo] = useState(
-    conta?.grupo ?? ((conta?.tipo ?? 'despesa') === 'receita' ? 'receita_bruta' : 'despesa_administrativa'),
-  )
+  const [tipo, setTipo] = useState<TipoConta>(conta?.tipo ?? 'despesa')
+  const [grupo, setGrupo] = useState(conta?.grupo ?? grupoDefault(conta?.tipo ?? 'despesa'))
   const [paiCodigo, setPaiCodigo] = useState(conta?.pai_codigo ?? '')
   const [nivel, setNivel] = useState<number>(conta?.nivel ?? 2)
+  const [isTotalizador, setIsTotalizador] = useState<boolean>(conta?.is_totalizador ?? false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
-  const opcoesGrupo = tipo === 'receita' ? GRUPOS_RECEITA : GRUPOS_DESPESA
+  const opcoesGrupo = GRUPOS_POR_TIPO[tipo]
   const opcoesPai = contasExistentes.filter((c) => c.nivel === 1 && c.tipo === tipo && c.id !== conta?.id)
 
-  // Se o tipo muda, garante que `grupo` (NOT NULL) está numa opção válida do novo tipo
-  // e zera o pai (que era de outro tipo).
   useEffect(() => {
     const valido = opcoesGrupo.some((g) => g.value === grupo)
-    if (!valido) setGrupo(tipo === 'receita' ? 'receita_bruta' : 'despesa_administrativa')
+    if (!valido) setGrupo(grupoDefault(tipo))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo])
 
-  // Nível 1 não tem pai — limpa se cair pra 1.
   useEffect(() => {
     if (nivel === 1 && paiCodigo) setPaiCodigo('')
   }, [nivel, paiCodigo])
 
-  function handleTipoChange(t: 'receita' | 'despesa') {
+  function handleTipoChange(t: TipoConta) {
     setTipo(t)
     setPaiCodigo('')
   }
@@ -92,10 +124,11 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
       codigo: codigo.trim(),
       descricao: descricao.trim(),
       tipo,
-      grupo, // NOT NULL — sempre tem valor
+      grupo,
       pai_codigo: paiCodigo || null,
       nivel,
       ativo: conta?.ativo ?? true,
+      is_totalizador: isTotalizador,
     }
 
     const result = conta?.id
@@ -127,30 +160,34 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
           )}
 
           <Campo label="Tipo *">
-            <div style={{ display: 'flex', gap: 8 }}>
-              {(['receita', 'despesa'] as const).map((t) => {
-                const ativo = tipo === t
-                const cor = t === 'receita' ? '#3B6D11' : '#A32D2D'
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {TIPOS.map((t) => {
+                const ativo = tipo === t.value
                 return (
                   <button
-                    key={t}
+                    key={t.value}
                     type="button"
-                    onClick={() => handleTipoChange(t)}
+                    onClick={() => handleTipoChange(t.value)}
                     style={{
-                      flex: 1,
+                      flex: '1 1 calc(33% - 6px)',
+                      minWidth: 100,
                       padding: '8px',
                       borderRadius: 6,
-                      fontSize: 12,
+                      fontSize: 11,
                       cursor: 'pointer',
-                      background: ativo ? cor : '#FFFFFF',
+                      background: ativo ? t.cor : '#FFFFFF',
                       color: ativo ? '#FAF7F2' : '#3D2314',
-                      border: `0.5px solid ${cor}`,
+                      border: `0.5px solid ${t.cor}`,
                       textTransform: 'uppercase',
                       fontWeight: 600,
-                      letterSpacing: 0.5,
+                      letterSpacing: 0.4,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
                     }}
                   >
-                    {t}
+                    <span aria-hidden>{t.icone}</span> {t.label}
                   </button>
                 )
               })}
@@ -159,7 +196,7 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
             <Campo label="Código *" hint="Ex: 3.1 · 4.3.06">
-              <input value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder={tipo === 'receita' ? '3.x.xx' : '4.x.xx'} style={inputStyle} />
+              <input value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="x.x.xx" style={inputStyle} />
             </Campo>
             <Campo label="Descrição *">
               <input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Aluguel" style={inputStyle} />
@@ -194,6 +231,18 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
               </select>
             </Campo>
           )}
+
+          <div style={{ background: 'rgba(200,148,26,0.08)', border: '0.5px solid rgba(200,148,26,0.3)', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={isTotalizador} onChange={(e) => setIsTotalizador(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A', marginTop: 2 }} />
+              <span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>Σ É linha totalizadora</span>
+                <small style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.6)', marginTop: 2 }}>
+                  Soma os filhos automaticamente · não recebe lançamentos diretos.
+                </small>
+              </span>
+            </label>
+          </div>
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
             <button

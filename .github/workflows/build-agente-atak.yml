@@ -1,0 +1,147 @@
+name: Build Agente ATAK (.exe)
+
+# Builda o coletor ATAK como .exe de 2 cliques sem precisar de maquina Windows.
+# Roda no runner windows-latest do GitHub Actions. O artefato fica disponivel
+# pra download por 30 dias (aba Actions -> run -> Artifacts).
+on:
+  workflow_dispatch: {}          # botao "Run workflow" na aba Actions
+  push:
+    tags:
+      - 'agente-v*'              # ex.: git tag agente-v2.0.0 && git push --tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: collectors/atak-agente
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      # Sem package-lock.json no repo -> npm install (npm ci exigiria lockfile).
+      - name: Instalar dependencias
+        run: npm install
+
+      # pkg nao esta nas dependencias (so o bloco de config "pkg") -> instala global.
+      # Testes do auto-update (CEO 28/09): download em 2º plano, com tempo limite, nunca bloqueia a coleta.
+      # Sem eles verdes, nenhum .exe é publicado.
+      - name: Testes do agente
+        run: npm test
+
+      - name: Instalar pkg
+        run: npm i -g pkg
+
+      - name: Buildar .exe
+        run: npm run build
+
+      # nssm.exe (RD-41): envelopa o coletor como serviço do Windows (sc.exe nativo não roda um .exe
+      # comum como serviço). Vem via chocolatey (o choco verifica o checksum do pacote) e é publicado
+      # no Storage a cada release, para que o instalador (Part A) sempre o inclua — sem upload manual.
+      - name: Obter nssm.exe (win64) via chocolatey
+        shell: pwsh
+        run: |
+          choco install nssm -y --no-progress | Out-Host
+          $nssm = Get-ChildItem -Path "$env:ChocolateyInstall\lib\nssm" -Recurse -Filter nssm.exe |
+                    Where-Object { $_.FullName -match '\\win64\\' } | Select-Object -First 1
+          if (-not $nssm) {
+            $nssm = Get-ChildItem -Path "$env:ChocolateyInstall\lib\nssm" -Recurse -Filter nssm.exe | Select-Object -First 1
+          }
+          if (-not $nssm) { Write-Error "nssm.exe nao encontrado apos 'choco install nssm'"; exit 1 }
+          Copy-Item $nssm.FullName dist\nssm.exe -Force
+          $bytes = [System.IO.File]::ReadAllBytes("$PWD\dist\nssm.exe")
+          if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { Write-Error "nssm.exe nao e PE (MZ) valido"; exit 1 }
+          $len = (Get-Item dist\nssm.exe).Length
+          if ($len -lt 100000) { Write-Error "nssm.exe pequeno demais ($len bytes) — download suspeito"; exit 1 }
+          $sha = (Get-FileHash -Algorithm SHA256 dist\nssm.exe).Hash.ToLower()
+          Write-Host "nssm.exe -> origem=$($nssm.FullName) len=$len sha256=$sha"
+
+      # Guard anti-loop (RD-57): a versao ANUNCIADA tem que ser exatamente a que o binario se auto-reporta.
+      # A fonte da verdade e VERSAO_AGENTE em agent.js; package.json e a tag TEM que bater com ela. Se
+      # divergirem, FALHA o build — nunca publica um versao.json anunciando versao sem o binario
+      # correspondente (foi o que criou o loop 2.1.1/2.1.0).
+      - name: Guard versao (agent.js == package.json == tag)
+        shell: pwsh
+        run: |
+          $m = Select-String -Path agent.js -Pattern "VERSAO_AGENTE\s*=\s*'([^']+)'" | Select-Object -First 1
+          if (-not $m) { Write-Error "Nao achei VERSAO_AGENTE em agent.js"; exit 1 }
+          $agentVer = $m.Matches[0].Groups[1].Value
+          $pkgVer = (Get-Content package.json | ConvertFrom-Json).version
+          if ($agentVer -ne $pkgVer) { Write-Error "Descompasso: VERSAO_AGENTE=$agentVer != package.json=$pkgVer. Alinhe os dois antes de buildar."; exit 1 }
+          $ref = "${{ github.ref_name }}"
+          if ($ref -match '^agente-v(.+)$') {
+            $tagVer = $Matches[1]
+            if ($tagVer -ne $agentVer) { Write-Error "Descompasso: tag $ref anuncia $tagVer mas o binario se auto-reporta $agentVer. Bump VERSAO_AGENTE + package.json ANTES de taggear."; exit 1 }
+          }
+          Write-Host "Guard OK: binario, package.json e tag concordam em $agentVer"
+          "AGENT_VER=$agentVer" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Gera o versao.json COM o sha256 calculado (zero erro de sha manual · auto-update).
+      # A versao vem do binario (VERSAO_AGENTE, validado pelo guard acima) — NUNCA da tag isolada.
+      - name: Gerar versao.json (sha256 + url do Storage)
+        shell: pwsh
+        env:
+          SB_URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          $sha = (Get-FileHash -Algorithm SHA256 dist/agente-atak.exe).Hash.ToLower()
+          $ref = "${{ github.ref_name }}"
+          $versao = "$env:AGENT_VER"   # fonte da verdade = VERSAO_AGENTE do binario (guard garante tag/pkg iguais)
+          $base = if ($env:SB_URL) { $env:SB_URL.TrimEnd('/') } else { '' }
+          $manifesto = [ordered]@{
+            versao = $versao
+            url = "$base/storage/v1/object/public/agente/agente-atak.exe"   # URL absoluto do Storage
+            sha256 = $sha
+            obrigatorio = $false
+            notas = "Build $ref"
+          }
+          $manifesto | ConvertTo-Json | Set-Content -Encoding utf8 dist/versao.json
+          Write-Host "versao.json -> versao=$versao sha256=$sha url=$($manifesto.url)"
+          Get-Content dist/versao.json
+
+      # Publica no Supabase Storage (bucket público 'agente') — sem passo manual de git.
+      # Requer os secrets SUPABASE_URL e SUPABASE_STORAGE_KEY (o CEO cadastra · Pilar 2).
+      - name: Publicar no Supabase Storage
+        shell: bash
+        env:
+          SB_URL: ${{ secrets.SUPABASE_URL }}
+          SB_KEY: ${{ secrets.SUPABASE_STORAGE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SB_URL:-}" ] || [ -z "${SB_KEY:-}" ]; then
+            echo "::error::Faltam os secrets SUPABASE_URL e/ou SUPABASE_STORAGE_KEY no repo — cadastre para publicar."
+            exit 1
+          fi
+          # FIX 400: Storage exige apikey + Authorization; upsert via header x-upsert; sem -f pra ver o corpo do erro.
+          up() {  # $1 = arquivo local · $2 = path no bucket · $3 = content-type
+            echo "Enviando $2 ..."
+            code=$(curl -sS -w "%{http_code}" -o /tmp/resp.txt -X POST \
+              "$SB_URL/storage/v1/object/agente/$2" \
+              -H "apikey: $SB_KEY" \
+              -H "Authorization: Bearer $SB_KEY" \
+              -H "x-upsert: true" \
+              -H "Content-Type: $3" \
+              --data-binary "@$1")
+            echo "HTTP $code"; cat /tmp/resp.txt; echo
+            [ "$code" -ge 200 ] && [ "$code" -lt 300 ] || { echo "::error::Upload de $2 falhou (HTTP $code)"; exit 1; }
+          }
+          up dist/agente-atak.exe agente-atak.exe application/octet-stream
+          up dist/nssm.exe        nssm.exe        application/octet-stream
+          up dist/versao.json     versao.json     application/json
+          echo "Publicado no Storage: agente-atak.exe + nssm.exe + versao.json (bucket agente)"
+
+      # Backup: tambem sobe como artefato (download 30 dias) — util para conferencia/rollback.
+      - name: Publicar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: agente-atak-exe
+          path: |
+            collectors/atak-agente/dist/agente-atak.exe
+            collectors/atak-agente/dist/nssm.exe
+            collectors/atak-agente/dist/versao.json
+          retention-days: 30
+          if-no-files-found: error

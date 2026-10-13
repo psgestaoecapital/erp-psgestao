@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { modeloPara, registrarFalhaIA } from '@/lib/aiModel'
 
 export async function POST(req: NextRequest) {
   try {
@@ -63,6 +64,7 @@ REGRAS:
       { role: 'user' as const, content: message }
     ]
 
+    const modelo = modeloPara('ajuda_chat')
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -71,14 +73,18 @@ REGRAS:
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: modelo,
         max_tokens: 800,
         system: systemPrompt,
         messages,
       }),
     })
 
-    if (!response.ok) throw new Error('API: ' + (await response.text()).substring(0, 100))
+    if (!response.ok) {
+      const t = (await response.text()).substring(0, 200)
+      await registrarFalhaIA({ endpoint: '/api/ajuda/chat', finalidade: 'ajuda_chat', modelo, status: response.status, erro: t })
+      throw new Error('API: ' + t)
+    }
     const data = await response.json()
     const reply = data.content?.map((c: any) => c.text || '').join('') || 'Sem resposta'
     return NextResponse.json({ reply })

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { getUsuarioId } from "@/lib/AuthProvider";
 import { PSGC_COLORS, PSGC_TOGGLE_DIMS } from "@/lib/psgc-tokens";
 import PSGCCard from "@/components/psgc/PSGCCard";
 import PSGCBadge from "@/components/psgc/PSGCBadge";
@@ -97,11 +98,11 @@ export default function RotinasPage() {
       setRotinas(rotinas.map(r => r.id === existing.id ? { ...r, ativo: !r.ativo } : r));
       setMsg(existing.ativo ? "Rotina desativada" : "Rotina ativada!");
     } else {
-      const { data: { user } } = await supabase.auth.getUser();
+      const uid = await getUsuarioId();
       const { data } = await supabase.from("bpo_rotinas").insert({
         company_id: compId, tipo, nome: template.nome, descricao: template.desc,
         frequencia: template.freq, executor: template.executor, ativo: true,
-        created_by: user?.id,
+        created_by: uid,
       }).select().single();
       if (data) setRotinas([...rotinas, data]);
       setMsg("Rotina ativada!");
@@ -110,13 +111,13 @@ export default function RotinasPage() {
   };
 
   const ativarTodas = async (compId: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const uid = await getUsuarioId();
     for (const t of ROTINAS_TIPO) {
       const exists = rotinas.find(r => r.company_id === compId && r.tipo === t.id);
       if (!exists) {
         const { data } = await supabase.from("bpo_rotinas").insert({
           company_id: compId, tipo: t.id, nome: t.nome, descricao: t.desc,
-          frequencia: t.freq, executor: t.executor, ativo: true, created_by: user?.id,
+          frequencia: t.freq, executor: t.executor, ativo: true, created_by: uid,
         }).select().single();
         if (data) setRotinas(prev => [...prev, data]);
       } else if (!exists.ativo) {

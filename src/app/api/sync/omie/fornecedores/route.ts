@@ -2,15 +2,11 @@
 // PS Gestão ERP — Sync Fornecedores Omie → PS Gestão
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin'
+import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi'
 import { omiePaginate, getOmieAuthFromDb } from '@/lib/omieClient'
 
 export const maxDuration = 300 // 5 min
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 // ═══ Mapeamento Omie → PS Gestão ═══
 // Campos Omie de Cliente/Fornecedor (tag tipo_cliente contém "Fornecedor")
@@ -48,11 +44,16 @@ function mapOmieFornecedor(omie: any, companyId: string) {
  * Body: { company_id: string }
  */
 export async function POST(req: Request) {
+  // Usuário da empresa, ou máquina (Bearer CRON_SECRET); /sync/omie/full repassa o Authorization.
+  const guarda = await exigirUsuario(req, { cron: true })
+  if (guarda instanceof NextResponse) return guarda
   try {
     const { company_id } = await req.json()
     if (!company_id) {
       return NextResponse.json({ error: 'company_id obrigatório' }, { status: 400 })
     }
+    const negado = await exigirEmpresas(guarda, [company_id])
+    if (negado) return negado
 
     // Pega credenciais Omie
     const auth = await getOmieAuthFromDb(supabase, company_id)

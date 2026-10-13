@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { createClient } from "@supabase/supabase-js";
+import { exigirLogin, ehAdminPS, negar, type UsuarioApi } from "@/lib/auth/guardaApi";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -44,13 +45,25 @@ function parseNumber(v: string): number {
   return parseFloat(cleaned) || 0;
 }
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+// Dono da carteira = mesma regra da RLS de wealth_clients (fn_wealth_user_eh_operador: consultor
+// responsável ou consultor/operador ativo da empresa), lida com o JWT do PRÓPRIO usuário; admin PS passa.
+async function podeOperarCliente(u: UsuarioApi, clientId: string): Promise<boolean> {
+  const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${u.token}` } },
+  });
+  const { data } = await sb.from("wealth_clients").select("id").eq("id", clientId).maybeSingle();
+  return !!data || (await ehAdminPS(u.token));
+}
+
+async function handler(req: NextRequest, user: UsuarioApi) {
   try {
     const body = await req.json();
     const { client_id, csv_text } = body;
 
     if (!client_id) return NextResponse.json({ error: "client_id obrigatório" }, { status: 400 });
     if (!csv_text) return NextResponse.json({ error: "csv_text obrigatório" }, { status: 400 });
+    if (!(await podeOperarCliente(user, client_id))) return negar(403, "Sem acesso a esta carteira.");
 
     // Verify client exists
     const { data: client } = await supabase.from("wealth_clients").select("id,nome").eq("id", client_id).single();
@@ -165,4 +178,4 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

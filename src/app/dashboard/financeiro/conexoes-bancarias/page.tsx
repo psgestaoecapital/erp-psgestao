@@ -1,0 +1,1223 @@
+'use client'
+
+// PR 3/3 do reorganiza 3 telas de integracao (diretriz CEO 06/07).
+// Conexoes Bancarias = API DIRETA com bancos, por empresa. NAO Pluggy
+// (Pluggy fica no Wealth/Open Finance em outra tela).
+//
+// Backend canonico:
+//  - erp_banco_provider_config: 1 linha por (company_id, provider, ambiente)
+//    com capabilities (cap_boleto/cap_extrato/cap_pagamento) e cursor de sync.
+//  - erp_banco_contas: conta bancaria vinculada a company + config.
+//  - erp_credencial (Cofre B.9): armazena as credenciais (client_id/client_secret/
+//    cert A1/senha do cert) via fn_credencial_salvar, cifradas no Vault.
+//
+// Adapters prontos: Sicoob (756), Bradesco (237). Sicredi (748) = proximo.
+
+import { useCallback, useEffect, useState } from 'react'
+import { acharErroCatalogo, textoErroCatalogo, type ErroCatalogo } from '@/lib/banco/erroCatalogo'
+import { temConectorExtrato, MSG_EXTRATO_SEM_CONECTOR } from '@/lib/banco/extratoConector'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import {
+  ArrowLeft, Plus, RefreshCw, Loader2, AlertCircle, CheckCircle2,
+  Banknote, X, Lock,
+} from 'lucide-react'
+
+type Ambiente = 'producao' | 'homologacao'
+interface ProviderConfig {
+  id: string
+  company_id: string
+  provider: string
+  ambiente: Ambiente
+  client_id: string | null
+  cooperativa: string | null
+  conta: string | null
+  codigo_beneficiario: string | null
+  posto: string | null
+  convenio: string | null
+  agencia: string | null
+  agencia_dv: string | null
+  carteira: string | null
+  cap_boleto: boolean | null
+  boleto_responsavel: boolean | null   // #1673: banco responsável pelos boletos da empresa
+  cap_extrato: boolean | null
+  cap_pagamento: boolean | null
+  ativo: boolean
+  ultimo_sync_em: string | null
+  ultimo_sync_status: string | null
+  banco_conta_id: string | null
+  estado_conexao: string | null
+  // validade do certificado extraída no salvar (semáforo da lista). NULL = desconhecida.
+  cert_expira_em: string | null
+  // encargos do boleto (bloco espelhando o OMIE): % ao mês / %, dias p/ incidir, 4 linhas de instrução.
+  juros_pct: number | null
+  multa_pct: number | null
+  dias_multa: number | null
+  dias_juros: number | null
+  instrucao_linha1: string | null
+  instrucao_linha2: string | null
+  instrucao_linha3: string | null
+  instrucao_linha4: string | null
+  // presença de segredo no Vault (indicador "configurado"): são apenas IDs de referência, NUNCA o valor.
+  client_secret_vault_id: string | null
+  cert_vault_id: string | null
+  cert_senha_vault_id: string | null
+  api_key_vault_id: string | null
+}
+
+// Semáforo da validade do certificado (lê cert_expira_em; NULL = desconhecida/cinza).
+function certSemaforo(expiraEm: string | null): { cor: string; bg: string; label: string } | null {
+  if (!expiraEm) return null
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+  const venc = new Date(expiraEm + 'T00:00:00')
+  const dias = Math.round((venc.getTime() - hoje.getTime()) / 86400000)
+  if (dias < 0) return { cor: '#A32D2D', bg: 'rgba(163,45,45,0.10)', label: `certificado VENCIDO em ${venc.toLocaleDateString('pt-BR')}` }
+  if (dias <= 30) return { cor: '#B26A00', bg: 'rgba(200,148,26,0.14)', label: `certificado vence em ${dias} dia(s) (${venc.toLocaleDateString('pt-BR')})` }
+  return { cor: '#2E6B2E', bg: 'rgba(46,107,46,0.10)', label: `certificado válido até ${venc.toLocaleDateString('pt-BR')}` }
+}
+
+interface BancoConta {
+  id: string
+  nome: string
+  banco: string | null
+}
+
+type CampoConexao = 'client_id' | 'client_secret' | 'cooperativa' | 'conta' | 'codigo_beneficiario' | 'cert_a1' | 'cert_senha' | 'api_key' | 'codigo_acesso' | 'posto'
+type BancoDef = {
+  codigo: number; sigla: string; nome: string; cor: string; pronto: boolean;
+  campos: readonly CampoConexao[];
+}
+const BANCOS: readonly BancoDef[] = [
+  {
+    codigo: 756, sigla: 'sicoob', nome: 'Sicoob',
+    cor: '#003641', pronto: true,
+    campos: ['client_id', 'cooperativa', 'conta', 'codigo_beneficiario', 'cert_a1', 'cert_senha'],
+  },
+  {
+    codigo: 237, sigla: 'bradesco', nome: 'Bradesco',
+    cor: '#CC092F', pronto: true,
+    campos: ['client_id', 'client_secret', 'cert_a1', 'cert_senha', 'conta'],
+  },
+  {
+    // Sicredi Cobrança v3.9.1: OAuth2 (x-api-key + password=Código de Acesso).
+    // NÃO usa client_id/client_secret nem mTLS. username = codBenef+cooperativa (no adapter).
+    codigo: 748, sigla: 'sicredi', nome: 'Sicredi',
+    cor: '#3F8B29', pronto: true,
+    campos: ['api_key', 'codigo_acesso', 'cooperativa', 'codigo_beneficiario', 'posto'],
+  },
+]
+
+const ESP = '#3D2314'
+const BG = '#FAF7F2'
+const GOLD = '#C8941A'
+const LINE = '#E7DECF'
+const ESP60 = 'rgba(61,35,20,0.55)'
+
+function fmtData(iso: string | null): string {
+  if (!iso) return '—'
+  try { return new Date(iso).toLocaleString('pt-BR') } catch { return '—' }
+}
+
+// chamado #14 · Teste de conexão. Histórico do último teste por config (erp_banco_teste_conexao).
+type UltimoTeste = {
+  status: string
+  cert_status: string | null
+  cert_expira_em: string | null
+  auth_ok: boolean | null
+  erro: string | null
+  testado_em: string
+  testado_por_email: string | null
+}
+// Resposta da rota /api/banco/testar-conexao.
+type RespTeste = {
+  ok?: boolean
+  status?: string
+  erro?: string | null
+  auth_ok?: boolean | null
+  cert?: { status?: string; dias_para_vencer?: number | null; not_after?: string | null } | null
+}
+// Monta a frase pro usuário a partir da resposta — mostra o erro REAL do banco quando falha.
+function montarTextoTeste(j: RespTeste): string {
+  if (j?.status === 'erro') return j.erro || 'Falhou (sem detalhe do banco).'
+  const partes: string[] = []
+  if (j?.auth_ok) partes.push('autenticou no banco')
+  const cs = j?.cert?.status
+  if (cs === 'ok') partes.push('certificado válido')
+  else if (cs === 'expirando') partes.push(`certificado vence em ${j?.cert?.dias_para_vencer ?? '?'} dia(s)`)
+  else if (cs === 'vencido') partes.push('certificado VENCIDO')
+  if (partes.length === 0) return j?.erro || 'Sem detalhes.'
+  return `Conectou — ${partes.join(' · ')}. Nada foi emitido nem enviado.`
+}
+
+export default function ConexoesBancariasPage() {
+  const { companyIds } = useCompanyIds()
+  const empresaUnica = companyIds.length === 1 ? companyIds[0] : null
+
+  const [configs, setConfigs] = useState<ProviderConfig[]>([])
+  const [contas, setContas] = useState<BancoConta[]>([])
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState<string | null>(null)
+  const [testando, setTestando] = useState<string | null>(null)
+  const [testeResultado, setTesteResultado] = useState<Record<string, { ok: boolean; texto: string }>>({})
+  const [ultimosTestes, setUltimosTestes] = useState<Record<string, UltimoTeste>>({})   // chamado #14: último teste por config
+  // #88 (FC): catálogo de erros do banco — o teste que falha mostra o que fazer, não o erro cru
+  const [catalogoErros, setCatalogoErros] = useState<ErroCatalogo[]>([])
+  const [conectandoBanco, setConectandoBanco] = useState<typeof BANCOS[number] | null>(null)
+  // editar-config-existente · reabre o modal pré-preenchido pra um banco JÁ conectado
+  const [editando, setEditando] = useState<{ banco: BancoDef; cfg: ProviderConfig } | null>(null)
+  const [cnabEdit, setCnabEdit] = useState<ProviderConfig | null>(null)   // editor de identidade CNAB (sem credenciais)
+
+  // #1673: marca o banco que emite os boletos da empresa (um só por empresa; a função valida ativo + cap_boleto)
+  async function definirResponsavelBoleto(cfg: ProviderConfig) {
+    if (!empresaUnica) return
+    const { data, error } = await supabase.rpc('fn_banco_definir_responsavel_boleto', { p_company_id: empresaUnica, p_config_id: cfg.id })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro(error?.message ?? r?.erro ?? 'Não foi possível definir o responsável.'); return }
+    setErro(null)
+    await carregar()
+  }
+
+  const carregar = useCallback(async () => {
+    if (!empresaUnica) return
+    setLoading(true); setErro(null)
+    const [cfgRes, contasRes, testesRes, catRes] = await Promise.all([
+      supabase.from('erp_banco_provider_config')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, boleto_responsavel, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, juros_pct, multa_pct, dias_multa, dias_juros, instrucao_linha1, instrucao_linha2, instrucao_linha3, instrucao_linha4, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
+        .eq('company_id', empresaUnica)
+        .order('provider'),
+      supabase.from('erp_banco_contas')
+        .select('id, nome, banco')
+        .eq('company_id', empresaUnica),
+      // chamado #14: último teste de conexão por config (mais recente primeiro)
+      supabase.from('erp_banco_teste_conexao')
+        .select('provider_config_id, status, cert_status, cert_expira_em, auth_ok, erro, testado_em, testado_por_email')
+        .eq('company_id', empresaUnica)
+        .order('testado_em', { ascending: false }),
+      supabase.from('erp_banco_erro_catalogo')
+        .select('provider, codigo, titulo, o_que_e, o_que_fazer, quem_contatar, pedir_ao_banco'),
+    ])
+    if (cfgRes.error) setErro(cfgRes.error.message)
+    else setConfigs((cfgRes.data ?? []) as ProviderConfig[])
+    if (!contasRes.error) setContas((contasRes.data ?? []) as BancoConta[])
+    if (!testesRes.error) {
+      const mapa: Record<string, UltimoTeste> = {}
+      for (const row of (testesRes.data ?? []) as (UltimoTeste & { provider_config_id: string | null })[]) {
+        if (row.provider_config_id && !mapa[row.provider_config_id]) mapa[row.provider_config_id] = row
+      }
+      setUltimosTestes(mapa)
+    }
+    if (!catRes.error) setCatalogoErros((catRes.data ?? []) as ErroCatalogo[])
+    setLoading(false)
+  }, [empresaUnica])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  const sincronizarExtrato = async (cfg: ProviderConfig) => {
+    setSyncing(cfg.id); setErro(null); setMsg(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/extrato/sync', {
+        method: 'POST', credentials: 'include',
+        headers: {
+          'content-type': 'application/json',
+          authorization: session ? `Bearer ${session.access_token}` : '',
+        },
+        body: JSON.stringify({ company_id: cfg.company_id, provider_config_id: cfg.id }),
+      })
+      const j = await r.json()
+      if (!j.ok) throw new Error(j.erro || j.detalhe || 'falha ao sincronizar')
+      setMsg(`SINCRONIZOU ${j.inseridos ?? 0} novos movimentos (${j.ignorados ?? 0} duplicados).`)
+      await carregar()
+    } catch (e) { setErro((e as Error).message) }
+    finally { setSyncing(null) }
+  }
+
+  // chamado #14 · Teste de conexão GENÉRICO (Sicoob, Sicredi, Bradesco e qualquer banco): valida o
+  // certificado + autentica no banco (leitura, não escreve nada). Erro REAL do banco + histórico.
+  const testarConexao = async (cfg: ProviderConfig) => {
+    setTestando(cfg.id); setErro(null); setMsg(null)
+    setTesteResultado((m) => { const n = { ...m }; delete n[cfg.id]; return n })
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/testar-conexao', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ company_id: cfg.company_id, provider_config_id: cfg.id }),
+      })
+      const j = (await r.json().catch(() => ({}))) as RespTeste
+      if (!r.ok && !j.status) {
+        setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: false, texto: j.erro || `Falhou (HTTP ${r.status})` } }))
+      } else {
+        // #88: erro reconhecido no catálogo ⇒ o que fazer (+ o erro do banco no fim, para suporte)
+        const cat = j.status === 'erro' ? acharErroCatalogo(j.erro, catalogoErros, cfg.provider) : null
+        const texto = cat ? `${textoErroCatalogo(cat)} (Erro do banco: ${String(j.erro ?? '').slice(0, 160)})` : montarTextoTeste(j)
+        setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: j.status === 'ok' || j.status === 'parcial', texto } }))
+      }
+      await carregar()   // recarrega o "último teste"
+    } catch (e) {
+      setTesteResultado((m) => ({ ...m, [cfg.id]: { ok: false, texto: (e as Error).message } }))
+    } finally { setTestando(null) }
+  }
+
+  if (!empresaUnica) {
+    return (
+      <div style={{ minHeight: '100vh', background: BG, padding: 24, color: ESP60, fontSize: 13 }}>
+        Selecione uma empresa específica no topo do menu para gerenciar as conexões bancárias.
+      </div>
+    )
+  }
+
+  const bancosNaoConectados = BANCOS.filter((b) =>
+    !configs.some((c) => c.provider === b.sigla || c.provider.startsWith(`banco_${b.sigla}_`)),
+  )
+
+  // RD-51 (badge não mente): "conectado" deriva do estado REAL, não da mera existência
+  // do registro. Só homologado/producao com ativo=true é conexão viva. Inativo ou
+  // estado em curso (nao_iniciado, solicitado, recebido, homologacao) NÃO é "conectado".
+  const ESTADOS_CONECTADO = new Set(['homologado', 'producao'])
+  const estaConectado = (c: ProviderConfig) => c.ativo && ESTADOS_CONECTADO.has(c.estado_conexao ?? '')
+  const conectados = configs.filter(estaConectado)
+  const emConfiguracao = configs.filter((c) => !estaConectado(c))
+
+  const rotuloEstado = (c: ProviderConfig): { texto: string; fundo: string; cor: string } => {
+    if (!c.ativo) return { texto: 'inativo', fundo: '#FEE2E2', cor: '#B91C1C' }
+    switch (c.estado_conexao) {
+      case 'solicitado':   return { texto: 'aguardando credenciais', fundo: '#FEF3C7', cor: '#7A5A0F' }
+      case 'recebido':     return { texto: 'credenciais recebidas',   fundo: '#FEF3C7', cor: '#7A5A0F' }
+      case 'homologacao':  return { texto: 'em homologação',          fundo: '#DBEAFE', cor: '#1E40AF' }
+      default:             return { texto: 'não conectado',           fundo: '#F3F4F6', cor: '#6B7280' }
+    }
+  }
+
+  // chamado #14 · botão + feedback do Teste de conexão (reusado nos cards "conectados" e "em configuração")
+  const botaoTestar = (cfg: ProviderConfig) => (
+    <button
+      type="button"
+      onClick={() => testarConexao(cfg)}
+      disabled={testando === cfg.id}
+      title="Valida o certificado e autentica no banco (leitura — NÃO emite boleto nem envia remessa)"
+      style={{
+        background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+        padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+        cursor: testando === cfg.id ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+      }}>
+      🔌 {testando === cfg.id ? 'Testando…' : 'Testar conexão'}
+    </button>
+  )
+  const feedbackTeste = (cfg: ProviderConfig) => {
+    const r = testeResultado[cfg.id]
+    if (r) {
+      return (
+        <div data-testid={`teste-resultado-${cfg.provider}`} style={{
+          fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6, maxWidth: 300, textAlign: 'right',
+          background: r.ok ? '#DCFCE7' : '#FEE2E2', color: r.ok ? '#166534' : '#B91C1C',
+        }}>
+          {r.ok ? '✅ ' : '❌ '}{r.texto}
+        </div>
+      )
+    }
+    const ult = ultimosTestes[cfg.id]
+    if (!ult) return null
+    const q = ult.status === 'ok' ? '✅ ok' : ult.status === 'parcial' ? '⚠️ atenção' : '❌ falhou'
+    const catUlt = ult.status === 'erro' ? acharErroCatalogo(ult.erro, catalogoErros, cfg.provider) : null
+    const cor = ult.status === 'erro' ? '#B91C1C' : ult.status === 'parcial' ? '#7A5A0F' : ESP60
+    return (
+      <div style={{ fontSize: 10, color: cor, textAlign: 'right', maxWidth: 300 }}>
+        Último teste: {fmtData(ult.testado_em)} · {q}{catUlt ? ` · ${catUlt.titulo}` : ''}{ult.testado_por_email ? ` · ${ult.testado_por_email}` : ''}
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '24px 20px' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto' }}>
+        <header style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', color: GOLD }}>
+              Financeiro · Integração bancária
+            </div>
+            <h1 style={{ fontSize: 24, color: ESP, margin: '4px 0 0', fontFamily: 'ui-serif,Georgia,serif' }}>
+              <Banknote size={22} style={{ verticalAlign: '-3px', marginRight: 8 }} />
+              Conexões Bancárias
+            </h1>
+            <p style={{ fontSize: 12, color: ESP60, marginTop: 4 }}>
+              API <b>direta</b> com bancos por empresa: boleto, extrato, pagamento.
+            </p>
+            <Link href="/dashboard/financeiro/conexoes-bancarias/assistente" style={{
+              display: 'inline-block', marginTop: 6, fontSize: 12, color: GOLD, fontWeight: 600, textDecoration: 'none',
+            }}>🧭 Assistente passo a passo (conectar sem depender de ninguém) →</Link>
+          </div>
+          <Link href="/dashboard/financeiro" style={{
+            background: 'transparent', color: ESP, border: `0.5px solid ${LINE}`,
+            padding: '8px 14px', borderRadius: 6, fontSize: 12, textDecoration: 'none',
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}>
+            <ArrowLeft size={14} /> Financeiro
+          </Link>
+        </header>
+
+        <div style={{ background: '#FEF3C7', color: '#7A5A0F', padding: '10px 12px', borderRadius: 8, fontSize: 11, marginBottom: 12, border: `0.5px solid rgba(200,148,26,0.35)` }}>
+          🏦 <b>Conexões Bancárias</b> = API oficial do banco (Sicoob, Bradesco, Sicredi) por empresa.
+          Credenciais salvas no <b>Vault</b> (cifradas). Open Finance via Pluggy fica em{' '}
+          <Link href="/dashboard/wealth" style={{ color: GOLD, fontWeight: 600 }}>Wealth</Link>.
+          Ferramentas PS globais em <Link href="/dashboard/cofre" style={{ color: GOLD, fontWeight: 600 }}>Cofre</Link>;
+          ERPs externos em <Link href="/dashboard/conectores" style={{ color: GOLD, fontWeight: 600 }}>Conectores</Link>.
+        </div>
+
+        {msg && <div style={{ background: '#DCFCE7', color: '#166534', padding: 10, borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{msg}</div>}
+        {erro && <div style={{ background: '#FEE2E2', color: '#B91C1C', padding: 10, borderRadius: 6, fontSize: 12, marginBottom: 10, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <AlertCircle size={14} style={{ marginTop: 2, flexShrink: 0 }} /> {erro}
+        </div>}
+
+        {loading ? (
+          <div style={{ padding: 32, textAlign: 'center', color: ESP60, fontSize: 13, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12 }}>
+            <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Carregando...
+          </div>
+        ) : (
+          <>
+            <div style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
+              <div style={{ padding: '10px 14px', borderBottom: `0.5px solid ${LINE}`, background: BG, fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>
+                Bancos conectados ({conectados.length})
+              </div>
+              {conectados.length === 0 ? (
+                <div style={{ padding: 24, textAlign: 'center', color: ESP60, fontSize: 12 }}>
+                  Nenhum banco conectado ainda. Clique em <b>Conectar novo banco</b> abaixo.
+                </div>
+              ) : conectados.map((cfg) => {
+                const bancoInfo = BANCOS.find((b) => cfg.provider.includes(b.sigla))
+                const contaVinculada = contas.find((c) => c.id === cfg.banco_conta_id)
+                return (
+                  <div key={cfg.id} style={{ padding: 14, borderBottom: `0.5px solid ${LINE}`, display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 8,
+                      background: (bancoInfo?.cor ?? ESP) + '15',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: bancoInfo?.cor ?? ESP, fontSize: 14, fontWeight: 700, flexShrink: 0,
+                    }}>
+                      {bancoInfo?.sigla.slice(0, 2).toUpperCase() ?? '??'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                        <strong style={{ color: ESP, fontSize: 14 }}>
+                          {bancoInfo?.nome ?? cfg.provider}
+                        </strong>
+                        <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: BG, color: ESP60, textTransform: 'uppercase' }}>
+                          {cfg.ambiente}
+                        </span>
+                        {!cfg.ativo && (
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: '#FEE2E2', color: '#B91C1C' }}>
+                            inativo
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: ESP60, marginTop: 4 }}>
+                        {contaVinculada && <><b>{contaVinculada.nome}</b> · </>}
+                        {cfg.cooperativa && `coop ${cfg.cooperativa} · `}
+                        {cfg.conta && `conta ${cfg.conta}`}
+                      </div>
+                      <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                        {cfg.cap_boleto && <Badge cor="#16A34A">Boleto</Badge>}
+                        {cfg.boleto_responsavel && <Badge cor="#C8941A">Responsável pelos boletos</Badge>}
+                        {cfg.cap_extrato && <Badge cor="#3B82F6">Extrato</Badge>}
+                        {cfg.cap_pagamento && <Badge cor="#7C3AED">Pagamento</Badge>}
+                      </div>
+                      {/* Semáforo da validade do certificado (extraída no salvar). Certificado vencido
+                          derruba a integração sem aviso — por isso fica visível na própria lista. */}
+                      {(() => {
+                        const sem = certSemaforo(cfg.cert_expira_em)
+                        if (sem) return (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6, padding: '2px 8px', borderRadius: 999, background: sem.bg, color: sem.cor, fontSize: 10, fontWeight: 600 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: '50%', background: sem.cor, display: 'inline-block' }} /> {sem.label}
+                          </div>
+                        )
+                        if (cfg.cert_vault_id) return (
+                          <div style={{ fontSize: 10, color: ESP60, marginTop: 6 }}>certificado configurado · validade não lida (reconfigure ou teste para atualizar)</div>
+                        )
+                        return null
+                      })()}
+                      <div style={{ fontSize: 10, color: ESP60, marginTop: 6 }}>
+                        Último sync: <b>{fmtData(cfg.ultimo_sync_em)}</b>
+                        {cfg.ultimo_sync_status && <> · {cfg.ultimo_sync_status.startsWith('erro') ? (
+                          <span style={{ color: '#B91C1C' }}>{cfg.ultimo_sync_status.slice(0, 60)}</span>
+                        ) : (
+                          <span style={{ color: '#16A34A' }}><CheckCircle2 size={10} style={{ verticalAlign: '-1px' }} /> ok</span>
+                        )}</>}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {bancoInfo && (
+                          <button
+                            type="button"
+                            onClick={() => setEditando({ banco: bancoInfo, cfg })}
+                            style={{
+                              background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                              padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}>
+                            ✏️ Editar/Reconfigurar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setCnabEdit(cfg)}
+                          title="Editar identidade CNAB (convênio, cooperativa, conta…) sem tocar em credenciais"
+                          style={{
+                            background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                          🧾 Dados CNAB
+                        </button>
+                        {cfg.ativo && cfg.cap_boleto && !cfg.boleto_responsavel && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <button
+                              type="button"
+                              data-testid={`definir-responsavel-boleto-${cfg.provider}`}
+                              onClick={() => definirResponsavelBoleto(cfg)}
+                              style={{
+                                background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                                padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                              }}>
+                              Definir como responsável pelos boletos
+                            </button>
+                            <AjudaCampo chave="banco.responsavel_boleto" />
+                          </span>
+                        )}
+                        {cfg.ativo && botaoTestar(cfg)}
+                        {cfg.cap_extrato && cfg.ativo && !temConectorExtrato(cfg.provider) && (
+                          <span data-testid={`extrato-sem-conector-${cfg.provider}`} style={{ fontSize: 10, color: ESP60, maxWidth: 220 }}>
+                            {MSG_EXTRATO_SEM_CONECTOR}
+                          </span>
+                        )}
+                        {cfg.cap_extrato && cfg.ativo && temConectorExtrato(cfg.provider) && (
+                          <button
+                            type="button"
+                            data-testid={`sincronizar-extrato-${cfg.provider}`}
+                            onClick={() => sincronizarExtrato(cfg)}
+                            disabled={syncing === cfg.id}
+                            style={{
+                              background: syncing === cfg.id ? 'rgba(200,148,26,0.4)' : GOLD,
+                              color: '#3D2314', border: 'none', padding: '6px 12px',
+                              borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              cursor: syncing === cfg.id ? 'wait' : 'pointer',
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}>
+                            <RefreshCw size={12} style={{ animation: syncing === cfg.id ? 'spin 1s linear infinite' : 'none' }} />
+                            {syncing === cfg.id ? 'Sincronizando…' : 'Sincronizar extrato'}
+                          </button>
+                        )}
+                      </div>
+                      {feedbackTeste(cfg)}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {emConfiguracao.length > 0 && (
+              <div style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
+                <div style={{ padding: '10px 14px', borderBottom: `0.5px solid ${LINE}`, background: BG, fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Em configuração ({emConfiguracao.length})
+                </div>
+                {emConfiguracao.map((cfg) => {
+                  const bancoInfo = BANCOS.find((b) => cfg.provider.includes(b.sigla))
+                  const contaVinculada = contas.find((c) => c.id === cfg.banco_conta_id)
+                  const est = rotuloEstado(cfg)
+                  return (
+                    <div key={cfg.id} style={{ padding: 14, borderBottom: `0.5px solid ${LINE}`, display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div style={{
+                        width: 40, height: 40, borderRadius: 8,
+                        background: (bancoInfo?.cor ?? ESP) + '10',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: ESP60, fontSize: 14, fontWeight: 700, flexShrink: 0,
+                      }}>
+                        {bancoInfo?.sigla.slice(0, 2).toUpperCase() ?? '??'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                          <strong style={{ color: ESP, fontSize: 14 }}>{bancoInfo?.nome ?? cfg.provider}</strong>
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: BG, color: ESP60, textTransform: 'uppercase' }}>
+                            {cfg.ambiente}
+                          </span>
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: est.fundo, color: est.cor }}>
+                            {est.texto}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: ESP60, marginTop: 4 }}>
+                          {contaVinculada && <><b>{contaVinculada.nome}</b> · </>}
+                          {cfg.cooperativa && `coop ${cfg.cooperativa} · `}
+                          {cfg.conta && `conta ${cfg.conta}`}{cfg.convenio ? ` · conv ${cfg.convenio}` : ''}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {/* chamado #14 (Rodrigo/Bradesco): "Continuar configuração" ABRE o formulário editável
+                            (ConectarBancoModal), onde os campos são preenchíveis. Antes era um link para o
+                            Assistente, cujos campos são um PREVIEW desabilitado — o Rodrigo lia como "campos
+                            bloqueados". Continuar a configuração = terminar de preencher as credenciais aqui. */}
+                        {bancoInfo ? (
+                          <button
+                            type="button"
+                            onClick={() => setEditando({ banco: bancoInfo, cfg })}
+                            title="Abre o formulário para preencher/alterar as credenciais e salvar (cifradas no Vault)"
+                            style={{
+                              background: GOLD, color: '#3D2314', border: 'none',
+                              padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}>
+                            ✏️ Continuar configuração
+                          </button>
+                        ) : (
+                          <Link href="/dashboard/financeiro/conexoes-bancarias/assistente" style={{
+                            background: GOLD, color: '#3D2314',
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                            🧭 Continuar configuração
+                          </Link>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setCnabEdit(cfg)}
+                          title="Editar identidade CNAB (convênio, cooperativa, conta…) sem tocar em credenciais"
+                          style={{
+                            background: 'transparent', color: ESP, border: `1px solid ${LINE}`,
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                          🧾 Dados CNAB
+                        </button>
+                        <Link
+                          href="/dashboard/financeiro/conexoes-bancarias/assistente"
+                          title="Guia de leitura: o que pedir ao banco e como testar (não é onde você preenche as credenciais)"
+                          style={{
+                            background: 'transparent', color: ESP60, border: `1px solid ${LINE}`,
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                          🧭 Roteiro (guia)
+                        </Link>
+                        {botaoTestar(cfg)}
+                        </div>
+                        {feedbackTeste(cfg)}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                Conectar novo banco
+              </div>
+              {bancosNaoConectados.length === 0 ? (
+                <div style={{ fontSize: 12, color: ESP60 }}>
+                  Todos os bancos disponíveis já estão conectados nesta empresa.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                  {bancosNaoConectados.map((b) => (
+                    <button
+                      key={b.sigla}
+                      type="button"
+                      onClick={() => b.pronto ? setConectandoBanco(b) : setMsg(`${b.nome} — adapter em desenvolvimento (próximo).`)}
+                      style={{
+                        background: '#FFFFFF', color: ESP,
+                        border: `0.5px solid ${LINE}`, borderRadius: 8,
+                        padding: '12px 14px', cursor: 'pointer',
+                        display: 'flex', gap: 10, alignItems: 'center',
+                        opacity: b.pronto ? 1 : 0.6,
+                      }}>
+                      <div style={{
+                        width: 30, height: 30, borderRadius: 6,
+                        background: b.cor + '15', color: b.cor,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, fontWeight: 700, flexShrink: 0,
+                      }}>
+                        {b.sigla.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{b.nome}</div>
+                        <div style={{ fontSize: 10, color: ESP60 }}>
+                          {b.codigo}{b.pronto ? '' : ' · em breve'}
+                        </div>
+                      </div>
+                      {b.pronto && <Plus size={14} style={{ marginLeft: 'auto', color: GOLD }} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: ESP60, marginTop: 10, display: 'flex', gap: 4, alignItems: 'center' }}>
+                <Lock size={10} /> Credenciais são cifradas no Vault (cofre canônico). Nada em texto puro.
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {conectandoBanco && empresaUnica && (
+        <ConectarBancoModal
+          banco={conectandoBanco}
+          companyId={empresaUnica}
+          onClose={() => setConectandoBanco(null)}
+          onSucesso={() => { setConectandoBanco(null); setMsg('Banco conectado.'); void carregar() }}
+        />
+      )}
+
+      {editando && empresaUnica && (
+        <ConectarBancoModal
+          banco={editando.banco}
+          companyId={empresaUnica}
+          cfgExistente={editando.cfg}
+          onClose={() => setEditando(null)}
+          onSucesso={() => { setEditando(null); setMsg('Configuração atualizada (segredo do Vault preservado se deixado em branco).'); void carregar() }}
+        />
+      )}
+
+      {cnabEdit && empresaUnica && (
+        <CnabModal
+          companyId={empresaUnica}
+          cfg={cnabEdit}
+          bancoNome={BANCOS.find((b) => cnabEdit.provider.includes(b.sigla))?.nome ?? cnabEdit.provider}
+          onClose={() => setCnabEdit(null)}
+          onSucesso={() => { setCnabEdit(null); setMsg('Dados CNAB ALTERADOS.'); void carregar() }}
+        />
+      )}
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+    </div>
+  )
+}
+
+function Badge({ children, cor }: { children: React.ReactNode; cor: string }) {
+  return (
+    <span style={{
+      fontSize: 9, padding: '2px 6px', borderRadius: 3,
+      background: cor + '15', color: cor,
+      fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase',
+    }}>
+      {children}
+    </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Modal "Dados CNAB" — identidade do arquivo (convênio, cooperativa, conta, agência/DV,
+// código beneficiário, carteira, posto). NÃO toca credenciais/Vault (Pilar 2). Salva via
+// fn_banco_config_salvar_cnab — a fonte única que o gerador de remessa lê (RD-52).
+function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
+  companyId: string
+  cfg: ProviderConfig
+  bancoNome: string
+  onClose: () => void
+  onSucesso: () => void
+}) {
+  const [f, setF] = useState({
+    cooperativa: cfg.cooperativa ?? '', agencia: cfg.agencia ?? '', agencia_dv: cfg.agencia_dv ?? '',
+    posto: cfg.posto ?? '', conta: cfg.conta ?? '', codigo_beneficiario: cfg.codigo_beneficiario ?? '',
+    convenio: cfg.convenio ?? '', carteira: cfg.carteira ?? '',
+  })
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }))
+
+  async function salvar() {
+    setSalvando(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_banco_config_salvar_cnab', {
+      p_company_id: companyId, p_config_id: cfg.id, p_dados: f,
+    })
+    setSalvando(false)
+    if (error || (data as { ok?: boolean })?.ok === false) { setErro(error?.message || (data as { erro?: string })?.erro || 'falha ao salvar'); return }
+    onSucesso()
+  }
+
+  const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 13, background: '#fff', color: ESP }
+  const lbl: React.CSSProperties = { fontSize: 11, color: ESP60, display: 'block', marginBottom: 3 }
+  const campo = (k: keyof typeof f, label: string, dica?: string, largo?: boolean) => (
+    <div style={largo ? { gridColumn: '1 / -1' } : undefined}>
+      <label style={lbl}>{label}</label>
+      <input style={inp} value={f[k]} onChange={(e) => set(k, e.target.value)} />
+      {dica && <span style={{ fontSize: 10, color: ESP60 }}>{dica}</span>}
+    </div>
+  )
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1200 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 520, padding: 20, border: `0.5px solid ${LINE}`, maxHeight: '92vh', overflowY: 'auto' }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: ESP }}>Dados CNAB — {bancoNome}</div>
+        <div style={{ fontSize: 12, color: ESP60, margin: '2px 0 14px' }}>
+          Ambiente <b style={{ textTransform: 'uppercase' }}>{cfg.ambiente}</b> · identidade do arquivo de remessa. As credenciais (Vault) não são tocadas aqui.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {campo('cooperativa', 'Cooperativa')}
+          {campo('posto', 'Posto')}
+          {campo('agencia', 'Agência')}
+          {campo('agencia_dv', 'DV agência')}
+          {campo('conta', 'Conta')}
+          {campo('codigo_beneficiario', 'Código do beneficiário')}
+          {campo('convenio', 'Convênio', 'O código que o banco exige no arquivo CNAB (confira no internet banking do banco).', true)}
+          {campo('carteira', 'Carteira')}
+        </div>
+        {erro && <div style={{ marginTop: 10, fontSize: 12.5, color: '#B91C1C' }}>❌ {erro}</div>}
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ background: 'transparent', color: ESP60, border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={() => void salvar()} disabled={salvando} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: salvando ? 'wait' : 'pointer' }}>{salvando ? 'Salvando…' : 'Salvar dados CNAB'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Modal Conectar banco
+// Salva credenciais no Vault via fn_credencial_salvar + cria erp_banco_provider_config
+interface ConectarProps {
+  banco: BancoDef
+  companyId: string
+  onClose: () => void
+  onSucesso: () => void
+  // editar-config-existente · quando presente, o modal abre em modo EDIÇÃO:
+  // pré-preenche os campos NÃO-secretos; os secretos ficam em branco e, se
+  // continuarem em branco, o RPC preserva o segredo já gravado no Vault.
+  cfgExistente?: ProviderConfig | null
+}
+function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente }: ConectarProps) {
+  const editMode = !!cfgExistente
+  // Indicador "configurado" (Rodrigo): o valor do segredo NUNCA volta do servidor (a tela nem o seleciona);
+  // usamos só a presença do *_vault_id (um id de referência, não o segredo) para mostrar que já há algo salvo.
+  const PH_CONFIG = '•••••••• configurado — deixe em branco para manter'
+  const jaTem = (slot: 'client_secret_vault_id' | 'cert_vault_id' | 'cert_senha_vault_id' | 'api_key_vault_id') =>
+    editMode && !!cfgExistente?.[slot]
+  // Sicredi está em fase de teste → default Homologação (state controlado persiste a escolha).
+  const [ambiente, setAmbiente] = useState<Ambiente>(cfgExistente?.ambiente ?? (banco.sigla === 'sicredi' ? 'homologacao' : 'producao'))
+  const [clientId, setClientId] = useState(cfgExistente?.client_id ?? '')
+  const [clientSecret, setClientSecret] = useState('')
+  const [cooperativa, setCooperativa] = useState(cfgExistente?.cooperativa ?? '')
+  const [conta, setConta] = useState(cfgExistente?.conta ?? '')
+  const [codBenef, setCodBenef] = useState(cfgExistente?.codigo_beneficiario ?? '')
+  const [certA1Base64, setCertA1Base64] = useState('')
+  const [certA1Nome, setCertA1Nome] = useState('')
+  const [certSenha, setCertSenha] = useState('')
+  // #14 (Rodrigo/Bradesco): o certificado de COMUNICAÇÃO bancária costuma vir em .crt + .key (não .pfx).
+  // O mTLS espera .pfx, então convertemos o par em .pfx (server-side, /api/banco/cert-pfx) e seguimos
+  // pelo mesmo caminho de sempre. 'pfx' = um arquivo; 'crtkey' = dois arquivos (cert + chave).
+  const [certFormato, setCertFormato] = useState<'pfx' | 'crtkey'>('pfx')
+  const [crtPem, setCrtPem] = useState(''); const [crtNome, setCrtNome] = useState('')
+  const [keyPem, setKeyPem] = useState(''); const [keyNome, setKeyNome] = useState('')
+  const [keySenha, setKeySenha] = useState('')  // senha da própria chave .key (se cifrada)
+  const [convertendo, setConvertendo] = useState(false)
+  // Sicredi Cobrança (auth OAuth2 real)
+  const [apiKey, setApiKey] = useState('')
+  const [codigoAcesso, setCodigoAcesso] = useState('')
+  const [posto, setPosto] = useState(cfgExistente?.posto ?? '')
+  const [capBoleto, setCapBoleto] = useState(cfgExistente?.cap_boleto ?? true)
+  const [capExtrato, setCapExtrato] = useState(cfgExistente?.cap_extrato ?? true)
+  // Encargos do boleto (bloco espelhando o OMIE). Guardados como texto no form; convertidos ao salvar.
+  const numStr = (n: number | null | undefined) => (n == null ? '' : String(n))
+  const [jurosPct, setJurosPct] = useState(numStr(cfgExistente?.juros_pct))
+  const [multaPct, setMultaPct] = useState(numStr(cfgExistente?.multa_pct))
+  const [diasMulta, setDiasMulta] = useState(numStr(cfgExistente?.dias_multa))
+  const [diasJuros, setDiasJuros] = useState(numStr(cfgExistente?.dias_juros))
+  const [instr1, setInstr1] = useState(cfgExistente?.instrucao_linha1 ?? '')
+  const [instr2, setInstr2] = useState(cfgExistente?.instrucao_linha2 ?? '')
+  const [instr3, setInstr3] = useState(cfgExistente?.instrucao_linha3 ?? '')
+  const [instr4, setInstr4] = useState(cfgExistente?.instrucao_linha4 ?? '')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  // ② aviso por provider: campos que o manifesto exige e ainda faltam (avisa, não bloqueia · regra 0e580f96)
+  const [faltantes, setFaltantes] = useState<string[] | null>(null)
+
+  // Após salvar, checa (data-driven do manifesto) o que ainda falta pra este banco. Se faltar, mostra o
+  // aviso e mantém o modal aberto (a pessoa completa agora ou fecha); se estiver completo, fecha normal.
+  async function checarEFinalizar() {
+    try {
+      const { data } = await supabase.rpc('fn_banco_campos_faltantes', {
+        p_company_id: companyId, p_provider: banco.sigla, p_ambiente: ambiente,
+      })
+      const list = (data as string[] | null) ?? []
+      if (list.length > 0) { setFaltantes(list); return }
+    } catch { /* se a checagem falhar, não trava o salvamento */ }
+    onSucesso()
+  }
+
+  async function onCertFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setCertA1Nome(f.name)
+    const buf = new Uint8Array(await f.arrayBuffer())
+    let bin = ''
+    const CHUNK = 0x8000
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      bin += String.fromCharCode(...buf.subarray(i, Math.min(i + CHUNK, buf.length)))
+    }
+    setCertA1Base64(btoa(bin))
+  }
+
+  // #14 · lê um arquivo PEM (.crt/.key/.pem) como texto
+  async function lerPem(e: React.ChangeEvent<HTMLInputElement>, alvo: 'crt' | 'key') {
+    const f = e.target.files?.[0]
+    if (!f) return
+    const txt = await f.text()
+    if (alvo === 'crt') { setCrtPem(txt); setCrtNome(f.name) }
+    else { setKeyPem(txt); setKeyNome(f.name) }
+  }
+
+  // #14 · converte o par .crt + .key em .pfx (server-side) usando a MESMA senha do certificado
+  // (out_passphrase = certSenha), e injeta o base64 no caminho normal de cert. Devolve true/false.
+  async function converterCrtKeyEmPfx(): Promise<string | null> {
+    if (!crtPem || !keyPem) { setErro('Envie o certificado (.crt) e a chave (.key).'); return null }
+    if (!certSenha) { setErro('Defina a "Senha do certificado" — ela protege o .pfx gerado.'); return null }
+    setConvertendo(true); setErro(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/cert-pfx', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ cert_pem: crtPem, key_pem: keyPem, key_passphrase: keySenha || undefined, out_passphrase: certSenha }),
+      })
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; pfx_base64?: string; erro?: string }
+      if (!j.ok || !j.pfx_base64) { setErro(j.erro || 'Falha ao converter o certificado.'); return null }
+      setCertA1Base64(j.pfx_base64)
+      return j.pfx_base64
+    } catch (e) { setErro((e as Error).message); return null }
+    finally { setConvertendo(false) }
+  }
+
+  // Melhoria Rodrigo · lê a validade (notAfter) do .pfx que será salvo, para gravar cert_expira_em e mostrar
+  // o semáforo. Falha na extração NÃO impede salvar (retorna null = validade desconhecida). READ-ONLY.
+  async function extrairValidadeCert(pfxB64: string): Promise<string | null> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/cert-pfx', {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ pfx_base64: pfxB64, pfx_senha: certSenha || '' }),
+      })
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; valido_ate?: string | null }
+      return j.ok ? (j.valido_ate ?? null) : null
+    } catch { return null }
+  }
+
+  async function salvar() {
+    setSalvando(true); setErro(null)
+    try {
+      // #14 · se o certificado veio como par .crt + .key, converte em .pfx AGORA (server-side) e usa
+      // o base64 resultante no caminho normal. Se já estava convertido (certA1Base64), reusa.
+      let certB64 = certA1Base64
+      if (banco.campos.includes('cert_a1') && certFormato === 'crtkey' && (crtPem || keyPem) && !certB64) {
+        const b = await converterCrtKeyEmPfx()
+        if (!b) { setSalvando(false); return }
+        certB64 = b
+      }
+      // Melhoria Rodrigo · validade do certificado: quando um cert NOVO está sendo enviado, extrai o
+      // notAfter (node-forge, server-side) para gravar em cert_expira_em. Se falhar, salva com null
+      // (validade desconhecida) — nunca bloqueia o salvamento.
+      let certExpiraEm: string | null = null
+      if (banco.campos.includes('cert_a1') && certB64) {
+        certExpiraEm = await extrairValidadeCert(certB64)
+      }
+      // #14 (Rodrigo/Bradesco): TODOS os bancos salvam via fn_banco_salvar_credencial — é a RPC que grava
+      // os segredos no Vault E seta banco_codigo + os *_vault_id (client_secret/cert/cert_senha) + updated_at
+      // que o ADAPTER lê (fn_banco_obter_credencial). ANTES, só Sicredi/Sicoob usavam essa RPC; Bradesco (e
+      // qualquer banco novo, ex.: BB) caía no caminho genérico (fn_credencial_salvar + upsert manual) que NÃO
+      // setava os *_vault_id → o certificado sumia (cert_vault_id vazio) e a emissão travava. Mapeia por
+      // campo do banco: só manda o que ele usa. Sicredi usa o slot client_secret p/ o Código de Acesso.
+      const cs = banco.campos
+      const params: Record<string, unknown> = {
+        p_company_id: companyId, p_banco_codigo: String(banco.codigo), p_provider: banco.sigla, p_ambiente: ambiente,
+        p_client_id: cs.includes('client_id') ? (clientId || null) : null,
+        p_client_secret: banco.sigla === 'sicredi'
+          ? (codigoAcesso || null)
+          : (cs.includes('client_secret') ? (clientSecret || null) : null),
+        p_cert_base64: cs.includes('cert_a1') ? (certB64 || null) : null,
+        p_cert_senha: cs.includes('cert_senha') ? (certSenha || null) : null,
+        p_api_key: cs.includes('api_key') ? (apiKey || null) : null,
+        p_cooperativa: cs.includes('cooperativa') ? (cooperativa || null) : null,
+        p_conta: cs.includes('conta') ? (conta || null) : null,
+        p_codigo_beneficiario: cs.includes('codigo_beneficiario') ? (codBenef || null) : null,
+        p_posto: cs.includes('posto') ? (posto || null) : null,
+        // cap_pagamento (remessa CNAB) NÃO é capacidade desta tela de API: null preserva o valor (RD-57).
+        p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: null, p_ativo: true,
+        // validade do cert (só quando um cert novo foi enviado; null preserva a existente na fn).
+        p_cert_expira_em: certExpiraEm,
+        // encargos do boleto (bloco OMIE): vírgula→ponto p/ numérico; vazio→null (fn faz COALESCE, RD-57).
+        p_juros_pct: jurosPct.trim() === '' ? null : Number(jurosPct.replace(',', '.')),
+        p_multa_pct: multaPct.trim() === '' ? null : Number(multaPct.replace(',', '.')),
+        p_dias_multa: diasMulta.trim() === '' ? null : parseInt(diasMulta, 10),
+        p_dias_juros: diasJuros.trim() === '' ? null : parseInt(diasJuros, 10),
+        p_instrucao_linha1: instr1.trim() || null,
+        p_instrucao_linha2: instr2.trim() || null,
+        p_instrucao_linha3: instr3.trim() || null,
+        p_instrucao_linha4: instr4.trim() || null,
+      }
+      const { data: salvarData, error: salvarErr } = await supabase.rpc('fn_banco_salvar_credencial', params)
+      if (salvarErr) throw salvarErr
+      const salvarJ = salvarData as { ok?: boolean; erro?: string } | null
+      if (!salvarJ?.ok) throw new Error(salvarJ?.erro ?? `falha ao salvar credencial ${banco.nome}`)
+      // chamado #14 (Rodrigo/Bradesco): a config recém-salva
+      // ficava eternamente "Status não iniciado" (print do Rodrigo 08/09) e presa em "Em configuração".
+      // Avança FORWARD-ONLY para 'recebido' (= "credenciais recebidas"): sai de "não iniciado" mas NÃO
+      // vira "conectado" (isso exige homologado/produção). Nunca rebaixa homologacao/homologado/producao
+      // (RD-51: a badge não mente nem pra mais nem pra menos; RD-53: não mexe na config que já funciona).
+      await supabase.from('erp_banco_provider_config')
+        .update({ estado_conexao: 'recebido' })
+        .eq('company_id', companyId)
+        .eq('banco_codigo', String(banco.codigo))
+        .eq('ambiente', ambiente)
+        .or('estado_conexao.is.null,estado_conexao.eq.nao_iniciado')
+      await checarEFinalizar()
+    } catch (e) {
+      setErro((e as Error).message)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.55)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 16, zIndex: 1000,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: BG, borderRadius: 12, maxWidth: 560, width: '100%', maxHeight: '92vh',
+        display: 'flex', flexDirection: 'column',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+      }}>
+        <div style={{ padding: '16px 20px', borderBottom: `0.5px solid ${LINE}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>
+              {editMode ? 'Editar / Reconfigurar' : 'Conectar banco'}
+            </div>
+            <div style={{ fontSize: 16, color: ESP, fontWeight: 600 }}>
+              {banco.nome} <span style={{ color: ESP60, fontWeight: 400 }}>({banco.codigo})</span>
+            </div>
+          </div>
+          <button onClick={onClose} type="button" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: ESP60 }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault() }} style={{ padding: 20, overflowY: 'auto', display: 'grid', gap: 10 }}>
+          {/* Iscas invisíveis: o Chrome injeta e-mail/senha salvos AQUI, não nos campos reais. */}
+          <input type="text" name="ps_decoy_user" autoComplete="username" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
+          <input type="password" name="ps_decoy_pass" autoComplete="new-password" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} />
+          {/* ② aviso por provider: salvou, mas o manifesto do banco pede campos que ainda faltam pra emitir boleto */}
+          {faltantes && faltantes.length > 0 && (
+            <div style={{ background: '#FEF3C7', border: `0.5px solid ${GOLD}`, color: '#7A5A0F', borderRadius: 6, padding: '10px 12px', fontSize: 12.5, lineHeight: 1.45 }}>
+              <b>Config salva ✓ — mas faltam campos para emitir boleto neste banco ({banco.nome}):</b>
+              <ul style={{ margin: '6px 0 8px', paddingLeft: 18 }}>
+                {faltantes.map((f) => <li key={f}>{f}</li>)}
+              </ul>
+              Você pode completar agora (preencha acima e salve de novo) ou depois. Enquanto faltar, a emissão de boleto pode falhar.
+              <div style={{ marginTop: 8 }}>
+                <button type="button" onClick={onSucesso} style={{ background: 'transparent', color: '#7A5A0F', border: `0.5px solid ${GOLD}`, padding: '6px 14px', borderRadius: 6, fontSize: 12.5, cursor: 'pointer', fontWeight: 600 }}>
+                  Fechar mesmo assim
+                </button>
+              </div>
+            </div>
+          )}
+          {editMode && (
+            <div style={{ background: '#FEF3C7', border: `0.5px solid ${GOLD}`, color: '#7A5A0F', borderRadius: 6, padding: '9px 12px', fontSize: 12, lineHeight: 1.4 }}>
+              <b>Editar configuração.</b> Os campos podem ser alterados. Os campos de <b>segredo</b> (Código de Acesso / x-api-key / senha) estão em branco: se já houver segredo guardado no Vault, <b>deixar em branco MANTÉM o atual</b>; para informar pela 1ª vez ou TROCAR, preencha.
+            </div>
+          )}
+          <Field label="Ambiente">
+            <select value={ambiente} onChange={(e) => setAmbiente(e.target.value as Ambiente)} style={inp}>
+              <option value="producao">Produção</option>
+              <option value="homologacao">Homologação</option>
+            </select>
+          </Field>
+          {banco.campos.includes('client_id') && (
+            <Field label="Client ID">
+              <input value={clientId} onChange={(e) => setClientId(e.target.value)} style={inp} />
+            </Field>
+          )}
+          {banco.campos.includes('client_secret') && (
+            <Field label="Client Secret">
+              <input type="password" autoComplete="off" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} style={inp} placeholder={jaTem('client_secret_vault_id') ? PH_CONFIG : undefined} />
+            </Field>
+          )}
+          {banco.campos.includes('cooperativa') && (
+            <Field label="Cooperativa">
+              <input name="ps_coop_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={cooperativa} onChange={(e) => setCooperativa(e.target.value)} style={inp} placeholder="ex.: 4133" />
+            </Field>
+          )}
+          {banco.campos.includes('conta') && (
+            <Field label="Conta corrente">
+              <input value={conta} onChange={(e) => setConta(e.target.value)} style={inp} placeholder="ex.: 12345-6" />
+            </Field>
+          )}
+          {banco.campos.includes('codigo_beneficiario') && (
+            // Rótulo/ajuda POR PROVIDER (RD-26): Sicoob e Sicredi usam o mesmo campo com nomes diferentes.
+            <Field
+              label={banco.sigla === 'sicoob' ? 'Convênio de cobrança' : 'Código do beneficiário'}
+              hint={banco.sigla === 'sicoob'
+                ? 'Como aparece no seu boleto Sicoob (campo Convênio) ou no internet banking, em Cobrança. Na dúvida, peça ao gerente de cobrança.'
+                : undefined}
+            >
+              <input name="ps_benef_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} placeholder={banco.sigla === 'sicoob' ? 'ex.: 5795443' : 'código do beneficiário'} />
+            </Field>
+          )}
+          {banco.campos.includes('api_key') && (
+            <Field label="x-api-key (Portal do Desenvolvedor)">
+              <input type="password" name="ps_apikey_nofill" autoComplete="new-password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={inp} placeholder={jaTem('api_key_vault_id') ? PH_CONFIG : 'UUID da app'} />
+            </Field>
+          )}
+          {banco.campos.includes('codigo_acesso') && (
+            <Field label="Código de Acesso (Internet Banking)">
+              <input type="password" name="ps_codacesso_nofill" autoComplete="new-password" value={codigoAcesso} onChange={(e) => setCodigoAcesso(e.target.value)} style={inp} placeholder={jaTem('client_secret_vault_id') ? PH_CONFIG : undefined} />
+            </Field>
+          )}
+          {banco.campos.includes('posto') && (
+            <Field label="Posto (código da agência)">
+              <input name="ps_posto_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={posto} onChange={(e) => setPosto(e.target.value)} style={inp} placeholder="2 dígitos · ex.: 03" />
+            </Field>
+          )}
+          {banco.campos.includes('cert_a1') && (
+            <>
+              {/* #14 (Rodrigo/Bradesco): este é o certificado de COMUNICAÇÃO bancária (mTLS), diferente
+                  do A1 fiscal (que assina notas). O banco costuma entregar .pfx OU o par .crt + .key. */}
+              <div style={{ background: '#EFF6FF', border: `0.5px solid #BFDBFE`, color: '#1E40AF', borderRadius: 6, padding: '9px 11px', fontSize: 11.5, lineHeight: 1.45 }}>
+                🔐 <b>Certificado de comunicação bancária</b> — é o que {banco.nome} usa para autenticar a conexão (mTLS).
+                <b> Não é o certificado A1 fiscal</b> (o que assina NF-e/NFS-e); é um arquivo separado, emitido para o acesso à API do banco.
+              </div>
+              <Field label="Formato do certificado">
+                <div style={{ display: 'flex', gap: 14, fontSize: 12.5, color: ESP }}>
+                  <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="radio" name="cert_formato" checked={certFormato === 'pfx'} onChange={() => setCertFormato('pfx')} />
+                    Um arquivo (.pfx / .p12)
+                  </label>
+                  <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+                    <input type="radio" name="cert_formato" checked={certFormato === 'crtkey'} onChange={() => setCertFormato('crtkey')} />
+                    Dois arquivos (.crt + .key)
+                  </label>
+                </div>
+              </Field>
+              {certFormato === 'pfx' ? (
+                <Field label="Certificado (.pfx)">
+                  <input type="file" accept=".pfx,.p12" onChange={onCertFile} style={{ ...inp, padding: 5 }} />
+                  {certA1Nome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {certA1Nome}</small>}
+                </Field>
+              ) : (
+                <>
+                  <Field label="Certificado (.crt / .pem)" hint="O certificado público que o banco entregou.">
+                    <input type="file" accept=".crt,.cer,.pem" onChange={(e) => lerPem(e, 'crt')} style={{ ...inp, padding: 5 }} />
+                    {crtNome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {crtNome}</small>}
+                  </Field>
+                  <Field label="Chave privada (.key / .pem)" hint="A chave privada do par. Fica cifrada no Vault — nunca em texto puro.">
+                    <input type="file" accept=".key,.pem" onChange={(e) => lerPem(e, 'key')} style={{ ...inp, padding: 5 }} />
+                    {keyNome && <small style={{ fontSize: 10, color: ESP60 }}>Arquivo: {keyNome}</small>}
+                  </Field>
+                  <Field label="Senha da chave (.key), se houver" hint="Deixe em branco se a chave não tiver senha própria.">
+                    <input type="password" autoComplete="off" value={keySenha} onChange={(e) => setKeySenha(e.target.value)} style={inp} />
+                  </Field>
+                </>
+              )}
+              <Field
+                label="Senha do certificado"
+                hint={certFormato === 'crtkey' ? 'Defina uma senha — ela protege o .pfx gerado a partir do .crt + .key (e será usada na conexão).' : undefined}
+              >
+                <input type="password" autoComplete="off" value={certSenha} onChange={(e) => setCertSenha(e.target.value)} style={inp} placeholder={jaTem('cert_senha_vault_id') ? PH_CONFIG : undefined} />
+              </Field>
+              {jaTem('cert_vault_id') && (
+                <small style={{ fontSize: 10, color: ESP60 }}>
+                  ✓ Certificado já configurado (guardado no Vault). Deixe os campos de arquivo em branco para manter o atual; envie um novo só para substituir.
+                </small>
+              )}
+              {convertendo && <small style={{ fontSize: 10, color: ESP60 }}>Convertendo o par .crt + .key em .pfx…</small>}
+            </>
+          )}
+          <div style={{ marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>Recursos habilitados</div>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: ESP, marginBottom: 4 }}>
+              <input type="checkbox" checked={capBoleto} onChange={(e) => setCapBoleto(e.target.checked)} />
+              Emitir boletos
+            </label>
+            {temConectorExtrato(banco.sigla) ? (
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: ESP }}>
+                <input type="checkbox" checked={capExtrato} onChange={(e) => setCapExtrato(e.target.checked)} />
+                Sincronizar extrato
+              </label>
+            ) : (
+              // #88: sem conector de extrato para este banco — não oferecer o que dá erro
+              <div style={{ fontSize: 11, color: ESP60 }}>{MSG_EXTRATO_SEM_CONECTOR}</div>
+            )}
+          </div>
+          {/* Encargos do boleto — espelha o bloco do OMIE ("Juros e Multa para o Boleto"). Só aparece quando
+              a conexão emite boleto. Juros/multa em %, dias após o vencimento para cada encargo incidir, e as
+              4 linhas de instrução impressas no boleto. Tudo opcional; vazio preserva o valor atual (fn COALESCE). */}
+          {capBoleto && (
+            <div style={{ marginTop: 4, borderTop: `0.5px solid ${LINE}`, paddingTop: 12, display: 'grid', gap: 10 }}>
+              <div style={{ fontSize: 11, color: ESP60, textTransform: 'uppercase', letterSpacing: 1 }}>Encargos e instruções do boleto</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <Field label="% de juros (ao mês)" hint="Ex.: 1,5 — juros de mora por atraso. Em branco = sem juros.">
+                  <input inputMode="decimal" value={jurosPct} onChange={(e) => setJurosPct(e.target.value)} style={inp} placeholder="ex.: 1,5" />
+                </Field>
+                <Field label="Dias para juros incidir" hint="Dias após o vencimento em que o juros começa. Em branco = 1 (padrão).">
+                  <input inputMode="numeric" value={diasJuros} onChange={(e) => setDiasJuros(e.target.value)} style={inp} placeholder="ex.: 1" />
+                </Field>
+                <Field label="% de multa" hint="Ex.: 2 — multa por atraso. Em branco = sem multa.">
+                  <input inputMode="decimal" value={multaPct} onChange={(e) => setMultaPct(e.target.value)} style={inp} placeholder="ex.: 2" />
+                </Field>
+                <Field label="Dias para multa incidir" hint="Dias após o vencimento em que a multa começa. Em branco = 1 (padrão).">
+                  <input inputMode="numeric" value={diasMulta} onChange={(e) => setDiasMulta(e.target.value)} style={inp} placeholder="ex.: 1" />
+                </Field>
+              </div>
+              <Field label="Instruções para o boleto (até 4 linhas)" hint="Texto impresso no boleto (ex.: instruções de protesto, contato). Opcional.">
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <input value={instr1} onChange={(e) => setInstr1(e.target.value)} style={inp} placeholder="Linha 1" maxLength={80} />
+                  <input value={instr2} onChange={(e) => setInstr2(e.target.value)} style={inp} placeholder="Linha 2" maxLength={80} />
+                  <input value={instr3} onChange={(e) => setInstr3(e.target.value)} style={inp} placeholder="Linha 3" maxLength={80} />
+                  <input value={instr4} onChange={(e) => setInstr4(e.target.value)} style={inp} placeholder="Linha 4" maxLength={80} />
+                </div>
+              </Field>
+            </div>
+          )}
+          {/* chamado #14: o Rodrigo perguntou "como faço os testes de conexão?" (04/09). Resposta honesta na
+              própria tela — bancos fora da escada automática (hoje só Sicoob/Sicredi) não têm ping. */}
+          {!['sicoob', 'sicredi'].includes(banco.sigla) && (
+            <div style={{ background: '#FEF3C7', border: `0.5px solid rgba(200,148,26,0.4)`, color: '#7A5A0F', borderRadius: 6, padding: '9px 11px', fontSize: 11, lineHeight: 1.45 }}>
+              ℹ️ O {banco.nome} ainda não tem <b>teste automático de conexão</b>. Depois de <b>salvar</b>, as credenciais ficam guardadas no Vault (cifradas) e são validadas na <b>primeira emissão de boleto ou sincronização de extrato</b>. Se algo falhar ali, o erro aparece com o que fazer — você não precisa &quot;continuar&quot; em nenhuma outra tela.
+            </div>
+          )}
+          {erro && <div style={{ background: '#FEE2E2', color: '#B91C1C', padding: 10, borderRadius: 6, fontSize: 12 }}>{erro}</div>}
+        </div>
+
+        <div style={{ padding: '12px 20px', borderTop: `0.5px solid ${LINE}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onClose} disabled={salvando} style={{
+            background: 'transparent', color: ESP, border: `0.5px solid ${LINE}`,
+            padding: '8px 14px', borderRadius: 6, fontSize: 13, cursor: salvando ? 'not-allowed' : 'pointer',
+          }}>Cancelar</button>
+          <button type="button" onClick={salvar} disabled={salvando} style={{
+            background: salvando ? 'rgba(200,148,26,0.4)' : GOLD,
+            color: '#3D2314', border: 'none', padding: '8px 18px',
+            borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: salvando ? 'wait' : 'pointer',
+          }}>{salvando ? (editMode ? 'Salvando…' : 'Conectando…') : (editMode ? 'SALVAR ALTERAÇÕES' : 'CONECTAR (cifrar no Vault)')}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>{label}</label>
+      {children}
+      {hint && <small style={{ display: 'block', fontSize: 10, color: ESP60, marginTop: 3, lineHeight: 1.4 }}>{hint}</small>}
+    </div>
+  )
+}
+
+const inp: React.CSSProperties = {
+  width: '100%', padding: '8px 10px', border: `0.5px solid ${LINE}`,
+  borderRadius: 6, fontSize: 13, background: '#fff', color: ESP,
+  fontFamily: 'inherit', boxSizing: 'border-box',
+}

@@ -162,7 +162,8 @@ export async function reconcileCompany(
   companyId: string,
   sourceSlugFilter: string | null,
   supa: SupabaseClient,
-  baseUrl: string
+  baseUrl: string,
+  authorization?: string
 ): Promise<ReconcileCompanyResult> {
   const inicio = Date.now()
 
@@ -230,6 +231,7 @@ export async function reconcileCompany(
       credentials: v.credentials_encrypted ?? {},
       supabase: supa,
       baseUrl,
+      authorization,
     })
     if (!connector) {
       const msg = `connector '${slug}' não registrado`

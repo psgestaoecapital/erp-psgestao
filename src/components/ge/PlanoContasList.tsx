@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import PlanoContasForm, { type ContaPlano } from './PlanoContasForm'
+import PlanoContasForm, { type ContaPlano, type TipoConta, TIPOS } from './PlanoContasForm'
+import VincularLinhasDREModal from './VincularLinhasDREModal'
+
+const TIPO_VISUAL = TIPOS.reduce((acc, t) => { acc[t.value] = t; return acc }, {} as Record<TipoConta, typeof TIPOS[number]>)
 
 export default function PlanoContasList({ companyId }: { companyId: string }) {
   const router = useRouter()
@@ -11,14 +14,15 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<ContaPlano | null>(null)
-  const [filtroTipo, setFiltroTipo] = useState<'todos' | 'receita' | 'despesa'>('todos')
+  const [filtroTipo, setFiltroTipo] = useState<'todos' | TipoConta>('todos')
   const [aplicando, setAplicando] = useState(false)
+  const [vinculando, setVinculando] = useState<ContaPlano | null>(null)
 
   async function load() {
     setLoading(true)
     const { data } = await supabase
       .from('erp_plano_contas')
-      .select('id, codigo, descricao, grupo, tipo, pai_codigo, nivel, ativo')
+      .select('id, codigo, descricao, grupo, tipo, pai_codigo, nivel, ativo, is_totalizador')
       .eq('company_id', companyId)
       .order('codigo')
     if (data) setContas(data as ContaPlano[])
@@ -56,8 +60,10 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
   }
 
   const filtradas = contas.filter((c) => filtroTipo === 'todos' || c.tipo === filtroTipo)
-  const qtdRec = contas.filter((c) => c.tipo === 'receita' && c.ativo).length
-  const qtdDesp = contas.filter((c) => c.tipo === 'despesa' && c.ativo).length
+  const contagemPorTipo = TIPOS.reduce((acc, t) => {
+    acc[t.value] = contas.filter((c) => c.tipo === t.value && c.ativo).length
+    return acc
+  }, {} as Record<TipoConta, number>)
 
   if (loading) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'rgba(61,35,20,0.5)' }}>Carregando plano de contas…</div>
@@ -90,6 +96,21 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
           )}
           <button
             type="button"
+            onClick={() => router.push('/dashboard/cadastros/plano-contas/relatorio')}
+            style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Relatório gerencial × contábil
+          </button>
+          <button
+            type="button"
+            data-testid="plano-vinculos"
+            onClick={() => router.push('/dashboard/cadastros/plano-contas/vinculos')}
+            style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Vínculos gerencial × contábil
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setEditing(null)
               setShowForm(true)
@@ -101,10 +122,17 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
         </div>
       </div>
 
-      <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Tab label={`Todas (${contas.filter((c) => c.ativo).length})`} ativo={filtroTipo === 'todos'} onClick={() => setFiltroTipo('todos')} cor="#3D2314" />
-        <Tab label={`Receitas (${qtdRec})`} ativo={filtroTipo === 'receita'} onClick={() => setFiltroTipo('receita')} cor="#3B6D11" />
-        <Tab label={`Despesas (${qtdDesp})`} ativo={filtroTipo === 'despesa'} onClick={() => setFiltroTipo('despesa')} cor="#A32D2D" />
+        {TIPOS.map((t) => (
+          <Tab
+            key={t.value}
+            label={`${t.icone} ${t.label} (${contagemPorTipo[t.value] ?? 0})`}
+            ativo={filtroTipo === t.value}
+            onClick={() => setFiltroTipo(t.value)}
+            cor={t.cor}
+          />
+        ))}
       </div>
 
       {filtradas.length === 0 ? (
@@ -137,6 +165,7 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
                 setShowForm(true)
               }}
               onToggleAtivo={() => handleToggleAtivo(c)}
+              onVincularDRE={() => setVinculando(c)}
             />
           ))}
         </div>
@@ -168,6 +197,14 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
           }}
         />
       )}
+
+      <VincularLinhasDREModal
+        open={!!vinculando}
+        onClose={() => setVinculando(null)}
+        onSucesso={() => setVinculando(null)}
+        companyId={companyId}
+        categoria={vinculando}
+      />
     </div>
   )
 }
@@ -193,10 +230,10 @@ function Tab({ label, ativo, onClick, cor }: { label: string; ativo: boolean; on
   )
 }
 
-function CardConta({ conta, onEditar, onToggleAtivo }: { conta: ContaPlano; onEditar: () => void; onToggleAtivo: () => void }) {
+function CardConta({ conta, onEditar, onToggleAtivo, onVincularDRE }: { conta: ContaPlano; onEditar: () => void; onToggleAtivo: () => void; onVincularDRE: () => void }) {
   const isNivel1 = conta.nivel === 1
   const indent = isNivel1 ? 0 : 24
-  const corBarra = conta.tipo === 'receita' ? '#3B6D11' : '#A32D2D'
+  const visual = TIPO_VISUAL[conta.tipo] ?? { icone: '•', cor: '#3D2314', label: conta.tipo }
 
   return (
     <div
@@ -213,7 +250,8 @@ function CardConta({ conta, onEditar, onToggleAtivo }: { conta: ContaPlano; onEd
         flexWrap: 'wrap',
       }}
     >
-      <div style={{ width: 4, height: 28, borderRadius: 4, background: corBarra, flexShrink: 0 }} />
+      <div style={{ width: 4, height: 28, borderRadius: 4, background: visual.cor, flexShrink: 0 }} />
+      <span aria-hidden style={{ fontSize: 14, lineHeight: 1 }} title={visual.label}>{visual.icone}</span>
       <div style={{ minWidth: 70, fontSize: 12, color: 'rgba(61,35,20,0.7)', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
         {conta.codigo}
       </div>
@@ -221,13 +259,21 @@ function CardConta({ conta, onEditar, onToggleAtivo }: { conta: ContaPlano; onEd
         <span style={{ fontSize: 13, fontWeight: isNivel1 ? 600 : 400, color: '#3D2314' }}>
           {conta.descricao}
         </span>
+        {conta.is_totalizador && (
+          <span title="Soma os filhos · não recebe lançamentos diretos" style={{ marginLeft: 8, fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#C8941A', color: '#FAF7F2', fontWeight: 700, fontFamily: 'Fraunces, Georgia, serif', letterSpacing: 0.3 }}>
+            Σ Totalizador
+          </span>
+        )}
         {conta.grupo && (
           <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 3, background: 'rgba(200,148,26,0.15)', color: '#854F0B', fontWeight: 600, textTransform: 'capitalize' }}>
             {conta.grupo.replace(/_/g, ' ')}
           </span>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button type="button" onClick={onVincularDRE} title="Vincular ao DRE" style={{ background: 'transparent', color: '#C8941A', border: '0.5px solid #C8941A', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+          🔗 Vincular DRE
+        </button>
         <button type="button" onClick={onEditar} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
           Editar
         </button>

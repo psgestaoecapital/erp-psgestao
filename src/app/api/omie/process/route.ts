@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { withAuth } from "@/lib/withAuth";
+import { exigirLogin, empresasPermitidas, type UsuarioApi } from "@/lib/auth/guardaApi";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -72,13 +72,15 @@ function getCategoriaOmie(r: any): string {
   return "sem_cat";
 }
 
-async function handler(req: NextRequest, _user: { userId: string; userEmail?: string }) {
+async function handler(req: NextRequest, user: UsuarioApi) {
   try {
     const { company_ids, periodo_inicio, periodo_fim, regime } = await req.json();
     const regimeCaixa = regime === "caixa";
+    // Lista vazia NÃO é mais "todas as empresas": exige ≥1 e todas do usuário (400/403).
+    const ids = await empresasPermitidas(user, Array.isArray(company_ids) ? company_ids : []);
+    if (ids instanceof NextResponse) return ids;
     const supabase = supabaseAdmin;
-    let query = supabase.from("omie_imports").select("*");
-    if (company_ids?.length > 0) query = query.in("company_id", company_ids);
+    const query = supabase.from("omie_imports").select("*").in("company_id", ids);
     const { data: rawImports, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!rawImports?.length) return NextResponse.json({ error: "Sem dados" }, { status: 404 });
@@ -213,7 +215,7 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
 
     let orcMap: Record<string, number> = {};
     try {
-      const { data: orcData } = await supabase.from("orcamento").select("categoria,valor_orcado,tipo").in("company_id", company_ids);
+      const { data: orcData } = await supabase.from("orcamento").select("categoria,valor_orcado,tipo").in("company_id", ids);
       if (orcData && orcData.length > 0) for (const o of orcData) { const key = (o.categoria || "").toLowerCase().trim(); orcMap[key] = (orcMap[key] || 0) + Number(o.valor_orcado || 0); }
     } catch { }
 
@@ -257,4 +259,4 @@ async function handler(req: NextRequest, _user: { userId: string; userEmail?: st
   }
 }
 
-export const POST = withAuth(handler);
+export const POST = exigirLogin(handler);

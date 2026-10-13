@@ -27,22 +27,40 @@
   --radius-lg: 14px;
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --shadow-gold: 0 0 20px rgba(198,151,63,0.15);
+  /* Campos de dados/formulario: fundo branco + texto Espresso (identidade PS).
+     Antes herdavam os tokens escuros do tema -> caixas pretas em todas as telas. */
+  --input-bg: #FFFFFF;
+  --input-fg: #3D2314;
+  --input-border: #E7DECF;
+  --input-placeholder: #9A8F80;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* box-sizing fica fora de layer (afeta TODOS sem ser clobbed por nada) */
+* { box-sizing: border-box; }
 
-html {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
-}
+/*
+ * Reset de margin/padding precisa ficar em @layer base pra Tailwind 4
+ * utilities (md:ml-[220px], px-4, etc) ganharem do reset universal.
+ * Spec CSS Cascade Layers: unlayered > qualquer layer · entao se
+ * '* { margin: 0 }' ficar unlayered, ele clobba todo utility de margin.
+ * Foi exatamente o bug v2/v3: sidebar 220px ignorada · conteudo atras.
+ */
+@layer base {
+  *, *::before, *::after { margin: 0; padding: 0; }
 
-body {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.5;
-  overflow-x: hidden;
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
 }
 
 /* Scrollbar premium */
@@ -52,10 +70,13 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--gold-dark); }
 
 /* Inputs modernos */
-input, select, textarea {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
+/* radio/checkbox ficam de fora: o reset (width:100% + padding + borda + fundo) esticava o
+   radio pra ocupar o card inteiro (caixa bege gigante) e espremia o texto ao lado. */
+input:not([type="radio"]):not([type="checkbox"]), select, textarea {
+  color-scheme: light;             /* fix caixas pretas no dropdown nativo em OS dark-mode */
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--input-fg);
   border-radius: var(--radius-md);
   padding: 10px 14px;
   font-size: 13px;
@@ -64,12 +85,12 @@ input, select, textarea {
   outline: none;
   transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
 }
-input:focus, select:focus, textarea:focus {
-  border-color: var(--gold);
-  box-shadow: 0 0 0 3px var(--gold-glow);
-  background: var(--bg-hover);
+input:not([type="radio"]):not([type="checkbox"]):focus, select:focus, textarea:focus {
+  border-color: var(--gold);           /* mantem borda dourada do foco */
+  box-shadow: 0 0 0 3px var(--gold-glow); /* mantem o glow dourado */
+  background: var(--input-bg);          /* fundo branco (antes escurecia no foco) */
 }
-input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 0.7; }
+input::placeholder, textarea::placeholder { color: var(--input-placeholder); opacity: 1; }
 select {
   cursor: pointer;
   appearance: none;
@@ -98,8 +119,21 @@ a { transition: all var(--transition); }
 @keyframes glow { 0%, 100% { box-shadow: 0 0 8px rgba(198,151,63,0.15); } 50% { box-shadow: 0 0 24px rgba(198,151,63,0.35); } }
 
 /* Optgroup */
-optgroup { font-weight: 700; color: var(--gold); background: var(--bg-card); font-size: 11px; }
-option { font-weight: 400; color: var(--text-primary); background: var(--bg-elevated); padding: 6px 8px; font-size: 12px; }
+optgroup { color-scheme: light; font-weight: 700; color: var(--gold-dark); background: var(--input-bg); font-size: 11px; }
+option { color-scheme: light; font-weight: 400; color: var(--input-fg); background: var(--input-bg); padding: 6px 8px; font-size: 12px; }
 
 /* Selection */
 ::selection { background: var(--gold); color: var(--bg-primary); }
+
+/* FEAT-ONDA-4-ORCAMENTO-PEDIDO-UX-v1 · Impressao limpa */
+/* Esconde sidebar/topnav/elementos marcados .no-print quando o usuario imprime */
+/* qualquer pagina do dashboard (orcamento, pedido, OS). */
+@media print {
+  body { background: #fff !important; }
+  aside, header { display: none !important; }
+  .no-print, [data-no-print="true"] { display: none !important; }
+  /* Tira o offset do sidebar quando imprimindo */
+  .md\:ml-\[220px\] { margin-left: 0 !important; }
+  main { max-width: none !important; padding: 0 !important; margin: 0 !important; }
+  @page { size: A4; margin: 14mm 14mm; }
+}

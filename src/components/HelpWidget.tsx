@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { authFetch } from '@/lib/authFetch'
 
 interface Msg { role: 'user' | 'assistant'; content: string }
 
@@ -23,7 +24,7 @@ export default function HelpWidget() {
   const chatRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    fetch('/api/ajuda/context').then(r => r.json()).then(setContext).catch(() => {})
+    authFetch('/api/ajuda/context').then(r => r.json()).then(setContext).catch(() => {})
     const t = setTimeout(() => setPulse(false), 5000)
     return () => clearTimeout(t)
   }, [])

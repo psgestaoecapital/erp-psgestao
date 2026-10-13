@@ -5,7 +5,7 @@
 // Atalhos de teclado da tela mapeiam: Enter=aplicar, R=rejeitar, I=ignorar, Esc=pular.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/withAuth'
+import { exigirLogin, exigirEmpresas, negar } from '@/lib/auth/guardaApi'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 
 export const dynamic = 'force-dynamic'
@@ -22,7 +22,8 @@ interface MatchBody {
 const ACOES_VALIDAS = ['aplicar', 'rejeitar', 'ignorar', 'pular'] as const
 const TABELAS_VALIDAS = ['erp_pagar', 'erp_receber'] as const
 
-export const POST = withAuth(async (req: NextRequest, { userId }) => {
+export const POST = exigirLogin(async (req: NextRequest, u) => {
+  const { userId } = u
   let body: MatchBody
   try {
     body = await req.json()
@@ -59,6 +60,19 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   }
 
   try {
+    // Empresa REAL do movimento e, se vier, do lançamento — o usuário precisa ter acesso às duas.
+    const { data: mov } = await supabaseAdmin.from('conciliacao_movimento').select('company_id').eq('id', movimento_id).maybeSingle()
+    if (!mov) return negar(404, 'Movimento não encontrado.')
+    const empresas = [(mov as { company_id: string }).company_id]
+    if ((acao === 'aplicar' || acao === 'rejeitar') && lancamento_tabela && lancamento_id) {
+      if (!(TABELAS_VALIDAS as readonly string[]).includes(lancamento_tabela)) return negar(400, 'Tabela de lançamento inválida.')
+      const { data: lanc } = await supabaseAdmin.from(lancamento_tabela).select('company_id').eq('id', lancamento_id).maybeSingle()
+      if (!lanc) return negar(404, 'Lançamento não encontrado.')
+      empresas.push((lanc as { company_id: string }).company_id)
+    }
+    const negado = await exigirEmpresas(u, empresas)
+    if (negado) return negado
+
     // ===== APLICAR =====
     if (acao === 'aplicar') {
       if (!lancamento_tabela || !lancamento_id) {
