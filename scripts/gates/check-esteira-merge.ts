@@ -56,6 +56,7 @@ ok(/Re-rodar aceitação cancelada/.test(vigia) && /FILA_MERGE_TOKEN/.test(vigia
 ok(/head\.sha == /.test(vigia), 'vigia: só re-roda SHA ainda vigente (head de PR aberta ou main)')
 const cmd = ler('.github/workflows/comando-pr.yml')
 ok(/startsWith\(github\.event\.comment\.body, '\/re-rodar'\)/.test(cmd), 'comando-pr: comentário que começa com /re-rodar (rodapé de atribuição não impede)')
+ok(!/responder "\/re-rodar/.test(cmd), 'comando-pr: respostas do workflow não começam com /re-rodar (laço infinito 13/10)')
 ok(/admin\|maintain\|write/.test(cmd) && /collaborators\/\$AUTOR\/permission/.test(cmd), 'comando-pr: exige permissão write do autor')
 ok(!/actions\/checkout/.test(cmd) && !/\$\{\{ github\.event\.comment\.body \}\}/.test(cmd.replace(/if: >-[\s\S]*?runs-on/, '')), 'comando-pr: sem checkout e sem interpolar o comentário no shell')
 
