@@ -71,15 +71,17 @@ jobs:
             *) echo "VAGA=0 (banco de testes atual)"; echo "ACEITACAO_VAGA=0" >> "$GITHUB_ENV"; exit 0;;
           esac
           [ -n "$DB" ] && [ -n "$U" ] && [ -n "$S" ] || { echo "::error::vaga $VAGA sem segredos TEST_*_$VAGA provisionados"; exit 1; }
-          # Normaliza a REST URL (TEST_SUPABASE_URL): tira espaço/CR/aspas e a barra final. Sem isso, um espaço ou a falta
-          # do https:// no segredo faz o curl do Auth admin dar "exit 3 (URL malformed)" e a semente morre SEM log (13/10,
-          # vaga 1). Exige https:// e barra a produção. A senha (S) e a DB URL seguem mascaradas; a REST URL é pública.
-          U="$(printf '%s' "$U" | tr -d '\r\n' | sed -e "s/^[[:space:]\"']*//" -e "s/[[:space:]\"']*$//" -e "s#/*$##")"
-          case "$U" in https://*) ;; *) echo "::error::vaga $VAGA: TEST_SUPABASE_URL_$VAGA inválida — precisa começar com https:// (veio '${U:0:16}…'). Use a API URL do projeto da vaga, ex.: https://<ref>.supabase.co"; exit 1;; esac
-          case "$U" in *horsymhsinqcimflrtjo*) echo "::error::vaga $VAGA: TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          # Normaliza a REST URL (TEST_SUPABASE_URL) só com expansão do bash (sem sed frágil — o sed anterior expandia
+          # "$##" como $# e quebrava o passo, #2496). Tira TAB/CR/LF/espaço de qualquer posição, aspas ao redor e a barra
+          # final. Sem https:// (ou com espaço) o curl do Auth admin dava "exit 3 (URL malformed)" e a semente morria SEM
+          # log (vaga 1, 13/10). Exige https://<ref>.supabase.co e barra a produção. A REST URL é pública (não mascara).
+          u="${U//[$'\t\r\n ']/}"; u="${u%\"}"; u="${u#\"}"; u="${u%/}"
+          if [[ "$u" == *horsymhsinqcimflrtjo* ]]; then echo "::error::vaga $VAGA: TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1; fi
+          if [[ ! "$u" =~ ^https://[a-z0-9]+\.supabase\.co$ ]]; then echo "::error::vaga $VAGA: TEST_SUPABASE_URL_$VAGA inválida (veio '${U:0:24}…'). Corrija o segredo para a API URL do projeto da vaga: https://<ref>.supabase.co"; exit 1; fi
+          U="$u"
           echo "::add-mask::$DB"; echo "::add-mask::$S"
           { echo "TEST_DATABASE_URL=$DB"; echo "TEST_SUPABASE_URL=$U"; echo "TEST_SUPABASE_SERVICE_ROLE_KEY=$S"; echo "ACEITACAO_VAGA=$VAGA"; } >> "$GITHUB_ENV"
-          echo "VAGA=$VAGA · REST URL host: $(printf '%s' "$U" | sed -E 's#^https://([^/]+).*#\1#')"
+          echo "VAGA=$VAGA · REST URL: $U"
       - name: Trava de segurança (nunca aponta para a produção)
         run: |
           [ -n "$TEST_DATABASE_URL" ] || { echo "::error::TEST_DATABASE_URL ausente"; exit 1; }
