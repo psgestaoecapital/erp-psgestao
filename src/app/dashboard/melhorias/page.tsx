@@ -54,7 +54,7 @@ export default function MelhoriasPage() {
 }
 
 function Inner() {
-  const { selInfo, sel } = useCompanyIds()
+  const { selInfo, sel, companyIds } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
   const searchParams = useSearchParams()
   // rota #5: se o usuário chegou pelo ícone do cabeçalho, a rota anterior vem no ?from — assim ele
@@ -97,7 +97,10 @@ function Inner() {
     // chamado — evita chamado repetido). A RLS de sugestoes libera a leitura pela empresa (get_user_company_ids).
     // Mostramos de QUAL empresa é cada um (embed companies). Arquivadas saem da lista por padrão (CEO).
     let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at,company_id,user_id,user_name,companies(nome_fantasia,razao_social)')
-    q = companyId && !sup ? q.or(`user_id.eq.${user.id},company_id.eq.${companyId}`) : q.eq('user_id', user.id)
+    // Sem empresa única selecionada (grupo/consolidado), vale o conjunto das empresas do usuário — antes caía só nos
+    // que ele mesmo abriu e escondia os abertos pela equipe PS em nome da empresa (cliente Karol, 13/10).
+    const idsEmpresa = (companyId ? [companyId] : (companyIds ?? [])).filter((x) => /^[0-9a-f-]{36}$/i.test(x))
+    q = idsEmpresa.length && !sup ? q.or(`user_id.eq.${user.id},company_id.in.(${idsEmpresa.join(',')})`) : q.eq('user_id', user.id)
     q = verArquivadas ? q.eq('status', 'arquivada') : q.neq('status', 'arquivada')
     const { data } = await q.order('created_at', { ascending: false }).limit(50)
     type Row = Minha & { companies?: { nome_fantasia: string | null; razao_social: string | null } | { nome_fantasia: string | null; razao_social: string | null }[] | null }
@@ -105,7 +108,7 @@ function Inner() {
       const co = Array.isArray(companies) ? companies[0] : companies
       return { ...m, empresa: co?.nome_fantasia || co?.razao_social || null, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null }
     }))
-  }, [verArquivadas, companyId])
+  }, [verArquivadas, companyId, companyIds])
   useEffect(() => { void carregar() }, [carregar])
 
   // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
