@@ -153,6 +153,16 @@ jobs:
             echo "== vaga $v =="
             supabase db push --include-all --db-url "$u"
           done
+      # 13/10 (CEO): o dump --schema public NÃO traz as extensões. Uma vaga NOVA (ex.: a vaga 1) pode não ter o
+      # `unaccent`, que o f_unaccent e o índice de erp_gov_nfse_municipios usam como public.unaccent — sem ele a carga
+      # dos catálogos morre ("function public.unaccent(unknown, text) does not exist", COPY erp_gov_nfse_municipios).
+      # A vaga 0 tem unaccent em public; aqui garantimos o mesmo na vaga atual (idempotente; em recriar roda após o
+      # restore, pois o DROP SCHEMA public tinha levado o public.unaccent junto).
+      - name: Garantir extensões da vaga (unaccent em public)
+        run: |
+          set -euo pipefail
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;"
+          echo "unaccent: $(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT public.unaccent('Ãçéõ')")"
       # Autorizado pelo CEO em 06/10/2026 17:38. Produção só leitura (catálogo do Postgres + pg_dump --data-only -t);
       # o script repete as travas (destino nunca é a produção) e recusa tabela da lista com coluna de dono/dado pessoal.
       - name: Catálogos globais da produção → banco de testes (whitelist, só dados)
