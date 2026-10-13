@@ -9,7 +9,7 @@
 // pode mandar foto nova sem encerrar — o chamado volta pra fila PS. Confirmar (funcionou/não) segue
 // como ação SEPARADA, não como única saída.
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { contarPendentesAprovacao } from '@/lib/sugestoes/filaAtendimento'
@@ -107,6 +107,19 @@ function Inner() {
     }))
   }, [verArquivadas, companyId])
   useEffect(() => { void carregar() }, [carregar])
+
+  // Chamados abertos pela equipe PS em nome da empresa caem em "Com a equipe" (o cliente não é o autor);
+  // a aba padrão "Precisa de você" ficava vazia e parecia que não havia chamado. Na 1ª carga, se a aba
+  // atual está vazia, abre a primeira que tem chamado — só uma vez, para não brigar com o clique do usuário.
+  const abaAjustada = useRef(false)
+  useEffect(() => {
+    if (abaAjustada.current || verArquivadas || minhas.length === 0) return
+    abaAjustada.current = true
+    const tem = (b: BucketMelhoria) => minhas.some((m) => bucketMelhoria(m, m.user_id === userId) === b)
+    if (tem(abaMelhoria)) return
+    const prox = (['precisa_voce', 'aguardando', 'concluidas'] as BucketMelhoria[]).find(tem)
+    if (prox) setAbaMelhoria(prox)
+  }, [minhas, userId, verArquivadas, abaMelhoria])
 
   // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
   // Rascunho em localStorage (restaura ao montar, salva a cada mudança, limpa ao enviar). Efeito em vez
