@@ -56,7 +56,15 @@ flush_estado() {
     -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
     -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 || true
 }
-comentar() { api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null; }
+# Comentário é informativo: falha (ex.: rate limit secundário, 403, 12/10) NUNCA derruba a rodada — senão a fila morre no
+# meio e as PRs seguintes não são avaliadas nem publicadas. Sempre retorna 0; COMENTOU=0 sinaliza a falha ao
+# comentar_uma_vez (que então não marca como "já comentado" e tenta de novo na próxima rodada).
+COMENTOU=1
+comentar() {
+  if api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null 2>&1; then COMENTOU=1
+  else COMENTOU=0; echo "::warning::fila: comentário na #$1 falhou (rate limit?) — segue a rodada"; fi
+  return 0
+}
 # comentários da PR lidos UMA vez por rodada (cada corpo numa linha, em JSON) — a fila agora olha todas as PRs Ready
 TMPF=$(mktemp -d); trap 'flush_estado; rm -rf "$TMPF"' EXIT
 comentarios() {
@@ -69,6 +77,7 @@ comentar_uma_vez() {
   if comentarios "$n" | grep -qF "<!-- fila:$chave -->"; then return 0; fi
   comentar "$n" "$texto
 <!-- fila:$chave -->"
+  [ "$COMENTOU" = 1 ] || return 0
   printf '%s\n' "\"<!-- fila:$chave -->\"" >> "$TMPF/c-$n"
 }
 # vermelho de verdade: comenta o motivo uma vez por commit + motivo e tira a label (se houver). Sem a label a PR
