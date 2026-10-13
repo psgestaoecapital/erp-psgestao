@@ -17,6 +17,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { gerarPdfBoleto, type BoletoDados } from '@/lib/boleto/gerarPdfBoleto'
 import { salvarPdfBoletoNoBucket } from '@/lib/boleto/salvarPdfBoleto'
+import { contentDisposition, nomeArquivoDocumento } from '@/lib/documentos/nomeArquivo'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -113,7 +114,7 @@ export async function GET(req: NextRequest) {
             status: 200,
             headers: {
               'content-type': 'application/pdf',
-              'content-disposition': `inline; filename="boleto-${rec.boleto_nosso_numero ?? receberId}.pdf"`,
+              'content-disposition': contentDisposition(nomeArquivoDocumento('Boleto', rec.numero_documento ?? rec.boleto_nosso_numero, rec.cliente_nome, 'pdf')),
               'cache-control': 'private, max-age=60',
             },
           })
@@ -223,7 +224,7 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         'content-type': 'application/pdf',
-        'content-disposition': `inline; filename="boleto-${rec.boleto_nosso_numero ?? receberId}.pdf"`,
+        'content-disposition': contentDisposition(nomeArquivoDocumento('Boleto', rec.numero_documento ?? rec.boleto_nosso_numero, rec.cliente_nome, 'pdf')),
         'cache-control': 'private, max-age=60',
       },
     })

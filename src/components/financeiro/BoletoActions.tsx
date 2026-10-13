@@ -20,6 +20,7 @@
 
 import { useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { nomeDoContentDisposition, salvarBlob } from '@/lib/documentos/nomeArquivo'
 
 export type ClienteContato = {
   cpfCnpj: string | null
@@ -159,14 +160,8 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
       // Abre numa aba nova; revoga depois pra liberar memoria.
       const w = window.open(url, '_blank', 'noopener,noreferrer')
       if (!w) {
-        // Fallback popup-blocker: dispara download via link temporario.
-        const a = document.createElement('a')
-        a.href = url
-        a.target = '_blank'
-        a.rel = 'noopener noreferrer'
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
+        // Fallback popup-blocker: baixa o arquivo com o nome do cliente (#2167, nome vem da rota).
+        salvarBlob(blob, nomeDoContentDisposition(r.headers.get('content-disposition')) ?? 'Boleto.pdf')
       }
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
       // Se boleto_url acabou de ser materializado na rota, refresca listagem.

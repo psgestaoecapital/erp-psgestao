@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { nomeDoContentDisposition, salvarBlob } from '@/lib/documentos/nomeArquivo'
 import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
 
 type Provider = 'sicoob' | 'sicredi' | 'bradesco'
@@ -119,12 +120,8 @@ export default function GerarBoletosReceita({
             headers: { authorization: session ? `Bearer ${session.access_token}` : '' },
           })
           if (!r.ok) continue
-          const blob = await r.blob()
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url; a.download = `boleto-${it.id.slice(0, 8)}.pdf`
-          document.body.appendChild(a); a.click(); a.remove()
-          setTimeout(() => URL.revokeObjectURL(url), 60_000)
+          // #2167: a rota manda o nome com o cliente ("Boleto 123 - CLIENTE.pdf")
+          salvarBlob(await r.blob(), nomeDoContentDisposition(r.headers.get('content-disposition')) ?? `Boleto ${it.id.slice(0, 8)}.pdf`)
         } catch { /* pula o que falhar; os demais seguem */ }
       }
     } finally {

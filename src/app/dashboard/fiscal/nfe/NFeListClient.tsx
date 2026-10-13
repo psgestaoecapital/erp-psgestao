@@ -16,6 +16,7 @@ import {
   History, CheckCircle2, Ban, Clock, FileSignature, AlertTriangle,
 } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
+import { baixarUrlComNome, nomeArquivoDocumento } from '@/lib/documentos/nomeArquivo'
 
 interface Documento {
   grupo_chave: string
@@ -226,13 +227,16 @@ export default function NFeListClient() {
   async function baixarNota(notaId: string, tipo: 'xml' | 'pdf', urlDireta?: string | null) {
     setBaixando(`${notaId}-${tipo}`)
     try {
-      if (urlDireta) { window.open(urlDireta, '_blank', 'noopener,noreferrer'); return }
+      // #2167: o arquivo sai com o número e o nome do cliente (não com código aleatório)
+      const doc = documentos.find((d) => d.principal_id === notaId || d.doc_ids.includes(notaId))
+      const nome = nomeArquivoDocumento('NF-e', doc?.numero, doc?.contraparte_nome, tipo)
+      if (urlDireta) { await baixarUrlComNome(urlDireta, nome); return }
       const { data, error } = await supabase.rpc('fn_fiscal_get_storage_url', { p_tabela: 'nfe', p_doc_id: notaId, p_tipo: tipo })
       if (error) throw error
       const payload = (data ?? {}) as { ok?: boolean; erro?: string; storage_path?: string; bucket?: string }
       if (!payload.ok || !payload.storage_path) throw new Error(payload.erro ?? 'Arquivo não disponível')
       const bucket = payload.bucket ?? 'fiscal-xmls'
-      const signed = await supabase.storage.from(bucket).createSignedUrl(payload.storage_path, 3600)
+      const signed = await supabase.storage.from(bucket).createSignedUrl(payload.storage_path, 3600, { download: nome })
       if (signed.error || !signed.data?.signedUrl) throw new Error(signed.error?.message ?? 'Erro ao gerar URL assinada')
       window.open(signed.data.signedUrl, '_blank', 'noopener,noreferrer')
     } catch (e) {
