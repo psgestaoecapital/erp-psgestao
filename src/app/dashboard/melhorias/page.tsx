@@ -97,7 +97,10 @@ function Inner() {
     // chamado — evita chamado repetido). A RLS de sugestoes libera a leitura pela empresa (get_user_company_ids).
     // Mostramos de QUAL empresa é cada um (embed companies). Arquivadas saem da lista por padrão (CEO).
     let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at,company_id,user_id,user_name,companies(nome_fantasia,razao_social)')
-    q = companyId && !sup ? q.or(`user_id.eq.${user.id},company_id.eq.${companyId}`) : q.eq('user_id', user.id)
+    // Sem empresa única selecionada (consolidado/grupo, ou seleção ainda carregando) o cliente NÃO pode cair em
+    // "só os meus": chamado aberto pela equipe PS em nome da empresa sumia (Karol/Frioeste, 13/10). A RLS já
+    // limita a leitura às empresas do usuário, então basta não filtrar por autor.
+    q = sup ? q.eq('user_id', user.id) : companyId ? q.or(`user_id.eq.${user.id},company_id.eq.${companyId}`) : q
     q = verArquivadas ? q.eq('status', 'arquivada') : q.neq('status', 'arquivada')
     const { data } = await q.order('created_at', { ascending: false }).limit(50)
     type Row = Minha & { companies?: { nome_fantasia: string | null; razao_social: string | null } | { nome_fantasia: string | null; razao_social: string | null }[] | null }
@@ -285,7 +288,7 @@ function Inner() {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, margin: '4px 0 10px' }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{verArquivadas ? 'Sugestões arquivadas' : (companyId && !ehSuporte ? 'Chamados — meus e da empresa' : 'Minhas sugestões')}</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{verArquivadas ? 'Sugestões arquivadas' : (!ehSuporte ? 'Chamados — meus e da empresa' : 'Minhas sugestões')}</h2>
         <button type="button" onClick={() => setVerArquivadas((v) => !v)} style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
           {verArquivadas ? '← voltar às ativas' : 'ver arquivadas'}
         </button>
