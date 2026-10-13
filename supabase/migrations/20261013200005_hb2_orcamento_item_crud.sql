@@ -42,6 +42,7 @@ BEGIN
   g := fn_orcamento_item_guarda(p_orcamento_id);
   IF NOT (g->>'ok')::boolean THEN RETURN g; END IF;
   v_company := (g->>'company_id')::uuid;
+  PERFORM public.fn__guarda_empresa(v_company);
   v_desc := NULLIF(btrim(COALESCE(p_item->>'produto_nome', p_item->>'servico_descricao', '')), '');
   IF v_desc IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'Informe a descrição do item.'); END IF;
   v_qtd := COALESCE(NULLIF(p_item->>'quantidade','')::numeric, 1);
@@ -78,6 +79,7 @@ BEGIN
   IF r.id IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'Item não encontrado'); END IF;
   g := fn_orcamento_item_guarda(r.orcamento_id);
   IF NOT (g->>'ok')::boolean THEN RETURN g; END IF;
+  PERFORM public.fn__guarda_empresa(r.company_id);
   v_desc := NULLIF(btrim(COALESCE(p_item->>'produto_nome', r.produto_nome, '')), '');
   IF v_desc IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'Informe a descrição do item.'); END IF;
   v_qtd := COALESCE(NULLIF(p_item->>'quantidade','')::numeric, r.quantidade);
@@ -111,6 +113,7 @@ BEGIN
   IF r.id IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'Item não encontrado'); END IF;
   g := fn_orcamento_item_guarda(r.orcamento_id);
   IF NOT (g->>'ok')::boolean THEN RETURN g; END IF;
+  PERFORM public.fn__guarda_empresa(r.company_id);
   DELETE FROM erp_orcamentos_itens WHERE id = p_item_id;
   SELECT total INTO v_total FROM erp_orcamentos WHERE id = r.orcamento_id;
   SELECT COALESCE(raw_user_meta_data->>'full_name', email) INTO v_nome FROM auth.users WHERE id = auth.uid();
@@ -120,12 +123,13 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'total', v_total);
 END; $f$;
 
-DO $g$
-DECLARE f text;
-BEGIN
-  FOREACH f IN ARRAY ARRAY['fn_orcamento_item_guarda(uuid)','fn_orcamento_item_listar(uuid)','fn_orcamento_item_adicionar(uuid,jsonb)',
-                           'fn_orcamento_item_editar(uuid,jsonb)','fn_orcamento_item_excluir(uuid)'] LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM PUBLIC, anon', f);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%s TO authenticated, service_role', f);
-  END LOOP;
-END $g$;
+REVOKE ALL ON FUNCTION public.fn_orcamento_item_guarda(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_orcamento_item_guarda(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_orcamento_item_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_orcamento_item_listar(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_orcamento_item_adicionar(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_orcamento_item_adicionar(uuid, jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_orcamento_item_editar(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_orcamento_item_editar(uuid, jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_orcamento_item_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_orcamento_item_excluir(uuid) TO authenticated, service_role;
