@@ -18,7 +18,13 @@ export type RegrasForroF530 = {
   parafusoPPA25PorM2: number; parafusoPFM13PorM2: number
   massaKgM2: number; fitaMM2: number; baldeKg: number; rolofitaM: number
 }
-export type Regras = RegrasParede | RegrasForroF530
+export type RegrasRevestimentoColado = {
+  tipo: 'revestimento_colado'
+  perda: number; areaChapa: number
+  gessoColaKgM2: number; sacoGessoColaKg: number
+  massaKgM2: number; fitaMM2: number; baldeKg: number; rolofitaM: number
+}
+export type Regras = RegrasParede | RegrasForroF530 | RegrasRevestimentoColado
 
 export type ItemCalculo = {
   chave: string; descricao: string; unidadeCompra: string
@@ -52,6 +58,11 @@ export const REGRAS_FORRO_F530: RegrasForroF530 = {
   perfilF530MM2: 1.7, pendularPorM2: 1.25, tiranteUnPorM2: 1.25, uniaoPorM2: 0.45,
   parafusoPPA25PorM2: 13, parafusoPFM13PorM2: 2,
   massaKgM2: 0.7, fitaMM2: 1.5, baldeKg: 22, rolofitaM: 150,
+}
+
+export const REGRAS_REVESTIMENTO_COLADO: RegrasRevestimentoColado = {
+  tipo: 'revestimento_colado', perda: 1.05, areaChapa: 2.16,
+  gessoColaKgM2: 12.5, sacoGessoColaKg: 5, massaKgM2: 0.5, fitaMM2: 1.5, baldeKg: 22, rolofitaM: 150,
 }
 
 const item = (chave: string, descricao: string, unidadeCompra: string, bruta: number, conta: string): ItemCalculo =>
@@ -110,6 +121,21 @@ export function calcularForroF530(r: RegrasForroF530, e: EntradaForro): Resultad
     item('uniao', 'União', 'unidade', area * r.uniaoPorM2, `${f(area)} m² × ${f(r.uniaoPorM2)} un/m²`),
     item('ppa25', 'Parafuso PPA25', 'cento', (area * r.parafusoPPA25PorM2) / 100, `${f(area)} m² × ${r.parafusoPPA25PorM2} un/m² ÷ 100 por cento`),
     item('pfm13', 'Parafuso PFM13', 'cento', (area * r.parafusoPFM13PorM2) / 100, `${f(area)} m² × ${r.parafusoPFM13PorM2} un/m² ÷ 100 por cento`),
+    item('massa', 'Massa para junta', `balde ${r.baldeKg} kg`, (area * r.massaKgM2) / r.baldeKg, `${f(area)} m² × ${f(r.massaKgM2)} kg/m² ÷ ${r.baldeKg} kg por balde`),
+    item('fita', 'Fita para junta', `rolo ${r.rolofitaM} m`, (area * r.fitaMM2) / r.rolofitaM, `${f(area)} m² × ${f(r.fitaMM2)} m/m² ÷ ${r.rolofitaM} m por rolo`),
+  ]
+  return { ok: true, area, itens, avisos: [] }
+}
+
+export function calcularRevestimentoColado(r: RegrasRevestimentoColado, e: EntradaParede): Resultado {
+  if (!(e.comprimento > 0) || !(e.peDireito > 0)) return { ok: false, erro: 'Informe comprimento e pé-direito maiores que zero.' }
+  const area = arred2(e.comprimento * e.peDireito - (e.vaos ?? 0))
+  if (area <= 0) return { ok: false, erro: 'Os vãos descontados são maiores que a parede.' }
+  const p = r.perda
+  const itens = [
+    item('chapa', 'Chapa de gesso', 'chapa', (area * p) / r.areaChapa, `${f(area)} m² × perda ${f(p)} ÷ ${f(r.areaChapa)} m² por chapa`),
+    item('gesso_cola', 'Gesso cola', `saco ${r.sacoGessoColaKg} kg`, (area * r.gessoColaKgM2) / r.sacoGessoColaKg,
+      `${f(area)} m² × ${f(r.gessoColaKgM2)} kg/m² ÷ ${r.sacoGessoColaKg} kg por saco`),
     item('massa', 'Massa para junta', `balde ${r.baldeKg} kg`, (area * r.massaKgM2) / r.baldeKg, `${f(area)} m² × ${f(r.massaKgM2)} kg/m² ÷ ${r.baldeKg} kg por balde`),
     item('fita', 'Fita para junta', `rolo ${r.rolofitaM} m`, (area * r.fitaMM2) / r.rolofitaM, `${f(area)} m² × ${f(r.fitaMM2)} m/m² ÷ ${r.rolofitaM} m por rolo`),
   ]
