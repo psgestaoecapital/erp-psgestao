@@ -16,8 +16,9 @@ api() { gh api -H 'Accept: application/vnd.github+json' "$@" 2>/dev/null; }
 MAIN_HEAD=$(api "repos/$REPO/commits/main" --jq '.sha' || true)
 self_run="${SELF_RUN_ID:-}"; self_sha="${SELF_SHA:-}"
 n=0
-# in_progress inclui os runs presos na fila de concorrência (sem step) — é lá que eles ficam 2h; por isso entra aqui.
-for st in queued waiting in_progress; do
+# 'pending' = run esperando a vaga do grupo de concorrência (é o status que a API devolve para a fila serial; 13/10 os
+# "#2217 e 21 others" estavam aqui e o prune não olhava). in_progress inclui os presos na fila (sem step) — 2h; por isso entra.
+for st in pending queued waiting in_progress; do
   for rid in $(api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=$st&per_page=100" --jq '.workflow_runs[].id' || true); do
     [ -n "$rid" ] || continue
     [ "$rid" = "$self_run" ] && continue

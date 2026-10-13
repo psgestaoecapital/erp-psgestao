@@ -53,8 +53,9 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
     // runs por status: queued leva a maioria; in_progress leva os presos na fila (105 morto, 106 vivo)
     put(`${R}/actions/workflows/aceitacao-pr.yml/runs?status=queued&per_page=100`, { workflow_runs: [101, 102, 103, 104, 107].map((id) => ({ id })) })
     put(`${R}/actions/workflows/aceitacao-pr.yml/runs?status=waiting&per_page=100`, { workflow_runs: [] })
+    put(`${R}/actions/workflows/aceitacao-pr.yml/runs?status=pending&per_page=100`, { workflow_runs: [107, 108].map((id) => ({ id })) })
     put(`${R}/actions/workflows/aceitacao-pr.yml/runs?status=in_progress&per_page=100`, { workflow_runs: [105, 106].map((id) => ({ id })) })
-    const heads: Record<number, string> = { 101: 'shaMerged', 102: 'shaSuperseded', 103: 'shaLive', 104: 'shaOrphan', 105: 'shaMergedExec', 106: 'shaLiveExec', 107: 'mainsha' }
+    const heads: Record<number, string> = { 101: 'shaMerged', 102: 'shaSuperseded', 103: 'shaLive', 104: 'shaOrphan', 105: 'shaMergedExec', 106: 'shaLiveExec', 107: 'mainsha', 108: 'shaOrphan' }
     for (const [id, s] of Object.entries(heads)) put(`${R}/actions/runs/${id}`, { head_sha: s })
     put(`${R}/commits/shaMerged/pulls`, [{ number: 900, state: 'closed', head: { sha: 'shaNew' } }])
     put(`${R}/commits/shaSuperseded/pulls`, [{ number: 901, state: 'open', head: { sha: 'shaNew' } }])
@@ -79,7 +80,7 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
     ok(cancelados.includes(104), 'orphan: SHA sem PR → cancelado')
     ok(cancelados.includes(105) && !cancelados.includes(106), 'in_progress: versão morta cancelada (preso na fila), versão viva mantida')
     ok(!cancelados.includes(107), 'main: run do commit da ponta da main → mantido')
-    ok(cancelados.join() === '101,102,104,105', `4) só os mortos são cancelados (${cancelados.join() || 'nenhum'})`)
+    ok([...cancelados].sort().join() === '101,102,104,105,108', `4) só os mortos são cancelados (${cancelados.join() || 'nenhum'})`)
 
     const comSelf = rodar({ SELF_SHA: 'shaSuperseded', SELF_RUN_ID: '101' })
     ok(!comSelf.includes(102) && !comSelf.includes(101), 'self: a triagem não cancela o próprio SHA nem o próprio run')
