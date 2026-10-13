@@ -3,7 +3,7 @@
 // tem de recusar) e sai arquivada. O render dos e-mails é puro (sem envio).
 
 import { test, expect } from '../../support/fixtures'
-import { rpc, registrarJornada } from '../../support/api'
+import { rpc, registrarJornada, IS_PROD } from '../../support/api'
 
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 const SEM_ID = '00000000-0000-0000-0000-000000000000'
@@ -13,6 +13,11 @@ type Resp = { ok: boolean; erro?: string }
 type Envio = { ok: boolean; id: string }
 
 test.describe('Agente responde chamado e e-mails de chamado', () => {
+  // ISOLAMENTO (Pilar 2): este teste ENVIA para a caixa do gilberto-chamados (tabela GLOBAL erp_agente_mensagem, sem
+  // isolamento por empresa). Contra a produção isso soterra a caixa real — a prova é só no banco de testes da vaga.
+  // Em produção o veredito pula (nunca grava a caixa real). Incidente 13/10.
+  test.skip(IS_PROD, 'caixa de agentes é tabela global — a aceitação só escreve no banco de testes, nunca em produção')
+
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-agente-chamado-responder', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
