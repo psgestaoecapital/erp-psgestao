@@ -1194,6 +1194,14 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   const fortes = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'batida_forte'), [rows])
   const fracas = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'inferencia_fraca'), [rows])
 
+  // Chamado #2119: confirmar/desfazer só grava a amarração em ind_ponto_pausa; o Painel lê a apuração gravada
+  // (nr36_pausa_apurada). Sem reapurar os dias tocados, o Painel segue "aguardando". Mesma RPC do botão
+  // "Reapurar período", restrita aos dias afetados.
+  async function reapurarDias(datas: string[]) {
+    const ds = datas.filter(d => /^\d{4}-\d{2}-\d{2}/.test(d)).map(d => d.slice(0, 10)).sort()
+    if (ds.length === 0) return
+    await supabase.rpc('fn_nr36_apurar', { p_company_id: companyId, p_dt_ini: ds[0], p_dt_fim: ds[ds.length - 1] })
+  }
   async function confirmarUm(id: string, acao: string, fimManual?: string) {
     setBusy(true); setErro(''); setOkMsg('')
     try {
@@ -1201,6 +1209,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       if (error) throw error
       const r = data as { ok?: boolean; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha ao confirmar')
+      await reapurarDias(rows.filter(x => x.pausa_id === id).map(x => x.data))
       await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1214,6 +1223,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       if (error) throw error
       const r = data as { ok?: boolean; confirmados?: number; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha no lote')
+      await reapurarDias(rows.filter(x => ids.includes(x.pausa_id)).map(x => x.data))
       setOkMsg(`${r.confirmados} confirmada(s).`); await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1233,6 +1243,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       if (error) throw error
       const r = data as { ok?: boolean; desfeitas?: number; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha ao desfazer')
+      await reapurarDias([ini, fim])
       setOkMsg(`${r.desfeitas} confirmação(ões) desfeita(s).`); await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
