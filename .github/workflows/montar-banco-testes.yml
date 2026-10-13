@@ -71,9 +71,17 @@ jobs:
             *) echo "VAGA=0 (banco de testes atual)"; echo "ACEITACAO_VAGA=0" >> "$GITHUB_ENV"; exit 0;;
           esac
           [ -n "$DB" ] && [ -n "$U" ] && [ -n "$S" ] || { echo "::error::vaga $VAGA sem segredos TEST_*_$VAGA provisionados"; exit 1; }
+          # Normaliza a REST URL (TEST_SUPABASE_URL) só com expansão do bash (sem sed frágil — o sed anterior expandia
+          # "$##" como $# e quebrava o passo, #2496). Tira TAB/CR/LF/espaço de qualquer posição, aspas ao redor e a barra
+          # final. Sem https:// (ou com espaço) o curl do Auth admin dava "exit 3 (URL malformed)" e a semente morria SEM
+          # log (vaga 1, 13/10). Exige https://<ref>.supabase.co e barra a produção. A REST URL é pública (não mascara).
+          u="${U//[$'\t\r\n ']/}"; u="${u%\"}"; u="${u#\"}"; u="${u%/}"
+          if [[ "$u" == *horsymhsinqcimflrtjo* ]]; then echo "::error::vaga $VAGA: TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1; fi
+          if [[ ! "$u" =~ ^https://[a-z0-9]+\.supabase\.co$ ]]; then echo "::error::vaga $VAGA: TEST_SUPABASE_URL_$VAGA inválida (veio '${U:0:24}…'). Corrija o segredo para a API URL do projeto da vaga: https://<ref>.supabase.co"; exit 1; fi
+          U="$u"
           echo "::add-mask::$DB"; echo "::add-mask::$S"
           { echo "TEST_DATABASE_URL=$DB"; echo "TEST_SUPABASE_URL=$U"; echo "TEST_SUPABASE_SERVICE_ROLE_KEY=$S"; echo "ACEITACAO_VAGA=$VAGA"; } >> "$GITHUB_ENV"
-          echo "VAGA=$VAGA (banco extra do pool)"
+          echo "VAGA=$VAGA · REST URL: $U"
       - name: Trava de segurança (nunca aponta para a produção)
         run: |
           [ -n "$TEST_DATABASE_URL" ] || { echo "::error::TEST_DATABASE_URL ausente"; exit 1; }
@@ -116,7 +124,10 @@ jobs:
           # só ESTRUTURA do schema public (sem dados; Vault/cron/auth/storage não vão)
           supabase db dump --linked --schema public -f estrutura.sql
           wc -l estrutura.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "drop schema if exists public cascade; create schema public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
+          # apaga o schema public em LOTES (cada lote = transação própria): um DROP SCHEMA CASCADE único estoura
+          # max_locks_per_transaction ("out of shared memory") num banco já montado (13/10, vaga 1). Banco vazio passa direto.
+          scripts/banco-testes/limpar-public.sh
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "create schema if not exists public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
           # restore sem parar no 1º erro: o que depender de extensão/dado só da produção vai para o relatório
           psql "$TEST_DATABASE_URL" -q -f estrutura.sql 2> restore-erros.log || true
           echo "erros no restore: $(grep -c 'ERROR' restore-erros.log || true)"
@@ -125,11 +136,41 @@ jobs:
       - name: Ledger (migrations do repo marcadas como aplicadas)
         if: github.event_name == 'workflow_dispatch' && inputs.recriar
         run: scripts/banco-testes/ledger.sh
-      - name: Migrations novas da main (aplica só as pendentes no banco de testes)
-        if: github.event_name == 'workflow_run'
+      # 13/10: sem "recriar", o disparo manual também aplica as migrations pendentes na vaga escolhida (compara com o ledger).
+      - name: Migrations novas (aplica só as pendentes no banco da vaga)
+        if: github.event_name == 'workflow_run' || !inputs.recriar
         env:
           SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
         run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+      # 13/10: após o deploy de migration, as vagas extras provisionadas (1/2) recebem as mesmas migrations; vaga sem
+      # segredos é pulada com aviso (nunca falha). Vale só no workflow_run; no disparo manual a vaga é a escolhida.
+      - name: Migrations novas nas vagas extras provisionadas
+        if: github.event_name == 'workflow_run'
+        env:
+          DBURL1: ${{ secrets.TEST_DATABASE_URL_1 }}
+          DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
+        run: |
+          set -u
+          for v in 1 2; do
+            eval "u=\$DBURL$v"
+            if [ -z "$u" ]; then echo "::notice::vaga $v não provisionada — pulada"; continue; fi
+            u="$(printf '%s' "$u" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
+            echo "::add-mask::$u"
+            case "$u" in *horsymhsinqcimflrtjo*) echo "::error::vaga $v aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+            case "$u" in *pooler.supabase.com*) ;; *) echo "::error::vaga $v: precisa ser Session pooler"; exit 1;; esac
+            echo "== vaga $v =="
+            supabase db push --include-all --db-url "$u"
+          done
+      # 13/10 (CEO): o dump --schema public NÃO traz as extensões. Uma vaga NOVA (ex.: a vaga 1) pode não ter o
+      # `unaccent`, que o f_unaccent e o índice de erp_gov_nfse_municipios usam como public.unaccent — sem ele a carga
+      # dos catálogos morre ("function public.unaccent(unknown, text) does not exist", COPY erp_gov_nfse_municipios).
+      # A vaga 0 tem unaccent em public; aqui garantimos o mesmo na vaga atual (idempotente; em recriar roda após o
+      # restore, pois o DROP SCHEMA public tinha levado o public.unaccent junto).
+      - name: Garantir extensões da vaga (unaccent em public)
+        run: |
+          set -euo pipefail
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;"
+          echo "unaccent: $(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT public.unaccent('Ãçéõ')")"
       # Autorizado pelo CEO em 06/10/2026 17:38. Produção só leitura (catálogo do Postgres + pg_dump --data-only -t);
       # o script repete as travas (destino nunca é a produção) e recusa tabela da lista com coluna de dono/dado pessoal.
       - name: Catálogos globais da produção → banco de testes (whitelist, só dados)

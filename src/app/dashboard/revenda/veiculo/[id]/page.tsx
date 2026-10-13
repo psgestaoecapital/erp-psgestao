@@ -1373,6 +1373,21 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
 // Fotos do veículo · reusa o padrão da Central de Melhorias (bucket privado + anexo + ordem).
 // Várias fotos, uma principal (aparece no cartão do Pátio), ordem editável. Mobile: capture=environment
 // abre a câmera — o vendedor fotografa no pátio pelo celular. Bucket PRIVADO → URLs assinadas.
+// #33 (Alliance): o atributo `download` é ignorado em URL assinada de outro domínio (o navegador só abre a
+// imagem numa aba e, no celular, nada é baixado). Busca o arquivo e salva como blob; se falhar, abre a URL.
+async function baixarFoto(url: string, path: string) {
+  try {
+    const r = await fetch(url)
+    if (!r.ok) throw new Error(String(r.status))
+    const blob = await r.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = path.split('/').pop() || 'foto.jpg'
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000)
+  } catch { window.open(url, '_blank', 'noopener') }
+}
+
 type Foto = { id: string; storage_path: string; principal: boolean; ordem: number }
 function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: string; companyId: string; onErro: (m: string) => void; onMsg: (m: string) => void }) {
   const [fotos, setFotos] = useState<Foto[]>([])
@@ -1520,7 +1535,7 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
             <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 6 }}>Ainda não há fotos na galeria. Mostrando as <b>{fotosVist.length} foto(s) da vistoria</b> deste veículo — clique para abrir/baixar. Para usá-las no anúncio ou no cartão do Pátio, reenvie em “Adicionar fotos”.</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
               {fotosVist.map((fv) => (
-                <a key={fv.path} href={fv.url} target="_blank" rel="noreferrer" download style={{ display: 'block', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, textDecoration: 'none' }}>
+                <a key={fv.path} href={fv.url} target="_blank" rel="noreferrer" download onClick={(e) => { e.preventDefault(); void baixarFoto(fv.url, fv.path) }} style={{ display: 'block', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, textDecoration: 'none' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={fv.url} alt={fv.legenda ?? 'Foto da vistoria'} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
                   {fv.legenda ? <div style={{ fontSize: 10.5, color: C.espM, padding: '4px 6px' }}>{fv.legenda}</div> : null}
