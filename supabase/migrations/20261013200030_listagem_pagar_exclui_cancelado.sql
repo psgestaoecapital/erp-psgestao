@@ -163,3 +163,6 @@ BEGIN
     'resultados', COALESCE(v_resultados, '[]'::jsonb)
   );
 END; $function$;
+
+REVOKE ALL ON FUNCTION public.fn_ge_listagem_v2(uuid, text, date, date, text, text[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_listagem_v2(uuid, text, date, date, text, text[]) TO authenticated, service_role;
