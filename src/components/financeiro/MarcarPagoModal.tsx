@@ -43,6 +43,8 @@ export default function MarcarPagoModal({
   const [valorPago, setValorPago] = useState(valorTotal.toFixed(2))
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [contasCarregadas, setContasCarregadas] = useState(false)
+  const [contasErro, setContasErro] = useState(false)
   // o saldo chega do banco de forma assíncrona; se o usuário já digitou o valor, ele NÃO é sobrescrito
   // (antes: digitar 300 antes da busca voltar virava o saldo cheio e o título era baixado inteiro)
   const editouValor = useRef(false)
@@ -51,7 +53,8 @@ export default function MarcarPagoModal({
     if (!open || !companyId) return
     let ignore = false
     ;(async () => {
-      const { data } = await supabase
+      setContasCarregadas(false)
+      const { data, error } = await supabase
         .from('erp_banco_contas')
         .select('id, nome')
         .eq('company_id', companyId)
@@ -59,6 +62,8 @@ export default function MarcarPagoModal({
         .order('nome')
       if (ignore) return
       const lista = (data ?? []) as ContaBancaria[]
+      setContasErro(!!error)
+      setContasCarregadas(true)
       setContas(lista)
       if (lista.length > 0 && !contaId) setContaId(lista[0].id)
     })()
@@ -138,6 +143,13 @@ export default function MarcarPagoModal({
               {contas.length === 0 && <option value="">Sem contas cadastradas</option>}
               {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </select>
+            {contasCarregadas && contas.length === 0 && (
+              <div style={{ fontSize: 11, color: '#A32D2D', marginTop: 4 }}>
+                {contasErro
+                  ? 'Não foi possível carregar as contas bancárias. Feche e abra de novo; se persistir, abra um chamado.'
+                  : 'Nenhuma conta bancária ativa para esta empresa. Cadastre uma em Financeiro › Contas bancárias para registrar a baixa.'}
+              </div>
+            )}
           </Field>
 
           <Field label="Forma de pagamento">
