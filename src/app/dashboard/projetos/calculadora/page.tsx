@@ -8,6 +8,7 @@ import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
+import { itensParaOrcamento, listaDeCompra } from "@/lib/calculadora/saida";
 import {
   REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroF530, calcularParede, type Resultado,
 } from "@/lib/calculadora/motor";
@@ -41,15 +42,20 @@ export default function CalculadoraObraPage() {
   const [produtos, setProdutos] = useState<ProdutoEstoque[]>([]);
   const [vinculos, setVinculos] = useState<Record<string, string>>({});
   const [erroVinculo, setErroVinculo] = useState<string | null>(null);
+  const [orcamentos, setOrcamentos] = useState<{ id: string; numero: string | null; cliente_nome: string | null }[]>([]);
+  const [orcId, setOrcId] = useState("");
+  const [msgSaida, setMsgSaida] = useState<{ ok: boolean; texto: string } | null>(null);
   const sistemaDb = sistema === "parede" ? "parede" : "forro_f530";
 
   const carregarEstoque = useCallback(async () => {
-    if (!companyId) { setProdutos([]); setVinculos({}); return; }
+    if (!companyId) { setProdutos([]); setVinculos({}); setOrcamentos([]); return; }
     const sb = supabaseBrowser();
-    const [p, d] = await Promise.all([
+    const [p, d, o] = await Promise.all([
       sb.from("erp_produtos").select("id,nome,unidade,preco_custo_medio,preco_custo").eq("company_id", companyId).eq("ativo", true).order("nome").limit(2000),
       sb.from("erp_calc_depara").select("chave,produto_id").eq("company_id", companyId).eq("sistema", sistemaDb),
+      sb.from("erp_orcamentos").select("id,numero,cliente_nome").eq("company_id", companyId).eq("status", "rascunho").order("created_at", { ascending: false }).limit(100),
     ]);
+    setOrcamentos((o.data ?? []) as any);
     setProdutos((p.data ?? []).map((x: any) => ({ id: x.id, nome: x.nome, unidade: x.unidade, custo: Number(x.preco_custo_medio) || Number(x.preco_custo) || null })));
     setVinculos(Object.fromEntries((d.data ?? []).map((x: any) => [x.chave, x.produto_id])));
   }, [companyId, sistemaDb]);
@@ -65,6 +71,23 @@ export default function CalculadoraObraPage() {
     const { error } = await q;
     if (error) { setErroVinculo("Não consegui salvar o vínculo: " + error.message); return; }
     setVinculos((v) => { const n2 = { ...v }; if (produtoId) n2[chave] = produtoId; else delete n2[chave]; return n2; });
+  }
+
+  async function mandarParaOrcamento() {
+    if (!companyId || !orcId || !res.ok) return;
+    setMsgSaida(null);
+    const sb = supabaseBrowser();
+    const { data: ult } = await sb.from("erp_orcamentos_itens").select("ordem").eq("orcamento_id", orcId).order("ordem", { ascending: false }).limit(1);
+    const linhas = itensParaOrcamento(custo.linhas, orcId, companyId, Number(ult?.[0]?.ordem) || 0);
+    const { error } = await sb.from("erp_orcamentos_itens").insert(linhas);
+    setMsgSaida(error ? { ok: false, texto: "Não consegui enviar: " + error.message } : { ok: true, texto: `${linhas.length} itens enviados ao orçamento. Itens sem produto vinculado foram com preço zero para você completar lá.` });
+  }
+
+  async function copiarLista() {
+    if (!res.ok) return;
+    const texto = listaDeCompra(custo.linhas, sistema === "parede" ? "Lista de compra — parede simples" : "Lista de compra — forro F530");
+    try { await navigator.clipboard.writeText(texto); setMsgSaida({ ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." }); }
+    catch { setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." }); }
   }
 
   const res: Resultado = useMemo(() => sistema === "parede"
@@ -153,6 +176,22 @@ export default function CalculadoraObraPage() {
               </li>
             ))}
           </ul>
+          <div className="mt-4 flex flex-col gap-2 border-t border-[#3D2314]/8 pt-4" data-testid="calc-saida">
+            <button onClick={() => void copiarLista()} data-testid="calc-copiar-lista" className="self-start rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+              Copiar lista de compra<AjudaCampo chave="projetos.calculadora.lista_compra" rota="/dashboard/projetos/calculadora" />
+            </button>
+            {companyId && (
+              <label className="flex flex-wrap items-center gap-2 text-sm text-[#3D2314]/70">
+                <span className="flex items-center">Orçamento em rascunho<AjudaCampo chave="projetos.calculadora.orcamento" rota="/dashboard/projetos/calculadora" /></span>
+                <select value={orcId} onChange={(e) => setOrcId(e.target.value)} data-testid="calc-orcamento" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm">
+                  <option value="">{orcamentos.length ? "Escolha o orçamento" : "Nenhum orçamento em rascunho"}</option>
+                  {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? "sem número"}{o.cliente_nome ? ` · ${o.cliente_nome}` : ""}</option>)}
+                </select>
+                <button onClick={() => void mandarParaOrcamento()} disabled={!orcId} data-testid="calc-mandar-orcamento" className="rounded-full bg-[#3D2314] px-4 py-2 text-sm text-white disabled:opacity-40">Mandar para o orçamento</button>
+              </label>
+            )}
+            {msgSaida && <p className={`text-sm ${msgSaida.ok ? "text-emerald-700" : "text-red-700"}`} data-testid="calc-saida-msg">{msgSaida.texto}</p>}
+          </div>
         </section>
       )}
     </main>
