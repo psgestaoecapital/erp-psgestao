@@ -312,3 +312,79 @@ export function montarPrevia(leitura: LeituraContagem, produtos: ProdutoAtual[])
     },
   }
 }
+
+// ─────────────────────────── planilha subida DENTRO de um inventário aberto (CEO 13/10) ───────────────────────────
+// Preenche a coluna "Contado" do PRÓPRIO inventário: casa por id do produto, com fallback por código, e recusa linha
+// cujo id e código apontam para produtos diferentes (mesma regra do #2107). Nada grava aqui: a tela mostra a prévia.
+
+export interface ItemInventarioAberto {
+  item_id: string
+  produto_id: string
+  codigo: string | null
+  nome: string
+  quantidade_sistema: number
+  quantidade_contada: number | null
+  custo_unitario: number
+}
+export interface LinhaPreviaInventario {
+  item_id: string
+  produto_id: string
+  codigo: string
+  descricao: string
+  sistema: number
+  contado: number
+  diferenca: number
+  valor_diferenca: number
+  observacao: string
+  /** já havia contagem diferente gravada: será sobrescrita */
+  sobrescreve: boolean
+}
+export interface PreviaInventarioAberto {
+  linhas: LinhaPreviaInventario[]
+  /** linhas da planilha sem produto correspondente (id/código desconhecido) */
+  naoEncontradas: ErroContagem[]
+  /** produto existe na empresa, mas não está neste inventário (dá para adicionar) */
+  foraDoInventario: (ErroContagem & { produto_id: string; contado: number })[]
+  /** id e código apontam para produtos diferentes, ou código ambíguo */
+  divergencias: ErroContagem[]
+  /** erros da leitura (quantidade inválida, linha repetida) */
+  invalidas: ErroContagem[]
+}
+
+export function montarPreviaInventarioAberto(
+  leitura: LeituraContagem, itens: ItemInventarioAberto[], produtosEmpresa: ProdutoAtual[],
+): PreviaInventarioAberto {
+  const itemPorProduto = new Map(itens.map((i) => [i.produto_id, i]))
+  const prodPorId = new Map(produtosEmpresa.map((p) => [p.id, p]))
+  const prodPorCodigo = new Map<string, ProdutoAtual | null>()
+  for (const p of produtosEmpresa) {
+    const c = (p.codigo ?? '').trim()
+    if (c) prodPorCodigo.set(c, prodPorCodigo.has(c) ? null : p)
+  }
+  const out: PreviaInventarioAberto = { linhas: [], naoEncontradas: [], foraDoInventario: [], divergencias: [], invalidas: [...leitura.erros] }
+  const usados = new Set<string>()
+  for (const l of leitura.linhas) {
+    const nomeLinha = l.descricao || l.codigo || l.id || ''
+    const porId = l.id ? prodPorId.get(l.id) : undefined
+    const porCod = l.codigo ? prodPorCodigo.get(l.codigo) : undefined
+    if (l.id && !porId) { out.naoEncontradas.push({ linha: l.linha, mensagem: `"${nomeLinha}": o id da linha não é de um produto ativo desta empresa.` }); continue }
+    if (porId && l.codigo && (porId.codigo ?? '').trim() !== l.codigo) {
+      out.divergencias.push({ linha: l.linha, mensagem: `"${nomeLinha}": o id é do produto "${porId.nome}" (código ${porId.codigo || 'vazio'}), mas a linha traz o código ${l.codigo}. Baixe a planilha de novo.` }); continue
+    }
+    if (!porId && porCod === null) { out.divergencias.push({ linha: l.linha, mensagem: `Código "${l.codigo}" repetido no cadastro — use a planilha baixada do inventário (ela identifica pelo id).` }); continue }
+    const p = porId ?? porCod ?? undefined
+    if (!p) { out.naoEncontradas.push({ linha: l.linha, mensagem: `"${nomeLinha}" não é um produto ativo desta empresa.` }); continue }
+    if (usados.has(p.id)) { out.invalidas.push({ linha: l.linha, mensagem: `"${p.nome}" aparece em mais de uma linha.` }); continue }
+    usados.add(p.id)
+    const it = itemPorProduto.get(p.id)
+    if (!it) { out.foraDoInventario.push({ linha: l.linha, mensagem: `"${p.nome}" não está neste inventário.`, produto_id: p.id, contado: l.quantidade }); continue }
+    const diferenca = r3(l.quantidade - Number(it.quantidade_sistema))
+    out.linhas.push({
+      item_id: it.item_id, produto_id: p.id, codigo: p.codigo ?? '', descricao: p.nome,
+      sistema: Number(it.quantidade_sistema), contado: l.quantidade, diferenca,
+      valor_diferenca: r2(diferenca * Number(it.custo_unitario || 0)), observacao: l.observacao,
+      sobrescreve: it.quantidade_contada != null && Number(it.quantidade_contada) !== l.quantidade,
+    })
+  }
+  return out
+}
