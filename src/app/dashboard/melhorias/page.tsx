@@ -9,7 +9,7 @@
 // pode mandar foto nova sem encerrar — o chamado volta pra fila PS. Confirmar (funcionou/não) segue
 // como ação SEPARADA, não como única saída.
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { contarPendentesAprovacao } from '@/lib/sugestoes/filaAtendimento'
@@ -77,6 +77,7 @@ function Inner() {
   const [motivoAberto, setMotivoAberto] = useState<string | null>(null) // #61 · qual chamado está com o textarea de "não resolveu"
   const [naoResolveuFotos, setNaoResolveuFotos] = useState<FotoItem[]>([]) // #2 fast-follow · fotos da devolutiva "ainda não resolveu"
   const [abaMelhoria, setAbaMelhoria] = useState<BucketMelhoria>('precisa_voce') // #63 · aba de status da Central
+  const abaEscolhida = useRef(false) // true quando a pessoa clicou numa aba (não trocamos mais por ela)
   const [foco, setFoco] = useState<string | null>(null)   // nº destacado ao chegar pelo link do e-mail
 
   const carregar = useCallback(async () => {
@@ -107,6 +108,14 @@ function Inner() {
     }))
   }, [verArquivadas, companyId])
   useEffect(() => { void carregar() }, [carregar])
+  // Cliente que só acompanha chamados abertos pela equipe PS em nome da empresa não tem nada em "Precisa de você":
+  // a tela parecia vazia. Se a pessoa não escolheu aba e a atual está vazia, abre a primeira que tem chamado.
+  useEffect(() => {
+    if (abaEscolhida.current || minhas.length === 0) return
+    const ordem: BucketMelhoria[] = ['precisa_voce', 'aguardando', 'concluidas']
+    const tem = (b: BucketMelhoria) => minhas.some((m) => bucketMelhoria(m, m.user_id === userId) === b)
+    if (!tem(abaMelhoria)) { const prox = ordem.find(tem); if (prox) setAbaMelhoria(prox) }
+  }, [minhas, userId, abaMelhoria])
 
   // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
   // Rascunho em localStorage (restaura ao montar, salva a cada mudança, limpa ao enviar). Efeito em vez
@@ -301,7 +310,7 @@ function Inner() {
               ['aguardando', '🔵 Com a equipe', cont.aguardando],
               ['concluidas', '✓ Concluídas', cont.concluidas],
             ] as [BucketMelhoria, string, number][]).map(([k, label, n]) => (
-              <button key={k} type="button" onClick={() => setAbaMelhoria(k)}
+              <button key={k} type="button" onClick={() => { abaEscolhida.current = true; setAbaMelhoria(k) }}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '8px 13px', border: 'none', background: 'transparent', borderBottom: `2px solid ${abaMelhoria === k ? C.gold : 'transparent'}`, marginBottom: -1, fontSize: 12.5, fontWeight: abaMelhoria === k ? 800 : 600, color: abaMelhoria === k ? C.esp : C.espM }}>
                 {label} <span style={{ fontSize: 11.5, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: abaMelhoria === k ? C.gold : C.cream, color: abaMelhoria === k ? '#fff' : C.espM }}>{n}</span>
               </button>
