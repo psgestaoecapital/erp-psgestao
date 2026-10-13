@@ -116,6 +116,17 @@ jobs:
           # só ESTRUTURA do schema public (sem dados; Vault/cron/auth/storage não vão)
           supabase db dump --linked --schema public -f estrutura.sql
           wc -l estrutura.sql
+          # Apaga em LOTES (cada DROP é uma transação própria): um DROP SCHEMA CASCADE único num banco já montado estoura
+          # "out of shared memory / max_locks_per_transaction". Banco vazio (vaga nova) cai direto no DROP SCHEMA final.
+          for q in \
+            "select format('drop materialized view if exists %I.%I cascade;', schemaname, matviewname) from pg_matviews where schemaname='public'" \
+            "select format('drop view if exists %I.%I cascade;', schemaname, viewname) from pg_views where schemaname='public'" \
+            "select format('drop table if exists %I.%I cascade;', schemaname, tablename) from pg_tables where schemaname='public'" \
+            "select format('drop routine if exists %s cascade;', p.oid::regprocedure) from pg_proc p where p.pronamespace='public'::regnamespace and not exists (select 1 from pg_depend d where d.objid=p.oid and d.deptype='e')"; do
+            psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -At -c "$q" > drops.sql
+            echo "apagando $(wc -l < drops.sql) objetos em lotes"
+            psql "$TEST_DATABASE_URL" -q -f drops.sql 2>> drop-erros.log || true
+          done
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "drop schema if exists public cascade; create schema public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
           # restore sem parar no 1º erro: o que depender de extensão/dado só da produção vai para o relatório
           psql "$TEST_DATABASE_URL" -q -f estrutura.sql 2> restore-erros.log || true
@@ -125,8 +136,9 @@ jobs:
       - name: Ledger (migrations do repo marcadas como aplicadas)
         if: github.event_name == 'workflow_dispatch' && inputs.recriar
         run: scripts/banco-testes/ledger.sh
-      - name: Migrations novas da main (aplica só as pendentes no banco de testes)
-        if: github.event_name == 'workflow_run'
+      # Sem recriar (disparo manual numa vaga já montada): aplica as migrations pendentes comparando com o ledger.
+      - name: Migrations novas (aplica só as pendentes no banco de testes)
+        if: github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && !inputs.recriar)
         env:
           SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
         run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
@@ -209,3 +221,46 @@ jobs:
             restore-erros.log
             demo-reset-erro.log
           if-no-files-found: ignore
+
+  # Pós-deploy de migration (CEO 13/10): as vagas extras provisionadas (TEST_*_1/_2) também recebem as migrations novas,
+  # cada uma no seu grupo de fila (a aceitação daquela vaga não roda no meio). Vaga sem segredos = pulada, sem falhar.
+  extras:
+    if: always() && github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    needs: montar
+    # roda mesmo se a vaga 0 falhou: cada banco é independente
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        vaga: ['1', '2']
+    concurrency:
+      group: aceitacao-testes-${{ matrix.vaga }}
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Selecionar o banco da vaga
+        env:
+          VAGA: ${{ matrix.vaga }}
+          DBURL1: ${{ secrets.TEST_DATABASE_URL_1 }}
+          DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
+        run: |
+          set -u
+          case "$VAGA" in 1) DB="$DBURL1";; *) DB="$DBURL2";; esac
+          DB=$(printf '%s' "$DB" | tr -d '[:space:]"'"'"'')
+          if [ -z "$DB" ]; then echo "vaga $VAGA não provisionada — pulada"; echo "PULAR=1" >> "$GITHUB_ENV"; exit 0; fi
+          echo "::add-mask::$DB"
+          case "$DB" in *horsymhsinqcimflrtjo*) echo "::error::vaga $VAGA aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          case "$DB" in *pooler.supabase.com*) ;; *) echo "::error::vaga $VAGA: precisa ser Session pooler"; exit 1;; esac
+          echo "TEST_DATABASE_URL=$DB" >> "$GITHUB_ENV"
+      - uses: supabase/setup-cli@v1
+        if: env.PULAR != '1'
+        with:
+          version: 2.118.0
+      - name: Migrations novas da main (só as pendentes)
+        if: env.PULAR != '1'
+        run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+
