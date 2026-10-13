@@ -36,6 +36,14 @@ case "$PROD_DATABASE_URL" in *"$TEST_REF"*) erro "PROD_DATABASE_URL aponta para 
 
 mapfile -t TABELAS < <(sed -E 's/#.*//; s/[[:space:]]+//g' "$LISTA" | grep -v '^$')
 [ "${#TABELAS[@]}" -gt 0 ] || erro "whitelist $LISTA vazia"
+# Dedup (CEO 13/10): uma tabela repetida na whitelist fazia o \copy rodar 2x e estourar "duplicate key" na montagem
+# do zero. Mantém a 1ª ocorrência e AVISA claramente qual repetiu (não derruba a montagem por uma duplicata boba).
+declare -A _vista; _dedup=(); _rep=()
+for t in "${TABELAS[@]}"; do
+  if [ -n "${_vista[$t]:-}" ]; then _rep+=("$t"); else _vista[$t]=1; _dedup+=("$t"); fi
+done
+[ "${#_rep[@]}" -eq 0 ] || echo "::warning::whitelist com tabela(s) repetida(s) — usando a 1ª ocorrência e ignorando as demais: ${_rep[*]}"
+TABELAS=("${_dedup[@]}")
 for t in "${TABELAS[@]}"; do
   [[ "$t" =~ ^[a-z_][a-z0-9_]*$ ]] || erro "nome inválido na whitelist: '$t'"
   # nomes proibidos mesmo que alguém os ponha na lista

@@ -30,8 +30,8 @@ rbac_subgrupo_catalogo
 rbac_papel
 rbac_papel_acesso
 
-# EPI: categorias globais (fn_demo_reset da indústria SST resolve epi_catalogo.categoria_id por slug; sem elas → 23502)
-epi_categoria
+# (epi_categoria já está na whitelist acima — não repetir: duplicar fazia o \copy rodar 2x e estourar
+#  "duplicate key epi_categoria_nome_key" na montagem do zero. CEO 13/10.)
 
 # Referência fiscal/geral usada pelas specs
 fiscal_codigo_catalogo      # LC 116 (200) e NBS (675)

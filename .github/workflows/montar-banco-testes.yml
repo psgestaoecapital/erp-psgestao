@@ -32,6 +32,8 @@ on:
 # 06:06–06:11 dentro do run 05:31–06:22). Agora entra na MESMA fila FIFO do banco (aceitacao-testes-0 = vaga 0 do
 # aceitacao-pr.yml; a aceitacao-main usa o grupo 'aceitacao-testes'), e espera a vez em vez de derrubar o run.
 # Vagas extras (1/2) têm banco próprio → grupo próprio da vaga.
+# 13/10 (CEO): após o deploy de migration (workflow_run) este run monta a VAGA 0; as vagas extras provisionadas são
+# montadas por disparos workflow_dispatch que ele abre no fim (passo "Propagar"), cada uma no SEU grupo de concorrência.
 concurrency:
   group: ${{ (github.event_name == 'workflow_dispatch' && inputs.vaga != '0') && format('aceitacao-testes-{0}', inputs.vaga) || 'aceitacao-testes' }}
   cancel-in-progress: false
@@ -116,7 +118,34 @@ jobs:
           # só ESTRUTURA do schema public (sem dados; Vault/cron/auth/storage não vão)
           supabase db dump --linked --schema public -f estrutura.sql
           wc -l estrutura.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "drop schema if exists public cascade; create schema public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
+          # Recriar (CEO 13/10): num banco Micro JÁ POVOADO, "drop schema public cascade" numa transação só tranca os
+          # ~860 objetos de uma vez e estoura "out of shared memory / max_locks_per_transaction". Apaga em LOTES — uma
+          # instrução DROP por transação (sem BEGIN → autocommit do psql) — ou pula o drop se o schema já estiver vazio.
+          ntab=$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','p','v','m','S')")
+          echo "objetos em public no destino antes do recriar: ${ntab:-0}"
+          : > drop-erros.log
+          if [ "${ntab:-0}" -gt 0 ]; then
+            # tabelas/views/matviews/sequências: DROP ... CASCADE, uma por transação (CASCADE leva FKs/índices/policies locais)
+            psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -tAc "
+              select format('drop %s if exists %I.%I cascade;',
+                     case c.relkind when 'v' then 'view' when 'm' then 'materialized view' when 'S' then 'sequence' else 'table' end,
+                     n.nspname, c.relname)
+                from pg_class c join pg_namespace n on n.oid=c.relnamespace
+               where n.nspname='public' and c.relkind in ('r','p','v','m','S') and c.relpersistence='p'
+               order by case c.relkind when 'S' then 2 else 1 end, c.relname" \
+            | psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=0 -q 2>> drop-erros.log || true
+            # rotinas (funções/procedures) criadas pela estrutura
+            psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -tAc "
+              select format('drop routine if exists %I.%I(%s) cascade;', n.nspname, p.proname, pg_get_function_identity_arguments(p.oid))
+                from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'" \
+            | psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=0 -q 2>> drop-erros.log || true
+            resto=$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','p','v','m','S')")
+            echo "objetos restantes em public após o drop em lotes: ${resto:-0} · erros tolerados: $(grep -c 'ERROR' drop-erros.log 2>/dev/null || echo 0)"
+          else
+            echo "schema public já vazio — pulando o drop (nada a apagar)"
+          fi
+          # recria o schema (se foi removido por completo) e os grants padrão — transação curta, idempotente
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "create schema if not exists public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
           # restore sem parar no 1º erro: o que depender de extensão/dado só da produção vai para o relatório
           psql "$TEST_DATABASE_URL" -q -f estrutura.sql 2> restore-erros.log || true
           echo "erros no restore: $(grep -c 'ERROR' restore-erros.log || true)"
@@ -125,10 +154,12 @@ jobs:
       - name: Ledger (migrations do repo marcadas como aplicadas)
         if: github.event_name == 'workflow_dispatch' && inputs.recriar
         run: scripts/banco-testes/ledger.sh
-      - name: Migrations novas da main (aplica só as pendentes no banco de testes)
-        if: github.event_name == 'workflow_run'
-        env:
-          SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
+      # Aplica só as migrations que faltam NESTA vaga (o db push compara o ledger da vaga com os arquivos do repo).
+      # Roda após o deploy na main (workflow_run) para TODAS as vagas provisionadas, e no disparo manual SEM recriar
+      # (p/ pôr uma vaga já estruturada em dia — ex.: vaga 1 parada em 120030 com a main já em 130000). Com "recriar",
+      # o ledger.sh já marcou tudo como aplicado, então este passo seria no-op e é dispensado.
+      - name: Migrations pendentes da vaga (aplica só as que faltam no ledger dela)
+        if: github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && !inputs.recriar)
         run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
       # Autorizado pelo CEO em 06/10/2026 17:38. Produção só leitura (catálogo do Postgres + pg_dump --data-only -t);
       # o script repete as travas (destino nunca é a produção) e recusa tabela da lista com coluna de dono/dado pessoal.
@@ -201,11 +232,34 @@ jobs:
           # cliente pg17 (instalado no passo dos catálogos) p/ ler a produção (Postgres 17); PROD_DATABASE_URL vem do GITHUB_ENV
           export PSQL=/usr/lib/postgresql/17/bin/psql
           scripts/banco-testes/semente-demo.sh
+      # Propagar para as vagas extras (CEO 13/10): este run (workflow_run, pós-deploy de migration) montou a VAGA 0.
+      # Para cada vaga provisionada (1/2) abre um disparo workflow_dispatch com recriar=false — aplica só as migrations
+      # pendentes da vaga + catálogos + semente — e cada disparo cai no SEU grupo de concorrência ('aceitacao-testes-{v}'),
+      # esperando a fila do próprio banco. Precisa de PAT (o GITHUB_TOKEN não dispara outro workflow); sem ele, só avisa.
+      - name: Propagar a montagem para as vagas extras provisionadas
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+          HAS1: ${{ secrets.TEST_DATABASE_URL_1 != '' }}
+          HAS2: ${{ secrets.TEST_DATABASE_URL_2 != '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::FILA_MERGE_TOKEN ausente — não propaguei para as vagas extras (a vaga 0 já ficou em dia)"; exit 0
+          fi
+          for v in 1 2; do
+            has="HAS$v"
+            [ "${!has}" = true ] || continue
+            echo "propagando montagem para a vaga $v (recriar=false)"
+            gh workflow run montar-banco-testes.yml --ref main -f vaga="$v" -f recriar=false \
+              || echo "::warning::não consegui disparar o montar da vaga $v"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: montar-banco-testes-log
           path: |
             restore-erros.log
+            drop-erros.log
             demo-reset-erro.log
           if-no-files-found: ignore
