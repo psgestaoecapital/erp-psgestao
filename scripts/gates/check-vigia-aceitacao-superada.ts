@@ -16,7 +16,7 @@ ok(/scripts\/merge\/aceitacao-prune\.sh/.test(passo), 'delega a lógica ao prune
 ok(!/FILA_MERGE_TOKEN/.test(passo), 'usa o GITHUB_TOKEN do job (não o PAT da fila)')
 // o prune, de fato, protege a versão viva e inclui os presos na fila (in_progress)
 const sh = readFileSync('scripts/merge/aceitacao-prune.sh', 'utf8')
-ok(/for st in queued waiting in_progress/.test(sh), 'o prune inclui in_progress (os runs presos na fila de concorrência)')
+ok(/for st in pending queued waiting in_progress/.test(sh), 'o prune inclui in_progress (os runs presos na fila de concorrência)')
 ok(/select\([^)]*state=="open"[^)]*head\.sha=="\$hsha"/.test(sh.replace(/\\"/g, '"')), 'o prune só cancela quando NÃO há versão viva (open & head atual) — nunca a viva')
 
 if (falhas) { console.error(`\ncheck-vigia-aceitacao-superada: ${falhas} falha(s)`); process.exit(1) }

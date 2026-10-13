@@ -105,6 +105,27 @@ jobs:
       - name: Liberar vaga (cancela aceitação de PR morta / SHA superado — inclui presos na fila)
         run: scripts/merge/aceitacao-prune.sh || true
 
+      # (13/10) Aceitação MORTA (sem PR aberta com este head e fora da ponta da main) que já está EXECUTANDO há mais de 20 min
+      # não segura a vaga única até os 45/90: cancela. Run de versão viva nunca entra aqui (teto próprio de 45/90 continua).
+      - name: Cancelar aceitação MORTA executando há mais de 20 min
+        env:
+          LIMITE_MORTA_MIN: '20'
+        run: |
+          set -uo pipefail
+          agora=$(date -u +%s); n=0
+          main_sha=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null || true)
+          gh api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=in_progress&per_page=50" \
+            --jq '.workflow_runs[] | "\(.id) \(.run_started_at) \(.head_sha)"' 2>/dev/null | while read -r id ini sha; do
+            [ -n "$id" ] && [ -n "$ini" ] || continue
+            min=$(( (agora - $(date -u -d "$ini" +%s)) / 60 ))
+            [ "$min" -gt "$LIMITE_MORTA_MIN" ] || continue
+            [ "$sha" = "$main_sha" ] && continue
+            viva=$(gh api "repos/$REPO/commits/$sha/pulls" --jq "[.[] | select(.state == \"open\" and .head.sha == \"$sha\")] | length" 2>/dev/null || echo 1)
+            [ "${viva:-1}" -eq 0 ] || continue
+            echo "::warning title=aceitação morta cancelada::run $id (head ${sha:0:7}) morta, executando há $min min (> $LIMITE_MORTA_MIN)"
+            gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null || true
+          done
+
       - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
         env:
           # PAT da fila; sem ele cai no token do job (que pode dar 403 e o passo só avisa)
