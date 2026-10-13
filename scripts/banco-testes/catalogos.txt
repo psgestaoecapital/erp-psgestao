@@ -17,6 +17,8 @@ screen_route_features
 
 # EPI: catálogo global de categorias (sem coluna de dono). O fn_demo_reset popula epi_catalogo (por empresa), que
 # referencia categoria_id → epi_categoria tem de existir ANTES do fn_demo_reset, senão a semente da DEMO falha.
+# (13/10) Estava listada duas vezes (2ª entrada após rbac_papel_acesso): na montagem do zero a 2ª COPY batia na 1ª
+# (duplicate key epi_categoria_nome_key). Uma tabela aparece UMA vez só nesta lista.
 epi_categoria
 
 # Passada de semente (CEO 11/10): globais de produção que a UI das specs lê e o banco de testes não tinha. Sem coluna de dono.
@@ -29,9 +31,6 @@ permissoes_nivel            # permissão por nível/módulo (FK module_catalog)
 rbac_subgrupo_catalogo
 rbac_papel
 rbac_papel_acesso
-
-# EPI: categorias globais (fn_demo_reset da indústria SST resolve epi_catalogo.categoria_id por slug; sem elas → 23502)
-epi_categoria
 
 # Referência fiscal/geral usada pelas specs
 fiscal_codigo_catalogo      # LC 116 (200) e NBS (675)
