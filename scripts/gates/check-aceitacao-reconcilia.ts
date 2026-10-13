@@ -1,39 +1,50 @@
-// Gate (incidente 13/10 19:58) — contaminação entre PRs no banco da vaga. A aceitação precisa BARRAR banco sujo (ledger
-// com versão de PR não aprovada além da main) antes de testar, senão a próxima PR herda schema não aprovado. Este gate
-// trava: (a) o detector existe e é READ-ONLY (só lê o ledger — nunca derruba/apaga nada no banco da vaga); (b) a
-// contaminação é definida como "ledger > maior versão da main" (NUNCA set-difference, que pegaria as ~800 linhas
-// históricas); (c) aceitacao-pr.yml chama o detector ANTES dos testes e ao FIM (if: always()); (d) aceitacao-main também.
+// Gate (incidente 13/10 19:58 + restauração aprovada) — contaminação entre PRs no banco da vaga. Arquitetura que respeita
+// o Pilar 2 (a aceitação NUNCA carrega segredo de produção — gate check-esteira-2-velocidades):
+//  • DETECÇÃO na aceitação (aceitacao-pr/main): reconciliar-vaga.sh SEM PROD_DATABASE_URL → só detecta e, se o ledger
+//    tiver versão > a maior da main, falha "precisa de recriar" (exit 2). Barra banco sujo sem ler a produção.
+//  • RESTAURAÇÃO no workflow dedicado reconciliar-vaga.yml (tem segredo de produção, como o montar): reconciliar-vaga.sh
+//    COM PROD_DATABASE_URL → restaura a vaga ao estado da produção (cirúrgico) e só COMMITA se, no dado, os objetos de
+//    código da vaga == produção (verify-before-commit); senão ROLLBACK → recriar.
 import { readFileSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 
 const sh = readFileSync('scripts/banco-testes/reconciliar-vaga.sh', 'utf8')
-// (a) READ-ONLY: o detector não pode conter comando destrutivo no SQL que manda ao banco da vaga.
-const semComentario = sh.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
-ok(!/\b(drop|delete|truncate|update|insert|alter)\b/i.test(semComentario),
-  'reconciliar-vaga.sh é READ-ONLY (sem drop/delete/update/insert/alter — só detecta e falha)')
-// (b) contaminação = ledger > maior versão da main (não set-difference)
-ok(/where version > '\$main_max'/.test(sh), 'contaminação definida como ledger > maior versão da main')
-ok(/main_max=\$\(ls "\$MAIN_MIGR_DIR"/.test(sh), 'maior versão vem das migrations de origin/main (MAIN_MIGR_DIR)')
-// (c) guardas de segurança e saída dedicada
-ok(/horsymhsinqcimflrtjo/.test(sh) && /pooler\.supabase\.com/.test(sh), 'guarda: nunca a produção, exige Session pooler')
-ok(/exit 2/.test(sh), 'contaminação sai com exit 2 (vaga precisa de recriar)')
+// contaminação + modos
+ok(/where version > '\$main_max'/.test(sh), 'contaminação = ledger > maior versão da main (não set-difference)')
+ok(/PROD_DATABASE_URL="\$\{PROD_DATABASE_URL:-\}"/.test(sh), 'PROD_DATABASE_URL é OPCIONAL (detecção sem produção; restauração com)')
+ok(/if \[ -z "\$PROD_DATABASE_URL" \]; then\s*\n\s*recriar/.test(sh), 'modo DETECÇÃO (sem produção): contaminada → recriar (exit 2), sem ler a produção')
+// verify-before-commit
+ok(/\bbegin;/.test(sh) && /\bcommit;/.test(sh), 'restauração roda numa transação (begin … commit)')
+ok(/raise exception 'reconcilia: vaga nao convergiu para a producao/.test(sh), 'verify-before-commit: RAISE (rollback) se não convergir')
+ok(/_prodsig[\s\S]*except[\s\S]*_vagasig[\s\S]*except[\s\S]*_prodsig/.test(sh), 'verificação compara assinatura vaga×produção (EXCEPT nos dois sentidos)')
+// nunca escreve na produção
+ok(/case "\$TEST_DATABASE_URL" in \*"\$PROD_REF"\*\) erro/.test(sh), 'guarda: TEST_DATABASE_URL nunca é a produção')
+ok(/"\$PSQL" "\$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "\$txn"/.test(sh), 'as escritas (transação) vão para a VAGA (TEST_DATABASE_URL)')
+ok(!/"\$PROD_DATABASE_URL"[^\n]*-f /.test(sh) && !/"\$PROD_DATABASE_URL"[^\n]*(drop|delete|update|insert|alter|create)/i.test(sh), 'na produção o script só roda SELECT (nenhum -f/DDL/DML)')
+// fallback seguro
+ok(/prod_only\.keys/.test(sh) && /recriar /.test(sh), 'objeto aprovado ausente → recriar')
+ok(/grep -qvE '\^\(func\|view\) '/.test(sh), 'modificação fora de função/view → recriar')
 
-// (c)/(d) wiring nos workflows
+// prod-url.sh só leitura
+const pu = readFileSync('scripts/banco-testes/prod-url.sh', 'utf8')
+ok(!/\bpsql\b/.test(pu), 'prod-url.sh não executa psql (só monta a URL de leitura)')
+
+// DETECÇÃO na aceitação, SEM segredo de produção
 const pr = readFileSync('.github/workflows/aceitacao-pr.yml', 'utf8')
-const nPr = (pr.match(/reconciliar-vaga\.sh/g) || []).length
-ok(nPr >= 2, `aceitacao-pr.yml chama o detector no início e no fim (achei ${nPr})`)
-ok(/if: always\(\) && vars\.ACEITACAO_BANCO == 'testes'[\s\S]{0,900}reconciliar-vaga\.sh/.test(pr),
-  'aceitacao-pr.yml reconfere a contaminação ao FIM (if: always())')
-// a guarda do início vem ANTES do passo de sincronização e dos testes
-const iGuarda = pr.indexOf('reconciliar-vaga.sh')
-const iSync = pr.indexOf('Sincronizar o banco da vaga com a produção')
-const iTeste = pr.indexOf('Jornadas de aceitação contra o preview')
-ok(iGuarda > 0 && iGuarda < iSync && iSync < iTeste, 'a guarda do início roda antes do sync e dos testes')
-
+ok((pr.match(/reconciliar-vaga\.sh/g) || []).length >= 2, 'aceitacao-pr roda a DETECÇÃO no início e no fim')
+ok(!/prod-url\.sh/.test(pr) && !/SUPABASE_ACCESS_TOKEN/.test(pr) && !/SUPABASE_DB_PASSWORD/.test(pr), 'aceitacao-pr NÃO carrega segredo de produção (Pilar 2)')
 const main = readFileSync('.github/workflows/aceitacao-main.yml', 'utf8')
-ok(/reconciliar-vaga\.sh/.test(main), 'aceitacao-main.yml chama o detector antes de testar a main')
+ok(/reconciliar-vaga\.sh/.test(main), 'aceitacao-main roda a DETECÇÃO na vaga 0')
+ok(!/prod-url\.sh/.test(main) && !/SUPABASE_ACCESS_TOKEN/.test(main) && !/SUPABASE_DB_PASSWORD/.test(main), 'aceitacao-main NÃO carrega segredo de produção (Pilar 2)')
 
-if (falhas) { console.error(`\n${falhas} verificação(ões) falharam — guarda de contaminação da vaga`); process.exit(1) }
+// RESTAURAÇÃO no workflow dedicado, COM segredo de produção
+const rv = readFileSync('.github/workflows/reconciliar-vaga.yml', 'utf8')
+ok(/workflow_dispatch:/.test(rv), 'reconciliar-vaga.yml é disparável (workflow_dispatch)')
+ok(/prod-url\.sh/.test(rv) && /PROD_DATABASE_URL=/.test(rv) && /reconciliar-vaga\.sh/.test(rv), 'reconciliar-vaga.yml roda a RESTAURAÇÃO com PROD_DATABASE_URL')
+ok(/SUPABASE_ACCESS_TOKEN/.test(rv) && /SUPABASE_DB_PASSWORD/.test(rv), 'reconciliar-vaga.yml tem o segredo de produção (como o montar)')
+ok(/group: \$\{\{ github\.event\.inputs\.vaga == '0' && 'aceitacao-testes'/.test(rv) && /cancel-in-progress: false/.test(rv), 'reconciliar-vaga.yml roda sob a trava da vaga (grupo aceitacao-testes, sem cancelar)')
+
+if (falhas) { console.error(`\n${falhas} verificação(ões) falharam — restauração/guarda de contaminação da vaga`); process.exit(1) }
 console.log('\ncheck-aceitacao-reconcilia: ok')
