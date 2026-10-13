@@ -116,6 +116,14 @@ jobs:
         with:
           ref: ${{ steps.ja.outputs.sha }}
           fetch-depth: 0
+      # CEO 13/10 19:58: barra banco de testes (vaga 0) CONTAMINADO por PR antes de testar a main. O checkout acima é a
+      # própria main (steps.ja.outputs.sha), então supabase/migrations do working tree É o alvo. Contaminado (ledger com
+      # versão > a da main) → falha "vaga 0 precisa de recriar"; o Montar recriar limpa. Nunca testa em banco sujo.
+      - name: Guarda de contaminação (banco de testes alinhado à main)
+        if: steps.ja.outputs.pular == 'false'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: VAGA=0 MAIN_MIGR_DIR=supabase/migrations scripts/banco-testes/reconciliar-vaga.sh
       # CEO 13/10: sincroniza o banco de testes (vaga 0) com a produção ANTES de montar/testar a main — o Montar da vaga
       # espera na MESMA fila FIFO e nem sempre ganha a vez, então sem isto a suíte roda num schema atrás da produção e
       # gera vermelho FALSO. `supabase db push` é idempotente (compara o ledger). Roda no grupo aceitacao-testes
