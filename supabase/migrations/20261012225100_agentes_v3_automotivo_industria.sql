@@ -8,7 +8,11 @@ ALTER TABLE public.erp_agente_rotina ADD CONSTRAINT erp_agente_rotina_agente_che
 
 ALTER TABLE public.erp_agente_mensagem DROP CONSTRAINT IF EXISTS erp_agente_mensagem_socio_so_aviso;
 ALTER TABLE public.erp_agente_mensagem ADD CONSTRAINT erp_agente_mensagem_socio_so_aviso
-  CHECK (tipo = 'aviso' OR para = ANY (ARRAY['gilberto-desenv','gilberto-produto','gilberto-automotivo','gilberto-industria','gilberto-chamados']));
+  CHECK (tipo = 'aviso'
+    OR para = ANY (ARRAY['gilberto-desenv','gilberto-produto','gilberto-automotivo','gilberto-industria','gilberto-chamados','teste-despertador'])
+    OR de ~ '^[a-z][a-z0-9]*-chat$');
+-- Mantém as cláusulas já vivas no banco (teste-despertador e remetente-chat do Canal PS): a versão anterior desta
+-- migration as removia e quebrava o deploy-migrations (7 tarefas de rodrigo-code violavam o CHECK) — 13/10.
 
 INSERT INTO public.erp_agente_rotina (agente, aciona, observacao) VALUES
   ('gilberto-automotivo', false, 'Desenvolvedor da vertical Automotivo; faixa 15; liga em etapa futura'),
