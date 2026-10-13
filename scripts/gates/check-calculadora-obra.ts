@@ -1,6 +1,6 @@
 // Gate (Hub HB2, Parte O): motor da Calculadora de Obra nunca trava — varre o pé-direito de 0,20 a 4,60 m de 0,05 em 0,05
 // (parede simples) e confere o caso do Eng. Chefe: parede 12,5 × 2,8 m com porta 0,8 × 2,1 m.
-import { REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroF530, calcularParede } from '../../src/lib/calculadora/motor'
+import { REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroF530, calcularParede, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoColado } from '../../src/lib/calculadora/motor'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -26,4 +26,10 @@ else {
 const forro = calcularForroF530(REGRAS_FORRO_F530, { largura: 3, comprimento: 4 })
 ok(forro.ok && forro.itens.find(i => i.chave === 'chapa')!.quantidade === 6, 'forro F530 3×4 m: 12 m² → 6 chapas')
 ok(forro.ok && forro.itens.find(i => i.chave === 'tabica')!.quantidade === 5, 'forro F530 3×4 m: tabica pelo perímetro real = 5 barras')
+const rv = calcularRevestimentoColado(REGRAS_REVESTIMENTO_COLADO, { comprimento: 12.5, peDireito: 2.8, vaos: 0.8 * 2.1 })
+const qr = (k: string) => (rv.ok ? rv.itens.find(i => i.chave === k)!.quantidade : -1)
+ok(rv.ok && rv.area === 33.32, 'revestimento colado 12,5 × 2,8 com porta: 33,32 m²')
+ok(qr('chapa') === 17, `revestimento colado: chapas = ⌈33,32×1,05÷2,16⌉ = 17 (veio ${qr('chapa')})`)
+ok(qr('gesso_cola') === 84, `revestimento colado: gesso cola = ⌈33,32×12,5÷5⌉ = 84 sacos (veio ${qr('gesso_cola')})`)
+ok(!calcularRevestimentoColado(REGRAS_REVESTIMENTO_COLADO, { comprimento: 1, peDireito: 2, vaos: 9 }).ok, 'revestimento colado: vão maior que a parede → erro explicado')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
