@@ -318,12 +318,23 @@ for n in $fila; do
       # (o novo commit re-roda os guardas); se continuar vermelho com a PR em dia, cai na recusa normal.
       if [[ "${c#vermelho:check vermelho: }" =~ ^(check_fn_guards|check_menu|check_migrations)(,(check_fn_guards|check_menu|check_migrations))*$ ]] \
          && [ "$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')" -gt 0 ] && [ "$em_preparo" -lt "$ATUALIZA_NA_VEZ" ]; then
-        em_preparo=$((em_preparo + 1))
         if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+          em_preparo=$((em_preparo + 1))
           log "#$n vermelha só de guarda (${c#vermelho:}) e atrás da main: atualizada para re-rodar os guardas — segue para a próxima"; continue
         fi
       fi
       tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
+    # Stall 13/10: PR estagnada (aberta antes do gates.yml) nunca teve o check "gates"; como a fila só atualiza PR verde, ela
+    # esperava para sempre. Atrás da main e com vaga → update-branch (o novo commit roda os gates), como no deadlock acima.
+    esperar:'gates ainda não rodaram')
+      if [ "$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')" -gt 0 ] && [ "$em_preparo" -lt "$ATUALIZA_NA_VEZ" ]; then
+        # Stall 13/10 14:00: só gasta vaga se o update-branch FUNCIONOU (PR velha com conflito falhava e queimava as 4 vagas).
+        if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+          em_preparo=$((em_preparo + 1))
+          log "#$n sem o check gates e atrás da main: atualizada para rodar os gates — segue para a próxima"; continue
+        fi
+      fi
+      log "#$n aguardando: gates ainda não rodaram — segue para a próxima"; continue;;
     # Só conta como "em preparo" o PREVIEW que a própria fila dispara: PR VIA RÁPIDA com check rodando (não "gates ainda
     # não rodaram", que é PR estagnada). A aceitação (demo-e2e, serial/lenta) das PRs via REVISADA NÃO é preparo da fila —
     # contá-la inflava o em_preparo (13-14 no run 9299) e esfomeava as via-rápida atrás da main. (Correção da regressão do #2361.)
