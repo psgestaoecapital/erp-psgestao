@@ -31,6 +31,12 @@ DECLARE
   v_valor numeric;
   v_prod  jsonb;
   v_loc   jsonb;
+  v_n_locais    int;
+  v_loc_nome    text;
+  v_tot_estoque numeric;
+  v_tot_exp     numeric;
+  v_sem         int;
+  v_conf        jsonb;
 BEGIN
   IF v_uid IS NULL THEN RAISE EXCEPTION 'nao_autenticado' USING ERRCODE = '42501'; END IF;
   IF p_situacao NOT IN ('ativos','inativos','todos') THEN p_situacao := 'ativos'; END IF;
@@ -87,23 +93,68 @@ BEGIN
     INTO v_total, v_valor, v_prod
     FROM base;
 
-  -- aba "Estoque por local": saldo = último quantidade_depois por (produto, local)
-  WITH mov AS (
-    SELECT DISTINCT ON (m.produto_id, m.local_id) m.produto_id, m.local_id, m.quantidade_depois AS saldo
-      FROM erp_estoque_movimentacoes m
-     WHERE m.company_id = p_company_id AND m.local_id IS NOT NULL
-     ORDER BY m.produto_id, m.local_id, m.data_movimento DESC, m.created_at DESC
-  )
-  SELECT COALESCE(jsonb_agg(jsonb_build_object(
-           'codigo', p.codigo, 'nome', p.nome, 'local', l.nome, 'saldo', mov.saldo,
-           'custo_medio', CASE WHEN v_custo THEN p.preco_custo_medio END,
-           'valor',       CASE WHEN v_custo THEN round(mov.saldo * p.preco_custo_medio, 2) END)
-         ORDER BY p.codigo, l.nome), '[]'::jsonb)
-    INTO v_loc
-    FROM mov
-    JOIN erp_produtos p       ON p.id = mov.produto_id
-    JOIN erp_estoque_locais l ON l.id = mov.local_id
-   WHERE p.company_id = p_company_id;
+  -- aba "Saldo por local" (CEO 13/10): a carga de migração gravou o saldo direto no cadastro e só parte dos
+  -- movimentos tem local_id; somar erp_estoque_movimentacoes por local NÃO bate com o estoque_atual. Regra: NUNCA
+  -- exportar por local um número que não bate com o saldo.
+  --   1 local  → saldo do local = estoque_atual (a fonte de verdade é o cadastro).
+  --   >1 local → só detalha por local o produto cuja soma por local bate com o estoque_atual; os demais saem numa
+  --              linha "Sem detalhamento por local" com o saldo total e observação. O rodapé confere total × estoque.
+  SELECT count(*) INTO v_n_locais FROM erp_estoque_locais WHERE company_id = p_company_id;
+
+  IF v_n_locais <= 1 THEN
+    SELECT nome INTO v_loc_nome FROM erp_estoque_locais WHERE company_id = p_company_id
+      ORDER BY principal DESC NULLS LAST, created_at LIMIT 1;
+    v_loc_nome := COALESCE(v_loc_nome, 'Estoque');
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+             'codigo', codigo, 'nome', nome, 'local', v_loc_nome, 'saldo', COALESCE(estoque_atual, 0),
+             'custo_medio', CASE WHEN v_custo THEN preco_custo_medio END,
+             'valor',       CASE WHEN v_custo THEN round(COALESCE(estoque_atual, 0) * preco_custo_medio, 2) END,
+             'observacao', NULL) ORDER BY codigo), '[]'::jsonb)
+      INTO v_loc
+      FROM erp_produtos
+     WHERE company_id = p_company_id AND COALESCE(ativo, true) AND COALESCE(estoque_atual, 0) <> 0;
+  ELSE
+    WITH prod AS (
+      SELECT id, codigo, nome, COALESCE(estoque_atual, 0) AS estoque_atual, preco_custo_medio
+        FROM erp_produtos WHERE company_id = p_company_id AND COALESCE(ativo, true) AND COALESCE(estoque_atual, 0) <> 0
+    ),
+    perloc AS (
+      SELECT DISTINCT ON (m.produto_id, m.local_id) m.produto_id, m.local_id, m.quantidade_depois AS saldo
+        FROM erp_estoque_movimentacoes m
+       WHERE m.company_id = p_company_id AND m.local_id IS NOT NULL
+       ORDER BY m.produto_id, m.local_id, m.data_movimento DESC, m.created_at DESC
+    ),
+    soma AS (SELECT produto_id, sum(saldo) AS s FROM perloc GROUP BY produto_id),
+    recon AS (
+      SELECT p.*, (s.s IS NOT NULL AND abs(s.s - p.estoque_atual) < 0.001) AS bate
+        FROM prod p LEFT JOIN soma s ON s.produto_id = p.id
+    ),
+    detalhado AS (  -- produto cuja soma por local BATE: uma linha por local (número confiável)
+      SELECT r.codigo, r.nome, l.nome AS local, pl.saldo, r.preco_custo_medio, NULL::text AS observacao, 1 AS ord
+        FROM recon r JOIN perloc pl ON pl.produto_id = r.id JOIN erp_estoque_locais l ON l.id = pl.local_id
+       WHERE r.bate
+    ),
+    resto AS (  -- produto que NÃO bate: saldo do cadastro, sem detalhar por local
+      SELECT r.codigo, r.nome, 'Sem detalhamento por local'::text AS local, r.estoque_atual AS saldo, r.preco_custo_medio,
+             'Saldo do cadastro — os movimentos deste produto não têm local para detalhar'::text AS observacao, 2 AS ord
+        FROM recon r WHERE NOT r.bate
+    )
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+             'codigo', codigo, 'nome', nome, 'local', local, 'saldo', saldo,
+             'custo_medio', CASE WHEN v_custo THEN preco_custo_medio END,
+             'valor',       CASE WHEN v_custo THEN round(saldo * preco_custo_medio, 2) END,
+             'observacao', observacao) ORDER BY ord, codigo, local), '[]'::jsonb)
+      INTO v_loc
+      FROM (SELECT * FROM detalhado UNION ALL SELECT * FROM resto) u;
+  END IF;
+
+  -- rodapé de conferência: total exportado por local × total do estoque (produtos ativos com saldo <> 0)
+  SELECT COALESCE(sum(estoque_atual), 0) INTO v_tot_estoque
+    FROM erp_produtos WHERE company_id = p_company_id AND COALESCE(ativo, true) AND COALESCE(estoque_atual, 0) <> 0;
+  SELECT COALESCE(sum((e->>'saldo')::numeric), 0), count(*) FILTER (WHERE e->>'local' = 'Sem detalhamento por local')
+    INTO v_tot_exp, v_sem FROM jsonb_array_elements(v_loc) e;
+  v_conf := jsonb_build_object('locais', v_n_locais, 'total_estoque', v_tot_estoque, 'total_por_local', v_tot_exp,
+    'bate', abs(v_tot_exp - v_tot_estoque) < 0.01, 'sem_detalhe', v_sem);
 
   -- auditoria (append-only): quem exportou, quando, empresa, nº de linhas e os filtros
   INSERT INTO audit_log_global (company_id, user_id, user_email, tabela, registro_id, acao, valor_novo)
@@ -120,7 +171,8 @@ BEGIN
     'total_itens', v_total,
     'valor_estoque', CASE WHEN v_custo THEN v_valor END,
     'produtos', v_prod,
-    'estoque_por_local', v_loc);
+    'estoque_por_local', v_loc,
+    'estoque_conferencia', v_conf);
 END;
 $function$;
 REVOKE ALL ON FUNCTION public.fn_produtos_exportar(uuid, text, text, text, text) FROM PUBLIC, anon;

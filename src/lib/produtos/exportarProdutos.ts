@@ -17,6 +17,7 @@ export interface ExportProdutosResult {
   valor_estoque?: number | null
   produtos?: Record<string, Cell>[]
   estoque_por_local?: Record<string, Cell>[]
+  estoque_conferencia?: { locais?: number; total_estoque?: number; total_por_local?: number; bate?: boolean; sem_detalhe?: number } | null
 }
 
 // Aba "Produtos", em ordem. `custo` = coluna só exportada para quem pode ver custo (a RPC já não manda esses campos).
@@ -110,11 +111,31 @@ export async function exportarProdutosXlsx(res: ExportProdutosResult): Promise<{
   cols.forEach((c, i) => { ws.getColumn(i + 1).width = Math.min(Math.max(c.key.length + 2, 12), 44) })
 
   // ── Aba 2 "Saldo por local" (NÃO começa com "estoque", para não confundir o importador) ──
+  // CEO 13/10: nunca exportar por local um número que não bate com o estoque_atual. 1 local → saldo = estoque_atual;
+  // vários locais → só detalha quem a soma por local bate; os demais vêm em "Sem detalhamento por local". Rodapé confere.
   const ws2 = wb.addWorksheet('Saldo por local')
-  const cols2 = ['codigo', 'nome', 'local', 'saldo', ...(custo ? ['custo_medio', 'valor'] : [])]
+  const cols2 = ['codigo', 'nome', 'local', 'saldo', ...(custo ? ['custo_medio', 'valor'] : []), 'observacao']
+  const larg2 = cols2.length
+  const t2 = ws2.addRow(['Saldo por local — confira o total no rodapé'])
+  ws2.mergeCells(t2.number, 1, t2.number, larg2); t2.getCell(1).font = { bold: true, size: 12, color: { argb: 'FF3D2314' } }
   douradoHeader(ws2.addRow(cols2))
   for (const e of res.estoque_por_local ?? []) ws2.addRow(cols2.map((k) => cel(k, e[k])))
   cols2.forEach((k, i) => { ws2.getColumn(i + 1).width = Math.min(Math.max(k.length + 2, 12), 44) })
+  ws2.getColumn(cols2.indexOf('observacao') + 1).width = 52
+
+  // rodapé de conferência: total por local × total do estoque (✅/⚠️)
+  const conf = res.estoque_conferencia
+  if (conf) {
+    ws2.addRow([])
+    const num = (n: number | undefined) => n == null ? '' : String(n).replace('.', ',')
+    const rA = ws2.addRow(['', 'TOTAL POR LOCAL', '', num(conf.total_por_local)]); rA.font = { bold: true }
+    ws2.addRow(['', 'Total do estoque (cadastro)', '', num(conf.total_estoque)])
+    const status = (conf.bate ? '✅ Bate com o estoque do cadastro.' : '⚠️ NÃO bate com o estoque — confira os movimentos.')
+      + ((conf.sem_detalhe ?? 0) > 0 ? `  ·  ${conf.sem_detalhe} produto(s) em “Sem detalhamento por local” (saldo do cadastro).` : '')
+    const rC = ws2.addRow(['', status])
+    ws2.mergeCells(rC.number, 2, rC.number, larg2)
+    rC.getCell(2).font = { bold: true, color: { argb: conf.bate ? 'FF3F7012' : 'FFB06A00' } }
+  }
 
   await baixar(wb, nomeArquivo)
   return { nomeArquivo, linhas: res.produtos?.length ?? 0 }
