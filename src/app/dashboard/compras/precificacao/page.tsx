@@ -18,10 +18,14 @@ type Row = {
   custo: number | null; preco_hoje: number; margem_hoje_pct: number | null
   preco_novo: number | null; margem_nova_pct: number | null
 }
+type Cfg = {
+  imposto_configurado?: boolean; imposto_pct?: number | null; imposto_override?: number | null
+  imposto_fonte?: string | null; margem_meta_pct?: number | null; margem_minima_pct?: number | null
+}
 type Painel = {
   ok?: boolean; erro?: string; pode_ver_custo?: boolean
   total_ativos?: number; sem_preco?: number; abaixo_custo?: number
-  modo?: string | null; produtos?: Row[]
+  modo?: string | null; produtos?: Row[]; config?: Cfg | null
 }
 type Filtro = 'todos' | 'sem_preco' | 'margem_negativa' | 'com_custo'
 type Modo = 'margem' | 'markup'
@@ -30,19 +34,21 @@ type Arred = 'nenhum' | 'real' | 'noventa' | 'noventa_nove'
 const brl = (v: number | null | undefined) => v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const pct = (v: number | null | undefined) => v == null ? '—' : `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`
 
-// semáforo da margem real: vermelho no prejuízo, amarelo apertado, verde saudável
-function corMargem(m: number | null): string {
-  if (m == null) return 'text-[#3D2314]/35'
-  if (m < 0) return 'text-[#A32D2D]'
-  if (m < 10) return 'text-[#B06A00]'
-  return 'text-[#3F7012]'
+// semáforo pela margem meta/mínima DA EMPRESA: vermelho < mínima · amarelo entre mínima e meta · verde ≥ meta
+// (sem config da empresa, cai para o padrão: vermelho < 0, amarelo < 10%, verde ≥ 10%)
+type Nivel = 'vazio' | 'ruim' | 'medio' | 'bom'
+function nivelMargem(m: number | null | undefined, meta?: number | null, min?: number | null): Nivel {
+  if (m == null) return 'vazio'
+  const mn = min ?? 0
+  const mt = meta ?? 10
+  if (m < mn) return 'ruim'
+  if (m < mt) return 'medio'
+  return 'bom'
 }
-function bolaMargem(m: number | null): string {
-  if (m == null) return 'bg-[#3D2314]/15'
-  if (m < 0) return 'bg-[#A32D2D]'
-  if (m < 10) return 'bg-[#E0A300]'
-  return 'bg-[#3F7012]'
-}
+const corMargem = (m: number | null | undefined, meta?: number | null, min?: number | null): string =>
+  ({ vazio: 'text-[#3D2314]/35', ruim: 'text-[#A32D2D]', medio: 'text-[#B06A00]', bom: 'text-[#3F7012]' })[nivelMargem(m, meta, min)]
+const bolaMargem = (m: number | null | undefined, meta?: number | null, min?: number | null): string =>
+  ({ vazio: 'bg-[#3D2314]/15', ruim: 'bg-[#A32D2D]', medio: 'bg-[#E0A300]', bom: 'bg-[#3F7012]' })[nivelMargem(m, meta, min)]
 
 export default function PrecificacaoPage() {
   const { companyIds, selInfo } = useCompanyIds()
@@ -63,6 +69,12 @@ export default function PrecificacaoPage() {
   const [gravando, setGravando] = useState(false)
   const [conta, setConta] = useState<{ nome: string; dados: Record<string, unknown> } | null>(null)
 
+  // configuração da empresa (imposto da venda + margem meta/mínima do semáforo)
+  const [impostoIn, setImpostoIn] = useState('')
+  const [metaIn, setMetaIn] = useState('')
+  const [minIn, setMinIn] = useState('')
+  const [salvandoCfg, setSalvandoCfg] = useState(false)
+
   // carrega o painel; quando `comPrevia`, pede ao banco o preço novo (modo/valor/arred) sem gravar nada
   const carregar = useCallback(async (comPrevia: boolean) => {
     if (!empresa) { setP(null); setLoading(false); return }
@@ -76,7 +88,14 @@ export default function PrecificacaoPage() {
     const r = data as Painel | null
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro ?? 'Erro ao carregar')); setP(null); return }
     setP(r); setPrevia(comPrevia)
+    // prefill dos campos de configuração com o que está salvo no banco
+    const c = r.config
+    setImpostoIn(c?.imposto_override != null ? String(c.imposto_override).replace('.', ',') : '')
+    setMetaIn(c?.margem_meta_pct != null ? String(c.margem_meta_pct).replace('.', ',') : '')
+    setMinIn(c?.margem_minima_pct != null ? String(c.margem_minima_pct).replace('.', ',') : '')
   }, [empresa, filtro, busca, modo, valor, arred])
+
+  const num = (s: string): number | null => { const n = Number(s.replace(',', '.')); return s.trim() === '' || Number.isNaN(n) ? null : n }
 
   useEffect(() => { void carregar(false) }, [empresa, filtro]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 5000); return () => clearTimeout(t) }, [toast])
@@ -84,9 +103,34 @@ export default function PrecificacaoPage() {
   const podeCusto = p?.pode_ver_custo !== false
   const rows = p?.produtos ?? []
   const comPrecoNovo = useMemo(() => rows.filter((r) => r.preco_novo != null && r.preco_novo > 0), [rows])
+  const cfg = p?.config
+  const metaN = cfg?.margem_meta_pct ?? null
+  const minN = cfg?.margem_minima_pct ?? null
+  // imposto da venda configurado? sem ele o motor usa 0% e o preço sai errado → bloqueia a gravação (revisão Eng. Chefe)
+  const impostoOk = cfg?.imposto_configurado !== false
+
+  async function salvarConfig() {
+    if (!empresa) return
+    const imp = num(impostoIn), meta = num(metaIn), mn = num(minIn)
+    if (imp == null && meta == null && mn == null) { setToast('Informe ao menos um valor para salvar.'); return }
+    if (mn != null && meta != null && mn > meta) { setToast('A margem mínima não pode ser maior que a meta.'); return }
+    setSalvandoCfg(true)
+    const { data } = await supabase.rpc('fn_preco_config_empresa_salvar', {
+      p_company_id: empresa, p_imposto_pct: imp, p_margem_meta_pct: meta, p_margem_minima_pct: mn,
+    })
+    setSalvandoCfg(false)
+    const rr = data as { ok?: boolean; erro?: string } | null
+    if (!rr?.ok) {
+      const msg: Record<string, string> = { imposto_invalido: 'Imposto inválido (0 a 99%).', meta_invalida: 'Informe a margem meta.', minima_maior_que_meta: 'A mínima não pode ser maior que a meta.', sem_acesso: 'Sem acesso.' }
+      setToast(rr?.erro ? (msg[rr.erro] ?? 'Não consegui salvar.') : 'Não consegui salvar a configuração.'); return
+    }
+    setToast('Configuração salva. Recalculando com o imposto e a margem da empresa…')
+    await carregar(previa)
+  }
 
   async function gravar() {
     if (!empresa || comPrecoNovo.length === 0) return
+    if (!impostoOk) { setToast('Configure o imposto sobre a venda antes de gravar — sem ele o preço sai errado.'); return }
     if (!confirm(`Gravar o preço novo de ${comPrecoNovo.length} produto(s)? Cada um fica registrado no histórico de preços e pode ser conferido depois.`)) return
     setGravando(true)
     const motivo = `Formar preços · ${modo === 'markup' ? 'markup' : 'margem'} ${Number(valor) || 0}%${arred !== 'nenhum' ? ' · arred ' + arred : ''}`
@@ -104,7 +148,7 @@ export default function PrecificacaoPage() {
     if (!empresa || r.custo == null || r.custo <= 0) { setToast('Sem custo cadastrado — não dá para montar a conta do preço.'); return }
     const preco = (previa && r.preco_novo) ? r.preco_novo : r.preco_hoje
     if (!preco || preco <= 0) { setToast('Produto sem preço — forme o preço primeiro.'); return }
-    const { data } = await supabase.rpc('fn_produto_margem_real', { p_company_id: empresa, p_custo: r.custo, p_preco: preco, p_produto_id: r.produto_id })
+    const { data } = await supabase.rpc('fn_preco_conta', { p_company_id: empresa, p_custo: r.custo, p_preco: preco, p_produto_id: r.produto_id })
     const d = data as Record<string, unknown> | null
     if (!d || d.ok === false) { setToast('Não consegui montar a conta do preço.'); return }
     setConta({ nome: r.nome, dados: d })
@@ -156,6 +200,46 @@ export default function PrecificacaoPage() {
           <span className="ml-auto text-[11px] text-[#3D2314]/55 self-center">{p?.total_ativos ?? 0} produto(s) ativo(s)</span>
         </div>
 
+        {/* Configuração da empresa: imposto da venda + margem meta/mínima (semáforo) */}
+        {podeCusto && (
+          <div className={'mt-3 bg-white border rounded-xl p-3 ' + (impostoOk ? 'border-[#3D2314]/10' : 'border-[#A32D2D]/40')}>
+            <div className="flex items-center gap-2 text-[13px] font-medium text-[#3D2314] mb-2"><Tags size={15} className="text-[#C8941A]" /> Configuração de preço da empresa</div>
+            {!impostoOk && (
+              <div className="mb-2 flex items-start gap-2 text-[12px] text-[#A32D2D] bg-[#FBEAEA] border border-[#A32D2D]/25 rounded-md px-3 py-2">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                <span><strong>Imposto sobre a venda não configurado.</strong> O cálculo está usando 0% e o preço sairia mais baixo do que deveria. Informe o imposto abaixo para destravar a gravação.</span>
+              </div>
+            )}
+            <div className="flex items-end gap-2 flex-wrap">
+              <label className="text-[12px] text-[#3D2314]/70 flex flex-col">
+                <span className="flex items-center">Imposto sobre a venda<AjudaCampo chave="compras.precificacao.imposto_venda" /></span>
+                <div className="mt-0.5 flex items-center gap-1">
+                  <input type="number" inputMode="decimal" value={impostoIn} onChange={(e) => setImpostoIn(e.target.value)} placeholder="ex. 8,5" className={'w-24 border rounded-md px-2 py-1.5 text-[13px] text-[#3D2314] ' + (impostoOk ? 'border-[#3D2314]/15' : 'border-[#A32D2D]/50')} />
+                  <span className="text-[13px] text-[#3D2314]/60">%</span>
+                </div>
+              </label>
+              <label className="text-[12px] text-[#3D2314]/70 flex flex-col">
+                <span className="flex items-center">Margem meta<AjudaCampo chave="compras.precificacao.margem_meta" /></span>
+                <div className="mt-0.5 flex items-center gap-1">
+                  <input type="number" inputMode="decimal" value={metaIn} onChange={(e) => setMetaIn(e.target.value)} placeholder="ex. 25" className="w-20 border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[13px] text-[#3D2314]" />
+                  <span className="text-[13px] text-[#3D2314]/60">%</span>
+                </div>
+              </label>
+              <label className="text-[12px] text-[#3D2314]/70 flex flex-col">
+                <span className="flex items-center">Margem mínima<AjudaCampo chave="compras.precificacao.margem_minima" /></span>
+                <div className="mt-0.5 flex items-center gap-1">
+                  <input type="number" inputMode="decimal" value={minIn} onChange={(e) => setMinIn(e.target.value)} placeholder="ex. 10" className="w-20 border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[13px] text-[#3D2314]" />
+                  <span className="text-[13px] text-[#3D2314]/60">%</span>
+                </div>
+              </label>
+              <button type="button" onClick={() => void salvarConfig()} disabled={salvandoCfg} className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#3D2314] text-white font-medium hover:bg-[#2A1810] disabled:opacity-50">
+                {salvandoCfg ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Salvar configuração
+              </button>
+            </div>
+            <div className="mt-1.5 text-[11px] text-[#3D2314]/50">O imposto entra na conta da margem (não vai para a NF-e). Semáforo: vermelho abaixo da mínima · amarelo entre a mínima e a meta · verde na meta ou acima.</div>
+          </div>
+        )}
+
         {/* Formar preços (só para quem vê custo) */}
         {podeCusto && (
           <div className="mt-3 bg-white border border-[#3D2314]/10 rounded-xl p-3">
@@ -186,12 +270,13 @@ export default function PrecificacaoPage() {
               </label>
               <button type="button" onClick={() => void carregar(true)} className="text-[12px] px-3 py-1.5 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810]">Calcular prévia</button>
               {previa && comPrecoNovo.length > 0 && (
-                <button type="button" onClick={() => void gravar()} disabled={gravando} className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510] disabled:opacity-50">
+                <button type="button" onClick={() => void gravar()} disabled={gravando || !impostoOk} title={!impostoOk ? 'Configure o imposto sobre a venda primeiro' : undefined} className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510] disabled:opacity-50 disabled:cursor-not-allowed">
                   {gravando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Gravar preços ({comPrecoNovo.length})
                 </button>
               )}
             </div>
-            {previa && <div className="mt-2 text-[11px] text-[#B06A00]">Prévia calculada — <strong>nada foi gravado</strong>. Confira a coluna “Preço novo” e a margem que ela dá; depois clique em “Gravar preços”.</div>}
+            {previa && !impostoOk && <div className="mt-2 text-[11px] text-[#A32D2D] font-medium flex items-start gap-1"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> Gravação bloqueada: o imposto sobre a venda não está configurado (o preço da prévia está calculado com imposto 0%). Informe o imposto acima e recalcule.</div>}
+            {previa && impostoOk && <div className="mt-2 text-[11px] text-[#B06A00]">Prévia calculada — <strong>nada foi gravado</strong>. Confira a coluna “Preço novo” e a margem que ela dá; depois clique em “Gravar preços”.</div>}
           </div>
         )}
 
@@ -230,14 +315,14 @@ export default function PrecificacaoPage() {
                       <td className="px-3 py-2 text-right tabular-nums text-[#3D2314]/70">{Number(r.estoque).toLocaleString('pt-BR')}{r.unidade ? ' ' + r.unidade : ''}</td>
                       <td className={'px-3 py-2 text-right tabular-nums ' + (r.preco_hoje <= 0 ? 'text-[#B06A00] font-medium' : 'text-[#3D2314]')}>{r.preco_hoje <= 0 ? 'sem preço' : brl(r.preco_hoje)}</td>
                       {podeCusto && (
-                        <td className={'px-3 py-2 text-right tabular-nums font-medium ' + corMargem(r.margem_hoje_pct)}>
-                          <span className="inline-flex items-center gap-1.5 justify-end"><span className={'w-1.5 h-1.5 rounded-full ' + bolaMargem(r.margem_hoje_pct)} />{pct(r.margem_hoje_pct)}</span>
+                        <td className={'px-3 py-2 text-right tabular-nums font-medium ' + corMargem(r.margem_hoje_pct, metaN, minN)}>
+                          <span className="inline-flex items-center gap-1.5 justify-end"><span className={'w-1.5 h-1.5 rounded-full ' + bolaMargem(r.margem_hoje_pct, metaN, minN)} />{pct(r.margem_hoje_pct)}</span>
                         </td>
                       )}
                       {previa && podeCusto && (
                         <td className="px-3 py-2 text-right tabular-nums">
                           {r.preco_novo != null && r.preco_novo > 0
-                            ? <div><div className="font-semibold text-[#3F7012]">{brl(r.preco_novo)}</div><div className={'text-[10px] ' + corMargem(r.margem_nova_pct)}>margem {pct(r.margem_nova_pct)}</div></div>
+                            ? <div><div className="font-semibold text-[#3F7012]">{brl(r.preco_novo)}</div><div className={'text-[10px] ' + corMargem(r.margem_nova_pct, metaN, minN)}>margem {pct(r.margem_nova_pct)}</div></div>
                             : <span className="text-[#3D2314]/35">—</span>}
                         </td>
                       )}
