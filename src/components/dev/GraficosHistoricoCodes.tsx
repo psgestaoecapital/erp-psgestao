@@ -30,6 +30,7 @@ function Cartao({ chave, titulo, resumo, testid, children }: { chave: string; ti
 export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }) {
   const [snaps, setSnaps] = useState<Snapshot[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [chamados, setChamados] = useState<{ dia: string; resolvidos: number }[]>([])
 
   const carregar = useCallback(async () => {
     const desde = new Date(Date.now() - PERIODO_DIAS[periodo] * 864e5).toISOString()
@@ -38,6 +39,8 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
       .gte('capturado_em', desde).order('capturado_em', { ascending: false }).limit(3000)
     if (error) { setErro(error.message); return }
     setErro(null); setSnaps((data ?? []) as Snapshot[])
+    const ch = await supabase.rpc('fn_dev_codes_chamados_por_dia', { p_dias: PERIODO_DIAS[periodo] })
+    if (!ch.error) setChamados(((ch.data ?? []) as { dia: string; resolvidos: number }[]).map((r) => ({ dia: r.dia.slice(8, 10) + '/' + r.dia.slice(5, 7), resolvidos: r.resolvidos })))
   }, [periodo])
 
   useEffect(() => {
@@ -84,6 +87,15 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
             <CartesianGrid stroke={BD} horizontal={false} />
             <XAxis type="number" allowDecimals={false} tick={eixo} /><YAxis type="category" dataKey="code" tick={eixo} width={110} />
             <Tooltip /><Bar dataKey="abertas" name="Abertas" fill={DOU} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Cartao>
+      <Cartao testid="grafico-chamados" chave="dev.codes.graficos.chamados" titulo="Chamados resolvidos por dia" resumo="Chamados concluídos em cada dia do período">
+        <ResponsiveContainer>
+          <BarChart data={chamados} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+            <CartesianGrid stroke={BD} vertical={false} />
+            <XAxis dataKey="dia" tick={eixo} interval="preserveStartEnd" /><YAxis allowDecimals={false} tick={eixo} />
+            <Tooltip /><Bar dataKey="resolvidos" name="Resolvidos" fill={ESP} />
           </BarChart>
         </ResponsiveContainer>
       </Cartao>
