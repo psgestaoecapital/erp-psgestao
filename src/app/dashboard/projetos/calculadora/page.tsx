@@ -9,7 +9,7 @@ import EditorRegras from "./EditorRegras";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
-import { itensParaOrcamento, listaDeCompra } from "@/lib/calculadora/saida";
+import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv } from "@/lib/calculadora/saida";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import {
   REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroAramado, calcularForroF530, calcularParede, type Resultado,
@@ -93,6 +93,22 @@ export default function CalculadoraObraPage() {
     const texto = listaDeCompra(custo.linhas, sistema === "parede" ? "Lista de compra — parede simples" : sistema === "aramado" ? "Lista de compra — forro aramado" : "Lista de compra — forro F530");
     try { await navigator.clipboard.writeText(texto); setMsgSaida({ ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." }); }
     catch { setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." }); }
+  }
+
+  function tituloLista() {
+    return sistema === "parede" ? "Lista de compra — parede simples" : sistema === "aramado" ? "Lista de compra — forro aramado" : "Lista de compra — forro F530";
+  }
+  function enviarWhatsApp() {
+    if (!res.ok) return;
+    window.open(linkWhatsApp(listaDeCompra(custo.linhas, tituloLista())), "_blank", "noopener");
+  }
+  function baixarExcel() {
+    if (!res.ok) return;
+    const url = URL.createObjectURL(new Blob([listaDeCompraCsv(custo.linhas)], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "lista-de-compra.csv"; a.click();
+    URL.revokeObjectURL(url);
+    setMsgSaida({ ok: true, texto: "Planilha baixada. Abre direto no Excel." });
   }
 
   const [regraSalva, setRegraSalva] = useState<unknown>(null);
@@ -212,6 +228,14 @@ export default function CalculadoraObraPage() {
             <button onClick={() => void copiarLista()} data-testid="calc-copiar-lista" className="self-start rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
               Copiar lista de compra<AjudaCampo chave="projetos.calculadora.lista_compra" rota="/dashboard/projetos/calculadora" />
             </button>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={enviarWhatsApp} data-testid="calc-whatsapp" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                Enviar por WhatsApp<AjudaCampo chave="projetos.calculadora.whatsapp" rota="/dashboard/projetos/calculadora" />
+              </button>
+              <button onClick={baixarExcel} data-testid="calc-excel" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                Baixar Excel<AjudaCampo chave="projetos.calculadora.excel" rota="/dashboard/projetos/calculadora" />
+              </button>
+            </div>
             {companyId && (
               <label className="flex flex-wrap items-center gap-2 text-sm text-[#3D2314]/70">
                 <span className="flex items-center">Orçamento em rascunho<AjudaCampo chave="projetos.calculadora.orcamento" rota="/dashboard/projetos/calculadora" /></span>
