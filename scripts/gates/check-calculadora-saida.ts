@@ -1,7 +1,7 @@
 // Gate (Hub HB2 fatia 4): saída da calculadora — itens do orçamento e lista de compra.
 import { calcularParede, REGRAS_PAREDE_SIMPLES_ST } from '../../src/lib/calculadora/motor'
 import { custearItens } from '../../src/lib/calculadora/depara'
-import { itensParaOrcamento, listaDeCompra } from '../../src/lib/calculadora/saida'
+import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv } from '../../src/lib/calculadora/saida'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -19,5 +19,9 @@ else {
   ok(sem.preco_unitario === 0 && sem.subtotal === 0 && sem.produto_nome.length > 0, 'sem vínculo entra com preço 0 e descrição do material')
   ok(listaDeCompra(c.linhas, 'Parede').split('\n').length === r.itens.length + 1, 'lista de compra: título + uma linha por item')
   ok(listaDeCompra(c.linhas, 'Parede').includes('Chapa ST 12,5'), 'lista usa o nome do produto vinculado')
+  ok(linkWhatsApp('a b\n1').startsWith('https://wa.me/?text=a%20b%0A1'), 'link do WhatsApp codifica o texto')
+  const csv = listaDeCompraCsv(c.linhas).split('\r\n')
+  ok(csv.length === r.itens.length + 1 && csv[0].startsWith('\uFEFFMaterial;Quantidade'), 'CSV: cabeçalho + uma linha por item, com BOM')
+  ok(csv.some(l => l.startsWith('Chapa ST 12,5;33;chapa;40,00;1320,00')), 'CSV: chapa 33 × 40,00 = 1320,00')
 }
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
