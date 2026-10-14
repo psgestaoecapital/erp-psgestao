@@ -1937,15 +1937,15 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
             {cadAberto && (
               <div style={{ padding: 10, background: C.cream, borderRadius: 8, display: 'grid', gap: 8 }} data-testid="otc-novo-cliente-inline">
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Nome / razão social<AjudaCampo chave="otc.novo.cliente_novo_nome" rota="/dashboard/commerce/otc" /></label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Nome / razão social</label><AjudaCampo chave="otc.novo.cliente_novo_nome" rota="/dashboard/commerce/otc" />
                   <input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>CPF / CNPJ<AjudaCampo chave="otc.novo.cliente_novo_doc" rota="/dashboard/commerce/otc" /></label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>CPF / CNPJ</label><AjudaCampo chave="otc.novo.cliente_novo_doc" rota="/dashboard/commerce/otc" />
                   <input value={cadDoc} onChange={(e) => setCadDoc(e.target.value)} onBlur={() => void buscarCnpjCadastro(cadDoc.replace(/\D/g, ''))} inputMode="numeric" style={inp} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Telefone<AjudaCampo chave="otc.novo.cliente_novo_tel" rota="/dashboard/commerce/otc" /></label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Telefone</label><AjudaCampo chave="otc.novo.cliente_novo_tel" rota="/dashboard/commerce/otc" />
                   <input value={cadTel} onChange={(e) => setCadTel(e.target.value)} inputMode="tel" style={inp} />
                 </div>
                 {cadMsg && <div style={{ fontSize: 12, color: C.espressoM }}>{cadMsg}</div>}
