@@ -12,10 +12,10 @@ import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
 import { itensParaOrcamento, listaDeCompra } from "@/lib/calculadora/saida";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import {
-  REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroF530, calcularParede, type Resultado,
+  REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroAramado, calcularForroF530, calcularParede, type Resultado,
 } from "@/lib/calculadora/motor";
 
-type Sistema = "parede" | "forro";
+type Sistema = "parede" | "forro" | "aramado";
 const n = (v: string) => Number((v || "0").replace(",", ".")) || 0
 const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })
@@ -47,7 +47,7 @@ export default function CalculadoraObraPage() {
   const [orcamentos, setOrcamentos] = useState<{ id: string; numero: string | null; cliente_nome: string | null }[]>([]);
   const [orcId, setOrcId] = useState("");
   const [msgSaida, setMsgSaida] = useState<{ ok: boolean; texto: string } | null>(null);
-  const sistemaDb = sistema === "parede" ? "parede" : "forro_f530";
+  const sistemaDb = sistema === "parede" ? "parede" : sistema === "aramado" ? "forro_aramado" : "forro_f530";
 
   const carregarEstoque = useCallback(async () => {
     if (!companyId) { setProdutos([]); setVinculos({}); setOrcamentos([]); return; }
@@ -87,7 +87,7 @@ export default function CalculadoraObraPage() {
 
   async function copiarLista() {
     if (!res.ok) return;
-    const texto = listaDeCompra(custo.linhas, sistema === "parede" ? "Lista de compra — parede simples" : "Lista de compra — forro F530");
+    const texto = listaDeCompra(custo.linhas, sistema === "parede" ? "Lista de compra — parede simples" : sistema === "aramado" ? "Lista de compra — forro aramado" : "Lista de compra — forro F530");
     try { await navigator.clipboard.writeText(texto); setMsgSaida({ ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." }); }
     catch { setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." }); }
   }
@@ -102,9 +102,12 @@ export default function CalculadoraObraPage() {
   }, [companyId, sistemaDb, recarga]);
   const regrasParede = useMemo(() => mesclarRegras(REGRAS_PAREDE_SIMPLES_ST, sistema === "parede" ? regraSalva : null), [regraSalva, sistema]);
   const regrasForro = useMemo(() => mesclarRegras(REGRAS_FORRO_F530, sistema === "forro" ? regraSalva : null), [regraSalva, sistema]);
+  const regrasAramado = useMemo(() => mesclarRegras(REGRAS_FORRO_ARAMADO, sistema === "aramado" ? regraSalva : null), [regraSalva, sistema]);
   const res: Resultado = useMemo(() => sistema === "parede"
     ? calcularParede(regrasParede, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos) })
-    : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, larg, compF, regrasParede, regrasForro]);
+    : sistema === "aramado"
+      ? calcularForroAramado(regrasAramado, { largura: n(larg), comprimento: n(compF) })
+      : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, larg, compF, regrasParede, regrasForro, regrasAramado]);
 
   const custo = useMemo(() => res.ok ? custearItens(res.itens, vinculos, new Map(produtos.map((p) => [p.id, p]))) : { linhas: [], total: 0, semCusto: 0 }, [res, vinculos, produtos]);
   const custoPorChave = useMemo(() => Object.fromEntries(custo.linhas.map((l) => [l.item.chave, l])), [custo]);
@@ -122,7 +125,7 @@ export default function CalculadoraObraPage() {
       <section className="mb-5 rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-2" role="tablist">
           <span className="text-[11px] uppercase tracking-wider text-[#3D2314]/55">Sistema<AjudaCampo chave="projetos.calculadora.sistema" rota="/dashboard/projetos/calculadora" /></span>
-          {([["parede", "Parede simples (drywall)"], ["forro", "Forro de gesso F530"]] as const).map(([k, t]) => (
+          {([["parede", "Parede simples (drywall)"], ["forro", "Forro de gesso F530"], ["aramado", "Forro aramado"]] as const).map(([k, t]) => (
             <button key={k} role="tab" aria-selected={sistema === k} data-testid={`calc-sistema-${k}`} onClick={() => setSistema(k)}
               className={`rounded-full px-3 py-1.5 text-sm ${sistema === k ? "bg-[#3D2314] text-white" : "bg-[#3D2314]/5 text-[#3D2314]"}`}>{t}</button>
           ))}
