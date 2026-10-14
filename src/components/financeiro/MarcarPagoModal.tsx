@@ -51,7 +51,7 @@ export default function MarcarPagoModal({
     if (!open || !companyId) return
     let ignore = false
     ;(async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('erp_banco_contas')
         .select('id, nome')
         .eq('company_id', companyId)
@@ -60,7 +60,9 @@ export default function MarcarPagoModal({
       if (ignore) return
       const lista = (data ?? []) as ContaBancaria[]
       setContas(lista)
-      if (lista.length > 0 && !contaId) setContaId(lista[0].id)
+      setContaId(lista.length > 0 ? lista[0].id : '')
+      if (error) setErro('Não foi possível carregar as contas bancárias. Feche e abra de novo; se continuar, avise o suporte.')
+      else if (lista.length === 0) setErro('Esta empresa não tem conta bancária ativa cadastrada. Cadastre uma em Financeiro › Contas bancárias para dar baixa.')
     })()
     return () => { ignore = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
