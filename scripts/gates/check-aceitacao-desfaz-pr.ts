@@ -16,6 +16,9 @@ ok(/raise exception 'vaga-snapshot: vaga nao voltou a foto/.test(sh), 'verify-be
 ok(/delete from supabase_migrations\.schema_migrations where version not in \(select version from _vaga_snapshot\.led\)/.test(sh), 'restaurar remove do ledger as versions da PR (as que não estão na foto)')
 ok(/VERIFICA[ÇC][ÃA]O FINAL OBRIGAT[ÓO]RIA/.test(sh) && /recriar "verificação final/.test(sh), 'verificação final obrigatória no dado → recriar se a vaga != foto')
 
+ok(/statement_timeout='10min'/.test(sh), 'restauração com statement_timeout próprio de 10min (14/10: 180s estourava)')
+ok(/tentando uma vez mais/.test(sh) && /_vaga_suja\.marca/.test(sh), 'restauração falha → 1 retry; falhando de novo marca a vaga SUJA')
+
 const pr = readFileSync('.github/workflows/aceitacao-pr.yml', 'utf8')
 ok(/git archive origin\/main -- supabase\b/.test(pr), 'aceitacao-pr materializa SÓ a main (config+migrations) para o sync só-da-main')
 ok(/vaga-snapshot\.sh snapshot/.test(pr), 'aceitacao-pr tira a FOTO (snapshot) antes das migrations da PR')
