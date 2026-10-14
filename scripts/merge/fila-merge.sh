@@ -41,7 +41,17 @@ SENSIVEL=revisao-eng-chefe
 RODAPE=$'\n\n<sub>fila-merge · '"${RUN_URL:-local}"'</sub>'
 SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-api() { gh api -H 'Accept: application/vnd.github+json' "$@"; }
+# Leitura (GET, sem -X) tenta até 3x: resposta vazia/transitória da API ("unexpected end of JSON input") derrubava a rodada
+# inteira (set -e) e deixava a esteira parada (runs 14909/14916, 14/10). Escrita (-X) NUNCA repete: não é idempotente.
+api() {
+  local t=1 out
+  case " $* " in *" -X "*) gh api -H 'Accept: application/vnd.github+json' "$@"; return;; esac
+  until out=$(gh api -H 'Accept: application/vnd.github+json' "$@"); do
+    [ "$t" -ge 3 ] && return 1
+    sleep $((t * 2)); t=$((t + 1))
+  done
+  [ -z "$out" ] || printf '%s\n' "$out"
+}
 # Observabilidade (CEO 10/10): toda linha "#<pr> ..." também vai p/ o snapshot que a fila grava no fim (flush_estado).
 log() { echo "$*"; echo "- $*" >> "$SUMARIO"; case "$*" in \#[0-9]*) [ -n "${TMPF:-}" ] && printf '%s\n' "$*" >> "$TMPF/estado" 2>/dev/null || true;; esac; }
 # Grava "por que cada PR está presa" em erp_esteira_pr_estado (a aba /dashboard/dev lê). No trap EXIT: roda sempre, mesmo
