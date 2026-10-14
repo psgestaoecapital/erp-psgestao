@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
   const forcaFim = url.searchParams.get('end_date')
 
   // empresas com provider de ponto ativo
-  let q = supa.from('ind_ponto_provider_config').select('company_id, provider').eq('ativo', true)
+  let q = supa.from('ind_ponto_provider_config').select('company_id, plant_id, provider').eq('ativo', true)
   if (soCompany) q = q.eq('company_id', soCompany)
   const { data: cfgs, error: eCfg } = await q
   if (eCfg) return NextResponse.json({ ok: false, erro: eCfg.message }, { status: 500 })
@@ -87,6 +87,23 @@ export async function GET(req: NextRequest) {
     if (begin > end) {
       resultados.push({ company_id: companyId, status: 'em_dia', begin, end })
       continue
+    }
+
+    // Lista de colaboradores (chamado #116 Frioeste): a sync-diario só grava as batidas; sem esta
+    // chamada ind_ponto_colaborador parava de atualizar (última carga 01/09) e quem saiu da empresa
+    // continuava ativo em /compliance/funcionarios. Falha aqui não derruba a coleta das batidas.
+    let colaboradores: number | string = 'nao_executado'
+    if (cfg.plant_id) {
+      try {
+        const rc = await fetch(
+          `${baseUrl}/api/industrial/ponto/sync?company_id=${companyId}&plant_id=${cfg.plant_id as string}&begin_date=${end}&end_date=${end}`,
+          { method: 'POST', headers: { 'x-ping-secret': pingSecret } },
+        )
+        const jc = await rc.json().catch(() => ({}))
+        colaboradores = rc.ok && jc.ok ? Number(jc.colaboradores || 0) : `erro: ${jc.erro || rc.status}`
+      } catch (e) {
+        colaboradores = `erro: ${e instanceof Error ? e.message : String(e)}`
+      }
     }
 
     // fatiar em chunks de CHUNK_DIAS
@@ -118,7 +135,7 @@ export async function GET(req: NextRequest) {
     }
 
     resultados.push({
-      company_id: companyId, begin, end, dias: diasTotal, batidas: batidasTotal,
+      company_id: companyId, begin, end, colaboradores, dias: diasTotal, batidas: batidasTotal,
       status: erros.length ? 'parcial' : 'ok', erros: erros.slice(0, 5),
     })
   }
