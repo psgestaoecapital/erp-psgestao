@@ -365,3 +365,9 @@ Escopo inicial: **rebase/resolução de conflito** e **PR multi-arquivo**. Funç
 `fn_agente_checkpoint_ler` (migration 20261013120030; só canal de serviço). Gate: `scripts/gates/check-agente-checkpoint.ts`.
 > ABERTO (Eng. Chefe): o sinal exato de "perto do limite de tempo da rodada" depende da runtime e NÃO é assumido aqui —
 > a doutrina é checkpointar a cada passo. Se a runtime expuser um sinal de tempo restante, o Eng. Chefe define como usá-lo.
+
+# Limite de PRs prontas esperando: no máximo 3 (CEO 14/10) — vale para TODOS os Codes (inclusive jordana-code e rodrigo-code)
+Antes de abrir PR NOVA, chame `SELECT fn_esteira_pode_abrir_pr('<seu-identificador>'[, p_urgente := true | p_correcao_esteira := true]);`
+(contagem igual à do painel "PRs prontas esperando"). Se `pode` = false (prontas > 3), **não abra PR nova**: trabalhe só em destravar —
+aceitação vermelha (re-rodar ou corrigir), "AJUSTES ANTES DO MERGE" do revisor, rascunho autorizado → Ready, conflito com a main,
+ordem das migrations. Exceções: tarefa marcada URGENTE (cliente/produção) e correção de esteira. Gate: `scripts/gates/check-esteira-limite-prontas.ts`.
