@@ -10,6 +10,7 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, rectSortingStr
 import { CSS } from '@dnd-kit/utilities'
 import { supabase } from '@/lib/supabase'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -1275,6 +1276,34 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     // item 2c-c: fiscal do veículo
     valor_fipe: vf.valor_fipe == null ? '' : String(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
   })
+  // Chamado #34 (Alliance): veículo consignado — dono e valor combinado (comissão da loja NÃO entra: é do acerto na venda)
+  const vc = v as unknown as { consignado?: boolean | null; consignante_nome?: string | null; consignante_documento?: string | null; consignante_valor_combinado?: number | null }
+  const [cons, setCons] = useState({
+    consignado: !!vc.consignado, nome: vc.consignante_nome ?? '', documento: vc.consignante_documento ?? '',
+    valor: vc.consignante_valor_combinado == null ? '' : String(vc.consignante_valor_combinado).replace('.', ','),
+  })
+  const [consBusy, setConsBusy] = useState(false)
+  const [consMsg, setConsMsg] = useState<{ ok: boolean; t: string } | null>(null)
+  async function salvarConsignacao() {
+    setConsMsg(null)
+    const doc = cons.documento.replace(/\D/g, '')
+    if (cons.consignado && !cons.nome.trim()) { setConsMsg({ ok: false, t: 'Informe o nome do consignante.' }); return }
+    if (cons.documento.trim() && doc.length !== 11 && doc.length !== 14) { setConsMsg({ ok: false, t: 'CPF/CNPJ inválido — use 11 ou 14 dígitos.' }); return }
+    let valor: number | null = null
+    if (cons.valor.trim()) {
+      const bruto = cons.valor.trim()
+      const n = Number(bruto.includes(',') ? bruto.replace(/\./g, '').replace(',', '.') : bruto)
+      if (!Number.isFinite(n) || n < 0) { setConsMsg({ ok: false, t: 'Valor combinado inválido — ex.: 58000 ou 58.000,00.' }); return }
+      valor = n
+    }
+    setConsBusy(true)
+    const { error } = await supabase.from('veic_veiculo').update(cons.consignado
+      ? { consignado: true, consignante_nome: cons.nome.trim(), consignante_documento: doc || null, consignante_valor_combinado: valor }
+      : { consignado: false, consignante_nome: null, consignante_documento: null, consignante_valor_combinado: null }).eq('id', v.id)
+    setConsBusy(false)
+    if (error) { setConsMsg({ ok: false, t: 'Não foi possível salvar a consignação agora. Tente de novo em instantes.' }); return }
+    setConsMsg({ ok: true, t: 'Consignação salva.' }); onSaved()
+  }
   const [busy, setBusy] = useState(false)
   const [ncmMsg, setNcmMsg] = useState<string | null>(null)
   // #140/#141 (Fábio): o salvar falhava em silêncio (HTTP 400 com "72.956,00") e o aviso ia pro topo da ficha.
@@ -1365,6 +1394,32 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         </div>
         {ncmMsg && <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>{ncmMsg}</div>}
       </div>
+      {/* Chamado #34: consignação — dono do veículo e valor combinado */}
+      <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Consignação <span style={{ fontWeight: 400, color: C.espL }}>· veículo de terceiro deixado para venda</span></div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.esp }}>
+            <input id="campo-consignado" type="checkbox" checked={cons.consignado} onChange={(e) => setCons({ ...cons, consignado: e.target.checked })} />
+            Veículo consignado <AjudaCampo chave="revenda.veiculo.consignado" rota="/dashboard/revenda/veiculo" />
+          </label>
+          {cons.consignado && (<>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input id="campo-consignante_nome" value={cons.nome} onChange={(e) => setCons({ ...cons, nome: e.target.value })} placeholder="nome do consignante" style={{ ...inp, width: 200 }} />
+              <AjudaCampo chave="revenda.veiculo.consignante_nome" rota="/dashboard/revenda/veiculo" />
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input id="campo-consignante_documento" value={cons.documento} onChange={(e) => setCons({ ...cons, documento: e.target.value })} inputMode="numeric" placeholder="CPF/CNPJ" style={{ ...inp, width: 160 }} />
+              <AjudaCampo chave="revenda.veiculo.consignante_documento" rota="/dashboard/revenda/veiculo" />
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input id="campo-consignante_valor_combinado" value={cons.valor} onChange={(e) => setCons({ ...cons, valor: e.target.value })} inputMode="decimal" placeholder="valor combinado (R$)" style={{ ...inp, width: 160 }} />
+              <AjudaCampo chave="revenda.veiculo.consignante_valor_combinado" rota="/dashboard/revenda/veiculo" />
+            </label>
+          </>)}
+          <button type="button" disabled={consBusy} onClick={() => void salvarConsignacao()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: consBusy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: consBusy ? 'not-allowed' : 'pointer' }}>{consBusy ? 'Salvando…' : 'Salvar consignação'}</button>
+        </div>
+        {consMsg && <div style={{ fontSize: 12, marginTop: 6, color: consMsg.ok ? C.espM : C.red }}>{consMsg.t}</div>}
+      </div>
       <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Campos vazios não apagam o que já existe — só completam. Manual e chave reserva: &ldquo;—&rdquo; é não informado. Combustível, potência, cilindradas e ano podem vir do catálogo de modelos (tela Completar). O NCM sugerido vem da tabela TIPI por faixa (item 2c) — confirme com o seu contador.</div>
     </div>
   )
@@ -1373,6 +1428,21 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
 // Fotos do veículo · reusa o padrão da Central de Melhorias (bucket privado + anexo + ordem).
 // Várias fotos, uma principal (aparece no cartão do Pátio), ordem editável. Mobile: capture=environment
 // abre a câmera — o vendedor fotografa no pátio pelo celular. Bucket PRIVADO → URLs assinadas.
+// #33 (Alliance): o atributo `download` é ignorado em URL assinada de outro domínio (o navegador só abre a
+// imagem numa aba e, no celular, nada é baixado). Busca o arquivo e salva como blob; se falhar, abre a URL.
+async function baixarFoto(url: string, path: string) {
+  try {
+    const r = await fetch(url)
+    if (!r.ok) throw new Error(String(r.status))
+    const blob = await r.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = path.split('/').pop() || 'foto.jpg'
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000)
+  } catch { window.open(url, '_blank', 'noopener') }
+}
+
 type Foto = { id: string; storage_path: string; principal: boolean; ordem: number }
 function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: string; companyId: string; onErro: (m: string) => void; onMsg: (m: string) => void }) {
   const [fotos, setFotos] = useState<Foto[]>([])
@@ -1520,7 +1590,7 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
             <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 6 }}>Ainda não há fotos na galeria. Mostrando as <b>{fotosVist.length} foto(s) da vistoria</b> deste veículo — clique para abrir/baixar. Para usá-las no anúncio ou no cartão do Pátio, reenvie em “Adicionar fotos”.</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
               {fotosVist.map((fv) => (
-                <a key={fv.path} href={fv.url} target="_blank" rel="noreferrer" download style={{ display: 'block', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, textDecoration: 'none' }}>
+                <a key={fv.path} href={fv.url} target="_blank" rel="noreferrer" download onClick={(e) => { e.preventDefault(); void baixarFoto(fv.url, fv.path) }} style={{ display: 'block', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, textDecoration: 'none' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={fv.url} alt={fv.legenda ?? 'Foto da vistoria'} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
                   {fv.legenda ? <div style={{ fontSize: 10.5, color: C.espM, padding: '4px 6px' }}>{fv.legenda}</div> : null}

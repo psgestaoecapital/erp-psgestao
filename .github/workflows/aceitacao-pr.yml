@@ -216,22 +216,26 @@ jobs:
           URL0: ${{ secrets.TEST_SUPABASE_URL }}
           ANON0: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           SRK0: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          DBURL0: ${{ secrets.TEST_DATABASE_URL }}
           URL1: ${{ secrets.TEST_SUPABASE_URL_1 }}
           ANON1: ${{ secrets.TEST_SUPABASE_ANON_KEY_1 }}
           SRK1: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_1 }}
+          DBURL1: ${{ secrets.TEST_DATABASE_URL_1 }}
           URL2: ${{ secrets.TEST_SUPABASE_URL_2 }}
           ANON2: ${{ secrets.TEST_SUPABASE_ANON_KEY_2 }}
           SRK2: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_2 }}
+          DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
           PURL: ${{ secrets.SUPABASE_URL }}
           PANON: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           PSRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -u
+          DBURL=""
           if [ "$MODO_TESTES" = "true" ]; then
             case "${VAGA:-0}" in
-              1) URL="$URL1"; ANON="$ANON1"; SRK="$SRK1";;
-              2) URL="$URL2"; ANON="$ANON2"; SRK="$SRK2";;
-              *) URL="$URL0"; ANON="$ANON0"; SRK="$SRK0";;
+              1) URL="$URL1"; ANON="$ANON1"; SRK="$SRK1"; DBURL="$DBURL1";;
+              2) URL="$URL2"; ANON="$ANON2"; SRK="$SRK2"; DBURL="$DBURL2";;
+              *) URL="$URL0"; ANON="$ANON0"; SRK="$SRK0"; DBURL="$DBURL0";;
             esac
             echo "banco da aceitação: vaga ${VAGA:-0} (banco de testes)"
           else
@@ -240,7 +244,79 @@ jobs:
           fi
           [ -n "$URL" ] && [ -n "$SRK" ] || { echo "::error::banco da vaga ${VAGA:-0} sem segredo — abortado"; exit 1; }
           echo "::add-mask::$SRK"
-          { echo "SUPABASE_URL=$URL"; echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON"; echo "SUPABASE_SERVICE_ROLE_KEY=$SRK"; } >> "$GITHUB_ENV"
+          { echo "SUPABASE_URL=$URL"; echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON"; echo "SUPABASE_SERVICE_ROLE_KEY=$SRK"; echo "ACEITACAO_VAGA=${VAGA:-0}"; } >> "$GITHUB_ENV"
+          # URL do Postgres (Session pooler) da vaga — usada só para SINCRONIZAR as migrations pendentes antes dos testes
+          # (passo abaixo). Em produção fica vazia (não sincronizamos a produção). Normaliza aspas/espaço e mascara.
+          if [ -n "$DBURL" ]; then
+            DBURL="$(printf '%s' "$DBURL" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]\$//")"
+            echo "::add-mask::$DBURL"
+          fi
+          echo "TEST_DATABASE_URL=$DBURL" >> "$GITHUB_ENV"
+      # CEO 13/10 19:58: ANTES dos testes, barra banco CONTAMINADO por PR (ledger com versão > a da main = migration de PR
+      # não aprovada que sobrou de execução cancelada/fora do fluxo). Nunca testa em banco sujo: se contaminado, falha com
+      # "vaga N precisa de recriar" (exit 2) e o Montar recriar limpa. A restauração cirúrgica é um PR seguinte (validável
+      # no dado da vaga contaminada). Materializa o ledger-alvo de origin/main (nunca da PR, cujo checkout é este job).
+      - name: Guarda de contaminação (banco da vaga alinhado à main) — antes dos testes
+        if: vars.ACEITACAO_BANCO == 'testes'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          mdir=$(mktemp -d); mkdir -p "$mdir/supabase"
+          git archive origin/main -- supabase/migrations | tar -x -C "$mdir"
+          VAGA="${ACEITACAO_VAGA:-0}" MAIN_MIGR_DIR="$mdir/supabase/migrations" scripts/banco-testes/reconciliar-vaga.sh
+      # CEO 13/10: os bancos de teste ficavam ATRÁS da produção (o Montar da vaga espera na MESMA fila FIFO das aceitações
+      # e não ganhava a vez), então as PRs eram testadas num schema diferente da produção e geravam aceitação vermelha
+      # FALSA. Aqui, DEPOIS de reservar a vaga e ANTES dos testes, aplicamos as migrations pendentes da main no banco da
+      # vaga (idempotente — `supabase db push` compara o ledger e só aplica o que falta). Como este job roda no grupo de
+      # concorrência da vaga (cancel-in-progress:false), a sincronização fica sob a MESMA trava do Montar e das outras
+      # aceitações da vaga. Só no banco de testes; a produção nunca é sincronizada daqui.
+      - uses: supabase/setup-cli@v1
+        if: vars.ACEITACAO_BANCO == 'testes'
+        with:
+          version: 2.118.0
+      # CEO 14/10 — a aceitação SUJAVA a vaga: aplicava as migrations da PR e nada as desfazia. Agora: (1) sincroniza SÓ a
+      # main (ledger-alvo de origin/main, nunca a PR); (2) tira a FOTO da vaga nesse estado (schema _vaga_snapshot); (3) só
+      # então aplica as migrations da PR para o preview testar o schema novo. O passo "Desfazer migrations da PR" ao fim
+      # (if: always()) restaura a vaga à foto. Tudo no banco de testes; a produção nunca é tocada (Pilar 2, sem segredo).
+      - name: Sincronizar só-com-a-main → foto → aplicar migrations da PR — antes dos testes
+        if: vars.ACEITACAO_BANCO == 'testes'
+        run: |
+          set -euo pipefail
+          if [ -z "${TEST_DATABASE_URL:-}" ]; then
+            echo "::error::banco da vaga ${ACEITACAO_VAGA:-?} não sincronizou — segredo TEST_DATABASE_URL da vaga ausente"; exit 1
+          fi
+          case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          case "$TEST_DATABASE_URL" in *pooler.supabase.com*) ;; *) echo "::error::vaga ${ACEITACAO_VAGA:-?}: TEST_DATABASE_URL precisa ser Session pooler (*.pooler.supabase.com)"; exit 1;; esac
+          led() { psql "$1" -tAc "select count(*)||' · até '||coalesce(max(version),'—') from supabase_migrations.schema_migrations" 2>/dev/null || echo 'indisponível'; }
+          git fetch --no-tags --depth=1 origin main
+          mmain=$(mktemp -d)
+          git archive origin/main -- supabase | tar -x -C "$mmain"   # config.toml + migrations SÓ da main
+          antes=$(led "$TEST_DATABASE_URL")
+          echo "1) sincronizando a vaga ${ACEITACAO_VAGA:-0} SÓ com a main (db push idempotente)…"
+          if ! ( cd "$mmain" && supabase db push --include-all --db-url "$TEST_DATABASE_URL" ); then
+            echo "::error::banco da vaga ${ACEITACAO_VAGA:-?} não sincronizou com a main (supabase db push falhou) — aceitação abortada"; exit 1
+          fi
+          main_v=$(ls "$mmain"/supabase/migrations/*.sql 2>/dev/null | sed -E 's#.*/([0-9]+)_.*#\1#' | sort | tail -1)
+          pos_main=$(led "$TEST_DATABASE_URL")
+          echo "2) tirando a FOTO da vaga (estado main, antes das migrations da PR)…"
+          VAGA="${ACEITACAO_VAGA:-0}" MAIN_MIGR_DIR="$mmain/supabase/migrations" CHECKOUT_MIGR_DIR="supabase/migrations" \
+            scripts/banco-testes/vaga-snapshot.sh snapshot || echo "::warning::foto _vaga_snapshot falhou — o 'Desfazer' ao fim será no-op e a guarda de contaminação cobre"
+          echo "3) aplicando as migrations da PR (checkout) para o preview testar o schema novo…"
+          if ! supabase db push --include-all --db-url "$TEST_DATABASE_URL"; then
+            echo "::error::migrations da PR não aplicaram no banco da vaga (supabase db push falhou) — aceitação abortada"; exit 1
+          fi
+          depois=$(led "$TEST_DATABASE_URL")
+          {
+            echo "### Vaga ${ACEITACAO_VAGA:-0}: sync só-da-main → foto → migrations da PR"
+            echo ""
+            echo "| ledger | valor |"
+            echo "| --- | --- |"
+            echo "| vaga ANTES | $antes |"
+            echo "| após sync da main (= foto) | $pos_main |"
+            echo "| após migrations da PR | $depois |"
+            echo "| main (origin/main) | até ${main_v:-—} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "vaga ${ACEITACAO_VAGA:-0}: antes=[$antes] foto=[$pos_main] com-PR=[$depois] main=[${main_v:-—}]"
       # @pos-migration (CEO 26/09): teste que depende de migration só é verdade DEPOIS do merge (o deploy-migrations
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
@@ -283,6 +359,33 @@ jobs:
             echo "### @pos-migration no preview: vermelho (informativo, não bloqueia) — veredito em produção após o merge" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+      # CEO 14/10: ao FIM (sucesso OU falha), DESFAZ as migrations da PR restaurando a vaga à FOTO tirada antes delas
+      # (DROP do que a PR criou, reverte função/view alterada, apaga linhas de catálogo inseridas, remove as versions da PR
+      # do ledger) e verifica no dado que a vaga == foto. continue-on-error nesta 1ª implantação: a limpeza é tentada sempre
+      # (impede o acúmulo de schema de PR); se não convergir, emite o motivo e a guarda de contaminação abaixo decide.
+      - name: Desfazer migrations da PR na vaga (restaurar à foto) — ao fim
+        if: always() && vars.ACEITACAO_BANCO == 'testes'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          [ -n "${TEST_DATABASE_URL:-}" ] || { echo "vaga não selecionada — nada a desfazer"; exit 0; }
+          git fetch --no-tags --depth=1 origin main
+          mdir=$(mktemp -d); mkdir -p "$mdir/supabase"
+          git archive origin/main -- supabase/migrations | tar -x -C "$mdir"
+          VAGA="${ACEITACAO_VAGA:-0}" MAIN_MIGR_DIR="$mdir/supabase/migrations" CHECKOUT_MIGR_DIR="supabase/migrations" \
+            scripts/banco-testes/vaga-snapshot.sh restaurar
+      # CEO 13/10 19:58: depois de desfazer, reconfere que a vaga não ficou contaminada por PR (ledger com versão > a da
+      # main). Se algo sobrou, falha com "vaga N precisa de recriar" para a próxima PR não herdar schema não aprovado.
+      # Materializa o ledger-alvo de origin/main (nunca da PR).
+      - name: Guarda de contaminação (banco da vaga alinhado à main) — ao fim
+        if: always() && vars.ACEITACAO_BANCO == 'testes'
+        run: |
+          set -euo pipefail
+          [ -n "${TEST_DATABASE_URL:-}" ] || { echo "vaga não selecionada neste run — nada a reconferir"; exit 0; }
+          git fetch --no-tags --depth=1 origin main
+          mdir=$(mktemp -d); mkdir -p "$mdir/supabase"
+          git archive origin/main -- supabase/migrations | tar -x -C "$mdir"
+          VAGA="${ACEITACAO_VAGA:-0}" MAIN_MIGR_DIR="$mdir/supabase/migrations" scripts/banco-testes/reconciliar-vaga.sh
       # CEO 07/10: libera a trava da demo SEMPRE (cancelamento/timeout não rodam o global-teardown; a lease ficava até
       # 25 min e a aceitação seguinte esperava sem rodar teste).
       - name: Soltar a trava da demo (sempre)
