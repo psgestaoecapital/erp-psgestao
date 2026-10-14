@@ -158,6 +158,7 @@ async function handle(req: NextRequest) {
 
     // 4) coletar colaboradores
     let qtdColab = 0
+    const syncEm = new Date().toISOString()
     try {
       const colabs = await adapter.listarColaboradores(cred)
       qtdColab = colabs.length
@@ -167,12 +168,20 @@ async function handle(req: NextRequest) {
           cpf: c.cpf, matricula: c.matricula, nome: c.nome, email: c.email,
           funcao: c.funcao, departamento: c.departamento, equipe: c.equipe,
           unidade_negocio: c.unidade_negocio, admissao: c.admissao, pis: c.pis,
-          raw: c.raw, sincronizado_em: new Date().toISOString(),
+          raw: c.raw, sincronizado_em: syncEm, ativo: true, desligado_em: null,
         }))
         const { error } = await supabaseAdmin
           .from('ind_ponto_colaborador')
           .upsert(rows, { onConflict: 'company_id,provider,cpf' })
         if (error) throw error
+        // Chamado #116: quem existia na planta e NAO veio nesta coleta saiu do ponto -> inativo.
+        // So roda com coleta nao vazia (resposta vazia do provider nunca desativa ninguem).
+        const { error: errInat } = await supabaseAdmin
+          .from('ind_ponto_colaborador')
+          .update({ ativo: false, desligado_em: syncEm })
+          .eq('company_id', companyId).eq('plant_id', plantId).eq('provider', provider)
+          .lt('sincronizado_em', syncEm).eq('ativo', true)
+        if (errInat) throw errInat
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
