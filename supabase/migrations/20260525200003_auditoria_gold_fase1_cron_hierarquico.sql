@@ -9,16 +9,17 @@
 -- Agora é idempotente e NÃO recria os 4 jobs (recriá-los religaria chamadas pagas de IA sem decisão
 -- do CEO — RD-42). Só remove o cron antigo se ele ainda existir.
 --
--- Guard pg_cron (14/10): o banco de testes das vagas NÃO tem a extensão pg_cron, então o schema `cron`
--- não existe. Sem o `to_regclass`, o "SELECT 1 FROM cron.job" quebra o `supabase db push --include-all`
--- da vaga com `relation "cron.job" does not exist` (42P01) e aborta a aceitação de TODA PR com migration.
--- `to_regclass` devolve NULL (não lança) quando a relação/esquema não existe; em produção (com pg_cron) o
--- comportamento é idêntico ao anterior.
+-- Guard pg_cron (14/10, corrigido): o banco de testes das vagas NÃO tem a extensão pg_cron, então o schema
+-- `cron` não existe. Em PL/pgSQL a condição do IF é PLANEJADA inteira antes de executar, então um
+-- `EXISTS (SELECT 1 FROM cron.job ...)` dentro do IF quebra o `supabase db push` no PLAN com
+-- `relation "cron.job" does not exist` (42P01) MESMO protegido por `to_regclass` (o AND não faz curto-circuito
+-- no plan). Por isso a referência a cron.job fica em SQL DINÂMICO (EXECUTE), planejado só em runtime e apenas
+-- quando `to_regclass('cron.job')` não é NULL — provado em produção (schema inexistente: forma dinâmica passa,
+-- forma estática lança 42P01). Em produção (com pg_cron) desagenda o cron antigo se existir; idêntico ao antes.
 DO $$
 BEGIN
-  IF to_regclass('cron.job') IS NOT NULL
-     AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'insight-auditor-4x-dia') THEN
-    PERFORM cron.unschedule('insight-auditor-4x-dia');
+  IF to_regclass('cron.job') IS NOT NULL THEN
+    EXECUTE $q$ SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'insight-auditor-4x-dia' $q$;
   END IF;
 END
 $$;
