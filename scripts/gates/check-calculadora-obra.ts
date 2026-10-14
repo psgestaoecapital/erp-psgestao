@@ -23,6 +23,12 @@ else {
   ok(q('guia') === 9, `guias = ⌈12,5×2×1,05÷3⌉ = 9 (veio ${q('guia')})`)
   ok(q('montante') === 21, `montantes M70 @600 = ⌈(12,5÷0,6)×1,05×2,8÷3⌉ = 21 (veio ${q('montante')})`)
 }
+const comLa = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 12.5, peDireito: 2.8, vaos: 0.8 * 2.1, comLa: true })
+ok(comLa.ok && comLa.itens.find(i => i.chave === 'la')?.quantidade === 5, 'parede com lã 33,32 m²: ⌈33,32×1,05÷7,2⌉ = 5 rolos')
+ok(p.ok && !p.itens.some(i => i.chave === 'la'), 'parede sem lã não traz o item lã')
+let travouLa = 0
+for (let i = 4; i <= 92; i++) { const r = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 10, peDireito: Math.round(i * 5) / 100, comLa: true }); if (!r.ok || r.itens.some(x => !(x.quantidade > 0))) travouLa++ }
+ok(travouLa === 0, 'parede com lã: nenhum pé-direito de 0,20 a 4,60 m trava')
 const forro = calcularForroF530(REGRAS_FORRO_F530, { largura: 3, comprimento: 4 })
 ok(forro.ok && forro.itens.find(i => i.chave === 'chapa')!.quantidade === 6, 'forro F530 3×4 m: 12 m² → 6 chapas')
 ok(forro.ok && forro.itens.find(i => i.chave === 'tabica')!.quantidade === 5, 'forro F530 3×4 m: tabica pelo perímetro real = 5 barras')

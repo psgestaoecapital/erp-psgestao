@@ -10,6 +10,7 @@ export type RegrasParede = {
   parafusoPorM2: { '0.6': number; '0.4': number; '0.6d': number; '0.4d': number }
   massaKgM2: number; fitaMM2: number
   baldeKg: number; rolofitaM: number; comprimentoBarra: number; rolobandaM: number
+  laRoloM2: number
 }
 export type RegrasForroF530 = {
   tipo: 'forro_f530'
@@ -52,6 +53,7 @@ export const REGRAS_PAREDE_SIMPLES_ST: RegrasParede = {
   ],
   parafusoPorM2: { '0.6': 22, '0.4': 25, '0.6d': 30, '0.4d': 33 },
   massaKgM2: 0.94, fitaMM2: 3, baldeKg: 22, rolofitaM: 150, comprimentoBarra: 3, rolobandaM: 10,
+  laRoloM2: 7.2, // lã mineral/PET: rolo de 1,20 × 6,00 m — referência de mercado a validar
 }
 
 export const REGRAS_FORRO_F530: RegrasForroF530 = {
@@ -82,7 +84,7 @@ export function faixaDoPeDireito(faixas: FaixaPeDireito[], pd: number): FaixaPeD
   return achada
 }
 
-export type EntradaParede = { comprimento: number; peDireito: number; vaos?: number }
+export type EntradaParede = { comprimento: number; peDireito: number; vaos?: number; comLa?: boolean }
 export type EntradaForro = { largura: number; comprimento: number; perimetro?: number }
 
 export function calcularParede(r: RegrasParede, e: EntradaParede): Resultado {
@@ -109,6 +111,8 @@ export function calcularParede(r: RegrasParede, e: EntradaParede): Resultado {
     item('fita', 'Fita para junta', `rolo ${r.rolofitaM} m`, (area * r.fitaMM2) / r.rolofitaM,
       `${f(area)} m² × ${f(r.fitaMM2)} m/m² ÷ ${r.rolofitaM} m por rolo`),
   ]
+  if (e.comLa) itens.splice(4, 0, item('la', 'Lã mineral (isolamento do miolo)', `rolo ${f(r.laRoloM2)} m²`, (area * p) / r.laRoloM2,
+    `${f(area)} m² × perda ${f(p)} ÷ ${f(r.laRoloM2)} m² por rolo`))
   return { ok: true, area, itens, avisos: [] }
 }
 
