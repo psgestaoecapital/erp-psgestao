@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
   const forcaFim = url.searchParams.get('end_date')
 
   // empresas com provider de ponto ativo
-  let q = supa.from('ind_ponto_provider_config').select('company_id, provider').eq('ativo', true)
+  let q = supa.from('ind_ponto_provider_config').select('company_id, plant_id, provider').eq('ativo', true)
   if (soCompany) q = q.eq('company_id', soCompany)
   const { data: cfgs, error: eCfg } = await q
   if (eCfg) return NextResponse.json({ ok: false, erro: eCfg.message }, { status: 500 })
@@ -117,8 +117,27 @@ export async function GET(req: NextRequest) {
       cursor = addDias(chunkFim, 1)
     }
 
+    // Chamado #116 (Frioeste): o cadastro de colaboradores (ind_ponto_colaborador) ficou parado em 01/09
+    // porque só as batidas (sync-diario) eram atualizadas. Atualiza também o cadastro, 1 dia só (a rota
+    // /sync grava colaboradores e horas do período; o período curto evita o endpoint lento de horas).
+    let colaboradores: number | null = null
+    const plantId = cfg.plant_id as string | null
+    if (plantId) {
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/industrial/ponto/sync?company_id=${companyId}&plant_id=${plantId}&begin_date=${end}&end_date=${end}`,
+          { method: 'POST', headers: { 'x-ping-secret': pingSecret } },
+        )
+        const j = await res.json().catch(() => ({}))
+        if (res.ok && j.ok) colaboradores = Number(j.colaboradores || 0)
+        else erros.push(`colaboradores: ${j.erro || res.status}`)
+      } catch (e) {
+        erros.push(`colaboradores: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+
     resultados.push({
-      company_id: companyId, begin, end, dias: diasTotal, batidas: batidasTotal,
+      company_id: companyId, begin, end, dias: diasTotal, batidas: batidasTotal, colaboradores,
       status: erros.length ? 'parcial' : 'ok', erros: erros.slice(0, 5),
     })
   }
