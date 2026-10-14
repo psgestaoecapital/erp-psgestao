@@ -29,6 +29,12 @@ ok(p.ok && !p.itens.some(i => i.chave === 'la'), 'parede sem lã não traz o ite
 let travouLa = 0
 for (let i = 4; i <= 92; i++) { const r = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 10, peDireito: Math.round(i * 5) / 100, comLa: true }); if (!r.ok || r.itens.some(x => !(x.quantidade > 0))) travouLa++ }
 ok(travouLa === 0, 'parede com lã: nenhum pé-direito de 0,20 a 4,60 m trava')
+const dupla = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 12.5, peDireito: 2.8, vaos: 0.8 * 2.1, camadas: 2 })
+ok(dupla.ok && dupla.itens.find(i => i.chave === 'chapa')?.quantidade === 65, 'parede com 2 camadas por face: ⌈33,32×4×1,05÷2,16⌉ = 65 chapas')
+ok(dupla.ok && dupla.itens.find(i => i.chave === 'guia')?.quantidade === 9, 'parede dupla: guias não mudam')
+let travouD = 0
+for (let i = 4; i <= 92; i++) { const r = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 10, peDireito: Math.round(i * 5) / 100, camadas: 2, comLa: true }); if (!r.ok || r.itens.some(x => !(x.quantidade > 0))) travouD++ }
+ok(travouD === 0, 'parede dupla: nenhum pé-direito de 0,20 a 4,60 m trava')
 const forro = calcularForroF530(REGRAS_FORRO_F530, { largura: 3, comprimento: 4 })
 ok(forro.ok && forro.itens.find(i => i.chave === 'chapa')!.quantidade === 6, 'forro F530 3×4 m: 12 m² → 6 chapas')
 ok(forro.ok && forro.itens.find(i => i.chave === 'tabica')!.quantidade === 5, 'forro F530 3×4 m: tabica pelo perímetro real = 5 barras')
