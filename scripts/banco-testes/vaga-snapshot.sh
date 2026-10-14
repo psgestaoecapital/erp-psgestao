@@ -52,7 +52,7 @@ union all select 'grant-rel '||c.relname||'|'||md5(coalesce(array_to_string(c.re
   join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','v','m','S')
 union all select 'grant-fn '||p.oid::regprocedure::text||'|'||md5(coalesce(array_to_string(p.proacl,','),'')) from pg_proc p
   join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prokind in ('f','p','w')
-union all select 'type '||t.typname||'|'||t.typtype||'/'||coalesce((select string_agg(e.enumlabel,',' order by e.enumsortorder) from pg_enum e where e.enumtypid=t.oid),'')
+union all select 'type '||t.typname||'|'||t.typtype::text||'/'||coalesce((select string_agg(e.enumlabel,',' order by e.enumsortorder) from pg_enum e where e.enumtypid=t.oid),'')
   from pg_type t join pg_namespace n on n.oid=t.typnamespace where n.nspname='public' and t.typtype in ('e','c','d')
 union all select 'sequence '||c.relname||'|' from pg_class c
   join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='S'"

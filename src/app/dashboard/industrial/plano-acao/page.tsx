@@ -681,10 +681,11 @@ function BtnMini({ children, onClick, testid }: { children: React.ReactNode; onC
   return <button type="button" data-testid={testid} onClick={onClick} style={{ padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', background: '#FFF', color: ESP, border: `0.5px solid ${LINE}` }}>{children}</button>
 }
 
+// Chamado #2862: clicar fora NÃO fecha (perdia o preenchimento) e o overlay fica abaixo do cartão do "?" (z 130).
 function Modal({ titulo, children, onFechar }: { titulo: string; children: React.ReactNode; onFechar: () => void }) {
   return (
-    <div onClick={onFechar} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.35)', zIndex: 150, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px', overflowY: 'auto' }}>
-      <div onClick={(e) => e.stopPropagation()} data-testid="plano-form" style={{ background: '#FFF', borderRadius: 14, padding: 20, width: '100%', maxWidth: 640, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+    <div data-testid="plano-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.35)', zIndex: 120, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px', overflowY: 'auto' }}>
+      <div data-testid="plano-form" style={{ background: '#FFF', borderRadius: 14, padding: 20, width: '100%', maxWidth: 640, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, color: ESP, margin: 0 }}>{titulo}</h2>
           <button type="button" onClick={onFechar} aria-label="Fechar" style={{ all: 'unset', cursor: 'pointer', fontSize: 20, color: MUT, lineHeight: 1 }}>×</button>
