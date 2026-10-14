@@ -93,9 +93,13 @@ export default function MarcarPagoModal({
     const params = tipo === 'pagar'
       ? { p_pagar_id: itemId, p_data_pagamento: dataPag, p_conta_bancaria_id: contaId, p_forma_pagamento: forma, p_valor_pago: Number(valorPago) }
       : { p_receber_id: itemId, p_data_pagamento: dataPag, p_conta_bancaria_id: contaId, p_forma_pagamento: forma, p_valor_pago: Number(valorPago) }
-    const { error } = await supabase.rpc(rpcName, params)
+    const { data, error } = await supabase.rpc(rpcName, params)
     setLoading(false)
     if (error) { setErro(error.message); return }
+    // a função devolve { sucesso:false, erro } para recusas de regra (valor zerado, já paga, pago a mais);
+    // antes isso era ignorado e o modal fechava como se tivesse baixado
+    const r = data as { sucesso?: boolean; erro?: string } | null
+    if (r && r.sucesso === false) { setErro(r.erro ?? 'Não foi possível confirmar a baixa.'); return }
     onSucesso()
     onClose()
   }
@@ -157,6 +161,12 @@ export default function MarcarPagoModal({
               Pagamento parcial permitido · default é o valor total
             </div>
           </Field>
+
+          {contas.length === 0 && (
+            <div style={{ background: '#FFF6E5', color: '#7A4B00', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+              Nenhuma conta bancária ativa foi encontrada para esta empresa. Cadastre uma conta em Financeiro › Contas bancárias para confirmar a baixa.
+            </div>
+          )}
 
           {erro && (
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
