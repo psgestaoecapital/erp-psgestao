@@ -36,6 +36,11 @@ BEGIN
     RETURN jsonb_build_object('sucesso', false, 'erro', 'sem_acesso');
   END IF;
 
+  -- aplicar (exclusão em massa) só empresa a empresa, depois de validar o relatório com o Rodrigo
+  IF p_aplicar AND p_company_id IS NULL THEN
+    RETURN jsonb_build_object('sucesso', false, 'erro', 'aplicar_exige_company_id');
+  END IF;
+
   FOR v_emp IN
     SELECT DISTINCT company_id FROM omie_imports
     WHERE import_type IN ('contas_pagar','contas_receber')
