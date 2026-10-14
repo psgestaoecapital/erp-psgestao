@@ -17,6 +17,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Plus, Search, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight,
@@ -1713,6 +1714,47 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null)
   const [searchingClientes, setSearchingClientes] = useState(false)
+  // cadastro inline (#2910): mesmo fluxo da Nova OS (#2260) — fn_cliente_criar_inline + /api/cnpj-lookup
+  const [cadAberto, setCadAberto] = useState(false)
+  const [cadNome, setCadNome] = useState('')
+  const [cadDoc, setCadDoc] = useState('')
+  const [cadTel, setCadTel] = useState('')
+  const [cadSalvando, setCadSalvando] = useState(false)
+  const [cadMsg, setCadMsg] = useState<string | null>(null)
+
+  function abrirCadastroCliente() {
+    const t = clienteBusca.trim()
+    const soDig = t.replace(/\D/g, '')
+    if (soDig.length === 11 || soDig.length === 14) { setCadDoc(soDig); setCadNome('') } else { setCadNome(t); setCadDoc('') }
+    setCadTel(''); setCadMsg(null); setCadAberto(true)
+  }
+
+  async function buscarCnpjCadastro(doc: string) {
+    if (doc.length !== 14) return
+    try {
+      const r = await fetch(`/api/cnpj-lookup?cnpj=${doc}`)
+      if (!r.ok) { setCadMsg(r.status === 404 ? 'CNPJ não encontrado — preencha o nome à mão.' : 'Consulta externa indisponível — preencha o nome à mão.'); return }
+      const d = await r.json() as { razao_social?: string }
+      if (d.razao_social && !cadNome.trim()) setCadNome(d.razao_social)
+    } catch { setCadMsg('Consulta externa indisponível — preencha o nome à mão.') }
+  }
+
+  async function salvarCadastroCliente() {
+    if (!cadNome.trim()) { setCadMsg('Informe o nome do cliente.'); return }
+    setCadSalvando(true); setCadMsg(null)
+    const extra: Record<string, string> = {}
+    if (cadTel.trim()) extra.telefone = cadTel.trim()
+    const doc = cadDoc.replace(/\D/g, '')
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', {
+      p_company_id: companyId, p_nome: cadNome.trim(), p_cpf_cnpj: doc || null,
+      p_extra: Object.keys(extra).length ? extra : null,
+    })
+    setCadSalvando(false)
+    if (error) { setCadMsg('❌ ' + error.message); return }
+    setClienteSel({ id: data as string, razao_social: cadNome.trim(), nome_fantasia: null, cnpj_cpf: doc || null, email: null, telefone: cadTel.trim() || null })
+    setCadAberto(false)
+    setStep('itens')
+  }
   // FEAT-OS-ONDA1B-EDITOR-NO-OTC-v1 · itens polimorficos via shared editor
   const [itens, setItens] = useState<EditorItem[]>([])
   const [observacoes, setObservacoes] = useState('')
@@ -1885,6 +1927,36 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
             )}
             {clienteBusca.trim().length >= 2 && !searchingClientes && clientes.length === 0 && (
               <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>Nenhum cliente encontrado. Verifique o termo de busca.</p>
+            )}
+            {!cadAberto && clienteBusca.trim().length >= 2 && !searchingClientes && clientes.length === 0 && (
+              <button type="button" onClick={abrirCadastroCliente} data-testid="otc-novo-cadastrar-cliente"
+                style={{ width: '100%', textAlign: 'left', background: C.cream, border: `1px dashed ${C.border}`, borderRadius: 8, padding: 10, cursor: 'pointer', minHeight: 44, fontSize: 13, color: C.espresso }}>
+                + Cadastrar novo cliente “{clienteBusca.trim()}”
+              </button>
+            )}
+            {cadAberto && (
+              <div style={{ padding: 10, background: C.cream, borderRadius: 8, display: 'grid', gap: 8 }} data-testid="otc-novo-cliente-inline">
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Nome / razão social</label><AjudaCampo chave="otc.novo.cliente_novo_nome" rota="/dashboard/commerce/otc" />
+                  <input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>CPF / CNPJ</label><AjudaCampo chave="otc.novo.cliente_novo_doc" rota="/dashboard/commerce/otc" />
+                  <input value={cadDoc} onChange={(e) => setCadDoc(e.target.value)} onBlur={() => void buscarCnpjCadastro(cadDoc.replace(/\D/g, ''))} inputMode="numeric" style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Telefone</label><AjudaCampo chave="otc.novo.cliente_novo_tel" rota="/dashboard/commerce/otc" />
+                  <input value={cadTel} onChange={(e) => setCadTel(e.target.value)} inputMode="tel" style={inp} />
+                </div>
+                {cadMsg && <div style={{ fontSize: 12, color: C.espressoM }}>{cadMsg}</div>}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={() => void salvarCadastroCliente()} disabled={cadSalvando} data-testid="otc-novo-cliente-salvar"
+                    style={{ flex: 1, minHeight: 44, borderRadius: 8, border: 'none', background: C.espresso, color: C.white, cursor: 'pointer', fontWeight: 600 }}>
+                    {cadSalvando ? 'Salvando…' : 'Cadastrar e vincular'}
+                  </button>
+                  <button type="button" onClick={() => setCadAberto(false)} style={{ minHeight: 44, borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', cursor: 'pointer', padding: '0 14px' }}>Cancelar</button>
+                </div>
+              </div>
             )}
           </div>
         ) : (
