@@ -131,6 +131,7 @@ function Criar({ companyId }: { companyId: string }) {
       const { data } = await supabase.from('erp_banco_provider_config')
         .select('juros_pct, multa_pct, dias_juros, dias_multa')
         .eq('company_id', companyId).eq('ativo', true).eq('cap_boleto', true)
+        .order('boleto_responsavel', { ascending: false, nullsFirst: false })
         .order('updated_at', { ascending: false }).limit(1)
       if (!vivo) return
       setTaxa(((data ?? [])[0] as TaxaAtraso | undefined) ?? null)

@@ -346,3 +346,29 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
   `SELECT fn_agente_mensagem_aguardar('<id>', '<seu-identificador>', '<motivo>');` — o despertador não redispara enquanto valer;
   a marca cai sozinha quando status, resposta ou PR da mensagem mudam (ou com motivo vazio).
 - Sessões abertas nas últimas 24 h por agente: `fn_agente_sessoes_24h()`.
+
+# Tarefa longa RETOMÁVEL por checkpoint (CEO 13/10) — vale para TODOS os Codes
+O Code roda em ciclos curtos e pode morrer no meio de uma tarefa longa (rebase, resolução de conflito, PR
+multi-arquivo). Para a próxima rodada CONTINUAR de onde parou — em vez de reiniciar ou abandonar — grave o progresso
+no checkpoint da própria mensagem da caixa (`erp_agente_mensagem.checkpoint` / `etapa`).
+
+1. **Ao pegar uma tarefa, LEIA o checkpoint PRIMEIRO.** A `fn_agente_caixa` já devolve `etapa` e `checkpoint` de cada
+   mensagem (ou `fn_agente_checkpoint_ler('<id>','<seu-identificador>')`). Se `checkpoint <> {}` → **retome do `proximo`,
+   não reinicie.**
+2. **Grave o checkpoint a cada passo seguro** (não só no fim):
+   `SELECT fn_agente_checkpoint_gravar('<id>', '<seu-identificador>', '<etapa>', '<jsonb>'::jsonb);`
+   com `{ etapa, feito: [...], proximo, dados }`. Isso também **renova a lease** (o passo longo não é declarado morto no
+   meio) e conta como **progresso** (zera `redisparos`), então o despertador não penaliza uma tarefa que avança.
+3. **Não marque `concluida` enquanto não terminar 100%.** Tarefa parcial fica `em_andamento` COM o checkpoint preenchido;
+   o despertador re-enfileira a órfã e o checkpoint é **preservado** (nada o zera no re-enfileiramento).
+4. **YIELD gracioso:** como você não sabe de antemão quando a rodada acaba, **checkpoint depois de CADA passo seguro** e
+   nunca morra no meio de um passo deixando estado on-disk corrompido (ex.: um rebase com conflito sem resolver). Assim,
+   onde quer que a rodada termine, o último checkpoint é um ponto consistente.
+5. **IDEMPOTÊNCIA — cada passo seguro para re-rodar:**
+   - rebase/merge: **antes de refazer, cheque se já aplicou** (`git rev-parse`, merge-base, `git status` limpo); um rebase
+     já feito não se refaz.
+   - arquivo: antes de reaplicar um patch, cheque se o conteúdo já está lá (o passo re-roda sem duplicar).
+Escopo inicial: **rebase/resolução de conflito** e **PR multi-arquivo**. Funções: `fn_agente_checkpoint_gravar`,
+`fn_agente_checkpoint_ler` (migration 20261013120030; só canal de serviço). Gate: `scripts/gates/check-agente-checkpoint.ts`.
+> ABERTO (Eng. Chefe): o sinal exato de "perto do limite de tempo da rodada" depende da runtime e NÃO é assumido aqui —
+> a doutrina é checkpointar a cada passo. Se a runtime expuser um sinal de tempo restante, o Eng. Chefe define como usá-lo.

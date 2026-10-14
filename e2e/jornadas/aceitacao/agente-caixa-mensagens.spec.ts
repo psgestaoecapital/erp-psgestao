@@ -4,7 +4,7 @@
 // requer_ok_ceo que nunca recebe o OK. Tudo de teste sai arquivado (nada é apagado).
 
 import { test, expect } from '../../support/fixtures'
-import { rpc, registrarJornada, obterSessionPayload } from '../../support/api'
+import { rpc, registrarJornada, obterSessionPayload, IS_PROD } from '../../support/api'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
@@ -15,6 +15,10 @@ type Caixa = { ok: boolean; mensagens: { id: string; status: string; pode_execut
 type Resp = { ok: boolean; erro?: string; status?: string }
 
 test.describe('Caixa de mensagens dos agentes', () => {
+  // ISOLAMENTO (Pilar 2): erp_agente_mensagem é GLOBAL (sem isolamento por empresa) e estes testes ESCREVEM nas caixas
+  // de agentes REAIS (andre-code, stephany-code, gilberto-chamados). Contra a produção isso soterra a caixa real — por
+  // isso a prova é só no banco de testes da vaga. Em produção o veredito pula (nunca grava a caixa real). Incidente 13/10.
+  test.skip(IS_PROD, 'caixa de agentes é tabela global — a aceitação só escreve no banco de testes, nunca em produção')
   const criadas: string[] = []
 
   test.afterEach(async ({}, testInfo) => {
