@@ -62,6 +62,11 @@ if (!temFerramentas()) {
     x = rodar([{ n: 1, migration: true }, { n: 2, migration: true }, { n: 3 }], true)
     ok(merges(x.escritas).join() === '3' && /#2 tem migration: espera a main/.test(x.log),
       'cenário: main ocupada (deploy-migrations rodando) → PRs com migration esperam; a SEM migration é mergeada')
+    x = rodar([{ n: 1, migration: true }, { n: 2, migration: true, migrationCorrige: true }])
+    ok(merges(x.escritas).join() === '2' && /não espera a main/.test(x.log),
+      'cenário 14/10 (#2542): deploy da main vermelho + PR que só MODIFICA a migration que o quebrou → mergeada; outra migration (adicionada) continua esperando')
+    x = rodar([{ n: 1, migration: true }], true)
+    ok(merges(x.escritas).length === 0, 'cenário 14/10: sem deploy vermelho a regra segue (migration adicionada espera a main)')
     x = rodar([{ n: 1, migration: true, migrationBaixa: true }, { n: 2, migration: true }])
     ok(merges(x.escritas).join() === '2' && /renumerada\(s\) pela fila/.test(x.log)
       && x.escritas.some((l) => /^PUT repos\/o\/r\/contents\/supabase\/migrations\/\d{14}_m\.sql .*branch=pr1/.test(l))
