@@ -221,6 +221,29 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // #1939 (Umuarama): a lista guarda só o código da categoria ("4.01"); busca o nome no plano de contas
+  // (da empresa + padrão) para mostrar "4.01 · Nome" no filtro, na coluna e na busca.
+  const [catNomes, setCatNomes] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!companyId) { setCatNomes({}); return }
+    let alive = true
+    supabase
+      .from('erp_plano_contas')
+      .select('codigo, descricao, company_id')
+      .or(`company_id.eq.${companyId},company_id.is.null`)
+      .limit(3000)
+      .then(({ data }) => {
+        if (!alive) return
+        const m: Record<string, string> = {}
+        // padrão primeiro, conta da empresa por cima
+        ;(data ?? []).filter((r) => !r.company_id).forEach((r) => { m[r.codigo] = r.descricao })
+        ;(data ?? []).filter((r) => r.company_id).forEach((r) => { m[r.codigo] = r.descricao })
+        setCatNomes(m)
+      })
+    return () => { alive = false }
+  }, [companyId])
+  const rotuloCategoria = (c: string | null | undefined) => (c ? (catNomes[c] ? `${c} · ${catNomes[c]}` : c) : '')
+
   // cap_extrato: sabe se a empresa tem integracao de extrato bancario ativa.
   // Habilita o botao "Conciliar" tanto em Contas a Pagar quanto Receber.
   useEffect(() => {
@@ -427,7 +450,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       if (q) {
         // busca AMPLA (acento-insensitive): nome, descrição, nº do título, forma, categoria e valor;
         // + CPF/CNPJ do cadastro normalizado (só dígitos, ≥3) — acha com OU sem pontuação.
-        const hay = norm(`${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''} ${r.forma_pagamento ?? ''} ${r.categoria ?? ''} ${fmtBRL(r.valor_documento)} ${r.valor_documento}`)
+        const hay = norm(`${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''} ${r.forma_pagamento ?? ''} ${r.categoria ?? ''} ${catNomes[r.categoria ?? ''] ?? ''} ${fmtBRL(r.valor_documento)} ${r.valor_documento}`)
         const docDigitos = (r.documento ?? '').replace(/\D/g, '')
         const achouDoc = qDigitos.length >= 3 && docDigitos.includes(qDigitos)
         if (!hay.includes(qn) && !achouDoc) return false
@@ -446,7 +469,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       })
     }
     return filtrado
-  }, [data, busca, categoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax])
+  }, [data, busca, categoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax, catNomes])
 
   // GE-CARDS-FILTRO (bug André): os KPIs do topo vinham do fn_ge_listagem_v2 (período inteiro, SEM os
   // filtros client-side de categoria/conta/busca/coluna) — enquanto a LISTA já era filtrada, então os
@@ -482,7 +505,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const statusMap: Record<string, string> = { todos: 'Todos', avencer: 'A vencer', vencidos: 'Vencidos', hoje: 'Hoje', pagos: labels.pagosLabel, conciliado: 'Conciliado', agendado: 'Agendado', incluido_remessa: 'Incluído na remessa' }
     const statusTxt = statusSel.length ? statusSel.map((s) => statusMap[s]).join(' + ') : 'Todos'
     const partes = [`Periodo ${fmtData(dataInicio)} a ${fmtData(dataFim)}`, `Status: ${statusTxt}`]
-    if (categoria) partes.push(`Categoria: ${categoria}`)
+    if (categoria) partes.push(`Categoria: ${rotuloCategoria(categoria)}`)
     if (busca.trim()) partes.push(`Busca: "${busca.trim()}"`)
     if (fPessoa.trim()) partes.push(`${tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}: ${fPessoa.trim()}`)
     if (fForma) partes.push(`Forma: ${fForma}`)
@@ -490,7 +513,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     if (fValorMax.trim()) partes.push(`Valor <= R$ ${fValorMax.trim()}`)
     if (contasSel.size > 0) partes.push(`Conta: ${Array.from(contasSel).join(', ')}`)
     return partes.join(' · ')
-  }, [dataInicio, dataFim, statusSel, categoria, busca, fPessoa, fForma, fValorMin, fValorMax, contasSel, labels, tipo])
+  }, [dataInicio, dataFim, statusSel, categoria, busca, fPessoa, fForma, fValorMin, fValorMax, contasSel, labels, tipo, catNomes])
 
   const kpisExport = useMemo(() => data ? [
     { label: labels.vencidosLabel, valor: kpisFiltrados.vencidos.valor, qtd: kpisFiltrados.vencidos.qtd },
@@ -994,7 +1017,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
           </select>
         </Campo>
@@ -1281,13 +1304,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor · forma) na linha */}
                           {(r.categoria || r.nome_pessoa || r.forma_pagamento) && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>
-                              {[r.categoria, r.nome_pessoa].filter(Boolean).join(' · ')}
+                              {[rotuloCategoria(r.categoria), r.nome_pessoa].filter(Boolean).join(' · ')}
                               {r.forma_pagamento && <span style={{ marginLeft: (r.categoria || r.nome_pessoa) ? 6 : 0 }}>💳 {r.forma_pagamento}</span>}
                             </div>
                           )}
                         </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
-                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
+                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{rotuloCategoria(r.categoria) || '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">
