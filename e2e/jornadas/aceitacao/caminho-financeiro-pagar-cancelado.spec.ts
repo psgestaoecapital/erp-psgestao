@@ -2,7 +2,7 @@
 // como "Vencidas"/total. A fn_ge_listagem_v2 (ramo pagar) passou a excluir status 'cancelado' (como o ramo
 // receber já fazia). Este teste PROVA no robô: um pagar CANCELADO vencido NÃO aparece na listagem (os cards
 // do front são recompostos a partir das linhas por `situacao`), enquanto um pagar ABERTO vencido aparece.
-// @pos-migration: só passa com a migration 20261014180030 aplicada → o veredito é o aceitacao-pos-migration.yml
+// @pos-migration: só passa com a migration deste PR (fn_ge_listagem_v2) aplicada → o veredito é o aceitacao-pos-migration.yml
 // em PRODUÇÃO (no preview roda informativo, contra a main ainda com o defeito). Demonstração Comércio (GE Pró),
 // nunca empresa real; os dois lançamentos de teste são excluídos (soft) no fim.
 
