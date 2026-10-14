@@ -73,6 +73,39 @@ self.addEventListener('fetch', (event) => {
     })())
   }
 })
+
+// #120 Web Push (custo zero): o push e so mais um canal do aviso do sininho. O servidor manda
+// {titulo, mensagem, link, tag}; 'tag' agrupa (1 por oportunidade) e substitui o aviso anterior.
+self.addEventListener('push', (event) => {
+  let d = {}
+  try { d = event.data ? event.data.json() : {} } catch { d = { titulo: 'PS Gestão', mensagem: event.data ? event.data.text() : '' } }
+  const titulo = d.titulo || 'PS Gestão'
+  event.waitUntil(self.registration.showNotification(titulo, {
+    body: d.mensagem || '',
+    icon: '/apple-touch-icon.png',
+    badge: '/favicon-32.png',
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    data: { link: d.link || '/dashboard' },
+  }))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const raw = (event.notification.data && event.notification.data.link) || '/dashboard'
+  // So caminhos do proprio app (nunca URL externa vinda do payload).
+  const alvo = new URL(raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard', self.location.origin).href
+  event.waitUntil((async () => {
+    const abas = await clients.matchAll({ type: 'window', includeUncontrolled: true })
+    for (const c of abas) {
+      if (c.url.startsWith(self.location.origin) && 'focus' in c) {
+        try { await c.navigate(alvo) } catch { /* segue */ }
+        return c.focus()
+      }
+    }
+    return clients.openWindow(alvo)
+  })())
+})
 `
 }
 
