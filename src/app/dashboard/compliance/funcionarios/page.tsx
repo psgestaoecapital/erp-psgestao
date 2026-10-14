@@ -140,13 +140,13 @@ export default function FuncionariosPage() {
             {companyAtiva && (
               <button
                 onClick={async () => {
-                  if (!window.confirm('Importar colaboradores do IO Point pra ficha do Compliance?\n\nO que já foi preenchido à mão (RG, endereço, salário, ASO, observações) NÃO será sobrescrito — só completa os campos vazios.')) return
+                  if (!window.confirm('Importar colaboradores do IO Point pra ficha do Compliance?\n\nO que já foi preenchido à mão (RG, endereço, salário, ASO, observações) NÃO será sobrescrito — só completa os campos vazios.\n\nQuem não consta mais no ponto será marcado como inativo.')) return
                   setImportando(true); setMsgImport(null); setErro(null)
                   const { data, error } = await supabase.rpc('fn_compliance_projetar_de_ind_ponto', { p_company_id: companyAtiva })
                   setImportando(false)
                   if (error) { setErro('Erro na importação: ' + error.message); return }
-                  const j = data as { criados?: number; atualizados?: number; ignorados_sem_cpf?: number; total_processados?: number } | null
-                  setMsgImport(`IMPORTOU ${j?.total_processados ?? 0} colaboradores · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
+                  const j = data as { criados?: number; atualizados?: number; ignorados_sem_cpf?: number; inativados?: number; total_processados?: number } | null
+                  setMsgImport(`IMPORTOU ${j?.total_processados ?? 0} colaboradores · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.inativados ? ` · ${j.inativados} inativados (não constam mais no ponto)` : ''}${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
                   await carregar()
                   setTimeout(() => setMsgImport(null), 8000)
                 }}
