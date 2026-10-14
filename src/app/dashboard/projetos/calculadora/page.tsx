@@ -37,6 +37,7 @@ export default function CalculadoraObraPage() {
   const [pd, setPd] = useState("2,8");
   const [vaos, setVaos] = useState("1,68");
   const [comLa, setComLa] = useState(false);
+  const [estDupla, setEstDupla] = useState(false);
   const [camadas, setCamadas] = useState(1);
   const [larg, setLarg] = useState("3");
   const [compF, setCompF] = useState("4");
@@ -106,10 +107,10 @@ export default function CalculadoraObraPage() {
   const regrasForro = useMemo(() => mesclarRegras(REGRAS_FORRO_F530, sistema === "forro" ? regraSalva : null), [regraSalva, sistema]);
   const regrasAramado = useMemo(() => mesclarRegras(REGRAS_FORRO_ARAMADO, sistema === "aramado" ? regraSalva : null), [regraSalva, sistema]);
   const res: Resultado = useMemo(() => sistema === "parede"
-    ? calcularParede(regrasParede, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos), comLa, camadas })
+    ? calcularParede(regrasParede, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos), comLa, camadas, estruturaDupla: estDupla })
     : sistema === "aramado"
       ? calcularForroAramado(regrasAramado, { largura: n(larg), comprimento: n(compF) })
-      : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, comLa, camadas, larg, compF, regrasParede, regrasForro, regrasAramado]);
+      : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, comLa, camadas, estDupla, larg, compF, regrasParede, regrasForro, regrasAramado]);
 
   const custo = useMemo(() => res.ok ? custearItens(res.itens, vinculos, new Map(produtos.map((p) => [p.id, p]))) : { linhas: [], total: 0, semCusto: 0 }, [res, vinculos, produtos]);
   const custoPorChave = useMemo(() => Object.fromEntries(custo.linhas.map((l) => [l.item.chave, l])), [custo]);
@@ -143,6 +144,10 @@ export default function CalculadoraObraPage() {
                 <option value={1}>1 (simples)</option><option value={2}>2 (dupla / corta-fogo)</option>
               </select>
               <AjudaCampo chave="projetos.calculadora.camadas" rota="/dashboard/projetos/calculadora" />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[#3D2314] sm:col-span-3">
+              <input type="checkbox" checked={estDupla} onChange={(e) => setEstDupla(e.target.checked)} data-testid="calc-estrutura-dupla" />
+              Estrutura dupla (parede separativa)<AjudaCampo chave="projetos.calculadora.estrutura_dupla" rota="/dashboard/projetos/calculadora" />
             </label>
             <label className="flex items-center gap-2 text-sm text-[#3D2314] sm:col-span-3">
               <input type="checkbox" checked={comLa} onChange={(e) => setComLa(e.target.checked)} data-testid="calc-la" />
