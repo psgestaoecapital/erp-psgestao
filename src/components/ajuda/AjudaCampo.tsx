@@ -83,8 +83,8 @@ export function AjudaCampo({ chave, rota }: { chave: string; rota?: string }) {
     <div ref={cartao} role="dialog" aria-label={t ? `Ajuda: ${t.rotulo}` : "Ajuda do campo"} data-testid={`ajuda-cartao-${chave}`}
       onClick={(e) => e.stopPropagation()}
       className={celular
-        ? "fixed inset-x-0 bottom-0 z-[130] max-h-[75vh] overflow-y-auto rounded-t-2xl bg-white px-4 pb-6 pt-3 shadow-2xl text-[#3D2314]"
-        : "fixed z-[130] w-[340px] max-w-[calc(100vw-24px)] max-h-[70vh] overflow-y-auto rounded-xl border border-[#3D2314]/15 bg-white p-3 shadow-xl text-[#3D2314]"}
+        ? "fixed inset-x-0 bottom-0 z-[200] max-h-[75vh] overflow-y-auto rounded-t-2xl bg-white px-4 pb-6 pt-3 shadow-2xl text-[#3D2314]"
+        : "fixed z-[200] w-[340px] max-w-[calc(100vw-24px)] max-h-[70vh] overflow-y-auto rounded-xl border border-[#3D2314]/15 bg-white p-3 shadow-xl text-[#3D2314]"}
       style={celular ? undefined : { top: pos?.top ?? 0, left: pos?.left ?? 0 }}>
       {celular && <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-[#3D2314]/20" />}
       {!dados && <p className="text-[12.5px] text-[#3D2314]/60">Carregando…</p>}
@@ -122,7 +122,7 @@ export function AjudaCampo({ chave, rota }: { chave: string; rota?: string }) {
       </button>
       {aberto && typeof document !== "undefined" && createPortal(
         <>
-          {celular && <div className="fixed inset-0 z-[125] bg-black/30" onClick={() => setAberto(false)} />}
+          {celular && <div className="fixed inset-0 z-[195] bg-black/30" onClick={() => setAberto(false)} />}
           {corpo}
         </>, document.body)}
     </>
