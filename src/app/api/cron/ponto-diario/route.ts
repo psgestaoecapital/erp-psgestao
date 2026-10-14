@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
   const forcaFim = url.searchParams.get('end_date')
 
   // empresas com provider de ponto ativo
-  let q = supa.from('ind_ponto_provider_config').select('company_id, provider').eq('ativo', true)
+  let q = supa.from('ind_ponto_provider_config').select('company_id, plant_id, provider').eq('ativo', true)
   if (soCompany) q = q.eq('company_id', soCompany)
   const { data: cfgs, error: eCfg } = await q
   if (eCfg) return NextResponse.json({ ok: false, erro: eCfg.message }, { status: 500 })
@@ -87,6 +87,25 @@ export async function GET(req: NextRequest) {
     if (begin > end) {
       resultados.push({ company_id: companyId, status: 'em_dia', begin, end })
       continue
+    }
+
+    // #116: atualiza o cadastro de colaboradores (ind_ponto_colaborador) uma vez por rodada.
+    // Janela de 1 dia: so as horas do dia vao junto; o foco aqui e o cadastro. Erro nao trava o resto.
+    let colabStatus: 'ok' | 'erro' | 'sem_planta' = 'sem_planta'
+    let colabQtd = 0
+    const plantId = cfg.plant_id as string | null
+    if (plantId) {
+      try {
+        const r = await fetch(
+          `${baseUrl}/api/industrial/ponto/sync?company_id=${companyId}&plant_id=${plantId}&begin_date=${end}&end_date=${end}`,
+          { method: 'POST', headers: { 'x-ping-secret': pingSecret } },
+        )
+        const j = await r.json().catch(() => ({}))
+        colabStatus = r.ok && j.ok ? 'ok' : 'erro'
+        colabQtd = Number(j.colaboradores || 0)
+      } catch {
+        colabStatus = 'erro'
+      }
     }
 
     // fatiar em chunks de CHUNK_DIAS
@@ -120,6 +139,7 @@ export async function GET(req: NextRequest) {
     resultados.push({
       company_id: companyId, begin, end, dias: diasTotal, batidas: batidasTotal,
       status: erros.length ? 'parcial' : 'ok', erros: erros.slice(0, 5),
+      colaboradores: { status: colabStatus, qtd: colabQtd },
     })
   }
 
