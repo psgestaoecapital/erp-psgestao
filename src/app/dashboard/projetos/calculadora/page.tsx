@@ -5,10 +5,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Calculator, AlertTriangle } from "lucide-react";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import EditorRegras from "./EditorRegras";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
 import { itensParaOrcamento, listaDeCompra } from "@/lib/calculadora/saida";
+import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import {
   REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroF530, calcularParede, type Resultado,
 } from "@/lib/calculadora/motor";
@@ -90,9 +92,19 @@ export default function CalculadoraObraPage() {
     catch { setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." }); }
   }
 
+  const [regraSalva, setRegraSalva] = useState<unknown>(null);
+  const [recarga, setRecarga] = useState(0);
+  useEffect(() => {
+    setRegraSalva(null);
+    if (!companyId) return;
+    void supabaseBrowser().from("erp_calc_regra").select("regras").eq("company_id", companyId).eq("sistema", sistemaDb).maybeSingle()
+      .then(({ data }) => setRegraSalva(data?.regras ?? null));
+  }, [companyId, sistemaDb, recarga]);
+  const regrasParede = useMemo(() => mesclarRegras(REGRAS_PAREDE_SIMPLES_ST, sistema === "parede" ? regraSalva : null), [regraSalva, sistema]);
+  const regrasForro = useMemo(() => mesclarRegras(REGRAS_FORRO_F530, sistema === "forro" ? regraSalva : null), [regraSalva, sistema]);
   const res: Resultado = useMemo(() => sistema === "parede"
-    ? calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos) })
-    : calcularForroF530(REGRAS_FORRO_F530, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, larg, compF]);
+    ? calcularParede(regrasParede, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos) })
+    : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, larg, compF, regrasParede, regrasForro]);
 
   const custo = useMemo(() => res.ok ? custearItens(res.itens, vinculos, new Map(produtos.map((p) => [p.id, p]))) : { linhas: [], total: 0, semCusto: 0 }, [res, vinculos, produtos]);
   const custoPorChave = useMemo(() => Object.fromEntries(custo.linhas.map((l) => [l.item.chave, l])), [custo]);
@@ -131,10 +143,9 @@ export default function CalculadoraObraPage() {
           {avancado ? "Esconder" : "Mostrar"} parâmetros avançados<AjudaCampo chave="projetos.calculadora.avancado" rota="/dashboard/projetos/calculadora" />
         </button>
         {avancado && (
-          <p className="mt-2 rounded-lg bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/70">
-            Regras de referência de mercado, <b>a validar com o fabricante</b>: perda {fmt((sistema === "parede" ? REGRAS_PAREDE_SIMPLES_ST : REGRAS_FORRO_F530).perda)}×,
-            chapa de {fmt(2.16)} m². A edição por empresa vem na próxima fatia.
-          </p>
+          companyId ? <EditorRegras companyId={companyId} sistema={sistemaDb} regraSalva={regraSalva} aoSalvar={() => setRecarga((x) => x + 1)} /> : (
+            <p className="mt-2 rounded-lg bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/70">Escolha uma empresa para editar as regras. Referência de mercado, <b>a validar com o fabricante</b>.</p>
+          )
         )}
       </section>
 
