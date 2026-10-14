@@ -8,9 +8,16 @@
 --
 -- Agora é idempotente e NÃO recria os 4 jobs (recriá-los religaria chamadas pagas de IA sem decisão
 -- do CEO — RD-42). Só remove o cron antigo se ele ainda existir.
+--
+-- Guard pg_cron (14/10): o banco de testes das vagas NÃO tem a extensão pg_cron, então o schema `cron`
+-- não existe. Sem o `to_regclass`, o "SELECT 1 FROM cron.job" quebra o `supabase db push --include-all`
+-- da vaga com `relation "cron.job" does not exist` (42P01) e aborta a aceitação de TODA PR com migration.
+-- `to_regclass` devolve NULL (não lança) quando a relação/esquema não existe; em produção (com pg_cron) o
+-- comportamento é idêntico ao anterior.
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'insight-auditor-4x-dia') THEN
+  IF to_regclass('cron.job') IS NOT NULL
+     AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'insight-auditor-4x-dia') THEN
     PERFORM cron.unschedule('insight-auditor-4x-dia');
   END IF;
 END

@@ -11,7 +11,7 @@ for (const s of ['parede', 'forro_f530'] as SistemaCalc[]) {
   const vals: Record<string, string> = {}
   for (const c of CAMPOS_REGRA[s]) {
     ok(lerCampo(ref, c.caminho) !== undefined, `${s}: campo ${c.caminho} existe na referência`)
-    ok(sql.includes(`'${chaveAjudaRegra(s, c.caminho)}'`), `${s}: "?" de ${c.caminho} na migration`)
+    ok(sql.includes(`'${chaveAjudaRegra(s, c.caminho)}'`) && /^[a-z0-9_]+(\.[a-z0-9_]+)+$/.test(chaveAjudaRegra(s, c.caminho)), `${s}: "?" de ${c.caminho} na migration`)
     vals[c.caminho] = String(lerCampo(ref, c.caminho))
   }
   const r = montarRegras(ref, vals, s)
