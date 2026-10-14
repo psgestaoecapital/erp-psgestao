@@ -14,6 +14,7 @@ export type PrSimulada = {
   atras?: number
   checksRodando?: boolean
   migration?: boolean
+  migrationCorrige?: boolean   // migration MODIFICADA que o commit do deploy vermelho da main trouxe (conserto, #2542)
   migrationBaixa?: boolean     // versão da migration NÃO maior que a última da main (incidente 08/10)
   draft?: boolean
   labels?: string[]            // padrão: ['fila-merge'] (como antes da etiqueta opcional)
@@ -68,7 +69,7 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         put(`${R}/pulls/${p.n}`, { number: p.n, title: `PR ${p.n}`, draft: !!p.draft, mergeable: true, base: { ref: 'main' },
           head: { sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: labels.map((name) => ({ name })) })
         const arq = p.migration ? `${(p.migrationBaixa ? 20261001000000 : 20261009000000) + p.n}_m.sql` : ''
-        put(`${R}/pulls/${p.n}/files`, [{ status: 'added', filename: p.migration ? `supabase/migrations/${arq}` : `src/${p.n}.ts` }])
+        put(`${R}/pulls/${p.n}/files`, [{ status: p.migrationCorrige ? 'modified' : 'added', filename: p.migration ? `supabase/migrations/${arq}` : `src/${p.n}.ts` }])
         if (arq) put(`${R}/contents/supabase/migrations/${arq}?ref=pr${p.n}`, { content: 'c2VsZWN0IDE7Cg==', sha: 'abc123' })
         put(`${R}/git/trees/main:supabase/migrations`, { tree: [{ path: '20261008150005_ultima.sql' }, { path: 'README.md' }] })
         put(`${R}/compare/main...${sha[p.n]}`, { behind_by: p.atras ?? 0 })
@@ -81,8 +82,10 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         put(`${R}/commits/${sha[p.n]}/status`, { statuses: [{ context: 'Vercel', state: 'success', description: 'Deployment has completed' }] })
       })
       put('rate_limit', { resources: { core: { remaining: cota } } })
+      const vermelho = prs.some((p) => p.migrationCorrige)   // deploy da main vermelho: o commit dele trouxe a migration do conserto
       put(`${R}/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1`,
-        { workflow_runs: [{ id: 1, status: mainOcupada ? 'in_progress' : 'completed', conclusion: mainOcupada ? null : 'success' }] })
+        { workflow_runs: [{ id: 1, head_sha: 'dead0001', status: mainOcupada ? 'in_progress' : 'completed', conclusion: mainOcupada ? null : vermelho ? 'failure' : 'success' }] })
+      put(`${R}/commits/dead0001`, { files: prs.filter((p) => p.migrationCorrige).map((p) => ({ filename: `supabase/migrations/${20261009000000 + p.n}_m.sql` })) })
       put(`${R}/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=1`, { workflow_runs: [{ id: 2, status: 'completed', conclusion: 'success' }] })
       const r = spawnSync('bash', [SCRIPT_FILA], { cwd: w, encoding: 'utf8',
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FX: fx, GH_TOKEN: 'x', REPO: 'o/r', GITHUB_STEP_SUMMARY: '', ...envExtra } })
