@@ -103,6 +103,8 @@ done
   echo 'COMMIT;'
 } > "$dir/carga.sql"
 "$PSQL" "$TEST_DATABASE_URL" -q -f "$dir/carga.sql"
+# Contadores: a cópia trouxe ids da produção sem avançar as sequences — acerta (setval = max) para a próxima inserção não colidir.
+"$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f scripts/banco-testes/acertar-sequences.sql
 
 # Conferência (RD-38): contagem no banco de testes = linhas do dump, tabela a tabela.
 echo "### Catálogos globais copiados da produção (whitelist, só dados)" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

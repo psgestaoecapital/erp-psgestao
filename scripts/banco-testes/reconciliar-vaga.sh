@@ -230,5 +230,6 @@ resumo "| md5 pg_get_functiondef(${WITNESS}) | ${w_vaga_antes:-ausente} | ${w_va
 if [ "$sig_div" -ne 0 ] || [ "$orphan_fim" -ne 0 ]; then
   recriar "verificação final no dado: vaga ainda difere da produção (assinaturas divergentes=${sig_div}, órfãos no ledger=${orphan_fim})"
 fi
+"$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f scripts/banco-testes/acertar-sequences.sql || erro "vaga ${VAGA}: falha ao acertar as sequences"
 echo "vaga ${VAGA}: restaurada e VERIFICADA no dado (objetos do public == produção; nenhum órfão no ledger)."
 exit 0
