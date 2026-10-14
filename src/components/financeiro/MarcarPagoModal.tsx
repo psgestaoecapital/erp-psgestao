@@ -43,6 +43,9 @@ export default function MarcarPagoModal({
   const [valorPago, setValorPago] = useState(valorTotal.toFixed(2))
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // chamado #2688: sem conta na lista o Confirmar ficava travado sem explicação
+  const [contasCarregadas, setContasCarregadas] = useState(false)
+  const [erroContas, setErroContas] = useState<string | null>(null)
   // o saldo chega do banco de forma assíncrona; se o usuário já digitou o valor, ele NÃO é sobrescrito
   // (antes: digitar 300 antes da busca voltar virava o saldo cheio e o título era baixado inteiro)
   const editouValor = useRef(false)
@@ -51,13 +54,15 @@ export default function MarcarPagoModal({
     if (!open || !companyId) return
     let ignore = false
     ;(async () => {
-      const { data } = await supabase
+      const { data, error: errContas } = await supabase
         .from('erp_banco_contas')
         .select('id, nome')
         .eq('company_id', companyId)
         .eq('ativo', true)
         .order('nome')
       if (ignore) return
+      setErroContas(errContas ? errContas.message : null)
+      setContasCarregadas(true)
       const lista = (data ?? []) as ContaBancaria[]
       setContas(lista)
       if (lista.length > 0 && !contaId) setContaId(lista[0].id)
@@ -157,6 +162,14 @@ export default function MarcarPagoModal({
               Pagamento parcial permitido · default é o valor total
             </div>
           </Field>
+
+          {contasCarregadas && contas.length === 0 && (
+            <div style={{ background: '#FFF4E0', color: '#7A4A00', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+              {erroContas
+                ? `Não foi possível carregar as contas bancárias (${erroContas}). Feche e abra de novo; se continuar, avise o suporte.`
+                : 'Nenhuma conta bancária ativa encontrada para esta empresa. Cadastre uma conta em Financeiro › Contas bancárias para poder confirmar.'}
+            </div>
+          )}
 
           {erro && (
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
