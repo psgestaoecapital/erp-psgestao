@@ -56,7 +56,15 @@ flush_estado() {
     -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
     -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 || true
 }
-comentar() { api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null; }
+# Comentário é informativo: falha (ex.: rate limit secundário, 403, 12/10) NUNCA derruba a rodada — senão a fila morre no
+# meio e as PRs seguintes não são avaliadas nem publicadas. Sempre retorna 0; COMENTOU=0 sinaliza a falha ao
+# comentar_uma_vez (que então não marca como "já comentado" e tenta de novo na próxima rodada).
+COMENTOU=1
+comentar() {
+  if api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null 2>&1; then COMENTOU=1
+  else COMENTOU=0; echo "::warning::fila: comentário na #$1 falhou (rate limit?) — segue a rodada"; fi
+  return 0
+}
 # comentários da PR lidos UMA vez por rodada (cada corpo numa linha, em JSON) — a fila agora olha todas as PRs Ready
 TMPF=$(mktemp -d); trap 'flush_estado; rm -rf "$TMPF"' EXIT
 comentarios() {
@@ -69,6 +77,7 @@ comentar_uma_vez() {
   if comentarios "$n" | grep -qF "<!-- fila:$chave -->"; then return 0; fi
   comentar "$n" "$texto
 <!-- fila:$chave -->"
+  [ "$COMENTOU" = 1 ] || return 0
   printf '%s\n' "\"<!-- fila:$chave -->\"" >> "$TMPF/c-$n"
 }
 # vermelho de verdade: comenta o motivo uma vez por commit + motivo e tira a label (se houver). Sem a label a PR
@@ -309,12 +318,23 @@ for n in $fila; do
       # (o novo commit re-roda os guardas); se continuar vermelho com a PR em dia, cai na recusa normal.
       if [[ "${c#vermelho:check vermelho: }" =~ ^(check_fn_guards|check_menu|check_migrations)(,(check_fn_guards|check_menu|check_migrations))*$ ]] \
          && [ "$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')" -gt 0 ] && [ "$em_preparo" -lt "$ATUALIZA_NA_VEZ" ]; then
-        em_preparo=$((em_preparo + 1))
         if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+          em_preparo=$((em_preparo + 1))
           log "#$n vermelha só de guarda (${c#vermelho:}) e atrás da main: atualizada para re-rodar os guardas — segue para a próxima"; continue
         fi
       fi
       tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
+    # Stall 13/10: PR estagnada (aberta antes do gates.yml) nunca teve o check "gates"; como a fila só atualiza PR verde, ela
+    # esperava para sempre. Atrás da main e com vaga → update-branch (o novo commit roda os gates), como no deadlock acima.
+    esperar:'gates ainda não rodaram')
+      if [ "$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')" -gt 0 ] && [ "$em_preparo" -lt "$ATUALIZA_NA_VEZ" ]; then
+        # Stall 13/10 14:00: só gasta vaga se o update-branch FUNCIONOU (PR velha com conflito falhava e queimava as 4 vagas).
+        if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+          em_preparo=$((em_preparo + 1))
+          log "#$n sem o check gates e atrás da main: atualizada para rodar os gates — segue para a próxima"; continue
+        fi
+      fi
+      log "#$n aguardando: gates ainda não rodaram — segue para a próxima"; continue;;
     # Só conta como "em preparo" o PREVIEW que a própria fila dispara: PR VIA RÁPIDA com check rodando (não "gates ainda
     # não rodaram", que é PR estagnada). A aceitação (demo-e2e, serial/lenta) das PRs via REVISADA NÃO é preparo da fila —
     # contá-la inflava o em_preparo (13-14 no run 9299) e esfomeava as via-rápida atrás da main. (Correção da regressão do #2361.)
