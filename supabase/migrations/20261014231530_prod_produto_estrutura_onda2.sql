@@ -311,5 +311,3 @@ REVOKE ALL ON FUNCTION public.fn_prod_estrutura_arquivar(uuid,uuid,boolean) FROM
 GRANT EXECUTE ON FUNCTION public.fn_prod_estrutura_arquivar(uuid,uuid,boolean) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_prod_estrutura_colar(uuid,uuid,text,boolean) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_prod_estrutura_colar(uuid,uuid,text,boolean) TO authenticated, service_role;
-  END LOOP;
-END $$;
