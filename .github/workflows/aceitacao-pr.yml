@@ -300,9 +300,14 @@ jobs:
           pos_main=$(led "$TEST_DATABASE_URL")
           echo "2) tirando a FOTO da vaga (estado main, antes das migrations da PR)…"
           VAGA="${ACEITACAO_VAGA:-0}" MAIN_MIGR_DIR="$mmain/supabase/migrations" CHECKOUT_MIGR_DIR="supabase/migrations" \
-            scripts/banco-testes/vaga-snapshot.sh snapshot || echo "::warning::foto _vaga_snapshot falhou — o 'Desfazer' ao fim será no-op e a guarda de contaminação cobre"
+            scripts/banco-testes/vaga-snapshot.sh snapshot || { echo "::error::foto _vaga_snapshot falhou — NÃO aplico as migrations da PR sem foto (não haveria como desfazê-las; a vaga ficaria suja, caso markup 14/10) — aceitação abortada"; exit 1; }
           echo "3) aplicando as migrations da PR (checkout) para o preview testar o schema novo…"
-          if ! supabase db push --include-all --db-url "$TEST_DATABASE_URL"; then
+          # CEO 14/10 15:40: PR com base antiga não tem as migrations novas da main → `db push` do checkout da PR dava
+          # "Remote migration versions not found in local" (falso vermelho em massa). Testa a PR COMBINADA com a main:
+          # diretório = supabase da main + SÓ os arquivos de migration que a PR acrescenta (nunca sobrescreve os da main).
+          comb=$(mktemp -d); cp -r "$mmain"/supabase "$comb"/
+          for f in supabase/migrations/*.sql; do [ -e "$f" ] && [ ! -e "$comb/supabase/migrations/$(basename "$f")" ] && cp "$f" "$comb/supabase/migrations/"; done
+          if ! ( cd "$comb" && supabase db push --include-all --db-url "$TEST_DATABASE_URL" ); then
             echo "::error::migrations da PR não aplicaram no banco da vaga (supabase db push falhou) — aceitação abortada"; exit 1
           fi
           depois=$(led "$TEST_DATABASE_URL")
