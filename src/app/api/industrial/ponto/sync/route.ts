@@ -158,6 +158,8 @@ async function handle(req: NextRequest) {
 
     // 4) coletar colaboradores
     let qtdColab = 0
+    let qtdInativados = 0
+    const inicioColeta = new Date().toISOString()
     try {
       const colabs = await adapter.listarColaboradores(cred)
       qtdColab = colabs.length
@@ -167,12 +169,23 @@ async function handle(req: NextRequest) {
           cpf: c.cpf, matricula: c.matricula, nome: c.nome, email: c.email,
           funcao: c.funcao, departamento: c.departamento, equipe: c.equipe,
           unidade_negocio: c.unidade_negocio, admissao: c.admissao, pis: c.pis,
-          raw: c.raw, sincronizado_em: new Date().toISOString(),
+          raw: c.raw, sincronizado_em: inicioColeta,
+          ativo: true, desativado_em: null,
         }))
         const { error } = await supabaseAdmin
           .from('ind_ponto_colaborador')
           .upsert(rows, { onConflict: 'company_id,provider,cpf' })
         if (error) throw error
+        // CH-116: quem o provider nao devolve mais saiu da empresa -> inativo (nao apaga; reativa se voltar).
+        // So roda com lista nao vazia e depois do upsert ok: falha/lista vazia do provider nunca inativa ninguem.
+        const { data: inativados, error: eIn } = await supabaseAdmin
+          .from('ind_ponto_colaborador')
+          .update({ ativo: false, desativado_em: inicioColeta })
+          .eq('company_id', companyId).eq('plant_id', plantId).eq('provider', provider)
+          .eq('ativo', true).lt('sincronizado_em', inicioColeta)
+          .select('id')
+        if (eIn) throw eIn
+        qtdInativados = inativados?.length ?? 0
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -220,7 +233,7 @@ async function handle(req: NextRequest) {
     await logSync(companyId, provider, statusFinal,
       horasErro
         ? `colaboradores=${qtdColab} OK · horas FALHOU: ${horasErro}`
-        : `sync ok colaboradores=${qtdColab} horas=${qtdHoras} total=${totalHoras.toFixed(2)}h`,
+        : `sync ok colaboradores=${qtdColab} inativados=${qtdInativados} horas=${qtdHoras} total=${totalHoras.toFixed(2)}h`,
       qtdColab, { plantId, beginISO, endISO, horasErro })
 
     return NextResponse.json({
@@ -228,6 +241,7 @@ async function handle(req: NextRequest) {
       provider, company_id: companyId, plant_id: plantId,
       periodo: { begin: beginISO, end: endISO },
       colaboradores: qtdColab,
+      colaboradores_inativados: qtdInativados,
       horas_registros: qtdHoras,
       total_horas: Number(totalHoras.toFixed(2)),
       // aviso nao-fatal: colaboradores entraram, horas nao (endpoint lento)

@@ -150,7 +150,7 @@ export default function RhHubPage() {
       supabase.rpc('fn_rh_quadro_lotacao', { p_company_id: empresa }),
       supabase.from('rh_posto_trabalho').select('*', { count: 'exact', head: true }).eq('company_id', empresa).eq('ativo', true),
       supabase.from('folha_competencia').select('*', { count: 'exact', head: true }).eq('company_id', empresa),
-      supabase.from('ind_ponto_colaborador').select('*', { count: 'exact', head: true }).eq('company_id', empresa),
+      supabase.from('ind_ponto_colaborador').select('*', { count: 'exact', head: true }).eq('company_id', empresa).eq('ativo', true),
       supabase.from('rh_rv_participante').select('*', { count: 'exact', head: true }).eq('company_id', empresa).eq('ativo', true),
     ])
     setCounts({ postos: cPostos.count ?? 0, folha: cFolha.count ?? 0, ponto: cPonto.count ?? 0, participantes: cPart.count ?? 0 })
@@ -610,7 +610,7 @@ function ParticipantesModal({ empresa, podeSalario, compFechada, onClose, onChan
       supabase.from('rh_rv_plano').select('id, perfil, faixa, salario_base, diaria_valor, premio_util, valor_entrega, bonus_sem_infracao, he_min_dia, inss_pct, calcula_inss, entregas_meta, infracoes_zera').eq('company_id', empresa).eq('ativo', true).order('perfil'),
       supabase.from('rh_rv_participante').select('id, funcionario_id, plano_id, ativo').eq('company_id', empresa).eq('ativo', true),
       // RV-FONTE-IOPOINT: dropdown vem do IO Point (fonte da verdade de quem trabalha), sem filtro de função.
-      supabase.from('ind_ponto_colaborador').select('id, nome, funcao, cpf').eq('company_id', empresa).order('nome'),
+      supabase.from('ind_ponto_colaborador').select('id, nome, funcao, cpf').eq('company_id', empresa).eq('ativo', true).order('nome'),
       // compliance só p/ resolver o nome do participante já vinculado + casar CPF (a FK vive aqui).
       supabase.from('compliance_funcionarios').select('id, nome_completo, cpf').eq('company_id', empresa),
     ])

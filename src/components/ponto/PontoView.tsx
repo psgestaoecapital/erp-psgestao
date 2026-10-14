@@ -143,6 +143,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
         .from('ind_ponto_colaborador')
         .select('id, cpf, matricula, nome, email, funcao, departamento, equipe, admissao, sincronizado_em')
         .eq('company_id', empresaUnica)
+        .eq('ativo', true)
         .order('nome')
         .limit(1000),
       supabase
