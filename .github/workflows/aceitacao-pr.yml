@@ -26,7 +26,8 @@ jobs:
     permissions:
       contents: read
       actions: write
-      pull-requests: read
+      pull-requests: write
+      issues: write
     outputs:
       rodar: ${{ steps.decide.outputs.rodar }}
       vaga: ${{ steps.decide.outputs.vaga }}
@@ -64,14 +65,24 @@ jobs:
             echo "::notice::commit sem PR aberta: aceitação dispensada (julgada na aceitação da main)"
           else
             echo "PR aberta: #$pr"
-            # (3) via rápida (sem revisao-eng-chefe): aceitação dispensada; etiqueta lida AGORA (re-run após etiquetar)
-            revisada=$(gh api "repos/$REPO/pulls/$pr" --jq '[.labels[].name] | index("revisao-eng-chefe") != null' 2>/dev/null || echo true)
+            files=$(gh api "repos/$REPO/pulls/$pr/files" --paginate --jq '.[].filename' 2>/dev/null || true)
+            # (3) via rápida SÓ para PR que NÃO toca migration/tela/cálculo/RLS (CEO 12/10, 14/10): a triagem decide pelo
+            #     CONTEÚDO do diff (scripts/merge/caminhos-revisados.sh). A etiqueta pode FORÇAR a revisada, nunca a rápida.
+            etiquetada=$(gh api "repos/$REPO/pulls/$pr" --jq '[.labels[].name] | index("revisao-eng-chefe") != null' 2>/dev/null || echo true)
+            sensivel=$(echo "$files" | scripts/merge/caminhos-revisados.sh || true)
+            revisada=$etiquetada
+            if [ -n "$sensivel" ]; then
+              revisada=true
+              echo "::notice::via revisada obrigatória pelo conteúdo da PR #$pr: $(echo "$sensivel" | head -5 | tr '\n' ' ')"
+              if [ "$etiquetada" != true ]; then
+                gh api -X POST "repos/$REPO/issues/$pr/labels" -f 'labels[]=revisao-eng-chefe' >/dev/null 2>&1 || echo "::warning::não consegui pôr a etiqueta revisao-eng-chefe na #$pr"
+              fi
+            fi
             if [ "$revisada" != true ]; then
               rodar=false
-              echo "::notice::via rápida: julgada na aceitação da main (PR #$pr sem a etiqueta revisao-eng-chefe)"
+              echo "::notice::via rápida: julgada na aceitação da main (PR #$pr sem a etiqueta revisao-eng-chefe e sem migration/tela/cálculo/RLS)"
             fi
             # (2) só doc/workflow sem spec?
-            files=$(gh api "repos/$REPO/pulls/$pr/files" --paginate --jq '.[].filename' 2>/dev/null || true)
             if [ -n "$files" ]; then
               outros=$(echo "$files" | grep -vE '(\.md$|^\.github/workflows/|^AGENTS\.md$|^CLAUDE\.md$)' || true)
               spec=$(echo "$files" | grep -E '^e2e/jornadas/aceitacao/' || true)
