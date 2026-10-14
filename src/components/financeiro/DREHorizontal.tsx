@@ -153,17 +153,39 @@ export default function DREHorizontal() {
   }, [data, colapsados])
   const totalLinha = useCallback((l: Linha) => colunas.reduce((s, c) => s + (l.valores[c.key] ?? 0), 0), [colunas])
 
+  // Muitos meses no cabeçalho → modo compacto (fonte/espaçamento menores; valor SEMPRE completo — RD do formato de moeda).
+  const compacto = data?.modo === 'mes' && colunas.length >= 8
+  const fsTabela = compacto ? 11 : 12.5
+  const padMes: React.CSSProperties = compacto ? { padding: '6px 7px' } : {}
+  const minColMes = compacto ? 64 : 78
+
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 16px' }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+      {/* Exportar PDF: imprime em PAISAGEM, com TODAS as colunas (sem sticky/scroll travando) e sem cortar. */}
+      <style>{`
+        .dre-printonly { display: none; }
+        @media print {
+          @page { size: A4 landscape; margin: 8mm; }
+          body { background: #fff !important; }
+          .dre-noprint { display: none !important; }
+          .dre-printonly { display: block !important; }
+          #dre-tabela { max-height: none !important; overflow: visible !important; border: none !important; border-radius: 0 !important; }
+          #dre-tabela table { font-size: 8px !important; width: 100% !important; min-width: 0 !important; }
+          #dre-tabela th, #dre-tabela td { padding: 2px 4px !important; position: static !important; box-shadow: none !important; white-space: nowrap; }
+        }
+      `}</style>
+      <div style={{ maxWidth: 'none', margin: '0 auto' }}>
         <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, margin: 0 }}>Financeiro · Grupo</p>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>DRE Consolidado</h1>
-        <p style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
+        <p className="dre-printonly" style={{ fontSize: 12, color: ESP, margin: '0 0 10px' }}>
+          {grupoNome || '—'}{membros.length > 1 ? ` · ${membros.length} CNPJs` : ''} · {data?.modo === 'dia' ? `${MESES_LBL[selIni - 1]}/${ano} (dias)` : `${MESES_LBL[selIni - 1]}–${MESES_LBL[selFim - 1]}/${ano}`} · {regime}
+        </p>
+        <p className="dre-noprint" style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
           Escolha 1 mês (dias no cabeçalho) ou um intervalo (meses no cabeçalho), consolidando os CNPJs do grupo. Competência × Caixa.
         </p>
 
         {/* Controles: grupo + regime + seletor de meses */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
+        <div className="dre-noprint" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
           <div>
             <label style={lbl}>{membros.length > 1 ? 'Grupo' : 'Empresa'}</label>
             <div style={{ ...inp, minWidth: 190, display: 'flex', alignItems: 'center', gap: 6, background: CREAM, fontWeight: 700 }}>
@@ -178,11 +200,12 @@ export default function DREHorizontal() {
           <button type="button" onClick={() => setTudoAberto((v) => !v)} style={btnSec}>
             {tudoAberto ? '▾ Recolher tudo' : '▸ Expandir tudo'}
           </button>
+          <button type="button" onClick={() => window.print()} style={btnSec} title="Exportar em PDF (paisagem, com todos os meses e o total)">⤓ Exportar PDF</button>
           {data && <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>{data.empresas} empresa(s) · {data.modo === 'dia' ? 'diário' : 'mensal'} · {data.regime}</span>}
         </div>
 
         {/* Seletor de ano + meses clicável */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
+        <div className="dre-noprint" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <button type="button" onClick={() => setAno((a) => Math.max(2024, a - 1))} style={navBtn} aria-label="Ano anterior">◂</button>
             <span style={{ fontSize: 15, fontWeight: 800, color: ESP, minWidth: 52, textAlign: 'center' }}>{ano}</span>
@@ -234,12 +257,13 @@ export default function DREHorizontal() {
             Sem DRE para o grupo/período. Ajuste o período ou verifique se o grupo tem empresas com dados (2024+).
           </div>
         ) : (
-          <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
-            {/* w-full: ocupa a largura toda (sem faixa vazia à direita); minWidth garante scroll só quando não couber (RD-41) */}
-            <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%', minWidth: 720 }}>
+          <div id="dre-tabela" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 230px)', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
+            {/* w-full: ocupa a largura toda (sem faixa vazia à direita); minWidth garante scroll só quando não couber (RD-41).
+                maxHeight + overflowY → cabeçalho dos meses (sticky top) e coluna CONTA/TOTAL (sticky left/right) congelam ao rolar. */}
+            <table style={{ borderCollapse: 'collapse', fontSize: fsTabela, width: '100%', minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 3, background: CREAM }}>
+                  <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 4, background: CREAM, boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)' }}>
                     {data.modo === 'dia' ? `Conta · ${MESES_LBL[selIni - 1]}/${ano} (dias)` : 'Conta'}
                   </th>
                   {colunas.map((c) => {
@@ -248,13 +272,13 @@ export default function DREHorizontal() {
                       <th key={c.key}
                         onClick={drillDia ? () => setDiaDrill(c.key) : undefined}
                         title={drillDia ? 'Ver títulos a vencer neste dia' : undefined}
-                        style={{ ...thMes, ...(c.projecao ? projStyle : null), ...(data.modo === 'dia' ? thDiaCol : null), ...(drillDia ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: MUT } : null) }}>
+                        style={{ ...thMes, zIndex: 2, ...(c.projecao ? projStyle : null), ...(data.modo === 'dia' ? thDiaCol : null), ...(compacto ? { ...padMes, minWidth: minColMes } : null), ...(drillDia ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: MUT } : null) }}>
                         {c.label}
                         {c.projecao && <div style={{ fontSize: 8, fontWeight: 700, color: GOLD, letterSpacing: 0.5 }}>PROJ.</div>}
                       </th>
                     )
                   })}
-                  <th style={{ ...thMes, borderLeft: `2px solid ${LINE}`, background: CREAM }}>Total</th>
+                  <th style={{ ...thMes, position: 'sticky', top: 0, right: 0, zIndex: 4, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -286,6 +310,7 @@ export default function DREHorizontal() {
                       <td style={{
                         ...tdConta, position: 'sticky', left: 0, zIndex: 2,
                         background: isRes || aberta ? '#FBF7EF' : '#FFF',
+                        boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)',
                         paddingLeft: 12 + l.nivel * 18, fontWeight: bold ? 700 : 500, color: ESP,
                         cursor: contaDrillavel ? 'pointer' : 'default',
                       }} onClick={contaDrillavel ? () => setContaAberta(aberta ? null : l.codigo) : undefined}>
@@ -310,7 +335,7 @@ export default function DREHorizontal() {
                         const saldoNeg = isPrevisto && l.codigo === 'SALDO' && v != null && v < 0
                         return (
                           <td key={c.key} title={v != null ? cheio(valorComSinalDre(v, l.sinal)) : ''} style={{
-                            ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null),
+                            ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null), ...(compacto ? padMes : null),
                             ...(c.projecao ? { background: isRes ? '#FBF4E6' : '#FDFAF3' } : null),
                             ...(saldoNeg ? { background: '#FCEBEB' } : null),
                             fontWeight: bold ? 700 : 400,
@@ -321,7 +346,8 @@ export default function DREHorizontal() {
                         )
                       })}
                       <td title={cheio(valorComSinalDre(totalDisplay, l.sinal))} style={{
-                        ...tdVal, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
+                        ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
+                        boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)',
                         fontWeight: 700, color: ehNegativoDre(valorComSinalDre(totalDisplay, l.sinal)) ? COR_VALOR_NEGATIVO : corTotal,
                       }}>
                         {fmtMoedaDre(valorComSinalDre(totalDisplay, l.sinal))}
@@ -339,7 +365,7 @@ export default function DREHorizontal() {
           </div>
         )}
 
-        <p style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
+        <p className="dre-noprint" style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
           Valores em reais completos; despesas e resultados negativos aparecem com “-” em vermelho.
           {data?.regime === 'previsto'
             ? <> <b>Previsto</b> = fluxo de caixa por <b>vencimento</b> (entradas − saídas → saldo acumulado). Não é DRE: previsão não tem lucro/EBITDA, tem <b>quanto vou ter em caixa</b>. Clique num <b>dia</b> (cabeçalho) pra ver os títulos a vencer.</>
@@ -420,21 +446,21 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime, colunas }: {
       {/* cliente/fornecedor × dia — MESMAS colunas do topo */}
       {d.pessoas.map((p, i) => (
         <tr key={p.pessoa_id ?? `x${i}`} style={{ borderTop: `0.5px solid ${LINE}`, background: '#FCFAF5' }}>
-          <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FCFAF5', paddingLeft: labelPad, color: ESP, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }} title={p.pessoa_nome}>
+          <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FCFAF5', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', paddingLeft: labelPad, color: ESP, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }} title={p.pessoa_nome}>
             {p.pessoa_nome}
           </td>
           {colunas.map((c) => {
             const v = p.valores_dia[c.key]
             return <td key={c.key} title={v != null ? cheio(v) : ''} style={{ ...tdVal, ...tdDiaCol, color: ESP }}>{v != null ? abrev(v) : ''}</td>
           })}
-          <td title={cheio(p.total)} style={{ ...tdVal, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 700 }}>{abrev(p.total)}</td>
+          <td title={cheio(p.total)} style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 700 }}>{abrev(p.total)}</td>
         </tr>
       ))}
       {/* subtotal do dia — também dia-alinhado */}
       <tr style={{ borderTop: `1.5px solid ${LINE}`, background: '#FBF7EF' }}>
-        <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF7EF', paddingLeft: labelPad, fontWeight: 700, color: ESP }}>Subtotal do dia</td>
+        <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF7EF', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', paddingLeft: labelPad, fontWeight: 700, color: ESP }}>Subtotal do dia</td>
         {colunas.map((c) => { const s = subtotalDia(c.key); return <td key={c.key} title={s ? cheio(s) : ''} style={{ ...tdVal, ...tdDiaCol, fontWeight: 700, color: ESP }}>{s ? abrev(s) : ''}</td> })}
-        <td style={{ ...tdVal, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 800, color: ESP }}>{abrev(d.total)}</td>
+        <td style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 800, color: ESP }}>{abrev(d.total)}</td>
       </tr>
     </>
   )
