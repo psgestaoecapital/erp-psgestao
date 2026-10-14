@@ -35,6 +35,14 @@ ok(dupla.ok && dupla.itens.find(i => i.chave === 'guia')?.quantidade === 9, 'par
 let travouD = 0
 for (let i = 4; i <= 92; i++) { const r = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 10, peDireito: Math.round(i * 5) / 100, camadas: 2, comLa: true }); if (!r.ok || r.itens.some(x => !(x.quantidade > 0))) travouD++ }
 ok(travouD === 0, 'parede dupla: nenhum pé-direito de 0,20 a 4,60 m trava')
+const sep = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 12.5, peDireito: 2.8, vaos: 0.8 * 2.1, estruturaDupla: true })
+const simp = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 12.5, peDireito: 2.8, vaos: 0.8 * 2.1 })
+const qs = (r: typeof sep, k: string) => r.ok ? r.itens.find(i => i.chave === k)!.quantidade : -1
+ok(qs(sep, 'guia') > qs(simp, 'guia') && qs(sep, 'montante') > qs(simp, 'montante') && qs(sep, 'banda') >= qs(simp, 'banda'), 'estrutura dupla: guias, montantes e banda aumentam')
+ok(qs(sep, 'chapa') === qs(simp, 'chapa') && qs(sep, 'parafuso') === qs(simp, 'parafuso'), 'estrutura dupla: chapas e parafusos não mudam')
+let travouE = 0
+for (let i = 4; i <= 92; i++) { const r = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 10, peDireito: Math.round(i * 5) / 100, estruturaDupla: true, comLa: true }); if (!r.ok || r.itens.some(x => !(x.quantidade > 0))) travouE++ }
+ok(travouE === 0, 'estrutura dupla: nenhum pé-direito de 0,20 a 4,60 m trava')
 const forro = calcularForroF530(REGRAS_FORRO_F530, { largura: 3, comprimento: 4 })
 ok(forro.ok && forro.itens.find(i => i.chave === 'chapa')!.quantidade === 6, 'forro F530 3×4 m: 12 m² → 6 chapas')
 ok(forro.ok && forro.itens.find(i => i.chave === 'tabica')!.quantidade === 5, 'forro F530 3×4 m: tabica pelo perímetro real = 5 barras')
