@@ -149,7 +149,7 @@ fi
 pertence_a_tabela_nova() { grep -qxF "$1" "$dir/tdrop.names"; }
 
 txn="$dir/restore.sql"
-{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='180s'; set local lock_timeout='20s';"; } > "$txn"
+{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"; } > "$txn"
 # 1) DROP do que a PR criou (objetos vaga-only em relação à foto)
 nd=0
 while IFS= read -r k; do
@@ -205,8 +205,17 @@ echo "delete from supabase_migrations.schema_migrations where version not in (se
 } >> "$txn"
 
 echo "restaurando a vaga ${VAGA} à foto: $nd objeto(s) criado(s) pela PR a derrubar, $nr função/view a reverter…"
+# CEO 14/10 (vaga 0, PR de markup): a volta bateu em statement timeout e a vaga ficou suja. Agora: timeout de 10 min (só o
+# diff foto×agora é restaurado, acima) e UMA nova tentativa; se falhar de novo, marca a vaga como SUJA (_vaga_snapshot
+# fica; tabela public._vaga_suja não — a marca vive na própria foto) e sai com exit 2 para o Reconciliar/Recriar.
 if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
-  recriar "a restauração à foto não convergiu (RAISE/erro → ROLLBACK; a vaga ficou com schema da PR)"
+  echo "::warning::restauração da vaga ${VAGA} falhou — tentando uma vez mais"
+  sleep 5
+  if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
+    "$PSQL" "$TEST_DATABASE_URL" -tAc "create table if not exists _vaga_snapshot.suja(em timestamptz default now()); insert into _vaga_snapshot.suja default values" >/dev/null 2>&1 || true
+    echo "::error title=VAGA SUJA::vaga ${VAGA} marcada SUJA (restauração falhou 2×) — não usar até o Reconciliar/Recriar; avisar o Eng. Chefe"
+    recriar "a restauração à foto não convergiu após 2 tentativas (vaga marcada suja)"
+  fi
 fi
 
 # VERIFICAÇÃO FINAL OBRIGATÓRIA (RD-38), no dado, pós-commit: nunca termina 0 se a vaga != foto.
