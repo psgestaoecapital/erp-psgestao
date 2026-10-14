@@ -41,7 +41,17 @@ SENSIVEL=revisao-eng-chefe
 RODAPE=$'\n\n<sub>fila-merge · '"${RUN_URL:-local}"'</sub>'
 SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-api() { gh api -H 'Accept: application/vnd.github+json' "$@"; }
+# Leitura (GET, sem -X) tenta até 3x: resposta vazia/transitória da API ("unexpected end of JSON input") derrubava a rodada
+# inteira (set -e) e deixava a esteira parada (runs 14909/14916, 14/10). Escrita (-X) NUNCA repete: não é idempotente.
+api() {
+  local t=1 out
+  case " $* " in *" -X "*) gh api -H 'Accept: application/vnd.github+json' "$@"; return;; esac
+  until out=$(gh api -H 'Accept: application/vnd.github+json' "$@"); do
+    [ "$t" -ge 3 ] && return 1
+    sleep $((t * 2)); t=$((t + 1))
+  done
+  [ -z "$out" ] || printf '%s\n' "$out"
+}
 # Observabilidade (CEO 10/10): toda linha "#<pr> ..." também vai p/ o snapshot que a fila grava no fim (flush_estado).
 log() { echo "$*"; echo "- $*" >> "$SUMARIO"; case "$*" in \#[0-9]*) [ -n "${TMPF:-}" ] && printf '%s\n' "$*" >> "$TMPF/estado" 2>/dev/null || true;; esac; }
 # Grava "por que cada PR está presa" em erp_esteira_pr_estado (a aba /dashboard/dev lê). No trap EXIT: roda sempre, mesmo
@@ -124,6 +134,25 @@ estado_main() {
   done
   rerodar "$id" >&2
   echo "esperar:@pos-migration da main $conc (run $id) sem verde depois da última migration — re-rodando"
+}
+
+# (a2) Deadlock do deploy vermelho (Eng. Chefe 14/10, #2542): o deploy-migrations da main quebrou numa migration; a PR que a
+# CONSERTA também tem migration e esperaria o deploy ficar verde — que só fica verde com ela. Exceção estreita: a main está
+# com o deploy VERMELHO (completed/failure) e TODA migration da PR é um arquivo MODIFICADO (nenhuma adicionada) que o
+# commit do run vermelho trouxe. Sem versão nova, a régua de versão não se aplica. Ecoa 1 (é o conserto) ou 0.
+corrige_deploy_vermelho() {
+  local n=$1 r st conc hsha mods quebrados f
+  r=$(api "repos/$REPO/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.status) \(.conclusion) \(.head_sha)"')
+  read -r st conc hsha <<< "$r"
+  { [ "$st" = completed ] && [ "$conc" = failure ] && [ -n "$hsha" ]; } || { echo 0; return; }
+  mods=$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[] | select(.filename | startswith("supabase/migrations/")) | "\(.status) \(.filename)"')
+  [ -n "$mods" ] || { echo 0; return; }
+  grep -qv '^modified ' <<< "$mods" && { echo 0; return; }
+  quebrados=$(api "repos/$REPO/commits/$hsha" --jq '.files[].filename')
+  while read -r _ f; do
+    grep -qxF "$f" <<< "$quebrados" || { echo 0; return; }
+  done <<< "$mods"
+  echo 1
 }
 
 # checks da aceitação: na VIA RÁPIDA são só informativos (não contam e não são exigidos)
@@ -294,7 +323,11 @@ for n in $fila; do
   grep -qvE '(\.md$|^docs/|^\.github/)' <<< "$arquivos" || so_docs=1
   # PR COM migration não vai nesta rodada se outra migration já espera a main (so_sem_migration) OU já houve merge no lote
   # (merges>0: a main acabou de mudar — a migration vai na próxima rodada, contra a main já assentada/verde).
-  if { [ "$so_sem_migration" = 1 ] || [ "$merges" -gt 0 ]; } && [ "$com_migration" = 1 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
+  # conserto do deploy vermelho da main (corrige_deploy_vermelho): não espera a main nem as outras migrations
+  corrige_deploy=0
+  [ "$com_migration" = 1 ] && corrige_deploy=$(corrige_deploy_vermelho "$n")
+  [ "$corrige_deploy" = 1 ] && log "#$n só corrige migration que quebrou o deploy-migrations da main: não espera a main"
+  if { [ "$so_sem_migration" = 1 ] || [ "$merges" -gt 0 ]; } && [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
 
   # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
   via=rapida
@@ -318,12 +351,23 @@ for n in $fila; do
       # (o novo commit re-roda os guardas); se continuar vermelho com a PR em dia, cai na recusa normal.
       if [[ "${c#vermelho:check vermelho: }" =~ ^(check_fn_guards|check_menu|check_migrations)(,(check_fn_guards|check_menu|check_migrations))*$ ]] \
          && [ "$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')" -gt 0 ] && [ "$em_preparo" -lt "$ATUALIZA_NA_VEZ" ]; then
-        em_preparo=$((em_preparo + 1))
         if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+          em_preparo=$((em_preparo + 1))
           log "#$n vermelha só de guarda (${c#vermelho:}) e atrás da main: atualizada para re-rodar os guardas — segue para a próxima"; continue
         fi
       fi
       tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
+    # Stall 13/10: PR estagnada (aberta antes do gates.yml) nunca teve o check "gates"; como a fila só atualiza PR verde, ela
+    # esperava para sempre. Atrás da main e com vaga → update-branch (o novo commit roda os gates), como no deadlock acima.
+    esperar:'gates ainda não rodaram')
+      if [ "$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')" -gt 0 ] && [ "$em_preparo" -lt "$ATUALIZA_NA_VEZ" ]; then
+        # Stall 13/10 14:00: só gasta vaga se o update-branch FUNCIONOU (PR velha com conflito falhava e queimava as 4 vagas).
+        if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+          em_preparo=$((em_preparo + 1))
+          log "#$n sem o check gates e atrás da main: atualizada para rodar os gates — segue para a próxima"; continue
+        fi
+      fi
+      log "#$n aguardando: gates ainda não rodaram — segue para a próxima"; continue;;
     # Só conta como "em preparo" o PREVIEW que a própria fila dispara: PR VIA RÁPIDA com check rodando (não "gates ainda
     # não rodaram", que é PR estagnada). A aceitação (demo-e2e, serial/lenta) das PRs via REVISADA NÃO é preparo da fila —
     # contá-la inflava o em_preparo (13-14 no run 9299) e esfomeava as via-rápida atrás da main. (Correção da regressão do #2361.)
@@ -347,7 +391,7 @@ for n in $fila; do
   fi
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
-  if [ "$com_migration" = 1 ]; then
+  if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then
     m=$(estado_main)
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
