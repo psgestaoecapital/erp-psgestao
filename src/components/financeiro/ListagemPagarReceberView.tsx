@@ -156,6 +156,25 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [statusSel, setStatusSel] = useState<StatusOpt[]>([])   // [] = todos; combina Vencidos + Pagas etc.
   const toggleStatus = (s: StatusOpt) => setStatusSel((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]))
   const [categoria, setCategoria] = useState('')
+  // #1939: a listagem guarda o CÓDIGO da categoria; busca o nome no plano de contas para exibir "código · nome".
+  const [nomeCategoria, setNomeCategoria] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!companyId) { setNomeCategoria({}); return }
+    let alive = true
+    ;(async () => {
+      const { data: rows } = await supabase
+        .from('erp_plano_contas')
+        .select('codigo, descricao')
+        .or(`company_id.eq.${companyId},company_id.is.null`)
+        .limit(2000)
+      if (!alive) return
+      const m: Record<string, string> = {}
+      ;(rows ?? []).forEach((c: { codigo: string; descricao: string }) => { if (c.codigo && c.descricao) m[c.codigo] = c.descricao })
+      setNomeCategoria(m)
+    })()
+    return () => { alive = false }
+  }, [companyId])
+  const rotuloCategoria = (c: string | null | undefined) => (c ? (nomeCategoria[c] ? `${c} · ${nomeCategoria[c]}` : c) : '')
   const [busca, setBusca] = useState('')
   // RD-41 · filtros por coluna (client-side, sobre as linhas já carregadas do período)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
@@ -482,7 +501,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const statusMap: Record<string, string> = { todos: 'Todos', avencer: 'A vencer', vencidos: 'Vencidos', hoje: 'Hoje', pagos: labels.pagosLabel, conciliado: 'Conciliado', agendado: 'Agendado', incluido_remessa: 'Incluído na remessa' }
     const statusTxt = statusSel.length ? statusSel.map((s) => statusMap[s]).join(' + ') : 'Todos'
     const partes = [`Periodo ${fmtData(dataInicio)} a ${fmtData(dataFim)}`, `Status: ${statusTxt}`]
-    if (categoria) partes.push(`Categoria: ${categoria}`)
+    if (categoria) partes.push(`Categoria: ${rotuloCategoria(categoria)}`)
     if (busca.trim()) partes.push(`Busca: "${busca.trim()}"`)
     if (fPessoa.trim()) partes.push(`${tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}: ${fPessoa.trim()}`)
     if (fForma) partes.push(`Forma: ${fForma}`)
@@ -994,7 +1013,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
           </select>
         </Campo>
@@ -1281,13 +1300,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor · forma) na linha */}
                           {(r.categoria || r.nome_pessoa || r.forma_pagamento) && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>
-                              {[r.categoria, r.nome_pessoa].filter(Boolean).join(' · ')}
+                              {[rotuloCategoria(r.categoria), r.nome_pessoa].filter(Boolean).join(' · ')}
                               {r.forma_pagamento && <span style={{ marginLeft: (r.categoria || r.nome_pessoa) ? 6 : 0 }}>💳 {r.forma_pagamento}</span>}
                             </div>
                           )}
                         </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
-                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
+                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{rotuloCategoria(r.categoria) || '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">
