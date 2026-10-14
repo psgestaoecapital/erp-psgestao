@@ -1,6 +1,6 @@
 // Gate (Hub HB2, Parte O): motor da Calculadora de Obra nunca trava — varre o pé-direito de 0,20 a 4,60 m de 0,05 em 0,05
 // (parede simples) e confere o caso do Eng. Chefe: parede 12,5 × 2,8 m com porta 0,8 × 2,1 m.
-import { REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroF530, calcularParede } from '../../src/lib/calculadora/motor'
+import { REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroAramado, calcularForroF530, calcularParede } from '../../src/lib/calculadora/motor'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -26,4 +26,13 @@ else {
 const forro = calcularForroF530(REGRAS_FORRO_F530, { largura: 3, comprimento: 4 })
 ok(forro.ok && forro.itens.find(i => i.chave === 'chapa')!.quantidade === 6, 'forro F530 3×4 m: 12 m² → 6 chapas')
 ok(forro.ok && forro.itens.find(i => i.chave === 'tabica')!.quantidade === 5, 'forro F530 3×4 m: tabica pelo perímetro real = 5 barras')
+const ar = calcularForroAramado(REGRAS_FORRO_ARAMADO, { largura: 3, comprimento: 4 })
+const qa = (k: string) => ar.ok ? ar.itens.find(i => i.chave === k)!.quantidade : -1
+ok(ar.ok && qa('chapa') === 11, `forro aramado 3×4 m: ⌈12×1,05÷1,2⌉ = 11 chapas (veio ${qa('chapa')})`)
+ok(qa('nervura') === 1, `forro aramado 3×4 m: nervura arredonda para CIMA, ⌈12×0,09÷1,2⌉ = 1 (veio ${qa('nervura')})`)
+ok(qa('gesso_cola') === 3, `forro aramado 3×4 m: gesso cola ⌈12×1,25÷5⌉ = 3 sacos (veio ${qa('gesso_cola')})`)
+ok(calcularForroAramado(REGRAS_FORRO_ARAMADO, { largura: 0, comprimento: 4 }).ok === false, 'forro aramado: medida zero devolve erro claro')
+let travouA = 0
+for (let l = 0.5; l <= 20; l += 0.5) for (const c of [0.6, 1, 2.5, 7.35, 12]) { const r = calcularForroAramado(REGRAS_FORRO_ARAMADO, { largura: l, comprimento: c }); if (!r.ok || r.itens.some(x => !(x.quantidade > 0))) travouA++ }
+ok(travouA === 0, 'forro aramado: nenhuma medida de 0,5 a 20 m trava nem zera item')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }

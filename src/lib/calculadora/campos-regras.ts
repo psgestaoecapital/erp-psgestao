@@ -32,6 +32,14 @@ export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
     { caminho: 'parafusoPPA25PorM2', rotulo: 'Parafuso PPA 25', unidade: 'un/m²', ajuda: 'parafusos PPA 25 por m²' },
     { caminho: 'parafusoPFM13PorM2', rotulo: 'Parafuso PFM 13', unidade: 'un/m²', ajuda: 'parafusos PFM 13 por m²' },
   ],
+  forro_aramado: [
+    ...comuns,
+    { caminho: 'nervuraPorM2', rotulo: 'Nervura', unidade: 'm/m²', ajuda: 'metros de nervura por m² de forro' },
+    { caminho: 'juncaoHPorM2', rotulo: 'Junção H', unidade: 'un/m²', ajuda: 'junções H por m²' },
+    { caminho: 'arameKgM2', rotulo: 'Arame nº 18', unidade: 'kg/m²', ajuda: 'quilos de arame por m²' },
+    { caminho: 'gessoColaKgM2', rotulo: 'Gesso cola', unidade: 'kg/m²', ajuda: 'consumo de gesso cola por m²' },
+    { caminho: 'sacoGessoColaKg', rotulo: 'Saco de gesso cola', unidade: 'kg', ajuda: 'peso da embalagem de gesso cola' },
+  ],
 }
 export const chaveAjudaRegra = (s: SistemaCalc, caminho: string) => `projetos.calculadora.regra.${s}.${caminho}`.toLowerCase()
 
@@ -49,7 +57,7 @@ export function montarRegras(ref: Regras, valores: Record<string, string>, s: Si
     if (bruto === '') return { ok: false, erro: `Preencha "${c.rotulo}".` }
     const v = Number(bruto)
     if (!Number.isFinite(v) || v < 0) return { ok: false, erro: `"${c.rotulo}" precisa ser um número maior ou igual a zero.` }
-    if ((c.caminho === 'perda' || c.caminho === 'areaChapa' || c.caminho === 'comprimentoBarra' || c.caminho === 'baldeKg' || c.caminho === 'rolofitaM') && v === 0) return { ok: false, erro: `"${c.rotulo}" não pode ser zero.` }
+    if ((c.caminho === 'perda' || c.caminho === 'areaChapa' || c.caminho === 'comprimentoBarra' || c.caminho === 'baldeKg' || c.caminho === 'rolofitaM' || c.caminho === 'sacoGessoColaKg') && v === 0) return { ok: false, erro: `"${c.rotulo}" não pode ser zero.` }
     if (v === lerCampo(ref, c.caminho)) continue
     const m = c.caminho.match(/^parafusoPorM2\.(.+)$/)
     if (m) out.parafusoPorM2 = { ...(out.parafusoPorM2 as object | undefined), [m[1]]: v }
