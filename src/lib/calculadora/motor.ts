@@ -26,7 +26,13 @@ export type RegrasForroAramado = {
   gessoColaKgM2: number; sacoGessoColaKg: number
   massaKgM2: number; fitaMM2: number; baldeKg: number; rolofitaM: number
 }
-export type Regras = RegrasParede | RegrasForroF530 | RegrasForroAramado
+export type RegrasRevestimentoColado = {
+  tipo: 'revestimento_colado'
+  perda: number; areaChapa: number
+  gessoColaKgM2: number; sacoGessoColaKg: number
+  massaKgM2: number; fitaMM2: number; baldeKg: number; rolofitaM: number
+}
+export type Regras = RegrasParede | RegrasForroF530 | RegrasForroAramado | RegrasRevestimentoColado
 
 export type ItemCalculo = {
   chave: string; descricao: string; unidadeCompra: string
@@ -70,6 +76,13 @@ export const REGRAS_FORRO_ARAMADO: RegrasForroAramado = {
   nervuraPorM2: 0.09, juncaoHPorM2: 4.5, arameKgM2: 0.14,
   gessoColaKgM2: 1.25, sacoGessoColaKg: 5,
   massaKgM2: 0.84, fitaMM2: 3, baldeKg: 22, rolofitaM: 150,
+}
+
+// Revestimento colado (chapa colada direto na alvenaria, sem estrutura). Valores: referência de mercado a validar.
+export const REGRAS_REVESTIMENTO_COLADO: RegrasRevestimentoColado = {
+  tipo: 'revestimento_colado', perda: 1.05, areaChapa: 2.16,
+  gessoColaKgM2: 12.5, sacoGessoColaKg: 5,
+  massaKgM2: 0.5, fitaMM2: 1.5, baldeKg: 22, rolofitaM: 150,
 }
 
 const item = (chave: string, descricao: string, unidadeCompra: string, bruta: number, conta: string): ItemCalculo =>
@@ -150,6 +163,20 @@ export function calcularForroAramado(r: RegrasForroAramado, e: EntradaForro): Re
     item('nervura', 'Nervura', 'unidade', (area * r.nervuraPorM2) / r.comprimentoBarra, `${f(area)} m² × ${f(r.nervuraPorM2)} ÷ ${f(r.comprimentoBarra)} m por nervura, sempre para cima`),
     item('juncao_h', 'Junção H', 'unidade', area * r.juncaoHPorM2, `${f(area)} m² × ${f(r.juncaoHPorM2)} un/m²`),
     item('arame', 'Arame nº 18', 'kg', area * r.arameKgM2, `${f(area)} m² × ${f(r.arameKgM2)} kg/m²`),
+    item('gesso_cola', 'Gesso cola', `saco ${r.sacoGessoColaKg} kg`, (area * r.gessoColaKgM2) / r.sacoGessoColaKg, `${f(area)} m² × ${f(r.gessoColaKgM2)} kg/m² ÷ ${r.sacoGessoColaKg} kg por saco`),
+    item('massa', 'Massa para junta', `balde ${r.baldeKg} kg`, (area * r.massaKgM2) / r.baldeKg, `${f(area)} m² × ${f(r.massaKgM2)} kg/m² ÷ ${r.baldeKg} kg por balde`),
+    item('fita', 'Fita para junta', `rolo ${r.rolofitaM} m`, (area * r.fitaMM2) / r.rolofitaM, `${f(area)} m² × ${f(r.fitaMM2)} m/m² ÷ ${r.rolofitaM} m por rolo`),
+  ]
+  return { ok: true, area, itens, avisos: [] }
+}
+
+export function calcularRevestimentoColado(r: RegrasRevestimentoColado, e: EntradaParede): Resultado {
+  if (!(e.comprimento > 0) || !(e.peDireito > 0)) return { ok: false, erro: 'Informe comprimento e altura maiores que zero.' }
+  const area = arred2(e.comprimento * e.peDireito - (e.vaos ?? 0))
+  if (area <= 0) return { ok: false, erro: 'Os vãos descontados são maiores que a parede.' }
+  const p = r.perda
+  const itens = [
+    item('chapa', 'Chapa de gesso', 'chapa', (area * p) / r.areaChapa, `${f(area)} m² × perda ${f(p)} ÷ ${f(r.areaChapa)} m² por chapa`),
     item('gesso_cola', 'Gesso cola', `saco ${r.sacoGessoColaKg} kg`, (area * r.gessoColaKgM2) / r.sacoGessoColaKg, `${f(area)} m² × ${f(r.gessoColaKgM2)} kg/m² ÷ ${r.sacoGessoColaKg} kg por saco`),
     item('massa', 'Massa para junta', `balde ${r.baldeKg} kg`, (area * r.massaKgM2) / r.baldeKg, `${f(area)} m² × ${f(r.massaKgM2)} kg/m² ÷ ${r.baldeKg} kg por balde`),
     item('fita', 'Fita para junta', `rolo ${r.rolofitaM} m`, (area * r.fitaMM2) / r.rolofitaM, `${f(area)} m² × ${f(r.fitaMM2)} m/m² ÷ ${r.rolofitaM} m por rolo`),
