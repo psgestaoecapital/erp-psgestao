@@ -18,6 +18,7 @@ export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
     ...comuns,
     { caminho: 'chapasPorFace', rotulo: 'Chapas por face', unidade: 'un', ajuda: 'camadas de chapa em cada face da parede' },
     { caminho: 'rolobandaM', rotulo: 'Rolo de banda', unidade: 'm', ajuda: 'metros por rolo de banda acústica' },
+    { caminho: 'laRoloM2', rotulo: 'Rolo de lã', unidade: 'm²', ajuda: 'área de um rolo de lã mineral' },
     { caminho: 'parafusoPorM2.0.6', rotulo: 'Parafuso — montante a 0,60', unidade: 'un/m²', ajuda: 'parafusos por m² com montante a cada 0,60 m' },
     { caminho: 'parafusoPorM2.0.4', rotulo: 'Parafuso — montante a 0,40', unidade: 'un/m²', ajuda: 'parafusos por m² com montante a cada 0,40 m' },
     { caminho: 'parafusoPorM2.0.6d', rotulo: 'Parafuso — 0,60 duplo', unidade: 'un/m²', ajuda: 'parafusos por m² com montante duplo a cada 0,60 m' },
@@ -32,8 +33,16 @@ export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
     { caminho: 'parafusoPPA25PorM2', rotulo: 'Parafuso PPA 25', unidade: 'un/m²', ajuda: 'parafusos PPA 25 por m²' },
     { caminho: 'parafusoPFM13PorM2', rotulo: 'Parafuso PFM 13', unidade: 'un/m²', ajuda: 'parafusos PFM 13 por m²' },
   ],
+  forro_aramado: [
+    ...comuns,
+    { caminho: 'nervuraPorM2', rotulo: 'Nervura', unidade: 'm/m²', ajuda: 'metros de nervura por m² de forro' },
+    { caminho: 'juncaoHPorM2', rotulo: 'Junção H', unidade: 'un/m²', ajuda: 'junções H por m²' },
+    { caminho: 'arameKgM2', rotulo: 'Arame nº 18', unidade: 'kg/m²', ajuda: 'quilos de arame por m²' },
+    { caminho: 'gessoColaKgM2', rotulo: 'Gesso cola', unidade: 'kg/m²', ajuda: 'consumo de gesso cola por m²' },
+    { caminho: 'sacoGessoColaKg', rotulo: 'Saco de gesso cola', unidade: 'kg', ajuda: 'peso da embalagem de gesso cola' },
+  ],
 }
-export const chaveAjudaRegra = (s: SistemaCalc, caminho: string) => `projetos.calculadora.regra.${s}.${caminho}`
+export const chaveAjudaRegra = (s: SistemaCalc, caminho: string) => `projetos.calculadora.regra.${s}.${caminho}`.toLowerCase()
 
 export function lerCampo(regras: Regras, caminho: string): number | undefined {
   const m = caminho.match(/^parafusoPorM2\.(.+)$/)
@@ -49,7 +58,7 @@ export function montarRegras(ref: Regras, valores: Record<string, string>, s: Si
     if (bruto === '') return { ok: false, erro: `Preencha "${c.rotulo}".` }
     const v = Number(bruto)
     if (!Number.isFinite(v) || v < 0) return { ok: false, erro: `"${c.rotulo}" precisa ser um número maior ou igual a zero.` }
-    if ((c.caminho === 'perda' || c.caminho === 'areaChapa' || c.caminho === 'comprimentoBarra' || c.caminho === 'baldeKg' || c.caminho === 'rolofitaM') && v === 0) return { ok: false, erro: `"${c.rotulo}" não pode ser zero.` }
+    if ((c.caminho === 'perda' || c.caminho === 'areaChapa' || c.caminho === 'comprimentoBarra' || c.caminho === 'baldeKg' || c.caminho === 'rolofitaM' || c.caminho === 'sacoGessoColaKg' || c.caminho === 'laRoloM2') && v === 0) return { ok: false, erro: `"${c.rotulo}" não pode ser zero.` }
     if (v === lerCampo(ref, c.caminho)) continue
     const m = c.caminho.match(/^parafusoPorM2\.(.+)$/)
     if (m) out.parafusoPorM2 = { ...(out.parafusoPorM2 as object | undefined), [m[1]]: v }
