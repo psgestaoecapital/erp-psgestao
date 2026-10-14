@@ -332,6 +332,13 @@ for n in $fila; do
   # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
   via=rapida
   jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
+  # Eng. Chefe 14/10: tela/cálculo/migration/área crítica NUNCA publica pela via rápida, mesmo sem etiqueta (furo da #2592):
+  # a fila coloca a etiqueta e espera o MERGE AUTORIZADO do revisor (o patch-id é conferido na próxima rodada).
+  if [ "$via" = rapida ] && [ "$(printf '%s\n' "$arquivos" | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
+    log "#$n toca tela/cálculo/migration/área crítica sem etiqueta: ponho $SENSIVEL e espero a autorização"
+    api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
+    continue
+  fi
   log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')"
 
   # (c) sensível → autorização pelo conteúdo
