@@ -84,7 +84,7 @@ export function faixaDoPeDireito(faixas: FaixaPeDireito[], pd: number): FaixaPeD
   return achada
 }
 
-export type EntradaParede = { comprimento: number; peDireito: number; vaos?: number; comLa?: boolean }
+export type EntradaParede = { comprimento: number; peDireito: number; vaos?: number; comLa?: boolean; camadas?: number }
 export type EntradaForro = { largura: number; comprimento: number; perimetro?: number }
 
 export function calcularParede(r: RegrasParede, e: EntradaParede): Resultado {
@@ -94,10 +94,12 @@ export function calcularParede(r: RegrasParede, e: EntradaParede): Resultado {
   const fx = faixaDoPeDireito(r.faixas, e.peDireito)
   if (!fx) return { ok: false, erro: `Pé-direito de ${f(e.peDireito)} m fora das faixas cadastradas — ajuste as regras do sistema.` }
   const L = e.comprimento, p = r.perda
+  // camadas por face (corta-fogo/dupla): padrão = regra da empresa; a entrada só sobrepõe (1 a 3)
+  const cam = e.camadas && e.camadas >= 1 ? Math.min(3, Math.round(e.camadas)) : r.chapasPorFace
   const un = r.parafusoPorM2[`${fx.espacamento}${fx.duplo ? 'd' : ''}` as keyof RegrasParede['parafusoPorM2']]
   const itens = [
-    item('chapa', 'Chapa de gesso', 'chapa', (area * r.chapasPorFace * 2 * p) / r.areaChapa,
-      `${f(area)} m² × ${r.chapasPorFace * 2} faces × perda ${f(p)} ÷ ${f(r.areaChapa)} m² por chapa`),
+    item('chapa', 'Chapa de gesso', 'chapa', (area * cam * 2 * p) / r.areaChapa,
+      `${f(area)} m² × ${cam * 2} camadas (${cam} por face) × perda ${f(p)} ÷ ${f(r.areaChapa)} m² por chapa`),
     item('guia', `Guia ${fx.bitola}`, 'barra 3 m', (L * 2 * p) / r.comprimentoBarra,
       `${f(L)} m × 2 (piso e teto) × perda ${f(p)} ÷ ${r.comprimentoBarra} m por barra`),
     item('montante', `Montante ${fx.bitola}${fx.duplo ? ' duplo' : ''} a cada ${fx.espacamento * 100} cm`, 'barra 3 m',
@@ -105,7 +107,7 @@ export function calcularParede(r: RegrasParede, e: EntradaParede): Resultado {
       `${f(L)} m ÷ ${fx.espacamento} m × perda ${f(p)} × pé-direito ${f(e.peDireito)} m${fx.duplo ? ' × 2 (duplo)' : ''} ÷ ${r.comprimentoBarra} m por barra`),
     item('banda', 'Banda acústica', 'rolo 10 m', (L * 2 * p) / r.rolobandaM,
       `${f(L)} m × 2 × perda ${f(p)} ÷ ${r.rolobandaM} m por rolo`),
-    item('parafuso', 'Parafuso PPA25', 'cento', (area * un) / 100, `${f(area)} m² × ${un} un/m² ÷ 100 por cento`),
+    item('parafuso', 'Parafuso PPA25', 'cento', (area * un * cam / r.chapasPorFace) / 100, `${f(area)} m² × ${un} un/m²${cam !== r.chapasPorFace ? ` × ${cam / r.chapasPorFace} (camadas)` : ''} ÷ 100 por cento`),
     item('massa', 'Massa para junta', `balde ${r.baldeKg} kg`, (area * r.massaKgM2) / r.baldeKg,
       `${f(area)} m² × ${f(r.massaKgM2)} kg/m² ÷ ${r.baldeKg} kg por balde`),
     item('fita', 'Fita para junta', `rolo ${r.rolofitaM} m`, (area * r.fitaMM2) / r.rolofitaM,

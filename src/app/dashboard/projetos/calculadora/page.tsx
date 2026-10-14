@@ -37,6 +37,7 @@ export default function CalculadoraObraPage() {
   const [pd, setPd] = useState("2,8");
   const [vaos, setVaos] = useState("1,68");
   const [comLa, setComLa] = useState(false);
+  const [camadas, setCamadas] = useState(1);
   const [larg, setLarg] = useState("3");
   const [compF, setCompF] = useState("4");
   const [avancado, setAvancado] = useState(false);
@@ -105,10 +106,10 @@ export default function CalculadoraObraPage() {
   const regrasForro = useMemo(() => mesclarRegras(REGRAS_FORRO_F530, sistema === "forro" ? regraSalva : null), [regraSalva, sistema]);
   const regrasAramado = useMemo(() => mesclarRegras(REGRAS_FORRO_ARAMADO, sistema === "aramado" ? regraSalva : null), [regraSalva, sistema]);
   const res: Resultado = useMemo(() => sistema === "parede"
-    ? calcularParede(regrasParede, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos), comLa })
+    ? calcularParede(regrasParede, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos), comLa, camadas })
     : sistema === "aramado"
       ? calcularForroAramado(regrasAramado, { largura: n(larg), comprimento: n(compF) })
-      : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, comLa, larg, compF, regrasParede, regrasForro, regrasAramado]);
+      : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, comLa, camadas, larg, compF, regrasParede, regrasForro, regrasAramado]);
 
   const custo = useMemo(() => res.ok ? custearItens(res.itens, vinculos, new Map(produtos.map((p) => [p.id, p]))) : { linhas: [], total: 0, semCusto: 0 }, [res, vinculos, produtos]);
   const custoPorChave = useMemo(() => Object.fromEntries(custo.linhas.map((l) => [l.item.chave, l])), [custo]);
@@ -136,6 +137,13 @@ export default function CalculadoraObraPage() {
             <Campo rotulo="Comprimento (m)" chave="projetos.calculadora.comprimento" valor={comp} set={setComp} testid="calc-comprimento" />
             <Campo rotulo="Pé-direito (m)" chave="projetos.calculadora.pe_direito" valor={pd} set={setPd} testid="calc-pe-direito" />
             <Campo rotulo="Vãos a descontar (m²)" chave="projetos.calculadora.vaos" valor={vaos} set={setVaos} testid="calc-vaos" />
+            <label className="flex items-center gap-2 text-sm text-[#3D2314] sm:col-span-3">
+              Camadas de chapa por face
+              <select value={camadas} onChange={(e) => setCamadas(Number(e.target.value))} data-testid="calc-camadas" className="rounded-lg border border-[#E8E2D6] px-2 py-1">
+                <option value={1}>1 (simples)</option><option value={2}>2 (dupla / corta-fogo)</option>
+              </select>
+              <AjudaCampo chave="projetos.calculadora.camadas" rota="/dashboard/projetos/calculadora" />
+            </label>
             <label className="flex items-center gap-2 text-sm text-[#3D2314] sm:col-span-3">
               <input type="checkbox" checked={comLa} onChange={(e) => setComLa(e.target.checked)} data-testid="calc-la" />
               Com lã mineral no miolo<AjudaCampo chave="projetos.calculadora.la" rota="/dashboard/projetos/calculadora" />
