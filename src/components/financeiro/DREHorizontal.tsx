@@ -12,7 +12,11 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import Modal from '@/components/ui/Modal'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { fmtMoedaDre, valorComSinalDre, ehNegativoDre, COR_VALOR_NEGATIVO } from '@/lib/formatoMoedaDre'
+
+const ROTA_DRE = '/dashboard/financeiro/dre-consolidado'
+const fmtData = (d: string | null) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '—')
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -302,7 +306,8 @@ export default function DREHorizontal() {
                     : prevSai ? (totalDisplay > 0 ? RED : MUT)
                     : isRes ? (totalDisplay < 0 ? RED : totalDisplay > 0 ? GREEN : MUT)
                     : ESP
-                  const contaDrillavel = isConta && umMes            // folha + 1 mês → drill por pessoa
+                  // conta é drillável em qualquer modo: 1 mês → pessoa × dia (#813); intervalo → LANÇAMENTOS (CEO 14/10)
+                  const contaDrillavel = isConta
                   const aberta = contaDrillavel && contaAberta === l.codigo
                   return (
                     <Fragment key={`${l.kind}-${l.codigo}-${l.ordem}`}>
@@ -353,9 +358,14 @@ export default function DREHorizontal() {
                         {fmtMoedaDre(valorComSinalDre(totalDisplay, l.sinal))}
                       </td>
                     </tr>
-                    {/* Drill como LINHAS da MESMA tabela (mesmas colunas do topo) → dia N sempre sob dia N. */}
-                    {aberta && (
+                    {/* Drill: 1 mês → pessoa × dia (mesmas colunas do topo); intervalo → LANÇAMENTOS da conta (3º nível). */}
+                    {aberta && umMes && (
                       <DrillDiario membros={membros} codigo={l.codigo} nome={l.nome} ano={ano} mes={selIni} regime={regime} colunas={colunas} />
+                    )}
+                    {aberta && !umMes && (
+                      <DrillLancamentos membros={membros} nome={l.nome}
+                        codigo={l.codigo} mesIni={`${ano}-${pad2(selIni)}-01`} mesFim={`${ano}-${pad2(selFim)}-01`}
+                        regime={regime} colSpan={colunas.length + 2} />
                     )}
                     </Fragment>
                   )
@@ -466,6 +476,119 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime, colunas }: {
   )
 }
 
+// ── 3º nível (CEO 14/10): LANÇAMENTOS de uma conta no período (só leitura), em qualquer intervalo de meses.
+// Soma dos lançamentos fecha com a linha do DRE (reconciliação); três datas lado a lado; SEM competência em vermelho.
+type LancItem = {
+  id: string; pessoa: string; descricao: string | null; documento: string | null;
+  data_competencia: string | null; data_vencimento: string | null; data_pagamento: string | null;
+  valor: number; status: string | null; sem_competencia: boolean
+}
+type LancResult = {
+  ok: boolean; erro?: string; conta_nome: string; is_receita: boolean; fonte: string; regime: string;
+  total: number; dre_periodo: number | null; lancamentos: LancItem[]; orfaos: LancItem[]
+}
+
+function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSpan }: {
+  membros: string[]; codigo: string; nome: string; mesIni: string; mesFim: string; regime: string; colSpan: number
+}) {
+  const [d, setD] = useState<LancResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading inicial ao abrir o drill (padrão dos demais drills da tela)
+    setLoading(true); setErro(null)
+    void supabase.rpc('fn_psgc_dre_lancamentos', {
+      p_company_ids: membros, p_psgc_codigo: codigo, p_mes_ini: mesIni, p_mes_fim: mesFim, p_regime: regime,
+    }).then(({ data, error }) => {
+      if (!alive) return
+      const r = data as LancResult | null
+      if (error) setErro(error.message)
+      else if (r && r.ok === false) setErro(r.erro || 'erro')
+      else setD(r)
+      setLoading(false)
+    })
+    return () => { alive = false }
+  }, [membros, codigo, mesIni, mesFim, regime])
+
+  const linhaMsg = (texto: string, cor: string) => (
+    <tr><td colSpan={colSpan} style={{ padding: '10px 12px', fontSize: 12, color: cor, background: '#FCFAF5' }}>{texto}</td></tr>
+  )
+  if (loading) return linhaMsg('Carregando lançamentos…', MUT)
+  if (erro) return linhaMsg(erro, RED)
+  if (!d) return linhaMsg('Sem dados.', MUT)
+
+  const rotuloPessoa = d.is_receita ? 'Cliente' : 'Fornecedor'
+  const diff = Math.round((d.total - (d.dre_periodo ?? 0)) * 100) / 100
+  const cel = (x: LancItem) => x.sem_competencia ? '#FCEBEB' : '#FFF'
+
+  const tabela = (itens: LancItem[], vazio: string) => (
+    <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8, background: '#FFF' }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, minWidth: 760 }}>
+        <thead>
+          <tr style={{ background: CREAM }}>
+            <th style={lthL}>{rotuloPessoa}</th>
+            <th style={lthL}>Descrição</th>
+            <th style={lthL}>Documento</th>
+            <th style={lthC}>Competência<AjudaCampo chave="financeiro.dre_consolidado.data_competencia" rota={ROTA_DRE} /></th>
+            <th style={lthC}>Vencimento<AjudaCampo chave="financeiro.dre_consolidado.data_vencimento" rota={ROTA_DRE} /></th>
+            <th style={lthC}>Pagamento<AjudaCampo chave="financeiro.dre_consolidado.data_pagamento" rota={ROTA_DRE} /></th>
+            <th style={lthR}>Valor</th>
+            <th style={lthL}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {itens.length === 0 ? (
+            <tr><td colSpan={8} style={{ padding: '10px 12px', color: MUT }}>{vazio}</td></tr>
+          ) : itens.map((x) => (
+            <tr key={x.id} style={{ borderTop: `0.5px solid ${LINE}`, background: cel(x) }}>
+              <td style={ltd} title={x.pessoa}>{x.pessoa}</td>
+              <td style={ltd} title={x.descricao ?? ''}>{x.descricao ?? '—'}</td>
+              <td style={ltd}>{x.documento ?? '—'}</td>
+              <td style={ltdC}>
+                {x.sem_competencia
+                  ? <span style={{ color: RED, fontWeight: 700 }} title="Lançamento sem data de competência — distorce o resultado do período">sem competência</span>
+                  : fmtData(x.data_competencia)}
+              </td>
+              <td style={ltdC}>{fmtData(x.data_vencimento)}</td>
+              <td style={ltdC}>{fmtData(x.data_pagamento)}</td>
+              <td style={{ ...ltd, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: 600 }}>{cheio(x.valor)}</td>
+              <td style={ltd}>{x.status ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+
+  return (
+    <tr>
+      <td colSpan={colSpan} style={{ padding: 0, background: '#FCFAF5', borderTop: `0.5px solid ${LINE}` }}>
+        <div style={{ padding: '10px 14px' }}>
+          <div style={{ fontSize: 12, color: MUT, marginBottom: 8 }}>
+            Lançamentos de <b style={{ color: ESP }}>{nome}</b> · {d.lancamentos.length} título(s) · total <b style={{ color: ESP }}>{cheio(d.total)}</b>
+            <AjudaCampo chave="financeiro.dre_consolidado.drill_lancamentos" rota={ROTA_DRE} />
+            {Math.abs(diff) < 0.01
+              ? <span style={{ color: GREEN, marginLeft: 6, fontWeight: 700 }}>✓ fecha com o DRE</span>
+              : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ difere do DRE ({cheio(d.dre_periodo ?? 0)}) em {cheio(diff)} — há título fora do de-para</span>}
+          </div>
+          {tabela(d.lancamentos, 'Nenhum lançamento desta conta no período.')}
+          {d.orfaos.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: RED, marginBottom: 4 }}>
+                ⚠ {d.orfaos.length} lançamento(s) SEM data de competência e sem emissão (não entram em nenhum mês — revise)
+                <AjudaCampo chave="financeiro.dre_consolidado.sem_competencia" rota={ROTA_DRE} />
+              </div>
+              {tabela(d.orfaos, '')}
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
 // ── Previsto · títulos a vencer num dia (receber/pagar) — lê pela RLS do usuário (empresas do grupo).
 // RD-26: sem RPC nova de fluxo; consulta direta às tabelas (mesmo padrão do "ver conta existente").
 type TituloDia = { id: string; nome: string; valor: number; descricao: string | null; doc: string | null }
@@ -558,5 +681,11 @@ const tdConta: React.CSSProperties = { padding: '8px 12px', whiteSpace: 'nowrap'
 const tdVal: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
 const tdDiaCol: React.CSSProperties = { padding: '8px 7px', minWidth: 46 }
 const caret: React.CSSProperties = { width: 16, marginRight: 2, background: 'transparent', border: 'none', cursor: 'pointer', color: GOLD, fontSize: 11, padding: 0 }
+// 3º nível (lançamentos): tabela própria dentro do colSpan — rola no celular; não usa as colunas de mês do topo.
+const lthL: React.CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT, whiteSpace: 'nowrap' }
+const lthC: React.CSSProperties = { ...lthL, textAlign: 'center' }
+const lthR: React.CSSProperties = { ...lthL, textAlign: 'right' }
+const ltd: React.CSSProperties = { padding: '7px 10px', color: ESP, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const ltdC: React.CSSProperties = { padding: '7px 10px', color: ESP, textAlign: 'center', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }
 // Parte C (#867) + alinhamento do drill: o detalhe (cliente/fornecedor × dia) usa as MESMAS colunas
 // da tabela do topo (tdConta/tdVal/tdDiaCol) — régua de dias só no topo, e cada dia N sob o dia N.
