@@ -107,3 +107,7 @@ BEGIN
     'comissao_id', v_comissao, 'valor_comissao', v_valcom, 'fee_mensal', v_fee,
     'aviso', CASE WHEN v_resp IS NULL THEN 'sem responsável financeiro único (0 ou >1) — defina manualmente' ELSE NULL END);
 END $function$;
+
+-- SECURITY DEFINER: só usuário logado (a tela chama como authenticated) e o canal de serviço executam; nunca anon/PUBLIC.
+REVOKE ALL ON FUNCTION public.fn_agency_proposta_aprovar(uuid, numeric, integer, text, date, numeric, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_proposta_aprovar(uuid, numeric, integer, text, date, numeric, text, text) TO authenticated, service_role;
