@@ -116,6 +116,50 @@ jobs:
         with:
           ref: ${{ steps.ja.outputs.sha }}
           fetch-depth: 0
+      # CEO 13/10 19:58: barra banco de testes (vaga 0) CONTAMINADO por PR antes de testar a main. O checkout acima é a
+      # própria main (steps.ja.outputs.sha), então supabase/migrations do working tree É o alvo. Contaminado (ledger com
+      # versão > a da main) → falha "vaga 0 precisa de recriar"; o Montar recriar limpa. Nunca testa em banco sujo.
+      - name: Guarda de contaminação (banco de testes alinhado à main)
+        if: steps.ja.outputs.pular == 'false'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: VAGA=0 MAIN_MIGR_DIR=supabase/migrations scripts/banco-testes/reconciliar-vaga.sh
+      # CEO 13/10: sincroniza o banco de testes (vaga 0) com a produção ANTES de montar/testar a main — o Montar da vaga
+      # espera na MESMA fila FIFO e nem sempre ganha a vez, então sem isto a suíte roda num schema atrás da produção e
+      # gera vermelho FALSO. `supabase db push` é idempotente (compara o ledger). Roda no grupo aceitacao-testes
+      # (cancel-in-progress:false), sob a mesma trava do Montar da vaga 0. Falhou = aborta com mensagem clara.
+      - uses: supabase/setup-cli@v1
+        if: steps.ja.outputs.pular == 'false'
+        with:
+          version: 2.118.0
+      - name: Sincronizar o banco de testes (vaga 0) com a produção (migrations pendentes)
+        if: steps.ja.outputs.pular == 'false'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TEST_DATABASE_URL:-}" ]; then
+            echo "::error::banco da vaga 0 não sincronizou — segredo TEST_DATABASE_URL ausente"; exit 1
+          fi
+          case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          led() { psql "$1" -tAc "select count(*)||' · até '||coalesce(max(version),'—') from supabase_migrations.schema_migrations" 2>/dev/null || echo 'indisponível'; }
+          alvo=$(ls supabase/migrations/*.sql 2>/dev/null | wc -l | tr -d ' ')
+          alvo_v=$(ls supabase/migrations/*.sql 2>/dev/null | sed -E 's#.*/([0-9]+)_.*#\1#' | sort | tail -1)
+          antes=$(led "$TEST_DATABASE_URL")
+          if ! supabase db push --include-all --db-url "$TEST_DATABASE_URL"; then
+            echo "::error::banco da vaga 0 não sincronizou (supabase db push falhou) — aceitação da main abortada para não gerar vermelho FALSO"; exit 1
+          fi
+          depois=$(led "$TEST_DATABASE_URL")
+          {
+            echo "### Sincronização do banco de testes (vaga 0) com a produção"
+            echo ""
+            echo "| ledger | valor |"
+            echo "| --- | --- |"
+            echo "| vaga ANTES | $antes |"
+            echo "| vaga DEPOIS | $depois |"
+            echo "| alvo (migrations no repo = produção após deploy) | $alvo · até ${alvo_v:-—} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "vaga 0: ledger antes=[$antes] depois=[$depois] alvo=[$alvo · até ${alvo_v:-—}]"
       - uses: actions/setup-node@v4
         if: steps.ja.outputs.pular == 'false'
         with:
