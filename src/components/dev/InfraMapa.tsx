@@ -10,6 +10,9 @@ type No = { chave: string; nome: string; tipo: string; dono: string | null; orde
   descricao: string | null; ultimo_batimento: string | null; atraso_min: number | null; estado: "verde" | "amarelo" | "vermelho" | "sem_cadencia" };
 type Mapa = { versao: number | null; nos: No[]; ligacoes: { de: string; para: string; rotulo: string | null }[] };
 
+type Metas = { prontas_esperando: number; meta_prontas_max: number; prontas_semaforo: "verde" | "amarelo" | "vermelho"; pode_abrir_pr: boolean; tendencia: string;
+  publicadas_ultima_hora: number; media_movel_3h: number; meta_publicacoes_hora: number; publicacoes_semaforo: "verde" | "amarelo" | "vermelho"; por_hora: { hora: string; publicadas: number }[] };
+
 const ROTA = "/dashboard/dev/infra";
 const COR = { verde: "#1baf7a", amarelo: "#C8941A", vermelho: "#C0392B", sem_cadencia: "#7A6A5E" } as const;
 const TXT = { verde: "Na cadência", amarelo: "Atrasado", vermelho: "Parado", sem_cadencia: "Sem cadência" } as const;
@@ -23,6 +26,7 @@ function quando(iso: string | null) {
 
 export default function InfraMapa() {
   const [mapa, setMapa] = useState<Mapa | null>(null);
+  const [metas, setMetas] = useState<Metas | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [edit, setEdit] = useState<No | null>(null);
   const [cad, setCad] = useState(""); const [tol, setTol] = useState(""); const [msg, setMsg] = useState<string | null>(null);
@@ -31,6 +35,8 @@ export default function InfraMapa() {
     const { data, error } = await supabase.rpc("fn_infra_mapa");
     if (error) { setErro(error.message); return; }
     setErro(null); setMapa(data as Mapa);
+    const m = await supabase.rpc("fn_infra_metas");
+    if (!m.error) setMetas(m.data as Metas);
   }, []);
   useEffect(() => {
     void carregar();
@@ -64,6 +70,23 @@ export default function InfraMapa() {
             {e === "verde" && <AjudaCampo chave="dev.infra.estado" rota={ROTA} />}</span>
         ))}
       </div>
+      {metas && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10, marginBottom: 16 }}>
+          <div style={{ border: "1px solid #E8E2D6", borderLeft: `4px solid ${COR[metas.prontas_semaforo]}`, borderRadius: 8, padding: 10 }}>
+            <b>PRs prontas esperando</b><AjudaCampo chave="dev.infra.meta_prontas" rota={ROTA} />
+            <div style={{ fontSize: 26, color: COR[metas.prontas_semaforo] }}>{metas.prontas_esperando} <span style={{ fontSize: 13, color: "#7A6A5E" }}>meta ≤ {metas.meta_prontas_max} · {TXT[metas.prontas_semaforo === "verde" ? "verde" : metas.prontas_semaforo]} · {metas.tendencia}</span></div>
+            <div style={{ fontSize: 13 }}>Pode abrir PR nova? <b>{metas.pode_abrir_pr ? "sim" : "não"}</b><AjudaCampo chave="dev.infra.pode_abrir_pr" rota={ROTA} /></div>
+          </div>
+          <div style={{ border: "1px solid #E8E2D6", borderLeft: `4px solid ${COR[metas.publicacoes_semaforo]}`, borderRadius: 8, padding: 10 }}>
+            <b>Publicações por hora</b><AjudaCampo chave="dev.infra.meta_publicacoes" rota={ROTA} />
+            <div style={{ fontSize: 26, color: COR[metas.publicacoes_semaforo] }}>{metas.media_movel_3h}/h <span style={{ fontSize: 13, color: "#7A6A5E" }}>média 3 h · meta ≥ {metas.meta_publicacoes_hora} · última hora {metas.publicadas_ultima_hora}</span></div>
+            <div role="img" aria-label="Publicações por hora, últimas 24 horas" style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 48, position: "relative" }}>
+              {metas.por_hora.map((h) => <span key={h.hora} title={`${new Date(h.hora).getHours()}h: ${h.publicadas}`} style={{ flex: 1, height: `${Math.min(100, (h.publicadas / (metas.meta_publicacoes_hora * 2)) * 100)}%`, minHeight: 2, background: h.publicadas >= metas.meta_publicacoes_hora ? COR.verde : h.publicadas >= 2 ? COR.amarelo : COR.vermelho }} />)}
+              <span aria-hidden style={{ position: "absolute", left: 0, right: 0, bottom: "50%", borderTop: "1px dashed #7A6A5E" }} />
+            </div>
+          </div>
+        </div>
+      )}
       {Object.entries(grupos).map(([tipo, lista], i, arr) => (
         <section key={tipo} style={{ marginBottom: 8 }}>
           <h2 style={{ color: "#C8941A", fontSize: 15, textTransform: "capitalize", margin: "8px 0" }}>{tipo}</h2>

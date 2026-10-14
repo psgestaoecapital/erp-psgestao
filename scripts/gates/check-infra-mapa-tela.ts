@@ -4,9 +4,10 @@ const falhas: string[] = []
 const exige = (ok: boolean, m: string) => { if (!ok) falhas.push(m) }
 exige(existsSync('src/app/dashboard/dev/infra/page.tsx'), 'rota /dashboard/dev/infra')
 const tsx = readFileSync('src/components/dev/InfraMapa.tsx', 'utf8')
-const sql = readFileSync('supabase/migrations/20261015010105_dev_infra_mapa_tela.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261015010105_dev_infra_mapa_tela.sql', 'utf8') + readFileSync('supabase/migrations/20261015010205_dev_infra_metas.sql', 'utf8')
 for (const [, k] of tsx.matchAll(/chave="([^"]+)"/g)) exige(sql.includes(`'${k}'`), `chave de ajuda sem linha no banco: ${k}`)
 exige(/fn_infra_mapa/.test(tsx) && /p_no:/.test(tsx) && /p_motivo:/.test(tsx), 'RPCs com parâmetros certos')
+exige(/fn_infra_metas/.test(tsx) && /meta_publicacoes_hora/.test(tsx), 'metas da esteira (3 prontas, 4/h)')
 exige(/INSERT INTO public\.system_screens[\s\S]*'\/dashboard\/dev\/infra'/.test(sql), 'system_screens')
 if (falhas.length) { console.error('check-infra-mapa-tela FALHOU:', falhas.join('; ')); process.exit(1) }
 console.log('check-infra-mapa-tela ok')
