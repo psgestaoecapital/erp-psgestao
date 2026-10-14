@@ -78,7 +78,7 @@ export default function PropostasPage() {
   // destaque de uma proposta vinda do card do lead (?proposta=<id>)
   const [destaque, setDestaque] = useState<string | null>(null)
   // #59 PDOIS parte 2: solicitar elaboração de contrato a partir de uma proposta
-  const [solicitarProp, setSolicitarProp] = useState<{ id: string; label: string } | null>(null)
+  const [solicitarProp, setSolicitarProp] = useState<{ id: string; label: string; status: string } | null>(null)
   const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null }>>({}) // #59 · contrato de fee por proposta_id
   // PM-2 · veio do CRM (?from=leads): abre a proposta DIRETO no editor e, ao salvar, volta ao kanban
   const [voltarCrm, setVoltarCrm] = useState(false)
@@ -399,7 +399,7 @@ export default function PropostasPage() {
                           "Solicitar contrato" — em DESTAQUE quando a proposta está aprovada. */}
                       {feeMap[p.id]
                         ? <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}>🧾 Ver contrato</button>
-                        : <button onClick={() => setSolicitarProp({ id: p.id, label: p.numero ? `nº ${p.numero}` : p.titulo })} style={p.status === 'aprovada' ? btnGanhar : btnSec}>🧾 Solicitar contrato</button>}
+                        : <button onClick={() => setSolicitarProp({ id: p.id, label: p.numero ? `nº ${p.numero}` : p.titulo, status: p.status })} style={p.status === 'aprovada' ? btnGanhar : btnSec}>🧾 Solicitar contrato</button>}
                       {p.status === 'aprovada' && p.contrato_id && (
                         <a href="/dashboard/pm/contratos" style={{ ...btnSec, textDecoration: 'none' }}>→ Contrato recorrente</a>
                       )}
@@ -607,7 +607,7 @@ export default function PropostasPage() {
       )}
 
       {solicitarProp && empresa && (
-        <SolicitarContratoModal companyId={empresa} propostaId={solicitarProp.id} propostaLabel={solicitarProp.label}
+        <SolicitarContratoModal companyId={empresa} propostaId={solicitarProp.id} propostaLabel={solicitarProp.label} propostaStatus={solicitarProp.status}
           onClose={() => setSolicitarProp(null)}
           onSolicitado={(r) => { setSolicitarProp(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.${r.aviso ? ' ' + r.aviso : ''}`); void carregar() /* #59 · recarrega p/ o botão virar "Ver contrato" */ }} />
       )}
