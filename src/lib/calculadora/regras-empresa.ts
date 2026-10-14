@@ -1,8 +1,9 @@
 // Regras da Calculadora por empresa: o que a empresa gravou (erp_calc_regra) sobrepõe a referência de mercado do motor.
-import { REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, type Regras } from './motor'
+import { REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, type Regras } from './motor'
 
-export type SistemaCalc = 'parede' | 'forro_f530'
-export const regrasReferencia = (s: SistemaCalc): Regras => (s === 'parede' ? REGRAS_PAREDE_SIMPLES_ST : REGRAS_FORRO_F530)
+export type SistemaCalc = 'parede' | 'forro_f530' | 'forro_aramado'
+export const regrasReferencia = (s: SistemaCalc): Regras =>
+  (s === 'parede' ? REGRAS_PAREDE_SIMPLES_ST : s === 'forro_aramado' ? REGRAS_FORRO_ARAMADO : REGRAS_FORRO_F530)
 
 // Mescla campo a campo (sobre a referência) e ignora o que não for número/lista válida — regra salva incompleta nunca trava.
 export function mesclarRegras<T extends Regras>(base: T, salva: unknown): T {
