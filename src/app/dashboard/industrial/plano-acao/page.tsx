@@ -34,15 +34,26 @@ type Plano = {
   como: string | null; custo_estimado: number | null; custo_real: number | null
   status: Status; prioridade: Prioridade; origem: Origem | null; origem_ref: string | null
   indicador_vinculado: string | null; resultado_obtido: string | null
+  reuniao_id: string | null; reuniao_codigo: string | null; reuniao_titulo: string | null
   concluida_em: string | null; criado_em: string; atualizado_em: string
   atrasada: boolean
 }
 type Resumo = { abertas: number; em_andamento: number; atrasadas: number; concluidas_mes: number; pct_no_prazo: number | null }
 type Setor = { id: string; nome: string }
+type StatusReuniao = 'agendada' | 'realizada' | 'cancelada'
+type Reuniao = {
+  id: string; codigo: string; titulo: string; data_hora: string | null; local: string | null
+  dono_user_id: string | null; dono_nome: string | null; participantes: string | null; pauta: string | null
+  ata: string | null; status: StatusReuniao
+  acoes_total: number; acoes_abertas: number; acoes_atrasadas: number; acoes_concluidas: number
+}
+type FormReuniao = { titulo: string; data_hora: string; local: string; dono_nome: string; participantes: string; pauta: string; ata: string; status: StatusReuniao }
+const STATUS_REUNIAO: Record<StatusReuniao, string> = { agendada: 'Agendada', realizada: 'Realizada', cancelada: 'Cancelada' }
+const FORM_REUNIAO_VAZIO: FormReuniao = { titulo: '', data_hora: '', local: '', dono_nome: '', participantes: '', pauta: '', ata: '', status: 'agendada' }
 type Form = {
   titulo: string; o_que: string; por_que: string; onde: string; setor_id: string; quando: string
   responsavel_nome: string; como: string; custo_estimado: string; custo_real: string
-  prioridade: Prioridade; origem: string; origem_ref: string; indicador_vinculado: string
+  prioridade: Prioridade; origem: string; origem_ref: string; indicador_vinculado: string; reuniao_id: string
 }
 
 const STATUS_ROTULO: Record<Status, string> = { aberta: 'Aberta', em_andamento: 'Em andamento', concluida: 'Concluída', cancelada: 'Cancelada' }
@@ -54,7 +65,7 @@ const ORIGEM_ROTULO: Record<Origem, string> = { reuniao: 'Reunião', indicador: 
 const FORM_VAZIO: Form = {
   titulo: '', o_que: '', por_que: '', onde: '', setor_id: '', quando: '',
   responsavel_nome: '', como: '', custo_estimado: '', custo_real: '',
-  prioridade: 'media', origem: '', origem_ref: '', indicador_vinculado: '',
+  prioridade: 'media', origem: '', origem_ref: '', indicador_vinculado: '', reuniao_id: '',
 }
 
 const brl = (v: number | null) => v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -77,6 +88,14 @@ export default function PlanoAcaoPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+
+  // reuniões
+  const [reunioes, setReunioes] = useState<Reuniao[]>([])
+  const [reuniaoSel, setReuniaoSel] = useState('') // '' = Todas
+  const [reuniaoForm, setReuniaoForm] = useState<FormReuniao>(FORM_REUNIAO_VAZIO)
+  const [reuniaoFormAberto, setReuniaoFormAberto] = useState(false)
+  const [reuniaoEditId, setReuniaoEditId] = useState<string | null>(null)
+  const [salvandoReuniao, setSalvandoReuniao] = useState(false)
 
   // filtros (client-side; dataset por empresa é pequeno)
   const [busca, setBusca] = useState('')
@@ -101,17 +120,20 @@ export default function PlanoAcaoPage() {
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
     setLoading(true); setErro(null)
-    const [r, l, s] = await Promise.all([
-      supabase.rpc('fn_plano_acao_resumo', { p_company_id: companyId }),
-      supabase.rpc('fn_plano_acao_listar', { p_company_id: companyId }),
+    const p_reuniao = reuniaoSel || null
+    const [r, l, s, reu] = await Promise.all([
+      supabase.rpc('fn_plano_acao_resumo', { p_company_id: companyId, p_reuniao }),
+      supabase.rpc('fn_plano_acao_listar', { p_company_id: companyId, p_reuniao }),
       supabase.from('prod_setor').select('id, nome').eq('company_id', companyId).order('nome'),
+      supabase.rpc('fn_plano_acao_reuniao_listar', { p_company_id: companyId }),
     ])
     if (r.data?.ok) setResumo(r.data as Resumo); else setResumo(null)
     if (l.data?.ok) setPlanos((l.data.resultados ?? []) as Plano[])
     else { setPlanos([]); setErro(l.data?.erro || l.error?.message || 'Não foi possível carregar o plano de ação.') }
     setSetores((s.data ?? []) as Setor[])
+    if (reu.data?.ok) setReunioes((reu.data.reunioes ?? []) as Reuniao[])
     setLoading(false)
-  }, [companyId])
+  }, [companyId, reuniaoSel])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -145,7 +167,7 @@ export default function PlanoAcaoPage() {
     return m
   }, [filtrados])
 
-  function abrirNova() { setEditId(null); setForm(FORM_VAZIO); setFormAberto(true) }
+  function abrirNova() { setEditId(null); setForm({ ...FORM_VAZIO, reuniao_id: reuniaoSel }); setFormAberto(true) }
   function abrirEdicao(p: Plano) {
     setEditId(p.id)
     setForm({
@@ -153,6 +175,7 @@ export default function PlanoAcaoPage() {
       setor_id: p.setor_id ?? '', quando: p.quando?.slice(0, 10) ?? '', responsavel_nome: p.responsavel_nome ?? '',
       como: p.como ?? '', custo_estimado: p.custo_estimado?.toString() ?? '', custo_real: p.custo_real?.toString() ?? '',
       prioridade: p.prioridade, origem: p.origem ?? '', origem_ref: p.origem_ref ?? '', indicador_vinculado: p.indicador_vinculado ?? '',
+      reuniao_id: p.reuniao_id ?? '',
     })
     setFormAberto(true)
   }
@@ -166,6 +189,7 @@ export default function PlanoAcaoPage() {
       quando: form.quando, responsavel_nome: form.responsavel_nome, como: form.como,
       custo_estimado: form.custo_estimado, custo_real: form.custo_real, prioridade: form.prioridade,
       origem: form.origem, origem_ref: form.origem_ref, indicador_vinculado: form.indicador_vinculado,
+      reuniao_id: form.reuniao_id,
     }
     const { data, error } = await supabase.rpc('fn_plano_acao_salvar', { p_company_id: companyId, p_plano: payload, p_id: editId })
     setSalvando(false)
@@ -197,6 +221,43 @@ export default function PlanoAcaoPage() {
     const { data, error } = await supabase.rpc('fn_plano_acao_excluir', { p_id: p.id })
     if (error || !data?.ok) { flash(`Não excluiu: ${data?.erro || error?.message || 'erro'}`); return }
     flash(`"${p.codigo}" removida do plano.`)
+    await carregar()
+  }
+
+  // ── Reuniões ──
+  const reuniaoAtual = reunioes.find((r) => r.id === reuniaoSel) ?? null
+
+  function abrirNovaReuniao() { setReuniaoEditId(null); setReuniaoForm(FORM_REUNIAO_VAZIO); setReuniaoFormAberto(true) }
+  function abrirEdicaoReuniao(r: Reuniao) {
+    setReuniaoEditId(r.id)
+    setReuniaoForm({
+      titulo: r.titulo, data_hora: r.data_hora ? r.data_hora.slice(0, 16) : '', local: r.local ?? '',
+      dono_nome: r.dono_nome ?? '', participantes: r.participantes ?? '', pauta: r.pauta ?? '', ata: r.ata ?? '', status: r.status,
+    })
+    setReuniaoFormAberto(true)
+  }
+  async function salvarReuniao() {
+    if (!companyId) return
+    if (!reuniaoForm.titulo.trim()) { flash('Informe o título da reunião.'); return }
+    setSalvandoReuniao(true)
+    const payload = {
+      titulo: reuniaoForm.titulo, data_hora: reuniaoForm.data_hora, local: reuniaoForm.local, dono_nome: reuniaoForm.dono_nome,
+      participantes: reuniaoForm.participantes, pauta: reuniaoForm.pauta, ata: reuniaoForm.ata, status: reuniaoForm.status,
+    }
+    const { data, error } = await supabase.rpc('fn_plano_acao_reuniao_salvar', { p_company_id: companyId, p_reuniao: payload, p_id: reuniaoEditId })
+    setSalvandoReuniao(false)
+    if (error || !data?.ok) { flash(data?.erro === 'titulo_obrigatorio' ? 'O título é obrigatório.' : `Não salvou: ${data?.erro || error?.message || 'erro'}`); return }
+    setReuniaoFormAberto(false)
+    flash(reuniaoEditId ? 'Reunião atualizada.' : `Reunião criada (${data.codigo}).`)
+    if (!reuniaoEditId && data.id) setReuniaoSel(data.id as string)
+    await carregar()
+  }
+  async function excluirReuniao(r: Reuniao) {
+    if (!window.confirm(`Excluir a reunião ${r.codigo} — "${r.titulo}"? As ações dela continuam no plano, só perdem o vínculo.`)) return
+    const { data, error } = await supabase.rpc('fn_plano_acao_reuniao_excluir', { p_id: r.id })
+    if (error || !data?.ok) { flash(`Não excluiu: ${data?.erro || error?.message || 'erro'}`); return }
+    if (reuniaoSel === r.id) setReuniaoSel('')
+    flash(`Reunião "${r.codigo}" removida.`)
     await carregar()
   }
 
@@ -238,6 +299,27 @@ export default function PlanoAcaoPage() {
     if (fmt === 'pdf') void exportarPDF(meta, colunas, filtrados).then(() => flash('PDF gerado.')).catch(() => flash('Falha ao gerar o PDF.'))
     else { try { exportarExcel(meta, colunas, filtrados); flash('Excel gerado.') } catch { flash('Falha ao gerar o Excel.') } }
   }
+  function exportarAta(r: Reuniao) {
+    const acoes = planos.filter((p) => p.reuniao_id === r.id)
+    const partes: string[] = []
+    if (r.dono_nome) partes.push(`Dono: ${r.dono_nome}`)
+    if (r.data_hora) partes.push(`Data: ${new Date(r.data_hora).toLocaleString('pt-BR')}`)
+    if (r.local) partes.push(`Local: ${r.local}`)
+    partes.push(`Status: ${STATUS_REUNIAO[r.status]}`)
+    if (r.participantes) partes.push(`Participantes: ${r.participantes.replace(/\s*\n\s*/g, ', ')}`)
+    if (r.pauta) partes.push(`Pauta: ${r.pauta}`)
+    if (r.ata) partes.push(`Ata: ${r.ata}`)
+    const meta = {
+      titulo: `Ata — ${r.codigo} · ${r.titulo}`, empresa: empresaNome,
+      filtros: partes.join('  ·  ') || 'reunião sem detalhes',
+      emitidoEmISO: new Date().toISOString(),
+      kpis: [
+        { label: 'Ações', valor: r.acoes_total }, { label: 'Abertas', valor: r.acoes_abertas },
+        { label: 'Atrasadas', valor: r.acoes_atrasadas }, { label: 'Concluídas', valor: r.acoes_concluidas },
+      ],
+    }
+    void exportarPDF(meta, colunas, acoes).then(() => flash('Ata (PDF) gerada.')).catch(() => flash('Falha ao gerar a ata.'))
+  }
 
   if (!companyId) {
     return <div style={{ background: BG, minHeight: '100vh', padding: 32, color: MUT, fontSize: 14 }}>Selecione uma empresa específica no topo para ver o Plano de Ação 5W2H da planta.</div>
@@ -265,6 +347,40 @@ export default function PlanoAcaoPage() {
             </span>
           </div>
         </header>
+
+        {/* Reunião */}
+        <div style={{ ...CARD, padding: 12, marginBottom: 16, display: 'grid', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label style={{ flex: '1 1 260px', minWidth: 180 }}>
+              <span style={rotulo}>Reunião<AjudaCampo chave="industrial.plano_acao.reuniao_seletor" rota={ROTA} /></span>
+              <select data-testid="plano-reuniao-sel" value={reuniaoSel} onChange={(e) => setReuniaoSel(e.target.value)} style={{ ...inp, padding: '8px 10px' }}>
+                <option value="">Todas as reuniões (visão geral)</option>
+                {reunioes.map((r) => <option key={r.id} value={r.id}>{r.codigo} · {r.titulo}</option>)}
+              </select>
+            </label>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <button type="button" data-testid="plano-reuniao-nova" onClick={abrirNovaReuniao} style={btnSec}>+ Nova reunião</button>
+              <AjudaCampo chave="industrial.plano_acao.reuniao_nova" rota={ROTA} />
+            </span>
+          </div>
+          {reuniaoAtual && (
+            <div data-testid="plano-reuniao-resumo" style={{ borderTop: `0.5px solid ${LINE}`, paddingTop: 10, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: MUT }}>
+              <span><b style={{ color: ESP }}>{reuniaoAtual.codigo}</b> · {STATUS_REUNIAO[reuniaoAtual.status]}</span>
+              {reuniaoAtual.dono_nome && <span>Dono: {reuniaoAtual.dono_nome}</span>}
+              {reuniaoAtual.data_hora && <span>Data: {new Date(reuniaoAtual.data_hora).toLocaleString('pt-BR')}</span>}
+              {reuniaoAtual.participantes && <span>Participantes: {reuniaoAtual.participantes.replace(/\s*\n\s*/g, ', ')}</span>}
+              <span>Ações: <b style={{ color: ESP }}>{reuniaoAtual.acoes_total}</b> · abertas {reuniaoAtual.acoes_abertas} · <span style={{ color: reuniaoAtual.acoes_atrasadas ? VERM : MUT, fontWeight: reuniaoAtual.acoes_atrasadas ? 700 : 400 }}>atrasadas {reuniaoAtual.acoes_atrasadas}</span> · concluídas {reuniaoAtual.acoes_concluidas}</span>
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                <button type="button" data-testid="plano-reuniao-nova-acao" onClick={abrirNova} style={{ ...btnPrim, padding: '5px 10px', fontSize: 12 }}>+ Nova ação</button>
+                <AjudaCampo chave="industrial.plano_acao.reuniao_nova_acao" rota={ROTA} />
+                <button type="button" data-testid="plano-reuniao-editar" onClick={() => abrirEdicaoReuniao(reuniaoAtual)} style={{ ...btnSec, padding: '5px 10px', fontSize: 12 }}>Editar</button>
+                <button type="button" data-testid="plano-reuniao-exportar" onClick={() => exportarAta(reuniaoAtual)} style={{ ...btnSec, padding: '5px 10px', fontSize: 12 }}>Exportar ata (PDF)</button>
+                <AjudaCampo chave="industrial.plano_acao.reuniao_exportar_ata" rota={ROTA} />
+                <button type="button" data-testid="plano-reuniao-excluir" onClick={() => excluirReuniao(reuniaoAtual)} style={{ ...btnSec, padding: '5px 10px', fontSize: 12, color: VERM }}>Excluir</button>
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -446,6 +562,55 @@ export default function PlanoAcaoPage() {
                 <button type="button" data-testid="plano-concluir-confirmar" onClick={() => void confirmarConclusao()} style={btnPrim}>Concluir ação</button>
                 <AjudaCampo chave="industrial.plano_acao.concluir" rota={ROTA} />
               </span>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {reuniaoFormAberto && (
+        <Modal titulo={reuniaoEditId ? 'Editar reunião' : 'Nova reunião'} onFechar={() => setReuniaoFormAberto(false)}>
+          <div style={{ display: 'grid', gap: 12 }}>
+            <label>
+              <span style={rotulo}>Título<AjudaCampo chave="industrial.plano_acao.reuniao_titulo" rota={ROTA} /></span>
+              <input data-testid="reuniao-titulo" value={reuniaoForm.titulo} onChange={(e) => setReuniaoForm({ ...reuniaoForm, titulo: e.target.value })} placeholder="Ex.: Reunião semanal da planta" style={inp} />
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <label>
+                <span style={rotulo}>Data e hora<AjudaCampo chave="industrial.plano_acao.reuniao_data" rota={ROTA} /></span>
+                <input data-testid="reuniao-data" type="datetime-local" value={reuniaoForm.data_hora} onChange={(e) => setReuniaoForm({ ...reuniaoForm, data_hora: e.target.value })} style={inp} />
+              </label>
+              <label>
+                <span style={rotulo}>Local<AjudaCampo chave="industrial.plano_acao.reuniao_local" rota={ROTA} /></span>
+                <input data-testid="reuniao-local" value={reuniaoForm.local} onChange={(e) => setReuniaoForm({ ...reuniaoForm, local: e.target.value })} placeholder="Ex.: Sala de reuniões" style={inp} />
+              </label>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+              <label>
+                <span style={rotulo}>Dono<AjudaCampo chave="industrial.plano_acao.reuniao_dono" rota={ROTA} /></span>
+                <input data-testid="reuniao-dono" value={reuniaoForm.dono_nome} onChange={(e) => setReuniaoForm({ ...reuniaoForm, dono_nome: e.target.value })} placeholder="Ex.: Cleverton" style={inp} />
+              </label>
+              <label>
+                <span style={rotulo}>Status<AjudaCampo chave="industrial.plano_acao.reuniao_status" rota={ROTA} /></span>
+                <select data-testid="reuniao-status" value={reuniaoForm.status} onChange={(e) => setReuniaoForm({ ...reuniaoForm, status: e.target.value as StatusReuniao })} style={{ ...inp, padding: '8px 10px' }}>
+                  {(Object.keys(STATUS_REUNIAO) as StatusReuniao[]).map((s) => <option key={s} value={s}>{STATUS_REUNIAO[s]}</option>)}
+                </select>
+              </label>
+            </div>
+            <label>
+              <span style={rotulo}>Participantes<AjudaCampo chave="industrial.plano_acao.reuniao_participantes" rota={ROTA} /></span>
+              <textarea data-testid="reuniao-participantes" value={reuniaoForm.participantes} onChange={(e) => setReuniaoForm({ ...reuniaoForm, participantes: e.target.value })} rows={2} placeholder="Um por linha ou separados por vírgula" style={{ ...inp, resize: 'vertical' }} />
+            </label>
+            <label>
+              <span style={rotulo}>Pauta<AjudaCampo chave="industrial.plano_acao.reuniao_pauta" rota={ROTA} /></span>
+              <textarea data-testid="reuniao-pauta" value={reuniaoForm.pauta} onChange={(e) => setReuniaoForm({ ...reuniaoForm, pauta: e.target.value })} rows={2} placeholder="Assuntos da reunião" style={{ ...inp, resize: 'vertical' }} />
+            </label>
+            <label>
+              <span style={rotulo}>Ata<AjudaCampo chave="industrial.plano_acao.reuniao_ata" rota={ROTA} /></span>
+              <textarea data-testid="reuniao-ata" value={reuniaoForm.ata} onChange={(e) => setReuniaoForm({ ...reuniaoForm, ata: e.target.value })} rows={3} placeholder="O que foi decidido (sai no PDF da ata)" style={{ ...inp, resize: 'vertical' }} />
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+              <button type="button" onClick={() => setReuniaoFormAberto(false)} style={btnSec}>Cancelar</button>
+              <button type="button" data-testid="reuniao-salvar" onClick={() => void salvarReuniao()} disabled={salvandoReuniao} style={{ ...btnPrim, opacity: salvandoReuniao ? 0.6 : 1 }}>{salvandoReuniao ? 'Salvando…' : 'Salvar reunião'}</button>
             </div>
           </div>
         </Modal>
