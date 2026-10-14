@@ -13,6 +13,8 @@ type Mapa = { versao: number | null; nos: No[]; ligacoes: { de: string; para: st
 type Metas = { prontas_esperando: number; meta_prontas_max: number; prontas_semaforo: "verde" | "amarelo" | "vermelho"; pode_abrir_pr: boolean; tendencia: string;
   publicadas_ultima_hora: number; media_movel_3h: number; meta_publicacoes_hora: number; publicacoes_semaforo: "verde" | "amarelo" | "vermelho"; por_hora: { hora: string; publicadas: number }[] };
 
+type ChamadoCode = { code: string; carteira: string | null; abertos: number; esperando_ps: number; aguardando_cliente: number; mais_antigo_dias: number; parados_48h: number; alerta: boolean };
+
 const ROTA = "/dashboard/dev/infra";
 const COR = { verde: "#1baf7a", amarelo: "#C8941A", vermelho: "#C0392B", sem_cadencia: "#7A6A5E" } as const;
 const TXT = { verde: "Na cadência", amarelo: "Atrasado", vermelho: "Parado", sem_cadencia: "Sem cadência" } as const;
@@ -27,6 +29,7 @@ function quando(iso: string | null) {
 export default function InfraMapa() {
   const [mapa, setMapa] = useState<Mapa | null>(null);
   const [metas, setMetas] = useState<Metas | null>(null);
+  const [chamados, setChamados] = useState<ChamadoCode[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [edit, setEdit] = useState<No | null>(null);
   const [cad, setCad] = useState(""); const [tol, setTol] = useState(""); const [msg, setMsg] = useState<string | null>(null);
@@ -37,6 +40,8 @@ export default function InfraMapa() {
     setErro(null); setMapa(data as Mapa);
     const m = await supabase.rpc("fn_infra_metas");
     if (!m.error) setMetas(m.data as Metas);
+    const c = await supabase.rpc("fn_infra_chamados_por_code");
+    if (!c.error) setChamados((c.data as ChamadoCode[]) ?? []);
   }, []);
   useEffect(() => {
     void carregar();
@@ -86,6 +91,19 @@ export default function InfraMapa() {
             </div>
           </div>
         </div>
+      )}
+      {chamados.length > 0 && (
+        <section style={{ marginBottom: 16 }}>
+          <h2 style={{ color: "#C8941A", fontSize: 15, margin: "8px 0" }}>Chamados por Code<AjudaCampo chave="dev.infra.chamados_code" rota={ROTA} /></h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(230px,1fr))", gap: 10 }}>
+            {chamados.map((c) => { const I = c.alerta ? AlertTriangle : CheckCircle2; const cor = c.alerta ? COR.vermelho : COR.verde; return (
+              <div key={c.code} style={{ border: "1px solid #E8E2D6", borderLeft: `4px solid ${cor}`, borderRadius: 8, padding: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><b>{c.code}</b><span style={{ color: cor, display: "flex", gap: 4, fontSize: 13 }}><I size={16} strokeWidth={1.5} />{c.alerta ? `${c.parados_48h} parado(s) > 48 h` : "em dia"}</span></div>
+                <div style={{ fontSize: 13, color: "#7A6A5E" }}>Carteira: {c.carteira ?? "central"}</div>
+                <div style={{ fontSize: 13 }}>Esperando a PS: <b>{c.esperando_ps}</b> · aguardando cliente: {c.aguardando_cliente} · mais antigo: {c.mais_antigo_dias} d</div>
+              </div>); })}
+          </div>
+        </section>
       )}
       {Object.entries(grupos).map(([tipo, lista], i, arr) => (
         <section key={tipo} style={{ marginBottom: 8 }}>
