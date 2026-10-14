@@ -26,6 +26,8 @@ ok(/vaga-snapshot\.sh restaurar/.test(pr) && /Desfazer migrations da PR[\s\S]{0,
 const idxSnap = pr.indexOf('vaga-snapshot.sh snapshot')
 const idxPrPush = pr.indexOf('aplicando as migrations da PR')
 ok(idxSnap > 0 && idxPrPush > idxSnap, 'a foto é tirada ANTES de aplicar as migrations da PR')
+// foto que falha é FATAL: sem foto não se aplica migration de PR (vaga suja, caso markup 14/10)
+ok(!/vaga-snapshot\.sh snapshot \|\| echo/.test(pr) && /vaga-snapshot\.sh snapshot \|\| \{[^}]*exit 1/.test(pr), 'foto falhou → aborta ANTES de aplicar as migrations da PR (nunca só warning)')
 // Pilar 2 na aceitação (inalterado): nenhum segredo de produção
 ok(!/prod-url\.sh/.test(pr) && !/SUPABASE_ACCESS_TOKEN/.test(pr) && !/SUPABASE_DB_PASSWORD/.test(pr), 'aceitacao-pr continua SEM segredo de produção (Pilar 2)')
 
