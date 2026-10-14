@@ -43,6 +43,7 @@ export default function MarcarPagoModal({
   const [valorPago, setValorPago] = useState(valorTotal.toFixed(2))
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [contasMsg, setContasMsg] = useState<string | null>(null)
   // o saldo chega do banco de forma assíncrona; se o usuário já digitou o valor, ele NÃO é sobrescrito
   // (antes: digitar 300 antes da busca voltar virava o saldo cheio e o título era baixado inteiro)
   const editouValor = useRef(false)
@@ -51,7 +52,7 @@ export default function MarcarPagoModal({
     if (!open || !companyId) return
     let ignore = false
     ;(async () => {
-      const { data } = await supabase
+      const { data, error: errContas } = await supabase
         .from('erp_banco_contas')
         .select('id, nome')
         .eq('company_id', companyId)
@@ -60,6 +61,12 @@ export default function MarcarPagoModal({
       if (ignore) return
       const lista = (data ?? []) as ContaBancaria[]
       setContas(lista)
+      // chamado #2688: lista vazia deixava o Confirmar travado sem dizer por quê
+      setContasMsg(errContas
+        ? `Não foi possível carregar as contas bancárias (${errContas.message}). Feche e abra de novo; se persistir, avise o suporte.`
+        : lista.length === 0
+          ? 'Esta empresa não tem conta bancária ativa. Cadastre uma em Financeiro › Contas bancárias para confirmar a baixa.'
+          : null)
       if (lista.length > 0 && !contaId) setContaId(lista[0].id)
     })()
     return () => { ignore = true }
@@ -157,6 +164,12 @@ export default function MarcarPagoModal({
               Pagamento parcial permitido · default é o valor total
             </div>
           </Field>
+
+          {contasMsg && !erro && (
+            <div style={{ background: '#FFF6E0', color: '#7A5600', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+              {contasMsg}
+            </div>
+          )}
 
           {erro && (
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
