@@ -46,6 +46,9 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', v_id);
 END $function$;
 
+REVOKE ALL ON FUNCTION public.fn_sugestao_criar(uuid, jsonb, jsonb, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_sugestao_criar(uuid, jsonb, jsonb, uuid) TO authenticated, service_role;
+
 -- usuários da empresa para o seletor "Solicitante" (só equipe PS)
 CREATE OR REPLACE FUNCTION public.fn_sugestao_solicitantes(p_company_id uuid)
  RETURNS TABLE(id uuid, nome text, email text)
