@@ -1,6 +1,6 @@
 // Chamado #2710 (FCR · caixa jordana-code a155726a): markup GERAL da empresa + markup PRÓPRIO por produto + alteração em
 // massa com prévia + modo "markup padrão de cada produto" no Formar preços. Critério da Jordana: 40% num produto e 30%
-// geral → esse produto usa 40%, os demais 30%. Depende da migration 20261013200020 → @pos-migration.
+// geral → esse produto usa 40%, os demais 30%. Depende da migration *_precificacao_markup_padrao_produto → @pos-migration.
 // Demonstração Comércio (GE), nunca empresa real. Produtos de teste apagados e markup geral devolvido ao que era no fim.
 
 import { test, expect } from '../../support/fixtures'
