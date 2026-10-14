@@ -136,6 +136,25 @@ estado_main() {
   echo "esperar:@pos-migration da main $conc (run $id) sem verde depois da última migration — re-rodando"
 }
 
+# (a2) Deadlock do deploy vermelho (Eng. Chefe 14/10, #2542): o deploy-migrations da main quebrou numa migration; a PR que a
+# CONSERTA também tem migration e esperaria o deploy ficar verde — que só fica verde com ela. Exceção estreita: a main está
+# com o deploy VERMELHO (completed/failure) e TODA migration da PR é um arquivo MODIFICADO (nenhuma adicionada) que o
+# commit do run vermelho trouxe. Sem versão nova, a régua de versão não se aplica. Ecoa 1 (é o conserto) ou 0.
+corrige_deploy_vermelho() {
+  local n=$1 r st conc hsha mods quebrados f
+  r=$(api "repos/$REPO/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.status) \(.conclusion) \(.head_sha)"')
+  read -r st conc hsha <<< "$r"
+  { [ "$st" = completed ] && [ "$conc" = failure ] && [ -n "$hsha" ]; } || { echo 0; return; }
+  mods=$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[] | select(.filename | startswith("supabase/migrations/")) | "\(.status) \(.filename)"')
+  [ -n "$mods" ] || { echo 0; return; }
+  grep -qv '^modified ' <<< "$mods" && { echo 0; return; }
+  quebrados=$(api "repos/$REPO/commits/$hsha" --jq '.files[].filename')
+  while read -r _ f; do
+    grep -qxF "$f" <<< "$quebrados" || { echo 0; return; }
+  done <<< "$mods"
+  echo 1
+}
+
 # checks da aceitação: na VIA RÁPIDA são só informativos (não contam e não são exigidos)
 ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 
@@ -304,7 +323,11 @@ for n in $fila; do
   grep -qvE '(\.md$|^docs/|^\.github/)' <<< "$arquivos" || so_docs=1
   # PR COM migration não vai nesta rodada se outra migration já espera a main (so_sem_migration) OU já houve merge no lote
   # (merges>0: a main acabou de mudar — a migration vai na próxima rodada, contra a main já assentada/verde).
-  if { [ "$so_sem_migration" = 1 ] || [ "$merges" -gt 0 ]; } && [ "$com_migration" = 1 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
+  # conserto do deploy vermelho da main (corrige_deploy_vermelho): não espera a main nem as outras migrations
+  corrige_deploy=0
+  [ "$com_migration" = 1 ] && corrige_deploy=$(corrige_deploy_vermelho "$n")
+  [ "$corrige_deploy" = 1 ] && log "#$n só corrige migration que quebrou o deploy-migrations da main: não espera a main"
+  if { [ "$so_sem_migration" = 1 ] || [ "$merges" -gt 0 ]; } && [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
 
   # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
   via=rapida
@@ -368,7 +391,7 @@ for n in $fila; do
   fi
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
-  if [ "$com_migration" = 1 ]; then
+  if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then
     m=$(estado_main)
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
