@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Calculator, AlertTriangle } from "lucide-react";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import EditorRegras from "./EditorRegras";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
@@ -92,12 +93,13 @@ export default function CalculadoraObraPage() {
   }
 
   const [regraSalva, setRegraSalva] = useState<unknown>(null);
+  const [recarga, setRecarga] = useState(0);
   useEffect(() => {
     setRegraSalva(null);
     if (!companyId) return;
     void supabaseBrowser().from("erp_calc_regra").select("regras").eq("company_id", companyId).eq("sistema", sistemaDb).maybeSingle()
       .then(({ data }) => setRegraSalva(data?.regras ?? null));
-  }, [companyId, sistemaDb]);
+  }, [companyId, sistemaDb, recarga]);
   const regrasParede = useMemo(() => mesclarRegras(REGRAS_PAREDE_SIMPLES_ST, sistema === "parede" ? regraSalva : null), [regraSalva, sistema]);
   const regrasForro = useMemo(() => mesclarRegras(REGRAS_FORRO_F530, sistema === "forro" ? regraSalva : null), [regraSalva, sistema]);
   const res: Resultado = useMemo(() => sistema === "parede"
@@ -141,10 +143,9 @@ export default function CalculadoraObraPage() {
           {avancado ? "Esconder" : "Mostrar"} parâmetros avançados<AjudaCampo chave="projetos.calculadora.avancado" rota="/dashboard/projetos/calculadora" />
         </button>
         {avancado && (
-          <p className="mt-2 rounded-lg bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/70">
-            Regras de referência de mercado, <b>a validar com o fabricante</b>: perda {fmt((sistema === "parede" ? regrasParede : regrasForro).perda)}×,
-            chapa de {fmt(2.16)} m². A edição por empresa vem na próxima fatia.
-          </p>
+          companyId ? <EditorRegras companyId={companyId} sistema={sistemaDb} regraSalva={regraSalva} aoSalvar={() => setRecarga((x) => x + 1)} /> : (
+            <p className="mt-2 rounded-lg bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/70">Escolha uma empresa para editar as regras. Referência de mercado, <b>a validar com o fabricante</b>.</p>
+          )
         )}
       </section>
 
