@@ -156,6 +156,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [statusSel, setStatusSel] = useState<StatusOpt[]>([])   // [] = todos; combina Vencidos + Pagas etc.
   const toggleStatus = (s: StatusOpt) => setStatusSel((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]))
   const [categoria, setCategoria] = useState('')
+  // Chamado #1939: o filtro/coluna de categoria mostravam só o código (2.03); o nome vem do plano de contas.
+  const [nomeCategoria, setNomeCategoria] = useState<Record<string, string>>({})
   const [busca, setBusca] = useState('')
   // RD-41 · filtros por coluna (client-side, sobre as linhas já carregadas do período)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
@@ -220,6 +222,25 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     // roda só no mount: é o filtro inicial vindo da URL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (!companyId) { setNomeCategoria({}); return }
+    let alive = true
+    supabase
+      .from('erp_plano_contas')
+      .select('codigo, descricao')
+      .eq('company_id', companyId)
+      .limit(2000)
+      .then(({ data }) => {
+        if (!alive) return
+        const m: Record<string, string> = {}
+        ;(data ?? []).forEach((r: { codigo: string; descricao: string | null }) => { if (r.descricao) m[r.codigo] = r.descricao })
+        setNomeCategoria(m)
+      })
+    return () => { alive = false }
+  }, [companyId])
+
+  const rotuloCategoria = (c: string) => (nomeCategoria[c] ? `${c} - ${nomeCategoria[c]}` : c)
 
   // cap_extrato: sabe se a empresa tem integracao de extrato bancario ativa.
   // Habilita o botao "Conciliar" tanto em Contas a Pagar quanto Receber.
@@ -994,7 +1015,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
           </select>
         </Campo>
@@ -1281,13 +1302,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor · forma) na linha */}
                           {(r.categoria || r.nome_pessoa || r.forma_pagamento) && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>
-                              {[r.categoria, r.nome_pessoa].filter(Boolean).join(' · ')}
+                              {[r.categoria ? rotuloCategoria(r.categoria) : null, r.nome_pessoa].filter(Boolean).join(' · ')}
                               {r.forma_pagamento && <span style={{ marginLeft: (r.categoria || r.nome_pessoa) ? 6 : 0 }}>💳 {r.forma_pagamento}</span>}
                             </div>
                           )}
                         </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
-                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
+                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria ? rotuloCategoria(r.categoria) : '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">
