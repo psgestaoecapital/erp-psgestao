@@ -1,6 +1,5 @@
 // Gate · estado da main/deploy no painel da aba Codes: cancelado não é vermelho; workflow só lê o GitHub.
 import { readFileSync } from 'node:fs'
-// @ts-expect-error módulo .mjs sem tipos
 import { estadoDoRun, ultimoEstado } from '../dev/codes-main-deploy.mjs'
 const falhas: string[] = []
 const exige = (ok: boolean, m: string) => { if (!ok) falhas.push(m) }
