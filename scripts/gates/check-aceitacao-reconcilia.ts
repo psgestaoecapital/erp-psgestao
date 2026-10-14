@@ -14,7 +14,13 @@ const sh = readFileSync('scripts/banco-testes/reconciliar-vaga.sh', 'utf8')
 // contaminação + modos
 ok(/where version > '\$main_max'/.test(sh), 'contaminação = ledger > maior versão da main (não set-difference)')
 ok(/PROD_DATABASE_URL="\$\{PROD_DATABASE_URL:-\}"/.test(sh), 'PROD_DATABASE_URL é OPCIONAL (detecção sem produção; restauração com)')
-ok(/if \[ -z "\$PROD_DATABASE_URL" \]; then\s*\n\s*recriar/.test(sh), 'modo DETECÇÃO (sem produção): contaminada → recriar (exit 2), sem ler a produção')
+ok(/if \[ -z "\$PROD_DATABASE_URL" \]; then[\s\S]{0,240}recriar/.test(sh), 'modo DETECÇÃO (sem produção): contaminada → recriar (exit 2), sem ler a produção')
+// RESTAURAÇÃO compara SEMPRE com a produção — órfão = ledger da vaga ausente na produção (pega órfão ABAIXO do main_max)
+ok(/comm -13 "\$dir\/prod\.led" "\$dir\/vaga\.led"/.test(sh), 'restauração: órfão = versão do ledger da vaga ausente na produção (comm vaga−prod), não só > main_max')
+ok(/delete from supabase_migrations\.schema_migrations where version not in \(select version from _prodled\)/.test(sh), 'restauração remove do ledger só os órfãos (versões ausentes na produção) — nunca as históricas')
+// VERIFICAÇÃO FINAL OBRIGATÓRIA (verde falso do run #2): nunca termina 0 se, no dado, vaga ≠ produção
+ok(/VERIFICA[ÇC][ÃA]O FINAL OBRIGAT[ÓO]RIA/.test(sh), 'há verificação final obrigatória no dado (pós-restauração)')
+ok(/\[ "\$sig_div" -ne 0 \] \|\| \[ "\$orphan_fim" -ne 0 \]/.test(sh) && /recriar "verificação final/.test(sh), 'verificação final: assinatura divergente OU órfão restante → vermelho (recriar), nunca verde')
 // verify-before-commit
 ok(/\bbegin;/.test(sh) && /\bcommit;/.test(sh), 'restauração roda numa transação (begin … commit)')
 ok(/raise exception 'reconcilia: vaga nao convergiu para a producao/.test(sh), 'verify-before-commit: RAISE (rollback) se não convergir')
