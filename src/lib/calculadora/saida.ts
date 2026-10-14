@@ -27,3 +27,24 @@ export function listaDeCompra(linhas: LinhaCusto[], titulo: string): string {
   const corpo = linhas.map(l => `- ${l.item.quantidade} × ${l.item.unidadeCompra} · ${l.produto?.nome ?? l.item.descricao}`)
   return [titulo, ...corpo].join('\n')
 }
+
+// Link do WhatsApp com a lista pronta (sem número: o usuário escolhe o contato).
+export function linkWhatsApp(texto: string): string {
+  return 'https://wa.me/?text=' + encodeURIComponent(texto)
+}
+
+const campoCsv = (v: string | number) => {
+  const s = String(v)
+  return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+}
+
+// CSV com separador ";" e BOM, para abrir direto no Excel brasileiro.
+export function listaDeCompraCsv(linhas: LinhaCusto[]): string {
+  const cab = ['Material', 'Quantidade', 'Unidade', 'Custo unitário', 'Subtotal']
+  const corpo = linhas.map(l => {
+    const custo = l.custoUnitario ?? 0
+    return [l.produto?.nome ?? l.item.descricao, String(l.item.quantidade).replace('.', ','), l.item.unidadeCompra,
+      r2(custo).toFixed(2).replace('.', ','), r2(l.item.quantidade * custo).toFixed(2).replace('.', ',')].map(campoCsv).join(';')
+  })
+  return '﻿' + [cab.join(';'), ...corpo].join('\r\n')
+}
