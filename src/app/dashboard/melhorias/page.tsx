@@ -9,6 +9,7 @@
 // pode mandar foto nova sem encerrar — o chamado volta pra fila PS. Confirmar (funcionou/não) segue
 // como ação SEPARADA, não como única saída.
 
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -73,6 +74,9 @@ function Inner() {
   const [minhas, setMinhas] = useState<Minha[]>([])
   const [verArquivadas, setVerArquivadas] = useState(false)
   const [ehSuporte, setEhSuporte] = useState(false)
+  // equipe PS abrindo chamado em nome do cliente: indica quem do cliente recebe respostas e avisos (opcional)
+  const [solicitantes, setSolicitantes] = useState<{ id: string; nome: string }[]>([])
+  const [solicitanteId, setSolicitanteId] = useState('')
   const [pendentesFila, setPendentesFila] = useState(0)   // rascunhos esperando aprovação (papel de plataforma)
   const [userId, setUserId] = useState<string | null>(null)
   const [conversaAberta, setConversaAberta] = useState<string | null>(null)
@@ -119,6 +123,18 @@ function Inner() {
     }))
   }, [verArquivadas, companyId, companyIds])
   useEffect(() => { void carregar() }, [carregar])
+  useEffect(() => {
+    setSolicitanteId('')
+    if (!ehSuporte || !companyId) { setSolicitantes([]); return }
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('user_companies').select('user_id,users(full_name,email)').eq('company_id', companyId)
+      if (!vivo) return
+      type R = { user_id: string; users: { full_name: string | null; email: string | null } | { full_name: string | null; email: string | null }[] | null }
+      setSolicitantes(((data as R[]) ?? []).map((r) => { const u = Array.isArray(r.users) ? r.users[0] : r.users; return { id: r.user_id, nome: u?.full_name || u?.email || 'Usuário sem nome' } }).sort((a, b) => a.nome.localeCompare(b.nome)))
+    })()
+    return () => { vivo = false }
+  }, [ehSuporte, companyId])
 
   // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
   // Rascunho em localStorage (restaura ao montar, salva a cada mudança, limpa ao enviar). Efeito em vez
@@ -220,7 +236,7 @@ function Inner() {
 
       const { data, error } = await supabase.rpc('fn_sugestao_criar', {
         p_company_id: companyId,
-        p_sugestao: { tipo: f.categoria === 'melhoria' ? 'melhoria' : 'bug', titulo: f.titulo.trim() || null, descricao: f.descricao.trim(), prioridade: f.prioridade, categoria: f.categoria, rota: rotaOrigem, area: selInfo.tipo === 'empresa' ? 'gestao_empresarial' : null },
+        p_sugestao: { tipo: f.categoria === 'melhoria' ? 'melhoria' : 'bug', titulo: f.titulo.trim() || null, descricao: f.descricao.trim(), prioridade: f.prioridade, categoria: f.categoria, rota: rotaOrigem, area: selInfo.tipo === 'empresa' ? 'gestao_empresarial' : null, solicitante_id: ehSuporte && solicitanteId ? solicitanteId : null },
         p_anexos: anexos,
         p_user: user.id,
       })
@@ -241,7 +257,7 @@ function Inner() {
         if (n) numeroTxt = ` #${n}`
       } catch { /* segue sem o número */ }
 
-      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' }); setFotos([])
+      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' }); setFotos([]); setSolicitanteId('')
       setMsg(`Chamado${numeroTxt} registrado. A IA vai analisar em instantes.`); void carregar()
     } finally { setBusy(false) }
   }
@@ -279,6 +295,14 @@ function Inner() {
             <select value={f.prioridade} onChange={(e) => setF({ ...f, prioridade: e.target.value })} style={{ ...inp, width: '100%', marginTop: 4 }}>{PRIOS.map((p) => <option key={p} value={p}>{p}</option>)}</select>
           </label>
         </div>
+        {ehSuporte && solicitantes.length > 0 && (
+          <label style={{ fontSize: 12, color: C.espM, display: 'block', marginTop: 10 }}>Em nome de (cliente que recebe as respostas)<AjudaCampo chave="chamado.solicitante" />
+            <select data-testid="chamado-solicitante" value={solicitanteId} onChange={(e) => setSolicitanteId(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4 }}>
+              <option value="">Ninguém — chamado interno da equipe</option>
+              {solicitantes.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </label>
+        )}
         <input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="título curto (opcional)" style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
         <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu (ou dite por voz 🎙️)" rows={3} style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box', resize: 'vertical' }} />
         {/* #63 · ditar a sugestão por voz (fala→texto, editável antes de enviar) */}
