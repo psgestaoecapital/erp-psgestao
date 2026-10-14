@@ -163,12 +163,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     let ignore = false
     supabase
       .from('erp_plano_contas')
-      .select('codigo, descricao')
-      .eq('company_id', companyId)
+      .select('codigo, descricao, company_id')
+      .or(`company_id.eq.${companyId},company_id.is.null`)
       .then(({ data: pc }) => {
         if (ignore) return
         const m: Record<string, string> = {}
-        ;((pc ?? []) as { codigo: string; descricao: string | null }[]).forEach((c) => { if (c.descricao) m[c.codigo] = c.descricao })
+        // empresas sem plano próprio usam o template global; a conta da empresa vence a global
+        const lista = (pc ?? []) as { codigo: string; descricao: string | null; company_id: string | null }[]
+        lista.filter((c) => !c.company_id).forEach((c) => { if (c.descricao) m[c.codigo] = c.descricao })
+        lista.filter((c) => c.company_id).forEach((c) => { if (c.descricao) m[c.codigo] = c.descricao })
         setNomesCategoria(m)
       })
     return () => { ignore = true }
