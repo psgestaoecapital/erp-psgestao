@@ -1,5 +1,5 @@
 // Canal PS 4762a526/60675777 (OK do CEO 13/10) · Dados da Empresa com endereço em campos (CEP, logradouro, número,
-// complemento, bairro, cidade, UF fiscal, IBGE). Migration 20261013190020 · @pos-migration.
+// complemento, bairro, cidade, UF fiscal, IBGE). Migration 20261014200020 · @pos-migration.
 // Roda na demonstração Comércio (GE) e devolve o endereço vazio no fim (estado da semente).
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
