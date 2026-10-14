@@ -16,6 +16,7 @@ import { contarPendentesAprovacao } from '@/lib/sugestoes/filaAtendimento'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import { BotaoDitar } from '@/components/melhorias/BotaoDitar'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { type Marca } from '@/components/melhorias/FotoMarcador'
 import FotosChamado, { type FotoItem } from '@/components/melhorias/FotosChamado'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
@@ -73,6 +74,8 @@ function Inner() {
   const [minhas, setMinhas] = useState<Minha[]>([])
   const [verArquivadas, setVerArquivadas] = useState(false)
   const [ehSuporte, setEhSuporte] = useState(false)
+  const [solicitantes, setSolicitantes] = useState<{ id: string; nome: string; email: string }[]>([])
+  const [solicitanteId, setSolicitanteId] = useState('')
   const [pendentesFila, setPendentesFila] = useState(0)   // rascunhos esperando aprovação (papel de plataforma)
   const [userId, setUserId] = useState<string | null>(null)
   const [conversaAberta, setConversaAberta] = useState<string | null>(null)
@@ -202,6 +205,12 @@ function Inner() {
     void carregar()
   }, [carregar])
 
+  useEffect(() => {
+    setSolicitanteId('')
+    if (!ehSuporte || !companyId) { setSolicitantes([]); return }
+    void Promise.resolve(supabase.rpc('fn_sugestao_solicitantes', { p_company_id: companyId })).then(({ data }) => setSolicitantes((data ?? []) as { id: string; nome: string; email: string }[]))
+  }, [ehSuporte, companyId])
+
   async function enviar() {
     if (!companyId) { setErro('Selecione uma empresa específica no topo.'); return }
     if (!f.descricao.trim()) { setErro('Descreva a dificuldade.'); return }
@@ -220,7 +229,7 @@ function Inner() {
 
       const { data, error } = await supabase.rpc('fn_sugestao_criar', {
         p_company_id: companyId,
-        p_sugestao: { tipo: f.categoria === 'melhoria' ? 'melhoria' : 'bug', titulo: f.titulo.trim() || null, descricao: f.descricao.trim(), prioridade: f.prioridade, categoria: f.categoria, rota: rotaOrigem, area: selInfo.tipo === 'empresa' ? 'gestao_empresarial' : null },
+        p_sugestao: { tipo: f.categoria === 'melhoria' ? 'melhoria' : 'bug', titulo: f.titulo.trim() || null, descricao: f.descricao.trim(), prioridade: f.prioridade, categoria: f.categoria, rota: rotaOrigem, area: selInfo.tipo === 'empresa' ? 'gestao_empresarial' : null, solicitante_id: ehSuporte && solicitanteId ? solicitanteId : null },
         p_anexos: anexos,
         p_user: user.id,
       })
@@ -241,7 +250,7 @@ function Inner() {
         if (n) numeroTxt = ` #${n}`
       } catch { /* segue sem o número */ }
 
-      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' }); setFotos([])
+      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' }); setFotos([]); setSolicitanteId('')
       setMsg(`Chamado${numeroTxt} registrado. A IA vai analisar em instantes.`); void carregar()
     } finally { setBusy(false) }
   }
@@ -279,6 +288,14 @@ function Inner() {
             <select value={f.prioridade} onChange={(e) => setF({ ...f, prioridade: e.target.value })} style={{ ...inp, width: '100%', marginTop: 4 }}>{PRIOS.map((p) => <option key={p} value={p}>{p}</option>)}</select>
           </label>
         </div>
+        {ehSuporte && solicitantes.length > 0 && (
+          <label style={{ display: 'block', fontSize: 12, color: C.espM, marginTop: 10 }}>Solicitante (cliente) <AjudaCampo chave="melhorias.solicitante" rota="/dashboard/melhorias" />
+            <select value={solicitanteId} onChange={(e) => setSolicitanteId(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4 }}>
+              <option value="">— ninguém (chamado da equipe) —</option>
+              {solicitantes.map((u) => <option key={u.id} value={u.id}>{u.nome} · {u.email}</option>)}
+            </select>
+          </label>
+        )}
         <input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="título curto (opcional)" style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
         <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu (ou dite por voz 🎙️)" rows={3} style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box', resize: 'vertical' }} />
         {/* #63 · ditar a sugestão por voz (fala→texto, editável antes de enviar) */}
