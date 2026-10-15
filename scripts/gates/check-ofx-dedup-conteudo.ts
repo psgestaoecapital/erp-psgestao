@@ -23,5 +23,13 @@ ok(/cm\.natureza/.test(api) && /descricao_normalizada = v_dnorm/.test(api), 'cha
 ok((api.match(/pg_advisory_xact_lock/g) ?? []).length === 2, 'OFX e API serializam por empresa+conta (advisory lock)')
 ok(!/CREATE UNIQUE INDEX[^;]*id_externo/i.test(api) && !/DELETE FROM conciliacao_movimento WHERE (?!lote_id = v_lote_id)/.test(api), 'sem índice único por id_externo nem DELETE de dado de cliente')
 
+// Pluggy (sp_pluggy_promover_para_conciliacao) dependia de unique_violation do índice removido: checagem explícita + lock.
+const pl = readFileSync('supabase/migrations/20261015230030_pluggy_promover_dedup_sem_unique_violation.sql', 'utf8').replace(/--.*$/gm, '')
+ok(/CREATE OR REPLACE FUNCTION public\.sp_pluggy_promover_para_conciliacao/.test(pl), 'Pluggy: função redefinida')
+ok(!/unique_violation/.test(pl), 'Pluggy: não depende mais de unique_violation')
+ok(/IF EXISTS \(SELECT 1 FROM conciliacao_movimento cm WHERE cm\.company_id = v_item\.company_id AND cm\.id_externo = v_id_ext\)/.test(pl), 'Pluggy: checa existência por empresa + id_externo antes de inserir')
+ok(/pg_advisory_xact_lock/.test(pl) && /SECURITY DEFINER/.test(pl) && /SET search_path TO 'public'/.test(pl), 'Pluggy: advisory lock e SECURITY DEFINER/search_path preservados')
+ok(!/DELETE|TRUNCATE|DROP/i.test(pl), 'Pluggy: sem DELETE/DROP')
+
 if (falhas) { console.error(`\n[check-ofx-dedup-conteudo] ${falhas} regra(s) quebrada(s).`); process.exit(1) }
 console.log('\n[check-ofx-dedup-conteudo] dedup por conteúdo conferida.')
