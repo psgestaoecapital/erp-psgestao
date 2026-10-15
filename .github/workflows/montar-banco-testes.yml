@@ -71,9 +71,17 @@ jobs:
             *) echo "VAGA=0 (banco de testes atual)"; echo "ACEITACAO_VAGA=0" >> "$GITHUB_ENV"; exit 0;;
           esac
           [ -n "$DB" ] && [ -n "$U" ] && [ -n "$S" ] || { echo "::error::vaga $VAGA sem segredos TEST_*_$VAGA provisionados"; exit 1; }
+          # Normaliza a REST URL (TEST_SUPABASE_URL) só com expansão do bash (sem sed frágil — o sed anterior expandia
+          # "$##" como $# e quebrava o passo, #2496). Tira TAB/CR/LF/espaço de qualquer posição, aspas ao redor e a barra
+          # final. Sem https:// (ou com espaço) o curl do Auth admin dava "exit 3 (URL malformed)" e a semente morria SEM
+          # log (vaga 1, 13/10). Exige https://<ref>.supabase.co e barra a produção. A REST URL é pública (não mascara).
+          u="${U//[$'\t\r\n ']/}"; u="${u%\"}"; u="${u#\"}"; u="${u%/}"
+          if [[ "$u" == *horsymhsinqcimflrtjo* ]]; then echo "::error::vaga $VAGA: TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1; fi
+          if [[ ! "$u" =~ ^https://[a-z0-9]+\.supabase\.co$ ]]; then echo "::error::vaga $VAGA: TEST_SUPABASE_URL_$VAGA inválida (veio '${U:0:24}…'). Corrija o segredo para a API URL do projeto da vaga: https://<ref>.supabase.co"; exit 1; fi
+          U="$u"
           echo "::add-mask::$DB"; echo "::add-mask::$S"
           { echo "TEST_DATABASE_URL=$DB"; echo "TEST_SUPABASE_URL=$U"; echo "TEST_SUPABASE_SERVICE_ROLE_KEY=$S"; echo "ACEITACAO_VAGA=$VAGA"; } >> "$GITHUB_ENV"
-          echo "VAGA=$VAGA (banco extra do pool)"
+          echo "VAGA=$VAGA · REST URL: $U"
       - name: Trava de segurança (nunca aponta para a produção)
         run: |
           [ -n "$TEST_DATABASE_URL" ] || { echo "::error::TEST_DATABASE_URL ausente"; exit 1; }
@@ -116,7 +124,10 @@ jobs:
           # só ESTRUTURA do schema public (sem dados; Vault/cron/auth/storage não vão)
           supabase db dump --linked --schema public -f estrutura.sql
           wc -l estrutura.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "drop schema if exists public cascade; create schema public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
+          # apaga o schema public em LOTES (cada lote = transação própria): um DROP SCHEMA CASCADE único estoura
+          # max_locks_per_transaction ("out of shared memory") num banco já montado (13/10, vaga 1). Banco vazio passa direto.
+          scripts/banco-testes/limpar-public.sh
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "create schema if not exists public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
           # restore sem parar no 1º erro: o que depender de extensão/dado só da produção vai para o relatório
           psql "$TEST_DATABASE_URL" -q -f estrutura.sql 2> restore-erros.log || true
           echo "erros no restore: $(grep -c 'ERROR' restore-erros.log || true)"
@@ -125,11 +136,41 @@ jobs:
       - name: Ledger (migrations do repo marcadas como aplicadas)
         if: github.event_name == 'workflow_dispatch' && inputs.recriar
         run: scripts/banco-testes/ledger.sh
-      - name: Migrations novas da main (aplica só as pendentes no banco de testes)
-        if: github.event_name == 'workflow_run'
+      # 13/10: sem "recriar", o disparo manual também aplica as migrations pendentes na vaga escolhida (compara com o ledger).
+      - name: Migrations novas (aplica só as pendentes no banco da vaga)
+        if: github.event_name == 'workflow_run' || !inputs.recriar
         env:
           SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
         run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+      # 13/10: após o deploy de migration, as vagas extras provisionadas (1/2) recebem as mesmas migrations; vaga sem
+      # segredos é pulada com aviso (nunca falha). Vale só no workflow_run; no disparo manual a vaga é a escolhida.
+      - name: Migrations novas nas vagas extras provisionadas
+        if: github.event_name == 'workflow_run'
+        env:
+          DBURL1: ${{ secrets.TEST_DATABASE_URL_1 }}
+          DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
+        run: |
+          set -u
+          for v in 1 2; do
+            eval "u=\$DBURL$v"
+            if [ -z "$u" ]; then echo "::notice::vaga $v não provisionada — pulada"; continue; fi
+            u="$(printf '%s' "$u" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
+            echo "::add-mask::$u"
+            case "$u" in *horsymhsinqcimflrtjo*) echo "::error::vaga $v aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+            case "$u" in *pooler.supabase.com*) ;; *) echo "::error::vaga $v: precisa ser Session pooler"; exit 1;; esac
+            echo "== vaga $v =="
+            supabase db push --include-all --db-url "$u"
+          done
+      # 13/10 (CEO): o dump --schema public NÃO traz as extensões. Uma vaga NOVA (ex.: a vaga 1) pode não ter o
+      # `unaccent`, que o f_unaccent e o índice de erp_gov_nfse_municipios usam como public.unaccent — sem ele a carga
+      # dos catálogos morre ("function public.unaccent(unknown, text) does not exist", COPY erp_gov_nfse_municipios).
+      # A vaga 0 tem unaccent em public; aqui garantimos o mesmo na vaga atual (idempotente; em recriar roda após o
+      # restore, pois o DROP SCHEMA public tinha levado o public.unaccent junto).
+      - name: Garantir extensões da vaga (unaccent em public)
+        run: |
+          set -euo pipefail
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;"
+          echo "unaccent: $(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT public.unaccent('Ãçéõ')")"
       # Autorizado pelo CEO em 06/10/2026 17:38. Produção só leitura (catálogo do Postgres + pg_dump --data-only -t);
       # o script repete as travas (destino nunca é a produção) e recusa tabela da lista com coluna de dono/dado pessoal.
       - name: Catálogos globais da produção → banco de testes (whitelist, só dados)
@@ -160,13 +201,46 @@ jobs:
       - name: Semente (usuário do Playwright no Auth + empresa DEMO)
         run: |
           set -euo pipefail
-          # usuário do bot via Auth admin (service role do banco de testes); 422 = já existe
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TEST_SUPABASE_URL/auth/v1/admin/users" \
-            -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY" \
-            -H 'Content-Type: application/json' \
-            -d "$(jq -n --arg e "$PLAYWRIGHT_USER_EMAIL" --arg p "$PLAYWRIGHT_USER_PASSWORD" '{email:$e,password:$p,email_confirm:true}')")
-          echo "criar usuário: HTTP $code (200/201 criado · 422 já existe)"
-          [ "$code" = 200 ] || [ "$code" = 201 ] || [ "$code" = 422 ] || exit 1
+          # usuário do bot via Auth admin (service role do banco de testes) SEMPRE com id fixo.
+          # 13 funções de semente da DEMO (fn_demo_seed_*/fn_gold_*) ancoram o robô em
+          # 74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa; banco novo (ex.: vaga 1) ganhava id aleatório e as DEMOs P&M/SST
+          # falhavam. Se o e-mail já existe com OUTRO id, apaga esse usuário (auth admin → cascata ON DELETE em
+          # public.users/user_companies/tenant_user_roles) e recria com o id fixo. Converge ou falha alto.
+          ROBO_ID=74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa
+          cur=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where email = '$PLAYWRIGHT_USER_EMAIL'" | head -n1 || true)
+          echo "robô atual: id='${cur:-<nenhum>}' · esperado=$ROBO_ID"
+          if [ -n "${cur:-}" ] && [ "$cur" != "$ROBO_ID" ]; then
+            echo "robô com id divergente — apagando e recriando com o id fixo"
+            del=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$TEST_SUPABASE_URL/auth/v1/admin/users/$cur" \
+              -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY")
+            echo "apagar robô divergente: HTTP $del"
+            cur=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where email = '$PLAYWRIGHT_USER_EMAIL'" | head -n1 || true)
+          fi
+          # id fixo ocupado por OUTRO e-mail (ex.: sintético "robo-demo@testes.local" na vaga 0, Montar #329): apaga o ocupante
+          # antes de criar o robô, em vez de deixar o POST falhar com HTTP 500.
+          ocup=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where id = '$ROBO_ID' and lower(email) <> lower('$PLAYWRIGHT_USER_EMAIL')" | head -n1 || true)
+          if [ -n "${ocup:-}" ]; then
+            outro=$(psql "$TEST_DATABASE_URL" -At -c "select email from auth.users where id = '$ROBO_ID'" | head -n1 || true)
+            echo "id fixo do robô ocupado por outro e-mail ('${outro:-?}') — apagando o ocupante"
+            del=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$TEST_SUPABASE_URL/auth/v1/admin/users/$ROBO_ID" \
+              -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY")
+            echo "apagar ocupante do id fixo: HTTP $del"
+            cur=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where email = '$PLAYWRIGHT_USER_EMAIL'" | head -n1 || true)
+          fi
+          if [ "${cur:-}" != "$ROBO_ID" ]; then
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TEST_SUPABASE_URL/auth/v1/admin/users" \
+              -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY" \
+              -H 'Content-Type: application/json' \
+              -d "$(jq -n --arg id "$ROBO_ID" --arg e "$PLAYWRIGHT_USER_EMAIL" --arg p "$PLAYWRIGHT_USER_PASSWORD" '{id:$id,email:$e,password:$p,email_confirm:true}')")
+            echo "criar robô (id fixo): HTTP $code (200/201 criado)"
+            [ "$code" = 200 ] || [ "$code" = 201 ] || exit 1
+          else
+            echo "robô já está com o id fixo — nada a fazer"
+          fi
+          # trava de convergência: o id DEVE ser o fixo, senão as DEMOs P&M/SST quebram de novo (banco não sobe meio-montado)
+          fim=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where email = '$PLAYWRIGHT_USER_EMAIL'" | head -n1 || true)
+          echo "robô final: id='${fim:-<nenhum>}'"
+          [ "$fim" = "$ROBO_ID" ] || { echo "::error::robô não convergiu para o id fixo ($ROBO_ID): está '${fim:-<nenhum>}'"; exit 1; }
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -v bot_email="$PLAYWRIGHT_USER_EMAIL" -f scripts/banco-testes/semente.sql
           # a demo da produção é povoada por fn_demo_reset (se existir na cópia)
           # diagnóstico: mostra o erro REAL (mensagem, detalhe, contexto) como anotação, em vez de só "falhou"

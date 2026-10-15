@@ -1,0 +1,60 @@
+name: Reconciliar vaga (restaurar banco de testes à produção)
+# CEO 13/10 (restauração cirúrgica APROVADA, no banco de TESTES). A guarda da aceitação (aceitacao-pr/main) só DETECTA
+# contaminação e barra o banco sujo — por Pilar 2 ela NÃO carrega segredo de produção (gate check-esteira-2-velocidades).
+# A RESTAURAÇÃO precisa LER a produção (definições aprovadas), então vive aqui, onde o segredo de produção já é
+# legítimo (como no montar-banco-testes): restaura a vaga ao estado da produção em segundos, sem o recriar de 18 min.
+# Dispare esta ação na vaga contaminada (ex.: vaga 1, 20261013200030 da PR #2515); o resumo do job traz a prova (RD-38):
+# ledger e hash de fn_ge_listagem_v2 na vaga (antes/depois) e na produção.
+on:
+  workflow_dispatch:
+    inputs:
+      vaga:
+        description: "Vaga a restaurar (0, 1 ou 2)"
+        required: true
+        default: "0"
+      witness:
+        description: "Função testemunha para a prova (hash antes/depois/produção)"
+        required: false
+        default: "fn_ge_listagem_v2"
+permissions:
+  contents: read
+concurrency:
+  # mesma trava da vaga do montar/aceitação (cancel-in-progress:false): não roda junto com uma aceitação da mesma vaga.
+  group: ${{ github.event.inputs.vaga == '0' && 'aceitacao-testes' || format('aceitacao-testes-{0}', github.event.inputs.vaga) }}
+  cancel-in-progress: false
+jobs:
+  reconciliar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Selecionar o banco da vaga
+        env:
+          VAGA: ${{ github.event.inputs.vaga }}
+          DBURL0: ${{ secrets.TEST_DATABASE_URL }}
+          DBURL1: ${{ secrets.TEST_DATABASE_URL_1 }}
+          DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
+        run: |
+          set -u
+          case "$VAGA" in 1) DB="$DBURL1";; 2) DB="$DBURL2";; *) DB="$DBURL0";; esac
+          [ -n "$DB" ] || { echo "::error::vaga $VAGA sem segredo TEST_DATABASE_URL"; exit 1; }
+          DB="$(printf '%s' "$DB" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]\$//")"
+          case "$DB" in *horsymhsinqcimflrtjo*) echo "::error::vaga $VAGA aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          case "$DB" in *pooler.supabase.com*) ;; *) echo "::error::vaga $VAGA: TEST_DATABASE_URL precisa ser Session pooler"; exit 1;; esac
+          echo "::add-mask::$DB"
+          echo "TEST_DATABASE_URL=$DB" >> "$GITHUB_ENV"
+      - name: Restaurar a vaga à produção (cirúrgico + verify-before-commit)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          WITNESS: ${{ github.event.inputs.witness }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          mdir=$(mktemp -d); mkdir -p "$mdir/supabase"
+          git archive origin/main -- supabase/migrations | tar -x -C "$mdir"
+          PROD_DATABASE_URL="$(scripts/banco-testes/prod-url.sh)"; echo "::add-mask::$PROD_DATABASE_URL"
+          VAGA="${{ github.event.inputs.vaga }}" MAIN_MIGR_DIR="$mdir/supabase/migrations" PROD_DATABASE_URL="$PROD_DATABASE_URL" \
+            scripts/banco-testes/reconciliar-vaga.sh

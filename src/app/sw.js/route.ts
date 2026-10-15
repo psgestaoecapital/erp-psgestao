@@ -29,6 +29,34 @@ self.addEventListener('activate', (event) => {
   })())
 })
 
+self.addEventListener('push', (event) => {
+  // #120: Web Push (VAPID) — o mesmo aviso do sininho (erp_notificacao_usuario) chega na central do aparelho.
+  let d = {}
+  try { d = event.data ? event.data.json() : {} } catch { d = {} }
+  const titulo = String(d.titulo || 'PS Gestão')
+  const link = typeof d.link === 'string' && d.link.startsWith('/') && !d.link.startsWith('//') ? d.link : '/dashboard'
+  event.waitUntil(self.registration.showNotification(titulo, {
+    body: String(d.mensagem || ''),
+    icon: '/apple-touch-icon.png',
+    badge: '/favicon-32.png',
+    tag: d.tag ? String(d.tag) : undefined,
+    renotify: !!d.tag,
+    data: { link },
+  }))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const alvo = new URL((event.notification.data && event.notification.data.link) || '/dashboard', self.location.origin).href
+  event.waitUntil((async () => {
+    const abas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    for (const aba of abas) {
+      if ('focus' in aba) { await aba.focus(); if ('navigate' in aba) { try { await aba.navigate(alvo) } catch {} } return }
+    }
+    await self.clients.openWindow(alvo)
+  })())
+})
+
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
