@@ -5,14 +5,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Calculator, AlertTriangle } from "lucide-react";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import EditorRegras from "./EditorRegras";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
+import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv } from "@/lib/calculadora/saida";
+import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import {
-  REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroF530, calcularParede, type Resultado,
+  REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoColado, calcularForroAramado, calcularForroF530, calcularParede, type Resultado,
 } from "@/lib/calculadora/motor";
 
-type Sistema = "parede" | "forro";
+type Sistema = "parede" | "forro" | "aramado" | "revestimento";
 const n = (v: string) => Number((v || "0").replace(",", ".")) || 0
 const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })
@@ -33,6 +36,9 @@ export default function CalculadoraObraPage() {
   const [comp, setComp] = useState("12,5");
   const [pd, setPd] = useState("2,8");
   const [vaos, setVaos] = useState("1,68");
+  const [comLa, setComLa] = useState(false);
+  const [estDupla, setEstDupla] = useState(false);
+  const [camadas, setCamadas] = useState(1);
   const [larg, setLarg] = useState("3");
   const [compF, setCompF] = useState("4");
   const [avancado, setAvancado] = useState(false);
@@ -41,15 +47,20 @@ export default function CalculadoraObraPage() {
   const [produtos, setProdutos] = useState<ProdutoEstoque[]>([]);
   const [vinculos, setVinculos] = useState<Record<string, string>>({});
   const [erroVinculo, setErroVinculo] = useState<string | null>(null);
-  const sistemaDb = sistema === "parede" ? "parede" : "forro_f530";
+  const [orcamentos, setOrcamentos] = useState<{ id: string; numero: string | null; cliente_nome: string | null }[]>([]);
+  const [orcId, setOrcId] = useState("");
+  const [msgSaida, setMsgSaida] = useState<{ ok: boolean; texto: string } | null>(null);
+  const sistemaDb = sistema === "parede" ? "parede" : sistema === "revestimento" ? "revestimento_colado" : sistema === "aramado" ? "forro_aramado" : "forro_f530";
 
   const carregarEstoque = useCallback(async () => {
-    if (!companyId) { setProdutos([]); setVinculos({}); return; }
+    if (!companyId) { setProdutos([]); setVinculos({}); setOrcamentos([]); return; }
     const sb = supabaseBrowser();
-    const [p, d] = await Promise.all([
+    const [p, d, o] = await Promise.all([
       sb.from("erp_produtos").select("id,nome,unidade,preco_custo_medio,preco_custo").eq("company_id", companyId).eq("ativo", true).order("nome").limit(2000),
       sb.from("erp_calc_depara").select("chave,produto_id").eq("company_id", companyId).eq("sistema", sistemaDb),
+      sb.from("erp_orcamentos").select("id,numero,cliente_nome").eq("company_id", companyId).eq("status", "rascunho").order("created_at", { ascending: false }).limit(100),
     ]);
+    setOrcamentos((o.data ?? []) as any);
     setProdutos((p.data ?? []).map((x: any) => ({ id: x.id, nome: x.nome, unidade: x.unidade, custo: Number(x.preco_custo_medio) || Number(x.preco_custo) || null })));
     setVinculos(Object.fromEntries((d.data ?? []).map((x: any) => [x.chave, x.produto_id])));
   }, [companyId, sistemaDb]);
@@ -67,9 +78,58 @@ export default function CalculadoraObraPage() {
     setVinculos((v) => { const n2 = { ...v }; if (produtoId) n2[chave] = produtoId; else delete n2[chave]; return n2; });
   }
 
-  const res: Resultado = useMemo(() => sistema === "parede"
-    ? calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos) })
-    : calcularForroF530(REGRAS_FORRO_F530, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, larg, compF]);
+  async function mandarParaOrcamento() {
+    if (!companyId || !orcId || !res.ok) return;
+    setMsgSaida(null);
+    const sb = supabaseBrowser();
+    const { data: ult } = await sb.from("erp_orcamentos_itens").select("ordem").eq("orcamento_id", orcId).order("ordem", { ascending: false }).limit(1);
+    const linhas = itensParaOrcamento(custo.linhas, orcId, companyId, Number(ult?.[0]?.ordem) || 0);
+    const { error } = await sb.from("erp_orcamentos_itens").insert(linhas);
+    setMsgSaida(error ? { ok: false, texto: "Não consegui enviar: " + error.message } : { ok: true, texto: `${linhas.length} itens enviados ao orçamento. Itens sem produto vinculado foram com preço zero para você completar lá.` });
+  }
+
+  async function copiarLista() {
+    if (!res.ok) return;
+    const texto = listaDeCompra(custo.linhas, sistema === "parede" ? "Lista de compra — parede simples" : sistema === "revestimento" ? "Lista de compra — revestimento colado" : sistema === "aramado" ? "Lista de compra — forro aramado" : "Lista de compra — forro F530");
+    try { await navigator.clipboard.writeText(texto); setMsgSaida({ ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." }); }
+    catch { setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." }); }
+  }
+
+  function tituloLista() {
+    return sistema === "parede" ? "Lista de compra — parede simples" : sistema === "revestimento" ? "Lista de compra — revestimento colado" : sistema === "aramado" ? "Lista de compra — forro aramado" : "Lista de compra — forro F530";
+  }
+  function enviarWhatsApp() {
+    if (!res.ok) return;
+    window.open(linkWhatsApp(listaDeCompra(custo.linhas, tituloLista())), "_blank", "noopener");
+  }
+  function baixarExcel() {
+    if (!res.ok) return;
+    const url = URL.createObjectURL(new Blob([listaDeCompraCsv(custo.linhas)], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "lista-de-compra.csv"; a.click();
+    URL.revokeObjectURL(url);
+    setMsgSaida({ ok: true, texto: "Planilha baixada. Abre direto no Excel." });
+  }
+
+  const [regraSalva, setRegraSalva] = useState<unknown>(null);
+  const [recarga, setRecarga] = useState(0);
+  useEffect(() => {
+    setRegraSalva(null);
+    if (!companyId) return;
+    void supabaseBrowser().from("erp_calc_regra").select("regras").eq("company_id", companyId).eq("sistema", sistemaDb).maybeSingle()
+      .then(({ data }) => setRegraSalva(data?.regras ?? null));
+  }, [companyId, sistemaDb, recarga]);
+  const regrasParede = useMemo(() => mesclarRegras(REGRAS_PAREDE_SIMPLES_ST, sistema === "parede" ? regraSalva : null), [regraSalva, sistema]);
+  const regrasForro = useMemo(() => mesclarRegras(REGRAS_FORRO_F530, sistema === "forro" ? regraSalva : null), [regraSalva, sistema]);
+  const regrasAramado = useMemo(() => mesclarRegras(REGRAS_FORRO_ARAMADO, sistema === "aramado" ? regraSalva : null), [regraSalva, sistema]);
+  const regrasRevest = useMemo(() => mesclarRegras(REGRAS_REVESTIMENTO_COLADO, sistema === "revestimento" ? regraSalva : null), [regraSalva, sistema]);
+  const res: Resultado = useMemo(() => sistema === "revestimento"
+    ? calcularRevestimentoColado(regrasRevest, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos) })
+    : sistema === "parede"
+    ? calcularParede(regrasParede, { comprimento: n(comp), peDireito: n(pd), vaos: n(vaos), comLa, camadas, estruturaDupla: estDupla })
+    : sistema === "aramado"
+      ? calcularForroAramado(regrasAramado, { largura: n(larg), comprimento: n(compF) })
+      : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, comLa, camadas, estDupla, larg, compF, regrasParede, regrasForro, regrasAramado, regrasRevest]);
 
   const custo = useMemo(() => res.ok ? custearItens(res.itens, vinculos, new Map(produtos.map((p) => [p.id, p]))) : { linhas: [], total: 0, semCusto: 0 }, [res, vinculos, produtos]);
   const custoPorChave = useMemo(() => Object.fromEntries(custo.linhas.map((l) => [l.item.chave, l])), [custo]);
@@ -87,16 +147,33 @@ export default function CalculadoraObraPage() {
       <section className="mb-5 rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center gap-2" role="tablist">
           <span className="text-[11px] uppercase tracking-wider text-[#3D2314]/55">Sistema<AjudaCampo chave="projetos.calculadora.sistema" rota="/dashboard/projetos/calculadora" /></span>
-          {([["parede", "Parede simples (drywall)"], ["forro", "Forro de gesso F530"]] as const).map(([k, t]) => (
+          {([["parede", "Parede simples (drywall)"], ["forro", "Forro de gesso F530"], ["aramado", "Forro aramado"], ["revestimento", "Revestimento colado"]] as const).map(([k, t]) => (
             <button key={k} role="tab" aria-selected={sistema === k} data-testid={`calc-sistema-${k}`} onClick={() => setSistema(k)}
               className={`rounded-full px-3 py-1.5 text-sm ${sistema === k ? "bg-[#3D2314] text-white" : "bg-[#3D2314]/5 text-[#3D2314]"}`}>{t}</button>
           ))}
         </div>
-        {sistema === "parede" ? (
+        {sistema === "parede" || sistema === "revestimento" ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Campo rotulo="Comprimento (m)" chave="projetos.calculadora.comprimento" valor={comp} set={setComp} testid="calc-comprimento" />
             <Campo rotulo="Pé-direito (m)" chave="projetos.calculadora.pe_direito" valor={pd} set={setPd} testid="calc-pe-direito" />
             <Campo rotulo="Vãos a descontar (m²)" chave="projetos.calculadora.vaos" valor={vaos} set={setVaos} testid="calc-vaos" />
+            {sistema === "parede" && (<>
+            <label className="flex items-center gap-2 text-sm text-[#3D2314] sm:col-span-3">
+              Camadas de chapa por face
+              <select value={camadas} onChange={(e) => setCamadas(Number(e.target.value))} data-testid="calc-camadas" className="rounded-lg border border-[#E8E2D6] px-2 py-1">
+                <option value={1}>1 (simples)</option><option value={2}>2 (dupla / corta-fogo)</option>
+              </select>
+              <AjudaCampo chave="projetos.calculadora.camadas" rota="/dashboard/projetos/calculadora" />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[#3D2314] sm:col-span-3">
+              <input type="checkbox" checked={estDupla} onChange={(e) => setEstDupla(e.target.checked)} data-testid="calc-estrutura-dupla" />
+              Estrutura dupla (parede separativa)<AjudaCampo chave="projetos.calculadora.estrutura_dupla" rota="/dashboard/projetos/calculadora" />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[#3D2314] sm:col-span-3">
+              <input type="checkbox" checked={comLa} onChange={(e) => setComLa(e.target.checked)} data-testid="calc-la" />
+              Com lã mineral no miolo<AjudaCampo chave="projetos.calculadora.la" rota="/dashboard/projetos/calculadora" />
+            </label>
+            </>)}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -108,10 +185,9 @@ export default function CalculadoraObraPage() {
           {avancado ? "Esconder" : "Mostrar"} parâmetros avançados<AjudaCampo chave="projetos.calculadora.avancado" rota="/dashboard/projetos/calculadora" />
         </button>
         {avancado && (
-          <p className="mt-2 rounded-lg bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/70">
-            Regras de referência de mercado, <b>a validar com o fabricante</b>: perda {fmt((sistema === "parede" ? REGRAS_PAREDE_SIMPLES_ST : REGRAS_FORRO_F530).perda)}×,
-            chapa de {fmt(2.16)} m². A edição por empresa vem na próxima fatia.
-          </p>
+          companyId ? <EditorRegras companyId={companyId} sistema={sistemaDb} regraSalva={regraSalva} aoSalvar={() => setRecarga((x) => x + 1)} /> : (
+            <p className="mt-2 rounded-lg bg-[#FAF7F2] p-3 text-sm text-[#3D2314]/70">Escolha uma empresa para editar as regras. Referência de mercado, <b>a validar com o fabricante</b>.</p>
+          )
         )}
       </section>
 
@@ -153,6 +229,30 @@ export default function CalculadoraObraPage() {
               </li>
             ))}
           </ul>
+          <div className="mt-4 flex flex-col gap-2 border-t border-[#3D2314]/8 pt-4" data-testid="calc-saida">
+            <button onClick={() => void copiarLista()} data-testid="calc-copiar-lista" className="self-start rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+              Copiar lista de compra<AjudaCampo chave="projetos.calculadora.lista_compra" rota="/dashboard/projetos/calculadora" />
+            </button>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={enviarWhatsApp} data-testid="calc-whatsapp" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                Enviar por WhatsApp<AjudaCampo chave="projetos.calculadora.whatsapp" rota="/dashboard/projetos/calculadora" />
+              </button>
+              <button onClick={baixarExcel} data-testid="calc-excel" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                Baixar Excel<AjudaCampo chave="projetos.calculadora.excel" rota="/dashboard/projetos/calculadora" />
+              </button>
+            </div>
+            {companyId && (
+              <label className="flex flex-wrap items-center gap-2 text-sm text-[#3D2314]/70">
+                <span className="flex items-center">Orçamento em rascunho<AjudaCampo chave="projetos.calculadora.orcamento" rota="/dashboard/projetos/calculadora" /></span>
+                <select value={orcId} onChange={(e) => setOrcId(e.target.value)} data-testid="calc-orcamento" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm">
+                  <option value="">{orcamentos.length ? "Escolha o orçamento" : "Nenhum orçamento em rascunho"}</option>
+                  {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? "sem número"}{o.cliente_nome ? ` · ${o.cliente_nome}` : ""}</option>)}
+                </select>
+                <button onClick={() => void mandarParaOrcamento()} disabled={!orcId} data-testid="calc-mandar-orcamento" className="rounded-full bg-[#3D2314] px-4 py-2 text-sm text-white disabled:opacity-40">Mandar para o orçamento</button>
+              </label>
+            )}
+            {msgSaida && <p className={`text-sm ${msgSaida.ok ? "text-emerald-700" : "text-red-700"}`} data-testid="calc-saida-msg">{msgSaida.texto}</p>}
+          </div>
         </section>
       )}
     </main>
