@@ -110,9 +110,41 @@ rerodar() {
   else log "run $id já teve $tent tentativas: não re-roda de novo (avise o Eng. Chefe)"; return 1; fi
 }
 
+# Janela temporária do @pos-migration por LINHA-DE-BASE (CEO 15/10, contexto e89e0d62, com o CEO presente): até
+# 2026-10-17 11:00 America/Sao_Paulo (= 2026-10-17T14:00:00Z), o @pos-migration da main VERMELHO só BLOQUEIA a PR COM
+# migration se houver falha NOVA — um spec fora da LINHA-DE-BASE (os specs que falharam no run #496 da aceitação @pos,
+# às 10:19 BRT de 15/10, antes das PRs do Hub). Mesma lista (ou subconjunto) → segue publicando (1 migration/rodada).
+# Spec novo → bloqueia, comenta na PR que entrou por último e propõe reversão ao Eng. Chefe. Depois do limite, qualquer
+# vermelho volta a bloquear sozinho. FILA_AGORA_EPOCH (o mesmo da janela da aceitação) deixa o gate provar os dois lados.
+JANELA_POS_BASELINE_FIM='2026-10-17T14:00:00Z'
+pos_baseline_ativa() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_POS_BASELINE_FIM" +%s)" ]; }
+# Linha-de-base: specs que falharam no run #496 do "Aceitação @pos-migration (produção)" (run 38741770350, head
+# 01a39b72, 2026-10-15T13:19:51Z). Provado no log do job falho (RD-38). FILA_POS_BASELINE sobrescreve (para o gate).
+POS_BASELINE_496=${FILA_POS_BASELINE:-'e2e/jornadas/aceitacao/atak-status-equipe-rls.spec.ts
+e2e/jornadas/aceitacao/pauta-p2.spec.ts'}
+# specs que falharam num run @pos: lê o log do(s) job(s) falho(s) e, da seção final "N failed" em diante, pega os
+# e2e/.../*.spec.ts (mesmo sinal do fn_dev_main_teste_set e da quarentena). Um por linha, ordenado e único.
+pos_specs_falhos() {
+  local run=$1 jid
+  for jid in $(api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
+    api "repos/$REPO/actions/jobs/$jid/logs" 2>/dev/null \
+      | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' \
+      | sed -n '/^[[:space:]]*[0-9][0-9]* failed/,$p' | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts'
+  done | sort -u
+}
+# Escala uma falha NOVA do @pos (dentro da janela): comenta UMA vez na PR do head do run @pos (a que entrou por último) e
+# propõe reversão ao Eng. Chefe. Sem PR associada, só loga (o Eng. Chefe lê o resumo da fila).
+escalar_pos_novo() {
+  local run=$1 novos=$2 hsha pr
+  hsha=$(api "repos/$REPO/actions/runs/$run" --jq '.head_sha' 2>/dev/null)
+  pr=$(api "repos/$REPO/commits/$hsha/pulls" --jq '.[0].number' 2>/dev/null || true)
+  { [ -n "$pr" ] && [ "$pr" != null ]; } || { log "@pos falha NOVA ($(tr '\n' ' ' <<< "$novos"), run $run) sem PR no head $hsha — Eng. Chefe, reverter manualmente"; return; }
+  comentar_uma_vez "$pr" "pos-novo-$run" "🔴 **Fila de merge — Eng. Chefe:** o \`@pos-migration\` da main está VERMELHO com **falha NOVA** fora da linha-de-base do run #496 (janela temporária CEO 15/10): \`$(tr '\n' ' ' <<< "$novos")\` (run $run). Como esta PR entrou por último, a **proposta é revertê-la**. Enquanto não resolver, as PRs COM migration ficam seguras (as SEM migration seguem)."
+}
+
 # (a) Estado da main para PR COM migration. Ecoa: livre | esperar:<motivo>
 estado_main() {
-  local ult_mig r st conc id
+  local ult_mig r st conc id falhos novos
   # deploy-migrations: rodando ou vermelho → espera (vermelho é trabalho AGORA de quem quebrou)
   r=$(api "repos/$REPO/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion)"')
   read -r id st conc <<< "$r"
@@ -124,7 +156,23 @@ estado_main() {
   [ "$st" = completed ] || { echo "esperar:@pos-migration da main em andamento ($id)"; return; }
   case "$conc" in
     success) echo livre; return;;
-    failure) echo "esperar:@pos-migration da main VERMELHO (run $id) — reverter a PR culpada"; return;;
+    failure)
+      # Janela CEO 15/10: vermelho só bloqueia se houver falha NOVA fora da linha-de-base do #496.
+      if pos_baseline_ativa; then
+        falhos=$(pos_specs_falhos "$id")
+        if [ -n "$falhos" ]; then
+          novos=$(comm -23 <(printf '%s\n' "$falhos") <(printf '%s\n' "$POS_BASELINE_496" | sed '/^$/d' | sort -u))
+          if [ -z "$novos" ]; then
+            log "@pos da main VERMELHO (run $id) só com falhas da linha-de-base do #496 (janela CEO 15/10): migration liberada" >&2
+            echo livre; return
+          fi
+          escalar_pos_novo "$id" "$novos" >&2
+          echo "esperar:@pos da main VERMELHO com falha NOVA fora da linha-de-base ($(tr '\n' ' ' <<< "$novos"), run $id) — reverter a última PR"; return
+        fi
+        # vermelho sem spec de teste identificado (falha de infra/ambiente): fail-closed, bloqueia
+        echo "esperar:@pos da main VERMELHO sem spec de teste identificado (run $id) — bloqueia (janela CEO 15/10)"; return
+      fi
+      echo "esperar:@pos-migration da main VERMELHO (run $id) — reverter a PR culpada"; return;;
   esac
   # cancelado / pulado / estourou tempo: não é vermelho. A última migration da main já teve run verde?
   ult_mig=$(git log -1 --format=%H origin/main -- supabase/migrations)
