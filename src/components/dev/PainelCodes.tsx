@@ -165,9 +165,10 @@ const COR_ESTEIRA = {
 } as const
 const COR_STATUS: Record<StatusCode, { bg: string; fg: string; ico: string; nome: string; ajuda: string }> = {
   trabalhando: { bg: VERDE_BG, fg: VERDE, ico: '●', nome: 'Trabalhando', ajuda: 'Tem sessão ativa (renovada há menos de 12 min).' },
-  travado: { bg: VERM_BG, fg: VERM, ico: '■', nome: 'Travado', ajuda: 'Tem mensagem NOVA sem leitura há mais de 15 min e nenhuma sessão aberta.' },
+  travado: { bg: VERM_BG, fg: VERM, ico: '■', nome: 'Travado', ajuda: 'Tem mensagem NOVA sem leitura há mais de 15 min E nenhuma sessão nos últimos 30 min (ou o acionamento está falhando). O plantão permanente não conta.' },
+  nafila: { bg: '#FEF3C7', fg: '#92400E', ico: '◔', nome: 'Na fila', ajuda: 'Tem mensagem nova esperando leitura, mas ainda dentro do prazo (menos de 15 min, ou houve sessão há menos de 30 min).' },
   esperando: { bg: '#FEF3C7', fg: '#92400E', ico: '◐', nome: 'Esperando', ajuda: 'Sem sessão, mas tem PR em teste ou aguardando autorização.' },
-  dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão e nada novo esperando; acorda ao receber mensagem (ou na próxima hora cheia, para quem tem agenda).' },
+  dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão agora e nenhuma mensagem nova sem leitura; é o estado normal entre tarefas. Acorda ao receber mensagem (ou na próxima hora cheia, para quem tem agenda).' },
 }
 
 function FaixaEsteira({ e, alerta, agora }: { e: ReturnType<typeof esteira>; alerta: string | null; agora: Date }) {
@@ -199,6 +200,7 @@ function ResumoPorCode({ itens, agora }: { itens: ReturnType<typeof resumoCode>[
           <summary style={{ cursor: 'pointer' }} aria-label="O que significam os status">?</summary>
           {(Object.keys(COR_STATUS) as StatusCode[]).map((k) => <div key={k}><b>{COR_STATUS[k].nome}:</b> {COR_STATUS[k].ajuda}</div>)}
           <div><b>Fila antiga:</b> mensagens recebidas há mais de 24 h; nunca contam como Travado.</div>
+          <div><b>Plantão permanente:</b> tarefa fixa de cada Code, que nunca conclui; fica fora de fila, “mais antiga” e backlog.</div>
         </details>
       </div>
       <div className="flex gap-2 overflow-x-auto md:grid md:grid-cols-4 md:overflow-visible" style={{ paddingBottom: 4 }}>
@@ -214,6 +216,7 @@ function ResumoPorCode({ itens, agora }: { itens: ReturnType<typeof resumoCode>[
               </div>
               <div title={r.fazendo} style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fazendo}</div>
               <div style={{ fontSize: 11, color: TXM, marginTop: 4 }}>
+                {r.ultimaSessao ? `última sessão há ${duracao(agora.getTime() - r.ultimaSessao.getTime())}` : 'sem sessão registrada'} · não lidas: {r.naoLidas}<br />
                 fila {r.fila}{r.filaAntiga > 0 ? ` (+${r.filaAntiga} fila antiga)` : ''} · em teste {r.emTeste} · hoje {r.entreguesHoje}
               </div>
             </a>
