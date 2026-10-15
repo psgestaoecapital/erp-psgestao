@@ -88,7 +88,7 @@ jobs:
           # VAGA = banco do pool desta rodada (o operador % não existe nas expressões do Actions, por isso aqui no bash).
           # Com ACEITACAO_VAGAS=1 (padrão) a vaga é sempre 0 → um grupo de concorrência só → serial, como hoje.
           vagas="$VAGAS"; case "$vagas" in ''|*[!0-9]*) vagas=1;; esac; [ "$vagas" -ge 1 ] || vagas=1
-          v=$(( ${{ github.run_number }} % vagas ))
+          v=$(( (${{ github.run_number }} + ${{ github.run_attempt }}) % vagas ))  # re-run (attempt+1) troca de vaga: vaga suja/travada não prende a PR
           # Segurança: só faz sharding numa vaga > 0 se o banco dela estiver provisionado (segredo presente). Senão cai
           # para 0 — nunca deixa dois grupos (vagas) baterem no MESMO banco (a colisão de seed/reset que queremos evitar).
           case "$v" in 1) [ -n "$URL1" ] || v=0;; 2) [ -n "$URL2" ] || v=0;; esac
@@ -163,7 +163,7 @@ jobs:
           ref: ${{ github.event.deployment.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
@@ -244,7 +244,7 @@ jobs:
           fi
           [ -n "$URL" ] && [ -n "$SRK" ] || { echo "::error::banco da vaga ${VAGA:-0} sem segredo — abortado"; exit 1; }
           echo "::add-mask::$SRK"
-          { echo "SUPABASE_URL=$URL"; echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON"; echo "SUPABASE_SERVICE_ROLE_KEY=$SRK"; echo "ACEITACAO_VAGA=${VAGA:-0}"; } >> "$GITHUB_ENV"
+          { echo "SUPABASE_URL=$URL"; echo "NEXT_PUBLIC_SUPABASE_URL=$URL"; echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON"; echo "SUPABASE_SERVICE_ROLE_KEY=$SRK"; echo "ACEITACAO_VAGA=${VAGA:-0}"; } >> "$GITHUB_ENV"
           # URL do Postgres (Session pooler) da vaga — usada só para SINCRONIZAR as migrations pendentes antes dos testes
           # (passo abaixo). Em produção fica vazia (não sincronizamos a produção). Normaliza aspas/espaço e mascara.
           if [ -n "$DBURL" ]; then
@@ -252,6 +252,15 @@ jobs:
             echo "::add-mask::$DBURL"
           fi
           echo "TEST_DATABASE_URL=$DBURL" >> "$GITHUB_ENV"
+      # Eng. Chefe 15/10: os scripts de banco da esteira (foto/restauração/reconciliação) vêm SEMPRE da main, nunca do
+      # checkout da PR. PR com base antiga rodava o vaga-snapshot.sh anterior ao fix do 2BP01 (#2652) → restauração falhava
+      # e a vaga ficava SUJA (run 38699144804, #2646). Só scripts/banco-testes/; o código da PR segue intacto.
+      - name: Scripts de banco da esteira = versão da main (não da PR)
+        if: vars.ACEITACAO_BANCO == 'testes'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          git checkout origin/main -- scripts/banco-testes
       # CEO 13/10 19:58: ANTES dos testes, barra banco CONTAMINADO por PR (ledger com versão > a da main = migration de PR
       # não aprovada que sobrou de execução cancelada/fora do fluxo). Nunca testa em banco sujo: se contaminado, falha com
       # "vaga N precisa de recriar" (exit 2) e o Montar recriar limpa. A restauração cirúrgica é um PR seguinte (validável
@@ -322,13 +331,33 @@ jobs:
             echo "| main (origin/main) | até ${main_v:-—} |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "vaga ${ACEITACAO_VAGA:-0}: antes=[$antes] foto=[$pos_main] com-PR=[$depois] main=[${main_v:-—}]"
+      # CEO 14/10 19:50 (tarefa 6be9b2d3): a prévia da Vercel caía no login ("Sua sessão expirou" → host da produção) e
+      # mantinha ~17 aceitações vermelhas. Agora o checkout da PR é buildado AQUI, apontado para o banco da VAGA sorteada
+      # (SUPABASE_URL/ANON/SERVICE do passo "Selecionar o banco da vaga"), e sobe no runner (next start :3000) — igual à
+      # aceitação da main. A prévia da Vercel fica só para o CEO olhar a tela; não é mais a URL dos testes.
+      - name: Build da PR apontado para o banco da vaga (runner)
+        env:
+          VERCEL_GIT_COMMIT_SHA: ${{ github.event.deployment.sha }}
+        run: |
+          case "$NEXT_PUBLIC_SUPABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::build apontaria para a PRODUÇÃO — abortado"; exit 1;; esac
+          npx next build
+      - name: Sobe a PR no runner (next start, porta 3000)
+        env:
+          VERCEL_GIT_COMMIT_SHA: ${{ github.event.deployment.sha }}
+        run: |
+          nohup npx next start -p 3000 > next-start.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS -o /dev/null http://localhost:3000/sw.js && { echo "app no ar em ${i}x2 s"; exit 0; }
+            sleep 2
+          done
+          cat next-start.log; echo "::error::a PR não subiu em 2 min"; exit 1
       # @pos-migration (CEO 26/09): teste que depende de migration só é verdade DEPOIS do merge (o deploy-migrations
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
       - name: Jornadas de aceitação contra o preview
         timeout-minutes: 30
         env:
-          PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          PROD_BASE_URL: http://localhost:3000
           # SUPABASE_URL/ANON/SERVICE vêm do passo "Selecionar o banco da vaga" (GITHUB_ENV).
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
@@ -350,7 +379,7 @@ jobs:
         if: success()
         continue-on-error: true
         env:
-          PROD_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          PROD_BASE_URL: http://localhost:3000
           # SUPABASE_URL/ANON/SERVICE vêm do passo "Selecionar o banco da vaga" (GITHUB_ENV).
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
@@ -417,4 +446,5 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            next-start.log
           if-no-files-found: ignore

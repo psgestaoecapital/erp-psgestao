@@ -93,6 +93,11 @@ if [ "$MODO" = "snapshot" ]; then
     echo "create table _vaga_snapshot.sig as $SIG;"
     echo "create table _vaga_snapshot.fndef as select p.oid::regprocedure::text as sig, pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prokind in ('f','p','w');"
     echo "create table _vaga_snapshot.viewdef as select c.relname::text as relname, pg_get_viewdef(c.oid,true) as def from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('v','m');"
+    # defs de constraint/índice/trigger (Eng. Chefe 15/10: CHECK ampliado por DO $$ da PR do Hub deixava a vaga suja — modificado
+    # de classe "não restaurável" caía em recriar SEM tocar o ledger). Agora a classe é revertida à def da foto.
+    echo "create table _vaga_snapshot.condef as select con.conname::text||' on '||rel.relname::text as k, pg_get_constraintdef(con.oid) as def from pg_constraint con join pg_class rel on rel.oid=con.conrelid join pg_namespace n on n.oid=rel.relnamespace where n.nspname='public';"
+    echo "create table _vaga_snapshot.idxdef as select c.relname::text as k, pg_get_indexdef(c.oid) as def from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='i';"
+    echo "create table _vaga_snapshot.trgdef as select t.tgname::text||' on '||c.relname::text as k, pg_get_triggerdef(t.oid) as def from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal;"
     echo "create table _vaga_snapshot.led as select version from supabase_migrations.schema_migrations;"
     echo "create table _vaga_snapshot.cattbl(tbl text);"
     echo "create table _vaga_snapshot.catrow(tbl text, h text);"
@@ -140,9 +145,9 @@ if [ -s "$dir/sumiu.keys" ]; then
   echo "a PR removeu objeto(s) que havia na foto (não restauramos recriação por aqui):"; sed 's/^/  - /' "$dir/sumiu.keys" | head
   recriar "a PR fez DROP/rename de objeto aprovado — restauração parcial seria insegura; rode o Montar (recriar)"
 fi
-if grep -qvE '^(func|view) ' "$dir/mud.keys" 2>/dev/null; then
-  echo "objeto MODIFICADO de classe não restaurável por aqui (só função/view):"; grep -vE '^(func|view) ' "$dir/mud.keys" | sed 's/^/  - /' | head
-  recriar "objeto modificado que não é função/view"
+if grep -qvE '^(func|view|constraint|index|trigger) ' "$dir/mud.keys" 2>/dev/null; then
+  echo "objeto MODIFICADO de classe não restaurável por aqui (só função/view/constraint/índice/trigger):"; grep -vE '^(func|view|constraint|index|trigger) ' "$dir/mud.keys" | sed 's/^/  - /' | head
+  recriar "objeto modificado de classe não restaurável (policy/coluna/grant/tipo/rls)"
 fi
 
 { grep '^table ' "$dir/criou.keys" || true; } | sed 's/^table //' | sort -u > "$dir/tdrop.names"
@@ -161,7 +166,9 @@ while IFS= read -r k; do
     "type "*)     echo "drop type if exists public.\"${k#type }\" cascade;" >> "$txn";;
     "sequence "*) echo "drop sequence if exists public.\"${k#sequence }\" cascade;" >> "$txn";;
     "col "*)      tc=${k#col }; t=${tc%%.*}; c=${tc#*.}; pertence_a_tabela_nova "$t" || echo "alter table if exists public.\"$t\" drop column if exists \"$c\" cascade;" >> "$txn";;
-    "index "*)    echo "drop index if exists public.\"${k#index }\" cascade;" >> "$txn";;
+    # índice que sustenta PK/UNIQUE (ou de tabela nova, derrubada adiante) não se derruba sozinho (2BP01): o DROP da
+    # constraint/tabela já o leva; a verificação antes do COMMIT garante que nada sobrou.
+    "index "*)    echo "do \$d\$ begin drop index if exists public.\"${k#index }\" cascade; exception when dependent_objects_still_exist then null; end \$d\$;" >> "$txn";;
     "constraint "*) cn=${k#constraint }; con=${cn% on *}; tbl=${cn#* on }; pertence_a_tabela_nova "$tbl" || echo "alter table if exists public.\"$tbl\" drop constraint if exists \"$con\";" >> "$txn";;
     "trigger "*)  tn=${k#trigger }; tg=${tn% on *}; tbl=${tn#* on }; pertence_a_tabela_nova "$tbl" || echo "drop trigger if exists \"$tg\" on public.\"$tbl\";" >> "$txn";;
     "policy "*)   pn=${k#policy }; pl=${pn% on *}; tbl=${pn#* on }; pertence_a_tabela_nova "$tbl" || echo "drop policy if exists \"$pl\" on public.\"$tbl\";" >> "$txn";;
@@ -181,6 +188,15 @@ while IFS= read -r k; do
     "view "*) vn=${k#view }
       def=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select def from _vaga_snapshot.viewdef where relname = \$x\$${vn}\$x\$")
       [ -n "$def" ] && printf 'create or replace view public."%s" as %s;\n' "$vn" "$def" >> "$txn" || recriar "sem definição da foto p/ view $vn";;
+    "constraint "*) cn=${k#constraint }; con=${cn% on *}; tbl=${cn#* on }
+      def=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select def from _vaga_snapshot.condef where k = \$x\$${cn}\$x\$")
+      [ -n "$def" ] && printf 'alter table public."%s" drop constraint "%s"; alter table public."%s" add constraint "%s" %s;\n' "$tbl" "$con" "$tbl" "$con" "$def" >> "$txn" || recriar "sem definição da foto p/ constraint $cn";;
+    "index "*) ix=${k#index }
+      def=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select def from _vaga_snapshot.idxdef where k = \$x\$${ix}\$x\$")
+      [ -n "$def" ] && printf 'drop index public."%s"; %s;\n' "$ix" "$def" >> "$txn" || recriar "sem definição da foto p/ índice $ix";;
+    "trigger "*) tn=${k#trigger }; tg=${tn% on *}; tbl=${tn#* on }
+      def=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select def from _vaga_snapshot.trgdef where k = \$x\$${tn}\$x\$")
+      [ -n "$def" ] && printf 'drop trigger "%s" on public."%s"; %s;\n' "$tg" "$tbl" "$def" >> "$txn" || recriar "sem definição da foto p/ trigger $tn";;
   esac
 done < "$dir/mud.keys"
 # 3) CATÁLOGO: apaga as linhas que a PR inseriu (linhas de hoje cujo md5 não está na foto), por tabela fotografada.
