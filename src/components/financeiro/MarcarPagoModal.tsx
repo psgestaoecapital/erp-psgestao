@@ -93,9 +93,13 @@ export default function MarcarPagoModal({
     const params = tipo === 'pagar'
       ? { p_pagar_id: itemId, p_data_pagamento: dataPag, p_conta_bancaria_id: contaId, p_forma_pagamento: forma, p_valor_pago: Number(valorPago) }
       : { p_receber_id: itemId, p_data_pagamento: dataPag, p_conta_bancaria_id: contaId, p_forma_pagamento: forma, p_valor_pago: Number(valorPago) }
-    const { error } = await supabase.rpc(rpcName, params)
+    const { data, error } = await supabase.rpc(rpcName, params)
     setLoading(false)
     if (error) { setErro(error.message); return }
+    // chamado #2688: a função devolve { sucesso:false, erro } SEM lançar exceção (ex.: "Conta já está paga",
+    // baixa acima do saldo). Antes o modal ignorava isso, fechava como se tivesse baixado e nada era gravado.
+    const r = data as { sucesso?: boolean; erro?: string } | null
+    if (r && r.sucesso === false) { setErro(r.erro || 'Não foi possível confirmar a baixa.'); return }
     onSucesso()
     onClose()
   }
