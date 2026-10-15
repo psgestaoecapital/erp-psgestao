@@ -22,3 +22,12 @@ export function ordenarSaude(l: SaudeCode[]): SaudeCode[] {
   const peso: Record<SemaforoCode, number> = { vermelho: 0, amarelo: 1, verde: 2 }
   return [...l].sort((a, b) => peso[semaforoCode(a)] - peso[semaforoCode(b)] || a.code.localeCompare(b.code))
 }
+
+// Resumo do dono da esteira (fn_dev_esteira_dono_resumo) — mostrado dentro do cartão do gilberto-esteira.
+export type DonoEsteira = {
+  min_sem_publicar: number | null
+  acordado_hoje: number
+  publicacoes_destravadas_24h: number
+  ultima_anotacao: { em: string; texto: string } | null
+}
+export const CODE_DONO_ESTEIRA = 'gilberto-esteira'
