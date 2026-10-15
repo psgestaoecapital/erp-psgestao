@@ -1,6 +1,6 @@
 // Gate (Hub HB2, Parte O): motor da Calculadora de Obra nunca trava — varre o pé-direito de 0,20 a 4,60 m de 0,05 em 0,05
 // (parede simples) e confere o caso do Eng. Chefe: parede 12,5 × 2,8 m com porta 0,8 × 2,1 m.
-import { REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroAramado, calcularForroF530, calcularParede } from '../../src/lib/calculadora/motor'
+import { REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroAramado, calcularRevestimentoColado, REGRAS_REVESTIMENTO_COLADO, calcularForroF530, calcularParede } from '../../src/lib/calculadora/motor'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -55,4 +55,11 @@ ok(calcularForroAramado(REGRAS_FORRO_ARAMADO, { largura: 0, comprimento: 4 }).ok
 let travouA = 0
 for (let l = 0.5; l <= 20; l += 0.5) for (const c of [0.6, 1, 2.5, 7.35, 12]) { const r = calcularForroAramado(REGRAS_FORRO_ARAMADO, { largura: l, comprimento: c }); if (!r.ok || r.itens.some(x => !(x.quantidade > 0))) travouA++ }
 ok(travouA === 0, 'forro aramado: nenhuma medida de 0,5 a 20 m trava nem zera item')
+const rc = calcularRevestimentoColado(REGRAS_REVESTIMENTO_COLADO, { comprimento: 12.5, peDireito: 2.8, vaos: 1.68 })
+const qr = (k: string) => rc.ok ? rc.itens.find(i => i.chave === k)!.quantidade : -1
+ok(rc.ok && rc.area === 33.32 && qr('chapa') === 17 && qr('gesso_cola') === 84, `revestimento colado 12,5×2,8 − 1,68 m²: 33,32 m² → 17 chapas e 84 sacos de gesso cola (veio ${qr('chapa')}/${qr('gesso_cola')})`)
+ok(!calcularRevestimentoColado(REGRAS_REVESTIMENTO_COLADO, { comprimento: 1, peDireito: 1, vaos: 5 }).ok, 'revestimento colado: vão maior que a parede devolve erro claro')
+let travouR = 0
+for (let i = 4; i <= 92; i++) { const r = calcularRevestimentoColado(REGRAS_REVESTIMENTO_COLADO, { comprimento: 10, peDireito: Math.round(i * 5) / 100 }); if (!r.ok || r.itens.some(x => !(x.quantidade > 0))) travouR++ }
+ok(travouR === 0, 'revestimento colado: nenhuma altura de 0,20 a 4,60 m trava')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
