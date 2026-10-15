@@ -529,6 +529,25 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const pageStart = (pageSafe - 1) * pageSize
   const pageItems = resultadosFiltrados.slice(pageStart, pageStart + pageSize)
 
+  // #1939 · o filtro/coluna mostravam só o código (4.01); busca o nome no plano de contas da empresa
+  // (mesma RPC da tela de lançamento) e exibe "código · nome". Sem nome → continua o código.
+  const [nomesCategoria, setNomesCategoria] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!companyId) { setNomesCategoria({}); return }
+    let alive = true
+    supabase
+      .rpc('fn_plano_contas_arvore', { p_company_id: companyId, p_aplicacao: tipo })
+      .then(({ data: arv, error: e }) => {
+        if (!alive || e) return
+        const m: Record<string, string> = {}
+        for (const c of (arv ?? []) as { codigo: string; descricao: string }[]) m[c.codigo] = c.descricao
+        setNomesCategoria(m)
+      })
+    return () => { alive = false }
+  }, [companyId, tipo])
+  const rotuloCategoria = (c: string | null | undefined) =>
+    c ? (nomesCategoria[c] ? `${c} · ${nomesCategoria[c]}` : c) : '—'
+
   const categoriasDistinct = useMemo(() => {
     const set = new Set<string>()
     ;(data?.resultados ?? []).forEach((r) => {
@@ -994,7 +1013,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
           </select>
         </Campo>
@@ -1281,13 +1300,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor · forma) na linha */}
                           {(r.categoria || r.nome_pessoa || r.forma_pagamento) && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>
-                              {[r.categoria, r.nome_pessoa].filter(Boolean).join(' · ')}
+                              {[r.categoria ? rotuloCategoria(r.categoria) : null, r.nome_pessoa].filter(Boolean).join(' · ')}
                               {r.forma_pagamento && <span style={{ marginLeft: (r.categoria || r.nome_pessoa) ? 6 : 0 }}>💳 {r.forma_pagamento}</span>}
                             </div>
                           )}
                         </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
-                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
+                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{rotuloCategoria(r.categoria)}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">
