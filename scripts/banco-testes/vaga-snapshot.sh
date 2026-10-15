@@ -44,7 +44,7 @@ union all select 'constraint '||con.conname||' on '||rel.relname||'|'||md5(pg_ge
   join pg_class rel on rel.oid=con.conrelid join pg_namespace n on n.oid=rel.relnamespace where n.nspname='public'
 union all select 'trigger '||t.tgname||' on '||c.relname||'|'||md5(pg_get_triggerdef(t.oid)) from pg_trigger t
   join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal
-union all select 'policy '||pol.polname||' on '||c.relname||'|'||md5(coalesce(pg_get_expr(pol.polqual,pol.polrelid),'')||'/'||coalesce(pg_get_expr(pol.polwithcheck,pol.polrelid),'')||'/'||pol.polcmd||'/'||array_to_string(coalesce(pol.polroles,'{}'),','))
+union all select 'policy '||pol.polname||' on '||c.relname||'|'||md5(coalesce(pg_get_expr(pol.polqual,pol.polrelid),'')||'/'||coalesce(pg_get_expr(pol.polwithcheck,pol.polrelid),'')||'/'||pol.polcmd::text||'/'||array_to_string(coalesce(pol.polroles,'{}'),','))
   from pg_policy pol join pg_class c on c.oid=pol.polrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public'
 union all select 'rls '||c.relname||'|'||c.relrowsecurity::text||c.relforcerowsecurity::text from pg_class c
   join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r'
@@ -52,7 +52,7 @@ union all select 'grant-rel '||c.relname||'|'||md5(coalesce(array_to_string(c.re
   join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','v','m','S')
 union all select 'grant-fn '||p.oid::regprocedure::text||'|'||md5(coalesce(array_to_string(p.proacl,','),'')) from pg_proc p
   join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prokind in ('f','p','w')
-union all select 'type '||t.typname||'|'||t.typtype||'/'||coalesce((select string_agg(e.enumlabel,',' order by e.enumsortorder) from pg_enum e where e.enumtypid=t.oid),'')
+union all select 'type '||t.typname||'|'||t.typtype::text||'/'||coalesce((select string_agg(e.enumlabel,',' order by e.enumsortorder) from pg_enum e where e.enumtypid=t.oid),'')
   from pg_type t join pg_namespace n on n.oid=t.typnamespace where n.nspname='public' and t.typtype in ('e','c','d')
 union all select 'sequence '||c.relname||'|' from pg_class c
   join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='S'"
@@ -149,7 +149,7 @@ fi
 pertence_a_tabela_nova() { grep -qxF "$1" "$dir/tdrop.names"; }
 
 txn="$dir/restore.sql"
-{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='180s'; set local lock_timeout='20s';"; } > "$txn"
+{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"; } > "$txn"
 # 1) DROP do que a PR criou (objetos vaga-only em relação à foto)
 nd=0
 while IFS= read -r k; do
@@ -161,7 +161,9 @@ while IFS= read -r k; do
     "type "*)     echo "drop type if exists public.\"${k#type }\" cascade;" >> "$txn";;
     "sequence "*) echo "drop sequence if exists public.\"${k#sequence }\" cascade;" >> "$txn";;
     "col "*)      tc=${k#col }; t=${tc%%.*}; c=${tc#*.}; pertence_a_tabela_nova "$t" || echo "alter table if exists public.\"$t\" drop column if exists \"$c\" cascade;" >> "$txn";;
-    "index "*)    echo "drop index if exists public.\"${k#index }\" cascade;" >> "$txn";;
+    # índice que sustenta PK/UNIQUE (ou de tabela nova, derrubada adiante) não se derruba sozinho (2BP01): o DROP da
+    # constraint/tabela já o leva; a verificação antes do COMMIT garante que nada sobrou.
+    "index "*)    echo "do \$d\$ begin drop index if exists public.\"${k#index }\" cascade; exception when dependent_objects_still_exist then null; end \$d\$;" >> "$txn";;
     "constraint "*) cn=${k#constraint }; con=${cn% on *}; tbl=${cn#* on }; pertence_a_tabela_nova "$tbl" || echo "alter table if exists public.\"$tbl\" drop constraint if exists \"$con\";" >> "$txn";;
     "trigger "*)  tn=${k#trigger }; tg=${tn% on *}; tbl=${tn#* on }; pertence_a_tabela_nova "$tbl" || echo "drop trigger if exists \"$tg\" on public.\"$tbl\";" >> "$txn";;
     "policy "*)   pn=${k#policy }; pl=${pn% on *}; tbl=${pn#* on }; pertence_a_tabela_nova "$tbl" || echo "drop policy if exists \"$pl\" on public.\"$tbl\";" >> "$txn";;
@@ -205,8 +207,15 @@ echo "delete from supabase_migrations.schema_migrations where version not in (se
 } >> "$txn"
 
 echo "restaurando a vaga ${VAGA} à foto: $nd objeto(s) criado(s) pela PR a derrubar, $nr função/view a reverter…"
+# 1ª tentativa; se estourar timeout/falhar, UMA nova tentativa (a transação é atômica: ROLLBACK não deixa meia-restauração).
 if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
-  recriar "a restauração à foto não convergiu (RAISE/erro → ROLLBACK; a vaga ficou com schema da PR)"
+  echo "::warning::vaga ${VAGA}: restauração falhou — tentando uma vez mais"
+  sleep 5
+  if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
+    # marca a vaga como SUJA (schema fora do public: não entra na assinatura) para o pool/Reconciliar não a usarem.
+    "$PSQL" "$TEST_DATABASE_URL" -tAc "create schema if not exists _vaga_suja; create table if not exists _vaga_suja.marca(em timestamptz default now(), motivo text); insert into _vaga_suja.marca(motivo) values ('restauracao da foto falhou 2x')" >/dev/null 2>&1 || true
+    recriar "a restauração à foto não convergiu após 2 tentativas (RAISE/erro → ROLLBACK; vaga marcada SUJA em _vaga_suja.marca — Eng. Chefe: rode o Reconciliar/Recriar)"
+  fi
 fi
 
 # VERIFICAÇÃO FINAL OBRIGATÓRIA (RD-38), no dado, pós-commit: nunca termina 0 se a vaga != foto.
@@ -224,6 +233,6 @@ if [ "$sig_div" -ne 0 ] || [ "$led_div" -ne 0 ]; then
   recriar "verificação final: a vaga não voltou à foto (assinaturas=${sig_div}, ledger=${led_div})"
 fi
 # limpa a foto (não faz parte do public; não afeta a assinatura, mas mantém a vaga arrumada).
-"$PSQL" "$TEST_DATABASE_URL" -tAc "drop schema if exists _vaga_snapshot cascade" >/dev/null 2>&1 || true
+"$PSQL" "$TEST_DATABASE_URL" -tAc "drop schema if exists _vaga_snapshot cascade; drop schema if exists _vaga_suja cascade" >/dev/null 2>&1 || true
 echo "vaga ${VAGA}: migrations da PR DESFEITAS e verificado no dado (schema/ledger == foto pré-PR)."
 exit 0
