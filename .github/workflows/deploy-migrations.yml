@@ -1,13 +1,13 @@
 name: Deploy Migrations (Production)
 
+permissions:
+  contents: read
+  issues: write
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  issues: write
 
 jobs:
   deploy:
@@ -37,13 +37,12 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 2.118.0
-      # `supabase link` falhou de forma transitória em 14/10 ("Failed to get API keys") e a #2592 foi ao ar sem a
-      # migration. Tenta 3x; se esgotar, o job fica VERMELHO (e o passo final avisa) — nunca em silêncio.
-      - name: supabase link (3 tentativas)
+      # Retry no link (falha transitória de rede/API, ex.: #1873): 4 tentativas com recuo 5/10/20 s.
+      - name: supabase link (com retry)
         run: |
-          for i in 1 2 3; do
+          for i in 1 2 3 4; do
             supabase link --project-ref $SUPABASE_PROJECT_ID && exit 0
-            echo "link falhou (tentativa $i)"; sleep $((i*10))
+            [ "$i" -lt 4 ] && { echo "::warning::supabase link falhou (tentativa $i/4); aguardando"; sleep $((5 * 2 ** (i - 1))); }
           done
           exit 1
       # --include-all: aplica migrations pendentes mesmo quando uma nova entra com timestamp
@@ -53,19 +52,13 @@ jobs:
       # as pendentes reais, sem risco de re-executar migrations antigas não-idempotentes.
       - run: supabase db push --include-all
 
-      # Falha em qualquer passo acima = migration publicada que NÃO entrou na produção (a tela pode estar no ar
-      # chamando função inexistente). Abre/atualiza UMA issue `deploy-migrations-vermelho` para o Eng. Chefe.
-      - name: Avisar falha (issue deploy-migrations-vermelho)
+      # Nunca falhar em silêncio: o job vermelho deixa a main vermelha; aqui também abre/atualiza UMA issue de aviso.
+      - name: Avisar (issue) se o deploy falhou
         if: failure()
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          corpo="deploy-migrations FALHOU no commit ${GITHUB_SHA}. Migrations desse merge podem não estar na produção. Run: ${RUN_URL}"
-          n=$(gh api "repos/$REPO/issues?state=open&labels=deploy-migrations-vermelho&per_page=1" --jq '.[0].number // empty' || true)
-          if [ -n "$n" ]; then
-            gh api "repos/$REPO/issues/$n/comments" -f body="$corpo" >/dev/null
-          else
-            gh api "repos/$REPO/issues" -f title="deploy-migrations vermelho: migration não aplicada" -f body="$corpo" -f 'labels[]=deploy-migrations-vermelho' >/dev/null
-          fi
+          corpo="deploy-migrations falhou no commit ${GITHUB_SHA}: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} — migrations podem estar fora da produção. Corrigir e re-rodar (workflow_dispatch)."
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-migrations-vermelho --state open --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$corpo"
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "deploy-migrations vermelho na main" --label deploy-migrations-vermelho --body "$corpo" || gh issue create --repo "$GITHUB_REPOSITORY" --title "deploy-migrations vermelho na main" --body "$corpo"; fi

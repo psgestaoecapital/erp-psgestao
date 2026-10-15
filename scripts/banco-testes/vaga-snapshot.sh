@@ -149,7 +149,7 @@ fi
 pertence_a_tabela_nova() { grep -qxF "$1" "$dir/tdrop.names"; }
 
 txn="$dir/restore.sql"
-{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='180s'; set local lock_timeout='20s';"; } > "$txn"
+{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"; } > "$txn"
 # 1) DROP do que a PR criou (objetos vaga-only em relação à foto)
 nd=0
 while IFS= read -r k; do
@@ -205,8 +205,15 @@ echo "delete from supabase_migrations.schema_migrations where version not in (se
 } >> "$txn"
 
 echo "restaurando a vaga ${VAGA} à foto: $nd objeto(s) criado(s) pela PR a derrubar, $nr função/view a reverter…"
+# 1ª tentativa; se estourar timeout/falhar, UMA nova tentativa (a transação é atômica: ROLLBACK não deixa meia-restauração).
 if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
-  recriar "a restauração à foto não convergiu (RAISE/erro → ROLLBACK; a vaga ficou com schema da PR)"
+  echo "::warning::vaga ${VAGA}: restauração falhou — tentando uma vez mais"
+  sleep 5
+  if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
+    # marca a vaga como SUJA (schema fora do public: não entra na assinatura) para o pool/Reconciliar não a usarem.
+    "$PSQL" "$TEST_DATABASE_URL" -tAc "create schema if not exists _vaga_suja; create table if not exists _vaga_suja.marca(em timestamptz default now(), motivo text); insert into _vaga_suja.marca(motivo) values ('restauracao da foto falhou 2x')" >/dev/null 2>&1 || true
+    recriar "a restauração à foto não convergiu após 2 tentativas (RAISE/erro → ROLLBACK; vaga marcada SUJA em _vaga_suja.marca — Eng. Chefe: rode o Reconciliar/Recriar)"
+  fi
 fi
 
 # VERIFICAÇÃO FINAL OBRIGATÓRIA (RD-38), no dado, pós-commit: nunca termina 0 se a vaga != foto.
@@ -224,6 +231,6 @@ if [ "$sig_div" -ne 0 ] || [ "$led_div" -ne 0 ]; then
   recriar "verificação final: a vaga não voltou à foto (assinaturas=${sig_div}, ledger=${led_div})"
 fi
 # limpa a foto (não faz parte do public; não afeta a assinatura, mas mantém a vaga arrumada).
-"$PSQL" "$TEST_DATABASE_URL" -tAc "drop schema if exists _vaga_snapshot cascade" >/dev/null 2>&1 || true
+"$PSQL" "$TEST_DATABASE_URL" -tAc "drop schema if exists _vaga_snapshot cascade; drop schema if exists _vaga_suja cascade" >/dev/null 2>&1 || true
 echo "vaga ${VAGA}: migrations da PR DESFEITAS e verificado no dado (schema/ledger == foto pré-PR)."
 exit 0
