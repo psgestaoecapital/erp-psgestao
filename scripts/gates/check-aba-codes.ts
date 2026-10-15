@@ -163,8 +163,8 @@ async function main() {
   ok(ativo.cor === 'verde', 'Code com fila mas com sessão ativa não trava a faixa')
   ok(intervaloDia('2026-10-07').de === '2026-10-07T03:00:00.000Z' && intervaloDia('2026-10-07').ate === '2026-10-08T03:00:00.000Z',
     'filtro por data: o dia de São Paulo (00:00−03:00 a 24:00−03:00)')
-  ok(CODES_PRINCIPAIS.join(',') === 'gilberto-desenv,gilberto-chamados,gilberto-produto,jordana-code,rodrigo-code'
-    && CODES_LINHA_FINAL.join(',') === 'gilberto-revisor,eng-chefe-auto', 'cartões: os 5 Codes + linha final (revisor e eng-chefe-auto)')
+  ok(CODES_PRINCIPAIS.join(',') === 'gilberto-desenv,gilberto-chamados,gilberto-produto,jordana-code,rodrigo-code,gilberto-esteira'
+    && CODES_LINHA_FINAL.join(',') === 'gilberto-revisor,eng-chefe-auto', 'cartões: os 6 Codes + linha final (revisor e eng-chefe-auto)')
 
   // ── (5) tela e AGENTS.md ────────────────────────────────────────────────────────────────────────────────────────
   const painel = ler('src/components/dev/PainelCodes.tsx')
