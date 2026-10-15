@@ -156,6 +156,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [statusSel, setStatusSel] = useState<StatusOpt[]>([])   // [] = todos; combina Vencidos + Pagas etc.
   const toggleStatus = (s: StatusOpt) => setStatusSel((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]))
   const [categoria, setCategoria] = useState('')
+  const [nomesCategoria, setNomesCategoria] = useState<Record<string, string>>({})
   const [busca, setBusca] = useState('')
   // RD-41 · filtros por coluna (client-side, sobre as linhas já carregadas do período)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
@@ -427,7 +428,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       if (q) {
         // busca AMPLA (acento-insensitive): nome, descrição, nº do título, forma, categoria e valor;
         // + CPF/CNPJ do cadastro normalizado (só dígitos, ≥3) — acha com OU sem pontuação.
-        const hay = norm(`${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''} ${r.forma_pagamento ?? ''} ${r.categoria ?? ''} ${fmtBRL(r.valor_documento)} ${r.valor_documento}`)
+        const hay = norm(`${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''} ${r.forma_pagamento ?? ''} ${r.categoria ?? ''} ${nomesCategoria[r.categoria ?? ''] ?? ''} ${fmtBRL(r.valor_documento)} ${r.valor_documento}`)
         const docDigitos = (r.documento ?? '').replace(/\D/g, '')
         const achouDoc = qDigitos.length >= 3 && docDigitos.includes(qDigitos)
         if (!hay.includes(qn) && !achouDoc) return false
@@ -446,7 +447,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       })
     }
     return filtrado
-  }, [data, busca, categoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax])
+  }, [data, busca, categoria, nomesCategoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax])
 
   // GE-CARDS-FILTRO (bug André): os KPIs do topo vinham do fn_ge_listagem_v2 (período inteiro, SEM os
   // filtros client-side de categoria/conta/busca/coluna) — enquanto a LISTA já era filtrada, então os
@@ -528,6 +529,34 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const pageSafe = Math.min(page, totalPages)
   const pageStart = (pageSafe - 1) * pageSize
   const pageItems = resultadosFiltrados.slice(pageStart, pageStart + pageSize)
+
+  // Chamado #1939: a lista mostrava só o código da categoria (ex.: "4.01"). Resolve o nome no plano de contas
+  // (conta da empresa tem prioridade sobre a do template global) e exibe "código · nome".
+  useEffect(() => {
+    const codigos = Array.from(new Set((data?.resultados ?? []).map((r) => r.categoria).filter((c): c is string => !!c)))
+    if (!companyId || codigos.length === 0) return
+    let alive = true
+    supabase
+      .from('erp_plano_contas')
+      .select('codigo, descricao, company_id')
+      .in('codigo', codigos)
+      .eq('ativo', true)
+      .or(`company_id.eq.${companyId},company_id.is.null`)
+      .then(({ data: linhas }) => {
+        if (!alive || !linhas) return
+        const mapa: Record<string, string> = {}
+        // globais primeiro; as da empresa sobrescrevem
+        for (const l of linhas as { codigo: string; descricao: string; company_id: string | null }[]) {
+          if (l.company_id === null && !mapa[l.codigo]) mapa[l.codigo] = l.descricao
+        }
+        for (const l of linhas as { codigo: string; descricao: string; company_id: string | null }[]) {
+          if (l.company_id !== null) mapa[l.codigo] = l.descricao
+        }
+        setNomesCategoria(mapa)
+      })
+    return () => { alive = false }
+  }, [data, companyId])
+  const rotuloCategoria = (c: string | null | undefined) => (c ? (nomesCategoria[c] ? `${c} · ${nomesCategoria[c]}` : c) : '')
 
   const categoriasDistinct = useMemo(() => {
     const set = new Set<string>()
@@ -994,7 +1023,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
           </select>
         </Campo>
@@ -1281,13 +1310,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor · forma) na linha */}
                           {(r.categoria || r.nome_pessoa || r.forma_pagamento) && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>
-                              {[r.categoria, r.nome_pessoa].filter(Boolean).join(' · ')}
+                              {[rotuloCategoria(r.categoria), r.nome_pessoa].filter(Boolean).join(' · ')}
                               {r.forma_pagamento && <span style={{ marginLeft: (r.categoria || r.nome_pessoa) ? 6 : 0 }}>💳 {r.forma_pagamento}</span>}
                             </div>
                           )}
                         </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
-                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
+                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{rotuloCategoria(r.categoria) || '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">
