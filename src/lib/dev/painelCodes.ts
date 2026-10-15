@@ -6,7 +6,7 @@
 //   • EM TESTE = PR com evento aberta/pronta e sem publicada/fechada.
 //   • faixa VERDE = houve publicação na última hora E nenhum Code parado com tarefa na fila; senão VERMELHA com a trava.
 
-export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-chamados', 'gilberto-produto', 'jordana-code', 'rodrigo-code'] as const
+export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-chamados', 'gilberto-produto', 'jordana-code', 'rodrigo-code', 'gilberto-esteira'] as const
 export const CODES_LINHA_FINAL = ['gilberto-revisor', 'eng-chefe-auto'] as const
 export const CODES_PAINEL: readonly string[] = [...CODES_PRINCIPAIS, ...CODES_LINHA_FINAL]
 
