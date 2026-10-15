@@ -34,5 +34,10 @@ ok(!/vaga-snapshot\.sh snapshot \|\| echo/.test(pr) && /vaga-snapshot\.sh snapsh
 // Pilar 2 na aceitação (inalterado): nenhum segredo de produção
 ok(!/prod-url\.sh/.test(pr) && !/SUPABASE_ACCESS_TOKEN/.test(pr) && !/SUPABASE_DB_PASSWORD/.test(pr), 'aceitacao-pr continua SEM segredo de produção (Pilar 2)')
 
+ok(/statement_timeout='10min'/.test(sh), 'restauração com statement_timeout de 10 min (14/10: estourava 180s)')
+ok(/tentando uma vez mais/.test(sh) && /marcada SUJA/.test(sh), 'restauração tenta 2× e marca a vaga SUJA se falhar')
+// Eng. Chefe 15/10: CHECK/constraint ampliado por DO $$ (PR do Hub 20261015000005) caía em "recriar" SEM reverter nem limpar o ledger
+ok(/_vaga_snapshot\.condef/.test(sh) && /_vaga_snapshot\.idxdef/.test(sh) && /_vaga_snapshot\.trgdef/.test(sh), 'a foto guarda defs de constraint, índice e trigger')
+ok(/\^\(func\|view\|constraint\|index\|trigger\) /.test(sh) && /add constraint/.test(sh), 'restaurar reverte constraint/índice/trigger MODIFICADO à def da foto (não cai em recriar)')
 if (falhas) { console.error(`\n${falhas} verificação(ões) falharam — desfazer migrations da PR na vaga`); process.exit(1) }
 console.log('\ncheck-aceitacao-desfaz-pr: ok')
