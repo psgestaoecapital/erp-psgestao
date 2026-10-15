@@ -16,4 +16,5 @@ const card = readFileSync('src/components/dev/SaudeCodes.tsx', 'utf8')
 ok(card.includes("rpc('fn_codes_saude')"), 'card lê a RPC fn_codes_saude')
 ok(card.includes('Backlog antigo') && card.includes('aria-label="O que significa a Saúde dos Codes"'), 'mostra backlog_antigo e tem "?"')
 ok(readFileSync('src/components/dev/PainelCodes.tsx', 'utf8').includes('<SaudeCodes />'), 'card montado na aba Codes')
+ok(card.includes("rpc('fn_dev_esteira_dono_resumo')") && card.includes('saude-dono-esteira'), 'cartão do gilberto-esteira mostra o resumo do dono da esteira')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
