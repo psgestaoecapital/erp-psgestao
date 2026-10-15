@@ -43,6 +43,8 @@ export default function MarcarPagoModal({
   const [valorPago, setValorPago] = useState(valorTotal.toFixed(2))
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [contasMsg, setContasMsg] = useState<string | null>(null)
+  const [tentativa, setTentativa] = useState(0)
   // o saldo chega do banco de forma assíncrona; se o usuário já digitou o valor, ele NÃO é sobrescrito
   // (antes: digitar 300 antes da busca voltar virava o saldo cheio e o título era baixado inteiro)
   const editouValor = useRef(false)
@@ -51,7 +53,8 @@ export default function MarcarPagoModal({
     if (!open || !companyId) return
     let ignore = false
     ;(async () => {
-      const { data } = await supabase
+      setContasMsg(null)
+      const { data, error } = await supabase
         .from('erp_banco_contas')
         .select('id, nome')
         .eq('company_id', companyId)
@@ -60,11 +63,14 @@ export default function MarcarPagoModal({
       if (ignore) return
       const lista = (data ?? []) as ContaBancaria[]
       setContas(lista)
+      // antes: lista vazia deixava o Confirmar desabilitado sem nenhuma explicação (chamado #2688)
+      if (error) setContasMsg('Não consegui carregar as contas bancárias agora. Toque em "Tentar de novo".')
+      else if (lista.length === 0) setContasMsg('Nenhuma conta bancária ativa nesta empresa. Cadastre uma em Financeiro › Contas bancárias para poder confirmar.')
       if (lista.length > 0 && !contaId) setContaId(lista[0].id)
     })()
     return () => { ignore = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, companyId])
+  }, [open, companyId, tentativa])
 
   useEffect(() => {
     if (!open) return
@@ -157,6 +163,15 @@ export default function MarcarPagoModal({
               Pagamento parcial permitido · default é o valor total
             </div>
           </Field>
+
+          {contasMsg && (
+            <div style={{ background: '#FFF6E0', color: '#7A5A00', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+              {contasMsg}{' '}
+              <button type="button" onClick={() => setTentativa((n) => n + 1)} style={{ background: 'none', border: 'none', color: '#7A5A00', textDecoration: 'underline', cursor: 'pointer', fontSize: 12, padding: 0 }}>
+                Tentar de novo
+              </button>
+            </div>
+          )}
 
           {erro && (
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
