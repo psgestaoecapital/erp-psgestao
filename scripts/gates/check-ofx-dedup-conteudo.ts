@@ -15,5 +15,13 @@ ok(/CREATE INDEX IF NOT EXISTS idx_conciliacao_movimento_company_id_externo/.tes
 ok(!/CREATE UNIQUE INDEX[^;]*id_externo/i.test(sql), 'nenhum índice único novo por id_externo')
 ok(!/DELETE|UPDATE|TRUNCATE/i.test(sql.replace(/--.*$/gm, '')), 'não altera nem apaga dado de cliente')
 
+// Sync por API (fn_extrato_importar_sistema) usa a mesma chave de conteúdo — sem os índices únicos por FITID ela ficaria sem trava.
+const api = readFileSync('supabase/migrations/20261015220030_ofx_dedup_conteudo_cobre_sync_api.sql', 'utf8').replace(/--.*$/gm, '')
+ok(/CREATE OR REPLACE FUNCTION public\.fn_extrato_importar_sistema/.test(api), 'sync por API redefinida')
+ok(/_api_conc/.test(api) && /n_banco >= COALESCE\(v_n_arq, 1\)/.test(api), 'sync por API deduplica por conteúdo com contador de ocorrência')
+ok(/cm\.natureza/.test(api) && /descricao_normalizada = v_dnorm/.test(api), 'chave inclui natureza e descrição normalizada')
+ok((api.match(/pg_advisory_xact_lock/g) ?? []).length === 2, 'OFX e API serializam por empresa+conta (advisory lock)')
+ok(!/CREATE UNIQUE INDEX[^;]*id_externo/i.test(api) && !/DELETE FROM conciliacao_movimento WHERE (?!lote_id = v_lote_id)/.test(api), 'sem índice único por id_externo nem DELETE de dado de cliente')
+
 if (falhas) { console.error(`\n[check-ofx-dedup-conteudo] ${falhas} regra(s) quebrada(s).`); process.exit(1) }
 console.log('\n[check-ofx-dedup-conteudo] dedup por conteúdo conferida.')
