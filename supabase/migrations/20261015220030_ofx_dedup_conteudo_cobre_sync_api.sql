@@ -1,5 +1,5 @@
 -- Conciliação: a dedup por CONTEÚDO cobre os DOIS caminhos (OFX manual e sync por API) — pedido rodrigo-chat 15/10 (#2662).
--- Contexto: a migration 20261015150030 retira os índices únicos por id_externo (o Bradesco reaproveita FITID entre exportações).
+-- Contexto: a migration 20261015215030 retira os índices únicos por id_externo (o Bradesco reaproveita FITID entre exportações).
 -- Esses índices também travavam fn_extrato_importar_sistema (sync por API). Aqui a trava passa a ser por conteúdo nos dois:
 --   chave = (company_id, conta/cartão, data_transacao, valor, natureza, descricao_normalizada) com CONTADOR de ocorrência
 --   (n no payload × n no banco), então dois PIX iguais no mesmo dia continuam entrando e nenhum lançamento novo é descartado

@@ -1,6 +1,6 @@
 -- Chamado Troian OFX / PR #2662 (ajuste do revisor): sp_pluggy_promover_para_conciliacao dependia de EXCEPTION WHEN
 -- unique_violation (índice uniq_conciliacao_movimento_company_idexterno) para não reinserir transações já promovidas.
--- Como a migration 20261015150030 retira esse índice, a checagem passa a ser explícita: o id_externo 'pluggy:<id>' é
+-- Como a migration 20261015215030 retira esse índice, a checagem passa a ser explícita: o id_externo 'pluggy:<id>' é
 -- único de verdade na Pluggy, então "já existe" = mesmo company_id + mesmo id_externo. Mesmo advisory lock por
 -- empresa+conta das demais funções de importação (no lugar da unicidade que saiu).
 -- Definição viva preservada (assinatura, SECURITY DEFINER, search_path, guarda de empresa); só CREATE OR REPLACE, nenhum dado alterado.

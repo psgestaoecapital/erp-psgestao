@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
 
-const sql = readFileSync('supabase/migrations/20261015150030_ofx_dedup_por_conteudo_sem_unico_fitid.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261015215030_ofx_dedup_por_conteudo_sem_unico_fitid.sql', 'utf8')
 for (const ix of ['uniq_conciliacao_movimento_company_idexterno', 'uq_mov_lote_id_externo', 'ux_conciliacao_movimento_idext'])
   ok(new RegExp(`DROP INDEX IF EXISTS public\\.${ix}`).test(sql), `retira o índice único ${ix}`)
 ok(/CREATE INDEX IF NOT EXISTS idx_conciliacao_movimento_company_id_externo/.test(sql), 'mantém busca por id_externo (índice comum)')
