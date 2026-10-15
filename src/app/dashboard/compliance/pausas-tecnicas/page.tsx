@@ -487,6 +487,9 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                 {nEst} pausa(s) deste período tiveram o horário de término estimado por falta de registro de saída. A estimativa considera a duração padrão de 20 minutos e não substitui o registro.
               </div>
             )}
+            <div data-testid="ciencia-compromisso" style={{ marginTop: 16, fontSize: 11.5, color: C.gray, lineHeight: 1.6 }}>
+              O colaborador se compromete a usufruir das pausas térmicas no local adequado fornecido pela empresa, e o supervisor fiscalizará o cumprimento.
+            </div>
             <div className="ps-print-assinatura" data-testid="ciencia-assinatura" style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
               {doc.status === 'assinado' ? (
                 <div style={{ color: C.green }}><b>✓ Assinado em {doc.assinado_em ? fmtDT(String(doc.assinado_em)) : ''}</b> · método {String(doc.metodo || '')} · hash {String(doc.hash_integridade || '').slice(0, 24)}…</div>
@@ -496,6 +499,10 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                   <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Data</div>
                 </div>
               )}
+              <div data-testid="ciencia-assinatura-responsaveis" style={{ display: 'flex', justifyContent: 'space-between', gap: 20, marginTop: 36 }}>
+                <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do supervisor</div>
+                <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do segurança do trabalho</div>
+              </div>
             </div>
           </div>
         )}
