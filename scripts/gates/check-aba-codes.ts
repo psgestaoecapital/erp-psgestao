@@ -196,7 +196,14 @@ async function main() {
     ok(r('jordana-code', [msg('a', 'jordana-code', 'nova', 20)], []).status === 'travado', 'RD-83: nova não lida há 20 min → Travado')
     const antiga = r('rodrigo-code', [msg('b', 'rodrigo-code', 'recebida', 30 * 60)], [])
     ok(antiga.status === 'dormindo' && antiga.filaAntiga === 1 && antiga.fila === 0, 'RD-83: recebida > 24 h vira fila antiga, nunca Travado')
-    ok(r('gilberto-produto', [msg('c', 'gilberto-produto', 'nova', 5)], []).status === 'dormindo', 'nova há 5 min ainda não é Travado')
+    ok(r('gilberto-produto', [msg('c', 'gilberto-produto', 'nova', 5)], []).status === 'na_fila', 'nova há 5 min: Na fila, não Travado')
+    // CEO 15/10: plantão permanente fora da fila; sessão recente sem nova = Dormindo; nova antiga com sessão < 30 min não trava
+    const plantao = { ...msg('p', 'rodrigo-code', 'recebida', 600), assunto: 'PLANTÃO PERMANENTE — rodrigo-code' }
+    const rp = r('rodrigo-code', [plantao], [lease('rodrigo-code', 20)])
+    ok(rp.status === 'dormindo' && rp.fila === 0 && rp.naoLidas === 0, 'plantão permanente não conta na fila nem trava')
+    ok(r('gilberto-chamados', [msg('n', 'gilberto-chamados', 'nova', 20)], [lease('gilberto-chamados', 20)]).status === 'na_fila', 'nova > 15 min com sessão há 20 min: não é Travado')
+    ok(r('gilberto-chamados', [msg('n', 'gilberto-chamados', 'nova', 40)], [lease('gilberto-chamados', 40)]).status === 'travado', 'nova > 15 min sem sessão há 30 min: Travado')
+    ok(r('gilberto-chamados', [], [lease('gilberto-chamados', 20)]).ultimaSessaoMin === 20, 'mostra a última sessão em minutos')
     ok(esteira({ ...base, entregas: [{ id: 1, pr_numero: 1, titulo: 't', code: 'x', evento: 'publicada', via: 'rapida', sha: 'a', url: null, ocorrido_em: min(10) }] }).cor === 'verde', 'esteira verde: publicou na última hora')
     ok(esteira({ ...base }).cor === 'amarela', 'esteira amarela: sem publicação há mais de 1 h')
     ok(esteira({ ...base, mainVerde: false }).cor === 'vermelha' && esteira({ ...base, testeParadoMin: 100 }).cor === 'vermelha', 'esteira vermelha: main vermelha ou teste parado > 90 min')
