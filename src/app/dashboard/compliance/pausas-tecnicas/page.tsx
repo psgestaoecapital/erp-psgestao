@@ -487,13 +487,17 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                 {nEst} pausa(s) deste período tiveram o horário de término estimado por falta de registro de saída. A estimativa considera a duração padrão de 20 minutos e não substitui o registro.
               </div>
             )}
+            <div data-testid="ciencia-compromisso" style={{ marginTop: 16, fontSize: 11.5, color: C.espresso, lineHeight: 1.5 }}>
+              O colaborador declara que se compromete a usufruir das pausas térmicas no local adequado, e o supervisor fiscalizará o cumprimento.
+            </div>
             <div className="ps-print-assinatura" data-testid="ciencia-assinatura" style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
               {doc.status === 'assinado' ? (
                 <div style={{ color: C.green }}><b>✓ Assinado em {doc.assinado_em ? fmtDT(String(doc.assinado_em)) : ''}</b> · método {String(doc.metodo || '')} · hash {String(doc.hash_integridade || '').slice(0, 24)}…</div>
               ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
-                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do colaborador</div>
-                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Data</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }} data-testid="ciencia-linhas-assinatura">
+                  {['Assinatura do colaborador', 'Assinatura do supervisor', 'Assinatura do técnico de segurança do trabalho', 'Data'].map(t => (
+                    <div key={t} style={{ flex: '1 1 140px', borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>{t}</div>
+                  ))}
                 </div>
               )}
             </div>
