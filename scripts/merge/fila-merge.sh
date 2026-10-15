@@ -41,7 +41,17 @@ SENSIVEL=revisao-eng-chefe
 RODAPE=$'\n\n<sub>fila-merge · '"${RUN_URL:-local}"'</sub>'
 SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
-api() { gh api -H 'Accept: application/vnd.github+json' "$@"; }
+# Leitura (GET, sem -X) tenta até 3x: resposta vazia/transitória da API ("unexpected end of JSON input") derrubava a rodada
+# inteira (set -e) e deixava a esteira parada (runs 14909/14916, 14/10). Escrita (-X) NUNCA repete: não é idempotente.
+api() {
+  local t=1 out
+  case " $* " in *" -X "*) gh api -H 'Accept: application/vnd.github+json' "$@"; return;; esac
+  until out=$(gh api -H 'Accept: application/vnd.github+json' "$@"); do
+    [ "$t" -ge 3 ] && return 1
+    sleep $((t * 2)); t=$((t + 1))
+  done
+  [ -z "$out" ] || printf '%s\n' "$out"
+}
 # Observabilidade (CEO 10/10): toda linha "#<pr> ..." também vai p/ o snapshot que a fila grava no fim (flush_estado).
 log() { echo "$*"; echo "- $*" >> "$SUMARIO"; case "$*" in \#[0-9]*) [ -n "${TMPF:-}" ] && printf '%s\n' "$*" >> "$TMPF/estado" 2>/dev/null || true;; esac; }
 # Grava "por que cada PR está presa" em erp_esteira_pr_estado (a aba /dashboard/dev lê). No trap EXIT: roda sempre, mesmo
@@ -56,7 +66,15 @@ flush_estado() {
     -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
     -H 'Content-Type: application/json' -d "$payload" >/dev/null 2>&1 || true
 }
-comentar() { api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null; }
+# Comentário é informativo: falha (ex.: rate limit secundário, 403, 12/10) NUNCA derruba a rodada — senão a fila morre no
+# meio e as PRs seguintes não são avaliadas nem publicadas. Sempre retorna 0; COMENTOU=0 sinaliza a falha ao
+# comentar_uma_vez (que então não marca como "já comentado" e tenta de novo na próxima rodada).
+COMENTOU=1
+comentar() {
+  if api -X POST "repos/$REPO/issues/$1/comments" -f body="$2$RODAPE" > /dev/null 2>&1; then COMENTOU=1
+  else COMENTOU=0; echo "::warning::fila: comentário na #$1 falhou (rate limit?) — segue a rodada"; fi
+  return 0
+}
 # comentários da PR lidos UMA vez por rodada (cada corpo numa linha, em JSON) — a fila agora olha todas as PRs Ready
 TMPF=$(mktemp -d); trap 'flush_estado; rm -rf "$TMPF"' EXIT
 comentarios() {
@@ -69,6 +87,7 @@ comentar_uma_vez() {
   if comentarios "$n" | grep -qF "<!-- fila:$chave -->"; then return 0; fi
   comentar "$n" "$texto
 <!-- fila:$chave -->"
+  [ "$COMENTOU" = 1 ] || return 0
   printf '%s\n' "\"<!-- fila:$chave -->\"" >> "$TMPF/c-$n"
 }
 # vermelho de verdade: comenta o motivo uma vez por commit + motivo e tira a label (se houver). Sem a label a PR
@@ -117,16 +136,42 @@ estado_main() {
   echo "esperar:@pos-migration da main $conc (run $id) sem verde depois da última migration — re-rodando"
 }
 
+# (a2) Deadlock do deploy vermelho (Eng. Chefe 14/10, #2542): o deploy-migrations da main quebrou numa migration; a PR que a
+# CONSERTA também tem migration e esperaria o deploy ficar verde — que só fica verde com ela. Exceção estreita: a main está
+# com o deploy VERMELHO (completed/failure) e TODA migration da PR é um arquivo MODIFICADO (nenhuma adicionada) que o
+# commit do run vermelho trouxe. Sem versão nova, a régua de versão não se aplica. Ecoa 1 (é o conserto) ou 0.
+corrige_deploy_vermelho() {
+  local n=$1 r st conc hsha mods quebrados f
+  r=$(api "repos/$REPO/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.status) \(.conclusion) \(.head_sha)"')
+  read -r st conc hsha <<< "$r"
+  { [ "$st" = completed ] && [ "$conc" = failure ] && [ -n "$hsha" ]; } || { echo 0; return; }
+  mods=$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[] | select(.filename | startswith("supabase/migrations/")) | "\(.status) \(.filename)"')
+  [ -n "$mods" ] || { echo 0; return; }
+  grep -qv '^modified ' <<< "$mods" && { echo 0; return; }
+  quebrados=$(api "repos/$REPO/commits/$hsha" --jq '.files[].filename')
+  while read -r _ f; do
+    grep -qxF "$f" <<< "$quebrados" || { echo 0; return; }
+  done <<< "$mods"
+  echo 1
+}
+
 # checks da aceitação: na VIA RÁPIDA são só informativos (não contam e não são exigidos)
 ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
+
+# Janela temporária (CEO 15/10, contexto e89e0d62): a aceitação VERMELHA da via REVISADA NÃO bloqueia até
+# 2026-10-17 11:00 America/Sao_Paulo (= 2026-10-17T14:00:00Z); depois volta a bloquear SOZINHA. Só a aceitação —
+# gates/checks estáticos, preview (Vercel), MERGE AUTORIZADO do revisor e conflito continuam valendo.
+# FILA_AGORA_EPOCH (epoch UTC) deixa o gate provar os dois lados da data; sem ela, usa o agora real.
+JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'
+aceitacao_dispensada() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_ACEITACAO_REVISADA_FIM" +%s)" ]; }
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
   local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc esgotou id vercel_ok vercel_ruim
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
-  # via rápida: tira a aceitação do cálculo de pendentes, vermelhos e cancelados
-  [ "$via" = rapida ] && linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas")
+  # via rápida SEMPRE, e via revisada DENTRO DA JANELA (CEO 15/10): tira a aceitação do cálculo de pendentes/vermelhos/cancelados
+  if [ "$via" = rapida ] || aceitacao_dispensada; then linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas"); fi
   pend=$(awk -F'\t' '$2 != "completed" {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
   verm=$(awk -F'\t' '$3 ~ /^(failure|timed_out|action_required|startup_failure|stale)$/ {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
   canc=$(awk -F'\t' '$3 == "cancelled" {print $4}' <<< "$linhas" | sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' | sort -u)
@@ -146,8 +191,8 @@ estado_checks() {
   esac
   # PR só de .md/docs/.github não tem preview nem aceitação (Ignored Build Step): basta checks + gates
   [ "$so_docs" = 1 ] && { echo ok; return; }
-  # aceitação (preview): na via REVISADA tem de existir e estar verde (ou dispensada pela triagem)
-  if [ "$via" = revisada ]; then
+  # aceitação (preview): na via REVISADA tem de existir e estar verde (ou dispensada pela triagem) — salvo DENTRO da janela (CEO 15/10)
+  if [ "$via" = revisada ] && ! aceitacao_dispensada; then
     acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
     case "$acc" in success|skipped|neutral) ;; '') echo "esperar:aceitação (preview) ainda não rodou"; return;; *) echo "vermelho:aceitação $acc"; return;; esac
   fi
@@ -203,6 +248,11 @@ fila=$(while read -r linha; do
     echo "${t:-$(jq -r .created_at <<< "$linha")} $n"
   done < "$TMPF/lista" | sort | awk '{print $2}')
 [ -n "$fila" ] || { log "fila vazia"; exit 0; }
+# Prioridade (CEO 15/10): Hub (#2569 #2508 #2298) e FC/FCR (#2100) na frente; o resto segue a ordem de entrada.
+FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2569 2508 2298 2100'}
+_prio=''; for p in $FILA_PRIORIDADE; do grep -qw "$p" <<< "$fila" && _prio="$_prio $p"; done
+_resto=''; for q in $fila; do grep -qw "$q" <<< "$FILA_PRIORIDADE" || _resto="$_resto $q"; done
+fila=$(echo $_prio $_resto)
 log "fila: $(echo $fila | sed 's/\([0-9]*\)/#\1/g')"
 
 # próxima versão de migration > $1 (piso), com os 2 últimos dígitos $2 (faixa do agente); timestamp do momento (UTC)
@@ -262,6 +312,14 @@ em_preparo=0
 # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada (corta runs/builds de publicação). PR COM migration
 # é UMA por rodada e encerra a rodada. merges = quantas já saíram no lote; LOTE_MAX = teto por rodada (teto de risco).
 LOTE_MAX=${LOTE_MAX:-6}
+# RITMO (CEO 15/10): teto de publicações por hora. Conta as PRs já mergeadas na main na última hora (fail-open: erro de
+# API/valor não-numérico = 0, a rodada segue), para a janela aberta da via revisada não virar enxurrada de merges.
+RITMO_MAX_HORA=${RITMO_MAX_HORA:-4}
+pub_hora=${FILA_PUB_HORA:-$(api "search/issues?q=repo:$REPO+is:pr+is:merged+base:main+merged:>=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" --jq '.total_count' 2>/dev/null || echo 0)}
+[ "${pub_hora:-0}" -eq "${pub_hora:-0}" ] 2>/dev/null || pub_hora=0
+disp_hora=$((RITMO_MAX_HORA - pub_hora))
+if [ "$disp_hora" -le 0 ]; then log "ritmo: $pub_hora publicação(ões) na última hora (teto $RITMO_MAX_HORA/h): rodada adiada"; exit 0; fi
+[ "$LOTE_MAX" -gt "$disp_hora" ] && LOTE_MAX=$disp_hora
 merges=0
 for n in $fila; do
   pj=$(jq -c --argjson n "$n" 'select(.number == $n)' "$TMPF/lista")
@@ -285,11 +343,22 @@ for n in $fila; do
   grep -qvE '(\.md$|^docs/|^\.github/)' <<< "$arquivos" || so_docs=1
   # PR COM migration não vai nesta rodada se outra migration já espera a main (so_sem_migration) OU já houve merge no lote
   # (merges>0: a main acabou de mudar — a migration vai na próxima rodada, contra a main já assentada/verde).
-  if { [ "$so_sem_migration" = 1 ] || [ "$merges" -gt 0 ]; } && [ "$com_migration" = 1 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
+  # conserto do deploy vermelho da main (corrige_deploy_vermelho): não espera a main nem as outras migrations
+  corrige_deploy=0
+  [ "$com_migration" = 1 ] && corrige_deploy=$(corrige_deploy_vermelho "$n")
+  [ "$corrige_deploy" = 1 ] && log "#$n só corrige migration que quebrou o deploy-migrations da main: não espera a main"
+  if { [ "$so_sem_migration" = 1 ] || [ "$merges" -gt 0 ]; } && [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
 
   # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
   via=rapida
   jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
+  # Eng. Chefe 14/10: tela/cálculo/migration/área crítica NUNCA publica pela via rápida, mesmo sem etiqueta (furo da #2592):
+  # a fila coloca a etiqueta e espera o MERGE AUTORIZADO do revisor (o patch-id é conferido na próxima rodada).
+  if [ "$via" = rapida ] && [ "$(printf '%s\n' "$arquivos" | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
+    log "#$n toca tela/cálculo/migration/área crítica sem etiqueta: ponho $SENSIVEL e espero a autorização"
+    api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
+    continue
+  fi
   log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')"
 
   # (c) sensível → autorização pelo conteúdo
@@ -309,12 +378,23 @@ for n in $fila; do
       # (o novo commit re-roda os guardas); se continuar vermelho com a PR em dia, cai na recusa normal.
       if [[ "${c#vermelho:check vermelho: }" =~ ^(check_fn_guards|check_menu|check_migrations)(,(check_fn_guards|check_menu|check_migrations))*$ ]] \
          && [ "$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')" -gt 0 ] && [ "$em_preparo" -lt "$ATUALIZA_NA_VEZ" ]; then
-        em_preparo=$((em_preparo + 1))
         if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+          em_preparo=$((em_preparo + 1))
           log "#$n vermelha só de guarda (${c#vermelho:}) e atrás da main: atualizada para re-rodar os guardas — segue para a próxima"; continue
         fi
       fi
       tirar_da_fila "$n" "${c#vermelho:} (commit ${sha:0:7})" "$sha"; continue;;
+    # Stall 13/10: PR estagnada (aberta antes do gates.yml) nunca teve o check "gates"; como a fila só atualiza PR verde, ela
+    # esperava para sempre. Atrás da main e com vaga → update-branch (o novo commit roda os gates), como no deadlock acima.
+    esperar:'gates ainda não rodaram')
+      if [ "$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')" -gt 0 ] && [ "$em_preparo" -lt "$ATUALIZA_NA_VEZ" ]; then
+        # Stall 13/10 14:00: só gasta vaga se o update-branch FUNCIONOU (PR velha com conflito falhava e queimava as 4 vagas).
+        if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+          em_preparo=$((em_preparo + 1))
+          log "#$n sem o check gates e atrás da main: atualizada para rodar os gates — segue para a próxima"; continue
+        fi
+      fi
+      log "#$n aguardando: gates ainda não rodaram — segue para a próxima"; continue;;
     # Só conta como "em preparo" o PREVIEW que a própria fila dispara: PR VIA RÁPIDA com check rodando (não "gates ainda
     # não rodaram", que é PR estagnada). A aceitação (demo-e2e, serial/lenta) das PRs via REVISADA NÃO é preparo da fila —
     # contá-la inflava o em_preparo (13-14 no run 9299) e esfomeava as via-rápida atrás da main. (Correção da regressão do #2361.)
@@ -338,7 +418,7 @@ for n in $fila; do
   fi
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
-  if [ "$com_migration" = 1 ]; then
+  if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then
     m=$(estado_main)
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
