@@ -211,6 +211,9 @@ else
   fi
 fi
 
+# Contadores (sequences) sempre alinhados ao dado da vaga, restaurou ou não.
+TEST_DATABASE_URL="$TEST_DATABASE_URL" PSQL="${PSQL:-psql}" "$(dirname "$0")/acertar-sequences.sh"
+
 # ── VERIFICAÇÃO FINAL OBRIGATÓRIA (RD-38): no dado, pós-tudo, a vaga TEM de estar igual à produção; senão VERMELHO. ──
 # Nunca termina verde se vaga ≠ produção, mesmo que acima não houvesse nada a fazer.
 "$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "$SIG" | sort > "$dir/vaga.final.sig"
