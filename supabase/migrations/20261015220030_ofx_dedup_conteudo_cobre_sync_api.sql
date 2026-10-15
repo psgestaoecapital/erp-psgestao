@@ -290,3 +290,9 @@ BEGIN
     'primeiro_erro', v_primeiro_erro
   );
 END $function$;
+
+-- Guarda de acesso (check_fn_guards): só logado/serviço executa; anon nunca.
+REVOKE ALL ON FUNCTION public.fn_conciliacao_criar_lote(uuid, text, text, text, text, text, text, jsonb, date, date, uuid, uuid, text, numeric, timestamp with time zone, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_conciliacao_criar_lote(uuid, text, text, text, text, text, text, jsonb, date, date, uuid, uuid, text, numeric, timestamp with time zone, jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_extrato_importar_sistema(uuid, uuid, text, jsonb, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_extrato_importar_sistema(uuid, uuid, text, jsonb, date, date) TO authenticated, service_role;

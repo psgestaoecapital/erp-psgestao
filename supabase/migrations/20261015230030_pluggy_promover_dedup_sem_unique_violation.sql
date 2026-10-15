@@ -156,3 +156,7 @@ BEGIN
   );
 END;
 $function$;
+
+-- Guarda de acesso (check_fn_guards): só logado/serviço executa; anon nunca.
+REVOKE ALL ON FUNCTION public.sp_pluggy_promover_para_conciliacao(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.sp_pluggy_promover_para_conciliacao(uuid) TO authenticated, service_role;
