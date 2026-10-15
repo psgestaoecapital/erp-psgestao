@@ -136,6 +136,11 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   const [modoValor, setModoValor] = useState<'total' | 'parcela'>('total')
   const [parcelasEdit, setParcelasEdit] = useState<{ vencimento: string; valor: number }[]>([])
   const [categoriaCodigo, setCategoriaCodigo] = useState('')
+  // #1939 · telas que listam lançamentos mostram o NOME da categoria (código só como apoio/fallback)
+  const nomeCategoria = (codigo: string) => {
+    const d = categorias.find((c) => c.codigo === codigo)?.descricao?.trim()
+    return d ? `${codigo} · ${d}` : codigo
+  }
   // 01/10 · centro de custo de verdade (erp_pagar.centro_custo_id). Cada obra do Hub tem o seu → liga a despesa à obra.
   const [centros, setCentros] = useState<{ id: string; nome: string }[]>([])
   const [centroCustoId, setCentroCustoId] = useState('')
@@ -1271,6 +1276,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
       <CopiarDespesaModal
         open={copiarAberto}
         companyId={companyId}
+        nomeCategoria={nomeCategoria}
         onClose={() => setCopiarAberto(false)}
         onUsar={(d) => {
           setFornecedorId(d.fornecedor_id ?? '')
@@ -1297,7 +1303,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               <LinhaDet rotulo="Valor" valor={fmtBRL(dupVer.valor)} />
               <LinhaDet rotulo="Vencimento" valor={fmtDataBr(dupVer.data_vencimento)} />
               <LinhaDet rotulo="Situação" valor={dupVer.status === 'pago' ? `paga em ${fmtDataBr(dupVer.data_pagamento)}` : 'em aberto'} />
-              <LinhaDet rotulo="Categoria" valor={dupVer.categoria || '—'} />
+              <LinhaDet rotulo="Categoria" valor={dupVer.categoria ? nomeCategoria(dupVer.categoria) : '—'} />
               <LinhaDet rotulo="Nº documento" valor={dupVer.numero_documento || '—'} />
               <LinhaDet rotulo="Lançada em" valor={fmtDataBr(dupVer.created_at)} />
             </div>
@@ -1348,9 +1354,10 @@ interface DespesaCopiavel {
   forma_pagamento: string | null
 }
 
-function CopiarDespesaModal({ open, companyId, onClose, onUsar }: {
+function CopiarDespesaModal({ open, companyId, nomeCategoria, onClose, onUsar }: {
   open: boolean
   companyId: string
+  nomeCategoria: (codigo: string) => string
   onClose: () => void
   onUsar: (d: DespesaCopiavel) => void
 }) {
@@ -1380,7 +1387,7 @@ function CopiarDespesaModal({ open, companyId, onClose, onUsar }: {
   if (!open) return null
   const q = busca.trim().toLowerCase()
   const filtradas = q
-    ? despesas.filter((d) => `${d.descricao ?? ''} ${d.fornecedor_nome ?? ''} ${d.categoria ?? ''}`.toLowerCase().includes(q))
+    ? despesas.filter((d) => `${d.descricao ?? ''} ${d.fornecedor_nome ?? ''} ${d.categoria ?? ''} ${d.categoria ? nomeCategoria(d.categoria) : ''}`.toLowerCase().includes(q))
     : despesas
 
   return (
@@ -1417,7 +1424,7 @@ function CopiarDespesaModal({ open, companyId, onClose, onUsar }: {
                       {d.descricao || '(sem descrição)'}
                     </div>
                     <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
-                      {d.fornecedor_nome ? `${d.fornecedor_nome} · ` : ''}{d.categoria ? `${d.categoria} · ` : ''}{d.forma_pagamento ?? ''}
+                      {d.fornecedor_nome ? `${d.fornecedor_nome} · ` : ''}{d.categoria ? `${nomeCategoria(d.categoria)} · ` : ''}{d.forma_pagamento ?? ''}
                     </div>
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: PSGC_COLORS.alta, fontVariantNumeric: 'tabular-nums' }}>
