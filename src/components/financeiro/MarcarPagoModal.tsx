@@ -43,6 +43,7 @@ export default function MarcarPagoModal({
   const [valorPago, setValorPago] = useState(valorTotal.toFixed(2))
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [contasCarregadas, setContasCarregadas] = useState(false)
   // o saldo chega do banco de forma assíncrona; se o usuário já digitou o valor, ele NÃO é sobrescrito
   // (antes: digitar 300 antes da busca voltar virava o saldo cheio e o título era baixado inteiro)
   const editouValor = useRef(false)
@@ -51,13 +52,15 @@ export default function MarcarPagoModal({
     if (!open || !companyId) return
     let ignore = false
     ;(async () => {
-      const { data } = await supabase
+      const { data, error: erroContas } = await supabase
         .from('erp_banco_contas')
         .select('id, nome')
         .eq('company_id', companyId)
         .eq('ativo', true)
         .order('nome')
       if (ignore) return
+      setContasCarregadas(true)
+      if (erroContas) setErro('Não foi possível carregar as contas bancárias. Feche e abra de novo; se continuar, avise o suporte.')
       const lista = (data ?? []) as ContaBancaria[]
       setContas(lista)
       if (lista.length > 0 && !contaId) setContaId(lista[0].id)
@@ -157,6 +160,12 @@ export default function MarcarPagoModal({
               Pagamento parcial permitido · default é o valor total
             </div>
           </Field>
+
+          {contasCarregadas && contas.length === 0 && !erro && (
+            <div style={{ background: '#FFF6E0', color: '#7A5A00', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+              Nenhuma conta bancária ativa foi encontrada para esta empresa. Cadastre uma em Financeiro › Contas bancárias e volte para dar a baixa.
+            </div>
+          )}
 
           {erro && (
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
