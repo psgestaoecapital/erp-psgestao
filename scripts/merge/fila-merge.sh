@@ -110,9 +110,42 @@ rerodar() {
   else log "run $id já teve $tent tentativas: não re-roda de novo (avise o Eng. Chefe)"; return 1; fi
 }
 
+# Janela temporária do @pos-migration por LINHA-DE-BASE (CEO 15/10, contexto e89e0d62, com o CEO presente): até
+# 2026-10-17 11:00 America/Sao_Paulo (= 2026-10-17T14:00:00Z), o @pos-migration da main VERMELHO só BLOQUEIA a PR COM
+# migration se houver falha NOVA — um spec fora da LINHA-DE-BASE (os specs que falharam no run #496 da aceitação @pos,
+# às 10:19 BRT de 15/10, antes das PRs do Hub). Mesma lista (ou subconjunto) → segue publicando (1 migration/rodada).
+# Spec novo → bloqueia, comenta na PR que entrou por último e propõe reversão ao Eng. Chefe. Depois do limite, qualquer
+# vermelho volta a bloquear sozinho. FILA_AGORA_EPOCH (o mesmo da janela da aceitação) deixa o gate provar os dois lados.
+JANELA_POS_BASELINE_FIM='2026-10-17T14:00:00Z'
+pos_baseline_ativa() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_POS_BASELINE_FIM" +%s)" ]; }
+# Linha-de-base: specs que falharam no run #496 do "Aceitação @pos-migration (produção)" (run 38741770350, head
+# 01a39b72, 2026-10-15T13:19:51Z). Provado no log do job falho (RD-38). FILA_POS_BASELINE sobrescreve (para o gate).
+POS_BASELINE_496=${FILA_POS_BASELINE:-'e2e/jornadas/aceitacao/atak-status-equipe-rls.spec.ts
+e2e/jornadas/aceitacao/pauta-p2.spec.ts'}
+# specs que falharam num run @pos: pelas ANOTAÇÕES do check-run do job falho (CEO 15/10 17:50). O id do job É o id do
+# check-run; `check-runs/<id>/annotations` NÃO baixa o log do job (que dá 404 com o token da integração/PAT). Pega os
+# e2e/.../*.spec.ts das anotações de FALHA (campo path + título + mensagem) e do resumo "🎭 Playwright Run Summary".
+# Um por linha, ordenado e único.
+pos_specs_falhos() {
+  local run=$1 jid
+  for jid in $(api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
+    api "repos/$REPO/check-runs/$jid/annotations" --paginate \
+      --jq '.[] | select(.annotation_level == "failure" or ((.title // "") | test("Playwright Run Summary"))) | (.path // ""), (.title // ""), (.message // "")' 2>/dev/null
+  done | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts' | sort -u
+}
+# Escala uma falha NOVA do @pos (dentro da janela): comenta UMA vez na PR do head do run @pos (a que entrou por último) e
+# propõe reversão ao Eng. Chefe. Sem PR associada, só loga (o Eng. Chefe lê o resumo da fila).
+escalar_pos_novo() {
+  local run=$1 novos=$2 hsha pr
+  hsha=$(api "repos/$REPO/actions/runs/$run" --jq '.head_sha' 2>/dev/null)
+  pr=$(api "repos/$REPO/commits/$hsha/pulls" --jq '.[0].number' 2>/dev/null || true)
+  { [ -n "$pr" ] && [ "$pr" != null ]; } || { log "@pos falha NOVA ($(tr '\n' ' ' <<< "$novos"), run $run) sem PR no head $hsha — Eng. Chefe, reverter manualmente"; return; }
+  comentar_uma_vez "$pr" "pos-novo-$run" "🔴 **Fila de merge — Eng. Chefe:** o \`@pos-migration\` da main está VERMELHO com **falha NOVA** fora da linha-de-base do run #496 (janela temporária CEO 15/10): \`$(tr '\n' ' ' <<< "$novos")\` (run $run). Como esta PR entrou por último, a **proposta é revertê-la**. Enquanto não resolver, as PRs COM migration ficam seguras (as SEM migration seguem)."
+}
+
 # (a) Estado da main para PR COM migration. Ecoa: livre | esperar:<motivo>
 estado_main() {
-  local ult_mig r st conc id
+  local ult_mig r st conc id falhos novos
   # deploy-migrations: rodando ou vermelho → espera (vermelho é trabalho AGORA de quem quebrou)
   r=$(api "repos/$REPO/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion)"')
   read -r id st conc <<< "$r"
@@ -124,7 +157,23 @@ estado_main() {
   [ "$st" = completed ] || { echo "esperar:@pos-migration da main em andamento ($id)"; return; }
   case "$conc" in
     success) echo livre; return;;
-    failure) echo "esperar:@pos-migration da main VERMELHO (run $id) — reverter a PR culpada"; return;;
+    failure)
+      # Janela CEO 15/10: vermelho só bloqueia se houver falha NOVA fora da linha-de-base do #496.
+      if pos_baseline_ativa; then
+        falhos=$(pos_specs_falhos "$id")
+        if [ -n "$falhos" ]; then
+          novos=$(comm -23 <(printf '%s\n' "$falhos") <(printf '%s\n' "$POS_BASELINE_496" | sed '/^$/d' | sort -u))
+          if [ -z "$novos" ]; then
+            log "@pos da main VERMELHO (run $id) só com falhas da linha-de-base do #496 (janela CEO 15/10): migration liberada" >&2
+            echo livre; return
+          fi
+          escalar_pos_novo "$id" "$novos" >&2
+          echo "esperar:@pos da main VERMELHO com falha NOVA fora da linha-de-base ($(tr '\n' ' ' <<< "$novos"), run $id) — reverter a última PR"; return
+        fi
+        # vermelho sem spec de teste identificado (falha de infra/ambiente): fail-closed, bloqueia
+        echo "esperar:@pos da main VERMELHO sem spec de teste identificado (run $id) — bloqueia (janela CEO 15/10)"; return
+      fi
+      echo "esperar:@pos-migration da main VERMELHO (run $id) — reverter a PR culpada"; return;;
   esac
   # cancelado / pulado / estourou tempo: não é vermelho. A última migration da main já teve run verde?
   ult_mig=$(git log -1 --format=%H origin/main -- supabase/migrations)
@@ -158,13 +207,20 @@ corrige_deploy_vermelho() {
 # checks da aceitação: na VIA RÁPIDA são só informativos (não contam e não são exigidos)
 ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 
+# Janela temporária (CEO 15/10, contexto e89e0d62): a aceitação VERMELHA da via REVISADA NÃO bloqueia até
+# 2026-10-17 11:00 America/Sao_Paulo (= 2026-10-17T14:00:00Z); depois volta a bloquear SOZINHA. Só a aceitação —
+# gates/checks estáticos, preview (Vercel), MERGE AUTORIZADO do revisor e conflito continuam valendo.
+# FILA_AGORA_EPOCH (epoch UTC) deixa o gate provar os dois lados da data; sem ela, usa o agora real.
+JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'
+aceitacao_dispensada() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_ACEITACAO_REVISADA_FIM" +%s)" ]; }
+
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
   local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc esgotou id vercel_ok vercel_ruim
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
-  # via rápida: tira a aceitação do cálculo de pendentes, vermelhos e cancelados
-  [ "$via" = rapida ] && linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas")
+  # via rápida SEMPRE, e via revisada DENTRO DA JANELA (CEO 15/10): tira a aceitação do cálculo de pendentes/vermelhos/cancelados
+  if [ "$via" = rapida ] || aceitacao_dispensada; then linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas"); fi
   pend=$(awk -F'\t' '$2 != "completed" {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
   verm=$(awk -F'\t' '$3 ~ /^(failure|timed_out|action_required|startup_failure|stale)$/ {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
   canc=$(awk -F'\t' '$3 == "cancelled" {print $4}' <<< "$linhas" | sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' | sort -u)
@@ -184,8 +240,8 @@ estado_checks() {
   esac
   # PR só de .md/docs/.github não tem preview nem aceitação (Ignored Build Step): basta checks + gates
   [ "$so_docs" = 1 ] && { echo ok; return; }
-  # aceitação (preview): na via REVISADA tem de existir e estar verde (ou dispensada pela triagem)
-  if [ "$via" = revisada ]; then
+  # aceitação (preview): na via REVISADA tem de existir e estar verde (ou dispensada pela triagem) — salvo DENTRO da janela (CEO 15/10)
+  if [ "$via" = revisada ] && ! aceitacao_dispensada; then
     acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
     case "$acc" in success|skipped|neutral) ;; '') echo "esperar:aceitação (preview) ainda não rodou"; return;; *) echo "vermelho:aceitação $acc"; return;; esac
   fi
@@ -241,6 +297,11 @@ fila=$(while read -r linha; do
     echo "${t:-$(jq -r .created_at <<< "$linha")} $n"
   done < "$TMPF/lista" | sort | awk '{print $2}')
 [ -n "$fila" ] || { log "fila vazia"; exit 0; }
+# Prioridade (CEO 15/10): Hub (#2569 #2508 #2298) e FC/FCR (#2100) na frente; o resto segue a ordem de entrada.
+FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2569 2508 2298 2100'}
+_prio=''; for p in $FILA_PRIORIDADE; do grep -qw "$p" <<< "$fila" && _prio="$_prio $p"; done
+_resto=''; for q in $fila; do grep -qw "$q" <<< "$FILA_PRIORIDADE" || _resto="$_resto $q"; done
+fila=$(echo $_prio $_resto)
 log "fila: $(echo $fila | sed 's/\([0-9]*\)/#\1/g')"
 
 # próxima versão de migration > $1 (piso), com os 2 últimos dígitos $2 (faixa do agente); timestamp do momento (UTC)
@@ -300,6 +361,14 @@ em_preparo=0
 # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada (corta runs/builds de publicação). PR COM migration
 # é UMA por rodada e encerra a rodada. merges = quantas já saíram no lote; LOTE_MAX = teto por rodada (teto de risco).
 LOTE_MAX=${LOTE_MAX:-6}
+# RITMO (CEO 15/10): teto de publicações por hora. Conta as PRs já mergeadas na main na última hora (fail-open: erro de
+# API/valor não-numérico = 0, a rodada segue), para a janela aberta da via revisada não virar enxurrada de merges.
+RITMO_MAX_HORA=${RITMO_MAX_HORA:-4}
+pub_hora=${FILA_PUB_HORA:-$(api "search/issues?q=repo:$REPO+is:pr+is:merged+base:main+merged:>=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" --jq '.total_count' 2>/dev/null || echo 0)}
+[ "${pub_hora:-0}" -eq "${pub_hora:-0}" ] 2>/dev/null || pub_hora=0
+disp_hora=$((RITMO_MAX_HORA - pub_hora))
+if [ "$disp_hora" -le 0 ]; then log "ritmo: $pub_hora publicação(ões) na última hora (teto $RITMO_MAX_HORA/h): rodada adiada"; exit 0; fi
+[ "$LOTE_MAX" -gt "$disp_hora" ] && LOTE_MAX=$disp_hora
 merges=0
 for n in $fila; do
   pj=$(jq -c --argjson n "$n" 'select(.number == $n)' "$TMPF/lista")
