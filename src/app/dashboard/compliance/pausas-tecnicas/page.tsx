@@ -436,7 +436,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
     } catch (e) { alert('Falha ao anexar: ' + (e as Error).message) } finally { setSubindo(false) }
   }
   const snap = (doc?.colaborador_snapshot || {}) as Record<string, string>
-  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; pausas?: PausaDoc[]; ajuste?: AjusteDia | null }>
+  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string; almoco_inicio?: string; almoco_fim?: string }; pausas?: PausaDoc[]; ajuste?: AjusteDia | null }>
   const nEst = detalhe.reduce((a, d) => a + (d.pausas || []).filter(p => p.fim_origem === 'estimado').length, 0)
   // #587: mesma leitura da página de assinatura (lib/ponto/ajusteBatida) — retorno sem saída não sai invertido e o
   // horário ajustado aparece junto do original, com origem, quem e quando
@@ -476,7 +476,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
             {detalhe.map((d, i) => (
               <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span></div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}{d.jornada?.almoco_inicio && d.jornada?.almoco_fim ? ` · almoço ${d.jornada.almoco_inicio}–${d.jornada.almoco_fim}` : ''}</span></div>
                 {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.gray }} data-testid="ciencia-originais">{notaDiaDoc(d.ajuste)}</div>}
                 {(d.pausas || []).length === 0 ? <div style={{ fontSize: 11.5, color: C.gray, fontStyle: 'italic' }}>Sem pausa registrada.</div> :
                   (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}
@@ -496,6 +496,14 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                   <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Data</div>
                 </div>
               )}
+              {/* #2369: termo de compromisso e conferência do supervisor e do técnico de segurança (pedido do jurídico do cliente) */}
+              <div data-testid="ciencia-compromisso" style={{ marginTop: 16, fontSize: 11.5, color: C.espresso, lineHeight: 1.6 }}>
+                O colaborador declara que se compromete a usufruir das pausas térmicas no local adequado, fornecido pela empresa, e o supervisor fiscalizará o cumprimento.
+              </div>
+              <div data-testid="ciencia-assinaturas-conferencia" style={{ display: 'flex', justifyContent: 'space-between', gap: 20, marginTop: 28 }}>
+                <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do supervisor</div>
+                <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do técnico de segurança do trabalho</div>
+              </div>
             </div>
           </div>
         )}
