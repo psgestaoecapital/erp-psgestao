@@ -156,6 +156,22 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [statusSel, setStatusSel] = useState<StatusOpt[]>([])   // [] = todos; combina Vencidos + Pagas etc.
   const toggleStatus = (s: StatusOpt) => setStatusSel((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]))
   const [categoria, setCategoria] = useState('')
+  // #1939 · código → nome da categoria, para o filtro e a coluna mostrarem "4.01 · Nome" e não só o código
+  const [nomesCategoria, setNomesCategoria] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!companyId) return
+    let alive = true
+    supabase
+      .rpc('fn_plano_contas_arvore', { p_company_id: companyId, p_aplicacao: tipo === 'receber' ? 'receber' : 'pagar' })
+      .then(({ data }) => {
+        if (!alive) return
+        const m: Record<string, string> = {}
+        ;((data ?? []) as { codigo: string; descricao: string }[]).forEach((c) => { m[c.codigo] = c.descricao })
+        setNomesCategoria(m)
+      })
+    return () => { alive = false }
+  }, [companyId, tipo])
+  const rotuloCategoria = (c: string) => (nomesCategoria[c] ? `${c} · ${nomesCategoria[c]}` : c)
   const [busca, setBusca] = useState('')
   // RD-41 · filtros por coluna (client-side, sobre as linhas já carregadas do período)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
@@ -994,7 +1010,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
           </select>
         </Campo>
@@ -1281,13 +1297,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor · forma) na linha */}
                           {(r.categoria || r.nome_pessoa || r.forma_pagamento) && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>
-                              {[r.categoria, r.nome_pessoa].filter(Boolean).join(' · ')}
+                              {[r.categoria ? rotuloCategoria(r.categoria) : null, r.nome_pessoa].filter(Boolean).join(' · ')}
                               {r.forma_pagamento && <span style={{ marginLeft: (r.categoria || r.nome_pessoa) ? 6 : 0 }}>💳 {r.forma_pagamento}</span>}
                             </div>
                           )}
                         </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
-                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
+                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria ? rotuloCategoria(r.categoria) : '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">
