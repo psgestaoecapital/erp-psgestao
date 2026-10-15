@@ -205,16 +205,14 @@ echo "delete from supabase_migrations.schema_migrations where version not in (se
 } >> "$txn"
 
 echo "restaurando a vaga ${VAGA} à foto: $nd objeto(s) criado(s) pela PR a derrubar, $nr função/view a reverter…"
-# CEO 14/10 (vaga 0, PR de markup): a volta bateu em statement timeout e a vaga ficou suja. Agora: timeout de 10 min (só o
-# diff foto×agora é restaurado, acima) e UMA nova tentativa; se falhar de novo, marca a vaga como SUJA (_vaga_snapshot
-# fica; tabela public._vaga_suja não — a marca vive na própria foto) e sai com exit 2 para o Reconciliar/Recriar.
+# 1ª tentativa; se estourar timeout/falhar, UMA nova tentativa (a transação é atômica: ROLLBACK não deixa meia-restauração).
 if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
-  echo "::warning::restauração da vaga ${VAGA} falhou — tentando uma vez mais"
+  echo "::warning::vaga ${VAGA}: restauração falhou — tentando uma vez mais"
   sleep 5
   if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
-    "$PSQL" "$TEST_DATABASE_URL" -tAc "create table if not exists _vaga_snapshot.suja(em timestamptz default now()); insert into _vaga_snapshot.suja default values" >/dev/null 2>&1 || true
-    echo "::error title=VAGA SUJA::vaga ${VAGA} marcada SUJA (restauração falhou 2×) — não usar até o Reconciliar/Recriar; avisar o Eng. Chefe"
-    recriar "a restauração à foto não convergiu após 2 tentativas (vaga marcada suja)"
+    # marca a vaga como SUJA (schema fora do public: não entra na assinatura) para o pool/Reconciliar não a usarem.
+    "$PSQL" "$TEST_DATABASE_URL" -tAc "create schema if not exists _vaga_suja; create table if not exists _vaga_suja.marca(em timestamptz default now(), motivo text); insert into _vaga_suja.marca(motivo) values ('restauracao da foto falhou 2x')" >/dev/null 2>&1 || true
+    recriar "a restauração à foto não convergiu após 2 tentativas (RAISE/erro → ROLLBACK; vaga marcada SUJA em _vaga_suja.marca — Eng. Chefe: rode o Reconciliar/Recriar)"
   fi
 fi
 
@@ -233,6 +231,6 @@ if [ "$sig_div" -ne 0 ] || [ "$led_div" -ne 0 ]; then
   recriar "verificação final: a vaga não voltou à foto (assinaturas=${sig_div}, ledger=${led_div})"
 fi
 # limpa a foto (não faz parte do public; não afeta a assinatura, mas mantém a vaga arrumada).
-"$PSQL" "$TEST_DATABASE_URL" -tAc "drop schema if exists _vaga_snapshot cascade" >/dev/null 2>&1 || true
+"$PSQL" "$TEST_DATABASE_URL" -tAc "drop schema if exists _vaga_snapshot cascade; drop schema if exists _vaga_suja cascade" >/dev/null 2>&1 || true
 echo "vaga ${VAGA}: migrations da PR DESFEITAS e verificado no dado (schema/ledger == foto pré-PR)."
 exit 0
