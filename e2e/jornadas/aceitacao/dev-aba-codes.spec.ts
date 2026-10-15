@@ -69,7 +69,7 @@ test.describe('Central de Desenvolvimento · aba Codes', () => {
       await page.goto('/dashboard/dev/codes')
       await aguardarConteudo(page)
       await expect(page.getByTestId('codes-painel'), 'a equipe PS vê a aba').toBeVisible({ timeout: 20000 })
-      for (const c of ['gilberto-desenv', 'gilberto-chamados', 'gilberto-produto', 'jordana-code', 'rodrigo-code', 'gilberto-revisor', 'eng-chefe-auto']) {
+      for (const c of ['gilberto-desenv', 'gilberto-chamados', 'gilberto-produto', 'jordana-code', 'rodrigo-code', 'gilberto-esteira', 'gilberto-revisor', 'eng-chefe-auto']) {
         await expect(page.getByTestId(`card-code-${c}`)).toBeVisible()
       }
       await expect(page.getByTestId('codes-faixa')).toBeVisible()
