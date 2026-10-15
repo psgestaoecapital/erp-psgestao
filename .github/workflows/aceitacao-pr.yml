@@ -88,7 +88,7 @@ jobs:
           # VAGA = banco do pool desta rodada (o operador % não existe nas expressões do Actions, por isso aqui no bash).
           # Com ACEITACAO_VAGAS=1 (padrão) a vaga é sempre 0 → um grupo de concorrência só → serial, como hoje.
           vagas="$VAGAS"; case "$vagas" in ''|*[!0-9]*) vagas=1;; esac; [ "$vagas" -ge 1 ] || vagas=1
-          v=$(( ${{ github.run_number }} % vagas ))
+          v=$(( (${{ github.run_number }} + ${{ github.run_attempt }}) % vagas ))  # re-run (attempt+1) troca de vaga: vaga suja/travada não prende a PR
           # Segurança: só faz sharding numa vaga > 0 se o banco dela estiver provisionado (segredo presente). Senão cai
           # para 0 — nunca deixa dois grupos (vagas) baterem no MESMO banco (a colisão de seed/reset que queremos evitar).
           case "$v" in 1) [ -n "$URL1" ] || v=0;; 2) [ -n "$URL2" ] || v=0;; esac
