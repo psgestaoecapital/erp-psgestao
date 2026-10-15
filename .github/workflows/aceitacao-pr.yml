@@ -252,6 +252,15 @@ jobs:
             echo "::add-mask::$DBURL"
           fi
           echo "TEST_DATABASE_URL=$DBURL" >> "$GITHUB_ENV"
+      # Eng. Chefe 15/10: os scripts de banco da esteira (foto/restauração/reconciliação) vêm SEMPRE da main, nunca do
+      # checkout da PR. PR com base antiga rodava o vaga-snapshot.sh anterior ao fix do 2BP01 (#2652) → restauração falhava
+      # e a vaga ficava SUJA (run 38699144804, #2646). Só scripts/banco-testes/; o código da PR segue intacto.
+      - name: Scripts de banco da esteira = versão da main (não da PR)
+        if: vars.ACEITACAO_BANCO == 'testes'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          git checkout origin/main -- scripts/banco-testes
       # CEO 13/10 19:58: ANTES dos testes, barra banco CONTAMINADO por PR (ledger com versão > a da main = migration de PR
       # não aprovada que sobrou de execução cancelada/fora do fluxo). Nunca testa em banco sujo: se contaminado, falha com
       # "vaga N precisa de recriar" (exit 2) e o Montar recriar limpa. A restauração cirúrgica é um PR seguinte (validável
