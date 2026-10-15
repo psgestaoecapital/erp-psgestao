@@ -161,7 +161,9 @@ while IFS= read -r k; do
     "type "*)     echo "drop type if exists public.\"${k#type }\" cascade;" >> "$txn";;
     "sequence "*) echo "drop sequence if exists public.\"${k#sequence }\" cascade;" >> "$txn";;
     "col "*)      tc=${k#col }; t=${tc%%.*}; c=${tc#*.}; pertence_a_tabela_nova "$t" || echo "alter table if exists public.\"$t\" drop column if exists \"$c\" cascade;" >> "$txn";;
-    "index "*)    echo "drop index if exists public.\"${k#index }\" cascade;" >> "$txn";;
+    # índice que sustenta PK/UNIQUE (ou de tabela nova, derrubada adiante) não se derruba sozinho (2BP01): o DROP da
+    # constraint/tabela já o leva; a verificação antes do COMMIT garante que nada sobrou.
+    "index "*)    echo "do \$d\$ begin drop index if exists public.\"${k#index }\" cascade; exception when dependent_objects_still_exist then null; end \$d\$;" >> "$txn";;
     "constraint "*) cn=${k#constraint }; con=${cn% on *}; tbl=${cn#* on }; pertence_a_tabela_nova "$tbl" || echo "alter table if exists public.\"$tbl\" drop constraint if exists \"$con\";" >> "$txn";;
     "trigger "*)  tn=${k#trigger }; tg=${tn% on *}; tbl=${tn#* on }; pertence_a_tabela_nova "$tbl" || echo "drop trigger if exists \"$tg\" on public.\"$tbl\";" >> "$txn";;
     "policy "*)   pn=${k#policy }; pl=${pn% on *}; tbl=${pn#* on }; pertence_a_tabela_nova "$tbl" || echo "drop policy if exists \"$pl\" on public.\"$tbl\";" >> "$txn";;
