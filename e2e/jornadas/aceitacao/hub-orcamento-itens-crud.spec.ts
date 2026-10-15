@@ -41,7 +41,7 @@ test.describe('Hub — itens do orçamento (CRUD)', () => {
   })
 
   test('adicionar, editar e excluir item: total do cabeçalho confere', { tag: '@pos-migration' }, async () => {
-    const a = await chamar('fn_orcamento_item_adicionar', { p_orcamento_id: orc, p_item: { produto_nome: 'Parede drywall', tipo_item: 'servico', unidade: 'm2', quantidade: '10', preco_unitario: '100', desconto_percentual: '10' } })
+    const a = await chamar('fn_orcamento_item_adicionar', { p_orcamento_id: orc, p_item: { produto_nome: 'Parede drywall', tipo_item: 'produto', unidade: 'm2', quantidade: '10', preco_unitario: '100', desconto_percentual: '10' } })
     expect(a.ok, a.erro).toBe(true)
     expect(Number(a.subtotal_item)).toBe(900)
     expect(await total()).toBe(900)
