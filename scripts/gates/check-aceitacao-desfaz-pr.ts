@@ -16,6 +16,9 @@ ok(/raise exception 'vaga-snapshot: vaga nao voltou a foto/.test(sh), 'verify-be
 ok(/delete from supabase_migrations\.schema_migrations where version not in \(select version from _vaga_snapshot\.led\)/.test(sh), 'restaurar remove do ledger as versions da PR (as que não estão na foto)')
 ok(/VERIFICA[ÇC][ÃA]O FINAL OBRIGAT[ÓO]RIA/.test(sh) && /recriar "verificação final/.test(sh), 'verificação final obrigatória no dado → recriar se a vaga != foto')
 
+ok(/statement_timeout='10min'/.test(sh), 'restauração com statement_timeout próprio de 10min (14/10: 180s estourava)')
+ok(/tentando uma vez mais/.test(sh) && /_vaga_suja\.marca/.test(sh), 'restauração falha → 1 retry; falhando de novo marca a vaga SUJA')
+
 const pr = readFileSync('.github/workflows/aceitacao-pr.yml', 'utf8')
 ok(/git archive origin\/main -- supabase\b/.test(pr), 'aceitacao-pr materializa SÓ a main (config+migrations) para o sync só-da-main')
 ok(/vaga-snapshot\.sh snapshot/.test(pr), 'aceitacao-pr tira a FOTO (snapshot) antes das migrations da PR')
@@ -26,8 +29,12 @@ ok(/vaga-snapshot\.sh restaurar/.test(pr) && /Desfazer migrations da PR[\s\S]{0,
 const idxSnap = pr.indexOf('vaga-snapshot.sh snapshot')
 const idxPrPush = pr.indexOf('aplicando as migrations da PR')
 ok(idxSnap > 0 && idxPrPush > idxSnap, 'a foto é tirada ANTES de aplicar as migrations da PR')
+// foto que falha é FATAL: sem foto não se aplica migration de PR (vaga suja, caso markup 14/10)
+ok(!/vaga-snapshot\.sh snapshot \|\| echo/.test(pr) && /vaga-snapshot\.sh snapshot \|\| \{[^}]*exit 1/.test(pr), 'foto falhou → aborta ANTES de aplicar as migrations da PR (nunca só warning)')
 // Pilar 2 na aceitação (inalterado): nenhum segredo de produção
 ok(!/prod-url\.sh/.test(pr) && !/SUPABASE_ACCESS_TOKEN/.test(pr) && !/SUPABASE_DB_PASSWORD/.test(pr), 'aceitacao-pr continua SEM segredo de produção (Pilar 2)')
 
+ok(/statement_timeout='10min'/.test(sh), 'restauração com statement_timeout de 10 min (14/10: estourava 180s)')
+ok(/tentando uma vez mais/.test(sh) && /marcada SUJA/.test(sh), 'restauração tenta 2× e marca a vaga SUJA se falhar')
 if (falhas) { console.error(`\n${falhas} verificação(ões) falharam — desfazer migrations da PR na vaga`); process.exit(1) }
 console.log('\ncheck-aceitacao-desfaz-pr: ok')
