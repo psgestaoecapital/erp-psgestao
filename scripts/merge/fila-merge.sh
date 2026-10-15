@@ -127,6 +127,10 @@ e2e/jornadas/aceitacao/pauta-p2.spec.ts'}
 pos_specs_falhos() {
   local run=$1 jid
   for jid in $(api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
+    # 1) ANOTAÇÕES do check-run (id do job = id do check-run): não dependem do download do log (que dá 404 com este token).
+    api "repos/$REPO/check-runs/$jid/annotations?per_page=100" --jq '.[] | "\(.path) \(.message) \(.title)"' 2>/dev/null \
+      | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts'
+    # 2) log do job (quando o token consegue baixar): seção final "N failed" em diante.
     api "repos/$REPO/actions/jobs/$jid/logs" 2>/dev/null \
       | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' \
       | sed -n '/^[[:space:]]*[0-9][0-9]* failed/,$p' | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts'

@@ -35,6 +35,8 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  checks: read
 
 jobs:
   fila:
