@@ -22,9 +22,12 @@ export type PrSimulada = {
   aceitacao?: 'success' | 'in_progress' | 'failure'
   autorizada?: boolean         // injeta o comentário MERGE AUTORIZADO do revisor com o patch-id correto do conteúdo
 }
+// Estado do @pos-migration da main (janela da linha-de-base, CEO 15/10). Com conclusion='failure', a fila lê o log do
+// job falho e compara os specs com a linha-de-base (FILA_POS_BASELINE).
+export type PosMain = { conclusion?: 'success' | 'failure' | 'cancelled'; specs?: string[]; headPr?: number }
 export type Rodada = { log: string; escritas: string[]; status: number }
 
-export function comFilaSimulada<T>(fn: (rodar: (prs: PrSimulada[], mainOcupada?: boolean, cota?: number, env?: Record<string, string>) => Rodada) => T): T {
+export function comFilaSimulada<T>(fn: (rodar: (prs: PrSimulada[], mainOcupada?: boolean, cota?: number, env?: Record<string, string>, posMain?: PosMain) => Rodada) => T): T {
   const raiz = mkdtempSync(join(tmpdir(), 'fila-gate-'))
   try {
     const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim()
@@ -60,9 +63,10 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
     chmodSync(join(bin, 'gh'), 0o755)
 
     const R = 'repos/o/r'
-    const rodar = (prs: PrSimulada[], mainOcupada = false, cota = 5000, envExtra: Record<string, string> = {}): Rodada => {
+    const rodar = (prs: PrSimulada[], mainOcupada = false, cota = 5000, envExtra: Record<string, string> = {}, posMain: PosMain = {}): Rodada => {
       rmSync(fx, { recursive: true, force: true }); execFileSync('mkdir', ['-p', fx])
       const put = (p: string, v: unknown) => writeFileSync(join(fx, `${p.replace(/[^A-Za-z0-9]/g, '_')}.json`), JSON.stringify(v))
+      const putRaw = (p: string, text: string) => writeFileSync(join(fx, `${p.replace(/[^A-Za-z0-9]/g, '_')}.json`), text)
       put(`${R}/pulls?state=open&base=main&per_page=100`, prs.map((p, i) => ({
         number: p.n, title: `PR ${p.n}`, draft: !!p.draft, created_at: `2026-10-07T09:0${i}:00Z`, base: { ref: 'main' },
         head: { ref: `pr${p.n}`, sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: (p.labels ?? ['fila-merge']).map((name) => ({ name })) })))
@@ -94,7 +98,16 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
       put(`${R}/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1`,
         { workflow_runs: [{ id: 1, head_sha: 'dead0001', status: mainOcupada ? 'in_progress' : 'completed', conclusion: mainOcupada ? null : vermelho ? 'failure' : 'success' }] })
       put(`${R}/commits/dead0001`, { files: prs.filter((p) => p.migrationCorrige).map((p) => ({ filename: `supabase/migrations/${20261009000000 + p.n}_m.sql` })) })
-      put(`${R}/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=1`, { workflow_runs: [{ id: 2, status: 'completed', conclusion: 'success' }] })
+      const posConc = posMain.conclusion ?? 'success'
+      put(`${R}/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=1`, { workflow_runs: [{ id: 2, head_sha: 'deadpos1', status: 'completed', conclusion: posConc }] })
+      if (posConc === 'failure') {
+        // job falho + log cru (seção "N failed" com os specs) + head e PR do head (a que entrou por último)
+        put(`${R}/actions/runs/2/jobs`, { jobs: [{ id: 9002, conclusion: 'failure' }] })
+        const specs = posMain.specs ?? []
+        putRaw(`${R}/actions/jobs/9002/logs`, `  ${specs.length} failed\n${specs.map((s) => `    [celular] › ${s}:10:7 › x @pos-migration`).join('\n')}\n  197 passed\n`)
+        put(`${R}/actions/runs/2`, { head_sha: 'deadpos1', run_attempt: 1 })
+        put(`${R}/commits/deadpos1/pulls`, [{ number: posMain.headPr ?? prs[0]?.n ?? 1 }])
+      }
       // Padrão: agora DEPOIS da janela da via revisada (CEO 15/10) e sem publicações na última hora, para os gates
       // existentes verem o comportamento normal. Os testes da janela/ritmo passam FILA_AGORA_EPOCH / FILA_PUB_HORA em envExtra.
       const envPadrao = { FILA_AGORA_EPOCH: String(Math.floor(Date.UTC(2026, 9, 20) / 1000)), FILA_PUB_HORA: '0' }
