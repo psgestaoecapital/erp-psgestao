@@ -66,7 +66,6 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
     const rodar = (prs: PrSimulada[], mainOcupada = false, cota = 5000, envExtra: Record<string, string> = {}, posMain: PosMain = {}): Rodada => {
       rmSync(fx, { recursive: true, force: true }); execFileSync('mkdir', ['-p', fx])
       const put = (p: string, v: unknown) => writeFileSync(join(fx, `${p.replace(/[^A-Za-z0-9]/g, '_')}.json`), JSON.stringify(v))
-      const putRaw = (p: string, text: string) => writeFileSync(join(fx, `${p.replace(/[^A-Za-z0-9]/g, '_')}.json`), text)
       put(`${R}/pulls?state=open&base=main&per_page=100`, prs.map((p, i) => ({
         number: p.n, title: `PR ${p.n}`, draft: !!p.draft, created_at: `2026-10-07T09:0${i}:00Z`, base: { ref: 'main' },
         head: { ref: `pr${p.n}`, sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: (p.labels ?? ['fila-merge']).map((name) => ({ name })) })))
@@ -101,10 +100,12 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
       const posConc = posMain.conclusion ?? 'success'
       put(`${R}/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=1`, { workflow_runs: [{ id: 2, head_sha: 'deadpos1', status: 'completed', conclusion: posConc }] })
       if (posConc === 'failure') {
-        // job falho + log cru (seção "N failed" com os specs) + head e PR do head (a que entrou por último)
+        // job falho + ANOTAÇÕES do check-run (id do job == id do check-run) + head e PR do head (a que entrou por último)
         put(`${R}/actions/runs/2/jobs`, { jobs: [{ id: 9002, conclusion: 'failure' }] })
         const specs = posMain.specs ?? []
-        putRaw(`${R}/actions/jobs/9002/logs`, `  ${specs.length} failed\n${specs.map((s) => `    [celular] › ${s}:10:7 › x @pos-migration`).join('\n')}\n  197 passed\n`)
+        const ann: unknown[] = specs.map((s) => ({ annotation_level: 'failure', path: s, title: `[celular] › ${s}:10:7`, message: `  [celular] › ${s}:10:7 › x @pos-migration` }))
+        ann.push({ annotation_level: 'notice', path: '.github', title: '🎭 Playwright Run Summary', message: `  ${specs.length} failed\n${specs.map((s) => `    [celular] › ${s}:10:7 › x`).join('\n')}\n  197 passed` })
+        put(`${R}/check-runs/9002/annotations`, ann)
         put(`${R}/actions/runs/2`, { head_sha: 'deadpos1', run_attempt: 1 })
         put(`${R}/commits/deadpos1/pulls`, [{ number: posMain.headPr ?? prs[0]?.n ?? 1 }])
       }

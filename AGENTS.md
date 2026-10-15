@@ -231,7 +231,9 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   publicando (1 migration/rodada); **spec novo** → bloqueia, `estado_main` comenta **uma vez** na PR que entrou por
   último (head do run @pos) e **propõe reversão** ao Eng. Chefe; `@pos` vermelho **sem spec de teste identificado**
   (falha de infra) → **fail-closed** (bloqueia). Depois do limite, qualquer vermelho volta a bloquear sozinho. Os specs
-  falhos saem do log do job (seção `N failed`), como no `fn_dev_main_teste_set`/quarentena. Gate:
+  falhos saem das **ANOTAÇÕES do check-run** do job falho (`check-runs/<id>/annotations`: campo `path` + título +
+  mensagem das anotações de falha e o resumo `🎭 Playwright Run Summary`) — NÃO baixa o log do job (que dava 404 com o
+  token da integração/PAT); o workflow da fila tem `checks: read` + `actions: read` (CEO 15/10 17:50). Gate:
   `scripts/gates/check-fila-janela-pos-baseline.ts` (base, subconjunto, falha nova, os dois lados da data, fail-closed).
 - **(e) Timeout de 40 min** nos jobs de aceitação (`aceitacao-pr`, `aceitacao-pos-migration`; a espera na fila
   `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
