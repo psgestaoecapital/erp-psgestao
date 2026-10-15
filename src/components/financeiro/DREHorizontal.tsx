@@ -12,7 +12,11 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import Modal from '@/components/ui/Modal'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { fmtMoedaDre, valorComSinalDre, ehNegativoDre, COR_VALOR_NEGATIVO } from '@/lib/formatoMoedaDre'
+
+const ROTA_DRE = '/dashboard/financeiro/dre-consolidado'
+const fmtData = (d: string | null) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '—')
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -153,17 +157,39 @@ export default function DREHorizontal() {
   }, [data, colapsados])
   const totalLinha = useCallback((l: Linha) => colunas.reduce((s, c) => s + (l.valores[c.key] ?? 0), 0), [colunas])
 
+  // Muitos meses no cabeçalho → modo compacto (fonte/espaçamento menores; valor SEMPRE completo — RD do formato de moeda).
+  const compacto = data?.modo === 'mes' && colunas.length >= 8
+  const fsTabela = compacto ? 11 : 12.5
+  const padMes: React.CSSProperties = compacto ? { padding: '6px 7px' } : {}
+  const minColMes = compacto ? 64 : 78
+
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 16px' }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+      {/* Exportar PDF: imprime em PAISAGEM, com TODAS as colunas (sem sticky/scroll travando) e sem cortar. */}
+      <style>{`
+        .dre-printonly { display: none; }
+        @media print {
+          @page { size: A4 landscape; margin: 8mm; }
+          body { background: #fff !important; }
+          .dre-noprint { display: none !important; }
+          .dre-printonly { display: block !important; }
+          #dre-tabela { max-height: none !important; overflow: visible !important; border: none !important; border-radius: 0 !important; }
+          #dre-tabela table { font-size: 8px !important; width: 100% !important; min-width: 0 !important; }
+          #dre-tabela th, #dre-tabela td { padding: 2px 4px !important; position: static !important; box-shadow: none !important; white-space: nowrap; }
+        }
+      `}</style>
+      <div style={{ maxWidth: 'none', margin: '0 auto' }}>
         <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, margin: 0 }}>Financeiro · Grupo</p>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>DRE Consolidado</h1>
-        <p style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
+        <p className="dre-printonly" style={{ fontSize: 12, color: ESP, margin: '0 0 10px' }}>
+          {grupoNome || '—'}{membros.length > 1 ? ` · ${membros.length} CNPJs` : ''} · {data?.modo === 'dia' ? `${MESES_LBL[selIni - 1]}/${ano} (dias)` : `${MESES_LBL[selIni - 1]}–${MESES_LBL[selFim - 1]}/${ano}`} · {regime}
+        </p>
+        <p className="dre-noprint" style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
           Escolha 1 mês (dias no cabeçalho) ou um intervalo (meses no cabeçalho), consolidando os CNPJs do grupo. Competência × Caixa.
         </p>
 
         {/* Controles: grupo + regime + seletor de meses */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
+        <div className="dre-noprint" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
           <div>
             <label style={lbl}>{membros.length > 1 ? 'Grupo' : 'Empresa'}</label>
             <div style={{ ...inp, minWidth: 190, display: 'flex', alignItems: 'center', gap: 6, background: CREAM, fontWeight: 700 }}>
@@ -178,11 +204,12 @@ export default function DREHorizontal() {
           <button type="button" onClick={() => setTudoAberto((v) => !v)} style={btnSec}>
             {tudoAberto ? '▾ Recolher tudo' : '▸ Expandir tudo'}
           </button>
+          <button type="button" onClick={() => window.print()} style={btnSec} title="Exportar em PDF (paisagem, com todos os meses e o total)">⤓ Exportar PDF</button>
           {data && <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>{data.empresas} empresa(s) · {data.modo === 'dia' ? 'diário' : 'mensal'} · {data.regime}</span>}
         </div>
 
         {/* Seletor de ano + meses clicável */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
+        <div className="dre-noprint" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <button type="button" onClick={() => setAno((a) => Math.max(2024, a - 1))} style={navBtn} aria-label="Ano anterior">◂</button>
             <span style={{ fontSize: 15, fontWeight: 800, color: ESP, minWidth: 52, textAlign: 'center' }}>{ano}</span>
@@ -234,12 +261,13 @@ export default function DREHorizontal() {
             Sem DRE para o grupo/período. Ajuste o período ou verifique se o grupo tem empresas com dados (2024+).
           </div>
         ) : (
-          <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
-            {/* w-full: ocupa a largura toda (sem faixa vazia à direita); minWidth garante scroll só quando não couber (RD-41) */}
-            <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%', minWidth: 720 }}>
+          <div id="dre-tabela" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 230px)', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
+            {/* w-full: ocupa a largura toda (sem faixa vazia à direita); minWidth garante scroll só quando não couber (RD-41).
+                maxHeight + overflowY → cabeçalho dos meses (sticky top) e coluna CONTA/TOTAL (sticky left/right) congelam ao rolar. */}
+            <table style={{ borderCollapse: 'collapse', fontSize: fsTabela, width: '100%', minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 3, background: CREAM }}>
+                  <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 4, background: CREAM, boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)' }}>
                     {data.modo === 'dia' ? `Conta · ${MESES_LBL[selIni - 1]}/${ano} (dias)` : 'Conta'}
                   </th>
                   {colunas.map((c) => {
@@ -248,13 +276,13 @@ export default function DREHorizontal() {
                       <th key={c.key}
                         onClick={drillDia ? () => setDiaDrill(c.key) : undefined}
                         title={drillDia ? 'Ver títulos a vencer neste dia' : undefined}
-                        style={{ ...thMes, ...(c.projecao ? projStyle : null), ...(data.modo === 'dia' ? thDiaCol : null), ...(drillDia ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: MUT } : null) }}>
+                        style={{ ...thMes, zIndex: 2, ...(c.projecao ? projStyle : null), ...(data.modo === 'dia' ? thDiaCol : null), ...(compacto ? { ...padMes, minWidth: minColMes } : null), ...(drillDia ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: MUT } : null) }}>
                         {c.label}
                         {c.projecao && <div style={{ fontSize: 8, fontWeight: 700, color: GOLD, letterSpacing: 0.5 }}>PROJ.</div>}
                       </th>
                     )
                   })}
-                  <th style={{ ...thMes, borderLeft: `2px solid ${LINE}`, background: CREAM }}>Total</th>
+                  <th style={{ ...thMes, position: 'sticky', top: 0, right: 0, zIndex: 4, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -278,7 +306,8 @@ export default function DREHorizontal() {
                     : prevSai ? (totalDisplay > 0 ? RED : MUT)
                     : isRes ? (totalDisplay < 0 ? RED : totalDisplay > 0 ? GREEN : MUT)
                     : ESP
-                  const contaDrillavel = isConta && umMes            // folha + 1 mês → drill por pessoa
+                  // conta é drillável em qualquer modo: 1 mês → pessoa × dia (#813); intervalo → LANÇAMENTOS (CEO 14/10)
+                  const contaDrillavel = isConta
                   const aberta = contaDrillavel && contaAberta === l.codigo
                   return (
                     <Fragment key={`${l.kind}-${l.codigo}-${l.ordem}`}>
@@ -286,6 +315,7 @@ export default function DREHorizontal() {
                       <td style={{
                         ...tdConta, position: 'sticky', left: 0, zIndex: 2,
                         background: isRes || aberta ? '#FBF7EF' : '#FFF',
+                        boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)',
                         paddingLeft: 12 + l.nivel * 18, fontWeight: bold ? 700 : 500, color: ESP,
                         cursor: contaDrillavel ? 'pointer' : 'default',
                       }} onClick={contaDrillavel ? () => setContaAberta(aberta ? null : l.codigo) : undefined}>
@@ -310,7 +340,7 @@ export default function DREHorizontal() {
                         const saldoNeg = isPrevisto && l.codigo === 'SALDO' && v != null && v < 0
                         return (
                           <td key={c.key} title={v != null ? cheio(valorComSinalDre(v, l.sinal)) : ''} style={{
-                            ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null),
+                            ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null), ...(compacto ? padMes : null),
                             ...(c.projecao ? { background: isRes ? '#FBF4E6' : '#FDFAF3' } : null),
                             ...(saldoNeg ? { background: '#FCEBEB' } : null),
                             fontWeight: bold ? 700 : 400,
@@ -321,15 +351,21 @@ export default function DREHorizontal() {
                         )
                       })}
                       <td title={cheio(valorComSinalDre(totalDisplay, l.sinal))} style={{
-                        ...tdVal, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
+                        ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
+                        boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)',
                         fontWeight: 700, color: ehNegativoDre(valorComSinalDre(totalDisplay, l.sinal)) ? COR_VALOR_NEGATIVO : corTotal,
                       }}>
                         {fmtMoedaDre(valorComSinalDre(totalDisplay, l.sinal))}
                       </td>
                     </tr>
-                    {/* Drill como LINHAS da MESMA tabela (mesmas colunas do topo) → dia N sempre sob dia N. */}
-                    {aberta && (
+                    {/* Drill: 1 mês → pessoa × dia (mesmas colunas do topo); intervalo → LANÇAMENTOS da conta (3º nível). */}
+                    {aberta && umMes && (
                       <DrillDiario membros={membros} codigo={l.codigo} nome={l.nome} ano={ano} mes={selIni} regime={regime} colunas={colunas} />
+                    )}
+                    {aberta && !umMes && (
+                      <DrillLancamentos membros={membros} nome={l.nome}
+                        codigo={l.codigo} mesIni={`${ano}-${pad2(selIni)}-01`} mesFim={`${ano}-${pad2(selFim)}-01`}
+                        regime={regime} colSpan={colunas.length + 2} />
                     )}
                     </Fragment>
                   )
@@ -339,7 +375,7 @@ export default function DREHorizontal() {
           </div>
         )}
 
-        <p style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
+        <p className="dre-noprint" style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
           Valores em reais completos; despesas e resultados negativos aparecem com “-” em vermelho.
           {data?.regime === 'previsto'
             ? <> <b>Previsto</b> = fluxo de caixa por <b>vencimento</b> (entradas − saídas → saldo acumulado). Não é DRE: previsão não tem lucro/EBITDA, tem <b>quanto vou ter em caixa</b>. Clique num <b>dia</b> (cabeçalho) pra ver os títulos a vencer.</>
@@ -420,23 +456,136 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime, colunas }: {
       {/* cliente/fornecedor × dia — MESMAS colunas do topo */}
       {d.pessoas.map((p, i) => (
         <tr key={p.pessoa_id ?? `x${i}`} style={{ borderTop: `0.5px solid ${LINE}`, background: '#FCFAF5' }}>
-          <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FCFAF5', paddingLeft: labelPad, color: ESP, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }} title={p.pessoa_nome}>
+          <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FCFAF5', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', paddingLeft: labelPad, color: ESP, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }} title={p.pessoa_nome}>
             {p.pessoa_nome}
           </td>
           {colunas.map((c) => {
             const v = p.valores_dia[c.key]
             return <td key={c.key} title={v != null ? cheio(v) : ''} style={{ ...tdVal, ...tdDiaCol, color: ESP }}>{v != null ? abrev(v) : ''}</td>
           })}
-          <td title={cheio(p.total)} style={{ ...tdVal, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 700 }}>{abrev(p.total)}</td>
+          <td title={cheio(p.total)} style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 700 }}>{abrev(p.total)}</td>
         </tr>
       ))}
       {/* subtotal do dia — também dia-alinhado */}
       <tr style={{ borderTop: `1.5px solid ${LINE}`, background: '#FBF7EF' }}>
-        <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF7EF', paddingLeft: labelPad, fontWeight: 700, color: ESP }}>Subtotal do dia</td>
+        <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF7EF', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', paddingLeft: labelPad, fontWeight: 700, color: ESP }}>Subtotal do dia</td>
         {colunas.map((c) => { const s = subtotalDia(c.key); return <td key={c.key} title={s ? cheio(s) : ''} style={{ ...tdVal, ...tdDiaCol, fontWeight: 700, color: ESP }}>{s ? abrev(s) : ''}</td> })}
-        <td style={{ ...tdVal, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 800, color: ESP }}>{abrev(d.total)}</td>
+        <td style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 800, color: ESP }}>{abrev(d.total)}</td>
       </tr>
     </>
+  )
+}
+
+// ── 3º nível (CEO 14/10): LANÇAMENTOS de uma conta no período (só leitura), em qualquer intervalo de meses.
+// Soma dos lançamentos fecha com a linha do DRE (reconciliação); três datas lado a lado; SEM competência em vermelho.
+type LancItem = {
+  id: string; pessoa: string; descricao: string | null; documento: string | null;
+  data_competencia: string | null; data_vencimento: string | null; data_pagamento: string | null;
+  valor: number; status: string | null; sem_competencia: boolean
+}
+type LancResult = {
+  ok: boolean; erro?: string; conta_nome: string; is_receita: boolean; fonte: string; regime: string;
+  total: number; dre_periodo: number | null; lancamentos: LancItem[]; orfaos: LancItem[]
+}
+
+function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSpan }: {
+  membros: string[]; codigo: string; nome: string; mesIni: string; mesFim: string; regime: string; colSpan: number
+}) {
+  const [d, setD] = useState<LancResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading inicial ao abrir o drill (padrão dos demais drills da tela)
+    setLoading(true); setErro(null)
+    void supabase.rpc('fn_psgc_dre_lancamentos', {
+      p_company_ids: membros, p_psgc_codigo: codigo, p_mes_ini: mesIni, p_mes_fim: mesFim, p_regime: regime,
+    }).then(({ data, error }) => {
+      if (!alive) return
+      const r = data as LancResult | null
+      if (error) setErro(error.message)
+      else if (r && r.ok === false) setErro(r.erro || 'erro')
+      else setD(r)
+      setLoading(false)
+    })
+    return () => { alive = false }
+  }, [membros, codigo, mesIni, mesFim, regime])
+
+  const linhaMsg = (texto: string, cor: string) => (
+    <tr><td colSpan={colSpan} style={{ padding: '10px 12px', fontSize: 12, color: cor, background: '#FCFAF5' }}>{texto}</td></tr>
+  )
+  if (loading) return linhaMsg('Carregando lançamentos…', MUT)
+  if (erro) return linhaMsg(erro, RED)
+  if (!d) return linhaMsg('Sem dados.', MUT)
+
+  const rotuloPessoa = d.is_receita ? 'Cliente' : 'Fornecedor'
+  const diff = Math.round((d.total - (d.dre_periodo ?? 0)) * 100) / 100
+  const cel = (x: LancItem) => x.sem_competencia ? '#FCEBEB' : '#FFF'
+
+  const tabela = (itens: LancItem[], vazio: string) => (
+    <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8, background: '#FFF' }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, minWidth: 760 }}>
+        <thead>
+          <tr style={{ background: CREAM }}>
+            <th style={lthL}>{rotuloPessoa}</th>
+            <th style={lthL}>Descrição</th>
+            <th style={lthL}>Documento</th>
+            <th style={lthC}>Competência<AjudaCampo chave="financeiro.dre_consolidado.data_competencia" rota={ROTA_DRE} /></th>
+            <th style={lthC}>Vencimento<AjudaCampo chave="financeiro.dre_consolidado.data_vencimento" rota={ROTA_DRE} /></th>
+            <th style={lthC}>Pagamento<AjudaCampo chave="financeiro.dre_consolidado.data_pagamento" rota={ROTA_DRE} /></th>
+            <th style={lthR}>Valor</th>
+            <th style={lthL}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {itens.length === 0 ? (
+            <tr><td colSpan={8} style={{ padding: '10px 12px', color: MUT }}>{vazio}</td></tr>
+          ) : itens.map((x) => (
+            <tr key={x.id} style={{ borderTop: `0.5px solid ${LINE}`, background: cel(x) }}>
+              <td style={ltd} title={x.pessoa}>{x.pessoa}</td>
+              <td style={ltd} title={x.descricao ?? ''}>{x.descricao ?? '—'}</td>
+              <td style={ltd}>{x.documento ?? '—'}</td>
+              <td style={ltdC}>
+                {x.sem_competencia
+                  ? <span style={{ color: RED, fontWeight: 700 }} title="Lançamento sem data de competência — distorce o resultado do período">sem competência</span>
+                  : fmtData(x.data_competencia)}
+              </td>
+              <td style={ltdC}>{fmtData(x.data_vencimento)}</td>
+              <td style={ltdC}>{fmtData(x.data_pagamento)}</td>
+              <td style={{ ...ltd, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: 600 }}>{cheio(x.valor)}</td>
+              <td style={ltd}>{x.status ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+
+  return (
+    <tr>
+      <td colSpan={colSpan} style={{ padding: 0, background: '#FCFAF5', borderTop: `0.5px solid ${LINE}` }}>
+        <div style={{ padding: '10px 14px' }}>
+          <div style={{ fontSize: 12, color: MUT, marginBottom: 8 }}>
+            Lançamentos de <b style={{ color: ESP }}>{nome}</b> · {d.lancamentos.length} título(s) · total <b style={{ color: ESP }}>{cheio(d.total)}</b>
+            <AjudaCampo chave="financeiro.dre_consolidado.drill_lancamentos" rota={ROTA_DRE} />
+            {Math.abs(diff) < 0.01
+              ? <span style={{ color: GREEN, marginLeft: 6, fontWeight: 700 }}>✓ fecha com o DRE</span>
+              : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ difere do DRE ({cheio(d.dre_periodo ?? 0)}) em {cheio(diff)} — há título fora do de-para</span>}
+          </div>
+          {tabela(d.lancamentos, 'Nenhum lançamento desta conta no período.')}
+          {d.orfaos.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: RED, marginBottom: 4 }}>
+                ⚠ {d.orfaos.length} lançamento(s) SEM data de competência e sem emissão (não entram em nenhum mês — revise)
+                <AjudaCampo chave="financeiro.dre_consolidado.sem_competencia" rota={ROTA_DRE} />
+              </div>
+              {tabela(d.orfaos, '')}
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
   )
 }
 
@@ -532,5 +681,11 @@ const tdConta: React.CSSProperties = { padding: '8px 12px', whiteSpace: 'nowrap'
 const tdVal: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
 const tdDiaCol: React.CSSProperties = { padding: '8px 7px', minWidth: 46 }
 const caret: React.CSSProperties = { width: 16, marginRight: 2, background: 'transparent', border: 'none', cursor: 'pointer', color: GOLD, fontSize: 11, padding: 0 }
+// 3º nível (lançamentos): tabela própria dentro do colSpan — rola no celular; não usa as colunas de mês do topo.
+const lthL: React.CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT, whiteSpace: 'nowrap' }
+const lthC: React.CSSProperties = { ...lthL, textAlign: 'center' }
+const lthR: React.CSSProperties = { ...lthL, textAlign: 'right' }
+const ltd: React.CSSProperties = { padding: '7px 10px', color: ESP, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const ltdC: React.CSSProperties = { padding: '7px 10px', color: ESP, textAlign: 'center', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }
 // Parte C (#867) + alinhamento do drill: o detalhe (cliente/fornecedor × dia) usa as MESMAS colunas
 // da tabela do topo (tdConta/tdVal/tdDiaCol) — régua de dias só no topo, e cada dia N sob o dia N.
