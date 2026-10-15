@@ -2,7 +2,7 @@
 // Na "Construtora Modelo - DEMO" (robô só em demonstração), COMO O ROBÔ (as mesmas RPCs da tela):
 //   1) adicionar/editar/excluir item → subtotal do item e total do cabeçalho conferem a cada passo;
 //   2) escopo congelado → as três operações recusam com mensagem clara e o total não muda;
-//   3) fn_obra_criar_de_orcamento continua devolvendo (ou não) obra sem erro com itens presentes (sem regressão).
+//   3) aprovar o orçamento (como a tela) dispara o gatilho que cria a obra sem erro, com itens presentes (sem regressão).
 // Limpeza: o orçamento de teste é removido ao final (só o criado aqui, pela marca no número).
 
 import { test, expect } from '../../support/fixtures'
@@ -89,9 +89,10 @@ test.describe('Hub — itens do orçamento (CRUD)', () => {
     expect(l.editavel).toBe(false)
   })
 
-  test('fn_obra_criar_de_orcamento segue funcionando com itens (sem regressão)', { tag: '@pos-migration' }, async () => {
-    const r = await rpcComoRobo('fn_obra_criar_de_orcamento', { p_orcamento_id: orc })
-    expect(r.status, r.texto).toBe(200)
+  test('aprovar o orçamento com itens segue gerando obra pelo gatilho (sem regressão)', { tag: '@pos-migration' }, async () => {
+    // Como a tela: APROVAR o orçamento. A obra nasce pelo gatilho trg_orcamento_gera_obra
+    // (fn_obra_criar_de_orcamento não é chamável pelo logado — sem GRANT, de propósito).
+    await dbPatch('erp_orcamentos', `id=eq.${orc}`, { escopo_congelado_em: null, status: 'aprovado' })
     const obras = await dbSelect<{ id: string }>('projetos_obras', `orcamento_id=eq.${orc}&select=id`)
     for (const o of obras) await dbDelete('projetos_obras', `id=eq.${o.id}&orcamento_id=eq.${orc}`).catch(() => {})
     const [o] = await dbSelect<{ id: string }>('erp_orcamentos_itens', `orcamento_id=eq.${orc}&select=id&limit=1`)
