@@ -496,6 +496,14 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                   <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Data</div>
                 </div>
               )}
+              {/* #2369: pedido do jurídico da Frioeste — termo de compromisso + assinatura do supervisor e do segurança do trabalho */}
+              <div data-testid="ciencia-termo" style={{ marginTop: 14, fontSize: 11.5, color: C.espresso, lineHeight: 1.5 }}>
+                O colaborador declara que se compromete a usufruir das pausas no local adequado disponibilizado pela empresa, e o supervisor da área fiscalizará o cumprimento das pausas.
+              </div>
+              <div data-testid="ciencia-assinaturas-resp" style={{ display: 'flex', justifyContent: 'space-between', gap: 20, marginTop: 28 }}>
+                <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do supervisor</div>
+                <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do segurança do trabalho</div>
+              </div>
             </div>
           </div>
         )}
