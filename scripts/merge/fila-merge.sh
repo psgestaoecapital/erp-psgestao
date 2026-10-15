@@ -122,15 +122,16 @@ pos_baseline_ativa() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d
 # 01a39b72, 2026-10-15T13:19:51Z). Provado no log do job falho (RD-38). FILA_POS_BASELINE sobrescreve (para o gate).
 POS_BASELINE_496=${FILA_POS_BASELINE:-'e2e/jornadas/aceitacao/atak-status-equipe-rls.spec.ts
 e2e/jornadas/aceitacao/pauta-p2.spec.ts'}
-# specs que falharam num run @pos: lê o log do(s) job(s) falho(s) e, da seção final "N failed" em diante, pega os
-# e2e/.../*.spec.ts (mesmo sinal do fn_dev_main_teste_set e da quarentena). Um por linha, ordenado e único.
+# specs que falharam num run @pos: pelas ANOTAÇÕES do check-run do job falho (CEO 15/10 17:50). O id do job É o id do
+# check-run; `check-runs/<id>/annotations` NÃO baixa o log do job (que dá 404 com o token da integração/PAT). Pega os
+# e2e/.../*.spec.ts das anotações de FALHA (campo path + título + mensagem) e do resumo "🎭 Playwright Run Summary".
+# Um por linha, ordenado e único.
 pos_specs_falhos() {
   local run=$1 jid
   for jid in $(api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
-    api "repos/$REPO/actions/jobs/$jid/logs" 2>/dev/null \
-      | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' \
-      | sed -n '/^[[:space:]]*[0-9][0-9]* failed/,$p' | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts'
-  done | sort -u
+    api "repos/$REPO/check-runs/$jid/annotations" --paginate \
+      --jq '.[] | select(.annotation_level == "failure" or ((.title // "") | test("Playwright Run Summary"))) | (.path // ""), (.title // ""), (.message // "")' 2>/dev/null
+  done | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts' | sort -u
 }
 # Escala uma falha NOVA do @pos (dentro da janela): comenta UMA vez na PR do head do run @pos (a que entrou por último) e
 # propõe reversão ao Eng. Chefe. Sem PR associada, só loga (o Eng. Chefe lê o resumo da fila).
