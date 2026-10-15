@@ -93,9 +93,13 @@ export default function MarcarPagoModal({
     const params = tipo === 'pagar'
       ? { p_pagar_id: itemId, p_data_pagamento: dataPag, p_conta_bancaria_id: contaId, p_forma_pagamento: forma, p_valor_pago: Number(valorPago) }
       : { p_receber_id: itemId, p_data_pagamento: dataPag, p_conta_bancaria_id: contaId, p_forma_pagamento: forma, p_valor_pago: Number(valorPago) }
-    const { error } = await supabase.rpc(rpcName, params)
+    const { data, error } = await supabase.rpc(rpcName, params)
     setLoading(false)
     if (error) { setErro(error.message); return }
+    // a função devolve { sucesso:false, erro } sem lançar exceção: sem esta checagem a baixa recusada
+    // (ex.: centavos que ultrapassam o título) fechava o modal como se tivesse dado certo (chamado #2688)
+    const r = data as { sucesso?: boolean; erro?: string } | null
+    if (r && r.sucesso === false) { setErro(r.erro || 'Não foi possível registrar a baixa.'); return }
     onSucesso()
     onClose()
   }
@@ -133,6 +137,11 @@ export default function MarcarPagoModal({
             <input type="date" value={dataPag} onChange={(e) => setDataPag(e.target.value)} style={inputStyle} />
           </Field>
 
+          {contas.length === 0 && (
+            <div style={{ fontSize: 12, color: '#9B2C2C' }}>
+              Nenhuma conta bancária ativa encontrada para esta empresa. Cadastre ou ative uma conta em Financeiro › Bancos para registrar a baixa.
+            </div>
+          )}
           <Field label="Conta bancária">
             <select value={contaId} onChange={(e) => setContaId(e.target.value)} style={inputStyle}>
               {contas.length === 0 && <option value="">Sem contas cadastradas</option>}
