@@ -1,7 +1,7 @@
 // #933 (Gean) · tela de NF-es emitidas. A NF-e de devolução de compra não tem título/pedido/OS, então cada
 // "Corrigir e reenviar" virava uma linha nova (caso real: ref ...225833 = 2 recusas + NF 646 em 3 linhas).
 // Agora as tentativas sem vínculo agrupam pela chave referenciada até a 1ª nota não recusada; a tela mostra a
-// coluna "NF ref." e a timeline do grupo traz as recusas. Depende da migration 20261012100520 → @pos-migration.
+// coluna "NF ref." e a timeline do grupo traz as recusas. Depende da migration 20261016220220 → @pos-migration.
 // Só na Demonstração Comércio (is_demo); notas de homologação inseridas aqui e apagadas no fim.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
