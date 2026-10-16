@@ -17,6 +17,7 @@ import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { Package, PencilLine, Search, Wrench } from 'lucide-react'
 
 interface OS {
   id: string
@@ -247,7 +248,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   async function aprovarOrcamento() {
     if (!os || itensPendentes.length === 0) return
     const semPreco = itensPendentes.filter((it) => (it.subtotal ?? it.preco) == null || Number(it.subtotal ?? it.preco) <= 0).length
-    const aviso = semPreco > 0 ? `\n\n⚠️ ${semPreco === 1 ? '1 item está' : `${semPreco} itens estão`} sem preço e entra${semPreco === 1 ? '' : 'm'} com R$ 0,00.` : ''
+    const aviso = semPreco > 0 ? `\n\nAtenção: ${semPreco === 1 ? '1 item está' : `${semPreco} itens estão`} sem preço e entra${semPreco === 1 ? '' : 'm'} com R$ 0,00.` : ''
     if (!window.confirm(`Aprovar o orçamento da OS ${os.numero ?? ''} (${itensPendentes.length} ${itensPendentes.length === 1 ? 'item' : 'itens'})? A OS passa para "Aprovada".${aviso}`)) return
     setAprovandoOrc(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_oficina_orcamento_registrar', {
@@ -895,7 +896,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <button type="button" data-testid="os-editar-itens" onClick={() => { setErro(null); setEdItens(edicaoInicialOS(itensDiag)) }}
                   style={{ fontSize: 12, fontWeight: 700, color: C.gold, background: 'none', border: `1px solid ${C.gold}`, borderRadius: 8, padding: '6px 12px', minHeight: 36, cursor: 'pointer' }}>
-                  ✏️ {itensDiag.length > 0 ? 'Editar itens e preços' : 'Incluir itens'}
+                  <PencilLine size={14} strokeWidth={1.5} style={{ verticalAlign: '-2px', marginRight: 4 }} />{itensDiag.length > 0 ? 'Editar itens e preços' : 'Incluir itens'}
                 </button>
                 <AjudaCampo chave="oficina.os.editar_itens" />
               </span>
@@ -914,8 +915,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                 </div>
               )}
               {edItens.map((e, i) => (
-                <div key={e.chave} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span title={e.tipo === 'servico' ? 'Serviço' : 'Peça'} style={{ width: 16 }}>{e.tipo === 'servico' ? '🔧' : '📦'}</span>
+                // RD-95: o "?" de cada coluna (descrição, qtd, preço) fica no cabeçalho logo acima
+                <div key={e.chave} data-ajuda="oficina.os.item_descricao oficina.os.item_quantidade oficina.os.item_preco" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span title={e.tipo === 'servico' ? 'Serviço' : 'Peça'} style={{ width: 16, display: 'inline-flex', color: C.espressoL }}>{e.tipo === 'servico' ? <Wrench size={14} strokeWidth={1.5} /> : <Package size={14} strokeWidth={1.5} />}</span>
                   <input data-testid={`os-item-ed-descricao-${i}`} value={e.descricao} onChange={(ev) => mudarItemOS(e.chave, 'descricao', ev.target.value)}
                     placeholder={e.tipo === 'servico' ? 'Ex.: Troca de embreagem' : 'Ex.: Filtro de óleo'}
                     style={{ flex: 1, minWidth: 0, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
@@ -938,7 +940,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                   {salvandoItens ? 'Salvando…' : 'Salvar itens'}
                 </button>
               </div>
-              <div style={{ fontSize: 10.5, color: C.espressoL }}>Peça do estoque: inclua como texto e ligue depois no botão 🔍 estoque. Para remover um item, use a tela de Diagnóstico.</div>
+              <div style={{ fontSize: 10.5, color: C.espressoL }}>Peça do estoque: inclua como texto e ligue depois no botão <Search size={11} strokeWidth={1.5} style={{ verticalAlign: '-1px' }} /> estoque. Para remover um item, use a tela de Diagnóstico.</div>
             </div>
           )}
           {edItens === null && itensDiag.map((it, i) => {

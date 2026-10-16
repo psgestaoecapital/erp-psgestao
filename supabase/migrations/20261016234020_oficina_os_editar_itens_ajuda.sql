@@ -11,7 +11,7 @@ FROM (VALUES
    'Itens já aprovados ou recusados pelo cliente não mudam aqui. Para remover um item, use a tela de Diagnóstico.', 2),
   ('oficina.os.item_descricao', 'Descrição do item',
    'O nome da peça ou do serviço como o cliente vai ler no orçamento.',
-   'Aparece no orçamento, no PDF e na nota. Peça digitada pode ser ligada ao estoque depois, no botão 🔍 estoque.',
+   'Aparece no orçamento, no PDF e na nota. Peça digitada pode ser ligada ao estoque depois, no botão "estoque" da lista de itens.',
    'Filtro de óleo do motor · Troca de embreagem.',
    'Deixar a descrição em branco: a linha vazia é ignorada ao salvar.', 3),
   ('oficina.os.item_quantidade', 'Quantidade',
