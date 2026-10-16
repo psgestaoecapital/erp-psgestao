@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { X, Save, Loader2, Copy } from 'lucide-react'
+import MarkupProdutoCampo from '@/components/precificacao/MarkupProdutoCampo'
 
 export interface Produto {
   id: string
@@ -317,6 +318,8 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
                   ? (((parseFloat(precoVenda) - parseFloat(precoCusto)) / parseFloat(precoVenda)) * 100).toFixed(1) + '%'
                   : '—'}
               </p>
+              {/* markup próprio do produto (sem ele, vale o geral da empresa) — só para produto já cadastrado (#2710) */}
+              {produto?.id && <MarkupProdutoCampo companyId={companyId} produtoId={produto.id} custo={parseFloat(precoCusto) || null} />}
             </>
           )}
 
