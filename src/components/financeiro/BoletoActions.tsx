@@ -20,6 +20,8 @@
 
 import { useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { baixarBlob } from '@/lib/download/baixarArquivo'
+import { nomeDoContentDisposition } from '@/lib/download/nomeArquivo'
 
 export type ClienteContato = {
   cpfCnpj: string | null
@@ -137,7 +139,8 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
   }
   const abrirFallback = (motivo: string) => { setFallbackMotivo(motivo); setFallbackAberto(true) }
 
-  const abrirPdfBoleto = async () => {
+  // baixar=true salva o arquivo com o nome que a rota manda (#2957: Cliente_DDMMAAAA.pdf); senão abre numa aba.
+  const abrirPdfBoleto = async (baixar = false) => {
     if (imprimindo) return
     setImprimindo(true)
     try {
@@ -155,6 +158,11 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
         return
       }
       const blob = await r.blob()
+      if (baixar) {
+        baixarBlob(blob, nomeDoContentDisposition(r.headers.get('content-disposition')) ?? 'boleto.pdf')
+        if (!boleto.url) onSucesso?.()
+        return
+      }
       const url = URL.createObjectURL(blob)
       // Abre numa aba nova; revoga depois pra liberar memoria.
       const w = window.open(url, '_blank', 'noopener,noreferrer')
@@ -330,11 +338,19 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
         ✓ Boleto gerado{boleto.nossoNumero ? ` · ${boleto.nossoNumero}` : ''}
       </span>
       <button type="button"
-        onClick={abrirPdfBoleto}
+        onClick={() => abrirPdfBoleto()}
         disabled={imprimindo}
         title="Imprimir / ver boleto (PDF gerado pelo PS Gestao)"
         style={{ ...btnSec, opacity: imprimindo ? 0.6 : 1, cursor: imprimindo ? 'wait' : 'pointer' }}>
         {imprimindo ? 'Abrindo PDF...' : 'Imprimir'}
+      </button>
+      <button type="button"
+        onClick={() => abrirPdfBoleto(true)}
+        disabled={imprimindo}
+        data-testid="boleto-baixar-pdf"
+        title="Baixar o PDF do boleto com o nome do cliente e o vencimento (ex.: FC_Pisos_30102026.pdf)"
+        style={{ ...btnSec, opacity: imprimindo ? 0.6 : 1, cursor: imprimindo ? 'wait' : 'pointer' }}>
+        Baixar
       </button>
       <button type="button" onClick={enviarWhats}
         title={telefoneE164(cliente) ? 'Enviar pelo WhatsApp' : 'Cliente sem telefone — escolher contato no WhatsApp'}

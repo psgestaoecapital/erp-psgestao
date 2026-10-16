@@ -161,6 +161,24 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [statusSel, setStatusSel] = useState<StatusOpt[]>([])   // [] = todos; combina Vencidos + Pagas etc.
   const toggleStatus = (s: StatusOpt) => setStatusSel((arr) => (arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]))
   const [categoria, setCategoria] = useState('')
+  // #1939 · nome da categoria (plano de contas) ao lado do código, no filtro, na coluna e na busca
+  const [nomeCategoria, setNomeCategoria] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!companyId) return
+    let alive = true
+    supabase
+      .from('erp_plano_contas')
+      .select('codigo, descricao')
+      .eq('company_id', companyId)
+      .then(({ data: pc }) => {
+        if (!alive || !pc) return
+        const m: Record<string, string> = {}
+        for (const c of pc as { codigo: string; descricao: string | null }[]) if (c.codigo && c.descricao) m[c.codigo] = c.descricao
+        setNomeCategoria(m)
+      })
+    return () => { alive = false }
+  }, [companyId])
+  const rotuloCategoria = (c: string | null | undefined) => (c ? (nomeCategoria[c] ? `${c} · ${nomeCategoria[c]}` : c) : '')
   const [busca, setBusca] = useState('')
   // RD-41 · filtros por coluna (client-side, sobre as linhas já carregadas do período)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
@@ -433,7 +451,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       if (q) {
         // busca AMPLA (acento-insensitive): nome, descrição, nº do título, forma, categoria e valor;
         // + CPF/CNPJ do cadastro normalizado (só dígitos, ≥3) — acha com OU sem pontuação.
-        const hay = norm(`${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''} ${r.forma_pagamento ?? ''} ${r.categoria ?? ''} ${fmtBRL(r.valor_documento)} ${r.valor_documento}`)
+        const hay = norm(`${r.descricao} ${r.nome_pessoa ?? ''} ${r.numero_documento ?? ''} ${r.forma_pagamento ?? ''} ${rotuloCategoria(r.categoria)} ${fmtBRL(r.valor_documento)} ${r.valor_documento}`)
         const docDigitos = (r.documento ?? '').replace(/\D/g, '')
         const achouDoc = qDigitos.length >= 3 && docDigitos.includes(qDigitos)
         if (!hay.includes(qn) && !achouDoc) return false
@@ -452,7 +470,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       })
     }
     return filtrado
-  }, [data, busca, categoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax, soBloqueadas, bloqueioMap])
+  }, [data, busca, categoria, nomeCategoria, contasSel, contaMap, pagSort, fPessoa, fForma, fValorMin, fValorMax, soBloqueadas, bloqueioMap])
 
   // GE-CARDS-FILTRO (bug André): os KPIs do topo vinham do fn_ge_listagem_v2 (período inteiro, SEM os
   // filtros client-side de categoria/conta/busca/coluna) — enquanto a LISTA já era filtrada, então os
@@ -1044,7 +1062,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
           </select>
         </Campo>
@@ -1331,13 +1349,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                           {/* Camada1/Fatia2 item 4: resumo (categoria · fornecedor · forma) na linha */}
                           {(r.categoria || r.nome_pessoa || r.forma_pagamento) && (
                             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)' }}>
-                              {[r.categoria, r.nome_pessoa].filter(Boolean).join(' · ')}
+                              {[rotuloCategoria(r.categoria), r.nome_pessoa].filter(Boolean).join(' · ')}
                               {r.forma_pagamento && <span style={{ marginLeft: (r.categoria || r.nome_pessoa) ? 6 : 0 }}>💳 {r.forma_pagamento}</span>}
                             </div>
                           )}
                         </Td>
                         <Td>{r.nome_pessoa || '—'}</Td>
-                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{r.categoria || '—'}</span></Td>
+                        <Td><span style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>{rotuloCategoria(r.categoria) || '—'}</span></Td>
                         <Td>{fmtData(r.data_vencimento)}</Td>
                         <Td>{r.data_pagamento ? fmtData(r.data_pagamento) : '—'}</Td>
                         <Td align="right">

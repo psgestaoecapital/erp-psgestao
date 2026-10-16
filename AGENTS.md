@@ -224,6 +224,27 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   revisor para o patch-id atual. **Ritmo:** no máximo `RITMO_MAX_HORA` (padrão **4**) publicações por hora.
   **Prioridade** (`FILA_PRIORIDADE`): Hub (`#2569 #2508 #2298`) e FC/FCR (`#2100`) na frente; o resto segue a ordem de
   entrada. Gate: `scripts/gates/check-fila-janela-aceitacao.ts` (prova os dois lados da data, o ritmo e a prioridade).
+  **Janela temporária do @pos-migration por linha-de-base (CEO 15/10, com o CEO presente):** até a MESMA data-limite
+  (`JANELA_POS_BASELINE_FIM='2026-10-17T14:00:00Z'`), o `@pos-migration` da main **VERMELHO** só **bloqueia a PR COM
+  migration** se houver falha **NOVA** — um spec fora da **linha-de-base** (`POS_BASELINE_496`: os specs que falharam no
+  **run #496** da aceitação @pos, às 10:19 BRT de 15/10, antes das PRs do Hub). Mesma lista ou **subconjunto** → segue
+  publicando (1 migration/rodada); **spec novo** → bloqueia, `estado_main` comenta **uma vez** na PR que entrou por
+  último (head do run @pos) e **propõe reversão** ao Eng. Chefe; `@pos` vermelho **sem spec de teste identificado**
+  (falha de infra) → **fail-closed** (bloqueia). Depois do limite, qualquer vermelho volta a bloquear sozinho. Os specs
+  falhos saem das **ANOTAÇÕES do check-run** do job falho (`check-runs/<id>/annotations`: campo `path` + título +
+  mensagem das anotações de falha e o resumo `🎭 Playwright Run Summary`) — NÃO baixa o log do job (que dava 404 com o
+  token da integração/PAT); o workflow da fila tem `checks: read` + `actions: read` (CEO 15/10 17:50). Gate:
+  `scripts/gates/check-fila-janela-pos-baseline.ts` (base, subconjunto, falha nova, os dois lados da data, fail-closed).
+  **Regra do teste próprio (CEO 16/10, com o CEO presente):** DENTRO da janela da aceitação revisada, se a aceitação da
+  PR está **vermelha**, a fila lê os specs que falharam pelas **ANOTAÇÕES do check-run** (técnica da #2677) e cruza com
+  os `e2e/**/*.spec.ts` que a PR **criou ou alterou**. Se um spec que falhou é da **PRÓPRIA PR** → **NÃO publica**
+  (`vermelho:spec da própria PR falhando: <spec>`, comenta uma vez); falhas em specs que a PR **não tocou** seguem
+  **informativas**. (A #2506 entrou pela janela com o próprio spec vermelho e só foi pega pelo @pos #527, travando 24
+  PRs com migration.) **Acionamento automático do autor:** numa **falha NOVA** do `@pos` (fora da linha-de-base, #2667),
+  a fila identifica o Code autor da PR do head (`erp_dev_entrega.code`) e o **aciona** com o spec e o run via
+  `fn_agente_mensagem_enviar` (de=`eng_chefe`, tipo `tarefa`, `enviado_por=fila-merge`; conexão de serviço — o Code não
+  chama essa função sozinho), sem esperar triagem; uma vez por run (mesma marca do comentário). Gate:
+  `scripts/gates/check-fila-teste-proprio.ts`.
 - **(e) Timeout de 40 min** nos jobs de aceitação (`aceitacao-pr`, `aceitacao-pos-migration`; a espera na fila
   `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
   **executando** há mais de 45 min; job esperando a vez na fila nunca é cancelado.

@@ -23,7 +23,7 @@ const C = {
 }
 
 interface Pausa { de: string | null; ate: string | null; min: number | null; classe: string | null; fim_origem: string | null; origem_label?: string | null; fim_original?: string | null; sem_saida?: boolean | null }
-interface Dia { data: string; status: string; jornada?: { inicio?: string; fim?: string } | null; pausas: Pausa[]; ajuste?: AjusteDia | null }
+interface Dia { data: string; status: string; jornada?: { inicio?: string; fim?: string } | null; almoco?: { inicio?: string; fim?: string; min?: number } | null; pausas: Pausa[]; ajuste?: AjusteDia | null }
 interface Viz {
   token_id: string; company_id: string
   colaborador: { nome?: string; cpf?: string; matricula?: string; pis?: string; funcao?: string; setor?: string } | null
@@ -152,7 +152,7 @@ export default function SignNr36Page() {
         <div key={i} style={{ ...card, padding: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
             <strong style={{ color: C.espresso, fontSize: 13 }}>{fmtData(d.data)}</strong>
-            <span style={{ fontSize: 11, color: C.muted }}>{d.jornada?.inicio && d.jornada?.fim ? `jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span>
+            <span style={{ fontSize: 11, color: C.muted }}>{d.jornada?.inicio && d.jornada?.fim ? `jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}{d.almoco ? `${d.jornada?.inicio ? ' · ' : ''}almoço ${d.almoco.inicio && d.almoco.fim ? `${d.almoco.inicio}–${d.almoco.fim}` : ''}${d.almoco.min != null ? ` (${d.almoco.min} min)` : ''}` : ''}</span>
           </div>
           {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{notaDiaDoc(d.ajuste)}</div>}
           {(d.pausas || []).length === 0 ? <div style={{ fontSize: 12, color: C.muted, fontStyle: 'italic' }}>Nenhuma pausa registrada neste dia.</div> :
