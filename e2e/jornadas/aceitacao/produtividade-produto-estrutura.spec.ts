@@ -1,5 +1,5 @@
 // Produtividade Onda 2 (banco): catálogo genérico de produtos + estrutura de desmontagem, chamados COMO USUÁRIO (RD-82)
-// pelas mesmas RPCs da tela. Migration 20261016150030 → @pos-migration. Roda na DEMO Indústria (SST); nada é apagado (arquiva).
+// pelas mesmas RPCs da tela. Migration 20261016161010 → @pos-migration. Roda na DEMO Indústria (SST); nada é apagado (arquiva).
 // Cobre: cadastro manual, editar/arquivar/reativar, ligação origem→saída, ciclo recusado, rendimento zero recusado,
 // aviso de soma >100%, "Colar lista" (prévia não grava; linha inválida avisada; grava como rascunho) e isolamento por empresa.
 
