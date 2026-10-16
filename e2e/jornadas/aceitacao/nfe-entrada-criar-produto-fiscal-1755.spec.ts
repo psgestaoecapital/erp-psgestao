@@ -1,7 +1,7 @@
 // #1755 (Gean) · "Criar produto" a partir do item da NF de entrada não levava os dados fiscais da nota.
 // Em 07/10, na Gean: 149 produtos criados de item de NF; os 141 itens com CEST na nota ficaram SEM CEST no cadastro,
 // 89 de origem estrangeira viraram origem 0, e nenhum ficou com CFOP/unidade de compra.
-// Migration 20261012112620 · @pos-migration. Na demonstração Comércio (GE): o teste cria uma NF recebida de mentira
+// Migration 20261016150120 · @pos-migration. Na demonstração Comércio (GE): o teste cria uma NF recebida de mentira
 // com 2 itens, chama a MESMA RPC do botão "Criar produto" COMO O ROBÔ e confere o cadastro que nasceu.
 // Limpeza: os produtos ficam inativos e a NF de teste é apagada (só a que o próprio teste criou).
 
