@@ -29,7 +29,7 @@ for (const [arq, chave] of [
   ok(s.includes('filtrarOS(lista, buscaOS).map('), `${arq} lista as OS pela busca`)
   ok(s.includes(`<AjudaCampo chave="${chave}"`), `${arq} tem o "?" da busca (${chave})`)
 }
-const mig = readFileSync('supabase/migrations/20261015174020_oficina_busca_os_ajuda.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261016191020_oficina_busca_os_ajuda.sql', 'utf8')
 ok(mig.includes("'oficina.diagnostico.busca'") && mig.includes("'oficina.aprovacao.busca'"), 'migration cria as duas chaves de ajuda')
 
 if (falhas > 0) { console.error(`\n[check-oficina-busca-os] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
