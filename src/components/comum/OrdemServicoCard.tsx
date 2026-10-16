@@ -15,6 +15,7 @@ import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
 import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
+import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 interface OS {
@@ -160,6 +161,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [substTermo, setSubstTermo] = useState('')
   const [substResult, setSubstResult] = useState<Array<{ id: string; nome: string; codigo: string | null; estoque_atual: number | null }>>([])
   const [substindo, setSubstindo] = useState(false)
+  // #135 (Triches) · etapa 2: incluir/editar itens, quantidade e preço na própria OS (atendimento centralizado)
+  const [edItens, setEdItens] = useState<EdicaoItemOS[] | null>(null)
+  const [salvandoItens, setSalvandoItens] = useState(false)
   // OS avulsa · banco da cobrança escolhido no faturamento (OS via pedido usa a conta das parcelas, #1211)
   const [receitaAberta, setReceitaAberta] = useState(false)   // #20 §2.4 · form de receita a partir da OS
   // #108 · desconto na OS (ponto único, antes de faturar): entrada em R$ OU %, grava sempre em valor.
@@ -255,6 +259,34 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     const r = data as { ok?: boolean; erro?: string; itens_aprovados?: number; itens_total?: number; valor_total?: number } | null
     if (error || r?.ok === false) { setErro(error?.message ?? (r?.erro === 'sem_permissao_valor' ? 'Seu perfil não pode aprovar orçamento (valor).' : r?.erro ?? 'Falha ao aprovar o orçamento')); return }
     flash(`Orçamento APROVADO · ${r?.itens_aprovados ?? 0}/${r?.itens_total ?? 0} itens · ${fmtBRL(Number(r?.valor_total ?? 0))}.`)
+    await carregar()
+  }
+
+  // #135 (Triches) · etapa 2: grava pela MESMA RPC do Diagnóstico (fn_oficina_diagnostico_salvar). Relê o diagnóstico
+  // na hora de salvar e devolve TODOS os itens atuais (a RPC apaga o que não vier) + texto e km como estão.
+  const editarItens = podeEditarItensNaOS(oficina.modelo, oficina.podePreco, String(os?.status ?? ''))
+  function addItemOS(tipo: 'peca' | 'servico') {
+    setEdItens((p) => [...(p ?? []), { id: null, chave: `novo-${Date.now()}-${(p ?? []).length}`, tipo, descricao: '', quantidade: '1', preco: '' }])
+  }
+  function mudarItemOS(chave: string, campo: 'descricao' | 'quantidade' | 'preco', valor: string) {
+    setEdItens((p) => (p ?? []).map((e) => (e.chave === chave ? { ...e, [campo]: valor } : e)))
+  }
+  async function salvarItensOS() {
+    if (!os || !edItens) return
+    const inval = validarEdicaoOS(edItens)
+    if (inval) { setErro(inval); return }
+    setSalvandoItens(true); setErro(null)
+    const { data: diag, error: e1 } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: os.company_id, p_os_id: os.id })
+    const dd = diag as { os?: { diagnostico?: string | null; km?: number | null } | null; itens?: typeof itensDiag } | null
+    if (e1 || !dd?.os) { setSalvandoItens(false); setErro(e1?.message ?? 'Não foi possível ler os itens da OS. Tente de novo.'); return }
+    const p_dados = montarDadosDiagnosticoOS({ diagnostico: dd.os.diagnostico, km: dd.os.km, itens: Array.isArray(dd.itens) ? dd.itens : [] }, edItens)
+    const { data, error } = await supabase.rpc('fn_oficina_diagnostico_salvar', { p_company_id: os.company_id, p_os_id: os.id, p_dados })
+    setSalvandoItens(false)
+    const r = data as { ok?: boolean; erro?: string; itens?: number } | null
+    if (error || r?.ok === false) { setErro(error?.message ?? r?.erro ?? 'Falha ao salvar os itens'); return }
+    setEdItens(null)
+    const n = r?.itens ?? p_dados.itens.length
+    flash(`Itens da OS salvos ✓ ${n} ${n === 1 ? 'item' : 'itens'}.`)
     await carregar()
   }
 
@@ -855,10 +887,61 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
       {msgOk && <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>✓ {msgOk}</p>}
 
       {/* RD-41 · Itens da OS (peças + serviços). Vinham vazios ao reabrir OS entregue → impresso zerado. */}
-      {itensDiag.length > 0 && (
+      {(itensDiag.length > 0 || editarItens) && (
         <div data-testid="os-itens" style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: 10, padding: 12, background: C.white }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, marginBottom: 8 }}>Itens da OS ({itensDiag.length})</div>
-          {itensDiag.map((it, i) => {
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, flex: 1 }}>Itens da OS ({itensDiag.length})</div>
+            {editarItens && edItens === null && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <button type="button" data-testid="os-editar-itens" onClick={() => { setErro(null); setEdItens(edicaoInicialOS(itensDiag)) }}
+                  style={{ fontSize: 12, fontWeight: 700, color: C.gold, background: 'none', border: `1px solid ${C.gold}`, borderRadius: 8, padding: '6px 12px', minHeight: 36, cursor: 'pointer' }}>
+                  ✏️ {itensDiag.length > 0 ? 'Editar itens e preços' : 'Incluir itens'}
+                </button>
+                <AjudaCampo chave="oficina.os.editar_itens" />
+              </span>
+            )}
+          </div>
+          {edItens !== null && (
+            <div data-testid="os-itens-edicao" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+              {itensDiag.some((it) => !itemEditavelNaOS(it)) && (
+                <div style={{ fontSize: 11, color: C.espressoL }}>Itens já aprovados ou recusados pelo cliente não mudam aqui.</div>
+              )}
+              {edItens.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, fontSize: 10.5, fontWeight: 700, color: C.espressoL, alignItems: 'center', paddingLeft: 22 }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>Descrição <AjudaCampo chave="oficina.os.item_descricao" /></span>
+                  <span style={{ width: 64 }}>Qtd <AjudaCampo chave="oficina.os.item_quantidade" /></span>
+                  <span style={{ width: 96 }}>Preço un. <AjudaCampo chave="oficina.os.item_preco" /></span>
+                </div>
+              )}
+              {edItens.map((e, i) => (
+                <div key={e.chave} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span title={e.tipo === 'servico' ? 'Serviço' : 'Peça'} style={{ width: 16 }}>{e.tipo === 'servico' ? '🔧' : '📦'}</span>
+                  <input data-testid={`os-item-ed-descricao-${i}`} value={e.descricao} onChange={(ev) => mudarItemOS(e.chave, 'descricao', ev.target.value)}
+                    placeholder={e.tipo === 'servico' ? 'Ex.: Troca de embreagem' : 'Ex.: Filtro de óleo'}
+                    style={{ flex: 1, minWidth: 0, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
+                  <input data-testid={`os-item-ed-qtd-${i}`} value={e.quantidade} inputMode="decimal" onChange={(ev) => mudarItemOS(e.chave, 'quantidade', ev.target.value)}
+                    style={{ width: 64, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
+                  <input data-testid={`os-item-ed-preco-${i}`} value={e.preco} inputMode="decimal" placeholder="0,00" onChange={(ev) => mudarItemOS(e.chave, 'preco', ev.target.value)}
+                    style={{ width: 96, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button type="button" data-testid="os-item-add-peca" onClick={() => addItemOS('peca')}
+                  style={{ fontSize: 12, fontWeight: 700, color: C.espresso, background: 'none', border: '1px dashed rgba(61,35,20,0.3)', borderRadius: 8, padding: '6px 12px', minHeight: 36, cursor: 'pointer' }}>+ Peça</button>
+                <button type="button" data-testid="os-item-add-servico" onClick={() => addItemOS('servico')}
+                  style={{ fontSize: 12, fontWeight: 700, color: C.espresso, background: 'none', border: '1px dashed rgba(61,35,20,0.3)', borderRadius: 8, padding: '6px 12px', minHeight: 36, cursor: 'pointer' }}>+ Serviço</button>
+                <span style={{ flex: 1 }} />
+                <button type="button" onClick={() => setEdItens(null)} disabled={salvandoItens}
+                  style={{ fontSize: 12, fontWeight: 600, color: C.espressoL, background: 'none', border: 'none', padding: '6px 10px', minHeight: 36, cursor: 'pointer' }}>Cancelar</button>
+                <button type="button" data-testid="os-itens-salvar" onClick={() => void salvarItensOS()} disabled={salvandoItens}
+                  style={{ fontSize: 12, fontWeight: 700, color: C.white, background: C.green, border: 'none', borderRadius: 8, padding: '8px 14px', minHeight: 36, cursor: salvandoItens ? 'wait' : 'pointer' }}>
+                  {salvandoItens ? 'Salvando…' : 'Salvar itens'}
+                </button>
+              </div>
+              <div style={{ fontSize: 10.5, color: C.espressoL }}>Peça do estoque: inclua como texto e ligue depois no botão 🔍 estoque. Para remover um item, use a tela de Diagnóstico.</div>
+            </div>
+          )}
+          {edItens === null && itensDiag.map((it, i) => {
             const qtd = it.quantidade != null && String(it.quantidade) !== '' ? Number(it.quantidade) : 1
             const val = it.subtotal ?? it.preco
             const ehPeca = it.tipo === 'peca' || it.tipo === 'peça'
