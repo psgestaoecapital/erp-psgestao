@@ -305,19 +305,36 @@ estado_checks() {
   case "$vercel_ruim" in '') echo ok;; *pending*) echo "esperar:Vercel em andamento";; *) echo "vermelho:Vercel $vercel_ruim";; esac
 }
 
+# Confere o id autorizado (40 hex ou prefixo >= 8) contra os ids do conteúdo atual (estável e bruto). Prefixo só vale se
+# casar com UM id distinto (ambíguo = não vale).
+patch_id_confere() {
+  local aut=$1 est=$2 raw=$3 achou=0 i ids
+  [ "${#aut}" -ge 8 ] || return 1
+  ids=$(printf '%s\n%s\n' "$est" "$raw" | sort -u | grep -v '^$' || true)
+  while IFS= read -r i; do if [ -n "$i" ] && [[ "$i" == "$aut"* ]]; then achou=$((achou + 1)); fi; done <<< "$ids"
+  [ "$achou" -eq 1 ]
+}
+
 # (c) autorização pelo conteúdo. Ecoa: ok | vermelho:<motivo>
 autorizacao() {
-  local n=$1 pid corpo pid_aut
+  local n=$1 pid pid_raw corpo pid_aut base
   git fetch -q origin "pull/$n/head:refs/fila/pr-$n" --force
-  pid=$(git diff "$(git merge-base origin/main "refs/fila/pr-$n")" "refs/fila/pr-$n" | git patch-id --stable | cut -d' ' -f1)
+  base=$(git merge-base origin/main "refs/fila/pr-$n" 2> /dev/null || true)
+  # PR sem patch-id NUNCA é pulada em silêncio (CEO 16/10): se o cálculo falha, recusa dizendo o motivo.
+  [ -n "$base" ] || { echo "vermelho:não consegui calcular o patch-id (sem merge-base com a main) — a fila tenta de novo no próximo commit"; return; }
+  # patch-id ESTÁVEL à renumeração de migration (a própria fila renumera); aceita também o id bruto (autorizações antigas)
+  pid=$(git diff "$base" "refs/fila/pr-$n" | "$(dirname "${BASH_SOURCE[0]}")/patch-id-estavel.sh" || true)
+  pid_raw=$(git diff "$base" "refs/fila/pr-$n" | git patch-id --stable | cut -d' ' -f1 || true)
+  [ -n "$pid" ] || { echo "vermelho:não consegui calcular o patch-id do conteúdo (diff vazio?)"; return; }
   # só vale comentário cuja PRIMEIRA linha é exatamente a autorização do revisor; aviso da fila (marca escondida ou
-  # "Fila de merge:") cita o texto mas nunca conta (todos os comentários saem da mesma conta do GitHub)
-  corpo=$(comentarios "$n" | jq -rs --arg re "^MERGE AUTORIZADO #$n — gilberto-revisor · patch-id [0-9a-f]{40}([ \\t\\r]*|[:\\s].*)\$" \
+  # "Fila de merge:") cita o texto mas nunca conta (todos os comentários saem da mesma conta do GitHub).
+  # O id pode vir ABREVIADO (8 a 40 hex, "…" ou "..." opcional): casa por prefixo único (patch_id_confere).
+  corpo=$(comentarios "$n" | jq -rs --arg re "^MERGE AUTORIZADO #$n — gilberto-revisor · patch-id [0-9a-f]{8,40}(…|\\.\\.\\.)?([ \\t\\r]*|[:\\s].*)\$" \
     '[.[] | select((contains("<!-- fila:") | not) and (startswith("Fila de merge:") | not) and (split("\n")[0] | test($re)))] | last // empty | split("\n")[0]')
   [ -n "$corpo" ] || { echo "vermelho:PR sensível ($SENSIVEL) sem a autorização do revisor para o conteúdo atual"; return; }
-  pid_aut=$(grep -oE 'patch-id[: ]+[0-9a-f]{40}' <<< "$corpo" | tail -1 | grep -oE '[0-9a-f]{40}' || true)
+  pid_aut=$(grep -oE 'patch-id[: ]+[0-9a-f]{8,40}' <<< "$corpo" | tail -1 | grep -oE '[0-9a-f]{8,40}' || true)
   [ -n "$pid_aut" ] || { echo "vermelho:a autorização do revisor não traz o identificador do conteúdo — o revisor repete após rodar \`scripts/merge/patch-id.sh $n\`"; return; }
-  [ "$pid_aut" = "$pid" ] || { echo "vermelho:o conteúdo mudou depois da autorização do revisor — exige nova revisão"; return; }
+  patch_id_confere "$pid_aut" "$pid" "$pid_raw" || { echo "vermelho:o conteúdo mudou depois da autorização do revisor — exige nova revisão"; return; }
   echo ok
 }
 
@@ -420,6 +437,22 @@ disp_hora=$((RITMO_MAX_HORA - pub_hora))
 if [ "$disp_hora" -le 0 ]; then log "ritmo: $pub_hora publicação(ões) na última hora (teto $RITMO_MAX_HORA/h): rodada adiada"; exit 0; fi
 [ "$LOTE_MAX" -gt "$disp_hora" ] && LOTE_MAX=$disp_hora
 merges=0
+# LOTE DE MIGRATIONS INDEPENDENTES (CEO 16/10): numa rodada publica até LOTE_MIG_MAX PRs COM migration, desde que
+# INDEPENDENTES entre si (scripts/merge/migrations-independentes.ts; qualquer dúvida → 1 por rodada, como antes).
+# O @pos-migration da main roda uma vez para o lote. LOTE_MIG_MAX=1 desliga (comportamento antigo).
+LOTE_MIG_MAX=${LOTE_MIG_MAX:-3}
+lote_mig_n=0; lote_mig_sqls=()
+mkdir -p "$TMPF/mig"
+# SQL das migrations da PR no SHA conferido → $TMPF/mig/<n>.sql (vazio/falha = dúvida na checagem de independência)
+baixar_sql_migrations() {
+  local n=$1 sha=$2 f c; : > "$TMPF/mig/$n.sql"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    c=$(api "repos/$REPO/contents/$f?ref=$sha" --jq .content 2> /dev/null | tr -d '\n' | base64 -d 2> /dev/null) || { : > "$TMPF/mig/$n.sql"; return 1; }
+    [ -n "$c" ] || { : > "$TMPF/mig/$n.sql"; return 1; }
+    printf '%s\n' "$c" >> "$TMPF/mig/$n.sql"
+  done <<< "$(grep '^supabase/migrations/' <<< "$arquivos")"
+}
 for n in $fila; do
   pj=$(jq -c --argjson n "$n" 'select(.number == $n)' "$TMPF/lista")
   sha=$(jq -r .head.sha <<< "$pj"); titulo=$(jq -r .title <<< "$pj")
@@ -446,7 +479,17 @@ for n in $fila; do
   corrige_deploy=0
   [ "$com_migration" = 1 ] && corrige_deploy=$(corrige_deploy_vermelho "$n")
   [ "$corrige_deploy" = 1 ] && log "#$n só corrige migration que quebrou o deploy-migrations da main: não espera a main"
-  if { [ "$so_sem_migration" = 1 ] || [ "$merges" -gt 0 ]; } && [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
+  # lote de migrations já aberto nesta rodada: só entram outras migrations, e só se INDEPENDENTES das do lote
+  if [ "$lote_mig_n" -gt 0 ] && [ "$com_migration" = 0 ]; then log "#$n (sem migration): espera a próxima rodada — há lote de migrations nesta"; continue; fi
+  if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then
+    if [ "$so_sem_migration" = 1 ] || { [ "$merges" -gt 0 ] && [ "$lote_mig_n" = 0 ]; }; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
+    if [ "$lote_mig_n" -gt 0 ]; then
+      baixar_sql_migrations "$n" "$sha" || true
+      ind=$(npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/migrations-independentes.ts" "$TMPF/mig/$n.sql" "${lote_mig_sqls[@]}" 2> /dev/null || echo "duvida:checagem falhou")
+      if [ "$ind" != ok ]; then log "#$n tem migration não comprovadamente independente do lote (${ind#duvida:}): espera a próxima rodada"; continue; fi
+      log "#$n: migration independente das $lote_mig_n já no lote"
+    fi
+  fi
 
   # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
   via=rapida
@@ -519,7 +562,7 @@ for n in $fila; do
   fi
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
-  if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then
+  if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ] && [ "$lote_mig_n" = 0 ]; then
     m=$(estado_main)
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
@@ -543,10 +586,15 @@ for n in $fila; do
   # PR sem migration que só está "atrás" das outras deste lote (não conflitante) é mergeada; conflito real → recusa abaixo.
   if out=$(api -X PUT "repos/$REPO/pulls/$n/merge" -f merge_method=squash -f sha="$sha" -f commit_title="$titulo (#$n)" 2>&1); then
     if [ "$com_migration" = 1 ]; then
-      # migration: UMA por rodada — publica e ENCERRA a rodada (a próxima migration espera o deploy + @pos-migration)
-      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: uma por rodada"
-      comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration: veredito no @pos-migration da main (vermelho = reverter)."
-      exit 0
+      # migration: publica e abre/segue o LOTE de migrations independentes (até LOTE_MIG_MAX); fechado o lote, ENCERRA a rodada
+      # (a próxima migration espera o deploy + @pos-migration do lote)
+      lote_mig_n=$((lote_mig_n + 1)); merges=$((merges + 1))
+      [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
+      lote_mig_sqls+=("$TMPF/mig/$n.sql")
+      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: lote de migrations $lote_mig_n/$LOTE_MIG_MAX"
+      comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration (lote $lote_mig_n/$LOTE_MIG_MAX de migrations independentes): veredito no @pos-migration da main (vermelho = reverter a PR que quebrou)."
+      if [ "$lote_mig_n" -ge "$LOTE_MIG_MAX" ] || [ "$merges" -ge "$LOTE_MAX" ]; then exit 0; fi
+      continue
     fi
     # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada. A aceitação da via rápida é informativa e a
     # aceitação da main (de hora em hora, banco de testes) é a rede de segurança; teto LOTE_MAX por rodada.

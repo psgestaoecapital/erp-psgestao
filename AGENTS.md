@@ -264,6 +264,13 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   comentários saem da mesma conta do GitHub; o aviso da fila cita o texto e o patch-id, e não é do revisor). Ao procurar
   "comentário meu com este patch-id", confira a primeira linha — não basta o texto aparecer no corpo. O revisor pode pôr a justificativa depois de `:` na mesma linha
   (logo após o hash) ou na linha seguinte; texto colado ao hash sem `:`/espaço, ou hash com mais de 40 hex, não vale.
+- **Patch-id estável + lote de migrations (CEO 16/10, com o CEO presente):** o patch-id do `MERGE AUTORIZADO` ignora o prefixo
+  de versão do nome do arquivo de migration (`scripts/merge/patch-id-estavel.sh`): a renumeração pela fila NÃO invalida a
+  autorização (mudança real de conteúdo ainda exige nova revisão). A fila aceita o id abreviado (>= 8 hex) se casar com um só
+  conteúdo; `patch-id.sh` aprofunda clone raso e nunca devolve id vazio. **Lote de migrations:** numa rodada publica até
+  `LOTE_MIG_MAX` (3) PRs COM migration se INDEPENDENTES (`scripts/merge/migrations-independentes.ts`: mesmos objetos/dependência/SQL
+  dinâmico/ilegível = dúvida = 1 por rodada); `estado_main` vale só para a 1ª do lote. Gates: `check-fila-patchid-estavel.ts`,
+  `check-fila-lote-migrations.ts`.
 - **Renumeração automática de migration na fila (Eng. Chefe 09/10):** a fila, ao pegar PR com migration nova de versão NÃO
   maior que a última da `main` (recalculada na hora), **renomeia o arquivo** (commit no ramo da PR via API: versão nova =
   timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente) e comenta o que mudou, em vez de recusar. O commit
