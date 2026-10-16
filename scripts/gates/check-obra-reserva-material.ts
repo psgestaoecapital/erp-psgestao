@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
-const sql = readFileSync('supabase/migrations/20261008100005_obra_reserva_material.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261016170005_obra_reserva_material.sql', 'utf8')
 ok(/ENABLE ROW LEVEL SECURITY/.test(sql) && /CREATE POLICY obra_reserva_material_empresa/.test(sql), 'RLS ligada com policy por empresa')
 ok(/REVOKE ALL ON public\.obra_reserva_material FROM PUBLIC, anon/.test(sql), 'REVOKE de anon na tabela')
 ok(!/GRANT[^;]*\bDELETE\b/i.test(sql) && !/\bDELETE FROM\b/i.test(sql), 'sem DELETE')
