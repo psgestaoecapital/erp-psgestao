@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
-const mig = readFileSync('supabase/migrations/20261014120030_push_assinatura.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261016170030_push_assinatura.sql', 'utf8')
 
 for (const t of ['erp_push_assinatura', 'erp_push_preferencia']) {
   ok(new RegExp(`ALTER TABLE public\\.${t} ENABLE ROW LEVEL SECURITY`).test(mig), `${t}: RLS ligada`)
