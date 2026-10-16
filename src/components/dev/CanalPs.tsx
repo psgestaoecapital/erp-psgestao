@@ -24,7 +24,7 @@ export function EsperandoOkCeo() {
     let timer: ReturnType<typeof setTimeout> | null = null
     const agendar = (ms = 600) => { if (timer) clearTimeout(timer); timer = setTimeout(() => { void carregar() }, ms) }
     agendar(0)
-    const ch = supabase.channel('dev-codes-ok-ceo')
+    const ch = supabase.channel(`dev-codes-ok-ceo-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_agente_mensagem' }, () => agendar())
       .subscribe()
     return () => { if (timer) clearTimeout(timer); void supabase.removeChannel(ch) }
