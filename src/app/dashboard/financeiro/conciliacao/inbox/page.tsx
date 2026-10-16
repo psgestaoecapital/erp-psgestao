@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { parseSaldoFechamento, ehLinhaSaldoOFX } from '@/lib/ofx-parser'
+import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
 import { temConectorExtrato } from '@/lib/banco/extratoConector'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
@@ -19,6 +19,7 @@ import PickerTituloExistenteModal from '@/components/conciliacao/PickerTituloExi
 // #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
 import NovaDespesaModal from '@/components/financeiro/NovaDespesaModal'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'
+import { rotuloLote } from '@/lib/conciliacao/rotuloLote'
 
 interface Item {
   movimento_id: string
@@ -207,8 +208,11 @@ function parseOFX(text: string): MovimentoOFX[] {
     const dt = get('DTPOSTED').slice(0, 8)
     if (dt.length < 8) continue
     const data_transacao = `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)}`
-    const amt = parseFloat(get('TRNAMT').replace(',', '.'))
-    if (isNaN(amt)) continue
+    const amtBruto = get('TRNAMT')
+    const amt = parseValorOFX(amtBruto)
+    if (amt === null) {
+      throw new Error(`Valor inválido no lançamento ${movimentos.length + 1} do OFX (TRNAMT "${amtBruto}")`)
+    }
     movimentos.push({
       data_transacao,
       valor: Math.abs(amt),
@@ -448,7 +452,7 @@ export default function InboxPage() {
     }
     setImportando(true)
     try {
-      const text = await arquivoOFX.text()
+      const text = decodificarOFX(await arquivoOFX.arrayBuffer())
       const brutos = parseOFX(text)
       // Adendo #1541 "Saldo Anterior": alguns bancos emitem o saldo como uma LINHA <STMTTRN>
       // ("SALDO ANTERIOR" / "SALDO DO DIA" / só "SALDO"). Isso NÃO é movimento — separa aqui:
@@ -528,8 +532,7 @@ export default function InboxPage() {
         r.lote_id ? lst.find((l) => l.id === r.lote_id) : lst[0],
       )
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      alert('Erro ao importar OFX: ' + msg)
+      alert('Erro ao importar OFX: ' + mensagemErroOFX(e))
     } finally {
       setImportando(false)
     }
@@ -937,7 +940,7 @@ export default function InboxPage() {
               {lotesDoTipo.length === 0 && <option value="">Nenhum lote {tipoExtrato === 'bancario' ? 'bancário' : 'de cartão'} importado</option>}
               {lotesDoTipo.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.nome ?? '(sem nome)'} — {(l.total_conciliados ?? 0) + (l.total_ignorados ?? 0)}/{l.total_movimentos ?? 0} ok
+                  {rotuloLote(l)}
                 </option>
               ))}
             </select>

@@ -14,7 +14,13 @@ PROD_REF=horsymhsinqcimflrtjo
 TEST_REF=xjzqndnvjkdjyisuklpy
 erro() { echo "::error::$*"; exit 1; }
 case "$TEST_DATABASE_URL" in *"$PROD_REF"*) erro "TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado";; esac
-case "$TEST_DATABASE_URL" in *"$TEST_REF"*) ;; *) erro "TEST_DATABASE_URL não é o projeto erp-psgestao-testes";; esac
+# vaga 0 = o projeto erp-psgestao-testes conhecido; vaga > 0 = qualquer Session pooler que NÃO seja a produção (mesma
+# regra do catalogos.sh e do passo "Trava de segurança" do montar-banco-testes.yml; ACEITACAO_VAGA vem do GITHUB_ENV).
+if [ "${ACEITACAO_VAGA:-0}" = 0 ]; then
+  case "$TEST_DATABASE_URL" in *"$TEST_REF"*) ;; *) erro "TEST_DATABASE_URL não é o projeto erp-psgestao-testes";; esac
+else
+  case "$TEST_DATABASE_URL" in *pooler.supabase.com*) ;; *) erro "vaga ${ACEITACAO_VAGA}: TEST_DATABASE_URL precisa ser Session pooler (*.pooler.supabase.com)";; esac
+fi
 case "$PROD_DATABASE_URL" in *"$PROD_REF"*) ;; *) erro "PROD_DATABASE_URL não é o projeto de produção";; esac
 case "$PROD_DATABASE_URL" in *"$TEST_REF"*) erro "PROD_DATABASE_URL aponta para o banco de testes";; esac
 

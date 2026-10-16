@@ -46,16 +46,17 @@ ok(/group: fila-merge/.test(fila) && /cancel-in-progress: false/.test(fila), 'fi
 ok(/ref: main/.test(fila), 'fila: roda o código da main (o da PR nunca é executado)')
 ok(/merge_method=squash -f sha="\$sha"/.test(sh), 'fila: merge squash travado no SHA conferido')
 ok(/update-branch" -f expected_head_sha/.test(sh), 'fila: atualiza com a main (merge, sem reescrever histórico)')
-ok(/git patch-id --stable/.test(sh) && /revisao-eng-chefe/.test(sh), '(c) PR sensível: autorização pelo patch-id do conteúdo')
+ok(/patch_id_estavel/.test(sh) && /git patch-id --stable/.test(readFileSync("scripts/merge/patch-id-lib.sh", "utf8")) && /revisao-eng-chefe/.test(sh), '(c) PR sensível: autorização pelo patch-id do conteúdo')
 ok(/aceitacao-pos-migration\.yml\/runs\?branch=main&status=success/.test(sh) && /rerodar "\$id"/.test(sh),
   '(a) @pos-migration cancelado: libera se a última migration já teve verde, senão re-roda')
-ok(/if \[ "\$com_migration" = 1 \]; then\s*\n\s*m=\$\(estado_main\)/.test(sh), '(b) só PR com migration espera a main')
+ok(/if \[ "\$com_migration" = 1 \](?: && \[ "\$corrige_deploy" = 0 \])?; then\s*\n\s*m=\$\(estado_main\)/.test(sh), '(b) só PR com migration espera a main (salvo o conserto do deploy vermelho)')
 
 // re-run pelo próprio GitHub (Eng. Chefe 07/10): a rede das sessões do Code não consegue POST /rerun
 ok(/Re-rodar aceitação cancelada/.test(vigia) && /FILA_MERGE_TOKEN/.test(vigia) && /\$tent" -gt 2/.test(vigia), 'vigia: re-roda aceitação cancelada com PAT, no máximo 2 vezes por SHA')
 ok(/head\.sha == /.test(vigia), 'vigia: só re-roda SHA ainda vigente (head de PR aberta ou main)')
 const cmd = ler('.github/workflows/comando-pr.yml')
 ok(/startsWith\(github\.event\.comment\.body, '\/re-rodar'\)/.test(cmd), 'comando-pr: comentário que começa com /re-rodar (rodapé de atribuição não impede)')
+ok(!/responder "\/re-rodar/.test(cmd), 'comando-pr: respostas do workflow não começam com /re-rodar (laço infinito 13/10)')
 ok(/admin\|maintain\|write/.test(cmd) && /collaborators\/\$AUTOR\/permission/.test(cmd), 'comando-pr: exige permissão write do autor')
 ok(!/actions\/checkout/.test(cmd) && !/\$\{\{ github\.event\.comment\.body \}\}/.test(cmd.replace(/if: >-[\s\S]*?runs-on/, '')), 'comando-pr: sem checkout e sem interpolar o comentário no shell')
 
