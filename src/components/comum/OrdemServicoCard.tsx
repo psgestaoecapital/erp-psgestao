@@ -13,6 +13,9 @@ import EmitirNFSeOSButton from '@/components/comum/EmitirNFSeOSButton'   // cham
 import EmitirNFeOSButton from '@/components/comum/EmitirNFeOSButton'   // chamado #20 Fase 3 · NF-e (peças) da OS
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
+import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
+import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 interface OS {
   id: string
@@ -164,6 +167,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [descModo, setDescModo] = useState<'valor' | 'pct'>('valor')
   const [aplicandoDesc, setAplicandoDesc] = useState(false)
   const [descPrecisaAprovacao, setDescPrecisaAprovacao] = useState(false)
+  // #135 (Triches) · atendimento centralizado: aprovar o orçamento na própria OS (sem a tela de Aprovação)
+  const [aprovandoOrc, setAprovandoOrc] = useState(false)
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
@@ -173,6 +178,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const podeAjustarEntregue = isMaster || isBpo             // BUG #16b: Master OU BPO ajustam pós-entrega
   const bloqueadoEntrega = Boolean(entregue && !podeAjustarEntregue)
   const roEntrega = bloqueadoEntrega                         // readOnly nos campos quando bloqueado
+  const oficina = useOficinaModelo(os?.company_id ?? null)   // #135 · modelo de atendimento da empresa da OS
   const tipEntrega = 'OS entregue — ajustes só por Master ou BPO.'
 
   async function faturar() {
@@ -228,6 +234,28 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     setDescInput(''); setDescPrecisaAprovacao(false)
     flash(valor > 0 ? `Desconto aplicado ✓ ${fmtBRL(valor)}` : 'Desconto removido ✓')
     void carregar()
+  }
+
+  // #135 (Triches) · no atendimento centralizado a oficina aprova o orçamento na própria OS, depois de mandar o PDF ao
+  // cliente. Mesma RPC da tela de Aprovação (fn_oficina_orcamento_registrar): marca os itens PENDENTES como aprovados,
+  // grava erp_os_aprovacao (canal "presencial") e o gatilho do #134 passa a OS para "Aprovada". Item já recusado não muda.
+  const itensPendentes = itensPendentesOS(itensDiag)
+  async function aprovarOrcamento() {
+    if (!os || itensPendentes.length === 0) return
+    const semPreco = itensPendentes.filter((it) => (it.subtotal ?? it.preco) == null || Number(it.subtotal ?? it.preco) <= 0).length
+    const aviso = semPreco > 0 ? `\n\n⚠️ ${semPreco === 1 ? '1 item está' : `${semPreco} itens estão`} sem preço e entra${semPreco === 1 ? '' : 'm'} com R$ 0,00.` : ''
+    if (!window.confirm(`Aprovar o orçamento da OS ${os.numero ?? ''} (${itensPendentes.length} ${itensPendentes.length === 1 ? 'item' : 'itens'})? A OS passa para "Aprovada".${aviso}`)) return
+    setAprovandoOrc(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_oficina_orcamento_registrar', {
+      p_company_id: os.company_id, p_os_id: os.id,
+      p_dados: { aprovador_nome: clienteNome || os.cliente_nome || null, canal: 'presencial', observacao: 'Aprovado na Ordem de Serviço (atendimento centralizado)',
+        itens: itensPendentes.map((it) => ({ item_id: it.id, aprovado: true })) },
+    })
+    setAprovandoOrc(false)
+    const r = data as { ok?: boolean; erro?: string; itens_aprovados?: number; itens_total?: number; valor_total?: number } | null
+    if (error || r?.ok === false) { setErro(error?.message ?? (r?.erro === 'sem_permissao_valor' ? 'Seu perfil não pode aprovar orçamento (valor).' : r?.erro ?? 'Falha ao aprovar o orçamento')); return }
+    flash(`Orçamento APROVADO · ${r?.itens_aprovados ?? 0}/${r?.itens_total ?? 0} itens · ${fmtBRL(Number(r?.valor_total ?? 0))}.`)
+    await carregar()
   }
 
   function flash(msg: string) {
@@ -586,6 +614,17 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           {STATUS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
       </label>
+
+      {/* #135 (Triches) · atendimento centralizado: aprovar o orçamento aqui mesmo (a tela de Aprovação fica opcional) */}
+      {podeAprovarNaOS(oficina.modelo, oficina.podePreco, os.status, itensPendentes.length) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button type="button" onClick={() => void aprovarOrcamento()} disabled={aprovandoOrc} data-testid="os-aprovar-orcamento"
+            style={{ ...btnPri, minHeight: 44, flex: 1 }}>
+            {aprovandoOrc ? 'Aprovando…' : `✓ Aprovar orçamento (${itensPendentes.length} ${itensPendentes.length === 1 ? 'item' : 'itens'})`}
+          </button>
+          <AjudaCampo chave="oficina.os.aprovar_orcamento" rota="/dashboard/os" />
+        </div>
+      )}
 
       {/* #121 · placa editável (erro de digitação ao abrir a OS). Mesma RPC do pátio (fn_oficina_os_set_placa):
           normaliza (maiúsculas, sem traço) e exige ≥ 5 caracteres. Salva na hora, separado do "Salvar" da ficha. */}
