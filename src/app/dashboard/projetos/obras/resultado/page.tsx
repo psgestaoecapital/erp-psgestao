@@ -16,11 +16,13 @@ type Linha = {
   obra_id: string; numero: string; nome: string; status: string
   custo_previsto: number; receita_prevista: number; receita_servico: number; receita_material: number
   custo_material: number; custo_viagens: number; margem_realizada: number
+  custo_mao_obra?: number
 }
 
 const n = (v: unknown) => Number(v ?? 0)
 const receita = (l: Linha) => n(l.receita_servico) + n(l.receita_material)
-const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens)
+const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens) + n(l.custo_mao_obra)
+const margem = (l: Linha) => n(l.margem_realizada) - n(l.custo_mao_obra)
 
 export default function ResultadoObrasPage() {
   const { companyIds } = useCompanyIds()
@@ -37,19 +39,22 @@ export default function ResultadoObrasPage() {
         { ms: 8000, tentativas: 1, label: 'v_obra_resultado' },
       )
       if (error) { setErro(error.message); return }
-      setLinhas((data ?? []) as Linha[])
+      // Mão de obra alocada (horas apontadas × custo/h): falha aqui não derruba a tela, a coluna fica em zero.
+      const mo = await supabase.rpc('fn_obras_custo_mao_obra', { p_company_ids: companyIds })
+      const porObra = new Map<string, number>(((mo.data ?? []) as { obra_id: string; custo_mao_obra: number }[]).map(x => [x.obra_id, n(x.custo_mao_obra)]))
+      setLinhas(((data ?? []) as Linha[]).map(l => ({ ...l, custo_mao_obra: porObra.get(l.obra_id) ?? 0 })))
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
 
   const total = useMemo(() => linhas.reduce((a, l) => ({
-    receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + n(l.margem_realizada),
+    receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + margem(l),
     prevista: a.prevista + n(l.receita_prevista), custoPrev: a.custoPrev + n(l.custo_previsto),
   }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [linhas])
 
   const baixarCsv = () => {
-    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Margem', 'Receita prevista', 'Custo previsto']
-    const rows = linhas.map(l => [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, l.margem_realizada, l.receita_prevista, l.custo_previsto])
+    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Margem', 'Receita prevista', 'Custo previsto']
+    const rows = linhas.map(l => [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), margem(l), l.receita_prevista, l.custo_previsto])
     const csv = [cab, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
@@ -65,7 +70,7 @@ export default function ResultadoObrasPage() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <Link href="/dashboard/projetos/obras" style={{ color: GOLD, fontSize: 13 }}>← Obras</Link>
         <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>Resultado por obra</h1>
-        <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Receita (serviço medido + material vendido) menos custo (material e viagens), previsto × realizado.</p>
+        <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Receita (serviço medido + material vendido) menos custo (material, viagens e mão de obra apontada), previsto × realizado.</p>
         {loading && <p data-testid="resultado-carregando">Carregando…</p>}
         {!loading && erro && <p role="alert" style={{ color: VERM }}>{erro} <button onClick={carregar}>Tentar de novo</button></p>}
         {!loading && !erro && linhas.length === 0 && (
@@ -84,20 +89,22 @@ export default function ResultadoObrasPage() {
               <table data-testid="resultado-tabela" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
                   <th style={{ ...th, textAlign: 'left' }}>Obra</th><th style={th}>Receita</th><th style={th}>Custo</th>
-                  <th style={th}>Margem</th><th style={th}>Receita prevista</th><th style={th}>Custo previsto</th>
+                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Margem</th><th style={th}>Receita prevista</th><th style={th}>Custo previsto</th>
                 </tr></thead>
                 <tbody>
                   {linhas.map(l => (
                     <tr key={l.obra_id} style={{ borderBottom: `1px solid ${LINE}` }}>
                       <td style={{ ...td, textAlign: 'left' }}>{l.numero} · {l.nome}</td>
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
-                      <td style={{ ...td, color: cor(n(l.margem_realizada)), fontWeight: 600 }}>{fmtR(n(l.margem_realizada))}</td>
+                      <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
+                      <td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
                       <td style={td}>{fmtR(n(l.receita_prevista))}</td><td style={td}>{fmtR(n(l.custo_previsto))}</td>
                     </tr>
                   ))}
                   <tr data-testid="resultado-consolidado" style={{ fontWeight: 700 }}>
                     <td style={{ ...td, textAlign: 'left' }}>Consolidado</td>
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
+                    <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
                     <td style={td}>{fmtR(total.prevista)}</td><td style={td}>{fmtR(total.custoPrev)}</td>
                   </tr>
