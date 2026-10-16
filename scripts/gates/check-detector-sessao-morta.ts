@@ -8,7 +8,7 @@ import { join } from 'node:path'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
 
-const arq = '20261016151000_detector_sessao_morta_autoressuscita.sql'
+const arq = '20261016200000_detector_sessao_morta_autoressuscita.sql'
 const s = readFileSync(join(__dirname, '../../supabase/migrations', arq), 'utf8').replace(/--[^\n]*/g, '')
 
 for (const f of ['fn_agente_detectar_sessao_morta', 'fn_agente_fossil_listar'])
