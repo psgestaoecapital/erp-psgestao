@@ -333,3 +333,11 @@ GRANT EXECUTE ON FUNCTION public.fn_contrato_assinatura_verificar(text) TO servi
 GRANT EXECUTE ON FUNCTION public.fn_contrato_assin__sha256(text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_contrato_assin__concluir(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_contrato_assin__por_token(text) TO service_role;
+
+-- Assinatura pelo signatário externo (link com token público, sem usuário logado): a empresa vem do envio que o token
+-- identifica, e o acesso é só pela rota do servidor com service_role (REVOKE de anon/authenticated acima).
+-- ci-sem-guarda: fn_contrato_assin__concluir — interna, só service_role; chamada pelo assinar depois do último signatário (a empresa vem do envio)
+-- ci-sem-guarda: fn_contrato_assin__por_token — interna, só service_role; localiza o signatário pelo hash do token público (sem usuário logado)
+-- ci-sem-guarda: fn_contrato_assinatura_abrir — só service_role; signatário externo abre pelo token público, sem usuário logado (a empresa vem do envio)
+-- ci-sem-guarda: fn_contrato_assinatura_codigo — só service_role; gera o código OTP do signatário externo pelo token público, sem usuário logado
+-- ci-sem-guarda: fn_contrato_assinatura_assinar — só service_role; signatário externo assina pelo token público + OTP, sem usuário logado
