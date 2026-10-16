@@ -31,12 +31,14 @@ test.describe('NF-es emitidas — devolução: reenvio não cria linha nova (#93
       finalidade: 'devolucao', chave_referenciada: CHAVE_REF, valor_total: 10,
       emitente_cnpj: emp.cnpj ?? '00000000000000', emitente_razao_social: emp.razao_social ?? 'Demonstração',
       destinatario_razao_social: 'Fornecedor teste #933', itens: [],
+      // insert em lote (PostgREST) exige as MESMAS chaves em todas as linhas
+      motivo_rejeicao: null as string | null, numero: null as string | null,
     }
     const t0 = Date.now()
     await dbInsertMany('erp_nfe_emitidas', [
       { ...base, provider_reference: `${MARCA}${sufixo}-1`, status: 'rejeitada', motivo_rejeicao: 'teste 1', criado_em: new Date(t0 - 3000).toISOString(), data_emissao: new Date(t0 - 3000).toISOString() },
       { ...base, provider_reference: `${MARCA}${sufixo}-2`, status: 'rejeitada', motivo_rejeicao: 'teste 2', criado_em: new Date(t0 - 2000).toISOString(), data_emissao: new Date(t0 - 2000).toISOString() },
-      { ...base, provider_reference: `${MARCA}${sufixo}-3`, status: 'autorizada', numero: '933933', criado_em: new Date(t0 - 1000).toISOString(), data_emissao: new Date(t0 - 1000).toISOString() },
+      { ...base, provider_reference: `${MARCA}${sufixo}-3`, status: 'autorizada', numero: '933933', motivo_rejeicao: null, criado_em: new Date(t0 - 1000).toISOString(), data_emissao: new Date(t0 - 1000).toISOString() },
     ])
 
     const r = await rpc<{ ok: boolean; documentos: Doc[] }>('fn_fiscal_documentos', { p_company_id: DEMO_COMERCIO, p_tipo: 'nfe', p_limit: 500 })
