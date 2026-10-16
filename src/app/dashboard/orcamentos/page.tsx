@@ -75,6 +75,11 @@ const STATUS_CFG:Record<string,{cor:string;icon:string;label:string}> = {
 const fmtR=(v:number)=>`R$ ${(v||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}`;
 const fmtQ=(v:number)=>(v||0).toLocaleString("pt-BR",{maximumFractionDigits:3});
 const fmtD=(v:string)=>v?new Date(v+'T00:00:00').toLocaleDateString("pt-BR"):'—';
+// Chamado #3269: validade = emissão + N dias configurável por empresa; sem configuração, 15 (comportamento de sempre).
+const validadeDiasEmpresa=async(companyId:string)=>{
+  const{data}=await supabase.from('erp_orcamento_numeracao').select('validade_dias').eq('company_id',companyId).maybeSingle();
+  return (data as {validade_dias?:number|null}|null)?.validade_dias||15;
+};
 const addDias=(d:number)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
 
 // Modelo padrão da observação (demanda #3 Jordana): pré-preenche o campo em orçamento
@@ -245,8 +250,9 @@ export default function OrcamentosPage(){
     // Gera número automático
     const{data}=await supabase.rpc('next_orcamento_numero',{p_company_id:companyIdParaCadastro});
     const numero=data||`ORC-${new Date().getFullYear()}-0001`;
+    const diasValidade=await validadeDiasEmpresa(companyIdParaCadastro);
     setForm({
-      numero,data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(15),
+      numero,data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(diasValidade),
       status:'rascunho',versao:1,
       condicao_pagamento:'30 dias',prazo_entrega_dias:10,
       subtotal:0,desconto_percentual:0,desconto_valor:0,acrescimo_valor:0,frete_valor:0,total:0,
@@ -577,7 +583,8 @@ export default function OrcamentosPage(){
 
   const duplicar=async(o:Orcamento)=>{
     const{data:numero}=await supabase.rpc('next_orcamento_numero',{p_company_id:o.company_id});
-    const novoOrc={...o,id:undefined,numero,versao:(o.versao||1)+1,status:'rascunho',data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(15),data_aprovacao:null,data_recusa:null,pedido_id:null,convertido_em:null,created_at:undefined,updated_at:undefined};
+    const diasValidade=await validadeDiasEmpresa(o.company_id);
+    const novoOrc={...o,id:undefined,numero,versao:(o.versao||1)+1,status:'rascunho',data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(diasValidade),data_aprovacao:null,data_recusa:null,pedido_id:null,convertido_em:null,created_at:undefined,updated_at:undefined};
     const{data:novo,error}=await supabase.from("erp_orcamentos").insert(novoOrc).select().single();
     if(error){setMsg("Erro: "+error.message);return;}
     // Copiar itens

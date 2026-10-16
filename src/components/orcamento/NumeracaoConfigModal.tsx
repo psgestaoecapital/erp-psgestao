@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 interface Props {
   companyId: string
@@ -16,6 +17,7 @@ export default function NumeracaoConfigModal({ companyId, onClose }: Props) {
   const [incluirAno, setIncluirAno] = useState(true)
   const [proximo, setProximo] = useState('1')
   const [padding, setPadding] = useState('4')
+  const [validade, setValidade] = useState('')
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -26,7 +28,7 @@ export default function NumeracaoConfigModal({ companyId, onClose }: Props) {
     void (async () => {
       const { data } = await supabase
         .from('erp_orcamento_numeracao')
-        .select('prefixo,incluir_ano,proximo_numero,padding')
+        .select('prefixo,incluir_ano,proximo_numero,padding,validade_dias')
         .eq('company_id', companyId)
         .maybeSingle()
       if (!alive) return
@@ -35,6 +37,7 @@ export default function NumeracaoConfigModal({ companyId, onClose }: Props) {
         setIncluirAno(data.incluir_ano ?? true)
         setProximo(String(data.proximo_numero ?? 1))
         setPadding(String(data.padding ?? 4))
+        setValidade(data.validade_dias ? String(data.validade_dias) : '')
       }
       setCarregando(false)
     })()
@@ -57,6 +60,7 @@ export default function NumeracaoConfigModal({ companyId, onClose }: Props) {
       incluir_ano: incluirAno,
       proximo_numero: Math.max(parseInt(proximo || '1', 10) || 1, 1),
       padding: Math.max(parseInt(padding || '4', 10) || 4, 1),
+      validade_dias: validade ? Math.min(Math.max(parseInt(validade, 10) || 15, 1), 365) : null,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'company_id' })
     setSalvando(false)
@@ -84,6 +88,9 @@ export default function NumeracaoConfigModal({ companyId, onClose }: Props) {
               </label>
               <label style={{ fontSize: 11, color: '#3D2314' }}>Dígitos (padding)
                 <input type="number" min={1} max={8} value={padding} onChange={(e) => setPadding(e.target.value)} style={inp} />
+              </label>
+              <label style={{ fontSize: 11, color: '#3D2314' }}>Validade (dias) <AjudaCampo chave="orcamento.validade_dias" rota="/dashboard/orcamentos" />
+                <input type="number" min={1} max={365} placeholder="15 (padrão)" value={validade} onChange={(e) => setValidade(e.target.value)} style={inp} />
               </label>
               <label style={{ fontSize: 11, color: '#3D2314', display: 'flex', alignItems: 'center', gap: 8, marginTop: 18 }}>
                 <input type="checkbox" checked={incluirAno} onChange={(e) => setIncluirAno(e.target.checked)} /> Incluir o ano
