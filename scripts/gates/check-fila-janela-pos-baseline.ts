@@ -23,9 +23,12 @@ ok(/pos_baseline_ativa\(\) \{ \[ "\$\{FILA_AGORA_EPOCH:-\$\(date -u \+%s\)\}" -l
 ok(/POS_BASELINE_496=\$\{FILA_POS_BASELINE:-'e2e\/jornadas\/aceitacao\/atak-status-equipe-rls\.spec\.ts/.test(sh)
   && /e2e\/jornadas\/aceitacao\/pauta-p2\.spec\.ts'\}/.test(sh),
   'linha-de-base do #496: os 2 specs que falharam no run 38741770350 (provados no log do job, RD-38)')
-ok(/pos_specs_falhos\(\)/.test(sh) && /actions\/jobs\/\$jid\/logs/.test(sh)
-  && /sed -n '\/\^\[\[:space:\]\]\*\[0-9\]\[0-9\]\* failed\/,\$p'/.test(sh) && /grep -oE 'e2e\/\[A-Za-z0-9_\.\/-\]\+\\\.spec\\\.ts'/.test(sh),
-  'pos_specs_falhos: da seção final "N failed" em diante, pega os e2e/.../*.spec.ts do log do job falho')
+ok(/pos_specs_falhos\(\)/.test(sh) && /check-runs\/\$jid\/annotations/.test(sh)
+  && /annotation_level == "failure" or \(\(\.title \/\/ ""\) \| test\("Playwright Run Summary"\)\)/.test(sh)
+  && /grep -oE 'e2e\/\[A-Za-z0-9_\.\/-\]\+\\\.spec\\\.ts'/.test(sh) && !/actions\/jobs\/\$jid\/logs/.test(sh),
+  'pos_specs_falhos: specs pelas ANOTAÇÕES do check-run (path/título/mensagem + resumo Playwright), SEM baixar o log do job (CEO 15/10 17:50)')
+const wf = readFileSync('.github/workflows/fila-merge.yml', 'utf8')
+ok(/checks: read/.test(wf) && /actions: read/.test(wf), 'workflow fila-merge: permissões checks:read + actions:read para ler as anotações')
 // a decisão na falha: baseline-only → livre; comm contra a baseline; novo → escala + esperar; sem spec → fail-closed
 ok(/if pos_baseline_ativa; then/.test(sh) && /comm -23 <\(printf '%s\\n' "\$falhos"\)/.test(sh)
   && /if \[ -z "\$novos" \]; then/.test(sh) && /echo livre; return/.test(sh),
@@ -34,9 +37,9 @@ ok(/escalar_pos_novo "\$id" "\$novos"/.test(sh) && /esperar:@pos da main VERMELH
   'estado_main (failure, na janela): spec novo → escala e bloqueia')
 ok(/VERMELHO sem spec de teste identificado.*bloqueia/.test(sh),
   'estado_main (failure, na janela): vermelho sem spec identificado (infra) → fail-closed (bloqueia)')
-ok(/escalar_pos_novo\(\)/.test(sh) && /commits\/\$hsha\/pulls/.test(sh) && /comentar_uma_vez "\$pr" "pos-novo-\$run"/.test(sh)
+ok(/escalar_pos_novo\(\)/.test(sh) && /commits\/\$hsha\/pulls/.test(sh) && /<!-- fila:pos-novo-\$run -->/.test(sh)
   && /proposta é revertê-la/.test(sh),
-  'escalar_pos_novo: comenta UMA vez na PR do head do run (a última que entrou) e propõe reversão')
+  'escalar_pos_novo: comenta UMA vez na PR do head do run (marca pos-novo-$run) e propõe reversão')
 // fora da janela, a regra antiga intacta
 ok(/echo "esperar:@pos-migration da main VERMELHO \(run \$id\) — reverter a PR culpada"; return;;/.test(sh),
   'fora da janela: qualquer @pos vermelho volta a bloquear (regra original)')
