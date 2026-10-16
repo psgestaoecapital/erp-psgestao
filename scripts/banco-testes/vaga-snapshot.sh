@@ -93,6 +93,11 @@ if [ "$MODO" = "snapshot" ]; then
     echo "create table _vaga_snapshot.sig as $SIG;"
     echo "create table _vaga_snapshot.fndef as select p.oid::regprocedure::text as sig, pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prokind in ('f','p','w');"
     echo "create table _vaga_snapshot.viewdef as select c.relname::text as relname, pg_get_viewdef(c.oid,true) as def from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('v','m');"
+    # defs de constraint/índice/trigger (Eng. Chefe 15/10: CHECK ampliado por DO $$ da PR do Hub deixava a vaga suja — modificado
+    # de classe "não restaurável" caía em recriar SEM tocar o ledger). Agora a classe é revertida à def da foto.
+    echo "create table _vaga_snapshot.condef as select con.conname::text||' on '||rel.relname::text as k, pg_get_constraintdef(con.oid) as def from pg_constraint con join pg_class rel on rel.oid=con.conrelid join pg_namespace n on n.oid=rel.relnamespace where n.nspname='public';"
+    echo "create table _vaga_snapshot.idxdef as select c.relname::text as k, pg_get_indexdef(c.oid) as def from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='i';"
+    echo "create table _vaga_snapshot.trgdef as select t.tgname::text||' on '||c.relname::text as k, pg_get_triggerdef(t.oid) as def from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal;"
     echo "create table _vaga_snapshot.led as select version from supabase_migrations.schema_migrations;"
     echo "create table _vaga_snapshot.cattbl(tbl text);"
     echo "create table _vaga_snapshot.catrow(tbl text, h text);"
@@ -140,16 +145,16 @@ if [ -s "$dir/sumiu.keys" ]; then
   echo "a PR removeu objeto(s) que havia na foto (não restauramos recriação por aqui):"; sed 's/^/  - /' "$dir/sumiu.keys" | head
   recriar "a PR fez DROP/rename de objeto aprovado — restauração parcial seria insegura; rode o Montar (recriar)"
 fi
-if grep -qvE '^(func|view) ' "$dir/mud.keys" 2>/dev/null; then
-  echo "objeto MODIFICADO de classe não restaurável por aqui (só função/view):"; grep -vE '^(func|view) ' "$dir/mud.keys" | sed 's/^/  - /' | head
-  recriar "objeto modificado que não é função/view"
+if grep -qvE '^(func|view|constraint|index|trigger) ' "$dir/mud.keys" 2>/dev/null; then
+  echo "objeto MODIFICADO de classe não restaurável por aqui (só função/view/constraint/índice/trigger):"; grep -vE '^(func|view|constraint|index|trigger) ' "$dir/mud.keys" | sed 's/^/  - /' | head
+  recriar "objeto modificado de classe não restaurável (policy/coluna/grant/tipo/rls)"
 fi
 
 { grep '^table ' "$dir/criou.keys" || true; } | sed 's/^table //' | sort -u > "$dir/tdrop.names"
 pertence_a_tabela_nova() { grep -qxF "$1" "$dir/tdrop.names"; }
 
 txn="$dir/restore.sql"
-{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='180s'; set local lock_timeout='20s';"; } > "$txn"
+{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"; } > "$txn"
 # 1) DROP do que a PR criou (objetos vaga-only em relação à foto)
 nd=0
 while IFS= read -r k; do
@@ -161,7 +166,9 @@ while IFS= read -r k; do
     "type "*)     echo "drop type if exists public.\"${k#type }\" cascade;" >> "$txn";;
     "sequence "*) echo "drop sequence if exists public.\"${k#sequence }\" cascade;" >> "$txn";;
     "col "*)      tc=${k#col }; t=${tc%%.*}; c=${tc#*.}; pertence_a_tabela_nova "$t" || echo "alter table if exists public.\"$t\" drop column if exists \"$c\" cascade;" >> "$txn";;
-    "index "*)    echo "drop index if exists public.\"${k#index }\" cascade;" >> "$txn";;
+    # índice que sustenta PK/UNIQUE (ou de tabela nova, derrubada adiante) não se derruba sozinho (2BP01): o DROP da
+    # constraint/tabela já o leva; a verificação antes do COMMIT garante que nada sobrou.
+    "index "*)    echo "do \$d\$ begin drop index if exists public.\"${k#index }\" cascade; exception when dependent_objects_still_exist then null; end \$d\$;" >> "$txn";;
     "constraint "*) cn=${k#constraint }; con=${cn% on *}; tbl=${cn#* on }; pertence_a_tabela_nova "$tbl" || echo "alter table if exists public.\"$tbl\" drop constraint if exists \"$con\";" >> "$txn";;
     "trigger "*)  tn=${k#trigger }; tg=${tn% on *}; tbl=${tn#* on }; pertence_a_tabela_nova "$tbl" || echo "drop trigger if exists \"$tg\" on public.\"$tbl\";" >> "$txn";;
     "policy "*)   pn=${k#policy }; pl=${pn% on *}; tbl=${pn#* on }; pertence_a_tabela_nova "$tbl" || echo "drop policy if exists \"$pl\" on public.\"$tbl\";" >> "$txn";;
@@ -181,6 +188,15 @@ while IFS= read -r k; do
     "view "*) vn=${k#view }
       def=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select def from _vaga_snapshot.viewdef where relname = \$x\$${vn}\$x\$")
       [ -n "$def" ] && printf 'create or replace view public."%s" as %s;\n' "$vn" "$def" >> "$txn" || recriar "sem definição da foto p/ view $vn";;
+    "constraint "*) cn=${k#constraint }; con=${cn% on *}; tbl=${cn#* on }
+      def=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select def from _vaga_snapshot.condef where k = \$x\$${cn}\$x\$")
+      [ -n "$def" ] && printf 'alter table public."%s" drop constraint "%s"; alter table public."%s" add constraint "%s" %s;\n' "$tbl" "$con" "$tbl" "$con" "$def" >> "$txn" || recriar "sem definição da foto p/ constraint $cn";;
+    "index "*) ix=${k#index }
+      def=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select def from _vaga_snapshot.idxdef where k = \$x\$${ix}\$x\$")
+      [ -n "$def" ] && printf 'drop index public."%s"; %s;\n' "$ix" "$def" >> "$txn" || recriar "sem definição da foto p/ índice $ix";;
+    "trigger "*) tn=${k#trigger }; tg=${tn% on *}; tbl=${tn#* on }
+      def=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select def from _vaga_snapshot.trgdef where k = \$x\$${tn}\$x\$")
+      [ -n "$def" ] && printf 'drop trigger "%s" on public."%s"; %s;\n' "$tg" "$tbl" "$def" >> "$txn" || recriar "sem definição da foto p/ trigger $tn";;
   esac
 done < "$dir/mud.keys"
 # 3) CATÁLOGO: apaga as linhas que a PR inseriu (linhas de hoje cujo md5 não está na foto), por tabela fotografada.
@@ -205,8 +221,15 @@ echo "delete from supabase_migrations.schema_migrations where version not in (se
 } >> "$txn"
 
 echo "restaurando a vaga ${VAGA} à foto: $nd objeto(s) criado(s) pela PR a derrubar, $nr função/view a reverter…"
+# 1ª tentativa; se estourar timeout/falhar, UMA nova tentativa (a transação é atômica: ROLLBACK não deixa meia-restauração).
 if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
-  recriar "a restauração à foto não convergiu (RAISE/erro → ROLLBACK; a vaga ficou com schema da PR)"
+  echo "::warning::vaga ${VAGA}: restauração falhou — tentando uma vez mais"
+  sleep 5
+  if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
+    # marca a vaga como SUJA (schema fora do public: não entra na assinatura) para o pool/Reconciliar não a usarem.
+    "$PSQL" "$TEST_DATABASE_URL" -tAc "create schema if not exists _vaga_suja; create table if not exists _vaga_suja.marca(em timestamptz default now(), motivo text); insert into _vaga_suja.marca(motivo) values ('restauracao da foto falhou 2x')" >/dev/null 2>&1 || true
+    recriar "a restauração à foto não convergiu após 2 tentativas (RAISE/erro → ROLLBACK; vaga marcada SUJA em _vaga_suja.marca — Eng. Chefe: rode o Reconciliar/Recriar)"
+  fi
 fi
 
 # VERIFICAÇÃO FINAL OBRIGATÓRIA (RD-38), no dado, pós-commit: nunca termina 0 se a vaga != foto.
@@ -224,6 +247,6 @@ if [ "$sig_div" -ne 0 ] || [ "$led_div" -ne 0 ]; then
   recriar "verificação final: a vaga não voltou à foto (assinaturas=${sig_div}, ledger=${led_div})"
 fi
 # limpa a foto (não faz parte do public; não afeta a assinatura, mas mantém a vaga arrumada).
-"$PSQL" "$TEST_DATABASE_URL" -tAc "drop schema if exists _vaga_snapshot cascade" >/dev/null 2>&1 || true
+"$PSQL" "$TEST_DATABASE_URL" -tAc "drop schema if exists _vaga_snapshot cascade; drop schema if exists _vaga_suja cascade" >/dev/null 2>&1 || true
 echo "vaga ${VAGA}: migrations da PR DESFEITAS e verificado no dado (schema/ledger == foto pré-PR)."
 exit 0
