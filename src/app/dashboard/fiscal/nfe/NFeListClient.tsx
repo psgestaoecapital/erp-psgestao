@@ -251,16 +251,21 @@ export default function NFeListClient() {
 
   function aplicarBusca() { setBuscaSubmit(busca.trim()); setPagina(1) }
 
-  // "Corrigir e reenviar" documento não emitido — só devolução (reabre a tela de devolução pré-preenchida
-  // pela nota de compra referenciada). Busca a finalidade/chave_referenciada no registro principal.
+  // "Corrigir e reenviar" documento não emitido — devolução (reabre a tela de devolução pré-preenchida
+  // pela nota de compra referenciada) ou nota de OS (#2167: abre a própria OS, onde o botão vira "Reenviar NF-e").
+  // Busca a finalidade/chave_referenciada/os_id no registro principal.
   async function corrigirEReenviar(doc: Documento) {
     setReabrindo(doc.grupo_chave)
     try {
       const { data } = await supabase
         .from('erp_nfe_emitidas')
-        .select('finalidade, chave_referenciada')
+        .select('finalidade, chave_referenciada, os_id')
         .eq('id', doc.principal_id).maybeSingle()
-      const nota = (data ?? {}) as { finalidade?: string | null; chave_referenciada?: string | null }
+      const nota = (data ?? {}) as { finalidade?: string | null; chave_referenciada?: string | null; os_id?: string | null }
+      if (nota.finalidade !== 'devolucao' && nota.os_id) {
+        router.push(`/dashboard/os?os=${nota.os_id}`)
+        return
+      }
       if (nota.finalidade !== 'devolucao' || !nota.chave_referenciada) {
         alert('Só a devolução tem reenvio pré-preenchido. Reemita esta nota pela tela de origem (venda/pedido).')
         return

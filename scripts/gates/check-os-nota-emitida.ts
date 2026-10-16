@@ -1,6 +1,7 @@
 // Gate (#2167 Gean): a ficha da OS mostra quando a NF-e/NFS-e já foi emitida (botão VERDE) e abre o PDF dali mesmo.
 // Prova a regra de qual nota a OS mostra (autorizada > mais recente; cancelada/denegada não conta) e que os dois
-// botões da OS usam o estado da nota em vez de oferecer só "Emitir". Sem rede.
+// botões da OS usam o estado da nota em vez de oferecer só "Emitir"; e que a NF-e de OS rejeitada se reenvia a partir
+// da lista de NF-es emitidas (abre a OS). Sem rede.
 import { readFileSync } from 'node:fs'
 import { escolherNotaDaOS, notaJaEmitida, type NotaDaOS } from '../../src/lib/fiscal/notaDaOS'
 
@@ -31,6 +32,11 @@ for (const [arq, tipo] of [['src/components/comum/EmitirNFeOSButton.tsx', 'nfe']
   ok(s.includes(`<NotaDaOSStatus tipo="${tipo}"`), `${arq}: mostra o estado da nota (verde/âmbar) no lugar do "Emitir"`)
   ok(/recarregar\(\)/.test(s), `${arq}: recarrega o estado depois de emitir`)
 }
+
+// item 3 do #2167: NF-e de OS rejeitada → "Corrigir e reenviar" da lista de NF-es abre a própria OS (onde o botão vira "Reenviar")
+const lista = readFileSync('src/app/dashboard/fiscal/nfe/NFeListClient.tsx', 'utf8')
+ok(/select\('finalidade, chave_referenciada, os_id'\)/.test(lista), 'NF-es emitidas: o reenvio lê a OS de origem da nota')
+ok(lista.includes("router.push(`/dashboard/os?os=${nota.os_id}`)"), 'NF-es emitidas: nota de OS rejeitada abre a OS para reenviar')
 
 if (falhas) { console.error(`check-os-nota-emitida: ${falhas} falha(s)`); process.exit(1) }
 console.log('check-os-nota-emitida: ok')
