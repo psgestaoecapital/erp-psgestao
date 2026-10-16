@@ -38,7 +38,7 @@ WHERE NOT EXISTS (SELECT 1 FROM public.screen_route_features WHERE screen_id = '
 
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
 SELECT v.chave, 'Alçada de compras', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem,
-       '/dashboard/compras/alcada', 'commerce', 'publicado'
+       '/dashboard/compras/alcada', 'gestao_empresarial', 'publicado'
 FROM (VALUES
  ('compras.alcada.aprovador_principal','Aprovador principal','Escolha a pessoa que aprova as solicitações de compra desta empresa.','Toda solicitação de compra fica pendente até essa pessoa aprovar (ou recusar com motivo).','O gerente da oficina.','Escolher quem também faz as solicitações: quem pede não aprova a própria compra.',1),
  ('compras.alcada.aprovador_substituto','Aprovador substituto','Escolha quem aprova quando o principal não está (opcional).','Evita que as compras fiquem paradas nas férias ou ausência do aprovador principal.','O sócio.','Escolher a mesma pessoa do principal: precisam ser diferentes.',2),
