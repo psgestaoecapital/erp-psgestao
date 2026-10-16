@@ -11,6 +11,12 @@ const sb = createClient(Deno.env.get("SUPABASE_URL")!, SERVICE_KEY, { auth: { pe
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
 
+// Defesa em profundidade (SSRF): só https e hosts dos serviços de push; o mesmo vale como CHECK na tabela.
+const HOST_PUSH = /^(fcm\.googleapis\.com|android\.googleapis\.com|([a-z0-9-]+\.)*push\.apple\.com|([a-z0-9-]+\.)*push\.services\.mozilla\.com|([a-z0-9-]+\.)*notify\.windows\.com)$/i
+const endpointPermitido = (e: string) => {
+  try { const u = new URL(e); return u.protocol === "https:" && !u.username && !u.password && HOST_PUSH.test(u.hostname) } catch { return false }
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json(405, { erro: "método" })
   // Só aceita o banco: Authorization = service_role.
@@ -35,6 +41,7 @@ Deno.serve(async (req) => {
 
   let enviados = 0, removidos = 0
   for (const s of subs ?? []) {
+    if (!endpointPermitido(s.endpoint)) { await sb.from("erp_push_assinatura").update({ ativo: false }).eq("id", s.id); continue }
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 3600 })
       enviados++
