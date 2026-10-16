@@ -133,14 +133,49 @@ pos_specs_falhos() {
       --jq '.[] | select(.annotation_level == "failure" or ((.title // "") | test("Playwright Run Summary"))) | (.path // ""), (.title // ""), (.message // "")' 2>/dev/null
   done | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts' | sort -u
 }
-# Escala uma falha NOVA do @pos (dentro da janela): comenta UMA vez na PR do head do run @pos (a que entrou por último) e
-# propõe reversão ao Eng. Chefe. Sem PR associada, só loga (o Eng. Chefe lê o resumo da fila).
+# Arquivos de teste (e2e/**/*.spec.ts) que a PR criou ou alterou (não os removidos). Um por linha, ordenado e único.
+pr_specs_proprios() {
+  api "repos/$REPO/pulls/$1/files" --paginate --jq '.[] | select(.status != "removed") | .filename' 2>/dev/null \
+    | grep -E '^e2e/.*\.spec\.ts$' | sort -u
+}
+
+# Parte 2 (CEO 16/10): aciona AUTOMATICAMENTE o Code autor da PR (erp_dev_entrega.code) com o spec e o erro, sem esperar
+# triagem — via fn_agente_mensagem_enviar (conexão de serviço). No-op sem SUPABASE_URL/SERVICE_KEY (nunca quebra a fila).
+# Envia como de='eng_chefe' (quem despacha tarefa) com enviado_por='fila-merge' no rastro; tipo 'tarefa' aciona a rotina do Code.
+acionar_autor_pos() {
+  local pr=$1 novos=$2 run=$3 code assunto corpo
+  [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || return 0
+  code=$(curl -fsS "$SUPABASE_URL/rest/v1/erp_dev_entrega?pr_numero=eq.$pr&select=code&order=criado_em.desc&limit=1" \
+    -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" 2>/dev/null \
+    | jq -r '.[0].code // empty' 2>/dev/null)
+  [ -n "$code" ] || { log "@pos: PR #$pr sem Code em erp_dev_entrega — não dá para acionar o autor automaticamente (Eng. Chefe, acione à mão)"; return 0; }
+  assunto="@pos vermelho: spec da sua PR #$pr falhou na main (run $run)"
+  corpo="A fila detectou falha NOVA no @pos-migration da main (run $run), fora da linha-de-base do #496, logo após a publicação da PR #$pr (sua). Spec(s) que falhou(aram): $(tr '\n' ' ' <<< "$novos"). Investigue e corrija ou reverta o quanto antes — as PRs COM migration ficam seguras até o @pos voltar ao verde. Run: https://github.com/$REPO/actions/runs/$run"
+  if curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_agente_mensagem_enviar" \
+       -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' \
+       -d "$(jq -nc --arg para "$code" --arg assunto "$assunto" --arg corpo "$corpo" --arg ep "fila-merge · acionamento automático (@pos run $run)" \
+             '{p_para:$para, p_de:"eng_chefe", p_tipo:"tarefa", p_assunto:$assunto, p_corpo:$corpo, p_requer_ok_ceo:false, p_enviado_por:$ep}')" \
+       >/dev/null 2>&1; then
+    log "@pos: Code $code acionado automaticamente (tarefa) para a falha NOVA da PR #$pr"
+  else
+    log "@pos: NÃO consegui acionar o Code $code (fn_agente_mensagem_enviar falhou) — Eng. Chefe, acione à mão a PR #$pr"
+  fi
+}
+
+# Escala uma falha NOVA do @pos (dentro da janela): comenta UMA vez na PR do head do run @pos (a que entrou por último),
+# propõe reversão ao Eng. Chefe E aciona o Code autor (Parte 2, CEO 16/10). Sem PR associada, só loga.
 escalar_pos_novo() {
   local run=$1 novos=$2 hsha pr
   hsha=$(api "repos/$REPO/actions/runs/$run" --jq '.head_sha' 2>/dev/null)
   pr=$(api "repos/$REPO/commits/$hsha/pulls" --jq '.[0].number' 2>/dev/null || true)
   { [ -n "$pr" ] && [ "$pr" != null ]; } || { log "@pos falha NOVA ($(tr '\n' ' ' <<< "$novos"), run $run) sem PR no head $hsha — Eng. Chefe, reverter manualmente"; return; }
-  comentar_uma_vez "$pr" "pos-novo-$run" "🔴 **Fila de merge — Eng. Chefe:** o \`@pos-migration\` da main está VERMELHO com **falha NOVA** fora da linha-de-base do run #496 (janela temporária CEO 15/10): \`$(tr '\n' ' ' <<< "$novos")\` (run $run). Como esta PR entrou por último, a **proposta é revertê-la**. Enquanto não resolver, as PRs COM migration ficam seguras (as SEM migration seguem)."
+  # uma vez por run: a marca escondida controla comentário E acionamento (não reenvia tarefa a cada rodada)
+  comentarios "$pr" | grep -qF "<!-- fila:pos-novo-$run -->" && return 0
+  comentar "$pr" "🔴 **Fila de merge — Eng. Chefe:** o \`@pos-migration\` da main está VERMELHO com **falha NOVA** fora da linha-de-base do run #496 (janela temporária CEO 15/10): \`$(tr '\n' ' ' <<< "$novos")\` (run $run). Como esta PR entrou por último, a **proposta é revertê-la**. Enquanto não resolver, as PRs COM migration ficam seguras (as SEM migration seguem). O Code autor foi acionado automaticamente.
+<!-- fila:pos-novo-$run -->"
+  [ "$COMENTOU" = 1 ] || return 0   # comentário falhou (rate limit): não registra nem aciona; tenta tudo de novo na próxima rodada
+  printf '%s\n' "\"<!-- fila:pos-novo-$run -->\"" >> "$TMPF/c-$pr"
+  acionar_autor_pos "$pr" "$novos" "$run"
 }
 
 # (a) Estado da main para PR COM migration. Ecoa: livre | esperar:<motivo>
@@ -216,9 +251,24 @@ aceitacao_dispensada() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u 
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} linhas pend verm canc acc esgotou id vercel_ok vercel_ruim
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
+  # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
+  # spec que FALHOU na aceitação é da PRÓPRIA PR (arquivo e2e/*.spec.ts que ela criou/alterou), NÃO publica. Specs de outras
+  # áreas seguem informativos. (A #2506 entrou com o próprio spec vermelho e só foi pega pelo @pos, travando 24 PRs.)
+  if [ "$via" = revisada ] && aceitacao_dispensada && [ -n "$n" ]; then
+    acc_conc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
+    acc_url=$(awk -F'\t' '$1 == "aceitacao" {print $4}' <<< "$linhas" | tail -1)
+    if [ "$acc_conc" = failure ] && [ -n "$acc_url" ]; then
+      acc_run=$(sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' <<< "$acc_url")
+      if [ -n "$acc_run" ]; then
+        # specs que falharam na aceitação (anotações, técnica da #2677) ∩ specs e2e que a PR tocou
+        proprios=$(comm -12 <(pos_specs_falhos "$acc_run") <(pr_specs_proprios "$n"))
+        [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
+      fi
+    fi
+  fi
   # via rápida SEMPRE, e via revisada DENTRO DA JANELA (CEO 15/10): tira a aceitação do cálculo de pendentes/vermelhos/cancelados
   if [ "$via" = rapida ] || aceitacao_dispensada; then linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas"); fi
   pend=$(awk -F'\t' '$2 != "completed" {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
@@ -419,7 +469,7 @@ for n in $fila; do
 
   # checks ANTES de atualizar com a main (CEO 08/10, fila sem etiqueta): só a PR verde é atualizada — a vermelha
   # recebe o aviso e fica como está (sem empurrar merge da main no ramo de quem ainda não acabou a PR).
-  c=$(estado_checks "$sha" "$via" "$so_docs")
+  c=$(estado_checks "$sha" "$via" "$so_docs" "$n")
   case "$c" in
     vermelho:*)
       # Deadlock 12/10: vermelho SÓ de guarda que lê o estado da main (check_fn_guards etc.) numa PR atrás da main costuma ser
@@ -457,8 +507,10 @@ for n in $fila; do
     if [ "$em_preparo" -ge "$ATUALIZA_NA_VEZ" ]; then
       log "#$n está $atras atrás da main, mas já há $em_preparo PR(s) da vez em preparo (teto $ATUALIZA_NA_VEZ): espera a vez — sem build agora"; continue
     fi
-    em_preparo=$((em_preparo + 1))
+    # Só gasta vaga se o update-branch FUNCIONOU: PR com conflito não prepara build e não pode ocupar o teto (16/10: 4 PRs
+    # em conflito queimavam as 4 vagas e travavam 7 PRs prontas por horas).
     if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+      em_preparo=$((em_preparo + 1))
       log "#$n estava $atras commit(s) atrás da main: atualizada (vaga $em_preparo/$ATUALIZA_NA_VEZ); aguardando os checks do novo commit — segue para a próxima"
     else
       tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"; continue
