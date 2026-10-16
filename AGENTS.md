@@ -235,6 +235,16 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   mensagem das anotações de falha e o resumo `🎭 Playwright Run Summary`) — NÃO baixa o log do job (que dava 404 com o
   token da integração/PAT); o workflow da fila tem `checks: read` + `actions: read` (CEO 15/10 17:50). Gate:
   `scripts/gates/check-fila-janela-pos-baseline.ts` (base, subconjunto, falha nova, os dois lados da data, fail-closed).
+  **Regra do teste próprio (CEO 16/10, com o CEO presente):** DENTRO da janela da aceitação revisada, se a aceitação da
+  PR está **vermelha**, a fila lê os specs que falharam pelas **ANOTAÇÕES do check-run** (técnica da #2677) e cruza com
+  os `e2e/**/*.spec.ts` que a PR **criou ou alterou**. Se um spec que falhou é da **PRÓPRIA PR** → **NÃO publica**
+  (`vermelho:spec da própria PR falhando: <spec>`, comenta uma vez); falhas em specs que a PR **não tocou** seguem
+  **informativas**. (A #2506 entrou pela janela com o próprio spec vermelho e só foi pega pelo @pos #527, travando 24
+  PRs com migration.) **Acionamento automático do autor:** numa **falha NOVA** do `@pos` (fora da linha-de-base, #2667),
+  a fila identifica o Code autor da PR do head (`erp_dev_entrega.code`) e o **aciona** com o spec e o run via
+  `fn_agente_mensagem_enviar` (de=`eng_chefe`, tipo `tarefa`, `enviado_por=fila-merge`; conexão de serviço — o Code não
+  chama essa função sozinho), sem esperar triagem; uma vez por run (mesma marca do comentário). Gate:
+  `scripts/gates/check-fila-teste-proprio.ts`.
 - **(e) Timeout de 40 min** nos jobs de aceitação (`aceitacao-pr`, `aceitacao-pos-migration`; a espera na fila
   `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
   **executando** há mais de 45 min; job esperando a vez na fila nunca é cancelado.

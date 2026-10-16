@@ -37,9 +37,9 @@ ok(/escalar_pos_novo "\$id" "\$novos"/.test(sh) && /esperar:@pos da main VERMELH
   'estado_main (failure, na janela): spec novo → escala e bloqueia')
 ok(/VERMELHO sem spec de teste identificado.*bloqueia/.test(sh),
   'estado_main (failure, na janela): vermelho sem spec identificado (infra) → fail-closed (bloqueia)')
-ok(/escalar_pos_novo\(\)/.test(sh) && /commits\/\$hsha\/pulls/.test(sh) && /comentar_uma_vez "\$pr" "pos-novo-\$run"/.test(sh)
+ok(/escalar_pos_novo\(\)/.test(sh) && /commits\/\$hsha\/pulls/.test(sh) && /<!-- fila:pos-novo-\$run -->/.test(sh)
   && /proposta é revertê-la/.test(sh),
-  'escalar_pos_novo: comenta UMA vez na PR do head do run (a última que entrou) e propõe reversão')
+  'escalar_pos_novo: comenta UMA vez na PR do head do run (marca pos-novo-$run) e propõe reversão')
 // fora da janela, a regra antiga intacta
 ok(/echo "esperar:@pos-migration da main VERMELHO \(run \$id\) — reverter a PR culpada"; return;;/.test(sh),
   'fora da janela: qualquer @pos vermelho volta a bloquear (regra original)')
