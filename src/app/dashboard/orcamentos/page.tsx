@@ -64,6 +64,9 @@ const FRETES = ['CIF (por conta do fornecedor)','FOB (por conta do cliente)','Re
 
 const STATUS_CFG:Record<string,{cor:string;icon:string;label:string}> = {
   rascunho:    {cor:TXD,icon:"📝",label:"Rascunho"},
+  aguardando:  {cor:Y,  icon:"⏳",label:"Aguardando"},
+  em_andamento:{cor:B,  icon:"🛠️",label:"Em andamento"},
+  enviado_aprovacao:{cor:P,icon:"📤",label:"Enviado para aprovação"},
   enviado:     {cor:B,  icon:"📨",label:"Enviado"},
   visualizado: {cor:P,  icon:"👁️",label:"Visualizado"},
   aprovado:    {cor:G,  icon:"✅",label:"Aprovado"},
@@ -604,7 +607,7 @@ export default function OrcamentosPage(){
   },[orcamentos,filtroStatus,busca,oportFiltroOrcIds,filtroVinculo,linkedOrcIds]);
 
   // F2.7 · "Total ativos" deixa de contar rascunho: Ativos e Rascunhos separados (achado P2).
-  const kpiAtivos=orcamentos.filter(o=>!['recusado','expirado','rascunho'].includes(o.status)).length;
+  const kpiAtivos=orcamentos.filter(o=>!['recusado','expirado','rascunho','aguardando','em_andamento'].includes(o.status)).length;
   const kpiRascunhos=orcamentos.filter(o=>o.status==='rascunho').length;
   const kpiBaseConversao=orcamentos.filter(o=>o.status!=='recusado'&&o.status!=='expirado').length;
   const kpiAprovados=orcamentos.filter(o=>o.status==='aprovado').length;
@@ -1004,7 +1007,10 @@ export default function OrcamentosPage(){
                           {/* Tryo #264 · abre o PDF anexado direto da lista */}
                           {o.pdf_anexo_path&&<button onClick={async()=>{const{data}=await supabase.storage.from("crm-anexos").createSignedUrl(o.pdf_anexo_path as string,3600);if(data?.signedUrl)window.open(data.signedUrl,"_blank");}} data-testid="orc-lista-pdf" title="Abrir o PDF do orçamento" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>📎 PDF</button>}
                           {o.status==='convertido'&&o.pedido_id&&<button onClick={()=>router.push(`/dashboard/pedidos?abrir=${o.pedido_id}`)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}} title="Abrir o pedido para editar (demandas extras)">🎯 Abrir Pedido →</button>}
-                          {o.status==='rascunho'&&<button onClick={()=>mudarStatus(o,'enviado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>📨 Enviar</button>}
+                          {['rascunho','aguardando'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'em_andamento')} title="Marca que o orçamento está sendo elaborado" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>🛠️ Em andamento</button>}
+                          {o.status==='rascunho'&&<button onClick={()=>mudarStatus(o,'aguardando')} title="Marca que está aguardando informações" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:Y+"12",color:Y,border:`1px solid ${Y}25`,cursor:"pointer"}}>⏳ Aguardando</button>}
+                          {o.status==='em_andamento'&&<button onClick={()=>mudarStatus(o,'enviado_aprovacao')} title="Envia para a aprovação interna antes de ir ao cliente" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:P+"12",color:P,border:`1px solid ${P}25`,cursor:"pointer"}}>📤 Enviar p/ aprovação</button>}
+                          {['rascunho','enviado_aprovacao'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'enviado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>📨 Enviar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'aprovado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>✅ Aprovar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'recusado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>❌ Recusar</button>}
                           {o.status==='aprovado'&&<button onClick={async()=>{const{data:{user}}=await supabase.auth.getUser();const{data,error}=await supabase.rpc('converter_orcamento_pedido',{p_orcamento_id:o.id,p_user_id:user?.id});if(error){setMsg("❌ "+error.message);return;}setMsg("✅ Convertido em pedido!");loadOrcamentos();setTimeout(()=>setMsg(""),3000);}} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>🎯 → Pedido</button>}
