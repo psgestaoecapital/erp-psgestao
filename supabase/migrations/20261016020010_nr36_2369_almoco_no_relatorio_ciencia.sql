@@ -75,3 +75,8 @@ BEGIN
   END LOOP;
   RETURN jsonb_build_object('ok', true, 'competencia', v_comp, 'gerados', v_n);
 END $function$;
+
+-- Núcleo interno: só service_role (as RPCs públicas que o chamam já conferem a empresa). Mantém os grants vivos.
+-- ci-sem-guarda: fn_nr36_ciencia_gerar_nucleo — núcleo interno sem acesso de usuário; a guarda de empresa está nas RPCs que o chamam
+REVOKE ALL ON FUNCTION public.fn_nr36_ciencia_gerar_nucleo(uuid, date, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_ciencia_gerar_nucleo(uuid, date, text) TO service_role;
