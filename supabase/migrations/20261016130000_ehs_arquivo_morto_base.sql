@@ -169,7 +169,11 @@ BEGIN
 END $$;
 
 REVOKE ALL ON FUNCTION public.fn_ehs_bloqueia_delete(), public.fn_ehs_evento_append_only() FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.fn_ehs_arquivo_pode(uuid), public.fn_ehs_arquivar_funcionario(uuid,text,date),
-  public.fn_ehs_reativar_funcionario(uuid,text,date), public.fn_ehs_arquivo_listar(uuid,text,int,int) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_ehs_arquivo_pode(uuid), public.fn_ehs_arquivar_funcionario(uuid,text,date),
-  public.fn_ehs_reativar_funcionario(uuid,text,date), public.fn_ehs_arquivo_listar(uuid,text,int,int) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_ehs_arquivo_pode(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ehs_arquivo_pode(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_ehs_arquivar_funcionario(uuid,text,date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ehs_arquivar_funcionario(uuid,text,date) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_ehs_reativar_funcionario(uuid,text,date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ehs_reativar_funcionario(uuid,text,date) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_ehs_arquivo_listar(uuid,text,int,int) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ehs_arquivo_listar(uuid,text,int,int) TO authenticated;
