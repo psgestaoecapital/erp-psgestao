@@ -69,7 +69,7 @@ export default function ChatWidget() {
       if (alive) setEquipe((eq as Membro[] | null) ?? [])
     })()
 
-    const msgCh = supabase.channel(`chat:msgs:${activeCompany}`)
+    const msgCh = supabase.channel(`chat:msgs:${activeCompany}:${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'erp_chat_mensagem', filter: `company_id=eq.${activeCompany}` },
         (payload: { new: { canal_id?: string } }) => {
           void carregarCanais()
@@ -78,7 +78,7 @@ export default function ChatWidget() {
         })
       .subscribe()
 
-    const presCh = supabase.channel(`chat:presence:${activeCompany}`, { config: { presence: { key: meId } } })
+    const presCh = supabase.channel(`chat:presence:${activeCompany}:${Math.random().toString(36).slice(2)}`, { config: { presence: { key: meId } } })
     presCh.on('presence', { event: 'sync' }, () => { setOnline(new Set(Object.keys(presCh.presenceState()))) })
       .subscribe((status) => { if (status === 'SUBSCRIBED') void presCh.track({ at: Date.now() }) })
 
