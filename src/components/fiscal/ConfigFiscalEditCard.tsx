@@ -10,6 +10,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { ALIQUOTA_CREDITO_SN_MAX } from '@/lib/fiscal/creditoIcmsSimples'
 import { ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle, Save } from 'lucide-react'
 
 type Provider = 'gov_nfse_nacional' | 'focusnfe'
@@ -82,6 +84,9 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
   const [aliqCompetencia, setAliqCompetencia] = useState(mesAtualISO)
   const [aliqValor, setAliqValor] = useState('')
   const [salvandoAliq, setSalvandoAliq] = useState(false)
+  // #2876 · alíquota do crédito de ICMS do Simples (pCredSN), informada pelo contador. Vazio = sem crédito na nota.
+  const [credSN, setCredSN] = useState('')
+  const [salvandoCredSN, setSalvandoCredSN] = useState(false)
 
   // carrega checklist inicial pra pre-preencher
   useEffect(() => {
@@ -170,6 +175,35 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
     const r = data as { ok?: boolean; erro?: string }
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao salvar alíquota'); return }
     setToast(`✅ Alíquota do Simples de ${aliqCompetencia} salva: ${v}%`)
+    onSalvo?.(); setTimeout(() => setToast(null), 4000)
+  }
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.from('erp_fiscal_provider_config').select('aliquota_credito_icms_sn')
+        .eq('company_id', companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
+      if (!alive || !data) return
+      const v = (data as { aliquota_credito_icms_sn?: number | null }).aliquota_credito_icms_sn
+      setCredSN(v != null ? String(v).replace('.', ',') : '')
+    })()
+    return () => { alive = false }
+  }, [companyId])
+
+  async function salvarCreditoSN() {
+    setErro(null); setToast(null)
+    const txt = credSN.trim()
+    const v = txt === '' ? null : Number(txt.replace(',', '.'))
+    if (v !== null && (!Number.isFinite(v) || v <= 0 || v > ALIQUOTA_CREDITO_SN_MAX)) {
+      setErro(`Alíquota do crédito: de 0,01 a ${ALIQUOTA_CREDITO_SN_MAX}% (ou deixe vazio para não destacar crédito).`); return
+    }
+    setSalvandoCredSN(true)
+    const { data, error } = await supabase.rpc('fn_fiscal_credito_icms_sn_salvar', { p_company_id: companyId, p_aliquota: v })
+    setSalvandoCredSN(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string }
+    if (!r?.ok) { setErro(r?.erro ?? 'Erro ao salvar a alíquota do crédito'); return }
+    setToast(v === null ? 'Crédito de ICMS do Simples desligado.' : `Alíquota do crédito de ICMS do Simples salva: ${String(v).replace('.', ',')}%`)
     onSalvo?.(); setTimeout(() => setToast(null), 4000)
   }
 
@@ -486,6 +520,32 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
                 className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-[#C8941A] text-white text-[12px] font-medium disabled:opacity-40">
                 {salvandoAliq ? 'Salvando…' : 'Salvar alíquota do mês'}
               </button>
+            </div>
+          </Section>
+
+          {/* #2876 · Crédito de ICMS do Simples (LC 123 art. 23) — CSOSN 101 + texto nas Informações Complementares */}
+          <Section titulo="Crédito de ICMS do Simples (NF-e)">
+            <div className="text-[11px] text-[#3D2314]/60 mb-2">
+              Alíquota que o contador informa para o cliente contribuinte aproveitar o crédito de ICMS. Com ela, a NF-e para
+              contribuinte (que não é consumidor final) sai com CSOSN 101 e o valor do crédito; para consumidor final, CSOSN 102.
+              Vazio = nada muda. Teste primeiro em homologação.
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <label className="block">
+                <span className="text-[10px] text-[#3D2314]/60 uppercase tracking-[0.6px] font-semibold flex items-center gap-1 mb-1">
+                  Alíquota do crédito (%) <AjudaCampo chave="fiscal.config.aliquota_credito_icms_sn" />
+                </span>
+                <input type="text" inputMode="decimal" value={credSN} onChange={(e) => setCredSN(e.target.value)} placeholder="ex.: 3,80"
+                  data-testid="config-fiscal-credito-sn"
+                  className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]" />
+              </label>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => void salvarCreditoSN()} disabled={salvandoCredSN}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-[#C8941A] text-white text-[12px] font-medium disabled:opacity-40">
+                  {salvandoCredSN ? 'Salvando…' : 'Salvar alíquota do crédito'}
+                </button>
+                <AjudaCampo chave="fiscal.config.salvar_credito_icms_sn" />
+              </div>
             </div>
           </Section>
 
