@@ -115,9 +115,12 @@ GRANT EXECUTE ON FUNCTION public.fn_relatorio_meus(uuid) TO authenticated;
 -- Cancelar um pedido que ainda está na fila (só o próprio solicitante).
 CREATE OR REPLACE FUNCTION public.fn_relatorio_cancelar(p_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE v_n int;
+DECLARE v_n int; v_company uuid;
 BEGIN
   IF auth.uid() IS NULL THEN RETURN jsonb_build_object('ok',false,'erro','nao_autenticado'); END IF;
+  SELECT company_id INTO v_company FROM erp_relatorio_pedido WHERE id = p_id AND solicitante = auth.uid();
+  IF v_company IS NULL THEN RETURN jsonb_build_object('ok',false,'erro','nao_cancelavel'); END IF;
+  PERFORM public.fn__guarda_empresa(v_company);
   UPDATE erp_relatorio_pedido SET status = 'cancelado', concluido_em = now()
    WHERE id = p_id AND solicitante = auth.uid() AND status = 'na_fila';
   GET DIAGNOSTICS v_n = ROW_COUNT;
@@ -148,6 +151,7 @@ REVOKE ALL ON FUNCTION public.fn_relatorio_fila_pegar() FROM anon, PUBLIC, authe
 GRANT EXECUTE ON FUNCTION public.fn_relatorio_fila_pegar() TO service_role;
 
 -- Atualiza o andamento / conclui (pronto → validade de 7 dias) / registra erro.
+-- ci-sem-guarda: fn_relatorio_fila_atualizar — só service_role (gerador da fila, sem usuário logado); o pedido já foi conferido na entrada (fn_relatorio_pedir).
 CREATE OR REPLACE FUNCTION public.fn_relatorio_fila_atualizar(p_id uuid, p_status text, p_progresso int DEFAULT NULL,
   p_arquivo_path text DEFAULT NULL, p_tamanho_bytes bigint DEFAULT NULL, p_linhas int DEFAULT NULL, p_erro text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
