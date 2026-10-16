@@ -4,6 +4,7 @@ import type { Session, User } from '@supabase/supabase-js'
 import { supabase, EVENTO_SESSAO_SUSPEITA } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { registrarEventoAuth } from '@/lib/telemetria'
+import { urlDeLogin } from '@/lib/retornoLogin'
 
 // ══════════════════════════════════════════════════════════════════════════
 // SESSÃO ÚNICA + "NUNCA OPERAR COMO VISITANTE" (P0 · contexto 16bc8561 / 147694b7)
@@ -161,9 +162,8 @@ function SessaoExpirada() {
     if (indo) return
     setIndo(true)
     try {
-      const retorno = encodeURIComponent(window.location.pathname + window.location.search)
-      window.location.assign(`/login?returnTo=${retorno}`)
-    } catch { try { window.location.assign('/login') } catch { /* noop */ } }
+      window.location.assign(urlDeLogin(window.location.pathname + window.location.search))
+    } catch { try { window.location.assign('/') } catch { /* noop */ } }
   }
   // Redireciona sozinho após um instante (o usuário também pode tocar no botão).
   useEffect(() => {

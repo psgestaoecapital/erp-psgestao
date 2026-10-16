@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import { retornoSeguro } from "@/lib/retornoLogin";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -48,7 +49,8 @@ export default function LoginPage() {
       const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
       if (up?.role === "operador_bpo") dest = "/dashboard/bpo/inbox";
     }
-    router.push(dest);
+    // Sessão expirada: volta para a página de origem (?returnTo=, só rota interna).
+    router.push(retornoSeguro(new URLSearchParams(window.location.search).get("returnTo")) ?? dest);
   };
 
   return (
