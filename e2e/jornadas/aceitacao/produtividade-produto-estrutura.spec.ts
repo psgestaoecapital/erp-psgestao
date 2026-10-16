@@ -1,14 +1,20 @@
 // Produtividade Onda 2 (banco): catálogo genérico de produtos + estrutura de desmontagem, chamados COMO USUÁRIO (RD-82)
-// pelas mesmas RPCs da tela. Migration 20261016220110 → @pos-migration. Roda na DEMO Indústria (SST); nada é apagado (arquiva).
+// pelas mesmas RPCs da tela, com o JWT do robô (a guarda de acesso recusa service_role). Migration 20261016220110 → @pos-migration. Roda na DEMO Indústria (SST); nada é apagado (arquiva).
 // Cobre: cadastro manual, editar/arquivar/reativar, ligação origem→saída, ciclo recusado, rendimento zero recusado,
 // aviso de soma >100%, "Colar lista" (prévia não grava; linha inválida avisada; grava como rascunho) e isolamento por empresa.
 
 import { test, expect } from '../../support/fixtures'
-import { rpc, dbSelect } from '../../support/api'
+import { rpcComoRobo, dbSelect } from '../../support/api'
 
 const DEMO_SST = 'b0700000-0000-4000-a000-000000000005'
 const OUTRA_EMPRESA = 'b0700000-0000-4000-a000-000000000002'
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}${Date.now().toString(36)}`.replace(/[^a-z0-9]/gi, '').slice(-8)
+// RD-82: chamada COMO O ROBÔ (auth.uid() preenchido); erro HTTP vira exceção com o texto do banco (ex.: ciclo_na_estrutura).
+async function rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T> {
+  const r = await rpcComoRobo<T>(fn, args)
+  if (r.status < 200 || r.status >= 300) throw new Error(`rpc ${fn} falhou: ${r.status} ${r.texto}`)
+  return r.corpo as T
+}
 const cod = (s: string) => `T${RUN}${s}`
 
 type Nos = { ok: boolean; nos: { id: string; nivel: number; origem_codigo: string; produto_codigo: string; status: string; rendimento_padrao_pct: number | null; ativo: boolean }[]; avisos_soma: unknown[] }
