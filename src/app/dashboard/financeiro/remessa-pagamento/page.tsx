@@ -13,6 +13,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { mapearRemessaSicoob, buildArquivoSicoob, mapearRemessaSicredi, buildArquivoSicredi, nomeArquivoRemessaSicredi, parseRetornoSicredi, type TituloPag, type ItemRetornoSicredi } from '@/lib/banco/cnab240'
 import { normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
 import { ehPix } from '@/lib/financeiro/formasPagamento'
+import { separarBloqueados, avisoBloqueadosFora } from '@/lib/financeiro/bloqueioPagamento'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D'
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -72,6 +73,7 @@ export default function RemessaPagamentoPage() {
   const [provider, setProvider] = useState<'sicoob' | 'sicredi'>('sicoob')
   const [emp, setEmp] = useState<Empresa | null>(null)
   const [rows, setRows] = useState<Row[]>([])
+  const [avisoBloqueados, setAvisoBloqueados] = useState<string | null>(null)   // #1672: contas bloqueadas ficaram de fora
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -165,7 +167,13 @@ export default function RemessaPagamentoPage() {
 
     // Data do Pagamento por título = vencimento no próximo dia útil, nunca no passado (evita crítica AP).
     // Fonte única da regra de feriado: RPC fn_remessa_datas_pagamento (não reimplementa feriado no front).
-    const disponiveis = titulos.filter((t) => !jaEm.has(t.id))
+    // #1672: conta BLOQUEADA para pagamento fica fora da remessa (o banco também recusa); avisa quantas ficaram de fora.
+    // Consulta tolerante: antes da migration a coluna não existe e a lista segue como estava.
+    const { data: blq, error: blqErr } = await supabase.from('erp_pagar').select('id').eq('company_id', companyId).eq('bloqueado', true).in('id', titulos.map((t) => t.id))
+    const bloqueadosSet = new Set<string>(blqErr ? [] : ((blq ?? []) as { id: string }[]).map((b) => b.id))
+    const sep = separarBloqueados(titulos.filter((t) => !jaEm.has(t.id)), bloqueadosSet)
+    setAvisoBloqueados(avisoBloqueadosFora(sep.fora))
+    const disponiveis = sep.livres
     const dtPagMap = new Map<string, string>()
     if (disponiveis.length) {
       const { data: dps } = await supabase.rpc('fn_remessa_datas_pagamento', { p_ids: disponiveis.map((t) => t.id) })
@@ -615,6 +623,9 @@ export default function RemessaPagamentoPage() {
           )}
         </div>
 
+        {avisoBloqueados && (
+          <div style={{ background: '#FEF3C7', color: '#7A5A0F', border: '0.5px solid #C8941A', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 10 }}>🔒 {avisoBloqueados}</div>
+        )}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
           <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Filtrar por fornecedor, descrição, forma…" style={{ ...inp, flex: 1, minWidth: 220 }} />
           <button onClick={() => toggleAll(true)} style={btnGhost}>Selecionar todos</button>
