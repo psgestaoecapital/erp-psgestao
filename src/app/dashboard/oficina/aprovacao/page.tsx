@@ -9,6 +9,8 @@ import { ClipboardCheck, ChevronLeft, Check, X, Share2, Eraser } from 'lucide-re
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { filtrarOS } from '@/lib/oficina/buscaOS'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useOficinaModelo } from '@/lib/oficina/modelo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
@@ -49,6 +51,7 @@ export default function AprovacaoPage() {
   const precoFixo = (l: ItemOrc) => modelo === 'centralizado' && l.preco != null
   const router = useRouter()
   const [lista, setLista] = useState<OSLinha[]>([])
+  const [buscaOS, setBuscaOS] = useState('') // #2861 · busca igual à da tela de OS
   const [osSel, setOsSel] = useState<OSInfo | null>(null)
   const [itens, setItens] = useState<Linha[]>([])
   const [aprovadorNome, setAprovadorNome] = useState('')
@@ -160,8 +163,17 @@ export default function AprovacaoPage() {
         <button onClick={() => router.push('/dashboard/oficina/patio')} style={linkBtn}><ChevronLeft size={16} /> Pátio</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Orçamento & Aprovação</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><ClipboardCheck size={22} /> Qual laudo orçar?</h1>
+        {lista.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: ESP60, marginBottom: 4 }}>Buscar<AjudaCampo chave="oficina.aprovacao.busca" rota="/dashboard/oficina/aprovacao" /></span>
+              <input data-testid="oficina-busca-os" value={buscaOS} onChange={(e) => setBuscaOS(e.target.value)} placeholder="Buscar por placa, número, cliente ou veículo…" style={inp} />
+            </label>
+          </div>
+        )}
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhuma OS com laudo ainda. Faça o Diagnóstico primeiro.</div>}
-        {lista.map((os) => (
+        {lista.length > 0 && buscaOS.trim() && filtrarOS(lista, buscaOS).length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '12px 0' }}>Nenhuma OS encontrada para “{buscaOS.trim()}”.</div>}
+        {filtrarOS(lista, buscaOS).map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <PlacaInline companyId={companyId} osId={os.id} placa={os.placa} onSaved={(p) => setPlacaLocal(os.id, p)} />

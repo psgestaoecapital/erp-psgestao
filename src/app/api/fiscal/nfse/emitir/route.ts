@@ -921,6 +921,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       }
     }
 
+    // Competência da nota (a mesma data_competencia enviada ao provedor, dia de Brasília): fn_registrar_nfse_emitida
+    // não a grava — a NFS-e 603 da Pdois (08/10) ficou com data_competencia vazia. Só preenche se estiver vazia.
+    if (registroId) {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ data_competencia: dataBrasil() })
+        .eq('id', registroId).is('data_competencia', null)
+    }
+
     // IBPT por empresa · grava a fonte dos tributos aproximados que foi na nota
     if (registroId && ibptFonte) {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ ibpt_fonte: ibptFonte }).eq('id', registroId)
