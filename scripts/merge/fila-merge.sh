@@ -507,8 +507,10 @@ for n in $fila; do
     if [ "$em_preparo" -ge "$ATUALIZA_NA_VEZ" ]; then
       log "#$n está $atras atrás da main, mas já há $em_preparo PR(s) da vez em preparo (teto $ATUALIZA_NA_VEZ): espera a vez — sem build agora"; continue
     fi
-    em_preparo=$((em_preparo + 1))
+    # Só gasta vaga se o update-branch FUNCIONOU: PR com conflito não prepara build e não pode ocupar o teto (16/10: 4 PRs
+    # em conflito queimavam as 4 vagas e travavam 7 PRs prontas por horas).
     if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+      em_preparo=$((em_preparo + 1))
       log "#$n estava $atras commit(s) atrás da main: atualizada (vaga $em_preparo/$ATUALIZA_NA_VEZ); aguardando os checks do novo commit — segue para a próxima"
     else
       tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"; continue
