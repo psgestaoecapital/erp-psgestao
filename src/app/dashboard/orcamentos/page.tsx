@@ -149,8 +149,8 @@ export default function OrcamentosPage(){
     const n=parseInt(v,10);
     if(!cid||!n||n<1||n>365||n===validadePadraoDias)return;
     const{error}=await supabase.from('orcamento_config_empresa').upsert({company_id:cid,validade_dias:n,updated_at:new Date().toISOString()});
-    if(error){setMsg("❌ Não foi possível salvar a validade padrão");return;}
-    setValidadePadraoDias(n);setMsg(`✅ Validade padrão: ${n} dias para os próximos orçamentos`);
+    if(error){setMsg("Não foi possível salvar a validade padrão");return;}
+    setValidadePadraoDias(n);setMsg(`Validade padrão: ${n} dias para os próximos orçamentos`);
   };
 
 
@@ -752,7 +752,8 @@ export default function OrcamentosPage(){
               <input type="date" value={form.data_emissao} onChange={e=>setForm({...form,data_emissao:e.target.value})} style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Validade</div>
               <input type="date" value={form.data_validade} onChange={e=>setForm({...form,data_validade:e.target.value})} style={inp}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Validade padrão (dias) <AjudaCampo chave="orcamentos.config.validade_dias" rota="/dashboard/orcamentos"/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Validade padrão (dias)</div>
+              <AjudaCampo chave="orcamentos.config.validade_dias" rota="/dashboard/orcamentos"/>
               <input type="number" min={1} max={365} placeholder={String(VALIDADE_PADRAO_DIAS)} defaultValue={validadePadraoDias??''} key={`vp-${editing?.company_id||companyIdParaCadastro}-${validadePadraoDias??''}`}
                 onBlur={e=>salvarValidadePadrao(e.target.value)} style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}} title="Quando se espera faturar — alimenta a previsão de receita">Previsão de Faturamento</div>
