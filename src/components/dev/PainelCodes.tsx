@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
+import BlocoSeguro from './BlocoSeguro'
 import GraficosCodes from './GraficosCodes'
 import SaudeEsteira from './SaudeEsteira'
 import SaudeCodes from './SaudeCodes'
@@ -140,30 +141,27 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
-      <SaudeEsteira />
-      <SaudeCodes />
-      <GraficosCodes />
-      {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
-      {resumos.length > 0 && <ResumoPorCode itens={resumos} agora={agora} />}
-      {dados && <LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} />}
+      <BlocoSeguro nome="saude-esteira"><SaudeEsteira /></BlocoSeguro>
+      <BlocoSeguro nome="saude-codes"><SaudeCodes /></BlocoSeguro>
+      <BlocoSeguro nome="graficos"><GraficosCodes /></BlocoSeguro>
+      {est && f && <BlocoSeguro nome="faixa-esteira"><FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} /></BlocoSeguro>}
+      {resumos.length > 0 && <BlocoSeguro nome="resumo"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}
+      {dados && <BlocoSeguro nome="linha-do-tempo"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro>}
 
       {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
-      <MeuCode />
-
-      {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
-      <MeuCode />
-      <EsperandoOkCeo />
+      <BlocoSeguro nome="meu-code"><MeuCode /></BlocoSeguro>
+      <BlocoSeguro nome="esperando-ok"><EsperandoOkCeo /></BlocoSeguro>
 
       {dados && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {CODES_PRINCIPAIS.map((c) => <CartaoCode key={c} code={c} dados={dados} agora={agora} />)}
+            {CODES_PRINCIPAIS.map((c) => <BlocoSeguro key={c} nome={`cartao-${c}`}><CartaoCode code={c} dados={dados} agora={agora} /></BlocoSeguro>)}
           </div>
           <div style={{ fontSize: 12, color: TXM, fontWeight: 600, margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Revisão e Eng. Chefe</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {CODES_LINHA_FINAL.map((c) => <CartaoCode key={c} code={c} dados={dados} agora={agora} compacto />)}
+            {CODES_LINHA_FINAL.map((c) => <BlocoSeguro key={c} nome={`cartao-${c}`}><CartaoCode code={c} dados={dados} agora={agora} compacto /></BlocoSeguro>)}
           </div>
-          <ConectarClaude />
+          <BlocoSeguro nome="conectar-claude"><ConectarClaude /></BlocoSeguro>
         </>
       )}
     </div>
