@@ -32,6 +32,31 @@ CREATE TRIGGER trg_compliance_funcionario_setor_id
   BEFORE INSERT OR UPDATE OF setor, setor_id ON public.compliance_funcionarios
   FOR EACH ROW EXECUTE FUNCTION public.trg_compliance_funcionario_setor_id();
 
+-- Rastro (reversível): guarda os funcionários que o preenchimento abaixo vai alterar.
+CREATE TABLE IF NOT EXISTS public.compliance_funcionarios_setor_backfill_20261015 (
+  id          uuid PRIMARY KEY,
+  company_id  uuid NOT NULL,
+  setor       text,
+  setor_id_novo uuid,
+  gravado_em  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.compliance_funcionarios_setor_backfill_20261015 ENABLE ROW LEVEL SECURITY;
+DO $mig$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='compliance_funcionarios_setor_backfill_20261015' AND policyname='p_setor_backfill_tenant') THEN
+    CREATE POLICY p_setor_backfill_tenant ON public.compliance_funcionarios_setor_backfill_20261015 FOR SELECT TO authenticated
+      USING (company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin());
+  END IF;
+END $mig$;
+REVOKE ALL ON public.compliance_funcionarios_setor_backfill_20261015 FROM PUBLIC, anon;
+GRANT SELECT ON public.compliance_funcionarios_setor_backfill_20261015 TO authenticated;
+INSERT INTO public.compliance_funcionarios_setor_backfill_20261015 (id, company_id, setor, setor_id_novo)
+SELECT f.id, f.company_id, f.setor, public.fn_compliance_setor_id_por_nome(f.company_id, f.setor)
+  FROM public.compliance_funcionarios f
+ WHERE f.setor_id IS NULL
+   AND COALESCE(btrim(f.setor), '') <> ''
+   AND public.fn_compliance_setor_id_por_nome(f.company_id, f.setor) IS NOT NULL
+ON CONFLICT (id) DO NOTHING;
+
 -- Preenchimento único (só NULL → setor de nome idêntico da MESMA empresa).
 UPDATE public.compliance_funcionarios f
    SET setor_id = public.fn_compliance_setor_id_por_nome(f.company_id, f.setor)
