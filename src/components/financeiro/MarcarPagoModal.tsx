@@ -99,9 +99,13 @@ export default function MarcarPagoModal({
     const params = tipo === 'pagar'
       ? { p_pagar_id: itemId, p_data_pagamento: dataPag, p_conta_bancaria_id: contaId, p_forma_pagamento: forma, p_valor_pago: Number(valorPago) }
       : { p_receber_id: itemId, p_data_pagamento: dataPag, p_conta_bancaria_id: contaId, p_forma_pagamento: forma, p_valor_pago: Number(valorPago) }
-    const { error } = await supabase.rpc(rpcName, params)
+    const { data, error } = await supabase.rpc(rpcName, params)
     setLoading(false)
     if (error) { setErro(error.message); return }
+    // chamado #2688: a função devolve { sucesso:false, erro } (ex.: resto de arredondamento, conta já paga) sem lançar exceção;
+    // antes o modal fechava como se tivesse baixado. Agora mostra o motivo e não fecha.
+    const res = data as { sucesso?: boolean; erro?: string } | null
+    if (res && res.sucesso === false) { setErro(res.erro ?? 'Não foi possível confirmar o pagamento.'); return }
     onSucesso()
     onClose()
   }
