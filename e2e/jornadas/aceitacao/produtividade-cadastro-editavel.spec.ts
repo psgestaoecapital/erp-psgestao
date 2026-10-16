@@ -153,7 +153,7 @@ test.describe('Produtividade — Cadastro por fluxo editável', () => {
     await aguardarConteudo(page)
     const chaves = await dbSelect<{ chave: string; vertical: string; rota: string }>('erp_ajuda_campo', `rota=eq.${encodeURIComponent('/dashboard/produtividade')}&select=chave,vertical,rota`)
     expect(chaves.length).toBeGreaterThanOrEqual(24)
-    expect(chaves.every((c) => c.vertical === 'industria' && /^prod\.(fluxo|posto|turno|salario)\./.test(c.chave))).toBe(true)
+    expect(chaves.every((c) => c.vertical === 'industria' && /^prod\.(fluxo|posto|turno|salario|produto|estrutura)\./.test(c.chave))).toBe(true)
     for (const k of ['prod.posto.numero', 'prod.posto.atividade', 'prod.posto.cargo', 'prod.posto.turno_horario', 'prod.posto.pessoas', 'prod.posto.capacidade']) {
       await page.getByTestId(`ajuda-${k}`).first().click()
       const cartao = page.getByTestId(`ajuda-cartao-${k}`)
