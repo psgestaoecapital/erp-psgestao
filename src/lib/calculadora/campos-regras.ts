@@ -33,6 +33,14 @@ export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
     { caminho: 'parafusoPPA25PorM2', rotulo: 'Parafuso PPA 25', unidade: 'un/m²', ajuda: 'parafusos PPA 25 por m²' },
     { caminho: 'parafusoPFM13PorM2', rotulo: 'Parafuso PFM 13', unidade: 'un/m²', ajuda: 'parafusos PFM 13 por m²' },
   ],
+  revestimento_estruturado: [
+    ...comuns,
+    { caminho: 'rolobandaM', rotulo: 'Rolo de banda', unidade: 'm', ajuda: 'metros por rolo de banda acústica' },
+    { caminho: 'parafusoPorM2.0.6', rotulo: 'Parafuso — montante a 0,60', unidade: 'un/m²', ajuda: 'parafusos por m² com montante a cada 0,60 m' },
+    { caminho: 'parafusoPorM2.0.4', rotulo: 'Parafuso — montante a 0,40', unidade: 'un/m²', ajuda: 'parafusos por m² com montante a cada 0,40 m' },
+    { caminho: 'parafusoPorM2.0.6d', rotulo: 'Parafuso — 0,60 duplo', unidade: 'un/m²', ajuda: 'parafusos por m² com montante duplo a cada 0,60 m' },
+    { caminho: 'parafusoPorM2.0.4d', rotulo: 'Parafuso — 0,40 duplo', unidade: 'un/m²', ajuda: 'parafusos por m² com montante duplo a cada 0,40 m' },
+  ],
   revestimento_colado: [
     { caminho: 'perda', rotulo: 'Perda', unidade: '×', ajuda: 'multiplicador de perda aplicado às chapas' },
     { caminho: 'areaChapa', rotulo: 'Área da chapa', unidade: 'm²', ajuda: 'área de uma chapa de gesso' },
