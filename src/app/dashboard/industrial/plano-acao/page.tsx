@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MapPin, User, CalendarDays, CheckCircle2 } from 'lucide-react'
+import { DndContext, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -105,6 +106,12 @@ export default function PlanoAcaoPage() {
   const [fPrioridade, setFPrioridade] = useState('')
   const [fOrigem, setFOrigem] = useState('')
   const [soAtrasadas, setSoAtrasadas] = useState(false)
+  // visão: quadro (arrastar entre colunas) ou tabela (chamado #3177)
+  const [visao, setVisao] = useState<'quadro' | 'tabela'>('quadro')
+  const sensores = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  )
 
   // formulário
   const [formAberto, setFormAberto] = useState(false)
@@ -204,6 +211,15 @@ export default function PlanoAcaoPage() {
     if (error || !data?.ok) { flash(`Não mudou o status: ${data?.erro || error?.message || 'erro'}`); return }
     flash(`"${p.codigo}" → ${STATUS_ROTULO[novo]}.`)
     await carregar()
+  }
+
+  // Arrastar o cartão para outra coluna muda o status (mesma RPC dos botões). Concluir pede o resultado, como no botão.
+  function aoSoltar(ev: DragEndEvent) {
+    const alvo = ev.over?.id as Status | undefined
+    const p = planos.find((x) => x.id === ev.active.id)
+    if (!p || !alvo || alvo === p.status || !STATUS_ORDEM.includes(alvo)) return
+    if (alvo === 'concluida') { setConcluir(p); setResultado(''); return }
+    void mudarStatus(p, alvo)
   }
 
   async function confirmarConclusao() {
@@ -438,27 +454,35 @@ export default function PlanoAcaoPage() {
           </label>
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+          <button type="button" data-testid="plano-visao-quadro" aria-pressed={visao === 'quadro'} onClick={() => setVisao('quadro')} style={{ ...(visao === 'quadro' ? btnPrim : btnSec), padding: '6px 14px' }}>Quadro</button>
+          <button type="button" data-testid="plano-visao-tabela" aria-pressed={visao === 'tabela'} onClick={() => setVisao('tabela')} style={{ ...(visao === 'tabela' ? btnPrim : btnSec), padding: '6px 14px' }}>Tabela</button>
+          <AjudaCampo chave="industrial.plano_acao.visao" rota={ROTA} />
+        </div>
+
         {erro && <div style={{ ...CARD, borderColor: VERM, color: VERM, marginBottom: 16, fontSize: 13 }}>{erro}</div>}
 
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: MUT, fontSize: 13 }}>Carregando…</div>
+        ) : visao === 'tabela' ? (
+          <TabelaAcoes planos={filtrados} onEditar={abrirEdicao} />
         ) : (
-          <div data-testid="plano-quadro" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, alignItems: 'start' }}>
-            {STATUS_ORDEM.map((s) => (
-              <div key={s} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{STATUS_ROTULO[s]}</span>
-                  <span style={{ fontSize: 12, color: MUT }}>{porStatus[s].length}</span>
-                </div>
-                {porStatus[s].length === 0 ? (
-                  <div style={{ ...CARD, padding: 12, color: MUT, fontSize: 12, textAlign: 'center', borderStyle: 'dashed' }}>—</div>
-                ) : porStatus[s].map((p) => (
-                  <CardAcao key={p.id} p={p} onEditar={() => abrirEdicao(p)} onStatus={(st) => void mudarStatus(p, st)}
-                    onConcluir={() => { setConcluir(p); setResultado('') }} onExcluir={() => void excluir(p)} />
-                ))}
-              </div>
-            ))}
-          </div>
+          <DndContext sensors={sensores} onDragEnd={aoSoltar}>
+            <div data-testid="plano-quadro" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, alignItems: 'start' }}>
+              {STATUS_ORDEM.map((s) => (
+                <Coluna key={s} status={s} total={porStatus[s].length}>
+                  {porStatus[s].length === 0 ? (
+                    <div style={{ ...CARD, padding: 12, color: MUT, fontSize: 12, textAlign: 'center', borderStyle: 'dashed' }}>—</div>
+                  ) : porStatus[s].map((p) => (
+                    <Arrastavel key={p.id} id={p.id}>
+                      <CardAcao p={p} onEditar={() => abrirEdicao(p)} onStatus={(st) => void mudarStatus(p, st)}
+                        onConcluir={() => { setConcluir(p); setResultado('') }} onExcluir={() => void excluir(p)} />
+                    </Arrastavel>
+                  ))}
+                </Coluna>
+              ))}
+            </div>
+          </DndContext>
         )}
       </div>
 
@@ -619,6 +643,60 @@ export default function PlanoAcaoPage() {
       {toast && (
         <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: ESP, color: BG, padding: '10px 18px', borderRadius: 999, fontSize: 13, zIndex: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>{toast}</div>
       )}
+    </div>
+  )
+}
+
+function Coluna({ status, total, children }: { status: Status; total: number; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: status })
+  return (
+    <div ref={setNodeRef} data-testid={`plano-coluna-${status}`} style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 120, padding: 6, borderRadius: 12, background: isOver ? 'rgba(200,148,26,0.10)' : 'transparent', outline: isOver ? `1.5px dashed ${GOLD}` : 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{STATUS_ROTULO[status]}</span>
+        <span style={{ fontSize: 12, color: MUT }}>{total}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Arrastavel({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id })
+  return (
+    <div ref={setNodeRef} {...attributes} {...listeners}
+      style={{ transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, opacity: isDragging ? 0.85 : 1, zIndex: isDragging ? 50 : undefined, position: 'relative', cursor: 'grab', touchAction: 'manipulation' }}>
+      {children}
+    </div>
+  )
+}
+
+function TabelaAcoes({ planos, onEditar }: { planos: Plano[]; onEditar: (p: Plano) => void }) {
+  const th: React.CSSProperties = { textAlign: 'left', padding: '10px 12px', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 700, borderBottom: `0.5px solid ${LINE}`, whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '10px 12px', fontSize: 13, color: ESP, borderBottom: `0.5px solid ${LINE}`, verticalAlign: 'top' }
+  if (!planos.length) return <div style={{ ...CARD, color: MUT, fontSize: 13, textAlign: 'center' }}>Nenhuma ação com os filtros atuais.</div>
+  return (
+    <div style={{ ...CARD, padding: 0, overflowX: 'auto' }}>
+      <table data-testid="plano-tabela" style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+        <thead>
+          <tr>
+            <th style={th}>Código</th><th style={th}>Título</th><th style={th}>Setor / Onde</th><th style={th}>Responsável</th>
+            <th style={th}>Prazo</th><th style={th}>Prioridade</th><th style={th}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {planos.map((p) => (
+            <tr key={p.id} data-testid="plano-linha" data-codigo={p.codigo} onClick={() => onEditar(p)} style={{ cursor: 'pointer' }}>
+              <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>{p.codigo}</td>
+              <td style={td}>{p.titulo}</td>
+              <td style={td}>{p.setor_nome || p.onde || '—'}</td>
+              <td style={td}>{p.responsavel_nome || <span style={{ color: VERM }}>sem responsável</span>}</td>
+              <td style={{ ...td, whiteSpace: 'nowrap', color: p.atrasada ? VERM : ESP, fontWeight: p.atrasada ? 700 : 400 }}>{dataBR(p.quando)}{p.atrasada ? ' · atrasada' : ''}</td>
+              <td style={{ ...td, color: PRIORIDADE_COR[p.prioridade], fontWeight: 700 }}>{PRIORIDADE_ROTULO[p.prioridade]}</td>
+              <td style={td}>{STATUS_ROTULO[p.status]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
