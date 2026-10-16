@@ -11,6 +11,7 @@ import GraficosCodes from './GraficosCodes'
 import SaudeEsteira from './SaudeEsteira'
 import SaudeCodes from './SaudeCodes'
 import MeuCode from '@/components/dev/MeuCode'
+import { ConectarClaude, EsperandoOkCeo } from '@/components/dev/CanalPs'
 import {
   CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, entregues, estadoSessao, faixa,
   esteira, fila, hora, intervaloDia, quando, resumoCode, ultimaResposta, type StatusCode,
@@ -149,6 +150,10 @@ export default function PainelCodes() {
       {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
       <MeuCode />
 
+      {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
+      <MeuCode />
+      <EsperandoOkCeo />
+
       {dados && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -158,6 +163,7 @@ export default function PainelCodes() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {CODES_LINHA_FINAL.map((c) => <CartaoCode key={c} code={c} dados={dados} agora={agora} compacto />)}
           </div>
+          <ConectarClaude />
         </>
       )}
     </div>
