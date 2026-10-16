@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
-const sql = readFileSync('supabase/migrations/20261006180005_hub_catalogo_papeis_rh.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261016150005_hub_catalogo_papeis_rh.sql', 'utf8')
 const sem = sql.split('\n').filter(l => !l.trim().startsWith('--')).join('\n')
 const papeis = [...sem.matchAll(/\('(hub_[a-z_]+)','hub'/g)].map(m => m[1])
 ok(papeis.length === 11 && new Set(papeis).size === 11, '11 papéis hub distintos')
