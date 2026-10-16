@@ -927,7 +927,7 @@ export default function OrcamentosPage(){
           {/* CRM ② (Wesley) · anexar o PDF do orçamento feito FORA do sistema + informar o valor.
               Só em orçamento já salvo (precisa do id para o caminho no storage). */}
           {editing?.id ? (
-            <OrcamentoPdfAnexo orcamentoId={editing.id} companyId={editing.company_id} onSaved={loadOrcamentos} />
+            <OrcamentoPdfAnexo orcamentoId={editing.id} companyId={editing.company_id} onSaved={(novoPath)=>{ setEditing(e=>e?{...e,pdf_anexo_path:novoPath}:e); loadOrcamentos(); }} />
           ) : (
             /* Tryo #264 · no orçamento novo o PDF já pode ser escolhido; sobe ao clicar em "Criar Orçamento" */
             <div style={{marginBottom:16,background:BG3,borderRadius:8,padding:14,border:`1px solid ${GO}40`}} data-testid="orc-pdf-novo">
@@ -1032,7 +1032,7 @@ export default function OrcamentosPage(){
 // CRM ② (Wesley/Tryo) — anexo do PDF do orçamento (feito FORA) + valor manual.
 // O arquivo vai no bucket crm-anexos (privado) sob {company_id}/orcamentos/{id}/... (RLS por empresa).
 // A gravação (path + valor) passa pela RPC fn_orcamento_anexar_pdf (com guarda de empresa).
-function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: string; companyId: string; onSaved: () => void }) {
+function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: string; companyId: string; onSaved: (pdfPath: string | null) => void }) {
   const [path, setPath] = useState<string | null>(null);
   const [em, setEm] = useState<string | null>(null);
   const [valor, setValor] = useState<string>("");
@@ -1072,7 +1072,7 @@ function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: s
       if (up.error) throw new Error(up.error.message);
       await gravar(novoPath);
       setPath(novoPath); setEm(new Date().toISOString());
-      onSaved();
+      onSaved(novoPath);
     } catch (e2) { setErr((e2 as Error).message); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
   }
@@ -1086,14 +1086,14 @@ function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: s
   async function remover() {
     if (!window.confirm("Remover o PDF anexado deste orçamento?")) return;
     setBusy(true); setErr(null);
-    try { await gravar(null); setPath(null); setEm(null); onSaved(); }
+    try { await gravar(null); setPath(null); setEm(null); onSaved(null); }
     catch (e2) { setErr((e2 as Error).message); }
     finally { setBusy(false); }
   }
 
   async function salvarValor() {
     setBusy(true); setErr(null);
-    try { await gravar(path); onSaved(); }
+    try { await gravar(path); onSaved(path); }
     catch (e2) { setErr((e2 as Error).message); }
     finally { setBusy(false); }
   }
