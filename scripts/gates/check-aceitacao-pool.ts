@@ -13,8 +13,8 @@ ok(/group: \$\{\{ vars\.ACEITACAO_BANCO == 'testes' && \(needs\.triagem\.outputs
   'concurrency: UM grupo por vaga (aceitacao-testes-<vaga>) no banco de testes → vagas diferentes em paralelo')
 ok(/cancel-in-progress: false/.test(wf) && /queue: max/.test(wf) && /timeout-minutes: 40/.test(wf),
   'PRESERVA: cancel-in-progress:false, queue:max e timeout-minutes:40')
-ok(/VAGAS: \$\{\{ vars\.ACEITACAO_VAGAS \|\| '1' \}\}/.test(wf) && /v=\$\(\( \$\{\{ github\.run_number \}\} % vagas \)\)/.test(wf),
-  'triagem: vaga = run_number % ACEITACAO_VAGAS (padrão 1 = serial, como hoje)')
+ok(/VAGAS: \$\{\{ vars\.ACEITACAO_VAGAS \|\| '1' \}\}/.test(wf) && /v=\$\(\( \(\$\{\{ github\.run_number \}\} \+ \$\{\{ github\.run_attempt \}\}\) % vagas \)\)/.test(wf),
+  'triagem: vaga = (run_number + run_attempt) % ACEITACAO_VAGAS (padrão 1 = serial, como hoje)')
 ok(/case "\$v" in 1\) \[ -n "\$URL1" \] \|\| v=0;; 2\) \[ -n "\$URL2" \] \|\| v=0;; esac/.test(wf),
   'triagem: vaga > 0 só quando o banco dela está provisionado (senão cai p/ 0 — nunca 2 grupos no mesmo banco)')
 ok(/- name: Selecionar o banco da vaga/.test(wf) && /1\) URL="\$URL1"; ANON="\$ANON1"; SRK="\$SRK1"; DBURL="\$DBURL1";;/.test(wf),

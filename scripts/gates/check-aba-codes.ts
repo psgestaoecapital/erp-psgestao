@@ -163,8 +163,8 @@ async function main() {
   ok(ativo.cor === 'verde', 'Code com fila mas com sessão ativa não trava a faixa')
   ok(intervaloDia('2026-10-07').de === '2026-10-07T03:00:00.000Z' && intervaloDia('2026-10-07').ate === '2026-10-08T03:00:00.000Z',
     'filtro por data: o dia de São Paulo (00:00−03:00 a 24:00−03:00)')
-  ok(CODES_PRINCIPAIS.join(',') === 'gilberto-desenv,gilberto-chamados,gilberto-produto,jordana-code,rodrigo-code'
-    && CODES_LINHA_FINAL.join(',') === 'gilberto-revisor,eng-chefe-auto', 'cartões: os 5 Codes + linha final (revisor e eng-chefe-auto)')
+  ok(CODES_PRINCIPAIS.join(',') === 'gilberto-desenv,gilberto-chamados,gilberto-produto,jordana-code,rodrigo-code,gilberto-esteira'
+    && CODES_LINHA_FINAL.join(',') === 'gilberto-revisor,eng-chefe-auto', 'cartões: os 6 Codes + linha final (revisor e eng-chefe-auto)')
 
   // ── (5) tela e AGENTS.md ────────────────────────────────────────────────────────────────────────────────────────
   const painel = ler('src/components/dev/PainelCodes.tsx')
@@ -196,14 +196,39 @@ async function main() {
     ok(r('jordana-code', [msg('a', 'jordana-code', 'nova', 20)], []).status === 'travado', 'RD-83: nova não lida há 20 min → Travado')
     const antiga = r('rodrigo-code', [msg('b', 'rodrigo-code', 'recebida', 30 * 60)], [])
     ok(antiga.status === 'dormindo' && antiga.filaAntiga === 1 && antiga.fila === 0, 'RD-83: recebida > 24 h vira fila antiga, nunca Travado')
-    ok(r('gilberto-produto', [msg('c', 'gilberto-produto', 'nova', 5)], []).status === 'dormindo', 'nova há 5 min ainda não é Travado')
+    ok(r('gilberto-produto', [msg('c', 'gilberto-produto', 'nova', 5)], []).status === 'na_fila', 'nova há 5 min: Na fila, não Travado')
+    // CEO 15/10: plantão permanente fora da fila; sessão recente sem nova = Dormindo; nova antiga com sessão < 30 min não trava
+    const plantao = { ...msg('p', 'rodrigo-code', 'recebida', 600), assunto: 'PLANTÃO PERMANENTE — rodrigo-code' }
+    const rp = r('rodrigo-code', [plantao], [lease('rodrigo-code', 20)])
+    ok(rp.status === 'dormindo' && rp.fila === 0 && rp.naoLidas === 0, 'plantão permanente não conta na fila nem trava')
+    ok(r('gilberto-chamados', [msg('n', 'gilberto-chamados', 'nova', 20)], [lease('gilberto-chamados', 20)]).status === 'na_fila', 'nova > 15 min com sessão há 20 min: não é Travado')
+    ok(r('gilberto-chamados', [msg('n', 'gilberto-chamados', 'nova', 40)], [lease('gilberto-chamados', 40)]).status === 'travado', 'nova > 15 min sem sessão há 30 min: Travado')
+    ok(r('gilberto-chamados', [], [lease('gilberto-chamados', 20)]).ultimaSessaoMin === 20, 'mostra a última sessão em minutos')
     ok(esteira({ ...base, entregas: [{ id: 1, pr_numero: 1, titulo: 't', code: 'x', evento: 'publicada', via: 'rapida', sha: 'a', url: null, ocorrido_em: min(10) }] }).cor === 'verde', 'esteira verde: publicou na última hora')
     ok(esteira({ ...base }).cor === 'amarela', 'esteira amarela: sem publicação há mais de 1 h')
     ok(esteira({ ...base, mainVerde: false }).cor === 'vermelha' && esteira({ ...base, testeParadoMin: 100 }).cor === 'vermelha', 'esteira vermelha: main vermelha ou teste parado > 90 min')
   }
 
+  await esteiraChecks()
   if (falhas) { console.error(`\ncheck-aba-codes: ${falhas} falha(s)`); process.exit(1) }
   console.log('\nAba Codes: ok')
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
+
+// ── (6) esteira: teste da main e fila de testes (CEO 08/10) ──────────────────────────────────────────────────────────
+async function esteiraChecks() {
+  const mig = readdirSync('supabase/migrations').find((f) => f.endsWith('_dev_esteira_status.sql'))
+  const q = (mig ? ler(join('supabase/migrations', mig)) : '').replace(/--[^\n]*/g, '')
+  ok(!!mig && /^\d{12}05_/.test(mig), 'esteira: migration na faixa 05')
+  ok(/ENABLE ROW LEVEL SECURITY/.test(q) && /REVOKE ALL ON TABLE public\.erp_dev_esteira_status FROM PUBLIC, anon, authenticated/.test(q)
+    && /FOR SELECT TO authenticated USING \(public\.fn_dev_painel_pode_ver\(\)\)/.test(q) && !/TO anon/.test(q), 'esteira: RLS, sem anon, leitura só equipe PS')
+  const wf = existsSync('.github/workflows/registrar-esteira.yml') ? ler('.github/workflows/registrar-esteira.yml') : ''
+  ok(/workflow_run:/.test(wf) && !/pull_request_target/.test(wf) && !/ref: \$\{\{ github\.event\.workflow_run/.test(wf), 'esteira: workflow_run, checkout só da main')
+  const { veredito } = await import('../dev/registrar-esteira.mjs')
+  ok(veredito([{ status: 'completed', conclusion: 'cancelled' }, { status: 'completed', conclusion: 'failure', html_url: 'u' }])?.verde === false, 'esteira: cancelado é ignorado, failure = vermelho')
+  ok(veredito([{ status: 'completed', conclusion: 'success' }])?.verde === true && veredito([]) === null, 'esteira: success = verde; sem run = sem dado')
+  ok(esteira({ entregas: [], agora: new Date(), mainVerde: false, filaTestes: 3 }).cor === 'vermelha', 'esteira: main vermelha deixa a faixa vermelha')
+  const pt = ler('src/components/dev/PainelCodes.tsx')
+  ok(pt.indexOf('<LinhaDoTempo') < pt.indexOf('CartaoCode key') && /erp_dev_esteira_status/.test(pt) && /ver todas/.test(pt), 'tela: publicações do dia acima dos cartões, assina a esteira, "ver todas" no celular')
+}

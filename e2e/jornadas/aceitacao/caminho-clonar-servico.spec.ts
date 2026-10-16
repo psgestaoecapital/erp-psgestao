@@ -43,6 +43,7 @@ test.describe('Caminho — Clonar Serviço', () => {
     await page.getByTestId('servico-busca').fill(DESC)
     await expect.poll(async () => page.getByTestId('servico-clonar').count(), { timeout: 10000 }).toBeGreaterThan(0)
     await page.getByTestId('servico-clonar').first().click()
+    await page.getByTestId('confirmar-clonar-ok').click()
 
     // 3) o form abre pré-preenchido: descrição com "(cópia)" e um novo SRV (≠ original)
     await expect(page.getByTestId('servico-clone-aviso')).toBeVisible()
