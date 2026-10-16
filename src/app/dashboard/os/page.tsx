@@ -14,6 +14,8 @@ import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { selecionarTodas } from '@/lib/selecionarTodas'
+import { resumirNotasPorOS, situacaoNotaOS, passaFiltroNotaOS, rotuloNotaOS, type NotaOSLinha, type NotaOSResumo, type FiltroNotaOS } from '@/lib/oficina/osNotaFiscal'
 
 export const dynamic = 'force-dynamic'
 
@@ -94,6 +96,9 @@ export default function OSMecanicoPage() {
   const [oss, setOss] = useState<OSRow[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroStatus, setFiltroStatus] = useState<string>('todas')
+  // Chamado #3242: dentro de "Entregue", separa as OS com NF emitida das que faltam emitir.
+  const [filtroNota, setFiltroNota] = useState<FiltroNotaOS>('todas')
+  const [notasOS, setNotasOS] = useState<Map<string, NotaOSResumo>>(new Map())
   const [busca, setBusca] = useState('')
   const [novoAberto, setNovoAberto] = useState(false)
   const [osAberta, setOsAberta] = useState<string | null>(null)
@@ -130,6 +135,16 @@ export default function OSMecanicoPage() {
     const safe = ((r?.itens ?? []) as OSRow[]).filter((o) => o.company_id === companyIdAtiva)
     setOss(safe)
     setLoading(false)
+    // Chamado #3242: notas ligadas à OS (NF-e de peças e NFS-e de serviços), lidas pela RLS da empresa.
+    const ler = (tabela: 'erp_nfe_emitidas' | 'erp_nfse_emitidas') => selecionarTodas<NotaOSLinha>((de, ate) => supabase
+      .from(tabela)
+      .select('os_id, status, numero')
+      .eq('company_id', companyIdAtiva)
+      .not('os_id', 'is', null)
+      .order('id')
+      .range(de, ate))
+    const [nfe, nfse] = await Promise.all([ler('erp_nfe_emitidas'), ler('erp_nfse_emitidas')])
+    setNotasOS(resumirNotasPorOS(nfe.data, nfse.data))
   }, [companyIdAtiva, verExcluidas])
 
   const restaurarOS = useCallback(async (o: OSRow) => {
@@ -155,6 +170,7 @@ export default function OSMecanicoPage() {
   const filtradas = useMemo(() => {
     let r = oss
     if (filtroStatus !== 'todas') r = r.filter((o) => o.status === filtroStatus)
+    if (filtroStatus === 'entregue' && filtroNota !== 'todas') r = r.filter((o) => passaFiltroNotaOS(situacaoNotaOS(notasOS, o.id), filtroNota))
     if (busca.trim()) {
       const b = busca.toLowerCase()
       const bPlaca = b.replace(/[^a-z0-9]/g, '')
@@ -167,7 +183,7 @@ export default function OSMecanicoPage() {
       )
     }
     return r
-  }, [oss, filtroStatus, busca])
+  }, [oss, filtroStatus, filtroNota, notasOS, busca])
 
   const contagens = useMemo(() => {
     const c: Record<string, number> = {}
@@ -277,6 +293,29 @@ export default function OSMecanicoPage() {
             >{STATUS_CFG[s].label} ({contagens[s] ?? 0})</button>
           ))}
         </div>
+        {filtroStatus === 'entregue' && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }} data-testid="os-filtro-nota">
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>
+              Nota fiscal<AjudaCampo chave="os.filtro.nota_fiscal" rota="/dashboard/os" />
+            </span>
+            {([['todas', 'Todas'], ['com_nota', 'NF emitida'], ['falta_emitir', 'Falta emitir']] as const).map(([k, rot]) => {
+              const n = k === 'todas' ? (contagens.entregue ?? 0)
+                : oss.filter((o) => o.status === 'entregue' && passaFiltroNotaOS(situacaoNotaOS(notasOS, o.id), k)).length
+              const ativo = filtroNota === k
+              return (
+                <button key={k} onClick={() => setFiltroNota(k)} data-testid={`os-filtro-nota-${k}`}
+                  style={{
+                    minHeight: 36, padding: '6px 12px', borderRadius: 999,
+                    border: `1px solid ${ativo ? C.greenD : C.border}`,
+                    background: ativo ? C.greenBg : C.white,
+                    color: ativo ? C.greenD : C.espressoM,
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >{rot} ({n})</button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Lista */}
@@ -330,6 +369,17 @@ export default function OSMecanicoPage() {
                     <span style={{ fontSize: 13, color: C.espressoM, fontWeight: 600 }}>🚗 {modeloTxt}</span>
                   )}
                   <StatusBadge status={o.status} />
+                  {o.status === 'entregue' && (() => {
+                    const nf = situacaoNotaOS(notasOS, o.id)
+                    const emitida = nf.situacao === 'emitida'
+                    return (
+                      <span data-testid="os-nota-badge" data-situacao={nf.situacao} style={{
+                        fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: '3px 9px',
+                        color: emitida ? C.greenD : nf.situacao === 'processando' ? C.amber : C.red,
+                        background: emitida ? C.greenBg : nf.situacao === 'processando' ? C.amberBg : C.redBg,
+                      }}>{rotuloNotaOS(nf)}</span>
+                    )
+                  })()}
                 </div>
 
                 {/* cliente — coadjuvante, cinza */}
