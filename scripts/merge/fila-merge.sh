@@ -34,6 +34,8 @@
 # Uso: GH_TOKEN=<PAT> REPO=dono/repo scripts/merge/fila-merge.sh   (num checkout da main com histórico completo)
 # GH_TOKEN precisa ser um PAT: merge feito com o GITHUB_TOKEN NÃO dispara o deploy-migrations na main.
 set -euo pipefail
+# shellcheck source=scripts/merge/patch-id-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/patch-id-lib.sh"
 : "${GH_TOKEN:?GH_TOKEN (PAT) ausente}" "${REPO:?REPO ausente}"
 LABEL='fila-merge'
 NAO_PUBLICAR='nao-publicar'
@@ -307,17 +309,22 @@ estado_checks() {
 
 # (c) autorização pelo conteúdo. Ecoa: ok | vermelho:<motivo>
 autorizacao() {
-  local n=$1 pid corpo pid_aut
+  local n=$1 pid pid_cru corpo pid_aut base
   git fetch -q origin "pull/$n/head:refs/fila/pr-$n" --force
-  pid=$(git diff "$(git merge-base origin/main "refs/fila/pr-$n")" "refs/fila/pr-$n" | git patch-id --stable | cut -d' ' -f1)
+  # CEO 16/10 16:45: patch-id ESTÁVEL à renumeração de migration (scripts/merge/patch-id-lib.sh); o cru entra só para
+  # autorizações antigas. PR sem patch-id calculável é dita, nunca pulada em silêncio.
+  base=$(git merge-base origin/main "refs/fila/pr-$n" 2> /dev/null || true)
+  [ -n "$base" ] || { echo "vermelho:não consegui calcular o patch-id (sem merge-base com a main) — a fila tenta de novo no próximo commit"; return; }
+  pid=$(patch_id_estavel "$base" "refs/fila/pr-$n" || true); pid_cru=$(patch_id_cru "$base" "refs/fila/pr-$n" || true)
+  [ -n "$pid" ] || { echo "vermelho:não consegui calcular o patch-id do conteúdo (diff vazio ou falha do git) — a fila tenta de novo no próximo commit"; return; }
   # só vale comentário cuja PRIMEIRA linha é exatamente a autorização do revisor; aviso da fila (marca escondida ou
   # "Fila de merge:") cita o texto mas nunca conta (todos os comentários saem da mesma conta do GitHub)
-  corpo=$(comentarios "$n" | jq -rs --arg re "^MERGE AUTORIZADO #$n — gilberto-revisor · patch-id [0-9a-f]{40}([ \\t\\r]*|[:\\s].*)\$" \
+  corpo=$(comentarios "$n" | jq -rs --arg re "^MERGE AUTORIZADO #$n — gilberto-revisor · patch-id [0-9a-f]{8,40}([ \\t\\r]*|[:\\s].*)\$" \
     '[.[] | select((contains("<!-- fila:") | not) and (startswith("Fila de merge:") | not) and (split("\n")[0] | test($re)))] | last // empty | split("\n")[0]')
   [ -n "$corpo" ] || { echo "vermelho:PR sensível ($SENSIVEL) sem a autorização do revisor para o conteúdo atual"; return; }
-  pid_aut=$(grep -oE 'patch-id[: ]+[0-9a-f]{40}' <<< "$corpo" | tail -1 | grep -oE '[0-9a-f]{40}' || true)
+  pid_aut=$(grep -oE 'patch-id[: ]+[0-9a-f]{8,40}' <<< "$corpo" | tail -1 | grep -oE '[0-9a-f]{8,40}$' || true)
   [ -n "$pid_aut" ] || { echo "vermelho:a autorização do revisor não traz o identificador do conteúdo — o revisor repete após rodar \`scripts/merge/patch-id.sh $n\`"; return; }
-  [ "$pid_aut" = "$pid" ] || { echo "vermelho:o conteúdo mudou depois da autorização do revisor — exige nova revisão"; return; }
+  autorizacao_casa "$pid_aut" "$pid" "$pid_cru" || { echo "vermelho:o conteúdo mudou depois da autorização do revisor — exige nova revisão"; return; }
   echo ok
 }
 
