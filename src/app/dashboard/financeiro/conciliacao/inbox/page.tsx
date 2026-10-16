@@ -19,6 +19,7 @@ import PickerTituloExistenteModal from '@/components/conciliacao/PickerTituloExi
 // #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
 import NovaDespesaModal from '@/components/financeiro/NovaDespesaModal'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'
+import { rotuloLote } from '@/lib/conciliacao/rotuloLote'
 
 interface Item {
   movimento_id: string
@@ -939,7 +940,7 @@ export default function InboxPage() {
               {lotesDoTipo.length === 0 && <option value="">Nenhum lote {tipoExtrato === 'bancario' ? 'bancário' : 'de cartão'} importado</option>}
               {lotesDoTipo.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.nome ?? '(sem nome)'} — {(l.total_conciliados ?? 0) + (l.total_ignorados ?? 0)}/{l.total_movimentos ?? 0} ok
+                  {rotuloLote(l)}
                 </option>
               ))}
             </select>
