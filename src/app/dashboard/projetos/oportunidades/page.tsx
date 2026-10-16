@@ -86,7 +86,8 @@ export default function OportunidadesPage() {
       const r = pipe.data as { resumo?: ResumoCRM } | null
       setResumo(r?.resumo ?? null)
     } catch {
-      /* rede pendurou: não trava o funil — segue com o que houver */
+      /* rede pendurou: não trava o funil, mas avisa em vez de parecer vazio */
+      setToast('Não foi possível carregar o funil agora. Atualize a página.')
     } finally {
       setLoading(false)  // nunca "Carregando…" eterno
     }

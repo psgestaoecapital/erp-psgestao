@@ -6,7 +6,7 @@
 //   • EM TESTE = PR com evento aberta/pronta e sem publicada/fechada.
 //   • faixa VERDE = houve publicação na última hora E nenhum Code parado com tarefa na fila; senão VERMELHA com a trava.
 
-export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-chamados', 'gilberto-produto', 'jordana-code', 'rodrigo-code'] as const
+export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-chamados', 'gilberto-produto', 'jordana-code', 'rodrigo-code', 'gilberto-esteira'] as const
 export const CODES_LINHA_FINAL = ['gilberto-revisor', 'eng-chefe-auto'] as const
 export const CODES_PAINEL: readonly string[] = [...CODES_PRINCIPAIS, ...CODES_LINHA_FINAL]
 
@@ -14,6 +14,7 @@ export const LEASE_MIN = 12
 export const STATUS_FILA = ['nova', 'recebida'] as const
 const MIN = 60_000
 const HORA = 60 * MIN
+export const LIMITE_SEM_PUBLICAR_MIN = 30 // CEO 12/10: alerta da esteira dispara com 30 min sem publicar
 const DIA = 24 * HORA
 
 export type Entrega = {
@@ -44,9 +45,12 @@ export function estadoSessao(lease: Lease | undefined, agora: Date): EstadoSessa
 
 const t = (s: string | null | undefined) => (s ? new Date(s).getTime() : 0)
 
+/** Plantão permanente (CEO 15/10): tarefa que nunca é concluída por desenho — não conta como fila, mais antiga nem backlog. */
+export const ehPlantao = (m: Mensagem) => /^\s*plant[ãa]o\s+permanente/i.test(m.assunto ?? '')
+
 export function fila(msgs: Mensagem[], code: string): Mensagem[] {
   return msgs
-    .filter((m) => m.para === code && !m.arquivada && (STATUS_FILA as readonly string[]).includes(m.status))
+    .filter((m) => m.para === code && !m.arquivada && !ehPlantao(m) && (STATUS_FILA as readonly string[]).includes(m.status))
     .sort((a, b) => t(a.criado_em) - t(b.criado_em))
 }
 
@@ -120,11 +124,12 @@ export function faixa(p: { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[
   const agora = p.agora.getTime()
   const pubs = p.entregas.filter((e) => e.evento === 'publicada' && t(e.ocorrido_em) <= agora + MIN)
   const ultimaPub = pubs.reduce((m, e) => Math.max(m, t(e.ocorrido_em)), 0)
-  const publicouNaHora = ultimaPub > agora - HORA
+  const publicouNaHora = ultimaPub > agora - LIMITE_SEM_PUBLICAR_MIN * MIN
   const prontas = emTeste(p.entregas, null).filter((x) => x.pronta).length
   const parados = codes
-    .map((c) => ({ code: c, sessao: estadoSessao(p.leases.find((l) => l.agente === c), p.agora), fila: fila(p.msgs, c).length }))
-    .filter((x) => !x.sessao.ativa && x.fila > 0)
+    .map((c) => ({ code: c, sessao: estadoSessao(p.leases.find((l) => l.agente === c), p.agora), fila: fila(p.msgs, c).length,
+      travado: resumoCode({ code: c, entregas: p.entregas, msgs: p.msgs, leases: p.leases, agora: p.agora }).status === 'travado' }))
+    .filter((x) => x.travado && x.fila > 0)
     .sort((a, b) => b.fila - a.fila)
 
   if (publicouNaHora && parados.length === 0) {
@@ -142,4 +147,59 @@ export function faixa(p: { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[
   }
   if (parados.length === 1) return { cor: 'vermelha', frase: trava(parados[0]) }
   return { cor: 'vermelha', frase: `${parados.length} Codes parados com tarefa na fila: ${parados.map((x) => x.code).join(', ')}` }
+}
+
+// ── Topo da aba (CEO 08/10): faixa da esteira + resumo por Code ─────────────────────────────────────────────────────
+export const TRAVADO_MIN = 15
+export const SESSAO_RECENTE_MIN = 30
+export const FILA_ANTIGA_H = 24
+
+export type Esteira = { cor: 'verde' | 'amarela' | 'vermelha'; ultimaPub: Date | null; prontas: number; mainVerde: boolean | null; filaTestes: number | null; mainDesde: Date | null; specFalha: string | null }
+
+/** verde = publicou na última hora e main não vermelha; amarela = sem publicação há > 1 h; vermelha = main vermelha ou teste parado > 90 min.
+ *  mainVerde/mainDesde/specFalha/filaTestes vêm de fora (erp_dev_main_teste; null = sem dado ainda). */
+export function esteira(p: { entregas: Entrega[]; agora: Date; mainVerde?: boolean | null; filaTestes?: number | null; testeParadoMin?: number | null; mainDesde?: Date | null; specFalha?: string | null }): Esteira {
+  const agora = p.agora.getTime()
+  const pubs = p.entregas.filter((e) => e.evento === 'publicada' && t(e.ocorrido_em) <= agora + MIN)
+  const ult = pubs.reduce((m, e) => Math.max(m, t(e.ocorrido_em)), 0)
+  const mainVerde = p.mainVerde ?? null
+  const vermelha = mainVerde === false || (p.testeParadoMin ?? 0) > 90
+  const cor = vermelha ? 'vermelha' : ult > agora - HORA ? 'verde' : 'amarela'
+  return { cor, ultimaPub: ult ? new Date(ult) : null, prontas: emTeste(p.entregas, null).filter((x) => x.pronta).length, mainVerde, filaTestes: p.filaTestes ?? null, mainDesde: p.mainDesde ?? null, specFalha: p.specFalha ?? null }
+}
+
+export type StatusCode = 'trabalhando' | 'travado' | 'na_fila' | 'esperando' | 'dormindo'
+export type ResumoCode = {
+  code: string; status: StatusCode; desde: Date | null; fazendo: string
+  ultimaSessaoMin: number | null; naoLidas: number
+  fila: number; filaAntiga: number; emTeste: number; entreguesHoje: number; rotinaLigada: boolean | null
+}
+
+export function resumoCode(p: { code: string; entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas?: Rotina[]; agora: Date }): ResumoCode {
+  const { code, agora } = p
+  const ag = agora.getTime()
+  const sessao = estadoSessao(p.leases.find((l) => l.agente === code), agora)
+  const todas = fila(p.msgs, code)
+  const filaAntiga = todas.filter((m) => t(m.criado_em) < ag - FILA_ANTIGA_H * HORA).length
+  // CEO 15/10: TRAVADO = tarefa "nova" sem leitura há > 15 min E nenhuma sessão nos últimos 30 min (o acionamento com
+  // HTTP ≠ 200 não chega ao painel — a caixa não expõe a coluna). Nova < 15 min (ou com sessão recente) = NA FILA.
+  const ultSessao = sessao.ativa ? agora : sessao.paradoDesde
+  const ultimaSessaoMin = ultSessao ? Math.max(0, Math.floor((ag - ultSessao.getTime()) / MIN)) : null
+  const sessaoRecente = ultimaSessaoMin !== null && ultimaSessaoMin < SESSAO_RECENTE_MIN
+  const novas = todas.filter((m) => m.status === 'nova')
+  const travada = !sessaoRecente && novas.some((m) => t(m.criado_em) < ag - TRAVADO_MIN * MIN)
+  const naFila = novas.length > 0
+  const teste = emTeste(p.entregas, code)
+  const andando = emAndamento(p.msgs, code)[0]
+  const status: StatusCode = sessao.ativa ? 'trabalhando' : travada ? 'travado' : naFila ? 'na_fila' : teste.length > 0 ? 'esperando' : 'dormindo'
+  const ultEntrega = entregues(p.entregas, code, agora, 30 * DIA)[0]
+  const fazendo = andando?.assunto
+    || (teste[0] ? `PR #${teste[0].pr_numero} · ${teste[0].titulo}` : ultEntrega ? `entregou #${ultEntrega.pr_numero} · ${ultEntrega.titulo}` : 'sem atividade recente')
+  const hoje = diaSP(agora)
+  return {
+    code, status, desde: sessao.ativa ? sessao.desde : null, fazendo, ultimaSessaoMin, naoLidas: novas.length,
+    fila: todas.length - filaAntiga, filaAntiga, emTeste: teste.length,
+    entreguesHoje: p.entregas.filter((e) => e.evento === 'publicada' && e.code === code && diaSP(new Date(e.ocorrido_em)) === hoje).length,
+    rotinaLigada: p.rotinas?.find((r) => r.agente === code)?.aciona ?? null,
+  }
 }

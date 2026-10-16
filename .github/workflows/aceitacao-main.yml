@@ -68,8 +68,8 @@ jobs:
       group: aceitacao-testes
       cancel-in-progress: false
       queue: max
-    # build (~5 min) + suíte inteira (~30 min); fora do vigia de 45 min de propósito
-    timeout-minutes: 60
+    # build (~5 min) + suíte inteira (~45 min); teto próprio no vigia (LIMITE_MAIN_MIN 70), não o de 45
+    timeout-minutes: 75
     env:
       TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
       TEST_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
@@ -84,10 +84,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          EVENTO: ${{ github.event_name }}
         run: |
           set -euo pipefail
           sha=$(gh api "repos/$REPO/commits/main" --jq .sha)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # disparo manual FORÇA o re-teste (ex.: banco de testes consertado, mesmo SHA): nunca pula por "já julgada"
+          if [ "$EVENTO" = workflow_dispatch ]; then
+            echo "::notice::disparo manual: julgando ${sha:0:7} de novo mesmo já julgada"
+            echo "pular=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           outros=$(gh api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&per_page=30" --jq \
             "[.workflow_runs[] | select(.id != $RUN_ID and .head_sha == \"$sha\" and
               ((.status == \"completed\" and (.conclusion == \"success\" or .conclusion == \"failure\")) or .status == \"in_progress\"))] | length")
@@ -104,12 +110,56 @@ jobs:
           [ -n "$TEST_SUPABASE_URL" ] && [ -n "$TEST_SUPABASE_ANON_KEY" ] && [ -n "$TEST_SUPABASE_SERVICE_ROLE_KEY" ] \
             || { echo "::error::segredos TEST_SUPABASE_* ausentes"; exit 1; }
           case "$TEST_SUPABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
-          case "$TEST_SUPABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado";; *) echo "::error::TEST_SUPABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+          case "$TEST_SUPABASE_URL" in *xjzqndnvjkdjyisuklpy*) echo "banco de testes confirmado";; *) echo "::error::TEST_SUPABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
       - uses: actions/checkout@v4
         if: steps.ja.outputs.pular == 'false'
         with:
           ref: ${{ steps.ja.outputs.sha }}
           fetch-depth: 0
+      # CEO 13/10 19:58: barra banco de testes (vaga 0) CONTAMINADO por PR antes de testar a main. O checkout acima é a
+      # própria main (steps.ja.outputs.sha), então supabase/migrations do working tree É o alvo. Contaminado (ledger com
+      # versão > a da main) → falha "vaga 0 precisa de recriar"; o Montar recriar limpa. Nunca testa em banco sujo.
+      - name: Guarda de contaminação (banco de testes alinhado à main)
+        if: steps.ja.outputs.pular == 'false'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: VAGA=0 MAIN_MIGR_DIR=supabase/migrations scripts/banco-testes/reconciliar-vaga.sh
+      # CEO 13/10: sincroniza o banco de testes (vaga 0) com a produção ANTES de montar/testar a main — o Montar da vaga
+      # espera na MESMA fila FIFO e nem sempre ganha a vez, então sem isto a suíte roda num schema atrás da produção e
+      # gera vermelho FALSO. `supabase db push` é idempotente (compara o ledger). Roda no grupo aceitacao-testes
+      # (cancel-in-progress:false), sob a mesma trava do Montar da vaga 0. Falhou = aborta com mensagem clara.
+      - uses: supabase/setup-cli@v1
+        if: steps.ja.outputs.pular == 'false'
+        with:
+          version: 2.118.0
+      - name: Sincronizar o banco de testes (vaga 0) com a produção (migrations pendentes)
+        if: steps.ja.outputs.pular == 'false'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TEST_DATABASE_URL:-}" ]; then
+            echo "::error::banco da vaga 0 não sincronizou — segredo TEST_DATABASE_URL ausente"; exit 1
+          fi
+          case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          led() { psql "$1" -tAc "select count(*)||' · até '||coalesce(max(version),'—') from supabase_migrations.schema_migrations" 2>/dev/null || echo 'indisponível'; }
+          alvo=$(ls supabase/migrations/*.sql 2>/dev/null | wc -l | tr -d ' ')
+          alvo_v=$(ls supabase/migrations/*.sql 2>/dev/null | sed -E 's#.*/([0-9]+)_.*#\1#' | sort | tail -1)
+          antes=$(led "$TEST_DATABASE_URL")
+          if ! supabase db push --include-all --db-url "$TEST_DATABASE_URL"; then
+            echo "::error::banco da vaga 0 não sincronizou (supabase db push falhou) — aceitação da main abortada para não gerar vermelho FALSO"; exit 1
+          fi
+          depois=$(led "$TEST_DATABASE_URL")
+          {
+            echo "### Sincronização do banco de testes (vaga 0) com a produção"
+            echo ""
+            echo "| ledger | valor |"
+            echo "| --- | --- |"
+            echo "| vaga ANTES | $antes |"
+            echo "| vaga DEPOIS | $depois |"
+            echo "| alvo (migrations no repo = produção após deploy) | $alvo · até ${alvo_v:-—} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "vaga 0: ledger antes=[$antes] depois=[$depois] alvo=[$alvo · até ${alvo_v:-—}]"
       - uses: actions/setup-node@v4
         if: steps.ja.outputs.pular == 'false'
         with:
@@ -144,6 +194,7 @@ jobs:
       - if: steps.ja.outputs.pular == 'false'
         run: npx playwright install --with-deps chromium
       - name: Suíte de aceitação contra a main (banco de testes)
+        timeout-minutes: 75
         if: steps.ja.outputs.pular == 'false'
         id: suite
         env:
@@ -153,7 +204,9 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
-          TRAVA_DEMO_ESPERA_MIN: '15'
+          # 12/10: com 15 min a main desistia da trava (run 195: demo presa por aceitação de PR) e ficava VERMELHA sem
+          # rodar spec nenhum, derrubando o portão. 40 min cobre 1-2 suítes de PR na frente; suíte da main leva ~15.
+          TRAVA_DEMO_ESPERA_MIN: '40'
         # suíte inteira (inclui @pos-migration: o banco de testes recebe as migrations da main pelo montar-banco-testes)
         run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
       - name: Soltar a trava da demo (sempre)

@@ -5,10 +5,15 @@
 // leitura só da equipe PS (RLS fn_dev_painel_pode_ver, vale também no Realtime). Qualquer mudança nas 3 primeiras chega pelo
 // Realtime e a aba recarrega sozinha, sem recarregar a página. Regras puras em src/lib/dev/painelCodes.ts.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
+import GraficosCodes from './GraficosCodes'
+import SaudeEsteira from './SaudeEsteira'
+import SaudeCodes from './SaudeCodes'
+import MeuCode from '@/components/dev/MeuCode'
 import {
-  CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, emAndamento, emTeste, entregues, estadoSessao, faixa,
-  fila, hora, intervaloDia, quando, ultimaResposta,
+  CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, entregues, estadoSessao, faixa,
+  esteira, fila, hora, intervaloDia, quando, resumoCode, ultimaResposta, type StatusCode,
   type Entrega, type Lease, type Mensagem, type Rotina,
 } from '@/lib/dev/painelCodes'
 
@@ -20,7 +25,8 @@ const COLS_ENTREGA = 'id,pr_numero,titulo,code,evento,via,sha,url,ocorrido_em'
 const COLS_MSG = 'id,para,assunto,status,pr_numero,resposta,arquivada,criado_em,atualizado_em'
 const FILA_VISIVEL = 6
 
-type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[] }
+type MainTeste = { verde: boolean | null; desde: string | null; spec_falha: string | null; run_url: string | null }
+type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[]; mainTeste: MainTeste | null; filaTestes: number | null }
 
 export default function PainelCodes() {
   const [pode, setPode] = useState<boolean | null>(null)
@@ -44,7 +50,7 @@ export default function PainelCodes() {
   const carregar = useCallback(async () => {
     const desde = new Date(Date.now() - 14 * 864e5).toISOString()
     const { de, ate } = intervaloDia(diaRef.current)
-    const [ent, abertas, resp, leases, rotinas, linha] = await Promise.all([
+    const [ent, abertas, resp, leases, rotinas, linha, mt, estat] = await Promise.all([
       supabase.from('erp_dev_entrega').select(COLS_ENTREGA).gte('ocorrido_em', desde).order('ocorrido_em', { ascending: false }).limit(3000),
       supabase.from('erp_agente_mensagem').select(COLS_MSG).in('para', CODES_PAINEL as string[]).not('arquivada', 'is', true)
         .in('status', ['nova', 'recebida', 'em_andamento']).order('criado_em', { ascending: true }).limit(5000),
@@ -54,7 +60,10 @@ export default function PainelCodes() {
       supabase.from('erp_agente_rotina').select('agente,aciona'),
       supabase.from('erp_dev_entrega').select(COLS_ENTREGA).eq('evento', 'publicada').gte('ocorrido_em', de).lt('ocorrido_em', ate)
         .order('ocorrido_em', { ascending: false }).limit(500),
+      supabase.from('erp_dev_main_teste').select('verde,desde,spec_falha,run_url').eq('id', 1).maybeSingle(),
+      supabase.from('erp_dev_esteira_status').select('chave,verde,quantidade'),
     ])
+    // erp_dev_main_teste pode não existir em ambientes sem a migration: o erro dela não derruba a aba.
     const falha = [ent, abertas, resp, leases, rotinas, linha].find((r) => r.error)?.error
     if (falha) { setErro(falha.message); return }
     setErro(null)
@@ -64,6 +73,8 @@ export default function PainelCodes() {
       leases: (leases.data ?? []) as Lease[],
       rotinas: (rotinas.data ?? []) as Rotina[],
       linhaTempo: (linha.data ?? []) as Entrega[],
+      mainTeste: (mt.error ? null : (mt.data as MainTeste | null)),
+      filaTestes: (estat.data ?? []).find((x: { chave: string }) => x.chave === 'fila')?.quantidade ?? null,
     })
     const n = new Date()
     setAtualizado(n); setAgora(n)
@@ -79,6 +90,7 @@ export default function PainelCodes() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_dev_entrega' }, () => agendar())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_agente_mensagem' }, () => agendar())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_agente_sessao_lease' }, () => agendar())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_dev_esteira_status' }, () => agendar())
       .subscribe((st) => setAoVivo(st === 'SUBSCRIBED'))
     return () => { if (timer) clearTimeout(timer); void supabase.removeChannel(ch) }
   }, [pode, carregar])
@@ -93,6 +105,17 @@ export default function PainelCodes() {
   const trocarDia = (d: string) => { diaRef.current = d; setDia(d); void carregar() }
 
   const f = useMemo(() => (dados ? faixa({ entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, agora }) : null), [dados, agora])
+  const est = useMemo(() => (dados ? esteira({
+    entregas: dados.entregas, agora,
+    mainVerde: dados.mainTeste?.verde ?? null,
+    mainDesde: dados.mainTeste?.desde ? new Date(dados.mainTeste.desde) : null,
+    specFalha: dados.mainTeste?.spec_falha ?? null,
+    filaTestes: dados.filaTestes,
+  }) : null), [dados, agora])
+  const resumos = useMemo(
+    () => (dados ? CODES_PAINEL.map((code) => resumoCode({ code, entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, rotinas: dados.rotinas, agora })) : []),
+    [dados, agora],
+  )
 
   if (pode === null) return <div style={{ color: TXM, fontSize: 13, padding: 16 }}>Conferindo acesso…</div>
   if (!pode) {
@@ -116,13 +139,15 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
-      {f && (
-        <div data-testid="codes-faixa" data-cor={f.cor}
-          style={{ background: f.cor === 'verde' ? VERDE_BG : VERM_BG, color: f.cor === 'verde' ? VERDE : VERM,
-            border: `1px solid ${f.cor === 'verde' ? VERDE : VERM}`, borderRadius: 12, padding: '10px 14px', fontWeight: 600, fontSize: 14, marginBottom: 14 }}>
-          ● {f.frase}
-        </div>
-      )}
+      <SaudeEsteira />
+      <SaudeCodes />
+      <GraficosCodes />
+      {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
+      {resumos.length > 0 && <ResumoPorCode itens={resumos} agora={agora} />}
+      {dados && <LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} />}
+
+      {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
+      <MeuCode />
 
       {dados && (
         <>
@@ -133,9 +158,77 @@ export default function PainelCodes() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {CODES_LINHA_FINAL.map((c) => <CartaoCode key={c} code={c} dados={dados} agora={agora} compacto />)}
           </div>
-          <LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} />
         </>
       )}
+    </div>
+  )
+}
+
+const COR_ESTEIRA = {
+  verde: { bg: VERDE_BG, fg: VERDE }, amarela: { bg: '#FEF3C7', fg: '#92400E' }, vermelha: { bg: VERM_BG, fg: VERM },
+} as const
+const COR_STATUS: Record<StatusCode, { bg: string; fg: string; ico: string; nome: string; ajuda: string }> = {
+  trabalhando: { bg: VERDE_BG, fg: VERDE, ico: '●', nome: 'Trabalhando', ajuda: 'Tem sessão ativa (renovada há menos de 12 min).' },
+  travado: { bg: VERM_BG, fg: VERM, ico: '■', nome: 'Travado', ajuda: 'Tem tarefa NOVA sem leitura há mais de 15 min e nenhuma sessão nos últimos 30 min (ou o acionamento está falhando).' },
+  na_fila: { bg: '#FEF3C7', fg: '#92400E', ico: '◔', nome: 'Na fila', ajuda: 'Tem tarefa NOVA esperando há menos de 15 min (ou há sessão recente que vai lê-la).' },
+  esperando: { bg: '#FEF3C7', fg: '#92400E', ico: '◐', nome: 'Esperando', ajuda: 'Sem sessão, mas tem PR em teste ou aguardando autorização.' },
+  dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão, mas sem tarefa nova sem leitura (a última sessão foi recente ou não há nada esperando); acorda ao receber mensagem (ou na próxima hora cheia, para quem tem agenda).' },
+}
+
+function FaixaEsteira({ e, alerta, agora }: { e: ReturnType<typeof esteira>; alerta: string | null; agora: Date }) {
+  const c = COR_ESTEIRA[e.cor]
+  const pub = e.ultimaPub ? `publicou ${hora(e.ultimaPub)} (há ${duracao(agora.getTime() - e.ultimaPub.getTime())})` : 'sem publicação nos últimos 7 dias'
+  const main = e.mainVerde === null ? 'teste da main sem dado'
+    : e.mainVerde ? 'teste da main verde'
+    : `teste da main VERMELHO${e.mainDesde ? ` há ${duracao(agora.getTime() - e.mainDesde.getTime())}` : ''}${e.specFalha ? ` — ${e.specFalha}` : ''}`
+  const filaT = e.filaTestes === null ? 'fila de testes sem dado' : `fila de testes ${e.filaTestes} esperando`
+  return (
+    <div data-testid="codes-faixa" data-cor={e.cor}
+      style={{ background: c.bg, color: c.fg, border: `1px solid ${c.fg}`, borderRadius: 12, padding: '10px 14px', fontWeight: 600, fontSize: 14, marginBottom: 12 }}>
+      <span data-testid="codes-esteira">● Esteira: {pub} · PRs prontas {e.prontas} · {main} · {filaT}</span>
+      {alerta && <div style={{ fontWeight: 500, fontSize: 12, marginTop: 4 }}>{alerta}</div>}
+      <details style={{ fontWeight: 400, fontSize: 12, marginTop: 4 }}>
+        <summary style={{ cursor: 'pointer' }} aria-label="O que significa">?</summary>
+        Verde: publicou na última hora e a main não está vermelha. Amarelo: sem publicação há mais de 1 h. Vermelho: main vermelha ou teste parado há mais de 90 min.
+      </details>
+    </div>
+  )
+}
+
+function ResumoPorCode({ itens, agora }: { itens: ReturnType<typeof resumoCode>[]; agora: Date }) {
+  return (
+    <div data-testid="codes-resumo" style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, color: TXM, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+        Resumo por Code
+        <details style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 0 }}>
+          <summary style={{ cursor: 'pointer' }} aria-label="O que significam os status">?</summary>
+          {(Object.keys(COR_STATUS) as StatusCode[]).map((k) => <div key={k}><b>{COR_STATUS[k].nome}:</b> {COR_STATUS[k].ajuda}</div>)}
+          <div><b>Plantão permanente:</b> nunca entra na fila, em "mais antiga" nem em backlog (não é concluído por desenho).</div>
+          <div><b>Fila antiga:</b> mensagens recebidas há mais de 24 h; nunca contam como Travado.</div>
+        </details>
+      </div>
+      <div className="flex gap-2 overflow-x-auto md:grid md:grid-cols-4 md:overflow-visible" style={{ paddingBottom: 4 }}>
+        {itens.map((r) => {
+          const s = COR_STATUS[r.status]
+          return (
+            <a key={r.code} href={`#card-code-${r.code}`} data-testid={`resumo-${r.code}`} data-status={r.status}
+              onClick={(ev) => { ev.preventDefault(); document.querySelector(`[data-testid="card-code-${r.code}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
+              style={{ flex: '0 0 200px', minWidth: 0, textDecoration: 'none', color: ESP, background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{r.code}</div>
+              <div data-testid={`resumo-status-${r.code}`} style={{ display: 'inline-block', margin: '4px 0', fontSize: 11, fontWeight: 700, background: s.bg, color: s.fg, border: `1px solid ${s.fg}`, borderRadius: 999, padding: '1px 8px' }}>
+                {s.ico} {s.nome}{r.desde ? ` desde ${hora(r.desde)}` : ''}
+              </div>
+              <div title={r.fazendo} style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fazendo}</div>
+              <div style={{ fontSize: 11, color: TXM, marginTop: 4 }}>
+                última sessão {r.status === 'trabalhando' ? 'agora' : r.ultimaSessaoMin === null ? '—' : `há ${duracao(r.ultimaSessaoMin * 60_000)}`} · não lidas: {r.naoLidas}
+              </div>
+              <div style={{ fontSize: 11, color: TXM }}>
+                fila {r.fila}{r.filaAntiga > 0 ? ` (+${r.filaAntiga} fila antiga)` : ''} · em teste {r.emTeste} · hoje {r.entreguesHoje}
+              </div>
+            </a>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -238,18 +331,21 @@ function CartaoCode({ code, dados, agora, compacto }: { code: string; dados: Dad
   )
 }
 
+const LINHA_CELULAR = 8
+
 function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: string; setDia: (d: string) => void; agora: Date }) {
+  const [todas, setTodas] = useState(false)
   return (
-    <div data-testid="codes-linha-tempo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, marginTop: 16 }}>
+    <div data-testid="codes-linha-tempo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-        <span style={{ fontWeight: 700 }}>Publicações do dia</span>
+        <span style={{ fontWeight: 700 }}>Publicações do dia</span><AjudaCampo chave="dev.codes.filtro_data" rota="/dashboard/dev/codes" />
         <input data-testid="codes-filtro-data" type="date" value={dia} max={diaSP(agora)} onChange={(e) => e.target.value && setDia(e.target.value)}
           style={{ border: `1px solid ${BD}`, borderRadius: 8, padding: '4px 8px', color: ESP, background: OFF, fontFamily: 'inherit' }} />
       </div>
       {itens.length === 0 ? <Vazio t="nenhuma publicação neste dia" /> : (
         <ol style={{ listStyle: 'none', margin: 0, padding: 0, borderLeft: `2px solid ${DOU}` }}>
-          {itens.map((e) => (
-            <li key={e.id} data-testid={`linha-tempo-${e.pr_numero}`} style={{ position: 'relative', padding: '4px 0 4px 12px', fontSize: 13, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {itens.map((e, i) => (
+            <li key={e.id} data-testid={`linha-tempo-${e.pr_numero}`} className={!todas && i >= LINHA_CELULAR ? 'hidden md:flex' : 'flex'} style={{ position: 'relative', padding: '4px 0 4px 12px', fontSize: 13, gap: 6, flexWrap: 'wrap' }}>
               <span style={{ position: 'absolute', left: -5, top: 10, width: 8, height: 8, borderRadius: 8, background: DOU }} />
               <span style={{ color: TXM, minWidth: 40 }}>{hora(e.ocorrido_em)}</span>
               <span style={{ fontWeight: 600 }}>{e.code}</span>
@@ -258,6 +354,12 @@ function LinhaDoTempo({ itens, dia, setDia, agora }: { itens: Entrega[]; dia: st
             </li>
           ))}
         </ol>
+      )}
+      {itens.length > LINHA_CELULAR && (
+        <button type="button" data-testid="codes-ver-todas" className="md:hidden" onClick={() => setTodas((v) => !v)}
+          style={{ marginTop: 8, border: 'none', background: 'none', color: DOU, fontWeight: 700, fontSize: 13, cursor: 'pointer', padding: 0 }}>
+          {todas ? 'ver menos' : `ver todas (${itens.length})`}
+        </button>
       )}
     </div>
   )

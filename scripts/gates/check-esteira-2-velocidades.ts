@@ -14,10 +14,11 @@ const ler = (p: string) => readFileSync(p, 'utf8')
 const sh = ler('scripts/merge/fila-merge.sh')
 ok(/ACEITACAO_INFORMATIVA='\^\(aceitacao\|triagem\|@pos-migration \[\(\]informativo\[\)\]\)\$'/.test(sh),
   '(a) via rápida: aceitacao, triagem e @pos-migration (informativo) são os checks informativos')
-ok(/\[ "\$via" = rapida \] && linhas=\$\(awk .*'\$1 !~ re'/.test(sh), '(a) via rápida: tira esses checks de pendentes/vermelhos/cancelados')
-const iPend = sh.indexOf('pend=$('), iFiltro = sh.indexOf('[ "$via" = rapida ] && linhas=')
+// CEO 15/10: a via rápida SEMPRE tira a aceitação do cálculo; a via revisada também DENTRO da janela (aceitacao_dispensada)
+ok(/\[ "\$via" = rapida \] \|\| aceitacao_dispensada; then linhas=\$\(awk .*'\$1 !~ re'/.test(sh), '(a) via rápida (e revisada na janela): tira esses checks de pendentes/vermelhos/cancelados')
+const iPend = sh.indexOf('pend=$('), iFiltro = sh.indexOf('[ "$via" = rapida ] || aceitacao_dispensada; then linhas=')
 ok(iFiltro > 0 && iFiltro < iPend, '(a) o filtro vem ANTES do cálculo de pendentes, vermelhos e cancelados')
-ok(/if \[ "\$via" = revisada \]; then\s*\n\s*acc=/.test(sh), '(a) aceitação só é exigida na via revisada')
+ok(/if \[ "\$via" = revisada \] && ! aceitacao_dispensada; then\s*\n\s*acc=/.test(sh), '(a) aceitação só é exigida na via revisada (fora da janela do CEO 15/10)')
 ok(/test\("cancel\|ignor"; "i"\)\)\) then "pending"/.test(sh), '(a) Vercel só conta build real ("Canceled by Ignored Build Step" não é verde)')
 ok(/via=rapida\s*\n\s*jq -e --arg l "\$SENSIVEL" .* && via=revisada/.test(sh), '(a) a via sai da label revisao-eng-chefe')
 ok(/if \[ "\$via" = revisada \]; then\s*\n\s*a=\$\(autorizacao "\$n"\)/.test(sh), '(a) via revisada continua exigindo MERGE AUTORIZADO pelo patch-id')
@@ -36,7 +37,7 @@ ok(/SHA=\$\(gh api "repos\/\$REPO\/commits\/main" --jq \.sha\)/.test(wf) && /if 
   '(b) triagem: ponta ATUAL da main já julgada → não roda de novo (manual roda sempre)')
 const job = wf.slice(wf.search(/^  aceitacao-main:\s*$/m))
 ok(/group: aceitacao-testes\s*\n\s*cancel-in-progress: false\s*\n\s*queue: max/.test(job), '(b) fila aceitacao-testes, FIFO, sem cancelar')
-ok(/\*horsymhsinqcimflrtjo\*\) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO/.test(job) && /\*hqjzqwsxrkewjjuyqeij\*\)/.test(job),
+ok(/\*horsymhsinqcimflrtjo\*\) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO/.test(job) && /\*xjzqndnvjkdjyisuklpy\*\)/.test(job),
   '(b) trava: recusa a produção e exige o projeto de testes')
 ok(!/secrets\.(SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|NEXT_PUBLIC_SUPABASE_ANON_KEY|SUPABASE_ACCESS_TOKEN|SUPABASE_DB_PASSWORD)\b/.test(wf),
   '(b) nenhum segredo da produção no workflow (só TEST_*)')

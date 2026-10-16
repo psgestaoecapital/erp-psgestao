@@ -17,6 +17,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Plus, Search, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight,
@@ -1213,7 +1214,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   const [medicoesVersao, setMedicoesVersao] = useState(0)
   const [nfseProducaoDisponivel, setNfseProducaoDisponivel] = useState(false)
   // FIX-O3B-NFSE-VINCULO-PROCESSANDO-v1 · ultima NFS-e do pedido (inclui rejeitada)
-  const [nfseUltima, setNfseUltima] = useState<{ id: string; numero: string | null; status: string; pdf_url: string | null; motivo_rejeicao: string | null } | null>(null)
+  const [nfseUltima, setNfseUltima] = useState<{ id: string; numero: string | null; status: string; pdf_url: string | null; xml_url: string | null; cancelado_em: string | null; motivo_rejeicao: string | null } | null>(null)
   const [nfseAtualizando, setNfseAtualizando] = useState(false)
   // #782 · boleto na própria tela de pedido: após "Gerar Financeiro", as parcelas marcadas com
   // "Boleto" têm seu boleto gerado aqui (reusa GerarBoletosReceita). Os receber_ids NÃO vêm do
@@ -1284,7 +1285,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
       supabase.rpc('fn_pedido_nfse_dados', { p_pedido_id: ped.id }),
       supabase
         .from('erp_nfse_emitidas')
-        .select('id,numero,status,pdf_url,motivo_rejeicao')
+        .select('id,numero,status,pdf_url,xml_url,cancelado_em,motivo_rejeicao')
         .eq('pedido_id', ped.id)
         .order('criado_em', { ascending: false })
         .limit(1)
@@ -1425,7 +1426,8 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
             const ultStatus = nfseUltima?.status
             const eAutorizada = ultStatus === 'autorizada'
             const eProcessando = ultStatus === 'processando'
-            const eRejeitada = ultStatus === 'rejeitada' || ultStatus === 'erro' || ultStatus === 'cancelada'
+            const eCancelada = ultStatus === 'cancelada'
+            const eRejeitada = ultStatus === 'rejeitada' || ultStatus === 'erro'
             const semNota = !nfseUltima
             const btnAtualizar = (
               <button
@@ -1443,6 +1445,34 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                 {nfseAtualizando ? 'Atualizando…' : '↻ Atualizar status'}
               </button>
             )
+            const linkArq = (href: string, rotulo: string, tid: string) => (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid={tid}
+                style={{
+                  padding: '8px 14px', borderRadius: 8,
+                  border: `1px solid ${C.gold}`, background: C.goldBg, color: C.goldD,
+                  fontSize: 12, fontWeight: 600, textDecoration: 'none',
+                }}
+              >
+                {rotulo}
+              </a>
+            )
+            const arquivos = (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {nfseUltima?.xml_url && linkArq(nfseUltima.xml_url, 'Baixar XML', 'nfse-baixar-xml')}
+                  {nfseUltima?.pdf_url && linkArq(nfseUltima.pdf_url, 'Baixar PDF', 'nfse-ver-pdf')}
+                </div>
+                {(!nfseUltima?.xml_url || !nfseUltima?.pdf_url) && (
+                  <p data-testid="nfse-arquivo-gerando" style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
+                    {!nfseUltima?.xml_url && !nfseUltima?.pdf_url ? 'XML e PDF' : !nfseUltima?.xml_url ? 'XML' : 'PDF'} ainda sendo gerado pela prefeitura — toque em “Atualizar status”.
+                  </p>
+                )}
+              </div>
+            )
             return (
               <Card titulo="NFS-e do serviço">
                 {eAutorizada && (
@@ -1450,22 +1480,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>
                       ✅ NFS-e emitida — nº {nfseUltima?.numero ?? '—'}
                     </p>
-                    {nfseUltima?.pdf_url && (
-                      <a
-                        href={nfseUltima.pdf_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        data-testid="nfse-ver-pdf"
-                        style={{
-                          alignSelf: 'flex-start',
-                          padding: '8px 14px', borderRadius: 8,
-                          border: `1px solid ${C.gold}`, background: C.goldBg, color: C.goldD,
-                          fontSize: 12, fontWeight: 600, textDecoration: 'none',
-                        }}
-                      >
-                        Ver PDF
-                      </a>
-                    )}
+                    {arquivos}
                     {btnAtualizar}
                   </div>
                 )}
@@ -1478,6 +1493,29 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
                       O número sai assim que a prefeitura autorizar.
                     </p>
+                    {btnAtualizar}
+                  </div>
+                )}
+
+                {eCancelada && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-testid="nfse-cancelada">
+                    <p style={{ fontSize: 12, color: C.espressoM, fontWeight: 600, margin: 0 }}>
+                      🚫 NFS-e cancelada — nº {nfseUltima?.numero ?? '—'}
+                      {nfseUltima?.cancelado_em ? ` · em ${new Date(nfseUltima.cancelado_em).toLocaleDateString('pt-BR')}` : ''}
+                    </p>
+                    {arquivos}
+                    <button
+                      type="button"
+                      onClick={() => { setMedicaoSel(null); setNfseModalAberto(true) }}
+                      data-testid="nfse-reemitir"
+                      style={{
+                        minHeight: 44, padding: '10px 16px', borderRadius: 8,
+                        border: 'none', background: C.gold, color: '#fff',
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start',
+                      }}
+                    >
+                      📄 Emitir novamente
+                    </button>
                     {btnAtualizar}
                   </div>
                 )}
@@ -1636,6 +1674,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
         tomadorTipo={nfseDados?.tomador?.tipo ?? undefined}
         tomadorNome={nfseDados?.tomador?.nome ?? undefined}
         tomadorEmail={nfseDados?.tomador?.email ?? undefined}
+        tomadorClienteId={ped.cliente_id ?? undefined}
         descricaoServico={nfseSeed?.descricao}
         codigoServicoMunicipio={nfseSeed?.codigoServicoMunicipio}
         codigoLC116={nfseSeed?.codigoLC116}
@@ -1675,6 +1714,47 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null)
   const [searchingClientes, setSearchingClientes] = useState(false)
+  // cadastro inline (#2910): mesmo fluxo da Nova OS (#2260) — fn_cliente_criar_inline + /api/cnpj-lookup
+  const [cadAberto, setCadAberto] = useState(false)
+  const [cadNome, setCadNome] = useState('')
+  const [cadDoc, setCadDoc] = useState('')
+  const [cadTel, setCadTel] = useState('')
+  const [cadSalvando, setCadSalvando] = useState(false)
+  const [cadMsg, setCadMsg] = useState<string | null>(null)
+
+  function abrirCadastroCliente() {
+    const t = clienteBusca.trim()
+    const soDig = t.replace(/\D/g, '')
+    if (soDig.length === 11 || soDig.length === 14) { setCadDoc(soDig); setCadNome('') } else { setCadNome(t); setCadDoc('') }
+    setCadTel(''); setCadMsg(null); setCadAberto(true)
+  }
+
+  async function buscarCnpjCadastro(doc: string) {
+    if (doc.length !== 14) return
+    try {
+      const r = await fetch(`/api/cnpj-lookup?cnpj=${doc}`)
+      if (!r.ok) { setCadMsg(r.status === 404 ? 'CNPJ não encontrado — preencha o nome à mão.' : 'Consulta externa indisponível — preencha o nome à mão.'); return }
+      const d = await r.json() as { razao_social?: string }
+      if (d.razao_social && !cadNome.trim()) setCadNome(d.razao_social)
+    } catch { setCadMsg('Consulta externa indisponível — preencha o nome à mão.') }
+  }
+
+  async function salvarCadastroCliente() {
+    if (!cadNome.trim()) { setCadMsg('Informe o nome do cliente.'); return }
+    setCadSalvando(true); setCadMsg(null)
+    const extra: Record<string, string> = {}
+    if (cadTel.trim()) extra.telefone = cadTel.trim()
+    const doc = cadDoc.replace(/\D/g, '')
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', {
+      p_company_id: companyId, p_nome: cadNome.trim(), p_cpf_cnpj: doc || null,
+      p_extra: Object.keys(extra).length ? extra : null,
+    })
+    setCadSalvando(false)
+    if (error) { setCadMsg('❌ ' + error.message); return }
+    setClienteSel({ id: data as string, razao_social: cadNome.trim(), nome_fantasia: null, cnpj_cpf: doc || null, email: null, telefone: cadTel.trim() || null })
+    setCadAberto(false)
+    setStep('itens')
+  }
   // FEAT-OS-ONDA1B-EDITOR-NO-OTC-v1 · itens polimorficos via shared editor
   const [itens, setItens] = useState<EditorItem[]>([])
   const [observacoes, setObservacoes] = useState('')
@@ -1847,6 +1927,36 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
             )}
             {clienteBusca.trim().length >= 2 && !searchingClientes && clientes.length === 0 && (
               <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>Nenhum cliente encontrado. Verifique o termo de busca.</p>
+            )}
+            {!cadAberto && clienteBusca.trim().length >= 2 && !searchingClientes && clientes.length === 0 && (
+              <button type="button" onClick={abrirCadastroCliente} data-testid="otc-novo-cadastrar-cliente"
+                style={{ width: '100%', textAlign: 'left', background: C.cream, border: `1px dashed ${C.border}`, borderRadius: 8, padding: 10, cursor: 'pointer', minHeight: 44, fontSize: 13, color: C.espresso }}>
+                + Cadastrar novo cliente “{clienteBusca.trim()}”
+              </button>
+            )}
+            {cadAberto && (
+              <div style={{ padding: 10, background: C.cream, borderRadius: 8, display: 'grid', gap: 8 }} data-testid="otc-novo-cliente-inline">
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Nome / razão social</label><AjudaCampo chave="otc.novo.cliente_novo_nome" rota="/dashboard/commerce/otc" />
+                  <input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>CPF / CNPJ</label><AjudaCampo chave="otc.novo.cliente_novo_doc" rota="/dashboard/commerce/otc" />
+                  <input value={cadDoc} onChange={(e) => setCadDoc(e.target.value)} onBlur={() => void buscarCnpjCadastro(cadDoc.replace(/\D/g, ''))} inputMode="numeric" style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Telefone</label><AjudaCampo chave="otc.novo.cliente_novo_tel" rota="/dashboard/commerce/otc" />
+                  <input value={cadTel} onChange={(e) => setCadTel(e.target.value)} inputMode="tel" style={inp} />
+                </div>
+                {cadMsg && <div style={{ fontSize: 12, color: C.espressoM }}>{cadMsg}</div>}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={() => void salvarCadastroCliente()} disabled={cadSalvando} data-testid="otc-novo-cliente-salvar"
+                    style={{ flex: 1, minHeight: 44, borderRadius: 8, border: 'none', background: C.espresso, color: C.white, cursor: 'pointer', fontWeight: 600 }}>
+                    {cadSalvando ? 'Salvando…' : 'Cadastrar e vincular'}
+                  </button>
+                  <button type="button" onClick={() => setCadAberto(false)} style={{ minHeight: 44, borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', cursor: 'pointer', padding: '0 14px' }}>Cancelar</button>
+                </div>
+              </div>
             )}
           </div>
         ) : (
