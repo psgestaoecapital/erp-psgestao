@@ -452,7 +452,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
   return createPortal(
     <div onClick={onClose} style={modalBg()} className="ps-print-portal" data-testid="ciencia-doc-modal">
       <style>{CSS_IMPRESSAO}</style>
-      <div onClick={e => e.stopPropagation()} id="ciencia-doc-print" className="ps-print-doc" style={{ ...modalCard(), maxWidth: 900, maxHeight: '86vh', overflowY: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} id="ciencia-doc-print" className="ps-print-doc" style={{ ...modalCard(), maxWidth: 720, maxHeight: '86vh', overflowY: 'auto' }}>
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: C.gray, textTransform: 'uppercase', letterSpacing: 1 }}>Relatório de ciência mensal</div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -477,17 +477,14 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
               <div><b>Matrícula:</b> {snap.matricula || '—'}</div><div><b>PIS:</b> {snap.pis || '—'}</div>
               <div><b>Função:</b> {snap.funcao || '—'}</div><div><b>Setor:</b> {snap.setor || '—'}</div>
             </div>
-            <style>{`.ciencia-dias{column-count:2;column-gap:24px}.ciencia-dias>div{break-inside:avoid}@media (max-width:640px){.ciencia-dias{column-count:1}}`}</style>
-            <div className="ciencia-dias" data-testid="ciencia-dias">
             {detalhe.map((d, i) => (
               <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.ink, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span>{textoAlmoco(d.almoco) && <span style={{ fontSize: 11, color: C.ink, fontWeight: 400 }} data-testid="ciencia-almoco"> · {textoAlmoco(d.almoco)}</span>}</div>
-                {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.ink }} data-testid="ciencia-originais">{notaDiaDoc(d.ajuste)}</div>}
-                {(d.pausas || []).length === 0 ? <div style={{ fontSize: 11.5, color: C.ink, fontStyle: 'italic' }}>Sem pausa registrada.</div> :
-                  (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.ink, fontSize: 11 }}> · {p.min} min</span>}</div>)}
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span>{textoAlmoco(d.almoco) && <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }} data-testid="ciencia-almoco"> · {textoAlmoco(d.almoco)}</span>}</div>
+                {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.gray }} data-testid="ciencia-originais">{notaDiaDoc(d.ajuste)}</div>}
+                {(d.pausas || []).length === 0 ? <div style={{ fontSize: 11.5, color: C.gray, fontStyle: 'italic' }}>Sem pausa registrada.</div> :
+                  (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}
               </div>
             ))}
-            </div>
             {nEst > 0 && (
               <div style={{ marginTop: 12, padding: 10, background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, fontSize: 11.5, color: '#92400E' }}>
                 {nEst} pausa(s) deste período tiveram o horário de término estimado por falta de registro de saída. A estimativa considera a duração padrão de 20 minutos e não substitui o registro.
