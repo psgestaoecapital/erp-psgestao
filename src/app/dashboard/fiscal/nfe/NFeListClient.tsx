@@ -9,6 +9,9 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { nomeArquivoNota } from '@/lib/download/nomeArquivo'
+import { baixarUrlComNome } from '@/lib/download/baixarArquivo'
+import { fantasiaClientePorDoc } from '@/lib/download/fantasiaCliente'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
@@ -225,18 +228,22 @@ export default function NFeListClient() {
     }
   }
 
-  async function baixarNota(notaId: string, tipo: 'xml' | 'pdf', urlDireta?: string | null) {
+  async function baixarNota(notaId: string, tipo: 'xml' | 'pdf', urlDireta: string | null | undefined, doc: Documento) {
     setBaixando(`${notaId}-${tipo}`)
     try {
-      if (urlDireta) { window.open(urlDireta, '_blank', 'noopener,noreferrer'); return }
+      // #2957: Cliente_NF<número>_DDMMAAAA.pdf/.xml (fantasia do cadastro; sem ele, a razão social da nota)
+      const fantasia = await fantasiaClientePorDoc((() => { const r = resolveCompanyId(); return r.kind === 'ok' ? r.id : null })(), doc.contraparte_doc)
+      const nome = nomeArquivoNota({ fantasia, razao: doc.contraparte_nome, numero: doc.numero, emissao: doc.data, ext: tipo })
+      if (urlDireta) { await baixarUrlComNome(urlDireta, nome); return }
       const { data, error } = await supabase.rpc('fn_fiscal_get_storage_url', { p_tabela: 'nfe', p_doc_id: notaId, p_tipo: tipo })
       if (error) throw error
       const payload = (data ?? {}) as { ok?: boolean; erro?: string; storage_path?: string; bucket?: string }
       if (!payload.ok || !payload.storage_path) throw new Error(payload.erro ?? 'Arquivo não disponível')
       const bucket = payload.bucket ?? 'fiscal-xmls'
-      const signed = await supabase.storage.from(bucket).createSignedUrl(payload.storage_path, 3600)
+      // download=<nome>: o storage responde como anexo com esse nome
+      const signed = await supabase.storage.from(bucket).createSignedUrl(payload.storage_path, 3600, { download: nome })
       if (signed.error || !signed.data?.signedUrl) throw new Error(signed.error?.message ?? 'Erro ao gerar URL assinada')
-      window.open(signed.data.signedUrl, '_blank', 'noopener,noreferrer')
+      await baixarUrlComNome(signed.data.signedUrl, nome)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Erro ao baixar')
     } finally {
@@ -406,7 +413,7 @@ export default function NFeListClient() {
                       onReenviar={() => corrigirEReenviar(doc)}
                       onCancelar={() => { setJustifCancel(''); setErroCancel(null); setCancelando({ id: doc.principal_id, numero: doc.numero }) }}
                       onCartaCorrecao={() => { setCcCorrecao(''); setErroCC(null); setCcAberta({ id: doc.principal_id, numero: doc.numero }) }}
-                      onBaixar={(notaId, tipo, url) => baixarNota(notaId, tipo, url)}
+                      onBaixar={(notaId, tipo, url) => baixarNota(notaId, tipo, url, doc)}
                     />
                   ))}
                 </tbody>
