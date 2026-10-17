@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { BUCKET_CONTRATOS, TOKEN_RE, ipDaRequisicao, mascararEmail, sha256Hex } from '@/lib/contratos/assinatura'
+import { gerarEArquivarPdfAssinado } from '@/lib/contratos/pdfAssinadoServidor'
 
 type Abrir = { ok: boolean; erro?: string; documento_path?: string | null; documento_hash?: string; nome?: string; [k: string]: unknown }
 
@@ -72,6 +73,12 @@ export async function POST(req: NextRequest) {
     if (error) return erro('Não consegui registrar a assinatura', 500)
     const r = data as { ok: boolean; erro?: string; todos_assinaram?: boolean; codigo_verificacao?: string }
     if (!r?.ok) return erro(r?.erro ?? 'Não consegui registrar a assinatura')
+    // etapa 3: o último a assinar gera o PDF assinado com a página de evidências; se falhar, a assinatura vale do mesmo
+    // jeito e a empresa gera de novo pelo botão da ficha do contrato
+    if (r.todos_assinaram && typeof a.signatario_id === 'string') {
+      const { data: envio } = await supabaseAdmin.from('erp_contrato_assinatura_signatario').select('envio_id').eq('id', a.signatario_id).maybeSingle()
+      if (envio?.envio_id) { try { await gerarEArquivarPdfAssinado(envio.envio_id as string, new URL(req.url).origin) } catch { /* botão da ficha refaz */ } }
+    }
     return NextResponse.json({ ok: true, todos_assinaram: !!r.todos_assinaram, codigo_verificacao: r.codigo_verificacao, documento_hash: hash })
   }
 
