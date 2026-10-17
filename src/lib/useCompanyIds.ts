@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabase";
+import { consultaComCache } from "./cacheConsultaSessao";
 
 /**
  * Hook para filtrar queries por empresa/grupo/consolidado.
@@ -29,29 +30,29 @@ export function useCompanyIds() {
 
   // Carrega empresas e grupos
   useEffect(() => {
+    let vivo = true;
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-
-      const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
-
-      const { data: grps } = await supabase.from("company_groups").select("*").order("nome");
-      setGroups(grps || []);
-
-      let comps: any[] = [];
-      if (up?.role === "adm" || up?.role === "acesso_total" || up?.role === "adm_investimentos") {
-        const { data } = await supabase.from("companies").select("*").order("nome_fantasia");
-        comps = data || [];
-      } else {
-        const { data } = await supabase
-          .from("user_companies")
-          .select("companies(*)")
-          .eq("user_id", user.id);
-        comps = (data || []).map((uc: any) => uc.companies).filter(Boolean);
-      }
-      setCompanies(comps);
+      // uma consulta por sessão/minuto (dedupe entre telas e proteção contra laço de render)
+      const r = await consultaComCache("useCompanyIds", async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return null;
+        const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
+        const { data: grps } = await supabase.from("company_groups").select("*").order("nome");
+        let comps: any[] = [];
+        if (up?.role === "adm" || up?.role === "acesso_total" || up?.role === "adm_investimentos") {
+          const { data } = await supabase.from("companies").select("*").order("nome_fantasia");
+          comps = data || [];
+        } else {
+          const { data } = await supabase.from("user_companies").select("companies(*)").eq("user_id", user.id);
+          comps = (data || []).map((uc: any) => uc.companies).filter(Boolean);
+        }
+        return { grps: grps || [], comps };
+      });
+      if (!vivo) return;
+      if (r) { setGroups(r.grps); setCompanies(r.comps); }
       setLoading(false);
     })();
+    return () => { vivo = false; };
   }, []);
 
   // Escuta mudanças no localStorage (quando usuário muda empresa no seletor do layout)
