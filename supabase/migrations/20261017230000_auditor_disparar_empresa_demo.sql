@@ -20,6 +20,10 @@ INSERT INTO public.demo_por_area (area, company_id) VALUES
 ON CONFLICT (area) DO NOTHING;
 
 -- ── 2) fn_auditor_disparar: resolve a empresa DEMO da área e manda empresa_id no corpo do Playwright ──
+-- ci-sem-guarda: fn_auditor_disparar — roda SÓ como serviço/agente (robô auditor; grants só service_role),
+--   nunca com usuário logado; grava apenas no CATÁLOGO global system_screens (metadado de tela, sem dono
+--   nem company_id de cliente) e só DISPARA foto contra empresa is_demo resolvida por fn_demo_da_area
+--   (RD-69/LGPD). Não há "empresa do registro" a conferir — fn__guarda_empresa não se aplica.
 CREATE OR REPLACE FUNCTION public.fn_auditor_disparar(p_rota text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -109,3 +113,9 @@ BEGIN
   );
 END;
 $function$;
+
+-- ── 3) Guarda de execução (check-fn-guards · RD-97): SECURITY DEFINER só pelo papel de serviço/agentes. ──
+-- Não muda nada no banco de hoje (os grants vivos já são só service_role/postgres); deixa a trava explícita
+-- e idempotente para o db push, fechando o check_fn_guards.
+REVOKE ALL ON FUNCTION public.fn_auditor_disparar(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_auditor_disparar(text) TO service_role;
