@@ -458,6 +458,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           p_parcelas: parcelasEdit.map((p, idx) => ({
             n: idx + 1, data_vencimento: p.vencimento, valor: p.valor, data_competencia: null,
           })),
+          p_forcar_dup: forcar,
         })
       : await supabase.rpc('fn_receber_criar_com_parcelas', {
           p_company_id: companyId,
