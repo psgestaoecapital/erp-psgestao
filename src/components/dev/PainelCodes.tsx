@@ -91,7 +91,7 @@ export default function PainelCodes() {
     let timer: ReturnType<typeof setTimeout> | null = null
     const agendar = (ms = 600) => { if (timer) clearTimeout(timer); timer = setTimeout(() => { void carregar() }, ms) }
     agendar(0)
-    const ch = supabase.channel('dev-codes-painel')
+    const ch = supabase.channel(`dev-codes-painel-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_dev_entrega' }, () => agendar())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_agente_mensagem' }, () => agendar())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_agente_sessao_lease' }, () => agendar())
