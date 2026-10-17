@@ -15,10 +15,15 @@ const sh = ler('scripts/merge/fila-merge.sh')
 ok(/ACEITACAO_INFORMATIVA='\^\(aceitacao\|triagem\|@pos-migration \[\(\]informativo\[\)\]\)\$'/.test(sh),
   '(a) via rápida: aceitacao, triagem e @pos-migration (informativo) são os checks informativos')
 // CEO 15/10: a via rápida SEMPRE tira a aceitação do cálculo; a via revisada também DENTRO da janela (aceitacao_dispensada)
-ok(/\[ "\$via" = rapida \] \|\| aceitacao_dispensada; then linhas=\$\(awk .*'\$1 !~ re'/.test(sh), '(a) via rápida (e revisada na janela): tira esses checks de pendentes/vermelhos/cancelados')
-const iPend = sh.indexOf('pend=$('), iFiltro = sh.indexOf('[ "$via" = rapida ] || aceitacao_dispensada; then linhas=')
+// #2812: a quarentena de jornadas acrescenta o trecho opcional `|| [ "$acc_quar" = 1 ]` ao filtro e à exigência da aceitação
+const QUAR = String.raw`(?: \|\| \[ "\$acc_quar" = 1 \])?`
+ok(new RegExp(String.raw`\[ "\$via" = rapida \] \|\| aceitacao_dispensada` + QUAR + String.raw`; then linhas=\$\(awk .*'\$1 !~ re'`).test(sh), '(a) via rápida (e revisada na janela/quarentena): tira esses checks de pendentes/vermelhos/cancelados')
+// controle: o MESMO regex reprova um filtro sem o trecho acc_quar mal formado ou sem o awk (o trecho é opcional, o filtro não)
+const reFiltro = new RegExp(String.raw`\[ "\$via" = rapida \] \|\| aceitacao_dispensada` + QUAR + String.raw`; then linhas=\$\(awk .*'\$1 !~ re'`)
+ok(!reFiltro.test(sh.replace(/linhas=\$\(awk[^\n]*\$1 !~ re'/, 'linhas=$(cat')), '(a) controle: sem o filtro awk, o gate reprova (acc_quar é opcional, o filtro não)')
+const iPend = sh.indexOf('pend=$('), iFiltro = sh.search(/\[ "\$via" = rapida \] \|\| aceitacao_dispensada(?: \|\| \[ "\$acc_quar" = 1 \])?; then linhas=/)
 ok(iFiltro > 0 && iFiltro < iPend, '(a) o filtro vem ANTES do cálculo de pendentes, vermelhos e cancelados')
-ok(/if \[ "\$via" = revisada \] && ! aceitacao_dispensada; then\s*\n\s*acc=/.test(sh), '(a) aceitação só é exigida na via revisada (fora da janela do CEO 15/10)')
+ok(/if \[ "\$via" = revisada \] && ! aceitacao_dispensada(?: && \[ "\$acc_quar" != 1 \])?; then\s*\n\s*acc=/.test(sh), '(a) aceitação só é exigida na via revisada (fora da janela do CEO 15/10)')
 ok(/test\("cancel\|ignor"; "i"\)\)\) then "pending"/.test(sh), '(a) Vercel só conta build real ("Canceled by Ignored Build Step" não é verde)')
 ok(/via=rapida\s*\n\s*jq -e --arg l "\$SENSIVEL" .* && via=revisada/.test(sh), '(a) a via sai da label revisao-eng-chefe')
 ok(/if \[ "\$via" = revisada \]; then\s*\n\s*a=\$\(autorizacao "\$n"\)/.test(sh), '(a) via revisada continua exigindo MERGE AUTORIZADO pelo patch-id')

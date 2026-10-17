@@ -1,0 +1,8 @@
+# Quarentena de JORNADAS de aceitação na fila de merge (CEO 17/10, presente — "specs que falham também na main não
+# bloqueiam PR alheia; viram P1 ao dono; falha NOVA e spec da própria PR continuam bloqueando").
+# Formato: spec|desde (ISO)|Code dono|chamado/obs. Lido por scripts/merge/fila-merge.sh (estado_checks, via revisada).
+# Entrada sai daqui quando o Code dono conserta o spec (PR remove a linha). Nunca apague o arquivo do spec.
+# Os specs abaixo falharam em TODAS as PRs de 17/10 após o fim da janela informativa (log do run 39039019739, #2792).
+e2e/jornadas/aceitacao/sicredi-erro-claro-88.spec.ts|2026-10-17T14:00:00Z|gilberto-desenv|jornada de conexão Sicredi (#88)
+e2e/jornadas/aceitacao/tryo-anexos-264-266.spec.ts|2026-10-17T14:00:00Z|gilberto-desenv|[celular] anexos PDF/DWG (Tryo #264-266)
+e2e/jornadas/aceitacao/xml-compra-lote.spec.ts|2026-10-17T14:00:00Z|jordana-code|[celular] XML de compra em lote (GF4, #2323)
