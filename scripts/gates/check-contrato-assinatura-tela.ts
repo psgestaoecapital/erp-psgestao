@@ -8,7 +8,7 @@
  *  - geolocalização só com consentimento; toda chave de "?" da tela existe na migration.
  * Mais a prova dos utilitários (IP, e-mail mascarado, WhatsApp, hash).
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { ipDaRequisicao, mascararEmail, telefoneWhatsApp, sha256Hex, linkAssinatura, escaparHtml } from '../../src/lib/contratos/assinatura'
 
@@ -23,6 +23,9 @@ const pagina = semComentario(ler('src/app/sign/contrato/[token]/page.tsx'))
 const tela = ler('src/components/ge/ContratoAssinatura.tsx')
 const form = ler('src/components/ge/ContratoForm.tsx')
 const mig = ler('supabase/migrations/20261017080020_contrato_assinatura_tela_ajuda.sql')
+// etapa 3 (#2936): os "?" dos botões do PDF assinado vêm na migration dela (achada pelo nome: a fila pode renumerar)
+const migPdf = readdirSync('supabase/migrations').filter((f) => f.endsWith('_contrato_assinatura_pdf_evidencias.sql'))
+  .map((f) => ler(`supabase/migrations/${f}`)).join('\n')
 
 // rota pública
 const blocoCodigo = publico.slice(publico.indexOf("body.acao === 'codigo'"), publico.indexOf("body.acao === 'assinar'"))
@@ -49,7 +52,7 @@ ok(/\/api\/contratos\/assinatura\/publico/.test(pagina), 'página pública: usa 
 ok(/<ContratoAssinatura contratoId=\{contrato\.id\}/.test(form), 'contrato: componente de assinatura na ficha')
 const chaves = [...tela.matchAll(/<AjudaCampo chave="([^"]+)"/g)].map((m) => m[1])
 ok(chaves.length >= 10, `tela: ${chaves.length} "?" na tela`)
-for (const c of new Set(chaves)) ok(mig.includes(`'${c}'`), `"?" ${c} cadastrado na migration`)
+for (const c of new Set(chaves)) ok((mig + migPdf).includes(`'${c}'`), `"?" ${c} cadastrado na migration`)
 ok(!/CREATE OR REPLACE|DROP |UPDATE |DELETE |GRANT |REVOKE /i.test(mig.replace(/--.*$/gm, '')), 'migration: só textos do "?" (aditiva)')
 
 // utilitários
