@@ -17,6 +17,13 @@ ok(/REVOKE ALL ON FUNCTION public\.fn_empresa_obter_dados\(uuid\) FROM PUBLIC, a
 ok(/endereco_incompleto/.test(sql) && /uf_divergente/.test(sql) && /ibge_invalido/.test(sql), 'empresa brasileira: endereço incompleto, UF trocada e IBGE inexistente são recusados')
 ok(/fn_municipio_por_nome_uf/.test(sql), 'IBGE vazio usa a regra única do município (fn_municipio_por_nome_uf)')
 ok(/uf_fiscal = CASE WHEN v_br THEN v_uf/.test(sql), 'UF do endereço grava companies.uf_fiscal')
+// revisão 16/10: foto de antes do backfill, sem UPDATE fixo por empresa e gravação só por quem administra a empresa
+ok(/CREATE TABLE IF NOT EXISTS public\.companies_endereco_bkp_\d{8}[\s\S]*ENABLE ROW LEVEL SECURITY[\s\S]*REVOKE ALL ON public\.companies_endereco_bkp_\d{8} FROM PUBLIC, anon, authenticated/.test(sql),
+  'backfill guarda a foto de antes numa tabela só do service_role')
+ok(sql.indexOf('companies_endereco_bkp_') < sql.indexOf('DO $$'), 'a foto é tirada ANTES do backfill')
+ok(!/WHERE id = '[0-9a-f-]{36}'/.test(sql), 'nenhum UPDATE fixo de uma empresa na migration')
+ok(/fn_empresa_salvar_endereco[\s\S]*is_admin\(\)[\s\S]*user_companies[\s\S]*'owner', 'socio'[\s\S]*sem_permissao/.test(sql),
+  'endereço fiscal só é gravado por dono/sócio/administrador da empresa ou administrador PS')
 
 const pg = ler('src/app/dashboard/configuracoes/empresa/page.tsx')
 const cep = ler('src/components/comum/CepEndereco.tsx')

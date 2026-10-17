@@ -10,12 +10,13 @@
 --      (#2366: sem acento/apóstrofo/hífen + sinônimos); UF de cidade_estado quando uf_fiscal está vazia; logradouro,
 --      número, bairro, complemento e CEP separados do texto de endereco onde dá. Não acha → fica vazio (RD-51).
 --      Empresa estrangeira (pais <> Brasil) fica de fora.
---   3) FCR (3ddcaac8): endereço informado pelo CEO — Rua Bertila Friedrich, 47, Galpão, Centro, 89899-000,
---      Iporã do Oeste/SC (IBGE 4207650). Backup do valor anterior: endereco = 'RUA BERTILA FRIEDRICH',
---      cidade_estado = 'Iporã do Oeste/SC', uf_fiscal = 'SC'.
+--      Antes do backfill, a foto das colunas de endereço de TODAS as empresas vai para
+--      companies_endereco_bkp_20261017 (só service_role lê; volta com UPDATE ... FROM a foto).
+--   3) (revisão 16/10) sem UPDATE fixo na FCR: a UF SC dela já foi gravada à parte em 14/10; o endereço completo
+--      (número, galpão, CEP) a Jordana grava pela tela nova, que valida e confere o IBGE.
 --   4) fn_empresa_obter_dados devolve os campos novos (+ uf_fiscal e pais). Lida a versão viva em 13/10 com
 --      pg_get_functiondef: mesma guarda (get_user_company_ids), mesmo search_path.
---   5) fn_empresa_salvar_endereco (nova): valida CEP, logradouro, número, bairro, cidade, UF e IBGE (empresa brasileira),
+--   5) fn_empresa_salvar_endereco (nova; só sócio/dono/administrador da empresa ou administrador PS): valida CEP, logradouro, número, bairro, cidade, UF e IBGE (empresa brasileira),
 --      confere o IBGE na tabela oficial e que a UF bate com a do município, grava uf_fiscal e MONTA endereco e
 --      cidade_estado a partir dos campos (o cabeçalho da OS, a remessa CNAB e a NFS-e continuam lendo esses textos).
 --   6) "?" (RD-95) de todos os campos da tela Configurações › Dados da Empresa.
@@ -39,6 +40,18 @@ COMMENT ON COLUMN public.companies.cidade IS 'Município do emitente (nome). A U
 COMMENT ON COLUMN public.companies.codigo_ibge_municipio IS 'Código IBGE (7 dígitos) do município do emitente, conferido em erp_gov_nfse_municipios.';
 
 -- 2) Backfill (só coluna vazia; 24 empresas reais — sem varredura de tabela grande) -------------------------------
+-- foto de antes (revisão 16/10): endereço, cidade/UF e uf_fiscal de todas as empresas, para desfazer se preciso
+CREATE TABLE IF NOT EXISTS public.companies_endereco_bkp_20261017 AS
+  SELECT id, endereco, cidade_estado, uf_fiscal, now() AS copiado_em FROM public.companies WITH NO DATA;
+INSERT INTO public.companies_endereco_bkp_20261017 (id, endereco, cidade_estado, uf_fiscal, copiado_em)
+  SELECT c.id, c.endereco, c.cidade_estado, c.uf_fiscal, now() FROM public.companies c
+   WHERE NOT EXISTS (SELECT 1 FROM public.companies_endereco_bkp_20261017 b WHERE b.id = c.id);
+ALTER TABLE public.companies_endereco_bkp_20261017 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.companies_endereco_bkp_20261017 FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.companies_endereco_bkp_20261017 TO service_role;
+COMMENT ON TABLE public.companies_endereco_bkp_20261017 IS
+  'Backup (migration companies_endereco_campos) de endereco/cidade_estado/uf_fiscal antes do backfill. Só service_role.';
+
 DO $$
 DECLARE
   r record;
@@ -109,14 +122,6 @@ BEGIN
   END LOOP;
 END $$;
 
--- 3) FCR — endereço informado pelo CEO (só se ainda sem número: não sobrescreve o que a tela já gravou) ---------------
-UPDATE public.companies SET
-  cep = '89899000', logradouro = 'Rua Bertila Friedrich', numero = '47', complemento = 'Galpão', bairro = 'Centro',
-  cidade = 'Iporã do Oeste', uf_fiscal = 'SC', codigo_ibge_municipio = '4207650',
-  endereco = 'Rua Bertila Friedrich, 47 - Galpão, Centro, CEP 89899-000', cidade_estado = 'Iporã do Oeste/SC',
-  updated_at = now()
-WHERE id = '3ddcaac8-7a54-4845-8d1b-835dfc11bd68' AND numero IS NULL;
-
 -- 4) Leitura da tela (mesma guarda e search_path da versão viva) ------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_empresa_obter_dados(p_company_id uuid)
  RETURNS jsonb
@@ -169,6 +174,14 @@ DECLARE
 BEGIN
   IF p_company_id NOT IN (SELECT get_user_company_ids()) THEN
     RETURN jsonb_build_object('sucesso', false, 'erro', 'sem_acesso');
+  END IF;
+  -- endereço do emitente sai na NF-e: só quem administra a empresa grava (revisão 16/10)
+  IF NOT (public.is_admin() OR EXISTS (
+        SELECT 1 FROM public.user_companies uc
+         WHERE uc.user_id = auth.uid() AND uc.company_id = p_company_id
+           AND uc.role IN ('owner', 'socio', 'admin', 'adm', 'acesso_total', 'diretor'))) THEN
+    RETURN jsonb_build_object('sucesso', false, 'erro', 'sem_permissao',
+      'mensagem', 'Só o dono, um sócio ou o administrador da empresa pode alterar o endereço fiscal.');
   END IF;
   SELECT pais INTO v_pais FROM public.companies WHERE id = p_company_id;
   IF NOT FOUND THEN
