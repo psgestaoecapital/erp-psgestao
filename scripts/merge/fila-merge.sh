@@ -295,8 +295,13 @@ baseline_main_specs() {
   local r id conc
   if [ "${FILA_BASELINE_MAIN_SPECS+x}" = x ]; then printf '%s\n' "$FILA_BASELINE_MAIN_SPECS" | sed '/^$/d' | sort -u; return 0; fi
   baseline_main_ativa || return 0
-  r=$(api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=1" --jq '.workflow_runs[0] | "\(.id) \(.conclusion)"' 2> /dev/null || true)
-  read -r id conc <<< "$r"
+  # só conta run em que a suíte RODOU (job aceitacao-main success/failure): run só com o "decide" e a suíte pulada
+  # fecha como success em segundos (#464) e desligava a regra por engano (CEO 17/10).
+  local rid
+  for rid in $(api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" --jq '.workflow_runs[].id' 2> /dev/null || true); do
+    conc=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="aceitacao-main")|.conclusion]|first // empty' 2> /dev/null || true)
+    case "$conc" in success|failure) id=$rid; break ;; esac
+  done
   [ "$conc" = failure ] && [ -n "$id" ] || return 0   # main voltou a passar (ou sem run): a regra desliga sozinha
   pos_specs_falhos "$id"
 }
