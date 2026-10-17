@@ -12,15 +12,19 @@ import { Tags, Loader2, AlertTriangle, Calculator, Check, X } from 'lucide-react
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import MarkupPadraoCard from '@/components/precificacao/MarkupPadraoCard'
+import MarkupProdutoCampo from '@/components/precificacao/MarkupProdutoCampo'
 
 type Row = {
   produto_id: string; codigo: string; nome: string; unidade: string | null; estoque: number
   custo: number | null; preco_hoje: number; margem_hoje_pct: number | null
   preco_novo: number | null; margem_nova_pct: number | null
+  markup_padrao_pct?: number | null; markup_origem?: 'produto' | 'geral' | null
 }
 type Cfg = {
   imposto_configurado?: boolean; imposto_pct?: number | null; imposto_override?: number | null
   imposto_fonte?: string | null; margem_meta_pct?: number | null; margem_minima_pct?: number | null
+  markup_geral_pct?: number | null
 }
 type Painel = {
   ok?: boolean; erro?: string; pode_ver_custo?: boolean
@@ -28,7 +32,7 @@ type Painel = {
   modo?: string | null; produtos?: Row[]; config?: Cfg | null
 }
 type Filtro = 'todos' | 'sem_preco' | 'margem_negativa' | 'com_custo'
-type Modo = 'margem' | 'markup'
+type Modo = 'margem' | 'markup' | 'markup_padrao'
 type Arred = 'nenhum' | 'real' | 'noventa' | 'noventa_nove'
 
 const brl = (v: number | null | undefined) => v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -68,6 +72,7 @@ export default function PrecificacaoPage() {
   const [previa, setPrevia] = useState(false)      // estamos vendo a prévia (preço novo calculado, nada gravado)
   const [gravando, setGravando] = useState(false)
   const [conta, setConta] = useState<{ nome: string; dados: Record<string, unknown> } | null>(null)
+  const [mkProduto, setMkProduto] = useState<Row | null>(null)   // editar o markup próprio de um produto (#2710)
 
   // configuração da empresa (imposto da venda + margem meta/mínima do semáforo)
   const [impostoIn, setImpostoIn] = useState('')
@@ -154,7 +159,9 @@ export default function PrecificacaoPage() {
     if (!impostoOk) { setToast('Configure o imposto sobre a venda antes de gravar — sem ele o preço sai errado.'); return }
     if (!confirm(`Gravar o preço novo de ${comPrecoNovo.length} produto(s)? Cada um fica registrado no histórico de preços e pode ser conferido depois.`)) return
     setGravando(true)
-    const motivo = `Formar preços · ${modo === 'markup' ? 'markup' : 'margem'} ${Number(valor) || 0}%${arred !== 'nenhum' ? ' · arred ' + arred : ''}`
+    const motivo = modo === 'markup_padrao'
+      ? `Formar preços · markup padrão do produto${arred !== 'nenhum' ? ' · arred ' + arred : ''}`
+      : `Formar preços · ${modo === 'markup' ? 'markup' : 'margem'} ${Number(valor) || 0}%${arred !== 'nenhum' ? ' · arred ' + arred : ''}`
     let ok = 0
     for (const r of comPrecoNovo) {
       const { data } = await supabase.rpc('fn_produto_preco_aplicar', { p_produto_id: r.produto_id, p_novo_preco: r.preco_novo, p_regra_id: null, p_motivo: motivo })
@@ -261,6 +268,9 @@ export default function PrecificacaoPage() {
           </div>
         )}
 
+        {/* Markup padrão: geral da empresa + markup próprio em massa, com prévia (chamado #2710) */}
+        {podeCusto && <MarkupPadraoCard companyId={empresa} markupGeral={cfg?.markup_geral_pct} onMudou={() => void carregar(false)} />}
+
         {/* Formar preços (só para quem vê custo) */}
         {podeCusto && (
           <div className="mt-3 bg-white border border-[#3D2314]/10 rounded-xl p-3">
@@ -271,8 +281,15 @@ export default function PrecificacaoPage() {
                 <select value={modo} onChange={(e) => { setModo(e.target.value as Modo); setPrevia(false) }} className="mt-0.5 text-[13px] border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[#3D2314]">
                   <option value="margem">Margem que quero que sobre</option>
                   <option value="markup">Markup sobre o custo</option>
+                  <option value="markup_padrao">Markup padrão de cada produto</option>
                 </select>
               </label>
+              {modo === 'markup_padrao' ? (
+                <div className="text-[11px] text-[#3D2314]/60 self-center max-w-[220px] flex items-center">
+                  Usa o markup próprio de cada produto; sem o próprio, o geral{cfg?.markup_geral_pct != null ? ` (${pct(cfg.markup_geral_pct)})` : ' (não definido)'}.
+                  <AjudaCampo chave="compras.precificacao.markup_padrao_modo" />
+                </div>
+              ) : (
               <label className="text-[12px] text-[#3D2314]/70 flex flex-col">
                 <span className="flex items-center">Percentual<AjudaCampo chave="compras.precificacao.valor" /></span>
                 <div className="mt-0.5 flex items-center gap-1">
@@ -280,6 +297,7 @@ export default function PrecificacaoPage() {
                   <span className="text-[13px] text-[#3D2314]/60">%</span>
                 </div>
               </label>
+              )}
               <label className="text-[12px] text-[#3D2314]/70 flex flex-col">
                 <span className="flex items-center">Arredondar<AjudaCampo chave="compras.precificacao.arredondar" /></span>
                 <select value={arred} onChange={(e) => { setArred(e.target.value as Arred); setPrevia(false) }} className="mt-0.5 text-[13px] border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[#3D2314]">
@@ -320,6 +338,7 @@ export default function PrecificacaoPage() {
                     {podeCusto && <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center justify-end">Custo médio<AjudaCampo chave="compras.precificacao.custo_medio" /></span></th>}
                     <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center justify-end">Estoque<AjudaCampo chave="compras.precificacao.estoque" /></span></th>
                     <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center justify-end">Preço de venda<AjudaCampo chave="compras.precificacao.preco_venda" /></span></th>
+                    {podeCusto && <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center justify-end">Markup<AjudaCampo chave="compras.precificacao.markup_produto" /></span></th>}
                     {podeCusto && <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center justify-end">Margem real<AjudaCampo chave="compras.precificacao.margem_real" /></span></th>}
                     {previa && podeCusto && <th className="px-3 py-2 font-medium text-right text-[#3F7012]">Preço novo</th>}
                     {podeCusto && <th className="px-3 py-2"></th>}
@@ -335,6 +354,14 @@ export default function PrecificacaoPage() {
                       {podeCusto && <td className="px-3 py-2 text-right tabular-nums text-[#3D2314]">{brl(r.custo)}</td>}
                       <td className="px-3 py-2 text-right tabular-nums text-[#3D2314]/70">{Number(r.estoque).toLocaleString('pt-BR')}{r.unidade ? ' ' + r.unidade : ''}</td>
                       <td className={'px-3 py-2 text-right tabular-nums ' + (r.preco_hoje <= 0 ? 'text-[#B06A00] font-medium' : 'text-[#3D2314]')}>{r.preco_hoje <= 0 ? 'sem preço' : brl(r.preco_hoje)}</td>
+                      {podeCusto && (
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          <button type="button" onClick={() => setMkProduto(r)} title="Alterar o markup deste produto" className="text-[#3D2314] hover:underline">
+                            {pct(r.markup_padrao_pct)}
+                          </button>
+                          <div className="text-[10px] text-[#3D2314]/45">{r.markup_origem === 'produto' ? 'do produto' : r.markup_origem === 'geral' ? 'geral' : 'sem markup'}</div>
+                        </td>
+                      )}
                       {podeCusto && (
                         <td className={'px-3 py-2 text-right tabular-nums font-medium ' + corMargem(r.margem_hoje_pct, metaN, minN)}>
                           <span className="inline-flex items-center gap-1.5 justify-end"><span className={'w-1.5 h-1.5 rounded-full ' + bolaMargem(r.margem_hoje_pct, metaN, minN)} />{pct(r.margem_hoje_pct)}</span>
@@ -361,13 +388,26 @@ export default function PrecificacaoPage() {
         </div>
 
         <div className="mt-3 text-[11px] text-[#3D2314]/55">
-          Para precificação por regras com vigência (categoria/produto), Simples por anexo e Reforma Tributária, o motor de parâmetros entra na sequência.{' '}
+          Para precificação por regras com vigência, Simples por anexo e Reforma Tributária, o motor de parâmetros entra na sequência.{' '}
           <Link href="/dashboard/compras/custo-config" className="text-[#BA7517] hover:underline">Configurar imposto/comissão da venda</Link>.
         </div>
       </div>
 
       {/* Conta do preço */}
       {conta && <ContaPreco nome={conta.nome} dados={conta.dados} onClose={() => setConta(null)} />}
+
+      {/* Markup próprio de um produto (bottom sheet no celular) */}
+      {mkProduto && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-0 sm:p-4" onClick={() => setMkProduto(null)}>
+          <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div><div className="text-[11px] uppercase tracking-wide text-[#3D2314]/50">Markup do produto</div><div className="text-[14px] font-medium text-[#3D2314] truncate max-w-[260px]">{mkProduto.nome}</div></div>
+              <button type="button" onClick={() => setMkProduto(null)} className="text-[#3D2314]/50 hover:text-[#3D2314]"><X size={18} /></button>
+            </div>
+            <MarkupProdutoCampo companyId={empresa} produtoId={mkProduto.produto_id} custo={mkProduto.custo} onSalvo={() => void carregar(previa)} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
