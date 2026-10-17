@@ -401,3 +401,13 @@ Escopo inicial: **rebase/resolução de conflito** e **PR multi-arquivo**. Funç
 `fn_agente_checkpoint_ler` (migration 20261013120030; só canal de serviço). Gate: `scripts/gates/check-agente-checkpoint.ts`.
 > ABERTO (Eng. Chefe): o sinal exato de "perto do limite de tempo da rodada" depende da runtime e NÃO é assumido aqui —
 > a doutrina é checkpointar a cada passo. Se a runtime expuser um sinal de tempo restante, o Eng. Chefe define como usá-lo.
+
+- **Quarentena de jornadas na fila (CEO 17/10, com o CEO presente):** depois da janela, a aceitação VERMELHA da via revisada
+  bloqueava toda PR por jornadas antigas (Sicredi #88, tryo-anexos-264-266, xml-compra-lote [celular]). Agora a fila lê os specs
+  falhos pelas anotações do check-run e: **spec da PRÓPRIA PR** → bloqueia; **todo spec falho em
+  `scripts/merge/quarentena-jornadas.txt`** (spec|desde|Code dono|obs) → aceitação vira informativa para essa PR e a fila abre
+  **P1 automático** ao Code dono (`fn_agente_mensagem_enviar`, sem repetir enquanto houver tarefa aberta); **spec fora da lista
+  (falha NOVA)** ou falha ilegível → bloqueia como antes. Sai da lista quando o dono conserta (a PR remove a linha). Gate:
+  `scripts/gates/check-fila-quarentena-jornadas.ts`.
+
+- **Comparação com a main (CEO 17/10 14:35 BRT, TEMPORÁRIA 24 h):** aceitação da main #462 vermelha (ambiente de teste doente). Na via revisada, se TODOS os specs que falharam na aceitação da PR já falharam na ÚLTIMA aceitação da main (`aceitacao-main.yml`), a fila não bloqueia e comenta as falhas herdadas; falha que a main não tem, spec da PRÓPRIA PR e falha ilegível bloqueiam. Vale de 2026-10-17T17:35Z a 2026-10-18T17:35Z (`BASELINE_MAIN_INICIO/FIM` em `fila-merge.sh`) e desliga sozinha quando a última aceitação da main concluída deixa de ser falha. Gate: `scripts/gates/check-fila-baseline-main.ts`.
