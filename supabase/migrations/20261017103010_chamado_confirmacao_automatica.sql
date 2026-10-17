@@ -1,3 +1,5 @@
+-- ci-sem-guarda: fn_sugestao_confirmacao_automatica — rotina de sistema (cron/service_role; EXECUTE só do service_role), percorre todas as empresas de propósito; nenhum usuário a chama.
+-- ci-sem-guarda: fn_sugestao_reabrir — só o AUTOR do chamado reabre (auth.uid() = user_id do registro); a permissão é pela autoria, não por empresa.
 -- Confirmação automática de chamados (CEO 16/10 20:30, msg 70a8b35f · RD-97).
 -- aguardando_confirmacao: 3 dias úteis sem retorno → aviso ao cliente; 5 dias úteis → conclui sozinho.
 -- Cliente pode reabrir em até 30 dias com um clique. Resposta do cliente cancela a conclusão automática.
