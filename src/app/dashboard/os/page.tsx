@@ -28,6 +28,7 @@ const C = {
 }
 
 const STATUS_CFG: Record<string, { label: string; cor: string; bg: string }> = {
+  orcamento:             { label: 'Orçamento',               cor: C.amber,    bg: C.amberBg },  // #2867 · OS criada como orçamento (cliente ainda não aprovou)
   aberta:                { label: 'Aberta',                  cor: C.espresso, bg: C.cream },
   em_execucao:           { label: 'Em execução',             cor: C.gold,     bg: C.goldBg },
   aguardando_peca:       { label: 'Aguardando peça',         cor: C.amber,    bg: C.amberBg },
@@ -37,7 +38,7 @@ const STATUS_CFG: Record<string, { label: string; cor: string; bg: string }> = {
   entregue:              { label: 'Entregue',                cor: C.greenD,   bg: C.greenBg },
   cancelada:             { label: 'Cancelada',               cor: C.red,      bg: C.redBg },
 }
-const STATUS_ORDER = ['aberta','aguardando_aprovacao','aprovada','em_execucao','aguardando_peca','pronta','entregue','cancelada'] as const
+const STATUS_ORDER = ['orcamento','aberta','aguardando_aprovacao','aprovada','em_execucao','aguardando_peca','pronta','entregue','cancelada'] as const
 
 interface OSRow {
   id: string
@@ -459,6 +460,8 @@ function ModalNovaOS({
   const [defeito, setDefeito] = useState('')
   const [tecnicoNome, setTecnicoNome] = useState('')
   const [prioridade, setPrioridade] = useState('normal')
+  // #2867 · marcar a OS como orçamento (o veículo pode nem estar no pátio); nasce com status "Orçamento".
+  const [orcamento, setOrcamento] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
   // aviso (não bloqueio): já existe OS aberta pra esta placa?
@@ -568,6 +571,7 @@ function ModalNovaOS({
       p_prioridade: prioridade,
       p_placa: placa.trim() || null,
       p_modelo: veiculo.trim() || null,
+      p_orcamento: orcamento,
     })
     setSalvando(false)
     if (error) { setErroLocal('Erro: ' + error.message); return }
@@ -743,6 +747,12 @@ function ModalNovaOS({
             </div>
           </div>
 
+          {/* #2867 · OS como orçamento: nasce com status "Orçamento"; quando o cliente aprovar, muda o status e segue (inclusive agendar). */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 10, background: orcamento ? C.amberBg : 'transparent' }}>
+            <input type="checkbox" checked={orcamento} onChange={(e) => setOrcamento(e.target.checked)} data-testid="os-nova-orcamento" style={{ width: 18, height: 18, cursor: 'pointer' }} />
+            <span style={{ fontSize: 13, color: C.espresso, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>É orçamento?<AjudaCampo chave="os.nova.orcamento" rota="/dashboard/os" /></span>
+          </label>
+
           {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '10px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>❌ {erroLocal}</div>}
 
           <button
@@ -757,7 +767,7 @@ function ModalNovaOS({
             }}
             data-testid="os-nova-salvar"
           >
-            {salvando ? 'Criando…' : 'Criar OS'}
+            {salvando ? 'Criando…' : orcamento ? 'Criar orçamento' : 'Criar OS'}
           </button>
         </div>
       </div>
