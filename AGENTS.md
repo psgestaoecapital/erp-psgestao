@@ -409,3 +409,5 @@ Escopo inicial: **rebase/resolução de conflito** e **PR multi-arquivo**. Funç
   **P1 automático** ao Code dono (`fn_agente_mensagem_enviar`, sem repetir enquanto houver tarefa aberta); **spec fora da lista
   (falha NOVA)** ou falha ilegível → bloqueia como antes. Sai da lista quando o dono conserta (a PR remove a linha). Gate:
   `scripts/gates/check-fila-quarentena-jornadas.ts`.
+
+- **Comparação com a main (CEO 17/10 14:35 BRT, TEMPORÁRIA 24 h):** aceitação da main #462 vermelha (ambiente de teste doente). Na via revisada, se TODOS os specs que falharam na aceitação da PR já falharam na ÚLTIMA aceitação da main (`aceitacao-main.yml`), a fila não bloqueia e comenta as falhas herdadas; falha que a main não tem, spec da PRÓPRIA PR e falha ilegível bloqueiam. Vale de 2026-10-17T17:35Z a 2026-10-18T17:35Z (`BASELINE_MAIN_INICIO/FIM` em `fila-merge.sh`) e desliga sozinha quando a última aceitação da main concluída deixa de ser falha. Gate: `scripts/gates/check-fila-baseline-main.ts`.
