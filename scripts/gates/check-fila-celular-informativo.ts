@@ -41,8 +41,13 @@ if (!temFerramentas()) {
     x = rodar([{ ...rev, aceitacaoSpecs: [C1] }], false, 5000, { ...env, FILA_AGORA_EPOCH: vencida })
     ok(merges(x.escritas).length === 0, '(d) vencida (>24 h) → bloqueia')
 
-    x = rodar([{ ...rev, aceitacaoSpecs: [C1] }], false, 5000, { ...env, FILA_CELULAR_MAIN_FALHA: '0' })
-    ok(merges(x.escritas).length === 0, '(e) main passou no celular → regra desliga, bloqueia')
+    const sem = { ...env, FILA_CELULAR_MAIN_FALHA: '' }
+    x = rodar([{ ...rev, aceitacaoSpecs: [C1] }], false, 5000, { ...sem, FILA_CELULAR_MAIN_SEQ: 'ok,falha' })
+    ok(merges(x.escritas).join() === '1', '(e1) main passou 1x só → regra segue, publica')
+    x = rodar([{ ...rev, aceitacaoSpecs: [C1] }], false, 5000, { ...sem, FILA_CELULAR_MAIN_SEQ: 'ok,ok' })
+    ok(merges(x.escritas).length === 0, '(e2) main passou 2x seguidas → regra desliga, bloqueia')
+    x = rodar([{ ...rev, aceitacaoSpecs: [C1] }], false, 5000, { ...sem, FILA_CELULAR_MAIN_SEQ: 'falha,ok' })
+    ok(merges(x.escritas).join() === '1', '(e3) última da main falhou → regra segue')
 
     x = rodar([{ ...rev }], false, 5000, env)
     ok(merges(x.escritas).length === 0, '(f) falha ilegível → fail-closed')
