@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
-const sql = readFileSync('supabase/migrations/20261015000030_omie_reconciliar_fantasmas.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261017140030_omie_reconciliar_fantasmas.sql', 'utf8')
 
 ok(/p_aplicar boolean DEFAULT false/.test(sql), 'dry-run por padrão (p_aplicar = false)')
 ok(/auth\.uid\(\) IS NOT NULL AND NOT is_admin\(\)/.test(sql), 'só admin chama')
