@@ -27,7 +27,7 @@ ok(/data-testid="nfse-consultar-agora"/.test(nfse), 'NFS-e: botão Consultar ago
 ok(/data-testid="nfe-consultar-agora"/.test(lista) && /\/api\/fiscal\/nfe\/consultar\/\$\{doc\.principal_id\}/.test(lista), 'lista de NF-es: Consultar agora usa a rota com guarda')
 ok(/data-testid="nfe-aviso-processando"/.test(lista), 'lista de NF-es: aviso de não reemitir')
 
-const mig = readFileSync('supabase/migrations/20261017021020_nfe_consultar_processando_2min.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261017220020_nfe_consultar_processando_2min.sql', 'utf8')
 ok(/cron\.alter_job\([^)]*'\*\/2 \* \* \* \*'/.test(mig) && /nfe-consultar-processando/.test(mig), 'rotina de segurança da NF-e a cada 2 min')
 ok(!/CREATE OR REPLACE FUNCTION/i.test(mig), 'migration não reescreve função')
 
