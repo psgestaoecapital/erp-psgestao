@@ -18,7 +18,11 @@ ok(empresaDoPedidoRobo(null, ['/dashboard/a?area=hub']) === '', 'sem empresa em 
 ok(empresaDoPedidoRobo(null, ["/dashboard/a?company_id=1' OR 1=1"]) === '', 'company_id que não é uuid → vazio')
 
 const rota = readFileSync('src/app/api/screen-watcher/playwright/route.ts', 'utf8')
-ok(rota.includes('const empresaId = empresaDoPedidoRobo(body.empresa_id, rotas);'), 'a rota do robô usa a regra única')
+ok(rota.includes('let empresaId = empresaDoPedidoRobo(body.empresa_id, rotas);'), 'a rota do robô usa a regra única')
+// Sem empresa no pedido (corpo nem ?company_id=), a rota resolve a DEMO da área antes da trava (fim do 403 "pending").
+ok(rota.includes('empresaId = await resolverEmpresaDemoDaRota(supabase, rotas)'), 'sem empresa no pedido, resolve a DEMO da área da rota')
+ok(rota.indexOf('resolverEmpresaDemoDaRota(supabase, rotas)') < rota.indexOf('empresaPermitidaParaRobo(supabase, empresaId)'),
+  'a resolução da DEMO vem ANTES da trava is_demo (fail-closed se não achar)')
 ok(/if \(!\(await empresaPermitidaParaRobo\(supabase, empresaId\)\)\)/.test(rota), 'a trava "só demonstração" continua depois (RD-69/70)')
 
 // ── banco ──
