@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
 
-const sql = readFileSync('supabase/migrations/20261017023020_contrato_assinatura_eletronica_base.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261017070120_contrato_assinatura_eletronica_base.sql', 'utf8')
 const sem = (s: string) => s.replace(/--.*$/gm, '')
 const corpo = sem(sql)
 
