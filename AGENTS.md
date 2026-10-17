@@ -87,6 +87,13 @@ Code do próprio dono; empresa/chamado só da carteira dele; 30 pedidos/hora; tu
    **aprovado** (`pode_executar` = true na `fn_agente_caixa`). Sem o OK, só leia e aguarde.
 5. **Regras de merge INALTERADAS**: fila de merge, patch-id, `gilberto-revisor`, RD-94/94.1, etiqueta `revisao-eng-chefe`.
 Gate: `scripts/gates/check-canal-ps-banco.ts`.
+**Conector da Claude do sócio** (PR B): servidor MCP do próprio ERP em `/api/mcp` (Streamable HTTP, sem estado), login
+OAuth do **próprio usuário** do ERP (Supabase Auth como servidor de autorização; consentimento em `/oauth/consent`). Sem chave
+de serviço e sem SQL livre: as 6 ferramentas (meus_chamados, ler_chamado, enviar_tarefa_ao_meu_code, respostas_do_meu_code,
+minhas_prs, pedir_ok_ceo) só chamam RPCs com guarda, como o usuário; cada chamada fica em `erp_canal_ps_chamada` (limite
+20/min e 200/h por pessoa). Configuração (uma vez, no painel do Supabase): Authentication › **OAuth Server** ligado,
+"Authorization path" = `/oauth/consent` e registro dinâmico de clientes permitido. Passo a passo para o sócio: aba Codes ›
+"Conectar a minha Claude". Gate: `scripts/gates/check-canal-ps-conector.ts`.
 # Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
 
 Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
@@ -217,11 +224,40 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
   Precisa do segredo `FILA_MERGE_TOKEN` (PAT): merge com o `GITHUB_TOKEN` não dispara o `deploy-migrations`.
   Com a fila, o Code não roda `gh pr merge` à mão para PR que está nela.
+  **Janela temporária da aceitação (CEO 15/10, com o CEO presente):** a aceitação **VERMELHA** da **via revisada** NÃO
+  bloqueia até **2026-10-17 11:00 America/Sao_Paulo** (`JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'` em
+  `fila-merge.sh`); depois do limite a fila volta a bloquear **sozinha**, sem ninguém mexer. Continuam bloqueando dentro
+  da janela: gates/checks estáticos vermelhos, preview (Vercel) com falha, conflito e falta do `MERGE AUTORIZADO` do
+  revisor para o patch-id atual. **Ritmo:** no máximo `RITMO_MAX_HORA` (padrão **4**) publicações por hora.
+  **Prioridade** (`FILA_PRIORIDADE`): Hub (`#2569 #2508 #2298`) e FC/FCR (`#2100`) na frente; o resto segue a ordem de
+  entrada. Gate: `scripts/gates/check-fila-janela-aceitacao.ts` (prova os dois lados da data, o ritmo e a prioridade).
+  **Janela temporária do @pos-migration por linha-de-base (CEO 15/10, com o CEO presente):** até a MESMA data-limite
+  (`JANELA_POS_BASELINE_FIM='2026-10-17T14:00:00Z'`), o `@pos-migration` da main **VERMELHO** só **bloqueia a PR COM
+  migration** se houver falha **NOVA** — um spec fora da **linha-de-base** (`POS_BASELINE_496`: os specs que falharam no
+  **run #496** da aceitação @pos, às 10:19 BRT de 15/10, antes das PRs do Hub). Mesma lista ou **subconjunto** → segue
+  publicando (1 migration/rodada); **spec novo** → bloqueia, `estado_main` comenta **uma vez** na PR que entrou por
+  último (head do run @pos) e **propõe reversão** ao Eng. Chefe; `@pos` vermelho **sem spec de teste identificado**
+  (falha de infra) → **fail-closed** (bloqueia). Depois do limite, qualquer vermelho volta a bloquear sozinho. Os specs
+  falhos saem das **ANOTAÇÕES do check-run** do job falho (`check-runs/<id>/annotations`: campo `path` + título +
+  mensagem das anotações de falha e o resumo `🎭 Playwright Run Summary`) — NÃO baixa o log do job (que dava 404 com o
+  token da integração/PAT); o workflow da fila tem `checks: read` + `actions: read` (CEO 15/10 17:50). Gate:
+  `scripts/gates/check-fila-janela-pos-baseline.ts` (base, subconjunto, falha nova, os dois lados da data, fail-closed).
+  **Regra do teste próprio (CEO 16/10, com o CEO presente):** DENTRO da janela da aceitação revisada, se a aceitação da
+  PR está **vermelha**, a fila lê os specs que falharam pelas **ANOTAÇÕES do check-run** (técnica da #2677) e cruza com
+  os `e2e/**/*.spec.ts` que a PR **criou ou alterou**. Se um spec que falhou é da **PRÓPRIA PR** → **NÃO publica**
+  (`vermelho:spec da própria PR falhando: <spec>`, comenta uma vez); falhas em specs que a PR **não tocou** seguem
+  **informativas**. (A #2506 entrou pela janela com o próprio spec vermelho e só foi pega pelo @pos #527, travando 24
+  PRs com migration.) **Acionamento automático do autor:** numa **falha NOVA** do `@pos` (fora da linha-de-base, #2667),
+  a fila identifica o Code autor da PR do head (`erp_dev_entrega.code`) e o **aciona** com o spec e o run via
+  `fn_agente_mensagem_enviar` (de=`eng_chefe`, tipo `tarefa`, `enviado_por=fila-merge`; conexão de serviço — o Code não
+  chama essa função sozinho), sem esperar triagem; uma vez por run (mesma marca do comentário). Gate:
+  `scripts/gates/check-fila-teste-proprio.ts`.
 - **(e) Timeout de 40 min** nos jobs de aceitação (`aceitacao-pr`, `aceitacao-pos-migration`; a espera na fila
   `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
   **executando** há mais de 45 min; job esperando a vez na fila nunca é cancelado.
 - Gate: `scripts/gates/check-esteira-merge.ts`.
 - **Revisor por evento (CEO 07/10):** `.github/workflows/acionar-revisor.yml` (`pull_request_target` labeled/synchronize/ready_for_review, só PR Ready do repo com `revisao-eng-chefe`) acorda a rotina do `gilberto-revisor` em minutos (espera 120 s; rajada = 1 acionamento por PR; não aciona se a PR já tem `MERGE AUTORIZADO` com o patch-id atual). Sem checkout da PR. Segredos `REVISOR_ROTINA_URL`/`REVISOR_ROTINA_TOKEN`; ausentes = `::warning`, nunca falha a PR. **Varredura a cada 5 min (CEO 12/10):** o mesmo workflow tem `schedule: */5` (job `varredura`, grupo de concorrência próprio, não se auto-cancela): se houver PR Ready com `revisao-eng-chefe`, aciona a rotina para revisar TODAS as da alçada num run; sem pendência, sai rápido. As sensíveis do CEO seguem esperando o CEO. Gate: `scripts/gates/check-acionar-revisor.ts`.
+- **Etiqueta automática por conteúdo (Eng. Chefe 14/10):** `.github/workflows/etiquetar-revisao.yml` (`pull_request_target`, sem checkout da PR) coloca `revisao-eng-chefe` em PR que toca tela, cálculo, migration/SQL, edge function ou área crítica (`scripts/merge/exige-via-revisada.ts`, mesmo sinal de área crítica do `escopo-aceitacao.ts`); nunca tira. A fila também confere o conteúdo: PR dessas condições sem etiqueta ganha a etiqueta e espera o `MERGE AUTORIZADO` — nunca publica pela via rápida. Gate: `scripts/gates/check-etiqueta-automatica.ts`.
 - **O que conta como autorização do `gilberto-revisor` (Eng. Chefe 08/10):** autorização própria = comentário cuja
   PRIMEIRA linha é exatamente `MERGE AUTORIZADO #<n> — gilberto-revisor · patch-id <40 hex>`. Comentário com a marca
   escondida da fila ou que comece com `Fila de merge:` NUNCA conta como autorização nem como revisão já feita (todos os
@@ -365,3 +401,11 @@ Escopo inicial: **rebase/resolução de conflito** e **PR multi-arquivo**. Funç
 `fn_agente_checkpoint_ler` (migration 20261013120030; só canal de serviço). Gate: `scripts/gates/check-agente-checkpoint.ts`.
 > ABERTO (Eng. Chefe): o sinal exato de "perto do limite de tempo da rodada" depende da runtime e NÃO é assumido aqui —
 > a doutrina é checkpointar a cada passo. Se a runtime expuser um sinal de tempo restante, o Eng. Chefe define como usá-lo.
+
+- **Quarentena de jornadas na fila (CEO 17/10, com o CEO presente):** depois da janela, a aceitação VERMELHA da via revisada
+  bloqueava toda PR por jornadas antigas (Sicredi #88, tryo-anexos-264-266, xml-compra-lote [celular]). Agora a fila lê os specs
+  falhos pelas anotações do check-run e: **spec da PRÓPRIA PR** → bloqueia; **todo spec falho em
+  `scripts/merge/quarentena-jornadas.txt`** (spec|desde|Code dono|obs) → aceitação vira informativa para essa PR e a fila abre
+  **P1 automático** ao Code dono (`fn_agente_mensagem_enviar`, sem repetir enquanto houver tarefa aberta); **spec fora da lista
+  (falha NOVA)** ou falha ilegível → bloqueia como antes. Sai da lista quando o dono conserta (a PR remove a linha). Gate:
+  `scripts/gates/check-fila-quarentena-jornadas.ts`.

@@ -1,12 +1,16 @@
 // Plano de Ação 5W2H — NÚCLEO COMUM da Indústria (CEO 14/10, reunião Frioeste). Migration 20261014230030 → @pos-migration.
 // Na "Indústria (SST) - DEMO" (o robô só toca demonstração). Prova, COMO O ROBÔ (as mesmas RPCs da tela):
-//   1) criar/listar com o ATRASO calculado (prazo < hoje e não concluída), concluir EXIGE resultado, resumo (KPIs),
-//      guardas (título obrigatório) e o histórico de edição (título/prazo/responsável);
-//   2) pela tela: KPIs, formulário 5W2H com "?" em todo campo, e criar uma ação de ponta a ponta.
-// Limpeza: as ações criadas (marcadas no título) saem pelo próprio fn_plano_acao_excluir (exclusão lógica).
+//   criar/listar com o ATRASO calculado (prazo < hoje e não concluída), concluir EXIGE resultado, resumo (KPIs),
+//   guardas (título obrigatório) e o histórico de edição (título/prazo/responsável).
+//
+// IMPORTANTE (incidente 14/10 — main vermelha): a DEMO industrial é compartilhada com as specs LTCAT (mesma empresa
+// …005), que rodam fn_demo_reset. Uma ação que referenciasse prod_setor travava o reset (FK setor_id = NO ACTION) e
+// derrubava as LTCAT. Por isso aqui: (1) NUNCA setamos setor_id; (2) limpamos por HARD DELETE (service_role) no início
+// E no fim — nenhuma linha de erp_plano_acao sobra para a DEMO depois da suíte. O "?" em todo campo (RD-95) é provado
+// na tela SEM o @pos (a tela é garantida no preview/aceitação da main; o @pos de produção prova a MIGRATION pelas RPCs).
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
-import { dbSelect, rpcComoRobo, registrarJornada, obterSessionPayload } from '../../support/api'
+import { dbSelect, dbDelete, rpcComoRobo, registrarJornada, obterSessionPayload } from '../../support/api'
 
 const DEMO_IND = 'b0700000-0000-4000-a000-000000000005'
 const ROTA = '/dashboard/industrial/plano-acao'
@@ -15,34 +19,26 @@ const MARCA = `ZZ-TESTE ${RUN}`
 const dia = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10)
 
 type Salvar = { ok: boolean; id?: string; codigo?: string; erro?: string }
-type Item = {
-  id: string; codigo: string; titulo: string; status: string; prioridade: string
-  quando: string | null; responsavel_nome: string | null; setor_id: string | null
-  resultado_obtido: string | null; atrasada: boolean
-}
+type Item = { id: string; codigo: string; titulo: string; status: string; quando: string | null; resultado_obtido: string | null; atrasada: boolean }
 type Listar = { ok: boolean; resultados: Item[] }
 type Resumo = { ok: boolean; abertas: number; em_andamento: number; atrasadas: number; concluidas_mes: number; pct_no_prazo: number | null }
 type Status = { ok: boolean; erro?: string }
 
-test.describe('Indústria — Plano de Ação 5W2H', () => {
-  let setorId: string | null = null
-  const criados: string[] = []
+// Limpa TODA linha de plano de ação da DEMO industrial (histórico primeiro por FK). A DEMO é descartável e a feature
+// é nova (sem seed de plano), então apagar por empresa é seguro — e evita que sobre linha referenciando prod_setor.
+async function limparDemo(): Promise<void> {
+  await dbDelete('erp_plano_acao_historico', `company_id=eq.${DEMO_IND}`).catch(() => {})
+  await dbDelete('erp_plano_acao', `company_id=eq.${DEMO_IND}`).catch(() => {})
+}
 
+test.describe('Indústria — Plano de Ação 5W2H', () => {
   test.beforeAll(async () => {
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO_IND}&select=is_demo`)
     expect(emp?.is_demo, 'a aceitação só roda na empresa de demonstração').toBe(true)
     await obterSessionPayload() // garante login do bot (cacheado)
-    const setores = await dbSelect<{ id: string }>('prod_setor', `company_id=eq.${DEMO_IND}&select=id&order=nome&limit=1`)
-    setorId = setores[0]?.id ?? null
+    await limparDemo()          // limpa resíduo de execuções anteriores antes de qualquer fn_demo_reset de outra spec
   })
-
-  test.afterAll(async () => {
-    // exclusão lógica das ações do teste (as criadas por RPC e as marcadas no título pela tela)
-    const extras = await dbSelect<{ id: string }>('erp_plano_acao', `company_id=eq.${DEMO_IND}&titulo=ilike.*${encodeURIComponent(MARCA)}*&excluido_em=is.null&select=id`).catch(() => [])
-    for (const id of new Set([...criados, ...extras.map((e) => e.id)])) {
-      await rpcComoRobo<Status>('fn_plano_acao_excluir', { p_id: id }).catch(() => {})
-    }
-  })
+  test.afterAll(async () => { await limparDemo() })
 
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-industria-plano-acao', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
@@ -55,22 +51,22 @@ test.describe('Indústria — Plano de Ação 5W2H', () => {
     expect(semTitulo.corpo?.ok).toBe(false)
     expect(semTitulo.corpo?.erro).toBe('titulo_obrigatorio')
 
-    // A: prazo ONTEM, alta, com setor e responsável → deve calcular ATRASADA
+    // A: prazo ONTEM, alta, com responsável (SEM setor_id — ver nota do topo) → deve calcular ATRASADA
     const a = await rpcComoRobo<Salvar>('fn_plano_acao_salvar', { p_company_id: DEMO_IND, p_plano: {
       titulo: `Trocar sensor da câmara ${MARCA}`, o_que: 'Trocar o sensor', por_que: 'Evitar parada',
-      onde: 'Câmara 2', setor_id: setorId ?? '', quando: dia(-1), responsavel_nome: 'João (Manutenção)',
+      onde: 'Câmara 2', quando: dia(-1), responsavel_nome: 'João (Manutenção)',
       como: 'Chamar fornecedor', custo_estimado: '1500', prioridade: 'alta', origem: 'reuniao', origem_ref: 'Ata 14/10',
     } })
     expect(a.corpo?.ok, a.texto).toBe(true)
     expect(a.corpo?.codigo).toMatch(/^PA-\d{4}-\d{4}$/)
-    const idA = a.corpo!.id!; criados.push(idA)
+    const idA = a.corpo!.id!
 
     // B: prazo +30d → NÃO atrasada
     const b = await rpcComoRobo<Salvar>('fn_plano_acao_salvar', { p_company_id: DEMO_IND, p_plano: {
       titulo: `Revisar limpeza ${MARCA}`, quando: dia(30), prioridade: 'media', responsavel_nome: 'Maria',
     } })
     expect(b.corpo?.ok).toBe(true)
-    const idB = b.corpo!.id!; criados.push(idB)
+    const idB = b.corpo!.id!
 
     // listar: A atrasada, B não
     const lista = await rpcComoRobo<Listar>('fn_plano_acao_listar', { p_company_id: DEMO_IND })
@@ -96,7 +92,7 @@ test.describe('Indústria — Plano de Ação 5W2H', () => {
     expect(ra2.atrasada, 'concluída não conta como atrasada').toBe(false)
     expect(ra2.resultado_obtido).toContain('Sensor trocado')
 
-    // filtro só_atrasadas pega B? não (B não está atrasada); pega nenhuma das minhas após concluir A
+    // filtro só_atrasadas: A concluída sai das atrasadas
     const soAtras = await rpcComoRobo<Listar>('fn_plano_acao_listar', { p_company_id: DEMO_IND, p_so_atrasadas: true })
     expect(soAtras.corpo!.resultados.some((r) => r.id === idA), 'A concluída sai das atrasadas').toBe(false)
 
@@ -106,7 +102,7 @@ test.describe('Indústria — Plano de Ação 5W2H', () => {
     expect(resumo.corpo!.abertas).toBeGreaterThanOrEqual(1) // B segue aberta
     expect(resumo.corpo!.concluidas_mes).toBeGreaterThanOrEqual(1) // A concluída neste mês
 
-    // edição de B muda o título → histórico registra
+    // edição de B muda o título/prazo/responsável → histórico registra
     const ed = await rpcComoRobo<Salvar>('fn_plano_acao_salvar', { p_company_id: DEMO_IND, p_id: idB, p_plano: {
       titulo: `Revisar limpeza (v2) ${MARCA}`, quando: dia(15), prioridade: 'media', responsavel_nome: 'Carlos',
     } })
@@ -116,13 +112,15 @@ test.describe('Indústria — Plano de Ação 5W2H', () => {
     expect(campos, 'histórico de título/prazo/responsável').toEqual(expect.arrayContaining(['titulo', 'prazo', 'responsavel']))
   })
 
-  test('pela tela: KPIs, "?" em todo campo do 5W2H e criar uma ação', { tag: '@pos-migration' }, async ({ page }) => {
+  // Tela: KPIs + "?" em todo campo do 5W2H + criar uma ação. SEM @pos: no veredito de produção o build do front pode
+  // ainda não estar no ar logo após o deploy; a tela é provada no preview/aceitação da main. O @pos prova a MIGRATION
+  // pelas RPCs (teste acima). A ação criada aqui NÃO tem setor e é limpa no afterAll.
+  test('pela tela: KPIs, "?" em todo campo do 5W2H e criar uma ação', async ({ page }) => {
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_IND)
     await page.goto(ROTA)
     await aguardarConteudo(page)
 
     await expect(page.getByTestId('kpi-atrasadas')).toBeVisible()
-    // "?" dos indicadores
     await expect(page.getByTestId('ajuda-industrial.plano_acao.kpi_atrasadas')).toBeVisible()
 
     // abre o formulário 5W2H
@@ -139,7 +137,7 @@ test.describe('Indústria — Plano de Ação 5W2H', () => {
     for (const bloco of ['O que preencher', 'Para que serve no cálculo', 'Exemplo', 'Erro comum']) await expect(cartao.getByText(bloco, { exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
 
-    // cria uma ação de ponta a ponta
+    // cria uma ação de ponta a ponta (sem setor — ver nota do topo)
     const titulo = `Pela tela ${MARCA}`
     await form.getByTestId('campo-titulo').fill(titulo)
     await form.getByTestId('campo-quando').fill(dia(10))
@@ -147,9 +145,7 @@ test.describe('Indústria — Plano de Ação 5W2H', () => {
     await form.getByTestId('plano-salvar').click()
     await expect(form).toBeHidden({ timeout: 15000 })
 
-    // o card aparece no quadro
     await expect(page.getByTestId('plano-card').filter({ hasText: titulo })).toBeVisible({ timeout: 15000 })
-    // confirma no banco (e guarda para limpeza)
     await expect.poll(async () => (await dbSelect<{ id: string }>('erp_plano_acao',
       `company_id=eq.${DEMO_IND}&titulo=eq.${encodeURIComponent(titulo)}&excluido_em=is.null&select=id`)).length,
       { timeout: 15000, message: 'ação criada pela tela existe no banco' }).toBe(1)

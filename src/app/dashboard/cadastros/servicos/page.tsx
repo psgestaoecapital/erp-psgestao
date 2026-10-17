@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import ConfirmarClonar from '@/components/cadastros/ConfirmarClonar'
 import ServicoForm, { type Servico } from '@/components/cadastros/ServicoForm'
 import { Briefcase, Plus, Search, Edit, Loader2, Copy } from 'lucide-react'
 
@@ -39,7 +40,9 @@ export default function ServicosPage() {
   const [novoAberto, setNovoAberto] = useState(false)
   // Clonar: a lista traz '*' (SELECT_COLS), então o próprio registro da linha já tem todos os campos p/ pré-preencher.
   const [clonando, setClonando] = useState<Servico | null>(null)
-  const abrirClone = (s: Servico) => { setEditando(null); setNovoAberto(false); setClonando(s) }
+  const [confirmarClone, setConfirmarClone] = useState<Servico | null>(null)
+  const abrirClone = (s: Servico) => setConfirmarClone(s)
+  const confirmarAbrirClone = () => { const s = confirmarClone; setConfirmarClone(null); if (s) { setEditando(null); setNovoAberto(false); setClonando(s) } }
 
   const offsetRef = useRef(0)
 
@@ -297,6 +300,8 @@ export default function ServicosPage() {
             </>
           )}
         </div>
+
+        <ConfirmarClonar aberto={!!confirmarClone} onConfirmar={confirmarAbrirClone} onCancelar={() => setConfirmarClone(null)} />
 
         {(novoAberto || editando || clonando) && (
           <ServicoForm
