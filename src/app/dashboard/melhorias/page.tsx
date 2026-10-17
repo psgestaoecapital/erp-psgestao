@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { contarPendentesAprovacao } from '@/lib/sugestoes/filaAtendimento'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import { BotaoDitar } from '@/components/melhorias/BotaoDitar'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -406,6 +407,7 @@ function Inner() {
               {m.status === 'concluida' && m.user_id === userId && m.concluido_em && Date.now() - new Date(m.concluido_em).getTime() <= 30 * 86400000 && (
                 <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <button type="button" data-testid="chamado-reabrir" onClick={() => void reabrir(m.id)} style={{ background: '#fff', color: C.red, border: `1px solid ${C.red}`, borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Reabrir chamado</button>
+                  <AjudaCampo chave="chamado.reabrir" rota="/dashboard/melhorias" />
                   <span style={{ fontSize: 11.5, color: C.espM }}>{m.conclusao_automatica ? 'Concluído automaticamente por falta de retorno. ' : ''}Você pode reabrir em até 30 dias.</span>
                 </div>
               )}

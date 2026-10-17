@@ -166,3 +166,14 @@ GRANT EXECUTE ON FUNCTION public.fn_sugestao_reabrir(uuid) TO authenticated, ser
 
 -- Seg–sex 11:15 UTC (08:15 BRT).
 SELECT cron.schedule('sugestao-confirmacao-automatica', '15 11 * * 1-5', $$SELECT public.fn_sugestao_confirmacao_automatica();$$);
+
+-- RD-95: "?" do botão Reabrir chamado.
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT 'chamado.reabrir', 'Chamados', 'Reabrir chamado',
+  'Nada a preencher: clique em "Reabrir chamado" se a solução não ficou certa. Vale por 30 dias depois da conclusão.',
+  'O chamado volta para a equipe PS com prioridade alta e a conversa anterior continua no histórico. Chamados concluídos sozinhos, por falta de retorno em 5 dias úteis, também podem ser reabertos.',
+  'Chamado #123 concluído automaticamente em 10/10: em 20/10 você clica em "Reabrir chamado" e a equipe volta a trabalhar nele.',
+  'Esperar mais de 30 dias: depois disso o botão some e é preciso abrir um novo chamado. Se quiser explicar o problema, use "conversar" no próprio chamado.',
+  1, '/dashboard/melhorias', 'gestao_empresarial', 'publicado'
+WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'erp_ajuda_campo')
+ON CONFLICT (chave) DO NOTHING;
