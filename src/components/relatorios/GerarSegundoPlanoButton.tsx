@@ -5,6 +5,7 @@
 // Período longo (mais de 3 meses) ganha o destaque: é aí que gerar na hora faz esperar.
 import { useState } from 'react'
 import Link from 'next/link'
+import { Hourglass } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { mesesNoPeriodo } from '@/lib/relatorios/periodo'
@@ -66,7 +67,8 @@ export default function GerarSegundoPlanoButton({ companyId, tipo, dataInicio, d
           border: '1px solid #3D2314', padding: '7px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700,
           cursor: enviando ? 'wait' : 'pointer', whiteSpace: 'nowrap', opacity: enviando ? 0.6 : 1,
         }}>
-        {enviando ? 'Pedindo…' : '⏳ Gerar em segundo plano'}
+        <Hourglass size={14} strokeWidth={1.5} aria-hidden style={{ verticalAlign: '-2px', marginRight: 6 }} />
+        {enviando ? 'Pedindo…' : 'Gerar em segundo plano'}
       </button>
       <AjudaCampo chave={chaveAjuda} />
       {aviso && (
