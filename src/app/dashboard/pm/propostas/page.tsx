@@ -45,6 +45,7 @@ type Proposta = {
   desconto: number | null; valor_final: number | null; condicao_pagamento: string | null; status: string
   data_envio: string | null; data_aprovacao: string | null; contrato_id: string | null; created_at: string
   erp_cliente_id: string | null; observacoes: string | null   // PM-QW #15 · usados na edição (select '*' já traz)
+  lead_id: string | null   // PM-2 · proposta criada a partir do lead (CRM)
 }
 type ClienteOpt = { id: string; nome: string; nome_fantasia: string | null; telefone: string | null }
 
@@ -74,6 +75,9 @@ export default function PropostasPage() {
 
   // formulário da nova proposta (com editor de itens)
   const [fCliente, setFCliente] = useState('')       // erp_cliente_id (base mestre)
+  // #2915 Pdois: lead sem cliente da GE vinculado → a proposta nasce sem cliente. Mostra o nome do lead no campo
+  // Cliente, com busca e cadastro em 1 toque (antes o campo vinha vazio, como se o cliente não existisse).
+  const [fLeadNome, setFLeadNome] = useState('')
   const [fTitulo, setFTitulo] = useState('')
   const [fCondicao, setFCondicao] = useState('Mensal')
   const [fDesconto, setFDesconto] = useState('')
@@ -129,6 +133,7 @@ export default function PropostasPage() {
   function abrirNovo(cliId?: string, tit?: string) {
     setEditId(null)
     setFCliente(cliId ?? '')
+    setFLeadNome('')
     setFTitulo(tit ?? '')
     setFCondicao(propCfg?.condicao_padrao || 'Mensal'); setFDesconto(''); setFObs('')  // PM-1 · condição padrão da config
     setItens([itemVazio()])
@@ -139,6 +144,13 @@ export default function PropostasPage() {
   async function abrirEditar(p: Proposta) {
     setEditId(p.id)
     setFCliente(p.erp_cliente_id ?? p.cliente_id ?? '')
+    setFLeadNome('')
+    if (!(p.erp_cliente_id ?? p.cliente_id) && p.lead_id) {
+      void supabase.from('agency_leads').select('empresa, nome').eq('id', p.lead_id).maybeSingle().then(({ data }) => {
+        const l = (data ?? {}) as { empresa?: string | null; nome?: string | null }
+        setFLeadNome((l.empresa ?? '').trim() || (l.nome ?? '').trim())
+      })
+    }
     setFTitulo(p.titulo ?? '')
     setFCondicao(p.condicao_pagamento ?? 'Mensal')
     setFDesconto(p.desconto ? String(p.desconto) : '')
@@ -439,7 +451,7 @@ export default function PropostasPage() {
               </div>
             )}
 
-            <ClienteField value={fCliente} onChange={(id) => setFCliente(id)} empresa={empresa} setToast={setToast} />
+            <ClienteField value={fCliente} onChange={(id) => setFCliente(id)} empresa={empresa} setToast={setToast} nomeLead={fLeadNome} />
 
             <label style={lbl}>Título *<input style={inp} value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder="Ex.: Gestão de redes + tráfego" /></label>
 
@@ -618,8 +630,9 @@ export default function PropostasPage() {
 
 // Autocomplete sobre erp_clientes (base mestre, via fn_cliente_buscar) + cadastro rápido inline
 // (fn_cliente_criar_inline). Igual ao picker dos Leads (regra-mãe b9333675). value = erp_cliente_id.
-function ClienteField({ value, onChange, empresa, setToast }: {
+function ClienteField({ value, onChange, empresa, setToast, nomeLead }: {
   value: string; onChange: (erpId: string) => void; empresa: string; setToast: (s: string) => void
+  nomeLead?: string   // #2915 · nome do lead quando ele ainda não tem cliente da GE vinculado
 }) {
   const [q, setQ] = useState('')
   const [nomeSel, setNomeSel] = useState('')
@@ -658,8 +671,8 @@ function ClienteField({ value, onChange, empresa, setToast }: {
     }, 250)
   }
   function escolher(c: { id: string; nome: string }) { onChange(c.id); setNomeSel(c.nome); setOpen(false); setSug([]); setQ('') }
-  async function criarInline() {
-    const nome = (novoNome || q).trim()
+  async function criarInline(nomeDireto?: string) {
+    const nome = (nomeDireto ?? (novoNome || q)).trim()
     if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
     if (error) { setToast(`Erro ao criar cliente: ${error.message}`); return }
@@ -683,6 +696,13 @@ function ClienteField({ value, onChange, empresa, setToast }: {
             placeholder="Buscar cliente da GE…" />
         )}
       </label>
+      {!value && nomeLead && !q && (
+        <div data-testid="proposta-cliente-do-lead" style={{ marginTop: 6, padding: '8px 10px', border: `1px dashed ${DOURADO}`, borderRadius: 8, fontSize: 12.5, color: ESPRESSO, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ flex: 1, minWidth: 160 }}>Cliente do lead: <b>{nomeLead}</b> — ainda sem cadastro na GE.</span>
+          <button onMouseDown={(e) => { e.preventDefault(); buscar(nomeLead) }} style={btnSec}>Buscar</button>
+          <button onMouseDown={(e) => { e.preventDefault(); void criarInline(nomeLead) }} style={btnSec}>+ Cadastrar na GE</button>
+        </div>
+      )}
       {!value && open && (q.trim().length >= 2 || criando) && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 8, marginTop: 2, boxShadow: '0 6px 20px rgba(0,0,0,.10)', maxHeight: 240, overflowY: 'auto' }}>
           {buscando && <div style={{ padding: '8px 10px', fontSize: 12, color: TEXTM }}>Buscando…</div>}

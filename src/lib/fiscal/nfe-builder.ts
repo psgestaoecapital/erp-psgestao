@@ -1,6 +1,8 @@
 import type { NFeRequest, NFeProdutoItem } from './types'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
+import { enderecoComMunicipioOficial } from './municipioDestinatario'
+import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, empresaComCreditoSN, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
 
 // UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
 const UFS_BR = new Set([
@@ -277,6 +279,15 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     )
   }
 
+  // #1679: município do destinatário pelo nome OFICIAL do IBGE (vale para os 3 caminhos — pedido, financeiro, manual).
+  destinatario = {
+    ...destinatario,
+    endereco: await enderecoComMunicipioOficial(destinatario.endereco, async (nome, uf) => {
+      const { data } = await supabaseAdmin.rpc('fn_municipio_por_nome_uf', { p_nome: nome, p_uf: uf })
+      return (Array.isArray(data) ? data[0] : data) ?? null
+    }),
+  }
+
   // #jordana 26/09 · OS-2026-0179: o mesmo produto pode aparecer em 2+ itens (2 linhas de OLEO 80). A busca por id
   // devolve distintos; comparar com a lista COM repetição recusava a nota ("encontrei 10 · esperado 11").
   const produtoIds = Array.from(new Set(itensInput.map((i) => i.produtoId)))
@@ -294,6 +305,25 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       `Encontrei ${produtos?.length ?? 0} produtos · esperado ${produtoIds.length}`
     )
   }
+
+  const { data: cfg } = await supabaseAdmin
+    .from('erp_fiscal_provider_config')
+    .select('serie_nfe_padrao, aliquota_credito_icms_sn')
+    .eq('company_id', input.companyId)
+    .eq('provider', 'focusnfe')
+    .eq('ativo', true)
+    .maybeSingle()
+
+  // indFinal (consumidor final) — escolhido na venda; default derivado do indIEDest do destinatário
+  // (contribuinte com IE = revenda B2B → false; não-contribuinte/isento → true). O operador pode
+  // sobrescrever via input.consumidorFinal (pedido/OTC/modal de emissão).
+  const indDestFinal = destinatario.indicadorIE ?? (destinatario.inscricaoEstadual ? 1 : 9)
+  const consumidorFinal = input.consumidorFinal ?? (indDestFinal !== 1)
+
+  // #2876 · crédito de ICMS do Simples (CSOSN 101): só para a empresa do Simples com a alíquota cadastrada pelo
+  // contador, vendendo a contribuinte que não é consumidor final. Sem alíquota cadastrada, nada muda.
+  const aliqCreditoSN = cfg?.aliquota_credito_icms_sn != null ? Number(cfg.aliquota_credito_icms_sn) : null
+  const condCreditoSN: CondicaoCreditoSN = { ehSimples, aliquota: aliqCreditoSN, indIEDest: indDestFinal, consumidorFinal, finalidade }
 
   const itensNFe: NFeProdutoItem[] = itensInput.map((it) => {
     const prod = produtos.find((p) => p.id === it.produtoId)
@@ -376,11 +406,17 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
             valor: it.icmsOverride.valor,
             modBc: it.icmsOverride.modBc ?? '1',
           }
-        : {
-            cst: cstIcmsProd,
-            aliquota: prod.aliquota_icms ?? undefined,
-            ...(stRet ? { stRet } : {}),
-          },
+        : (() => {
+            const cst = csosnDoItem(cstIcmsProd, condCreditoSN)
+            return {
+              cst,
+              aliquota: prod.aliquota_icms ?? undefined,
+              ...(stRet ? { stRet } : {}),
+              ...(cst === '101' && aliquotaCreditoValida(aliqCreditoSN)
+                ? { creditoSN: { aliquota: aliqCreditoSN, valor: valorCreditoSN(valorTotal, aliqCreditoSN) } }
+                : {}),
+            }
+          })(),
       ipi: undefined, // Simples Nacional / revenda: sem grupo IPI
       pis: {
         cst: prod.cst_pis?.trim() || undefined,
@@ -394,19 +430,6 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }
   })
 
-  const { data: cfg } = await supabaseAdmin
-    .from('erp_fiscal_provider_config')
-    .select('serie_nfe_padrao')
-    .eq('company_id', input.companyId)
-    .eq('provider', 'focusnfe')
-    .eq('ativo', true)
-    .maybeSingle()
-
-  // indFinal (consumidor final) — escolhido na venda; default derivado do indIEDest do destinatário
-  // (contribuinte com IE = revenda B2B → false; não-contribuinte/isento → true). O operador pode
-  // sobrescrever via input.consumidorFinal (pedido/OTC/modal de emissão).
-  const indDestFinal = destinatario.indicadorIE ?? (destinatario.inscricaoEstadual ? 1 : 9)
-  const consumidorFinal = input.consumidorFinal ?? (indDestFinal !== 1)
 
   return {
     serie: cfg?.serie_nfe_padrao ?? '1',
@@ -422,7 +445,13 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario,
     itens: itensNFe,
     chaveReferenciada: input.manual?.chaveReferenciada,
-    observacoes: input.manual?.observacoes,
+    observacoes: empresaComCreditoSN(condCreditoSN) && aliqCreditoSN != null
+      ? observacoesComSimples(
+          input.manual?.observacoes,
+          itensNFe.reduce((a, i) => a + (i.icms?.creditoSN?.valor ?? 0), 0) || null,
+          aliqCreditoSN,
+        )
+      : input.manual?.observacoes,
     totais: input.manual?.totais,
   }
 }
