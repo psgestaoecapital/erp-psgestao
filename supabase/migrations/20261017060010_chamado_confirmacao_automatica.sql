@@ -43,6 +43,7 @@ END $function$;
 CREATE OR REPLACE FUNCTION public.fn_chamado_confirmacao_automatica(p_agora timestamptz DEFAULT now())
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
+-- ci-sem-guarda: fn_chamado_confirmacao_automatica — rotina interna agendada (pg_cron), sem parâmetro de empresa, atua só em chamados aguardando_confirmacao; sem GRANT a usuário (só service_role/cron)
 DECLARE
   v_hoje date := (p_agora AT TIME ZONE 'America/Sao_Paulo')::date;
   r record; v_base_ts timestamptz; v_base date; v_ult_autor timestamptz; v_limite date;
@@ -120,10 +121,11 @@ END $function$;
 CREATE OR REPLACE FUNCTION public.fn_sugestao_reabrir(p_id uuid, p_motivo text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
-DECLARE v_autor uuid; v_status text; v_conc timestamptz; v_numero int; v_texto text;
+DECLARE v_autor uuid; v_status text; v_conc timestamptz; v_numero int; v_texto text; v_company uuid;
 BEGIN
-  SELECT user_id, status, concluido_em, numero INTO v_autor, v_status, v_conc, v_numero FROM sugestoes WHERE id = p_id;
+  SELECT user_id, status, concluido_em, numero, company_id INTO v_autor, v_status, v_conc, v_numero, v_company FROM sugestoes WHERE id = p_id;
   IF v_autor IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro', 'nao_encontrada'); END IF;
+  IF v_company IS NOT NULL THEN PERFORM public.fn__guarda_empresa(v_company); END IF;
   IF auth.uid() IS DISTINCT FROM v_autor THEN RETURN jsonb_build_object('ok', false, 'erro', 'so_o_autor_reabre'); END IF;
   IF v_status <> 'concluida' THEN RETURN jsonb_build_object('ok', false, 'erro', 'nao_esta_concluida'); END IF;
   IF v_conc IS NULL OR v_conc < now() - interval '30 days' THEN
