@@ -28,7 +28,7 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
 const TETO_USD_DIA = Number(Deno.env.get("SUGESTAO_IA_TETO_USD") || "5");
 // mesmo segredo do insight-auditor: permite disparo server-side (RPC via net.http_post) da análise.
-const WATCHER_SECRET = Deno.env.get("WATCHER_SECRET") || "ps-watcher-2026-9k2mxqp4nv8wzr7y6h3t";
+const SEGREDOS = [Deno.env.get("WATCHER_SECRET"), Deno.env.get("WATCHER_SECRET_NOVO")].filter((v): v is string => !!v);
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -89,7 +89,7 @@ Deno.serve(async (req: Request) => {
   // x-watcher-secret (servidor/auditoria/backfill) OU um usuário autenticado (o navegador manda o
   // Authorization: Bearer da sessão, que é validado aqui). Anônimo é barrado; o teto protege o custo.
   const _secret = req.headers.get("x-watcher-secret") || "";
-  if (_secret !== WATCHER_SECRET) {
+  if (!SEGREDOS.includes(_secret)) {
     const _auth = req.headers.get("authorization") || "";
     const _tok = _auth.toLowerCase().startsWith("bearer ") ? _auth.slice(7) : "";
     if (!_tok) return json({ ok: false, erro: "nao_autorizado" }, 401);
