@@ -141,10 +141,11 @@ export default function RemessaPagamentoPage() {
       setNumRemessa(String(p)); setUltimoEnviado(Math.max(0, p - 1))
     } else { setNumRemessa(''); setUltimoEnviado(0) }
 
-    // títulos a pagar (aberto/vencido) + fornecedor
+    // títulos a pagar (aberto/vencido) + fornecedor. #3267: título excluído (deleted_at) não entra na remessa
+    // nem ocupa o limite — some de Contas a Pagar e não pode reaparecer aqui.
     const { data: tit } = await supabase.from('erp_pagar')
       .select('id,forma_pagamento,codigo_barras,valor,data_vencimento,numero_documento,descricao,fornecedor_id,tipo_chave_pix,chave_pix')
-      .eq('company_id', companyId).in('status', ['aberto', 'vencido']).order('data_vencimento').limit(500)
+      .eq('company_id', companyId).in('status', ['aberto', 'vencido']).is('deleted_at', null).order('data_vencimento').limit(500)
     const titulos = (tit ?? []) as (TituloPag & { fornecedor_id: string | null; tipo_chave_pix: string | null; chave_pix: string | null })[]
 
     // fornecedores dos títulos
