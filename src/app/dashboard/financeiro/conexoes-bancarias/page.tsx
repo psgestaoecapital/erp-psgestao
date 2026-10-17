@@ -1090,6 +1090,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
           )}
           {banco.campos.includes('api_key') && (
             <Field
+              ajuda="banco.api_key"
               label={banco.sigla === 'bb' ? 'Chave da aplicação (gw-dev-app-key)' : 'x-api-key (Portal do Desenvolvedor)'}
               hint={banco.sigla === 'bb' ? 'BB Developers › sua aplicação › Credenciais (developer_application_key). Fica cifrada no Vault.' : undefined}
             >
@@ -1097,17 +1098,17 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </Field>
           )}
           {banco.campos.includes('agencia') && (
-            <Field label="Agência" hint={banco.sigla === 'bb' ? 'Sem o dígito também funciona (ex.: 1505-2 ou 1505).' : undefined}>
+            <Field label="Agência" ajuda="banco.agencia" hint={banco.sigla === 'bb' ? 'Sem o dígito também funciona (ex.: 1505-2 ou 1505).' : undefined}>
               <input name="ps_agencia_nofill" autoComplete="off" value={agencia} onChange={(e) => setAgencia(e.target.value)} style={inp} placeholder="ex.: 1505-2" />
             </Field>
           )}
           {banco.campos.includes('convenio') && (
-            <Field label="Convênio de cobrança" hint="Número do convênio de cobrança (7 dígitos no BB). Só é preciso para emitir boleto.">
+            <Field label="Convênio de cobrança" ajuda="banco.convenio" hint="Número do convênio de cobrança (7 dígitos no BB). Só é preciso para emitir boleto.">
               <input name="ps_convenio_nofill" autoComplete="off" inputMode="numeric" value={convenio} onChange={(e) => setConvenio(e.target.value)} style={inp} placeholder="ex.: 3128557" />
             </Field>
           )}
           {banco.campos.includes('carteira') && (
-            <Field label="Carteira / variação" hint="Ex.: 17 / 35 (carteira e variação do convênio). Só é preciso para emitir boleto.">
+            <Field label="Carteira / variação" ajuda="banco.carteira" hint="Ex.: 17 / 35 (carteira e variação do convênio). Só é preciso para emitir boleto.">
               <input name="ps_carteira_nofill" autoComplete="off" value={carteira} onChange={(e) => setCarteira(e.target.value)} style={inp} placeholder="ex.: 17/35" />
             </Field>
           )}
@@ -1247,10 +1248,10 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({ label, hint, ajuda, children }: { label: string; hint?: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>{label}</label>
+      <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>{label}{ajuda && <> <AjudaCampo chave={ajuda} /></>}</label>
       {children}
       {hint && <small style={{ display: 'block', fontSize: 10, color: ESP60, marginTop: 3, lineHeight: 1.4 }}>{hint}</small>}
     </div>
