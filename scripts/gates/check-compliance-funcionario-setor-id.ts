@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }
 
-const mig = readFileSync('supabase/migrations/20261015140010_compliance_funcionario_setor_id_vinculo.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261017080010_compliance_funcionario_setor_id_vinculo.sql', 'utf8')
 ok(/UPDATE public\.compliance_funcionarios f[\s\S]*WHERE f\.setor_id IS NULL/.test(mig), 'preenchimento só onde setor_id é NULL (nada já vinculado muda)')
 ok(/s\.company_id = p_company_id/.test(mig), 'o setor casado é sempre da MESMA empresa')
 ok(!/DELETE FROM|TRUNCATE|DROP TABLE|DROP COLUMN/i.test(mig), 'nada é apagado (RD-55)')
