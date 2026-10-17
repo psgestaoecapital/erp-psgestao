@@ -1,0 +1,68 @@
+name: Limite de WIP por Code
+
+# Tarefa c66b6ea4 (Eng. Chefe 17/10): no máximo 3 PRs abertas por Code, 1 em construção (scripts/merge/wip-limite.ts).
+# Excedeu: label `limite-wip` (a fila ignora) + tarefa ao Code autor "termine ou feche uma antes".
+# pull_request_target: roda o código da main; as PRs são lidas só como dado pela API (sem checkout da PR).
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed]
+
+concurrency:
+  group: limite-wip
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  limite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN || github.token }}
+      REPO: ${{ github.repository }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Checkout da main (nunca da PR)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Avaliar o limite e etiquetar
+        run: |
+          set -uo pipefail
+          abertas=$(gh api "repos/$REPO/pulls?state=open&base=main&per_page=100" --paginate --jq '.[] | {number, draft, labels: [.labels[].name], created_at, body, sha: .head.sha}' | jq -s '.') \
+            || { echo "::warning::não li as PRs abertas"; exit 0; }
+          # data do último commit de cada PR (a da cabeça); falha de leitura = trata como antigo (não conta como em construção)
+          com_commit=$(jq -c '.[]' <<< "$abertas" | while read -r pr; do
+            sha=$(jq -r .sha <<< "$pr")
+            quando=$(gh api "repos/$REPO/commits/$sha" --jq '.commit.committer.date' 2>/dev/null || echo "1970-01-01T00:00:00Z")
+            jq -c --arg q "$quando" '. + {last_commit_at: $q}' <<< "$pr"
+          done | jq -s '.')
+          r=$(npx --yes tsx scripts/merge/wip-limite.ts <<< "$com_commit") || { echo "::warning::avaliador falhou"; exit 0; }
+          echo "$r" | jq -c '.[]'
+          for linha in $(jq -c '.[]' <<< "$r" | tr ' ' '\037'); do
+            linha=$(tr '\037' ' ' <<< "$linha")
+            n=$(jq -r .number <<< "$linha"); code=$(jq -r .code <<< "$linha"); excede=$(jq -r .excede <<< "$linha"); motivo=$(jq -r .motivo <<< "$linha")
+            tem=$(jq -r --argjson n "$n" '.[] | select(.number == $n) | (.labels | index("limite-wip")) != null' <<< "$abertas")
+            if [ "$excede" = true ] && [ "$tem" != true ]; then
+              gh api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=limite-wip" > /dev/null || { echo "::warning::não etiquetei #$n"; continue; }
+              gh api -X POST "repos/$REPO/issues/$n/comments" -f body="⏸️ **Limite de WIP:** $motivo ($code). A fila ignora esta PR enquanto tiver a label \`limite-wip\`: termine ou feche uma das suas abertas antes. A label sai sozinha quando o Code voltar ao limite." > /dev/null || true
+              if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+                curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_agente_mensagem_enviar" \
+                  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' \
+                  -d "$(jq -nc --arg para "$code" --arg a "Limite de WIP: termine ou feche uma PR antes (PR #$n)" --arg c "A PR #$n passou do limite de WIP ($motivo). Termine ou feche uma das suas abertas antes de abrir outra: https://github.com/$REPO/pull/$n" \
+                       '{p_para:$para, p_de:"eng_chefe", p_tipo:"tarefa", p_assunto:$a, p_corpo:$c, p_requer_ok_ceo:false, p_enviado_por:"limite-wip"}')" > /dev/null \
+                  || echo "::warning::não avisei o Code $code da PR #$n"
+              fi
+            elif [ "$excede" != true ] && [ "$tem" = true ]; then
+              gh api -X DELETE "repos/$REPO/issues/$n/labels/limite-wip" > /dev/null 2>&1 || true
+            fi
+          done

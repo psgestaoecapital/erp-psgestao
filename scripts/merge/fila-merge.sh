@@ -39,6 +39,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/patch-id-lib.sh"
 : "${GH_TOKEN:?GH_TOKEN (PAT) ausente}" "${REPO:?REPO ausente}"
 LABEL='fila-merge'
 NAO_PUBLICAR='nao-publicar'
+LIMITE_WIP='limite-wip'
 SENSIVEL=revisao-eng-chefe
 RODAPE=$'\n\n<sub>fila-merge · '"${RUN_URL:-local}"'</sub>'
 SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
@@ -462,6 +463,11 @@ for n in $fila; do
   if jq -e --arg l "$NAO_PUBLICAR" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null; then
     log "#$n tem a label $NAO_PUBLICAR: pulada"
     comentar_uma_vez "$n" "$NAO_PUBLICAR" "⏸️ **Fila de merge:** #$n tem a label \`$NAO_PUBLICAR\` — a fila não publica esta PR. Tire a label quando ela puder ser publicada."
+    continue
+  fi
+  # limite-wip: o Code passou do limite de PRs abertas (workflow limite-wip.yml já comentou e avisou o autor): a fila ignora
+  if jq -e --arg l "$LIMITE_WIP" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null; then
+    log "#$n tem a label $LIMITE_WIP: ignorada"
     continue
   fi
   # conflito: a lista não traz o mergeable; aparece no update-branch (PR atrás da main) ou na recusa do merge
