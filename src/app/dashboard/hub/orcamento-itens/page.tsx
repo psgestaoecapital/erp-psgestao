@@ -19,9 +19,10 @@ const lbl = "flex flex-col gap-1 text-[13px] text-[#2A1A10]";
 const inp = "rounded-lg border border-[#E8E2D6] bg-white px-3 py-2 text-[15px] text-[#2A1A10]";
 
 export default function OrcamentoItensPage() {
-  const { sel } = useCompanyIds();
+  const { sel, loading } = useCompanyIds();
   const empresa = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const [orcs, setOrcs] = useState<Orc[]>([]);
+  const [orcsCarregados, setOrcsCarregados] = useState(false);
   const [orcId, setOrcId] = useState("");
   const [lista, setLista] = useState<Lista | null>(null);
   const [form, setForm] = useState<Form | null>(null);
@@ -30,7 +31,7 @@ export default function OrcamentoItensPage() {
   useEffect(() => {
     if (!empresa) return;
     void Promise.resolve(supabase.from("erp_orcamentos").select("id,numero,cliente_nome,status").eq("company_id", empresa)
-      .order("created_at", { ascending: false }).limit(100)).then(({ data }) => setOrcs((data as Orc[]) ?? []));
+      .order("created_at", { ascending: false }).limit(100)).then(({ data }) => { setOrcs((data as Orc[]) ?? []); setOrcsCarregados(true); });
   }, [empresa]);
 
   const carregar = useCallback(async (id: string) => {
@@ -75,6 +76,8 @@ export default function OrcamentoItensPage() {
           {orcs.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.cliente_nome ?? "sem cliente"} · {o.status}</option>)}
         </select>
       </label>
+      {!loading && !empresa && <p role="status" data-testid="orc-sem-empresa" className="mt-3 rounded-lg bg-[#FAF7F2] px-3 py-2 text-[14px] text-[#7A6A5E]">Escolha uma empresa no seletor do topo para ver os orçamentos.</p>}
+      {empresa && orcsCarregados && orcs.length === 0 && <p role="status" data-testid="orc-vazio" className="mt-3 rounded-lg bg-[#FAF7F2] px-3 py-2 text-[14px] text-[#7A6A5E]">Esta empresa ainda não tem orçamentos. Crie um orçamento no Hub para incluir itens aqui.</p>}
       {msg && <p role="status" data-testid="orc-msg" className={`mt-3 rounded-lg border px-3 py-2 text-[14px] ${msg.tipo === "ok" ? "border-[#1baf7a] text-[#1baf7a]" : "border-[#c0392b] text-[#c0392b]"}`}>{msg.texto}</p>}
       {lista && (
         <section className="mt-5">
