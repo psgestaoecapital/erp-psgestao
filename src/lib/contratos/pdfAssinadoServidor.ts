@@ -4,12 +4,13 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { BUCKET_CONTRATOS, sha256Hex } from '@/lib/contratos/assinatura'
 import { gerarPdfAssinado, type Evidencias } from '@/lib/contratos/pdfAssinado'
+import { linkVerificacao } from '@/lib/contratos/verificacao'
 
 export function caminhoPdfAssinado(e: Pick<Evidencias, 'company_id' | 'contrato_id' | 'envio_id' | 'versao'>): string {
   return `${e.company_id}/assinados/${e.contrato_id}/v${e.versao}-${e.envio_id}.pdf`
 }
 
-export async function gerarEArquivarPdfAssinado(envioId: string): Promise<{ ok: true; path: string } | { ok: false; erro: string }> {
+export async function gerarEArquivarPdfAssinado(envioId: string, origem?: string): Promise<{ ok: true; path: string } | { ok: false; erro: string }> {
   const { data, error } = await supabaseAdmin.rpc('fn_contrato_assin__evidencias', { p_envio_id: envioId })
   if (error) return { ok: false, erro: 'Não consegui ler os registros da assinatura' }
   const ev = data as (Evidencias & { ok: boolean; erro?: string }) | null
@@ -26,7 +27,7 @@ export async function gerarEArquivarPdfAssinado(envioId: string): Promise<{ ok: 
     return { ok: false, erro: 'O arquivo original mudou depois do envio; o PDF assinado não foi gerado' }
   }
 
-  const bytes = await gerarPdfAssinado(original, ev)
+  const bytes = await gerarPdfAssinado(original, { ...ev, url_verificacao: origem ? linkVerificacao(origem, ev.codigo_verificacao) : null })
   const hash = await sha256Hex(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer)
   const path = caminhoPdfAssinado(ev)
   const { error: eUp } = await supabaseAdmin.storage.from(BUCKET_CONTRATOS)

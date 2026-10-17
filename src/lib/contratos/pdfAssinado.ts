@@ -18,6 +18,8 @@ export interface Evidencias {
   codigo_verificacao: string; criado_em: string; concluido_em: string | null
   contrato_numero: string | null; contrato_nome: string | null; empresa: string | null; empresa_cnpj: string | null
   signatarios: SignatarioEvidencia[]
+  // etapa 4: endereço da conferência pública (/verificar/contrato?c=CÓDIGO), preenchido pelo servidor
+  url_verificacao?: string | null
 }
 
 export interface Bloco { titulo: string; linhas: string[] }
@@ -66,6 +68,7 @@ export function blocosEvidencias(e: Evidencias): Bloco[] {
       `Versão enviada: ${e.versao} - enviada em ${dataHoraBR(e.criado_em)}`,
       `Concluído em: ${dataHoraBR(e.concluido_em)}`,
       `Código de verificação: ${e.codigo_verificacao}`,
+      ...(e.url_verificacao ? [`Confira a autenticidade em: ${e.url_verificacao}`] : []),
       `Hash SHA-256 do documento original (páginas antes desta): ${e.documento_hash}`,
     ],
   }
