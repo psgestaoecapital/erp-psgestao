@@ -9,7 +9,7 @@ import EditorRegras from "./EditorRegras";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
-import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv } from "@/lib/calculadora/saida";
+import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv, listaDeCompraHtml } from "@/lib/calculadora/saida";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import {
   REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, REGRAS_PAREDE_SEPARATIVA, REGRAS_PAREDE_CORTA_FOGO, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoColado, REGRAS_REVESTIMENTO_ESTRUTURADO, calcularRevestimentoEstruturado, calcularForroAramado, calcularForroF530, calcularParede, type Resultado,
@@ -109,6 +109,15 @@ export default function CalculadoraObraPage() {
     a.href = url; a.download = "lista-de-compra.csv"; a.click();
     URL.revokeObjectURL(url);
     setMsgSaida({ ok: true, texto: "Planilha baixada. Abre direto no Excel." });
+  }
+
+  function imprimirPdf() {
+    if (!res.ok) return;
+    const w = window.open("", "_blank");
+    if (!w) { setMsgSaida({ ok: false, texto: "O navegador bloqueou a janela. Libere pop-ups e tente de novo." }); return; }
+    w.document.write(listaDeCompraHtml(custo.linhas, tituloLista()));
+    w.document.close(); w.focus(); w.print();
+    setMsgSaida({ ok: true, texto: "Na janela de impressão, escolha “Salvar como PDF”." });
   }
 
   const [regraSalva, setRegraSalva] = useState<unknown>(null);
@@ -265,6 +274,9 @@ export default function CalculadoraObraPage() {
               </button>
               <button onClick={baixarExcel} data-testid="calc-excel" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
                 Baixar Excel<AjudaCampo chave="projetos.calculadora.excel" rota="/dashboard/projetos/calculadora" />
+              </button>
+              <button onClick={imprimirPdf} data-testid="calc-pdf" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                Imprimir / PDF<AjudaCampo chave="projetos.calculadora.pdf" rota="/dashboard/projetos/calculadora" />
               </button>
             </div>
             {companyId && (
