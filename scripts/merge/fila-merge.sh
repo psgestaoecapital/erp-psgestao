@@ -351,10 +351,11 @@ celular_main_falhando() {
     return 0
   fi
   [ -z "${FILA_CELULAR_MAIN_FALHA:-}" ] || { [ "$FILA_CELULAR_MAIN_FALHA" = 1 ]; return; }
-  local rid conc jid achados=0
+  local rid conc jid achados=0 lidos=0
   for rid in $(api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" --jq '.workflow_runs[].id' 2> /dev/null || true); do
     conc=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="aceitacao-main")|.conclusion]|first // empty' 2> /dev/null || true)
     case "$conc" in success|failure) ;; *) continue ;; esac
+    lidos=$((lidos + 1))
     if [ "$conc" = failure ]; then
       for jid in $(api "repos/$REPO/actions/runs/$rid/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
         api "repos/$REPO/check-runs/$jid/annotations" --paginate --jq '.[] | [(.title // ""), (.message // "")] | join(" ")' 2>/dev/null
@@ -363,7 +364,8 @@ celular_main_falhando() {
     achados=$((achados + 1))
     [ "$achados" -ge 2 ] && return 1
   done
-  return 0
+  # sem NENHUMA aceitação da main legível (API falhou/vazia): fail-closed, a regra desliga e a PR bloqueia como antes
+  [ "$lidos" -gt 0 ]
 }
 # Comenta UMA vez por run na PR $1 as falhas do celular tratadas como informativas. $2 = specs, $3 = run da aceitação da PR.
 comentar_celular_info() {
