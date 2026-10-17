@@ -49,7 +49,7 @@ ok(/update-branch" -f expected_head_sha/.test(sh), 'fila: atualiza com a main (m
 ok(/patch_id_estavel/.test(sh) && /git patch-id --stable/.test(readFileSync("scripts/merge/patch-id-lib.sh", "utf8")) && /revisao-eng-chefe/.test(sh), '(c) PR sensível: autorização pelo patch-id do conteúdo')
 ok(/aceitacao-pos-migration\.yml\/runs\?branch=main&status=success/.test(sh) && /rerodar "\$id"/.test(sh),
   '(a) @pos-migration cancelado: libera se a última migration já teve verde, senão re-roda')
-ok(/if \[ "\$com_migration" = 1 \](?: && \[ "\$corrige_deploy" = 0 \])?; then\s*\n\s*m=\$\(estado_main\)/.test(sh), '(b) só PR com migration espera a main (salvo o conserto do deploy vermelho)')
+ok(/if \[ "\$com_migration" = 1 \](?: && \[ "\$corrige_deploy" = 0 \])?(?: && \[ "\$lote_mig_n" = 0 \])?; then\s*\n\s*m=\$\(estado_main\)/.test(sh), '(b) só PR com migration espera a main (salvo o conserto do deploy vermelho)')
 
 // re-run pelo próprio GitHub (Eng. Chefe 07/10): a rede das sessões do Code não consegue POST /rerun
 ok(/Re-rodar aceitação cancelada/.test(vigia) && /FILA_MERGE_TOKEN/.test(vigia) && /\$tent" -gt 2/.test(vigia), 'vigia: re-roda aceitação cancelada com PAT, no máximo 2 vezes por SHA')
