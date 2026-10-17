@@ -20,7 +20,7 @@ ok(!!r && r.prs_hoje === 0 && r.telas_hoje === 3 && r.vereditos.OURO === 2 && r.
 const painel = readFileSync('src/components/dev/PainelCodes.tsx', 'utf8')
 ok(/rpc\('fn_dev_auditor_resumo'\)/.test(painel), 'tela lê pela função guardada fn_dev_auditor_resumo')
 ok(/c === AUDITOR_CODE\s*\?\s*<BlocoSeguro[^>]*><CartaoAuditor/.test(painel), 'cartão do auditor sob BlocoSeguro')
-const mig = readFileSync('supabase/migrations/20261017020000_dev_auditor_resumo.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261017190000_dev_auditor_resumo.sql', 'utf8')
 ok(/fn_dev_painel_pode_ver\(\)/.test(mig) && /REVOKE ALL ON FUNCTION public\.fn_dev_auditor_resumo\(\) FROM PUBLIC, anon/.test(mig), 'função guardada pela equipe PS e sem anon')
 ok(!/\b(DROP|DELETE|TRUNCATE|UPDATE)\b(?! FUNCTION public\.fn_dev_auditor_resumo)/.test(mig.replace(/--.*$/gm, '')), 'migration aditiva')
 process.exit(falhas ? 1 : 0)
