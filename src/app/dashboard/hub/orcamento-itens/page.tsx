@@ -26,11 +26,16 @@ export default function OrcamentoItensPage() {
   const [lista, setLista] = useState<Lista | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+  const [carregandoOrcs, setCarregandoOrcs] = useState(false);
 
   useEffect(() => {
     if (!empresa) return;
+    setCarregandoOrcs(true);
     void Promise.resolve(supabase.from("erp_orcamentos").select("id,numero,cliente_nome,status").eq("company_id", empresa)
-      .order("created_at", { ascending: false }).limit(100)).then(({ data }) => setOrcs((data as Orc[]) ?? []));
+      .order("created_at", { ascending: false }).limit(100)).then(({ data, error }) => {
+        if (error) setMsg({ tipo: "erro", texto: error.message });
+        setOrcs((data as Orc[]) ?? []);
+      }).finally(() => setCarregandoOrcs(false));
   }, [empresa]);
 
   const carregar = useCallback(async (id: string) => {
@@ -75,6 +80,8 @@ export default function OrcamentoItensPage() {
           {orcs.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.cliente_nome ?? "sem cliente"} · {o.status}</option>)}
         </select>
       </label>
+      {!empresa && <p className="mt-3 rounded-lg bg-[#FAF7F2] px-3 py-2 text-[14px] text-[#7A6A5E]" data-testid="orc-sem-empresa">Escolha uma empresa no seletor do topo para ver os orçamentos e seus itens.</p>}
+      {empresa && !carregandoOrcs && orcs.length === 0 && <p className="mt-3 rounded-lg bg-[#FAF7F2] px-3 py-2 text-[14px] text-[#7A6A5E]" data-testid="orc-sem-orcamento">Esta empresa ainda não tem orçamentos. Crie um em Orçamentos e volte aqui para detalhar os itens.</p>}
       {msg && <p role="status" data-testid="orc-msg" className={`mt-3 rounded-lg border px-3 py-2 text-[14px] ${msg.tipo === "ok" ? "border-[#1baf7a] text-[#1baf7a]" : "border-[#c0392b] text-[#c0392b]"}`}>{msg.texto}</p>}
       {lista && (
         <section className="mt-5">
