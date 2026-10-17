@@ -26,7 +26,7 @@ const cam = caminhoOrcamento('emp-1', 'sol-1', 'Orçamento Peças (1).pdf', 1)
 ok(cam.split('/')[0] === 'emp-1' && !/[ ()ç]/.test(cam), `arquivo na pasta da empresa, nome limpo (${cam})`)
 
 const tela = readFileSync('src/app/dashboard/compras/solicitacoes/page.tsx', 'utf8')
-const mig = readFileSync('supabase/migrations/20261017040020_compras_solicitacao.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261017070020_compras_solicitacao.sql', 'utf8')
 for (const fn of ['listar', 'salvar', 'orcamento_adicionar', 'orcamento_remover', 'enviar', 'decidir', 'cancelar'])
   ok(tela.includes(`'fn_compras_solicitacao_${fn}'`) && mig.includes(`FUNCTION public.fn_compras_solicitacao_${fn}(`), `tela usa e migration cria fn_compras_solicitacao_${fn}`)
 ok(!/from\('erp_compras_solicitacao[a-z_]*'\)\s*\.\s*(insert|update|upsert|delete)/.test(tela), 'tela não escreve direto nas tabelas')
