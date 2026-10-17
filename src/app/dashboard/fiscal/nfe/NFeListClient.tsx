@@ -32,6 +32,8 @@ interface Documento {
   valor: number | null
   origem_rotulo: string | null
   finalidade: string | null
+  chave_referenciada: string | null
+  nf_referencia: string | null
   motivo_rejeicao: string | null
   tentativas_recusadas: number
   ultima_recusa: string | null
@@ -251,16 +253,21 @@ export default function NFeListClient() {
 
   function aplicarBusca() { setBuscaSubmit(busca.trim()); setPagina(1) }
 
-  // "Corrigir e reenviar" documento não emitido — só devolução (reabre a tela de devolução pré-preenchida
-  // pela nota de compra referenciada). Busca a finalidade/chave_referenciada no registro principal.
+  // "Corrigir e reenviar" documento não emitido — devolução (reabre a tela de devolução pré-preenchida
+  // pela nota de compra referenciada) ou nota de OS (#2167: abre a própria OS, onde o botão vira "Reenviar NF-e").
+  // Busca a finalidade/chave_referenciada/os_id no registro principal.
   async function corrigirEReenviar(doc: Documento) {
     setReabrindo(doc.grupo_chave)
     try {
       const { data } = await supabase
         .from('erp_nfe_emitidas')
-        .select('finalidade, chave_referenciada')
+        .select('finalidade, chave_referenciada, os_id')
         .eq('id', doc.principal_id).maybeSingle()
-      const nota = (data ?? {}) as { finalidade?: string | null; chave_referenciada?: string | null }
+      const nota = (data ?? {}) as { finalidade?: string | null; chave_referenciada?: string | null; os_id?: string | null }
+      if (nota.finalidade !== 'devolucao' && nota.os_id) {
+        router.push(`/dashboard/os?os=${nota.os_id}`)
+        return
+      }
       if (nota.finalidade !== 'devolucao' || !nota.chave_referenciada) {
         alert('Só a devolução tem reenvio pré-preenchido. Reemita esta nota pela tela de origem (venda/pedido).')
         return
@@ -390,6 +397,7 @@ export default function NFeListClient() {
                   <tr>
                     <th className="px-3 py-2.5 w-8"></th>
                     <th className="text-left px-3 py-2.5 font-medium">Documento</th>
+                    <th className="text-left px-3 py-2.5 font-medium">NF ref.</th>
                     <th className="text-left px-3 py-2.5 font-medium">Data</th>
                     <th className="text-left px-3 py-2.5 font-medium">Destinatário</th>
                     <th className="text-right px-3 py-2.5 font-medium">Valor</th>
@@ -536,12 +544,16 @@ function DocumentoLinhas(props: {
           </div>
           {doc.origem_rotulo && <div className="text-[11.5px] text-[#3D2314]/80 normal-case line-clamp-2" title={doc.origem_rotulo}>{doc.origem_rotulo}</div>}
         </td>
-        <td className="px-3 py-2.5 text-[12.5px]">{fmtData(doc.data)}</td>
+        <td className="px-3 py-2.5 font-mono text-[12px] text-[#3D2314]" data-testid="nfe-list-nf-ref"
+          title={doc.chave_referenciada ? `Chave referenciada: ${doc.chave_referenciada}` : undefined}>
+          {doc.nf_referencia ?? '—'}
+        </td>
+        <td className="px-3 py-2.5 text-[12.5px] text-[#3D2314]">{fmtData(doc.data)}</td>
         <td className="px-3 py-2.5">
           <div className="text-[12.5px] text-[#3D2314]">{doc.contraparte_nome ?? '—'}</div>
           <div className="text-[10.5px] text-[#3D2314]/75 font-mono">{fmtDoc(doc.contraparte_doc, null)}</div>
         </td>
-        <td className="px-3 py-2.5 text-right tabular-nums font-medium">{fmtBRL(doc.valor)}</td>
+        <td className="px-3 py-2.5 text-right tabular-nums font-medium text-[#3D2314]">{fmtBRL(doc.valor)}</td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-2 flex-wrap">
             {doc.nao_emitida ? (
@@ -562,7 +574,7 @@ function DocumentoLinhas(props: {
       </tr>
       {aberto && (
         <tr className="bg-[#FAF7F2]/60 border-t border-[#3D2314]/8">
-          <td colSpan={6} className="px-5 py-4">
+          <td colSpan={7} className="px-5 py-4">
             <div className="flex gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
               {doc.pode_reenviar && (
                 <button type="button" onClick={onReenviar} disabled={reabrindo === doc.grupo_chave}
