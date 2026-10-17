@@ -6,6 +6,7 @@ import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
 import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
 import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarProdutosModal'
 import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModal'
+import ConfirmarClonar from '@/components/cadastros/ConfirmarClonar'
 import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
@@ -279,6 +280,7 @@ export default function ProdutosPage() {
   }
 
   // Clonar: busca a linha completa (igual abrirEdicao) e abre o form em modo NOVO pré-preenchido (clonarDe).
+  const [confirmarCloneId, setConfirmarCloneId] = useState<string | null>(null)
   async function clonarProduto(id: string) {
     if (!companyId) return
     const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
@@ -768,7 +770,7 @@ export default function ProdutosPage() {
                         <td className="px-4 py-2.5 text-right whitespace-nowrap">
                           <button
                             type="button"
-                            onClick={() => clonarProduto(p.id)}
+                            onClick={() => setConfirmarCloneId(p.id)}
                             data-testid="produto-clonar"
                             className="text-[#C8941A] hover:text-[#A87810] mr-3"
                             title="Clonar (criar novo a partir deste)"
@@ -828,7 +830,7 @@ export default function ProdutosPage() {
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
-                          onClick={() => clonarProduto(p.id)}
+                          onClick={() => setConfirmarCloneId(p.id)}
                           data-testid="produto-clonar-mobile"
                           className="text-[#C8941A] hover:text-[#A87810]"
                           title="Clonar"
@@ -872,13 +874,19 @@ export default function ProdutosPage() {
           )}
         </div>
 
+        <ConfirmarClonar
+          aberto={!!confirmarCloneId}
+          onConfirmar={() => { const id = confirmarCloneId; setConfirmarCloneId(null); if (id) clonarProduto(id) }}
+          onCancelar={() => setConfirmarCloneId(null)}
+        />
+
         {(novoAberto || editando || clonando) && (
           <ProdutoForm
             key={editando ? `edit-${editando.id}` : clonando ? `clone-${clonando.id}` : 'novo'}
             companyId={companyId}
             produto={editando}
             clonarDe={clonando}
-            onClonar={(p) => { setEditando(null); setNovoAberto(false); setClonando(p) }}
+            onClonar={(p) => setConfirmarCloneId(p.id)}
             onClose={() => {
               setNovoAberto(false)
               setEditando(null)

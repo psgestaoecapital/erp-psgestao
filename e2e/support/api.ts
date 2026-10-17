@@ -25,6 +25,12 @@ export function exigirEnv(): void {
 export function projectRef(): string {
   return SUPABASE_URL.replace('https://', '').split('.')[0]
 }
+// Ref do projeto de PRODUÇÃO. Isolamento (Pilar 2): specs de aceitação que ESCREVEM em tabela GLOBAL sem isolamento
+// por empresa (ex.: erp_agente_mensagem, a caixa dos agentes) NUNCA podem gravar contra a produção com o service_role.
+// Elas pulam quando IS_PROD (test.skip(IS_PROD, ...)) e provam só no banco de testes da vaga. Incidente 13/10: um envio
+// sem essa guarda soterrou a caixa real do gilberto-chamados/andre-code com 2.922 mensagens de teste.
+export const PROD_REF = 'horsymhsinqcimflrtjo'
+export const IS_PROD = projectRef() === PROD_REF
 export function storageKey(): string {
   return `sb-${projectRef()}-auth-token`
 }
