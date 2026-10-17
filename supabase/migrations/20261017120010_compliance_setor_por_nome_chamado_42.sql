@@ -15,7 +15,7 @@ BEGIN
   IF v_novo = v_def THEN
     IF position('s2.setor_id IS NOT NULL' IN v_def) = 0 THEN RAISE EXCEPTION 'view_sem_trecho_esperado'; END IF;
   ELSE
-    EXECUTE 'CREATE OR REPLACE VIEW public.v_compliance_matriz_funcionarios AS ' || v_novo;
+    EXECUTE 'CREATE OR REPLACE VIEW public.v_compliance_matriz_funcionarios WITH (security_invoker = on) AS ' || v_novo;
     ALTER VIEW public.v_compliance_matriz_funcionarios SET (security_invoker = on);
   END IF;
 
