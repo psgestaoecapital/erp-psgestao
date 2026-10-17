@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { fetchComGuardaDeLaco } from '@/lib/guardaRequisicoes'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -18,8 +19,11 @@ function sinalizarSessaoSuspeita(): void {
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(EVENTO_SESSAO_SUSPEITA))
   } catch { /* nunca quebra o fetch */ }
 }
+// P1 (17/10): disjuntor de laço + junção de GETs idênticos em voo (src/lib/guardaRequisicoes.ts).
+const fetchBase: typeof fetch = (input, init) => fetch(input, init)
+const fetchSemLaco = fetchComGuardaDeLaco(fetchBase)
 const fetchComGuarda: typeof fetch = async (input, init) => {
-  const res = await fetch(input, init)
+  const res = await fetchSemLaco(input, init)
   try { if (res.status === 401) sinalizarSessaoSuspeita() } catch { /* noop */ }
   return res
 }
