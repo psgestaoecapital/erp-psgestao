@@ -103,3 +103,10 @@ BEGIN
   );
 END;
 $function$;
+
+-- Guarda da função (check_fn_guards): SECURITY DEFINER nunca aberta ao anon.
+-- ci-sem-guarda: fn_auditor_disparar — não grava dado de cliente; só cadastra/telemetria em system_screens
+--   (catálogo de telas, tabela de infra sem company_id) e dispara a foto da DEMO; chamada só por
+--   service_role (rotina do auditor) / fn_auditor_matriz_disparar. Não há "empresa do registro" a conferir.
+REVOKE ALL ON FUNCTION public.fn_auditor_disparar(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_auditor_disparar(text) TO authenticated, service_role;
