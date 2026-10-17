@@ -5,7 +5,7 @@ let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 const src = readFileSync('src/app/dashboard/projetos/obras/resultado/page.tsx', 'utf8')
 
-ok(/from\('v_obra_resultado'\)/.test(src), 'lê a view v_obra_resultado')
+ok(/ler\('v_obra_resultado_alocado'\)/.test(src) && /ler\('v_obra_resultado'\)/.test(src), 'lê v_obra_resultado_alocado (fallback v_obra_resultado)')
 ok(/\.in\('company_id', companyIds\)/.test(src), 'filtra por empresa selecionada')
 ok(!/\.(insert|update|delete|upsert)\(/.test(src), 'só leitura')
 ok(/resultado-vazio/.test(src) && /role="alert"/.test(src), 'estados vazio e erro')
