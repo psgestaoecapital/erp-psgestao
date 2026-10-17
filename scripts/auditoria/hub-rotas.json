@@ -1,0 +1,30 @@
+{
+  "_comentario": "Rotas do Hub de Projetos auditadas pelo eng-chefe-auto (CHECK do PDCA do Hub, RD-97). Fonte: system_screens area=hub_projetos, auditavel_robo != false, sempre na empresa DEMO Construtora Modelo. Rotas com [id] são substituídas pela INSTÂNCIA da DEMO. Atualize por PR quando o Hub ganhar tela nova.",
+  "empresa_demo": "b0700000-0000-4000-a000-000000000006",
+  "empresa_demo_nome": "Construtora Modelo - DEMO",
+  "rotas": [
+    { "rota": "/dashboard/projetos", "titulo": "Hub Projetos" },
+    { "rota": "/dashboard/projetos/calculadora", "titulo": "Calculadora de Obra" },
+    { "rota": "/dashboard/projetos/catalogo", "titulo": "Catálogo de Serviços" },
+    { "rota": "/dashboard/projetos/catalogo/243b3ac4-ece3-45e6-92ef-130dd1235c85", "titulo": "Detalhe de Serviço (instância DEMO)" },
+    { "rota": "/dashboard/projetos/clientes", "titulo": "Clientes (Projetos)" },
+    { "rota": "/dashboard/projetos/cockpit", "titulo": "Cockpit (escolher obra)" },
+    { "rota": "/dashboard/projetos/configuracoes", "titulo": "Configurações (Projetos)" },
+    { "rota": "/dashboard/projetos/desempenho", "titulo": "Desempenho Comercial" },
+    { "rota": "/dashboard/projetos/engenharia", "titulo": "Engenharia" },
+    { "rota": "/dashboard/projetos/instalar-app", "titulo": "Instalar o PS Gestão no celular" },
+    { "rota": "/dashboard/projetos/insumos", "titulo": "Insumos" },
+    { "rota": "/dashboard/projetos/mao-obra", "titulo": "Mão de Obra" },
+    { "rota": "/dashboard/projetos/obras", "titulo": "Obras (lista)" },
+    { "rota": "/dashboard/projetos/obras/6257dc23-bd6e-4ca2-bccb-ecdd632d331f/cockpit", "titulo": "Cockpit da obra (instância DEMO)" },
+    { "rota": "/dashboard/projetos/obras/nova", "titulo": "Nova obra (assistente)" },
+    { "rota": "/dashboard/projetos/obras/resultado", "titulo": "Resultado por obra" },
+    { "rota": "/dashboard/projetos/oportunidades", "titulo": "Oportunidades / CRM" },
+    { "rota": "/dashboard/projetos/propostas", "titulo": "Orçamentos (Hub)" },
+    { "rota": "/dashboard/projetos/simulador", "titulo": "Simulador de Obra" },
+    { "rota": "/dashboard/projetos/tabelas-preco", "titulo": "Tabela de preço por cliente" },
+    { "rota": "/dashboard/projetos/takeoff", "titulo": "Takeoff · Medição de plantas" },
+    { "rota": "/dashboard/projetos/takeoff/acervo", "titulo": "Plantas analisadas (acervo do Takeoff)" },
+    { "rota": "/dashboard/projetos/visitas", "titulo": "Visitas Técnicas" }
+  ]
+}
