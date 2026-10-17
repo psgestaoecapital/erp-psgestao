@@ -335,6 +335,19 @@ Gate: `scripts/gates/check-quarentena.ts`.
 - **Núcleo compartilhado** (financeiro, fiscal, cadastros, permissões/RLS, menu, segurança, `/_compartilhado`, qualquer função/tabela
   usada por mais de uma vertical) só é alterado pela `gilberto-desenv`; os Codes de vertical abrem pedido no BOX e o Eng. Chefe repassa.
 
+# Delegação aos sócios Jordana e Rodrigo — merge da própria carteira (CEO 14/10 16:00)
+Decisão do CEO (registro em `erp_contexto_projeto`, "DELEGAÇÃO — Jordana e Rodrigo aprovam…"): os sócios Jordana e Rodrigo
+passam a aprovar os chamados críticos e temas sensíveis da **própria carteira**. Em consequência, nas regras de merge:
+- **PR sensível (`revisao-eng-chefe`) cujo conteúdo é SÓ da carteira de um sócio** pode ser mergeada pelo **próprio sócio dono**
+  (Jordana ou Rodrigo), pela tela/`gh pr merge`, **depois do `MERGE AUTORIZADO` do `gilberto-revisor`** — não precisa esperar o CEO.
+  "Só da carteira" = toca apenas telas/dados/chamados das empresas da carteira daquele sócio, sem nada da lista abaixo.
+- **Continua EXCLUSIVA do CEO** (nem o sócio nem o Code mergeiam): PR que toca **núcleo/compartilhado, a esteira de merge,
+  o DRE, Wealth/CVM, segredos (VAPID, tokens, secrets) ou planos/assinaturas** — mesmo que a empresa afetada seja da carteira.
+- Inalterado: a fila de merge e o `MERGE AUTORIZADO #NNNN — gilberto-revisor · patch-id <40 hex>` seguem como estão; o Code
+  nunca faz auto-merge; um merge por vez entre todos os Codes; `main` verde. Quem fica como autor da resposta de chamado do
+  Code do sócio é o próprio sócio (`erp_agente_dono`), não o CEO.
+Gate: `scripts/gates/check-delegacao-socios.ts`.
+
 # Re-rodar teste (Eng. Chefe 07/10)
 A rede da sessão do Code troca o token pelo da integração: `POST .../runs/<id>/rerun` dá 403 com qualquer token nosso.
 **Para re-rodar teste, comente `/re-rodar` na PR** (exatamente isso; autor com permissão write): o workflow `comando-pr.yml`
