@@ -11,7 +11,8 @@
 //   - RPC fn_aprovar_proposta_cotacao(cotacao_id, fornecedor_vencedor_id, ...) → uuid
 //   - RPC fn_resumo_cotacao(cotacao_id) → table
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
@@ -210,6 +211,16 @@ function ComprasInner() {
     void carregar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyIdUnico, companiesLoading])
+
+  // #1677 (B3): a tela Pendências de compra abre direto na cotação gerada da solicitação (?cotacao=<id>).
+  // Abre uma vez só: fechar a cotação e recarregar a lista não a reabre.
+  const cotacaoDoLink = useSearchParams().get('cotacao')
+  const linkAberto = useRef(false)
+  useEffect(() => {
+    if (!cotacaoDoLink || linkAberto.current) return
+    const alvo = cotacoes.find((c) => c.id === cotacaoDoLink)
+    if (alvo) { linkAberto.current = true; setTab('cotacoes'); setCotSel(alvo) }
+  }, [cotacaoDoLink, cotacoes])
 
   const flash = (m: string) => { setMsg(m); window.setTimeout(() => setMsg(''), 3500) }
   const flashErr = (m: string) => { setErro(m); window.setTimeout(() => setErro(''), 5000) }
