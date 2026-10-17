@@ -1,0 +1,12 @@
+-- Chamado #2167 (Gean): na OS, a nota já emitida fica verde e abre o PDF. "?" das ações novas (RD-95).
+-- Aditiva (só texto de ajuda novo; sem dado de cliente).
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, v.rota, 'fiscal', 'publicado'
+FROM (VALUES
+ ('os.nfe.emitida', 'Notas da OS', 'NF-e de peças emitida', 'Nada a preencher: o botão fica verde quando a SEFAZ autoriza a NF-e de peças desta OS. Toque para abrir o PDF (DANFE).', 'Mostra na própria OS que a nota de peças já saiu, sem procurar em Notas Fiscais, e abre o PDF para enviar ao cliente.', 'NF-e nº 394 emitida · abrir PDF → abre o DANFE em outra aba para baixar ou imprimir.', 'Emitir de novo achando que a nota não saiu: use "emitir outra" só quando faltou peça na primeira nota.', 10, '/dashboard/os'),
+ ('os.nfe.processando', 'Notas da OS', 'NF-e de peças em processamento', 'Nada a preencher: a NF-e foi enviada e a SEFAZ ainda não respondeu.', 'Evita emitir a mesma nota duas vezes enquanto a SEFAZ processa.', 'Enviou às 10h02 e às 10h03 ainda aparece em processamento; recarregue a OS em instantes.', 'Emitir outra nota enquanto a primeira está em processamento: as duas podem ser autorizadas.', 11, '/dashboard/os'),
+ ('os.nfse.emitida', 'Notas da OS', 'NFS-e de serviços emitida', 'Nada a preencher: o botão fica verde quando a prefeitura autoriza a NFS-e de serviços desta OS. Toque para abrir o PDF.', 'Mostra na própria OS que a nota de serviços já saiu e abre o PDF para enviar ao cliente.', 'NFS-e nº 129 emitida · abrir PDF → abre a nota da prefeitura em outra aba.', 'Emitir de novo achando que a nota não saiu: confira o número no botão verde antes.', 12, '/dashboard/os'),
+ ('os.nfse.processando', 'Notas da OS', 'NFS-e de serviços em processamento', 'Nada a preencher: a NFS-e foi enviada e a prefeitura ainda não respondeu.', 'Evita emitir a mesma nota duas vezes enquanto a prefeitura processa.', 'Enviou e ainda aparece em processamento; recarregue a OS em instantes.', 'Emitir outra nota enquanto a primeira está em processamento: as duas podem ser autorizadas.', 13, '/dashboard/os')
+) AS v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem, rota)
+WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'erp_ajuda_campo')
+ON CONFLICT (chave) DO NOTHING;
