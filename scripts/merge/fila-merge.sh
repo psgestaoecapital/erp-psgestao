@@ -278,9 +278,46 @@ p1_quarentena() {
   done <<< "$specs"
 }
 
+# COMPARAÇÃO COM A MAIN (CEO 17/10 14:35 BRT, aprovada; Eng. Chefe msg bad99b31): a aceitação da main #462 falhou (ambiente de
+# teste doente) e travava PRs sem culpa. REGRA TEMPORÁRIA: se TODOS os specs que falharam na aceitação da PR já falharam na
+# ÚLTIMA aceitação da main (workflow aceitacao-main.yml), a aceitação da PR não bloqueia (comentário na PR com as falhas
+# herdadas). Qualquer falha que a main não tem → bloqueia; spec da PRÓPRIA PR → bloqueia sempre (checado antes); falha
+# ilegível → fail-closed. VALIDADE: 24 h a partir de BASELINE_MAIN_INICIO e desliga SOZINHA quando a última aceitação da main
+# concluída não for falha (voltou a passar). FILA_BASELINE_MAIN_SPECS (mesmo vazio) sobrescreve a lista da main (para o gate).
+BASELINE_MAIN_INICIO='2026-10-17T17:35:00Z'
+BASELINE_MAIN_FIM='2026-10-18T17:35:00Z'
+baseline_main_ativa() {
+  local agora=${FILA_AGORA_EPOCH:-$(date -u +%s)}
+  [ "$agora" -ge "$(date -u -d "$BASELINE_MAIN_INICIO" +%s)" ] && [ "$agora" -lt "$(date -u -d "$BASELINE_MAIN_FIM" +%s)" ]
+}
+# specs que falharam na última aceitação da main (vazio = regra desligada: main verde, sem run ou ilegível). Um por linha.
+baseline_main_specs() {
+  local r id conc
+  if [ "${FILA_BASELINE_MAIN_SPECS+x}" = x ]; then printf '%s\n' "$FILA_BASELINE_MAIN_SPECS" | sed '/^$/d' | sort -u; return 0; fi
+  baseline_main_ativa || return 0
+  # só conta run em que a suíte RODOU (job aceitacao-main success/failure): run só com o "decide" e a suíte pulada
+  # fecha como success em segundos (#464) e desligava a regra por engano (CEO 17/10).
+  local rid
+  for rid in $(api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" --jq '.workflow_runs[].id' 2> /dev/null || true); do
+    conc=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="aceitacao-main")|.conclusion]|first // empty' 2> /dev/null || true)
+    case "$conc" in success|failure) id=$rid; break ;; esac
+  done
+  [ "$conc" = failure ] && [ -n "$id" ] || return 0   # main voltou a passar (ou sem run): a regra desliga sozinha
+  pos_specs_falhos "$id"
+}
+# Comenta UMA vez por run na PR $1 as falhas herdadas da main. $2 = specs herdados, $3 = run da aceitação da PR.
+comentar_herdadas_main() {
+  local pr=$1 specs=$2 run=$3
+  comentarios "$pr" | grep -qF "<!-- fila:baseline-main-$run -->" && return 0
+  comentar "$pr" "Fila de merge: a aceitação desta PR está vermelha, mas **todas** as falhas já ocorrem na última aceitação da \`main\` (ambiente de teste, regra temporária do CEO 17/10, vale até $BASELINE_MAIN_FIM ou até a main voltar a passar): \`$(tr '\n' ' ' <<< "$specs")\`. Não bloqueia a publicação. Falha que a main não tem, ou spec desta PR, continua bloqueando.
+<!-- fila:baseline-main-$run -->"
+  [ "$COMENTOU" = 1 ] || return 0
+  printf '%s\n' "\"<!-- fila:baseline-main-$run -->\"" >> "$TMPF/c-$pr"
+}
+
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} acc_quar=0 falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
@@ -311,6 +348,15 @@ estado_checks() {
       [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
       if [ -n "$falhos" ]; then
         quar_novos=$(comm -23 <(printf '%s\n' "$falhos") <(quarentena_specs))
+        if [ -n "$quar_novos" ] && baseline_main_ativa; then
+          # o que sobrou também falha na última aceitação da main? (comparação com a main, CEO 17/10)
+          base_main=$(baseline_main_specs)
+          if [ -n "$base_main" ] && [ -z "$(comm -23 <(printf '%s\n' "$quar_novos") <(printf '%s\n' "$base_main"))" ]; then
+            acc_quar=1
+            log "#$n: aceitação vermelha só com falhas que a main também tem ($(tr '\n' ' ' <<< "$quar_novos")) — não bloqueia (CEO 17/10)" >&2
+            comentar_herdadas_main "$n" "$quar_novos" "$acc_run" >&2
+          fi
+        fi
         if [ -z "$quar_novos" ]; then
           acc_quar=1
           log "#$n: aceitação vermelha só com specs em quarentena ($(tr '\n' ' ' <<< "$falhos")) — não bloqueia (CEO 17/10)" >&2
