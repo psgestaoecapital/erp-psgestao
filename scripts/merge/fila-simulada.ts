@@ -23,6 +23,7 @@ export type PrSimulada = {
   autorizada?: boolean         // injeta o comentário MERGE AUTORIZADO do revisor com o patch-id correto do conteúdo
   specsProprios?: string[]     // arquivos e2e/*.spec.ts que a PR criou/alterou (vão para pulls/<n>/files)
   aceitacaoSpecs?: string[]    // specs que FALHARAM na aceitação da PR (anotações do check-run) — regra do teste próprio
+  sqlMigration?: string        // SQL da migration da PR (lote de migrations independentes, CEO 16/10); padrão: select 1;
   autorCode?: string           // Code autor em erp_dev_entrega (para o acionamento automático do @pos, Parte 2)
 }
 // Estado do @pos-migration da main (janela da linha-de-base, CEO 15/10). Com conclusion='failure', a fila lê o log do
@@ -101,6 +102,7 @@ esac
         for (const s of p.specsProprios ?? []) files.push({ status: 'added', filename: s })
         put(`${R}/pulls/${p.n}/files`, files)
         if (arq) put(`${R}/contents/supabase/migrations/${arq}?ref=pr${p.n}`, { content: 'c2VsZWN0IDE7Cg==', sha: 'abc123' })
+        if (arq) put(`${R}/contents/supabase/migrations/${arq}?ref=${sha[p.n]}`, { content: Buffer.from(p.sqlMigration ?? 'select 1;\n').toString('base64'), sha: 'abc123' })
         put(`${R}/git/trees/main:supabase/migrations`, { tree: [{ path: '20261008150005_ultima.sql' }, { path: 'README.md' }] })
         put(`${R}/compare/main...${sha[p.n]}`, { behind_by: p.atras ?? 0 })
         put(`${R}/compare/${main0}...${sha[p.n]}`, { behind_by: p.atras ?? 0 })   // a fila compara contra MAIN0 (constante na rodada)
