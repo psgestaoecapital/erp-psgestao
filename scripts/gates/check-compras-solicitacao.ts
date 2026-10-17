@@ -3,7 +3,7 @@
  * validação do formulário, pasta do arquivo = empresa), tela só pelas RPCs com guarda, "?" com chave cadastrada (RD-95),
  * menu/inventário, e no SQL: RLS nas tabelas novas, REVOKE anon, guarda de empresa e "quem pede não aprova".
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { caminhoOrcamento, lerQuantidade, pendenciasEnvio, validarSolicitacaoForm, ITEM_VAZIO } from '../../src/lib/compras/solicitacao'
 
 let falhas = 0
@@ -26,7 +26,10 @@ const cam = caminhoOrcamento('emp-1', 'sol-1', 'Orçamento Peças (1).pdf', 1)
 ok(cam.split('/')[0] === 'emp-1' && !/[ ()ç]/.test(cam), `arquivo na pasta da empresa, nome limpo (${cam})`)
 
 const tela = readFileSync('src/app/dashboard/compras/solicitacoes/page.tsx', 'utf8')
-const mig = readFileSync('supabase/migrations/20261017070020_compras_solicitacao.sql', 'utf8')
+// acha a migration pelo nome (a fila de merge pode renumerar a versão)
+const migArq = readdirSync('supabase/migrations').find((f) => f.endsWith('_compras_solicitacao.sql'))
+const mig = migArq ? readFileSync(`supabase/migrations/${migArq}`, 'utf8') : ''
+ok(!!migArq, 'migration da solicitação de compra existe')
 for (const fn of ['listar', 'salvar', 'orcamento_adicionar', 'orcamento_remover', 'enviar', 'decidir', 'cancelar'])
   ok(tela.includes(`'fn_compras_solicitacao_${fn}'`) && mig.includes(`FUNCTION public.fn_compras_solicitacao_${fn}(`), `tela usa e migration cria fn_compras_solicitacao_${fn}`)
 ok(!/from\('erp_compras_solicitacao[a-z_]*'\)\s*\.\s*(insert|update|upsert|delete)/.test(tela), 'tela não escreve direto nas tabelas')
