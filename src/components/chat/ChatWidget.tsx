@@ -69,7 +69,7 @@ export default function ChatWidget() {
       if (alive) setEquipe((eq as Membro[] | null) ?? [])
     })()
 
-    const msgCh = supabase.channel(`chat:msgs:${activeCompany}`)
+    const msgCh = supabase.channel(`chat:msgs:${activeCompany}:${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'erp_chat_mensagem', filter: `company_id=eq.${activeCompany}` },
         (payload: { new: { canal_id?: string } }) => {
           void carregarCanais()
