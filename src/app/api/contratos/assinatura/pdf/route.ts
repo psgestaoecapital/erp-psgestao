@@ -24,7 +24,7 @@ export const POST = exigirLogin(async (req: NextRequest, u) => {
   if (error || !env) return NextResponse.json({ ok: false, erro: 'Envio não encontrado' }, { status: 404 })
   if (env.status !== 'assinado') return NextResponse.json({ ok: false, erro: 'O contrato ainda não foi assinado por todos' }, { status: 409 })
 
-  const g = await gerarEArquivarPdfAssinado(envioId)
+  const g = await gerarEArquivarPdfAssinado(envioId, new URL(req.url).origin)
   if (!g.ok) return NextResponse.json({ ok: false, erro: g.erro }, { status: 500 })
   const { data: s } = await supabaseAdmin.storage.from(BUCKET_CONTRATOS).createSignedUrl(g.path, 120, { download: true })
   if (!s?.signedUrl) return NextResponse.json({ ok: false, erro: 'Não consegui gerar o link de download' }, { status: 500 })

@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     // jeito e a empresa gera de novo pelo botão da ficha do contrato
     if (r.todos_assinaram && typeof a.signatario_id === 'string') {
       const { data: envio } = await supabaseAdmin.from('erp_contrato_assinatura_signatario').select('envio_id').eq('id', a.signatario_id).maybeSingle()
-      if (envio?.envio_id) { try { await gerarEArquivarPdfAssinado(envio.envio_id as string) } catch { /* botão da ficha refaz */ } }
+      if (envio?.envio_id) { try { await gerarEArquivarPdfAssinado(envio.envio_id as string, new URL(req.url).origin) } catch { /* botão da ficha refaz */ } }
     }
     return NextResponse.json({ ok: true, todos_assinaram: !!r.todos_assinaram, codigo_verificacao: r.codigo_verificacao, documento_hash: hash })
   }
