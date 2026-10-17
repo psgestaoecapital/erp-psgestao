@@ -251,9 +251,36 @@ ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'
 aceitacao_dispensada() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_ACEITACAO_REVISADA_FIM" +%s)" ]; }
 
+# QUARENTENA DE JORNADAS (CEO 17/10, presente): spec que falha na aceitação da PR mas JÁ está em
+# scripts/merge/quarentena-jornadas.txt (falha também na main, sem relação com a PR) NÃO bloqueia PR alheia — vira P1 ao
+# Code dono (uma vez por run, sem repetir enquanto houver tarefa aberta). Continuam bloqueando: spec da PRÓPRIA PR,
+# falha NOVA (spec fora da lista) e falha ilegível (fail-closed). FILA_QUARENTENA_JORNADAS sobrescreve o arquivo (gate).
+QUARENTENA_JORNADAS=${FILA_QUARENTENA_JORNADAS:-"$(dirname "${BASH_SOURCE[0]}")/quarentena-jornadas.txt"}
+quarentena_specs() { [ -f "$QUARENTENA_JORNADAS" ] && grep -v '^[[:space:]]*#' "$QUARENTENA_JORNADAS" | cut -d'|' -f1 | sed '/^$/d' | sort -u; return 0; }
+quarentena_dono() { grep -F "$1|" "$QUARENTENA_JORNADAS" 2> /dev/null | head -1 | cut -d'|' -f3; }
+# P1 automático ao dono do spec em quarentena que falhou na aceitação da PR $1 (run $3). No-op sem SUPABASE (nunca quebra a fila).
+p1_quarentena() {
+  local pr=$1 specs=$2 run=$3 spec code assunto corpo ja
+  [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || return 0
+  while IFS= read -r spec; do
+    [ -n "$spec" ] || continue
+    code=$(quarentena_dono "$spec"); [ -n "$code" ] || continue
+    assunto="P1 quarentena: jornada $(basename "$spec") falha na main e nas PRs"
+    ja=$(curl -fsS "$SUPABASE_URL/rest/v1/erp_agente_mensagem?assunto=eq.$(jq -rn --arg a "$assunto" '$a|@uri')&status=neq.concluida&select=id&limit=1" \
+      -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" 2> /dev/null | jq -r 'if type=="array" then length else 0 end' 2> /dev/null || echo 0)
+    [ "${ja:-0}" = 0 ] || continue
+    corpo="O spec $spec está em QUARENTENA na fila de merge (falha também na main; não bloqueia PR alheia). Prioridade P1: corrija o spec (teste desatualizado/instável no celular) ou o código (regressão real, RD-97) e remova a linha de scripts/merge/quarentena-jornadas.txt na mesma PR. Último run visto: https://github.com/$REPO/actions/runs/$run (PR #$pr)."
+    curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_agente_mensagem_enviar" \
+      -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' \
+      -d "$(jq -nc --arg para "$code" --arg assunto "$assunto" --arg corpo "$corpo" --arg ep "fila-merge · quarentena de jornadas (run $run)" \
+            '{p_para:$para, p_de:"eng_chefe", p_tipo:"tarefa", p_assunto:$assunto, p_corpo:$corpo, p_requer_ok_ceo:false, p_enviado_por:$ep}')" \
+      > /dev/null 2>&1 && log "quarentena: P1 enviado a $code para $spec" || log "quarentena: NÃO consegui enviar o P1 de $spec a $code — Eng. Chefe, acione à mão"
+  done <<< "$specs"
+}
+
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} acc_quar=0 falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
@@ -271,8 +298,29 @@ estado_checks() {
       fi
     fi
   fi
+  # QUARENTENA DE JORNADAS (CEO 17/10): aceitação vermelha FORA da janela (a dentro já é informativa). Spec da própria PR
+  # bloqueia; se TODO spec falho está na quarentena → a aceitação vira informativa + P1 ao dono; qualquer spec fora da
+  # lista (falha NOVA) ou falha ilegível → segue bloqueando como sempre.
+  if [ "$via" = revisada ] && ! aceitacao_dispensada && [ -n "$n" ]; then
+    acc_conc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
+    acc_url=$(awk -F'\t' '$1 == "aceitacao" {print $4}' <<< "$linhas" | tail -1)
+    acc_run=$(sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' <<< "$acc_url")
+    if [ "$acc_conc" = failure ] && [ -n "$acc_run" ]; then
+      falhos=$(pos_specs_falhos "$acc_run")
+      proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
+      [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
+      if [ -n "$falhos" ]; then
+        quar_novos=$(comm -23 <(printf '%s\n' "$falhos") <(quarentena_specs))
+        if [ -z "$quar_novos" ]; then
+          acc_quar=1
+          log "#$n: aceitação vermelha só com specs em quarentena ($(tr '\n' ' ' <<< "$falhos")) — não bloqueia (CEO 17/10)" >&2
+          p1_quarentena "$n" "$falhos" "$acc_run" >&2
+        fi
+      fi
+    fi
+  fi
   # via rápida SEMPRE, e via revisada DENTRO DA JANELA (CEO 15/10): tira a aceitação do cálculo de pendentes/vermelhos/cancelados
-  if [ "$via" = rapida ] || aceitacao_dispensada; then linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas"); fi
+  if [ "$via" = rapida ] || aceitacao_dispensada || [ "$acc_quar" = 1 ]; then linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas"); fi
   pend=$(awk -F'\t' '$2 != "completed" {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
   verm=$(awk -F'\t' '$3 ~ /^(failure|timed_out|action_required|startup_failure|stale)$/ {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
   canc=$(awk -F'\t' '$3 == "cancelled" {print $4}' <<< "$linhas" | sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' | sort -u)
@@ -293,7 +341,7 @@ estado_checks() {
   # PR só de .md/docs/.github não tem preview nem aceitação (Ignored Build Step): basta checks + gates
   [ "$so_docs" = 1 ] && { echo ok; return; }
   # aceitação (preview): na via REVISADA tem de existir e estar verde (ou dispensada pela triagem) — salvo DENTRO da janela (CEO 15/10)
-  if [ "$via" = revisada ] && ! aceitacao_dispensada; then
+  if [ "$via" = revisada ] && ! aceitacao_dispensada && [ "$acc_quar" != 1 ]; then
     acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
     case "$acc" in success|skipped|neutral) ;; '') echo "esperar:aceitação (preview) ainda não rodou"; return;; *) echo "vermelho:aceitação $acc"; return;; esac
   fi
