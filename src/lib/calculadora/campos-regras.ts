@@ -14,6 +14,7 @@ const comuns: CampoRegra[] = [
   { caminho: 'rolofitaM', rotulo: 'Rolo de fita', unidade: 'm', ajuda: 'metros por rolo de fita' },
 ]
 export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
+  parede_separativa: [], parede_corta_fogo: [],
   parede: [
     ...comuns,
     { caminho: 'chapasPorFace', rotulo: 'Chapas por face', unidade: 'un', ajuda: 'camadas de chapa em cada face da parede' },
@@ -32,6 +33,14 @@ export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
     { caminho: 'uniaoPorM2', rotulo: 'União de perfil', unidade: 'un/m²', ajuda: 'uniões de perfil por m²' },
     { caminho: 'parafusoPPA25PorM2', rotulo: 'Parafuso PPA 25', unidade: 'un/m²', ajuda: 'parafusos PPA 25 por m²' },
     { caminho: 'parafusoPFM13PorM2', rotulo: 'Parafuso PFM 13', unidade: 'un/m²', ajuda: 'parafusos PFM 13 por m²' },
+  ],
+  revestimento_estruturado: [
+    ...comuns,
+    { caminho: 'rolobandaM', rotulo: 'Rolo de banda', unidade: 'm', ajuda: 'metros por rolo de banda acústica' },
+    { caminho: 'parafusoPorM2.0.6', rotulo: 'Parafuso — montante a 0,60', unidade: 'un/m²', ajuda: 'parafusos por m² com montante a cada 0,60 m' },
+    { caminho: 'parafusoPorM2.0.4', rotulo: 'Parafuso — montante a 0,40', unidade: 'un/m²', ajuda: 'parafusos por m² com montante a cada 0,40 m' },
+    { caminho: 'parafusoPorM2.0.6d', rotulo: 'Parafuso — 0,60 duplo', unidade: 'un/m²', ajuda: 'parafusos por m² com montante duplo a cada 0,60 m' },
+    { caminho: 'parafusoPorM2.0.4d', rotulo: 'Parafuso — 0,40 duplo', unidade: 'un/m²', ajuda: 'parafusos por m² com montante duplo a cada 0,40 m' },
   ],
   revestimento_colado: [
     { caminho: 'perda', rotulo: 'Perda', unidade: '×', ajuda: 'multiplicador de perda aplicado às chapas' },
@@ -52,6 +61,8 @@ export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
     { caminho: 'sacoGessoColaKg', rotulo: 'Saco de gesso cola', unidade: 'kg', ajuda: 'peso da embalagem de gesso cola' },
   ],
 }
+CAMPOS_REGRA.parede_separativa = CAMPOS_REGRA.parede
+CAMPOS_REGRA.parede_corta_fogo = CAMPOS_REGRA.parede
 export const chaveAjudaRegra = (s: SistemaCalc, caminho: string) => `projetos.calculadora.regra.${s}.${caminho}`.toLowerCase()
 
 export function lerCampo(regras: Regras, caminho: string): number | undefined {
