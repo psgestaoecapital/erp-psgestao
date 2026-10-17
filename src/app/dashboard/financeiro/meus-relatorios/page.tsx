@@ -1,8 +1,9 @@
 'use client'
 // Meus relatórios (chamado #3281) — relatórios longos gerados em SEGUNDO PLANO: a pessoa pede, pode fechar a tela e
 // volta para baixar quando estiver pronto. Etapa 1: pedir, acompanhar e cancelar (fila erp_relatorio_pedido, RPCs com
-// guarda por empresa e solicitante). O gerador (etapa 2) grava o arquivo no storage privado "relatorios" (validade 7 dias)
-// e o aviso por e-mail/sino vem na etapa 3.
+// guarda por empresa e solicitante). Etapa 2: o gerador (/api/relatorios/fila) grava o arquivo no storage privado
+// "relatorios" (validade 7 dias) — a tela o acorda logo após o pedido e o pg_cron cobre a tela fechada. Aviso por
+// e-mail/sino vem na etapa 3.
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -98,8 +99,22 @@ export default function MeusRelatoriosPage() {
     })
     const r = data as { ok: boolean; erro?: string; titulo?: string } | null
     if (error || !r?.ok) setAviso({ tipo: 'erro', texto: ERROS[r?.erro ?? ''] ?? 'Não foi possível fazer o pedido.' })
-    else { setAviso({ tipo: 'ok', texto: `Pedido feito: ${r.titulo}. Pode fechar a tela — ele continua sendo gerado.` }); void carregar() }
+    else {
+      setAviso({ tipo: 'ok', texto: `Pedido feito: ${r.titulo}. Pode fechar a tela — ele continua sendo gerado.` })
+      void carregar()
+      void acordarGerador()
+    }
     setEnviando(false)
+  }
+
+  // Começa a gerar na hora (sem esperar a próxima volta do pg_cron, a cada 2 min). Falha aqui não perde o pedido.
+  async function acordarGerador() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      await fetch('/api/relatorios/fila', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, keepalive: true })
+    } catch { /* o pg_cron pega o pedido na próxima volta */ }
+    void carregar()
   }
 
   async function cancelar(id: string) {
