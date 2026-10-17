@@ -112,6 +112,7 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'status', 'em_desenvolvimento');
 END $$;
 
+-- ci-sem-guarda: fn_sugestao_autoconfirmar — rotina em lote do cron (pg_cron), varre todas as empresas; EXECUTE revogado de PUBLIC, anon e authenticated, só o dono/cron executa
 REVOKE ALL ON FUNCTION public.fn_sugestao_autoconfirmar(timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.fn_sugestao_reabrir(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_sugestao_reabrir(uuid) TO authenticated;
