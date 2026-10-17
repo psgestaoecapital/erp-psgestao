@@ -1,0 +1,60 @@
+-- #2936 (etapa 2 · Jordana · prova na Pdois/Proplay): botão "Enviar para assinatura" no contrato + página pública de
+-- assinatura (/sign/contrato/<token>) + envio do link por e-mail e WhatsApp (wa.me). ADITIVA: só os textos do "?"
+-- (RD-95) dos campos novos da tela. Sem tabela, função, policy ou dado de cliente: a tela usa o que a etapa 1 criou
+-- (fn_contrato_assinatura_enviar/cancelar como o usuário; abrir/código/assinar só pela rota do servidor).
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, 'Contratos', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, '/dashboard/cadastros/contratos-recorrentes', 'gestao_empresarial', 'publicado'
+FROM (VALUES
+  ('ge.contrato.assinatura.enviar', 'Enviar para assinatura',
+   'Toque em "Enviar para assinatura", escolha o PDF do contrato e quem assina. Cada pessoa recebe um link pessoal por e-mail e, se tiver WhatsApp, você manda o link com a mensagem pronta.',
+   'A pessoa assina pelo celular: abre o contrato, confirma o CPF/CNPJ, recebe um código no e-mail e assina. Ficam registrados data, hora, IP, aparelho e o código do documento (Lei 14.063/2020).',
+   'Contrato de prestação de serviço → cliente (sócio) + pela empresa (você) → link vale 15 dias.',
+   'Enviar o arquivo errado: depois de enviado, o documento não muda. Se precisar trocar, anexe o PDF novo e envie de novo — o link antigo deixa de valer sozinho.', 1),
+  ('ge.contrato.assinatura.arquivo', 'Documento a assinar',
+   'Escolha o PDF do contrato anexado logo acima. Só PDF entra na assinatura.',
+   'O sistema calcula a "impressão digital" (hash SHA-256) desse arquivo. Quem assina, assina exatamente esse arquivo; qualquer alteração depois muda o código e invalida a assinatura.',
+   'contrato_pdois_2026.pdf · 16/10 14:20',
+   'Anexar foto ou imagem do contrato: para assinar, anexe o PDF.', 2),
+  ('ge.contrato.assinatura.nome', 'Nome completo do signatário',
+   'Nome completo de quem vai assinar, como está no documento de identidade.',
+   'Aparece no e-mail, na página de assinatura e no registro da assinatura.',
+   'Maria Aparecida Souza',
+   'Colocar o nome da empresa no lugar do nome da pessoa que assina por ela.', 3),
+  ('ge.contrato.assinatura.documento', 'CPF ou CNPJ do signatário',
+   'CPF (11 números) de quem assina; CNPJ (14 números) só se a assinatura for da empresa como um todo.',
+   'Na hora de assinar, a pessoa digita o próprio CPF/CNPJ e o sistema confere com este. Se não bater, não assina.',
+   '123.456.789-09',
+   'Colocar o CNPJ da empresa cliente quando quem assina é o sócio: aí o sócio precisa digitar o CNPJ, não o CPF dele.', 4),
+  ('ge.contrato.assinatura.email', 'E-mail do signatário',
+   'E-mail que a pessoa lê no celular. Obrigatório.',
+   'O link chega por este e-mail e o código de confirmação (6 números, vale 10 minutos) também. É o segundo fator que prova que foi ela quem assinou.',
+   'maria@clienteexemplo.com.br',
+   'E-mail genérico da empresa (financeiro@...) que outra pessoa lê: o código chega para quem não vai assinar.', 5),
+  ('ge.contrato.assinatura.whatsapp', 'WhatsApp do signatário',
+   'Celular com DDD (opcional). Com ele, aparece o botão "Enviar no WhatsApp" com a mensagem e o link prontos.',
+   'Só facilita o envio do link pelo seu WhatsApp. O código de confirmação continua indo por e-mail.',
+   '(54) 99999-0000',
+   'Esquecer o DDD: o botão do WhatsApp não aparece.', 6),
+  ('ge.contrato.assinatura.papel', 'Assina como',
+   'Cliente (quem contrata), Pela empresa (quem assina pela sua empresa) ou Testemunha.',
+   'Fica registrado no histórico do contrato e na página de evidências da assinatura.',
+   'Cliente: o sócio da Proplay · Pela empresa: você · Testemunha: o gerente',
+   'Mandar só para o cliente e esquecer a assinatura da própria empresa, quando o contrato exige as duas.', 7),
+  ('ge.contrato.assinatura.validade', 'Link vale por',
+   'Quantos dias o link fica aberto para assinar (3 a 60).',
+   'Depois do prazo o link vence sozinho e é preciso enviar de novo.',
+   '15 dias para cliente que costuma demorar; 3 dias para contrato urgente.',
+   'Prazo curto demais em fim de semana ou feriado.', 8),
+  ('ge.contrato.assinatura.andamento', 'Andamento das assinaturas',
+   'Nada a preencher: mostra cada envio, quem já abriu o link e quem já assinou, com data e hora.',
+   'Quando todos assinam, o envio fica "Assinado por todos" e o código de verificação identifica o documento.',
+   'Versão 1 · Maria abriu 16/10 15:02 · João assinou 16/10 15:10',
+   'Enviar de novo sem necessidade: a nova versão cancela o link anterior, inclusive de quem ainda ia assinar.', 9),
+  ('ge.contrato.assinatura.cancelar', 'Cancelar envio',
+   'Cancela o envio que ainda espera assinatura. Peça o motivo para o histórico.',
+   'O link deixa de valer para todos os signatários desse envio. Assinaturas já feitas ficam registradas.',
+   'Motivo: valor do contrato mudou, vou mandar a versão nova.',
+   'Cancelar para "reenviar o link": basta mandar o mesmo link de novo pelo WhatsApp ou e-mail.', 10)
+) AS v(chave, rotulo, o_que, para_que, exemplo, erro, ordem)
+WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'erp_ajuda_campo')
+ON CONFLICT (chave) DO NOTHING;
