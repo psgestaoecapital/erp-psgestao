@@ -10,7 +10,7 @@ const meu = readFileSync('src/components/dev/MeuCode.tsx', 'utf8')
 const canal = readFileSync('src/components/dev/CanalPs.tsx', 'utf8')
 
 ok((painel.match(/<MeuCode\b/g) ?? []).length === 1, 'PainelCodes monta <MeuCode/> uma única vez')
-for (const n of ['SaudeEsteira', 'SaudeCodes', 'GraficosCodes', 'MeuCode', 'EsperandoOkCeo', 'CartaoCode', 'ConectarClaude', 'LinhaDoTempo', 'ResumoPorCode']) {
+for (const n of ['SaudeEsteira', 'SaudeCodes', 'GraficosCodes', 'MeuCode', 'EsperandoOkCeo', 'CartaoCode', 'ConectarClaude', 'LinhaDoTempo', 'ResumoPorCode', 'CartaoAuditor']) {
   ok(new RegExp(`<BlocoSeguro[^>]*>\\s*<${n}\\b`).test(painel), `${n} protegido por BlocoSeguro`)
 }
 ok(/supabase\.channel\(`dev-meu-code-\$\{/.test(meu), 'MeuCode usa canal Realtime único por instância')
