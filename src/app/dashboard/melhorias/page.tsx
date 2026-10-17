@@ -49,7 +49,7 @@ const bucketMelhoria = (m: { status: string; resposta: string | null; confirmado
   return 'aguardando'
 }
 
-type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null; user_id: string; user_name: string | null; rota: string | null }
+type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; concluido_em?: string | null; conclusao_automatica?: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null; user_id: string; user_name: string | null; rota: string | null }
 
 export default function MelhoriasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -103,7 +103,7 @@ function Inner() {
     // selecionada, abertos por colegas (CEO 28/09: quem abre em nome da empresa e quem acompanha veem o mesmo
     // chamado — evita chamado repetido). A RLS de sugestoes libera a leitura pela empresa (get_user_company_ids).
     // Mostramos de QUAL empresa é cada um (embed companies). Arquivadas saem da lista por padrão (CEO).
-    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at,company_id,user_id,user_name,rota,companies(nome_fantasia,razao_social)')
+    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,concluido_em,conclusao_automatica,ia_analise,created_at,company_id,user_id,user_name,rota,companies(nome_fantasia,razao_social)')
     // CEO 13/10: incluir SEMPRE os chamados DAS EMPRESAS da pessoa (não só da empresa selecionada) — assim os abertos
     // pela equipe PS em nome dela também aparecem, mesmo em "consolidado". A RLS de sugestoes já limita pela empresa.
     const empresasVisiveis = companyId ? [companyId] : (companyIds ?? [])
@@ -199,6 +199,15 @@ function Inner() {
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao confirmar'); return }
     setMotivoAberto(null); setNaoResolveuFotos([])
     setMsg(funcionou ? 'Que bom! Chamado concluído. 🎉' : 'Reabrimos — a equipe volta a trabalhar nisso.')
+    void carregar()
+  }, [carregar])
+
+  // Reabrir com um clique em até 30 dias após a conclusão (inclusive a automática). Volta à fila com prioridade.
+  const reabrir = useCallback(async (id: string) => {
+    const { data, error } = await supabase.rpc('fn_sugestao_reabrir', { p_id: id })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro(error?.message || (r?.erro === 'prazo_de_30_dias_vencido' ? 'Passaram mais de 30 dias: abra um novo chamado.' : r?.erro) || 'Falha ao reabrir'); return }
+    setMsg('Reabrimos — a equipe volta a trabalhar nisso.')
     void carregar()
   }, [carregar])
 
@@ -392,6 +401,12 @@ function Inner() {
                       )}
                     </>
                   )}
+                </div>
+              )}
+              {m.status === 'concluida' && m.user_id === userId && m.concluido_em && Date.now() - new Date(m.concluido_em).getTime() <= 30 * 86400000 && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button type="button" data-testid="chamado-reabrir" onClick={() => void reabrir(m.id)} style={{ background: '#fff', color: C.red, border: `1px solid ${C.red}`, borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Reabrir chamado</button>
+                  <span style={{ fontSize: 11.5, color: C.espM }}>{m.conclusao_automatica ? 'Concluído automaticamente por falta de retorno. ' : ''}Você pode reabrir em até 30 dias.</span>
                 </div>
               )}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
