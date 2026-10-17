@@ -26,11 +26,19 @@ export default function OrcamentoItensPage() {
   const [lista, setLista] = useState<Lista | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+  const [orcsCarregados, setOrcsCarregados] = useState(false);
 
   useEffect(() => {
     if (!empresa) return;
+    setOrcsCarregados(false);
     void Promise.resolve(supabase.from("erp_orcamentos").select("id,numero,cliente_nome,status").eq("company_id", empresa)
-      .order("created_at", { ascending: false }).limit(100)).then(({ data }) => setOrcs((data as Orc[]) ?? []));
+      .order("created_at", { ascending: false }).limit(100)).then(({ data, error }) => {
+      if (error) setMsg({ tipo: "erro", texto: error.message });
+      const l = (data as Orc[]) ?? [];
+      setOrcs(l);
+      setOrcId((atual) => (atual && l.some((o) => o.id === atual) ? atual : l[0]?.id ?? ""));
+      setOrcsCarregados(true);
+    });
   }, [empresa]);
 
   const carregar = useCallback(async (id: string) => {
@@ -68,6 +76,9 @@ export default function OrcamentoItensPage() {
   return (
     <main className="mx-auto max-w-4xl p-4 md:p-8" data-testid="hub-orcamento-itens">
       <h1 className="text-2xl font-semibold text-[#C8941A]">Itens do orçamento</h1>
+      {!empresa && <p className="mt-3 text-[14px] text-[#7A6A5E]" data-testid="orc-sem-empresa">Escolha uma empresa no seletor do topo para ver os itens dos orçamentos.</p>}
+      {empresa && orcsCarregados && orcs.length === 0 && <p className="mt-3 text-[14px] text-[#7A6A5E]" data-testid="orc-vazio">Esta empresa ainda não tem orçamentos. Crie um orçamento para lançar os itens.</p>}
+      {empresa && !orcsCarregados && <p className="mt-3 text-[14px] text-[#7A6A5E]" role="status">Carregando orçamentos…</p>}
       <label className={`${lbl} mt-4`}>
         <span className="flex items-center gap-1">Orçamento <AjudaCampo chave="hub.orcamento_itens.orcamento" rota={ROTA} /></span>
         <select className={inp} value={orcId} onChange={(e) => { setOrcId(e.target.value); setMsg(null); setForm(null); }} data-testid="orc-select">
