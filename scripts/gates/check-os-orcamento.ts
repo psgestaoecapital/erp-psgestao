@@ -43,8 +43,8 @@ else {
   else ok('os/page: STATUS_CFG tem orcamento')
   if (!/STATUS_ORDER\s*=\s*\[[^\]]*'orcamento'/.test(t)) erro(`${OS}: STATUS_ORDER sem 'orcamento'`)
   else ok('os/page: STATUS_ORDER tem orcamento')
-  if (!/p_orcamento:\s*orcamento/.test(t)) erro(`${OS}: fn_os_criar chamada sem p_orcamento`)
-  else ok('os/page: envia p_orcamento ao fn_os_criar')
+  if (!/p_orcamento:\s*true/.test(t)) erro(`${OS}: fn_os_criar chamada sem p_orcamento (envie p_orcamento: true quando marcado)`)
+  else ok('os/page: envia p_orcamento ao fn_os_criar quando marcado')
   if (!/AjudaCampo\s+chave="os\.nova\.orcamento"/.test(t)) erro(`${OS}: toggle "É orçamento?" sem "?" (RD-95)`)
   else ok('os/page: toggle com AjudaCampo os.nova.orcamento')
 }

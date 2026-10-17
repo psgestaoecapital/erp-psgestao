@@ -571,7 +571,9 @@ function ModalNovaOS({
       p_prioridade: prioridade,
       p_placa: placa.trim() || null,
       p_modelo: veiculo.trim() || null,
-      p_orcamento: orcamento,
+      // p_orcamento só é enviado quando marcado: a criação comum segue casando com a assinatura ATUAL do
+      // fn_os_criar antes do deploy da migration (o orçamento é novo e só funciona depois do deploy).
+      ...(orcamento ? { p_orcamento: true } : {}),
     })
     setSalvando(false)
     if (error) { setErroLocal('Erro: ' + error.message); return }
