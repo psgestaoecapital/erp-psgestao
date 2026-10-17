@@ -8,7 +8,7 @@ import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import EditorRegras from "./EditorRegras";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
-import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
+import { custearItens, sugerirProduto, type ProdutoEstoque } from "@/lib/calculadora/depara";
 import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv } from "@/lib/calculadora/saida";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import {
@@ -247,6 +247,10 @@ export default function CalculadoraObraPage() {
                   </label>
                 )}
                 {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
+                {companyId && !vinculos[i.chave] && (() => { const s = sugerirProduto(i, produtos); return s ? (
+                  <p className="mt-0.5 text-xs text-[#3D2314]/70">Sugestão do estoque: <b>{s.nome}</b> ({fmtBRL(s.custo!)}){" "}
+                    <button type="button" data-testid={`calc-sugestao-${i.chave}`} onClick={() => void vincular(i.chave, s.id)} className="underline text-[#C8941A]">usar este</button></p>
+                ) : null })()}
                 {custoPorChave[i.chave]?.total != null && <p className="mt-0.5 text-xs text-[#3D2314]/60">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade} = <b>{fmtBRL(custoPorChave[i.chave].total!)}</b></p>}
                 <details className="mt-1 text-xs text-[#3D2314]/60">
                   <summary className="cursor-pointer">ver a conta</summary>
