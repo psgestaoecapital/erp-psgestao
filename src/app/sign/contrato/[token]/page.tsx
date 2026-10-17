@@ -112,6 +112,9 @@ export default function AssinarContratoPage() {
             <div style={{ fontFamily: 'monospace', fontSize: 16, letterSpacing: 1 }}>{feito.codigo_verificacao}</div>
             <div style={{ fontSize: 11, color: C.muted, margin: '10px 0 4px' }}>Hash SHA-256 do arquivo assinado</div>
             <div style={{ fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{feito.documento_hash}</div>
+            <a href={`/verificar/contrato?c=${encodeURIComponent(feito.codigo_verificacao)}`} style={{ ...botaoSecundario, marginTop: 12, fontSize: 14 }}>
+              Conferir este contrato
+            </a>
           </div>
         )}
       </div>

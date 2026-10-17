@@ -62,7 +62,7 @@ ok(!!migArq, 'migration do PDF assinado existe')
 
 ok(/export const POST = exigirLogin\(/.test(rotaPdf), 'rota do PDF: exige login')
 ok(rotaPdf.indexOf("doUsuario.from('erp_contrato_assinatura_envio')") > -1
-  && rotaPdf.indexOf("doUsuario.from('erp_contrato_assinatura_envio')") < rotaPdf.indexOf('gerarEArquivarPdfAssinado(envioId)'),
+  && rotaPdf.indexOf("doUsuario.from('erp_contrato_assinatura_envio')") < rotaPdf.indexOf('gerarEArquivarPdfAssinado(envioId'),
   'rota do PDF: confere o envio pela RLS do usuário antes do service_role')
 ok(/createSignedUrl\(g\.path, 120/.test(rotaPdf), 'rota do PDF: download por link de 2 min')
 ok(/r\.todos_assinaram && /.test(publico) && /gerarEArquivarPdfAssinado\(/.test(publico) && /catch/.test(publico.slice(publico.indexOf('gerarEArquivarPdfAssinado('))),
