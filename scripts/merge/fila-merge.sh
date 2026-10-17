@@ -278,9 +278,92 @@ p1_quarentena() {
   done <<< "$specs"
 }
 
+# COMPARAÇÃO COM A MAIN (CEO 17/10 14:35 BRT, aprovada; Eng. Chefe msg bad99b31): a aceitação da main #462 falhou (ambiente de
+# teste doente) e travava PRs sem culpa. REGRA TEMPORÁRIA: se TODOS os specs que falharam na aceitação da PR já falharam na
+# ÚLTIMA aceitação da main (workflow aceitacao-main.yml), a aceitação da PR não bloqueia (comentário na PR com as falhas
+# herdadas). Qualquer falha que a main não tem → bloqueia; spec da PRÓPRIA PR → bloqueia sempre (checado antes); falha
+# ilegível → fail-closed. VALIDADE: 24 h a partir de BASELINE_MAIN_INICIO e desliga SOZINHA quando a última aceitação da main
+# concluída não for falha (voltou a passar). FILA_BASELINE_MAIN_SPECS (mesmo vazio) sobrescreve a lista da main (para o gate).
+BASELINE_MAIN_INICIO='2026-10-17T17:35:00Z'
+BASELINE_MAIN_FIM='2026-10-18T17:35:00Z'
+baseline_main_ativa() {
+  local agora=${FILA_AGORA_EPOCH:-$(date -u +%s)}
+  [ "$agora" -ge "$(date -u -d "$BASELINE_MAIN_INICIO" +%s)" ] && [ "$agora" -lt "$(date -u -d "$BASELINE_MAIN_FIM" +%s)" ]
+}
+# specs que falharam na última aceitação da main (vazio = regra desligada: main verde, sem run ou ilegível). Um por linha.
+baseline_main_specs() {
+  local r id conc
+  if [ "${FILA_BASELINE_MAIN_SPECS+x}" = x ]; then printf '%s\n' "$FILA_BASELINE_MAIN_SPECS" | sed '/^$/d' | sort -u; return 0; fi
+  baseline_main_ativa || return 0
+  # só conta run em que a suíte RODOU (job aceitacao-main success/failure): run só com o "decide" e a suíte pulada
+  # fecha como success em segundos (#464) e desligava a regra por engano (CEO 17/10).
+  local rid
+  for rid in $(api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" --jq '.workflow_runs[].id' 2> /dev/null || true); do
+    conc=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="aceitacao-main")|.conclusion]|first // empty' 2> /dev/null || true)
+    case "$conc" in success|failure) id=$rid; break ;; esac
+  done
+  [ "$conc" = failure ] && [ -n "$id" ] || return 0   # main voltou a passar (ou sem run): a regra desliga sozinha
+  pos_specs_falhos "$id"
+}
+# Comenta UMA vez por run na PR $1 as falhas herdadas da main. $2 = specs herdados, $3 = run da aceitação da PR.
+comentar_herdadas_main() {
+  local pr=$1 specs=$2 run=$3
+  comentarios "$pr" | grep -qF "<!-- fila:baseline-main-$run -->" && return 0
+  comentar "$pr" "Fila de merge: a aceitação desta PR está vermelha, mas **todas** as falhas já ocorrem na última aceitação da \`main\` (ambiente de teste, regra temporária do CEO 17/10, vale até $BASELINE_MAIN_FIM ou até a main voltar a passar): \`$(tr '\n' ' ' <<< "$specs")\`. Não bloqueia a publicação. Falha que a main não tem, ou spec desta PR, continua bloqueando.
+<!-- fila:baseline-main-$run -->"
+  [ "$COMENTOU" = 1 ] || return 0
+  printf '%s\n' "\"<!-- fila:baseline-main-$run -->\"" >> "$TMPF/c-$pr"
+}
+
+# [CELULAR] INFORMATIVO (CEO 17/10 19:30Z, msg 7dd43fa6; REGRA TEMPORÁRIA): aceitação vermelha da PR só com falhas no projeto
+# [celular] NÃO bloqueia (comentário na PR lista como informativas). Falha em QUALQUER spec do projeto computador (desktop, ou
+# anotação sem a marca [celular] → fail-closed) bloqueia como hoje; spec da PRÓPRIA PR bloqueia em qualquer projeto; falha
+# ilegível bloqueia. VALIDADE: 24 h a partir de CELULAR_INFO_INICIO OU até a aceitação da main passar no [celular] (a última
+# aceitação da main com suíte real sem falha [celular]) — o que vier primeiro; depois volta a bloquear sozinha.
+# FILA_CELULAR_MAIN_FALHA (0|1) sobrescreve a leitura da main (para o gate).
+CELULAR_INFO_INICIO='2026-10-17T19:30:00Z'
+CELULAR_INFO_FIM='2026-10-18T19:30:00Z'
+celular_info_janela() {
+  local agora=${FILA_AGORA_EPOCH:-$(date -u +%s)}
+  [ "$agora" -ge "$(date -u -d "$CELULAR_INFO_INICIO" +%s)" ] && [ "$agora" -lt "$(date -u -d "$CELULAR_INFO_FIM" +%s)" ]
+}
+# specs que falharam num run, SÓ os que têm falha fora do [celular]: uma anotação (path+título+mensagem) sem a marca
+# "[celular]" conta como desktop; o resumo do Playwright é avaliado linha a linha. Um por linha, ordenado e único.
+pos_specs_falhos_desktop() {
+  local run=$1 jid
+  for jid in $(api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
+    api "repos/$REPO/check-runs/$jid/annotations" --paginate \
+      --jq '.[] | select(.annotation_level == "failure" or ((.title // "") | test("Playwright Run Summary")))
+            | if ((.title // "") | test("Playwright Run Summary")) then ((.message // "") | split("\n")[])
+              else ([(.path // ""), (.title // ""), (.message // "")] | join(" ") | gsub("\n"; " ")) end' 2>/dev/null
+  done | grep -v '\[celular\]' | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts' | sort -u
+}
+# a última aceitação da main com suíte real ainda falha no [celular]? (0 = sim, regra segue; 1 = não, regra desliga)
+celular_main_falhando() {
+  [ -z "${FILA_CELULAR_MAIN_FALHA:-}" ] || { [ "$FILA_CELULAR_MAIN_FALHA" = 1 ]; return; }
+  local rid conc id= jid
+  for rid in $(api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" --jq '.workflow_runs[].id' 2> /dev/null || true); do
+    conc=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="aceitacao-main")|.conclusion]|first // empty' 2> /dev/null || true)
+    case "$conc" in success|failure) id=$rid; break ;; esac
+  done
+  [ "$conc" = failure ] && [ -n "$id" ] || return 1
+  for jid in $(api "repos/$REPO/actions/runs/$id/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
+    api "repos/$REPO/check-runs/$jid/annotations" --paginate --jq '.[] | [(.title // ""), (.message // "")] | join(" ")' 2>/dev/null
+  done | grep -q '\[celular\]'
+}
+# Comenta UMA vez por run na PR $1 as falhas do celular tratadas como informativas. $2 = specs, $3 = run da aceitação da PR.
+comentar_celular_info() {
+  local pr=$1 specs=$2 run=$3
+  comentarios "$pr" | grep -qF "<!-- fila:celular-info-$run -->" && return 0
+  comentar "$pr" "Fila de merge: a aceitação desta PR está vermelha **só no projeto [celular]** — falhas informativas (regra temporária 17/10, vale até $CELULAR_INFO_FIM ou até a aceitação da \`main\` passar no [celular]): \`$(tr '\n' ' ' <<< "$specs")\`. Não bloqueia a publicação. Falha no projeto computador, ou em spec desta PR, continua bloqueando.
+<!-- fila:celular-info-$run -->"
+  [ "$COMENTOU" = 1 ] || return 0
+  printf '%s\n' "\"<!-- fila:celular-info-$run -->\"" >> "$TMPF/c-$pr"
+}
+
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} acc_quar=0 falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
@@ -311,11 +394,36 @@ estado_checks() {
       [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
       if [ -n "$falhos" ]; then
         quar_novos=$(comm -23 <(printf '%s\n' "$falhos") <(quarentena_specs))
+        if [ -n "$quar_novos" ] && baseline_main_ativa; then
+          # o que sobrou também falha na última aceitação da main? (comparação com a main, CEO 17/10)
+          base_main=$(baseline_main_specs)
+          if [ -n "$base_main" ] && [ -z "$(comm -23 <(printf '%s\n' "$quar_novos") <(printf '%s\n' "$base_main"))" ]; then
+            acc_quar=1
+            log "#$n: aceitação vermelha só com falhas que a main também tem ($(tr '\n' ' ' <<< "$quar_novos")) — não bloqueia (CEO 17/10)" >&2
+            comentar_herdadas_main "$n" "$quar_novos" "$acc_run" >&2
+          fi
+        fi
         if [ -z "$quar_novos" ]; then
           acc_quar=1
           log "#$n: aceitação vermelha só com specs em quarentena ($(tr '\n' ' ' <<< "$falhos")) — não bloqueia (CEO 17/10)" >&2
           p1_quarentena "$n" "$falhos" "$acc_run" >&2
         fi
+      fi
+    fi
+  fi
+  # [CELULAR] INFORMATIVO (CEO 17/10, regra temporária): vermelho só no [celular], sem spec da própria PR → não bloqueia
+  if [ "$via" = revisada ] && ! aceitacao_dispensada && [ "$acc_quar" != 1 ] && [ -n "$n" ] && celular_info_janela; then
+    acc_conc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
+    acc_url=$(awk -F'\t' '$1 == "aceitacao" {print $4}' <<< "$linhas" | tail -1)
+    acc_run=$(sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' <<< "$acc_url")
+    if [ "$acc_conc" = failure ] && [ -n "$acc_run" ]; then
+      falhos=$(pos_specs_falhos "$acc_run")
+      proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
+      [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
+      if [ -n "$falhos" ] && [ -z "$(pos_specs_falhos_desktop "$acc_run")" ] && celular_main_falhando; then
+        acc_quar=1
+        log "#$n: aceitação vermelha só no [celular] ($(tr '\n' ' ' <<< "$falhos")) — informativa, não bloqueia (CEO 17/10)" >&2
+        comentar_celular_info "$n" "$falhos" "$acc_run" >&2
       fi
     fi
   fi
