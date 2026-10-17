@@ -21,6 +21,7 @@ interface SigForm { nome: string; documento: string; email: string; telefone: st
 interface Arquivo { id: string; nome_arquivo: string; enviado_em: string }
 interface Envio {
   id: string; versao: number; status: string; criado_em: string; expira_em: string; codigo_verificacao: string; cancelado_motivo: string | null
+  documento_assinado_path: string | null
   erp_contrato_assinatura_signatario: { id: string; nome: string; papel: string; status: string; visualizado_em: string | null; assinado_em: string | null }[]
 }
 interface Resultado { signatario_id: string; nome: string; link: string; email_enviado: boolean; whatsapp: string | null }
@@ -43,13 +44,14 @@ export default function ContratoAssinatura({ contratoId, cliente }: Props) {
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [resultado, setResultado] = useState<Resultado[] | null>(null)
+  const [baixando, setBaixando] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     const [a, e] = await Promise.all([
       supabase.from('erp_contratos_arquivos').select('id, nome_arquivo, enviado_em')
         .eq('contrato_id', contratoId).eq('mime_type', 'application/pdf').order('enviado_em', { ascending: false }),
       supabase.from('erp_contrato_assinatura_envio')
-        .select('id, versao, status, criado_em, expira_em, codigo_verificacao, cancelado_motivo, erp_contrato_assinatura_signatario(id, nome, papel, status, visualizado_em, assinado_em)')
+        .select('id, versao, status, criado_em, expira_em, codigo_verificacao, cancelado_motivo, documento_assinado_path, erp_contrato_assinatura_signatario(id, nome, papel, status, visualizado_em, assinado_em)')
         .eq('contrato_id', contratoId).order('criado_em', { ascending: false }).limit(5),
     ])
     const lista = (a.data as Arquivo[]) ?? []
@@ -94,6 +96,23 @@ export default function ContratoAssinatura({ contratoId, cliente }: Props) {
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Não consegui cancelar'); return }
     await carregar()
+  }
+
+  // etapa 3: baixa o PDF assinado (gera na hora se a geração da última assinatura não tiver saído)
+  async function baixarAssinado(envio: Envio) {
+    setErro(null); setBaixando(envio.id)
+    try {
+      const { data: s } = await supabase.auth.getSession()
+      const r = await fetch('/api/contratos/assinatura/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.session?.access_token ?? ''}` },
+        body: JSON.stringify({ envio_id: envio.id }),
+      })
+      const j = await r.json().catch(() => ({ ok: false, erro: 'Falha de comunicação' }))
+      if (!j.ok) { setErro(j.erro || 'Não consegui baixar o contrato assinado'); return }
+      window.open(j.url as string, '_blank', 'noopener')
+      if (!envio.documento_assinado_path) await carregar()
+    } finally { setBaixando(null) }
   }
 
   async function copiar(link: string) {
@@ -218,6 +237,17 @@ export default function ContratoAssinatura({ contratoId, cliente }: Props) {
                   </span>
                 )}
               </div>
+              {e.status === 'assinado' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                  <button type="button" onClick={() => void baixarAssinado(e)} style={botaoVerdeBotao} disabled={baixando === e.id}>
+                    {baixando === e.id ? 'Preparando…' : e.documento_assinado_path ? 'Baixar contrato assinado' : 'Gerar PDF assinado'}
+                  </button>
+                  {e.documento_assinado_path
+                    ? <AjudaCampo chave="ge.contrato.assinatura.pdf_assinado" rota={ROTA_AJUDA} />
+                    : <AjudaCampo chave="ge.contrato.assinatura.gerar_pdf" rota={ROTA_AJUDA} />}
+                  {e.documento_assinado_path && <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)' }}>também está nos anexos do contrato</span>}
+                </div>
+              )}
               {e.cancelado_motivo && <div style={{ fontSize: 11, color: '#A32D2D', marginTop: 4 }}>Motivo: {e.cancelado_motivo}</div>}
               <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0 }}>
                 {[...e.erp_contrato_assinatura_signatario].sort((a, b) => a.nome.localeCompare(b.nome)).map((s) => (
@@ -245,6 +275,7 @@ const dica: React.CSSProperties = { fontSize: 12, color: 'rgba(61,35,20,0.6)', f
 const caixaErro: React.CSSProperties = { background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, marginTop: 10, fontSize: 12 }
 const botaoOuro: React.CSSProperties = { background: '#C8941A', color: '#3D2314', border: 'none', padding: '9px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }
 const botaoVerde: React.CSSProperties = { background: '#16A34A', color: '#fff', padding: '7px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, textDecoration: 'none' }
+const botaoVerdeBotao: React.CSSProperties = { ...botaoVerde, border: 'none', cursor: 'pointer' }
 const botaoContorno: React.CSSProperties = { background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '7px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer' }
 const botaoTexto: React.CSSProperties = { background: 'none', border: 'none', color: '#6B5D4F', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }
 const botaoTextoVermelho: React.CSSProperties = { ...botaoTexto, color: '#A32D2D' }
