@@ -36,7 +36,7 @@ export default function SaudeCodes() {
       <h3 style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 700 }}>Saúde dos Codes</h3>
       <details style={{ fontSize: 12, color: TXM, marginBottom: 8 }}>
         <summary style={{ cursor: 'pointer' }} aria-label="O que significa a Saúde dos Codes">?</summary>
-        Um cartão por Code ativo. Verde: trabalhando ou com tarefa na fila. Amarelo: ocioso, sem tarefa. Vermelho: TRAVADO — tem tarefa esperando e ninguém a está tratando. “Backlog antigo” são tarefas abertas há muito tempo.
+        Um cartão por Code ativo. Verde: trabalhando ou com tarefa na fila. Amarelo: ocioso, sem tarefa. Vermelho: TRAVADO — só quando há trabalho pendente (tarefa aberta ou PR parada) E o plantão não é atualizado há mais de 30 min. Code que encerrou a sessão normalmente (liberou a vez) não é travado: aparece “na fila” ou “ocioso”. A hora mostrada é a do início da última sessão. “Backlog antigo” são tarefas abertas há muito tempo.
       </details>
       {erro && <div role="alert" style={{ fontSize: 12 }}>Não consegui ler a saúde dos Codes: {erro}</div>}
       {!lista && !erro && <div style={{ fontSize: 12, color: TXM }}>Carregando…</div>}
@@ -54,6 +54,12 @@ export default function SaudeCodes() {
                   {c.lease_ativa ? 'sessão ativa' : 'sem sessão'} · {c.tarefas_recentes} tarefa(s) recente(s)
                   {c.mais_antiga_recente_min != null ? ` · a mais antiga há ${c.mais_antiga_recente_min} min` : ''}
                 </div>
+                {c.ultima_sessao_em && (
+                  <div style={{ fontSize: 12 }}>
+                    última sessão: {new Date(c.ultima_sessao_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    {c.encerrou_normalmente && !c.lease_ativa ? ' · encerrou normalmente' : ''}
+                  </div>
+                )}
                 <div style={{ fontSize: 12, fontWeight: 700 }}>Backlog antigo: {c.backlog_antigo}</div>
                 {c.code === CODE_DONO_ESTEIRA && dono && (
                   <div data-testid="saude-dono-esteira" style={{ fontSize: 12, marginTop: 6, borderTop: `1px solid ${cor.fg}`, paddingTop: 6 }}>
