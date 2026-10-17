@@ -26,20 +26,32 @@ export default function OrcamentoItensPage() {
   const [lista, setLista] = useState<Lista | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+  const [carregandoOrcs, setCarregandoOrcs] = useState(true);
+  const [carregandoLista, setCarregandoLista] = useState(false);
 
   useEffect(() => {
-    if (!empresa) return;
+    if (!empresa) { setCarregandoOrcs(false); return; }
+    setCarregandoOrcs(true);
     void Promise.resolve(supabase.from("erp_orcamentos").select("id,numero,cliente_nome,status").eq("company_id", empresa)
-      .order("created_at", { ascending: false }).limit(100)).then(({ data }) => setOrcs((data as Orc[]) ?? []));
+      .order("created_at", { ascending: false }).limit(100)).then(({ data, error }) => {
+      const l = (data as Orc[]) ?? [];
+      if (error) setMsg({ tipo: "erro", texto: error.message });
+      setOrcs(l);
+      // já abre o orçamento mais recente: a tela nunca fica vazia quando há dado
+      setOrcId((atual) => atual || l[0]?.id || "");
+    }).finally(() => setCarregandoOrcs(false));
   }, [empresa]);
 
   const carregar = useCallback(async (id: string) => {
     if (!id) { setLista(null); return; }
-    const { data, error } = await supabase.rpc("fn_orcamento_item_listar", { p_orcamento_id: id });
-    if (error) { setMsg({ tipo: "erro", texto: error.message }); return; }
-    const l = data as Lista;
-    if (!l.ok) { setMsg({ tipo: "erro", texto: l.erro ?? "Erro ao listar" }); setLista(null); return; }
-    setLista(l);
+    setCarregandoLista(true);
+    try {
+      const { data, error } = await supabase.rpc("fn_orcamento_item_listar", { p_orcamento_id: id });
+      if (error) { setMsg({ tipo: "erro", texto: error.message }); return; }
+      const l = data as Lista;
+      if (!l.ok) { setMsg({ tipo: "erro", texto: l.erro ?? "Erro ao listar" }); setLista(null); return; }
+      setLista(l);
+    } finally { setCarregandoLista(false); }
   }, []);
   useEffect(() => { void carregar(orcId); }, [orcId, carregar]);
 
@@ -75,6 +87,10 @@ export default function OrcamentoItensPage() {
           {orcs.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.cliente_nome ?? "sem cliente"} · {o.status}</option>)}
         </select>
       </label>
+      {carregandoOrcs && <p className="mt-3 text-[14px] text-[#7A6A5E]" data-testid="orc-carregando">Carregando orçamentos…</p>}
+      {!carregandoOrcs && !empresa && <p className="mt-3 text-[14px] text-[#7A6A5E]" data-testid="orc-sem-empresa">Selecione uma empresa (não o consolidado) para ver os itens dos orçamentos.</p>}
+      {!carregandoOrcs && empresa && orcs.length === 0 && <p className="mt-3 text-[14px] text-[#7A6A5E]" data-testid="orc-vazio">Nenhum orçamento nesta empresa ainda. Crie um orçamento no Hub para incluir itens aqui.</p>}
+      {carregandoLista && !lista && <p className="mt-3 text-[14px] text-[#7A6A5E]">Carregando itens…</p>}
       {msg && <p role="status" data-testid="orc-msg" className={`mt-3 rounded-lg border px-3 py-2 text-[14px] ${msg.tipo === "ok" ? "border-[#1baf7a] text-[#1baf7a]" : "border-[#c0392b] text-[#c0392b]"}`}>{msg.texto}</p>}
       {lista && (
         <section className="mt-5">
