@@ -22,3 +22,17 @@ export function empresaDoPedidoRobo(empresaCorpo: string | undefined | null, rot
   const [unica] = [...achadas]
   return UUID.test(unica) ? unica : ''
 }
+
+// Eng. Chefe 17/10 (PDCA do Hub): quando o pedido do robô não traz empresa (fn_auditor_disparar manda só { rota }),
+// o watcher resolve a empresa de DEMONSTRAÇÃO da ÁREA da rota (2º segmento de /dashboard/<area>/...) via
+// demo_por_area. Esta função só devolve a área; a empresa (e o is_demo) é conferida no banco pelo watcher.
+// Num lote, todas as rotas têm de apontar a MESMA área — se divergirem, devolve '' (fail-closed).
+export function areaDaRotaRobo(rotas: string[]): string {
+  const areas = new Set(
+    rotas
+      .map((r) => (r || '').split('#')[0].split('?')[0].replace(/^\/+/, '').split('/')[1] || '')
+      .filter(Boolean),
+  )
+  if (areas.size !== 1) return ''
+  return [...areas][0]
+}

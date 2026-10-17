@@ -17,7 +17,7 @@ import type { Browser } from 'playwright-core';
 import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-truth/executor';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
-import { empresaDoPedidoRobo } from '@/lib/gold/empresaDoPedidoRobo';
+import { empresaDoPedidoRobo, areaDaRotaRobo } from '@/lib/gold/empresaDoPedidoRobo';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -263,7 +263,7 @@ export async function POST(req: Request) {
   // pode receber tela de cliente (LGPD). Sem default PS LTDA e sem id fixo: a permissão é conferida
   // no banco logo após criar o client (fail-closed). Empresa não-demo ⇒ 403 (a rota fica "NÃO AUDITADA").
   // O disparo do banco manda a empresa dentro da rota (?company_id=) — sem isso o run ficava "pending" para sempre.
-  const empresaId = empresaDoPedidoRobo(body.empresa_id, rotas);
+  let empresaId = empresaDoPedidoRobo(body.empresa_id, rotas);
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const SAAS_BASE_URL = process.env.SAAS_BASE_URL || 'https://erp-psgestao.vercel.app';
@@ -278,6 +278,17 @@ export async function POST(req: Request) {
   // Foi exatamente o "Upload falhou: new row violates row-level security policy" do preview do #1246.
   // Por isso o login do bot roda num cliente SEPARADO (authClient), deixando `supabase` intocado.
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+  // Fallback DEMO por área (Eng. Chefe 17/10, PDCA do Hub): o disparo do auditor (fn_auditor_disparar) manda só
+  // { rota }, sem empresa. Em vez de cair no 403 e virar "não auditada", resolve a empresa de DEMONSTRAÇÃO da área
+  // da rota (demo_por_area). Fail-closed: empresaPermitidaParaRobo (is_demo) abaixo continua sendo quem libera —
+  // área sem mapeamento, ou mapeada para empresa não-demo, ainda cai no 403.
+  if (!empresaId) {
+    const area = areaDaRotaRobo(rotas);
+    if (area) {
+      const { data: demoRow } = await supabase.from('demo_por_area').select('company_id').eq('area', area).maybeSingle();
+      if (demoRow?.company_id) empresaId = demoRow.company_id as string;
+    }
+  }
   if (!(await empresaPermitidaParaRobo(supabase, empresaId))) {
     return NextResponse.json({ error: MSG_ROBO_SO_DEMO, empresa_id: empresaId }, { status: 403 });
   }
