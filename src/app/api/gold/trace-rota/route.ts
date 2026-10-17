@@ -13,6 +13,7 @@ import { chromium as playwright } from 'playwright-core';
 import type { Browser } from 'playwright-core';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
+import { watcherSecretValido } from '@/lib/watcherSecret'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,8 +38,7 @@ function normalizar(u: string): string {
 }
 
 export async function POST(req: Request) {
-  const expected = process.env.WATCHER_SECRET;
-  if (!expected || req.headers.get('x-watcher-secret') !== expected) {
+  if (!watcherSecretValido(req.headers.get('x-watcher-secret'))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   let body: Body;
