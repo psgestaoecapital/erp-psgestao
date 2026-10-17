@@ -10,6 +10,8 @@
 CREATE OR REPLACE FUNCTION public.fn_auditor_tela_completo(p_rota text)
  RETURNS jsonb
  LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE i record; g record; v_falta int; v_gaps text[]; v_verdict text;
 BEGIN
@@ -32,3 +34,10 @@ BEGIN
     'dado_bate_banco',i.bate_com_banco,'features_faltando',to_jsonb(i.features_faltando),
     'gold',g.veredito_final,'gaps',to_jsonb(v_gaps),'analisado_em',i.analisado_em);
 END; $function$;
+
+-- Ajuste pedido pelo gilberto-revisor: a definição VIVA é SECURITY DEFINER + SET search_path TO 'public'
+-- (restaurados acima, para o CREATE OR REPLACE não rebaixar a função a SECURITY INVOKER — regressão de
+-- permissão de leitura de system_screens_insights/gold_veredito_triplo). Guarda da função (check_fn_guards):
+-- função só de LEITURA (SELECT), nunca aberta ao anon.
+REVOKE ALL ON FUNCTION public.fn_auditor_tela_completo(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_auditor_tela_completo(text) TO authenticated, service_role;
