@@ -4,7 +4,7 @@
 // Saída (stdout): "ok" ou "duvida:<motivo>".
 import { readFileSync, existsSync } from 'node:fs'
 
-const norm = (s: string) => s.trim().replace(/"/g, '').replace(/^public\./i, '').replace(/\(.*$/s, '').toLowerCase()
+const norm = (s: string) => s.trim().replace(/"/g, '').replace(/^public\./i, '').replace(/\([\s\S]*$/, '').toLowerCase()
 
 export interface Analise { tocados: Set<string>; criados: Set<string>; duvida: string | null; texto: string }
 
