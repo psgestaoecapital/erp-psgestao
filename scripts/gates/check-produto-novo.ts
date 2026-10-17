@@ -1,7 +1,7 @@
 // Gate (#3255 Gean, pedido do CEO): na tela Cadastros › Produtos o "Novo produto" tem de estar à vista — antes era o
 // último de 7 botões numa barra sem quebra de linha (flex-shrink-0) e ficava fora da tela. O produto novo nasce com
 // código sugerido, NCM de 8 números e preço de venda; código repetido vira mensagem clara. Sem rede.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { sugerirProximoCodigo, validarProdutoNovo } from '../../src/lib/produtos/proximoCodigo'
 
 let falhas = 0
@@ -34,7 +34,10 @@ ok(/validarProdutoNovo\(/.test(form) && /sugerirProximoCodigo\(/.test(form), 'fo
 const api = readFileSync('src/app/api/cadastros/produtos/route.ts', 'utf8')
 ok((api.match(/mensagemErro\(error, body\.codigo\)/g) ?? []).length === 2 && /'23505'/.test(api), 'código repetido vira mensagem clara no incluir e no editar')
 
-const mig = readFileSync('supabase/migrations/20261017012020_ajuda_produto_novo.sql', 'utf8')
+// acha a migration pelo nome (sem fixar a versão): a fila de merge pode renumerá-la sozinha
+const migArq = readdirSync('supabase/migrations').find((f) => f.endsWith('_ajuda_produto_novo.sql'))
+ok(!!migArq, 'migration das chaves do "?" presente')
+const mig = migArq ? readFileSync(`supabase/migrations/${migArq}`, 'utf8') : ''
 ok(/'cadastros\.produtos\.novo'/.test(mig) && /'cadastros\.produtos\.salvar_outro'/.test(mig) && /ON CONFLICT \(chave\) DO NOTHING/.test(mig), 'chaves do "?" cadastradas (aditivo)')
 
 if (falhas) { console.error(`check-produto-novo: ${falhas} falha(s)`); process.exit(1) }
