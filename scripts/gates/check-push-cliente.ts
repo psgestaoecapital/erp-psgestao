@@ -12,4 +12,6 @@ ok(/erp_push_assinatura/.test(lib) && /\.delete\(\)/.test(lib), 'grava e remove 
 ok(/ehIos\(\)/.test(lib) && /ios_instalar/.test(lib), 'iOS fora da tela de início recebe orientação')
 ok(/Adicionar à Tela de Início/.test(cmp), 'passo a passo do iOS no cartão')
 ok(/AjudaCampo/.test(cmp), '"?" nos controles (RD-95)')
+const menu = readFileSync('supabase/migrations/20261017210030_push_celular_menu.sql', 'utf8')
+ok(/module_catalog/.test(menu) && /system_screens/.test(menu) && /notificacoes-celular/.test(menu), 'tela no menu e em system_screens')
 if (falhas) process.exit(1)
