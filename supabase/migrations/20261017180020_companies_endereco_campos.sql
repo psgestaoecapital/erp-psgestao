@@ -108,10 +108,15 @@ BEGIN
       v_log := v_partes[1];   -- "RUA BERTILA FRIEDRICH" sem número: só o logradouro
     END IF;
 
+    -- só UF brasileira válida entra em uf_fiscal (fora da lista → fica vazio, RD-51)
+    IF NOT coalesce(v_uf = ANY (ARRAY['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
+                                       'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']), false) THEN
+      v_uf := NULL;
+    END IF;
+
     UPDATE public.companies SET
       cidade                = coalesce(cidade, v_cid),
-      uf_fiscal             = coalesce(uf_fiscal, CASE WHEN v_uf = ANY (ARRAY['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
-                                'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']) THEN v_uf END),
+      uf_fiscal             = coalesce(uf_fiscal, v_uf),
       codigo_ibge_municipio = coalesce(codigo_ibge_municipio, v_ibge),
       cep                   = coalesce(cep, v_cep),
       logradouro            = coalesce(logradouro, v_log),
