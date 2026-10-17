@@ -10,9 +10,11 @@ import { supabase } from '@/lib/supabase'
 import GraficosCodes from './GraficosCodes'
 import SaudeEsteira from './SaudeEsteira'
 import SaudeCodes from './SaudeCodes'
+import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
 import MeuCode from '@/components/dev/MeuCode'
 import { ConectarClaude, EsperandoOkCeo } from '@/components/dev/CanalPs'
 import {
+  AUDITOR_CODE, AUDITOR_LEGENDA, AUDITOR_NOME, estadoAuditor, lerAuditor, type AuditorResumo,
   CODES_LINHA_FINAL, CODES_PRINCIPAIS, CODES_PAINEL, diaMes, diaSP, duracao, emAndamento, emTeste, entregues, estadoSessao, faixa,
   esteira, fila, hora, intervaloDia, quando, resumoCode, ultimaResposta, type StatusCode,
   type Entrega, type Lease, type Mensagem, type Rotina,
@@ -27,7 +29,7 @@ const COLS_MSG = 'id,para,assunto,status,pr_numero,resposta,arquivada,criado_em,
 const FILA_VISIVEL = 6
 
 type MainTeste = { verde: boolean | null; desde: string | null; spec_falha: string | null; run_url: string | null }
-type Dados = { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[]; mainTeste: MainTeste | null; filaTestes: number | null }
+type Dados = { auditor: AuditorResumo | null; entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[]; rotinas: Rotina[]; linhaTempo: Entrega[]; mainTeste: MainTeste | null; filaTestes: number | null }
 
 export default function PainelCodes() {
   const [pode, setPode] = useState<boolean | null>(null)
@@ -51,7 +53,7 @@ export default function PainelCodes() {
   const carregar = useCallback(async () => {
     const desde = new Date(Date.now() - 14 * 864e5).toISOString()
     const { de, ate } = intervaloDia(diaRef.current)
-    const [ent, abertas, resp, leases, rotinas, linha, mt, estat] = await Promise.all([
+    const [ent, abertas, resp, leases, rotinas, linha, mt, estat, aud] = await Promise.all([
       supabase.from('erp_dev_entrega').select(COLS_ENTREGA).gte('ocorrido_em', desde).order('ocorrido_em', { ascending: false }).limit(3000),
       supabase.from('erp_agente_mensagem').select(COLS_MSG).in('para', CODES_PAINEL as string[]).not('arquivada', 'is', true)
         .in('status', ['nova', 'recebida', 'em_andamento']).order('criado_em', { ascending: true }).limit(5000),
@@ -63,12 +65,14 @@ export default function PainelCodes() {
         .order('ocorrido_em', { ascending: false }).limit(500),
       supabase.from('erp_dev_main_teste').select('verde,desde,spec_falha,run_url').eq('id', 1).maybeSingle(),
       supabase.from('erp_dev_esteira_status').select('chave,verde,quantidade'),
+      supabase.rpc('fn_dev_auditor_resumo'),
     ])
     // erp_dev_main_teste pode não existir em ambientes sem a migration: o erro dela não derruba a aba.
     const falha = [ent, abertas, resp, leases, rotinas, linha].find((r) => r.error)?.error
     if (falha) { setErro(falha.message); return }
     setErro(null)
     setDados({
+      auditor: aud.error ? null : lerAuditor(aud.data),
       entregas: (ent.data ?? []) as Entrega[],
       msgs: [...((abertas.data ?? []) as Mensagem[]), ...((resp.data ?? []) as Mensagem[])],
       leases: (leases.data ?? []) as Lease[],
@@ -87,7 +91,7 @@ export default function PainelCodes() {
     let timer: ReturnType<typeof setTimeout> | null = null
     const agendar = (ms = 600) => { if (timer) clearTimeout(timer); timer = setTimeout(() => { void carregar() }, ms) }
     agendar(0)
-    const ch = supabase.channel('dev-codes-painel')
+    const ch = supabase.channel(`dev-codes-painel-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_dev_entrega' }, () => agendar())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_agente_mensagem' }, () => agendar())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'erp_agente_sessao_lease' }, () => agendar())
@@ -140,30 +144,29 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
-      <SaudeEsteira />
-      <SaudeCodes />
-      <GraficosCodes />
-      {est && f && <FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} />}
-      {resumos.length > 0 && <ResumoPorCode itens={resumos} agora={agora} />}
-      {dados && <LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} />}
+      <BlocoSeguro nome="Saúde da esteira"><SaudeEsteira /></BlocoSeguro>
+      <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
+      <BlocoSeguro nome="Gráficos"><GraficosCodes /></BlocoSeguro>
+      {est && f && <BlocoSeguro nome="Faixa da esteira"><FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} /></BlocoSeguro>}
+      {resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}
+      {dados && <BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro>}
 
       {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
-      <MeuCode />
-
-      {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
-      <MeuCode />
-      <EsperandoOkCeo />
+      <BlocoSeguro nome="Meu Code"><MeuCode /></BlocoSeguro>
+      <BlocoSeguro nome="Esperando OK do CEO"><EsperandoOkCeo /></BlocoSeguro>
 
       {dados && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {CODES_PRINCIPAIS.map((c) => <CartaoCode key={c} code={c} dados={dados} agora={agora} />)}
+            {CODES_PRINCIPAIS.map((c) => <BlocoSeguro key={c} nome={c}><CartaoCode code={c} dados={dados} agora={agora} /></BlocoSeguro>)}
           </div>
           <div style={{ fontSize: 12, color: TXM, fontWeight: 600, margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Revisão e Eng. Chefe</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {CODES_LINHA_FINAL.map((c) => <CartaoCode key={c} code={c} dados={dados} agora={agora} compacto />)}
+            {CODES_LINHA_FINAL.map((c) => c === AUDITOR_CODE
+              ? <BlocoSeguro key={c} nome={AUDITOR_NOME}><CartaoAuditor dados={dados} agora={agora} /></BlocoSeguro>
+              : <BlocoSeguro key={c} nome={c}><CartaoCode code={c} dados={dados} agora={agora} compacto /></BlocoSeguro>)}
           </div>
-          <ConectarClaude />
+          <BlocoSeguro nome="Conectar Claude"><ConectarClaude /></BlocoSeguro>
         </>
       )}
     </div>
@@ -220,7 +223,7 @@ function ResumoPorCode({ itens, agora }: { itens: ReturnType<typeof resumoCode>[
             <a key={r.code} href={`#card-code-${r.code}`} data-testid={`resumo-${r.code}`} data-status={r.status}
               onClick={(ev) => { ev.preventDefault(); document.querySelector(`[data-testid="card-code-${r.code}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
               style={{ flex: '0 0 200px', minWidth: 0, textDecoration: 'none', color: ESP, background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 10 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>{r.code}</div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{r.code === AUDITOR_CODE ? AUDITOR_NOME : r.code}</div>
               <div data-testid={`resumo-status-${r.code}`} style={{ display: 'inline-block', margin: '4px 0', fontSize: 11, fontWeight: 700, background: s.bg, color: s.fg, border: `1px solid ${s.fg}`, borderRadius: 999, padding: '1px 8px' }}>
                 {s.ico} {s.nome}{r.desde ? ` desde ${hora(r.desde)}` : ''}
               </div>
@@ -333,6 +336,58 @@ function CartaoCode({ code, dados, agora, compacto }: { code: string; dados: Dad
           </>
         )}
       </Bloco>
+    </div>
+  )
+}
+
+const COR_AUDITOR = {
+  trabalhando: { bg: VERDE_BG, fg: VERDE, nome: 'Auditando agora' },
+  plantao: { bg: '#FEF3C7', fg: '#92400E', nome: 'Em plantão' },
+  dormindo: { bg: OFF, fg: TXM, nome: 'Dormindo' },
+} as const
+const VEREDITOS_AUDITOR = ['OURO', 'BRONZE', 'BLOQUEADO', 'PENDENTE']
+
+function CartaoAuditor({ dados, agora }: { dados: Dados; agora: Date }) {
+  const est = estadoAuditor(dados.leases.find((l) => l.agente === AUDITOR_CODE), agora)
+  const c = COR_AUDITOR[est.estado]
+  const a = dados.auditor
+  const chaves = a ? [...VEREDITOS_AUDITOR, ...Object.keys(a.vereditos).filter((k) => !VEREDITOS_AUDITOR.includes(k))] : []
+  return (
+    <div data-testid={`card-code-${AUDITOR_CODE}`} data-estado={est.estado}
+      style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 14, padding: 14, minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontWeight: 700, fontSize: 15 }}>{AUDITOR_NOME}</span>
+        <span data-testid="auditor-estado" style={{ fontSize: 11, fontWeight: 700, background: c.bg, color: c.fg, border: `1px solid ${c.fg}`, borderRadius: 999, padding: '1px 8px' }}>{c.nome}</span>
+      </div>
+      <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>{AUDITOR_LEGENDA}</div>
+      <Bloco titulo="Última sessão" testid="auditor-sessao">
+        <div style={{ fontSize: 13 }}>{est.estado === 'trabalhando' ? 'sessão ativa agora' : est.ultima ? quando(est.ultima, agora) : 'nenhuma sessão registrada'}</div>
+      </Bloco>
+      <Bloco titulo="Auditado hoje" testid="auditor-hoje">
+        {!a ? <Vazio t="sem dados de auditoria ainda" /> : (
+          <div style={{ fontSize: 13 }}>
+            <b data-testid="auditor-prs">{a.prs_hoje}</b> PRs · <b data-testid="auditor-telas">{a.telas_hoje}</b> telas
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              {chaves.map((k) => (
+                <span key={k} data-testid={`auditor-veredito-${k}`} style={{ fontSize: 11, border: `1px solid ${BD}`, borderRadius: 999, padding: '1px 8px' }}>{k} {a.vereditos[k] ?? 0}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </Bloco>
+      <Bloco titulo="Último relatório" testid="auditor-ultimo">
+        {a?.ultimo ? (
+          <div style={{ fontSize: 13 }}>
+            {quando(a.ultimo.quando, agora)}{' · '}
+            {a.ultimo.rota ? <a href={a.ultimo.rota} style={{ color: DOU, fontWeight: 700, textDecoration: 'none' }}>{a.ultimo.rota}</a> : (a.ultimo.screen_id ?? 'tela não identificada')}
+          </div>
+        ) : <Vazio t="nenhuma auditoria registrada" />}
+      </Bloco>
+      <details style={{ fontSize: 12, marginTop: 8 }}>
+        <summary style={{ cursor: 'pointer' }} aria-label="O que é o Code-Auditor">?</summary>
+        Auditor de plantão: confere no dado, sem supor (RD-38), se as PRs e telas publicadas respeitam a RD-97 (nenhuma mudança pode gerar instabilidade,
+        perda de dado ou regressão). Os vereditos vêm da auditoria Gold (OURO, BRONZE, BLOQUEADO, PENDENTE). "Dormindo" = nenhuma sessão nas últimas 24 h.
+      </details>
     </div>
   )
 }
