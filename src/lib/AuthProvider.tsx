@@ -162,8 +162,8 @@ function SessaoExpirada() {
     setIndo(true)
     try {
       const retorno = encodeURIComponent(window.location.pathname + window.location.search)
-      window.location.assign(`/login?returnTo=${retorno}`)
-    } catch { try { window.location.assign('/login') } catch { /* noop */ } }
+      window.location.assign(`/?returnTo=${retorno}`)
+    } catch { try { window.location.assign('/') } catch { /* noop */ } }
   }
   // Redireciona sozinho após um instante (o usuário também pode tocar no botão).
   useEffect(() => {
