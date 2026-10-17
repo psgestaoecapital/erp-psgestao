@@ -10,7 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
-import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
+import { Receipt } from 'lucide-react'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -30,6 +30,12 @@ const STATUS: Record<string, { l: string; cor: string }> = {
   recusada: { l: 'Recusada', cor: '#F4D6D6' },
 }
 const stCfg = (v: string) => STATUS[v] ?? { l: v, cor: OFFWHITE }
+// etapa do PEDIDO de contrato (erp_contratos.status) para o botão "Ver pedido de contrato"
+const ETAPA_CONTRATO: Record<string, string> = {
+  solicitado: 'solicitado', em_elaboracao: 'em elaboração', aguardando_info: 'aguardando info',
+  em_revisao: 'em revisão', aguardando_aprovacao: 'aguardando aprovação', ativo: 'ativo',
+}
+const etapaContrato = (s: string | null) => (s ? ETAPA_CONTRATO[s] ?? s : 'pedido')
 
 // PM-1 PR-D · id = linha estável em agency_proposta_itens (a fonte); preco_catalogo p/ o selo "preço ajustado"
 type Item = { id?: string | null; tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number; servico_id?: string | null; entregaveis?: string[]; periodicidade?: string | null; preco_catalogo?: number | null }
@@ -81,9 +87,8 @@ export default function PropostasPage() {
 
   // destaque de uma proposta vinda do card do lead (?proposta=<id>)
   const [destaque, setDestaque] = useState<string | null>(null)
-  // #59 PDOIS parte 2: solicitar elaboração de contrato a partir de uma proposta
-  const [solicitarProp, setSolicitarProp] = useState<{ id: string; label: string } | null>(null)
-  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null }>>({}) // #59 · contrato de fee por proposta_id
+  // CEO 14/10 (Pdois) · pedido de contrato por proposta (criado na aprovação). O botão vira "Ver pedido de contrato".
+  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null; status: string | null }>>({})
   // PM-2 · veio do CRM (?from=leads): abre a proposta DIRETO no editor e, ao salvar, volta ao kanban
   const [voltarCrm, setVoltarCrm] = useState(false)
   const abriuDestaque = useRef(false)
@@ -104,15 +109,15 @@ export default function PropostasPage() {
     // #59 PDOIS · contrato de fee ligado à proposta (erp_contratos.proposta_id). Se existe, o botão vira
     // "Ver contrato" (abre a aba Fee no contrato). Mapa por proposta_id (1º = mais recente).
     const pIds = propRows.map((x) => x.id)
-    const fm: Record<string, { id: string; numero: string | null }> = {}
+    const fm: Record<string, { id: string; numero: string | null; status: string | null }> = {}
     if (pIds.length) {
       const { data: cts } = await supabase.from('erp_contratos')
         .select('id, numero, status, proposta_id, created_at')
         .eq('company_id', empresa).in('proposta_id', pIds)
         .in('status', ['solicitado', 'em_elaboracao', 'aguardando_info', 'em_revisao', 'aguardando_aprovacao', 'ativo'])
         .order('created_at', { ascending: false })
-      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null }[]) {
-        if (ct.proposta_id && !fm[ct.proposta_id]) fm[ct.proposta_id] = { id: ct.id, numero: ct.numero }
+      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null; status: string | null }[]) {
+        if (ct.proposta_id && !fm[ct.proposta_id]) fm[ct.proposta_id] = { id: ct.id, numero: ct.numero, status: ct.status }
       }
     }
     setFeeMap(fm)
@@ -356,7 +361,7 @@ export default function PropostasPage() {
     const j = data as { ok?: boolean; erro?: string; contrato_numero?: string } | null
     if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
     setApr(null)
-    setToast(j.contrato_numero ? `APROVADA · contrato ${j.contrato_numero} criado na GE` : 'Proposta APROVADA.')
+    setToast(j.contrato_numero ? `APROVADA · pedido de contrato ${j.contrato_numero} criado — o financeiro vai elaborar.` : 'Proposta APROVADA.')
     void carregar()
   }
 
@@ -407,11 +412,11 @@ export default function PropostasPage() {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button onClick={() => abrirEditar(p)} style={btnSec}>✏️ Editar</button>
                       <button onClick={() => void excluir(p)} style={{ ...btnSec, borderColor: RED, color: RED }}>🗑️ Excluir</button>
-                      {/* #59 PDOIS · contrato de fee: se já existe (por proposta) vira "Ver contrato"; senão
-                          "Solicitar contrato" — em DESTAQUE quando a proposta está aprovada. */}
-                      {feeMap[p.id]
-                        ? <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}>🧾 Ver contrato</button>
-                        : <button onClick={() => setSolicitarProp({ id: p.id, label: p.numero ? `nº ${p.numero}` : p.titulo })} style={p.status === 'aprovada' ? btnGanhar : btnSec}>🧾 Solicitar contrato</button>}
+                      {/* CEO 14/10 (Pdois) · UM caminho só: a aprovação cria o PEDIDO de contrato. Se já existe,
+                          o botão mostra "Ver pedido de contrato" com a etapa atual. Não há mais "Solicitar contrato" aqui. */}
+                      {feeMap[p.id] && (
+                        <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}><Receipt size={14} strokeWidth={1.5} style={{ verticalAlign: 'middle', marginRight: 4 }} />Ver pedido de contrato · {etapaContrato(feeMap[p.id]!.status)}</button>
+                      )}
                       {p.status === 'aprovada' && p.contrato_id && (
                         <a href="/dashboard/pm/contratos" style={{ ...btnSec, textDecoration: 'none' }}>→ Contrato recorrente</a>
                       )}
@@ -443,7 +448,7 @@ export default function PropostasPage() {
                 {['rascunho', 'enviada'].includes(propEdit.status) && <button onClick={() => compartilhar(propEdit)} style={btnSec}>🟢 WhatsApp</button>}
                 {['rascunho', 'enviada'].includes(propEdit.status) && <button disabled={busy} onClick={() => { setNovo(false); abrirAprovar(propEdit) }} style={btnGanhar}>✓ Aprovar</button>}
                 {['rascunho', 'enviada'].includes(propEdit.status) && <button onClick={() => { void mudarStatus(propEdit, 'recusada'); setNovo(false) }} style={btnPerder}>✕ Recusar</button>}
-                {propEdit.status === 'aprovada' && propEdit.contrato_id && <a href="/dashboard/pm/contratos" style={{ ...btnGanhar, textDecoration: 'none' }}>→ Ver contrato</a>}
+                {propEdit.status === 'aprovada' && propEdit.contrato_id && <a href="/dashboard/pm/contratos" style={{ ...btnGanhar, textDecoration: 'none' }}>→ Ver pedido de contrato</a>}
               </div>
             )}
 
@@ -618,11 +623,6 @@ export default function PropostasPage() {
         </div>
       )}
 
-      {solicitarProp && empresa && (
-        <SolicitarContratoModal companyId={empresa} propostaId={solicitarProp.id} propostaLabel={solicitarProp.label}
-          onClose={() => setSolicitarProp(null)}
-          onSolicitado={(r) => { setSolicitarProp(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.${r.aviso ? ' ' + r.aviso : ''}`); void carregar() /* #59 · recarrega p/ o botão virar "Ver contrato" */ }} />
-      )}
 
       {toast && <div style={toastStyle}>{toast}</div>}
     </div>
