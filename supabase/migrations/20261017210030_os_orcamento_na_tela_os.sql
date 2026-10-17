@@ -231,6 +231,10 @@ BEGIN
   RETURN jsonb_build_object('ok',true,'os_id',v_os.id,'status',v_os.status,'total',v_os.total);
 END; $function$;
 
+-- SECURITY DEFINER: só usuário logado e o canal de serviço; nunca anon/PUBLIC (check_fn_guards).
+REVOKE ALL ON FUNCTION public.fn_os_salvar(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_os_salvar(uuid, jsonb) TO authenticated, service_role;
+
 -- 5) RD-95: ajuda do novo campo "É orçamento?" na tela de Ordens de Serviço.
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
 SELECT v.chave, 'Nova Ordem de Serviço', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem,
