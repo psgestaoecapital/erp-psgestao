@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
+import { Receipt } from 'lucide-react'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -414,7 +415,7 @@ export default function PropostasPage() {
                       {/* CEO 14/10 (Pdois) · UM caminho só: a aprovação cria o PEDIDO de contrato. Se já existe,
                           o botão mostra "Ver pedido de contrato" com a etapa atual. Não há mais "Solicitar contrato" aqui. */}
                       {feeMap[p.id] && (
-                        <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}>🧾 Ver pedido de contrato · {etapaContrato(feeMap[p.id]!.status)}</button>
+                        <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}><Receipt size={14} strokeWidth={1.5} style={{ verticalAlign: 'middle', marginRight: 4 }} />Ver pedido de contrato · {etapaContrato(feeMap[p.id]!.status)}</button>
                       )}
                       {p.status === 'aprovada' && p.contrato_id && (
                         <a href="/dashboard/pm/contratos" style={{ ...btnSec, textDecoration: 'none' }}>→ Contrato recorrente</a>

@@ -9,7 +9,7 @@
 --
 -- CREATE OR REPLACE da MESMA assinatura (financeiro/aprovação) — via revisada.
 
-CREATE OR REPLACE FUNCTION public.fn_agency_proposta_aprovar(p_proposta_id uuid, p_fee_mensal numeric DEFAULT NULL::numeric, p_dia_vencimento integer DEFAULT 10, p_periodicidade text DEFAULT 'mensal'::text, p_data_inicio date DEFAULT NULL::date, p_comissao_percentual numeric DEFAULT 0, p_comissao_tipo text DEFAULT 'unica'::text, p_comissao_base text DEFAULT 'contrato'::text)
+CREATE OR REPLACE FUNCTION public.fn_agency_proposta_aprovar(p_proposta_id uuid, p_fee_mensal numeric DEFAULT NULL::numeric, p_dia_vencimento int DEFAULT 10, p_periodicidade text DEFAULT 'mensal'::text, p_data_inicio date DEFAULT NULL::date, p_comissao_percentual numeric DEFAULT 0, p_comissao_tipo text DEFAULT 'unica'::text, p_comissao_base text DEFAULT 'contrato'::text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -109,5 +109,5 @@ BEGIN
 END $function$;
 
 -- SECURITY DEFINER: só usuário logado (a tela chama como authenticated) e o canal de serviço executam; nunca anon/PUBLIC.
-REVOKE ALL ON FUNCTION public.fn_agency_proposta_aprovar(uuid, numeric, integer, text, date, numeric, text, text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_agency_proposta_aprovar(uuid, numeric, integer, text, date, numeric, text, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_agency_proposta_aprovar(uuid, numeric, int, text, date, numeric, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_proposta_aprovar(uuid, numeric, int, text, date, numeric, text, text) TO authenticated, service_role;
