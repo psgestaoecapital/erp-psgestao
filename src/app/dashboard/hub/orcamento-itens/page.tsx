@@ -82,6 +82,16 @@ export default function OrcamentoItensPage() {
       {!empresa && <p className="mt-3 text-[14px] text-[#7A6A5E]" data-testid="orc-sem-empresa">Escolha uma empresa no seletor do topo para ver os orçamentos.</p>}
       {empresa && carregandoOrcs && <p className="mt-3 text-[14px] text-[#7A6A5E]">Carregando orçamentos…</p>}
       {empresa && !carregandoOrcs && orcs.length === 0 && <p className="mt-3 text-[14px] text-[#7A6A5E]" data-testid="orc-vazio">Esta empresa ainda não tem orçamentos. Crie um em Orçamentos para lançar os itens aqui.</p>}
+      {empresa && !carregandoOrcs && orcs.length > 0 && !orcId && (
+        <section className="mt-5 rounded-xl border border-[#E8E2D6] bg-white p-4 text-[14px] text-[#7A6A5E]" data-testid="orc-orientacao">
+          <p className="font-medium text-[#2A1A10]">Como lançar os itens</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
+            <li>Escolha o orçamento na lista acima ({orcs.length} disponíveis nesta empresa).</li>
+            <li>Toque em “Incluir item” para lançar serviços ou materiais, com quantidade, preço e desconto.</li>
+            <li>O total do orçamento é recalculado a cada mudança; depois do escopo congelado, os itens ficam somente para consulta.</li>
+          </ol>
+        </section>
+      )}
       {msg && <p role="status" data-testid="orc-msg" className={`mt-3 rounded-lg border px-3 py-2 text-[14px] ${msg.tipo === "ok" ? "border-[#1baf7a] text-[#1baf7a]" : "border-[#c0392b] text-[#c0392b]"}`}>{msg.texto}</p>}
       {lista && (
         <section className="mt-5">
