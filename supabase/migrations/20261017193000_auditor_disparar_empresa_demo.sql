@@ -108,5 +108,7 @@ $function$;
 -- ci-sem-guarda: fn_auditor_disparar — não grava dado de cliente; só cadastra/telemetria em system_screens
 --   (catálogo de telas, tabela de infra sem company_id) e dispara a foto da DEMO; chamada só por
 --   service_role (rotina do auditor) / fn_auditor_matriz_disparar. Não há "empresa do registro" a conferir.
-REVOKE ALL ON FUNCTION public.fn_auditor_disparar(text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_auditor_disparar(text) TO authenticated, service_role;
+-- ACL preservado: a função viva só tem EXECUTE para postgres/service_role (pg_proc.proacl). Não ampliar
+--   para authenticated (pedido do gilberto-revisor em #2788): manter só service_role.
+REVOKE ALL ON FUNCTION public.fn_auditor_disparar(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_auditor_disparar(text) TO service_role;
