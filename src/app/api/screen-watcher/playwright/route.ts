@@ -244,6 +244,26 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
   };
 }
 
+// RD-69/70: quando o pedido não traz empresa, descobre a empresa de DEMONSTRAÇÃO da área da rota
+// (fn_resolver_area_da_rota → fn_demo_da_area). Num lote, todas as rotas têm de resolver a MESMA DEMO;
+// se divergirem ou alguma não tiver DEMO, devolve '' (fail-closed — a checagem is_demo seguinte recusa).
+// NÃO libera nada por si só: só sugere um candidato is_demo; quem decide é empresaPermitidaParaRobo.
+async function resolverEmpresaDemoDaRota(sb: SupabaseClient, rotas: string[]): Promise<string> {
+  const bases = Array.from(new Set(rotas.map((r) => r.split('?')[0].split('#')[0]).filter(Boolean)));
+  if (bases.length === 0) return '';
+  const demos = new Set<string>();
+  for (const base of bases) {
+    const { data: area, error: areaErr } = await sb.rpc('fn_resolver_area_da_rota', { p_pathname: base });
+    if (areaErr) return '';
+    const areaId = Array.isArray(area) ? area[0]?.area_id : (area as { area_id?: string } | null)?.area_id;
+    if (!areaId) return '';
+    const { data: demo, error: demoErr } = await sb.rpc('fn_demo_da_area', { p_area: areaId });
+    if (demoErr || !demo) return '';
+    demos.add(String(demo));
+  }
+  return demos.size === 1 ? [...demos][0] : '';
+}
+
 export async function POST(req: Request) {
   const expected = process.env.WATCHER_SECRET;
   if (!expected || req.headers.get('x-watcher-secret') !== expected) {
@@ -263,7 +283,7 @@ export async function POST(req: Request) {
   // pode receber tela de cliente (LGPD). Sem default PS LTDA e sem id fixo: a permissão é conferida
   // no banco logo após criar o client (fail-closed). Empresa não-demo ⇒ 403 (a rota fica "NÃO AUDITADA").
   // O disparo do banco manda a empresa dentro da rota (?company_id=) — sem isso o run ficava "pending" para sempre.
-  const empresaId = empresaDoPedidoRobo(body.empresa_id, rotas);
+  let empresaId = empresaDoPedidoRobo(body.empresa_id, rotas);
   const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const SAAS_BASE_URL = process.env.SAAS_BASE_URL || 'https://erp-psgestao.vercel.app';
@@ -278,6 +298,13 @@ export async function POST(req: Request) {
   // Foi exatamente o "Upload falhou: new row violates row-level security policy" do preview do #1246.
   // Por isso o login do bot roda num cliente SEPARADO (authClient), deixando `supabase` intocado.
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+  // Sem empresa no pedido (corpo nem ?company_id= na rota), resolve a DEMO da área da(s) rota(s).
+  // Antes, o disparo que mandava só { rota } (ex.: fn_auditor_disparar, crons de auditoria) caía no 403
+  // "só demonstração" e o run ficava pendente para sempre — nenhuma tela era fotografada. Fail-closed:
+  // se não achar DEMO, empresaId segue vazio e a checagem is_demo logo abaixo recusa (RD-69/70, LGPD).
+  if (!empresaId) {
+    empresaId = await resolverEmpresaDemoDaRota(supabase, rotas);
+  }
   if (!(await empresaPermitidaParaRobo(supabase, empresaId))) {
     return NextResponse.json({ error: MSG_ROBO_SO_DEMO, empresa_id: empresaId }, { status: 403 });
   }
