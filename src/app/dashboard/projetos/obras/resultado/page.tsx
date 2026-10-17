@@ -16,13 +16,13 @@ type Linha = {
   obra_id: string; numero: string; nome: string; status: string
   custo_previsto: number; receita_prevista: number; receita_servico: number; receita_material: number
   custo_material: number; custo_viagens: number; margem_realizada: number
-  custo_mao_obra?: number
+  custo_mao_obra?: number; custo_rateio?: number; margem_alocada?: number
 }
 
 const n = (v: unknown) => Number(v ?? 0)
 const receita = (l: Linha) => n(l.receita_servico) + n(l.receita_material)
-const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens) + n(l.custo_mao_obra)
-const margem = (l: Linha) => n(l.margem_realizada) - n(l.custo_mao_obra)
+const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens) + n(l.custo_mao_obra) + n(l.custo_rateio)
+const margem = (l: Linha) => l.margem_alocada ?? n(l.margem_realizada)
 
 export default function ResultadoObrasPage() {
   const { companyIds } = useCompanyIds()
@@ -34,15 +34,15 @@ export default function ResultadoObrasPage() {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
     try {
-      const { data, error } = await comPrazo(
-        async () => await supabase.from('v_obra_resultado').select('*').in('company_id', companyIds).order('numero', { ascending: false }),
-        { ms: 8000, tentativas: 1, label: 'v_obra_resultado' },
+      // Fonte única do custo por obra: v_obra_resultado_alocado (#2687). Sem ela (ainda não publicada), cai para a v_obra_resultado.
+      const ler = (view: string) => comPrazo(
+        async () => await supabase.from(view).select('*').in('company_id', companyIds).order('numero', { ascending: false }),
+        { ms: 8000, tentativas: 1, label: view },
       )
-      if (error) { setErro(error.message); return }
-      // Mão de obra alocada (horas apontadas × custo/h): falha aqui não derruba a tela, a coluna fica em zero.
-      const mo = await supabase.rpc('fn_obras_custo_mao_obra', { p_company_ids: companyIds })
-      const porObra = new Map<string, number>(((mo.data ?? []) as { obra_id: string; custo_mao_obra: number }[]).map(x => [x.obra_id, n(x.custo_mao_obra)]))
-      setLinhas(((data ?? []) as Linha[]).map(l => ({ ...l, custo_mao_obra: porObra.get(l.obra_id) ?? 0 })))
+      let r = await ler('v_obra_resultado_alocado')
+      if (r.error) r = await ler('v_obra_resultado')
+      if (r.error) { setErro(r.error.message); return }
+      setLinhas((r.data ?? []) as Linha[])
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])

@@ -10,7 +10,7 @@ ok(/\.in\('company_id', companyIds\)/.test(src), 'filtra por empresa selecionada
 ok(!/\.(insert|update|delete|upsert)\(/.test(src), 'só leitura')
 ok(/resultado-vazio/.test(src) && /role="alert"/.test(src), 'estados vazio e erro')
 ok(/resultado-consolidado/.test(src), 'linha consolidada')
-ok(/fn_obras_custo_mao_obra/.test(src) && /projetos\.resultado_obra\.mao_obra/.test(src), 'coluna mão de obra (RPC + "?")')
+ok(/v_obra_resultado_alocado/.test(src) && /projetos\.resultado_obra\.mao_obra/.test(src), 'coluna mão de obra (RPC + "?")')
 ok(/Baixar Excel/.test(src), 'exporta Excel (CSV)')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
