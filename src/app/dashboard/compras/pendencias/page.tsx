@@ -10,6 +10,7 @@ import { ShoppingCart, Loader2, Paperclip, FileText, ExternalLink } from 'lucide
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { BotaoOrdemFornecimento } from '@/components/compras/OrdemFornecimento'
 import { FILTROS_PENDENCIA, SITUACAO_ROTULO, filtrarPorSituacao, linkCotacao, type Situacao } from '@/lib/compras/pendencias'
 
 const BUCKET = 'compras-orcamentos'
@@ -142,6 +143,7 @@ export default function PendenciasCompraPage() {
                   <p className="flex flex-wrap items-center gap-1 border-t border-gray-100 px-4 py-2 text-sm text-emerald-800">
                     Pedido {p.cotacao.compra.numero ?? ''} — {p.cotacao.compra.fornecedor_nome ?? '—'} — {brl(p.cotacao.compra.total)}
                     <AjudaCampo chave="compras.pend.pedido" />
+                    <span className="ml-auto"><BotaoOrdemFornecimento compraId={p.cotacao.compra.id} /></span>
                   </p>
                 )}
 
