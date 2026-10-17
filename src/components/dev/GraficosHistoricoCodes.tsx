@@ -31,6 +31,7 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
   const [snaps, setSnaps] = useState<Snapshot[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [chamados, setChamados] = useState<{ dia: string; ps: number; cliente: number; automaticos: number }[]>([])
+  const [sep, setSep] = useState<{ cAb: number; cPs: number; cCli: number; aAb: number; aCorr: number; aOk: number } | null>(null)
   const [espera, setEspera] = useState<{ esperando: number; antigo: number } | null>(null)
 
   const carregar = useCallback(async () => {
@@ -43,6 +44,9 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
     // Bloco isolado: erro aqui não derruba os outros gráficos (RD-97)
     const ch = await supabase.rpc('fn_dev_codes_chamados_ps_x_cliente', { p_dias: PERIODO_DIAS[periodo] })
     if (!ch.error) setChamados(((ch.data ?? []) as { dia: string; resolvidos_ps: number; confirmados_cliente: number; automaticos: number }[]).map((r) => ({ dia: r.dia.slice(8, 10) + '/' + r.dia.slice(5, 7), ps: r.resolvidos_ps, cliente: r.confirmados_cliente, automaticos: r.automaticos })))
+    const sx = await supabase.rpc('fn_dev_codes_chamados_cliente_x_auditor')
+    const s0 = (sx.data ?? [])[0] as { cliente_abertos: number; cliente_esperando_ps: number; cliente_esperando_cliente: number; auditor_abertos: number; auditor_em_correcao: number; auditor_corrigidos: number } | undefined
+    if (!sx.error && s0) setSep({ cAb: s0.cliente_abertos, cPs: s0.cliente_esperando_ps, cCli: s0.cliente_esperando_cliente, aAb: s0.auditor_abertos, aCorr: s0.auditor_em_correcao, aOk: s0.auditor_corrigidos })
     const es = await supabase.rpc('fn_dev_codes_chamados_esperando_cliente')
     const e0 = (es.data ?? [])[0] as { esperando: number; mais_antigo_dias: number } | undefined
     if (!es.error && e0) setEspera({ esperando: e0.esperando, antigo: e0.mais_antigo_dias })
@@ -107,6 +111,26 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
           </BarChart>
         </ResponsiveContainer>
       </Cartao>
+      {sep && (
+        <>
+          <section data-testid="chamados-clientes" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, minWidth: 0 }}>
+            <header style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: ESP }}>Chamados de clientes</h3>
+              <AjudaCampo chave="dev.codes.graficos.chamados_clientes" rota={ROTA} />
+            </header>
+            <div style={{ fontSize: 28, fontWeight: 700, color: ESP, marginTop: 6 }}>{sep.cAb}</div>
+            <div style={{ fontSize: 12, color: TXM }}>abertos · {sep.cPs} esperando a PS · {sep.cCli} esperando o cliente</div>
+          </section>
+          <section data-testid="achados-auditor" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, minWidth: 0 }}>
+            <header style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: ESP }}>Achados do auditor (PDCA do Hub)</h3>
+              <AjudaCampo chave="dev.codes.graficos.achados_auditor" rota={ROTA} />
+            </header>
+            <div style={{ fontSize: 28, fontWeight: 700, color: ESP, marginTop: 6 }}>{sep.aAb}</div>
+            <div style={{ fontSize: 12, color: TXM }}>abertos · {sep.aCorr} em correção · {sep.aOk} corrigidos (30 dias)</div>
+          </section>
+        </>
+      )}
       {espera && (
         <section data-testid="chamados-esperando-cliente" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, minWidth: 0 }}>
           <header style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
