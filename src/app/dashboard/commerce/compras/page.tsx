@@ -21,6 +21,7 @@ import {
   CheckCircle2, Send, Award, Truck, MessageCircle,
 } from 'lucide-react'
 import CotacaoWhatsAppModal from '@/components/comum/CotacaoWhatsAppModal'
+import OrdemFornecimentoCard, { type CondicoesOF } from '@/components/compras/OrdemFornecimento'
 
 export const dynamic = 'force-dynamic'
 
@@ -122,6 +123,11 @@ type Compra = {
   nf_numero: string | null
   estoque_baixado: boolean | null
   titulos_gerados: boolean | null
+  frete_tipo?: string | null
+  transportadora?: string | null
+  condicao_pagamento?: string | null
+  forma_pagamento?: string | null
+  observacoes?: string | null
 }
 
 type Fornecedor = {
@@ -409,6 +415,10 @@ function ComprasInner() {
           onAvancar={(novoStatus) => avancarCompra(compSel.id, novoStatus)}
           onReceber={() => receberCompra(compSel.id)}
           onGerarTitulos={() => gerarTitulosCompra(compSel.id)}
+          onCondicoes={(cond) => {
+            setCompras((prev) => prev.map((c) => (c.id === compSel.id ? { ...c, ...cond } : c)))
+            setCompSel({ ...compSel, ...cond })
+          }}
         />
       )}
 
@@ -644,7 +654,7 @@ function DrawerCotacao({ cotacao, onClose, onEnviar, onCancelar, onCompare }: {
   )
 }
 
-function DrawerCompra({ compra, cotacaoOrigem, onClose, onAvancar, onReceber, onGerarTitulos }: { compra: Compra; cotacaoOrigem: Cotacao | null | undefined; onClose: () => void; onAvancar: (s: string) => void; onReceber: () => void; onGerarTitulos: () => void }) {
+function DrawerCompra({ compra, cotacaoOrigem, onClose, onAvancar, onReceber, onGerarTitulos, onCondicoes }: { compra: Compra; cotacaoOrigem: Cotacao | null | undefined; onClose: () => void; onAvancar: (s: string) => void; onReceber: () => void; onGerarTitulos: () => void; onCondicoes: (c: CondicoesOF) => void }) {
   const [itens, setItens] = useState<{ id: string; produto_nome: string; produto_codigo: string | null; unidade: string | null; quantidade: number; quantidade_recebida: number | null; preco_unitario: number | null; subtotal: number | null }[]>([])
 
   useEffect(() => {
@@ -704,6 +714,17 @@ function DrawerCompra({ compra, cotacaoOrigem, onClose, onAvancar, onReceber, on
               <strong style={{ color: C.gold }}>{fmtBRL(compra.total)}</strong>
             </div>
           </Card>
+
+          <OrdemFornecimentoCard
+            key={compra.id}
+            compraId={compra.id}
+            inicial={{
+              data_prevista: compra.data_prevista, frete_tipo: compra.frete_tipo ?? null, transportadora: compra.transportadora ?? null,
+              condicao_pagamento: compra.condicao_pagamento ?? null, forma_pagamento: compra.forma_pagamento ?? null, observacoes: compra.observacoes ?? null,
+            }}
+            editavel={!compra.titulos_gerados && !['finalizada', 'cancelada'].includes(compra.status)}
+            onSalvo={onCondicoes}
+          />
 
           <Card titulo="Recebimento & NF">
             {compra.nf_numero && (
