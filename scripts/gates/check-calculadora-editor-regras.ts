@@ -5,9 +5,9 @@ import { regrasReferencia, type SistemaCalc } from '../../src/lib/calculadora/re
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
-const sql = ['20261014170005_calculadora_regras_ajuda', '20261014190205_calculadora_regras_ajuda_aramado', '20261014200005_calculadora_parede_la_ajuda']
+const sql = ['20261014170005_calculadora_regras_ajuda', '20261014190205_calculadora_regras_ajuda_aramado', '20261014200005_calculadora_parede_la_ajuda', '20261015000005_calculadora_revestimento_colado', '20261017000005_calculadora_revestimento_estruturado']
   .map(n => readFileSync(`supabase/migrations/${n}.sql`, 'utf8')).join('\n')
-for (const s of ['parede', 'forro_f530', 'forro_aramado'] as SistemaCalc[]) {
+for (const s of ['parede', 'forro_f530', 'forro_aramado', 'revestimento_colado', 'revestimento_estruturado'] as SistemaCalc[]) {
   const ref = regrasReferencia(s)
   const vals: Record<string, string> = {}
   for (const c of CAMPOS_REGRA[s]) {
@@ -22,5 +22,5 @@ for (const s of ['parede', 'forro_f530', 'forro_aramado'] as SistemaCalc[]) {
   ok(!montarRegras(ref, { ...vals, perda: '-1' }, s).ok && !montarRegras(ref, { ...vals, perda: '' }, s).ok && !montarRegras(ref, { ...vals, perda: '0' }, s).ok, `${s}: negativo, vazio e zero recusados`)
 }
 for (const k of ['validada', 'salvar', 'restaurar']) ok(sql.includes(`'projetos.calculadora.regra.${k}'`), `"?" de ${k} na migration`)
-ok(!/\b(UPDATE|DELETE|DROP|CREATE OR REPLACE)\b/i.test(sql), 'migration só insere ajuda')
+ok(!/\b(UPDATE|DELETE|DROP|CREATE OR REPLACE)\b/i.test(sql.replace(/CREATE OR REPLACE FUNCTION public\.fn_calc_regra_salvar[\s\S]*?GRANT EXECUTE[^;]*;/g, '').replace(/DROP CONSTRAINT/g, '')), 'migration só insere ajuda (fora a guarda de sistemas)')
 if (falhas) process.exit(1)
