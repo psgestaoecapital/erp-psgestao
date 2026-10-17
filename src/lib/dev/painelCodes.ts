@@ -203,3 +203,33 @@ export function resumoCode(p: { code: string; entregas: Entrega[]; msgs: Mensage
     rotinaLigada: p.rotinas?.find((r) => r.agente === code)?.aciona ?? null,
   }
 }
+
+// ── Code-Auditor (CEO 16/10): o cartão do eng-chefe-auto mostra a atividade de auditoria, não fila/teste ─────────────
+export const AUDITOR_CODE = 'eng-chefe-auto'
+export const AUDITOR_NOME = 'Code-Auditor'
+export const AUDITOR_LEGENDA = 'Auditor de plantão · guardião da RD-97'
+/** Estado "Dormindo" só se não houve sessão nas últimas 24 h; senão ativo (sessão corrente) ou "Em plantão". */
+export function estadoAuditor(lease: Lease | undefined, agora: Date): { estado: 'trabalhando' | 'plantao' | 'dormindo'; ultima: Date | null } {
+  const s = estadoSessao(lease, agora)
+  if (s.ativa) return { estado: 'trabalhando', ultima: agora }
+  const ultima = s.paradoDesde
+  if (ultima && agora.getTime() - ultima.getTime() < DIA) return { estado: 'plantao', ultima }
+  return { estado: 'dormindo', ultima }
+}
+export type AuditorResumo = {
+  prs_hoje: number; telas_hoje: number; vereditos: Record<string, number>
+  ultimo: { quando: string; rota: string | null; screen_id: string | null } | null
+}
+/** Dado do banco nunca derruba a tela: qualquer formato inesperado vira zeros. */
+export function lerAuditor(raw: unknown): AuditorResumo | null {
+  const r = raw as Record<string, unknown> | null
+  if (!r || r.ok !== true) return null
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
+  const vs: Record<string, number> = {}
+  if (r.vereditos && typeof r.vereditos === 'object') for (const [k, v] of Object.entries(r.vereditos as object)) vs[k] = num(v)
+  const u = r.ultimo as Record<string, unknown> | null
+  return {
+    prs_hoje: num(r.prs_hoje), telas_hoje: num(r.telas_hoje), vereditos: vs,
+    ultimo: u && typeof u.quando === 'string' ? { quando: u.quando, rota: typeof u.rota === 'string' ? u.rota : null, screen_id: typeof u.screen_id === 'string' ? u.screen_id : null } : null,
+  }
+}
