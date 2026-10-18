@@ -3,7 +3,7 @@
 //      cálculo e não exigida; demais checks + Vercel de build real exigidos); COM a label = via revisada (aceitação
 //      verde + MERGE AUTORIZADO pelo patch-id, como antes); a regra de migration fica intacta; o log diz a via.
 //  (b) aceitacao-main.yml: de hora em hora + manual, build da main no runner apontado para o BANCO DE TESTES (nunca
-//      produção), fila aceitacao-testes sem cancelar, issue main-vermelha (abre/atualiza no vermelho, fecha no verde).
+//      produção), fila aceitacao-testes-1 (vaga 1) sem cancelar, issue main-vermelha (abre/atualiza no vermelho, fecha no verde).
 import { readFileSync } from 'node:fs'
 
 let falhas = 0
@@ -41,14 +41,14 @@ ok(/workflow_run:\s*\n\s*workflows: \['Montar banco de testes'\]\s*\n\s*types: \
 ok(/SHA=\$\(gh api "repos\/\$REPO\/commits\/main" --jq \.sha\)/.test(wf) && /if \[ "\$EVENTO" != workflow_dispatch \]/.test(wf),
   '(b) triagem: ponta ATUAL da main já julgada → não roda de novo (manual roda sempre)')
 const job = wf.slice(wf.search(/^  aceitacao-main:\s*$/m))
-ok(/group: aceitacao-testes\s*\n\s*cancel-in-progress: false\s*\n\s*queue: max/.test(job), '(b) fila aceitacao-testes, FIFO, sem cancelar')
-ok(/\*horsymhsinqcimflrtjo\*\) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO/.test(job) && /\*xjzqndnvjkdjyisuklpy\*\)/.test(job),
-  '(b) trava: recusa a produção e exige o projeto de testes')
+ok(/group: aceitacao-testes-1\s*\n\s*cancel-in-progress: false\s*\n\s*queue: max/.test(job), '(b) CEO 18/10: fila aceitacao-testes-1 (vaga 1 de referência), FIFO, sem cancelar')
+ok(/scripts\/merge\/aceitacao-main-trava-banco\.sh/.test(job) && /ESPERADO: mgyxiamybepkphtfhway/.test(job),
+  '(b) trava: guarda do banco da vaga 1 (allowlist mgyxiamybepkphtfhway + anti-produção + Session pooler)')
 ok(!/secrets\.(SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|NEXT_PUBLIC_SUPABASE_ANON_KEY|SUPABASE_ACCESS_TOKEN|SUPABASE_DB_PASSWORD)\b/.test(wf),
   '(b) nenhum segredo da produção no workflow (só TEST_*)')
 ok(/npx next build/.test(job) && /next start -p 3000/.test(job) && /PROD_BASE_URL: http:\/\/localhost:3000/.test(job),
   '(b) build + start da main no próprio runner; a suíte abre o localhost')
-ok(/NEXT_PUBLIC_SUPABASE_URL: \$\{\{ secrets\.TEST_SUPABASE_URL \}\}/.test(job), '(b) o build aponta para o banco de testes')
+ok(/NEXT_PUBLIC_SUPABASE_URL: \$\{\{ secrets\.TEST_SUPABASE_URL_1 \}\}/.test(job), '(b) o build aponta para o banco de testes da vaga 1 (TEST_SUPABASE_URL_1)')
 ok(/ref: \$\{\{ steps\.ja\.outputs\.sha \}\}/.test(job), '(b) roda a ponta da main (o SHA conferido no 1º passo)')
 // CEO 07/10 (fila aceitacao-testes com 29 runs): 1º passo já dentro da fila encerra se a ponta ATUAL já foi julgada ou
 // está em julgamento por outro run; todos os passos seguintes dependem disso
