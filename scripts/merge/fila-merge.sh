@@ -377,6 +377,50 @@ comentar_celular_info() {
   printf '%s\n' "\"<!-- fila:celular-info-$run -->\"" >> "$TMPF/c-$pr"
 }
 
+# FALHA COMUM = AMBIENTE (CEO 18/10, presente; REGRA TEMPORÁRIA): as aceitações de PR nas vagas 0/2 falham em ~28 specs de
+# ambiente (dados acumulados na vaga, "Sem acesso a esta empresa", "Invalid API key", timeouts) que NÃO são das PRs e
+# falham igual em PRs diferentes; a main (vaga 1) passa, então a comparação-com-a-main não libera. Regra: para a aceitação
+# vermelha de uma PR, cada spec que falhou TAMBÉM na aceitação de ≥2 OUTRAS PRs distintas nas últimas 6 h (qualquer vaga de
+# PR) é AMBIENTE e não bloqueia. Continuam bloqueando: spec da PRÓPRIA PR (checado antes); qualquer falha que NÃO apareça em
+# ≥2 outras PRs (inclui "dados insuficientes": < 2 outras PRs → nenhum spec alcança o limiar); falha ilegível; falha de
+# setup/guarda (a PR nem rodou → sem spec). VALIDADE: até FALHA_COMUM_FIM; depois volta sozinha ao comportamento atual.
+# FILA_FALHA_COMUM_CONTAGEM (linhas "spec<TAB>N<TAB>pr1,pr2") sobrescreve a contagem das OUTRAS PRs (para o gate).
+FALHA_COMUM_FIM='2026-10-21T21:00:00Z'   # 21/10/2026 18:00 America/Sao_Paulo (BRT = UTC-3)
+falha_comum_janela() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$FALHA_COMUM_FIM" +%s)" ]; }
+# Para a PR $1: ecoa "spec<TAB>N<TAB>pr1,pr2,…" — N = nº de OUTRAS PRs distintas (≠ $1) cuja aceitação FALHOU naquele spec
+# nas últimas 6 h. Lê os runs do aceitacao-pr.yml que falharam na janela, mapeia run→PR e junta os specs falhos (anotações,
+# técnica da #2677). Os pares (spec,PR) são calculados UMA vez por rodada e cacheados em $TMPF.
+falha_comum_contagem() {
+  local this=$1
+  if [ "${FILA_FALHA_COMUM_CONTAGEM+x}" = x ]; then printf '%s\n' "$FILA_FALHA_COMUM_CONTAGEM" | sed '/^$/d'; return 0; fi
+  falha_comum_janela || return 0
+  local pares="$TMPF/falha-comum-pares" desde rid created hsha prn
+  if [ ! -f "$pares" ]; then
+    desde=$(( ${FILA_AGORA_EPOCH:-$(date -u +%s)} - 6*3600 ))
+    while read -r rid created hsha; do
+      [ -n "$rid" ] || continue
+      [ "$(date -u -d "$created" +%s 2>/dev/null || echo 0)" -ge "$desde" ] || break   # runs vêm do mais recente p/ o mais antigo
+      prn=$(api "repos/$REPO/commits/$hsha/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
+      [ -n "$prn" ] || continue
+      pos_specs_falhos "$rid" | while IFS= read -r s; do [ -n "$s" ] && printf '%s\t%s\n' "$s" "$prn"; done
+    done < <(api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=completed&per_page=80" \
+               --jq '.workflow_runs[] | select(.conclusion=="failure") | "\(.id)\t\(.created_at)\t\(.head_sha)"' 2>/dev/null) \
+      | sort -u > "$pares"
+  fi
+  awk -F'\t' -v this="$this" '$2!=this{prs[$1]=prs[$1]","$2; c[$1]++} END{for(s in c){sub(/^,/,"",prs[s]); print s"\t"c[s]"\t"prs[s]}}' "$pares"
+}
+# Comenta UMA vez por run na PR $1 as falhas tratadas como AMBIENTE. $2 = linhas "spec (também em #prs)", $3 = run da aceitação.
+comentar_falha_comum() {
+  local pr=$1 lista=$2 run=$3
+  comentarios "$pr" | grep -qF "<!-- fila:falha-comum-$run -->" && return 0
+  comentar "$pr" "Fila de merge: a aceitação desta PR está vermelha, mas **todas** as falhas são de **ambiente** — cada uma falhou também em **≥2 outras PRs** nas últimas 6 h (regra temporária CEO 18/10, vale até $FALHA_COMUM_FIM):
+$(printf '%s' "$lista" | sed '/^$/d; s/^/- /')
+Não bloqueia a publicação. Falha só desta PR, spec da própria PR, ou que não apareça em ≥2 outras PRs, continua bloqueando. (Registro de plantão no log da fila.)
+<!-- fila:falha-comum-$run -->"
+  [ "$COMENTOU" = 1 ] || return 0
+  printf '%s\n' "\"<!-- fila:falha-comum-$run -->\"" >> "$TMPF/c-$pr"
+}
+
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
   local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
@@ -423,6 +467,40 @@ estado_checks() {
           acc_quar=1
           log "#$n: aceitação vermelha só com specs em quarentena ($(tr '\n' ' ' <<< "$falhos")) — não bloqueia (CEO 17/10)" >&2
           p1_quarentena "$n" "$falhos" "$acc_run" >&2
+        fi
+      fi
+    fi
+  fi
+  # FALHA COMUM = AMBIENTE (CEO 18/10, regra temporária): aceitação vermelha cujas falhas são TODAS comuns a ≥2 outras PRs
+  # (últimas 6 h) → ambiente, não bloqueia. Spec da própria PR bloqueia; qualquer falha fora de ≥2 outras PRs, ilegível ou
+  # de setup bloqueia (fail-closed: fica acc_quar=0 e o caminho normal reprova a aceitação vermelha).
+  if [ "$via" = revisada ] && ! aceitacao_dispensada && [ "$acc_quar" != 1 ] && [ -n "$n" ] && falha_comum_janela; then
+    acc_conc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
+    acc_url=$(awk -F'\t' '$1 == "aceitacao" {print $4}' <<< "$linhas" | tail -1)
+    acc_run=$(sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' <<< "$acc_url")
+    if [ "$acc_conc" = failure ] && [ -n "$acc_run" ]; then
+      falhos=$(pos_specs_falhos "$acc_run")
+      proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
+      [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
+      if [ -n "$falhos" ]; then
+        local contagem restantes amb_lines info n_out prs spec
+        contagem=$(falha_comum_contagem "$n")
+        restantes=""; amb_lines=""
+        while IFS= read -r spec; do
+          [ -n "$spec" ] || continue
+          info=$(awk -F'\t' -v s="$spec" '$1==s{print; exit}' <<< "$contagem")
+          n_out=$(cut -f2 <<< "$info"); prs=$(cut -f3 <<< "$info")
+          if [ -n "$info" ] && [ "${n_out:-0}" -ge 2 ] 2>/dev/null; then
+            amb_lines+="$spec (também em $(sed 's/\([0-9][0-9]*\)/#\1/g' <<< "$prs"))"$'\n'
+          else
+            restantes+="$spec"$'\n'
+          fi
+        done <<< "$falhos"
+        restantes=$(printf '%s' "$restantes" | sed '/^$/d')
+        if [ -z "$restantes" ] && [ -n "$amb_lines" ]; then
+          acc_quar=1
+          log "#$n: aceitação vermelha só com falhas de AMBIENTE (comuns a ≥2 outras PRs nas últimas 6 h) — não bloqueia (CEO 18/10 · registro de plantão): $(tr '\n' ' ' <<< "$amb_lines")" >&2
+          comentar_falha_comum "$n" "$amb_lines" "$acc_run" >&2
         fi
       fi
     fi
