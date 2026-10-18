@@ -30,7 +30,7 @@ on:
 # Antes ele tinha grupo próprio e rodava no MEIO da aceitação da main/PR (mesmo banco): companies/plano_contas sumiam
 # no meio do run → dezenas de specs vermelhos por dado ausente (run 196: 84 falhas, 298 passaram; montar 204 rodou
 # 06:06–06:11 dentro do run 05:31–06:22). Agora entra na MESMA fila FIFO do banco (aceitacao-testes-0 = vaga 0 do
-# aceitacao-pr.yml; a aceitacao-main usa o grupo 'aceitacao-testes'), e espera a vez em vez de derrubar o run.
+# aceitacao-pr.yml; CEO 18/10: a aceitacao-main passou a usar o grupo da vaga 1, 'aceitacao-testes-1'), e espera a vez.
 # Vagas extras (1/2) têm banco próprio → grupo próprio da vaga.
 concurrency:
   group: ${{ (github.event_name == 'workflow_dispatch' && inputs.vaga != '0') && format('aceitacao-testes-{0}', inputs.vaga) || 'aceitacao-testes' }}
