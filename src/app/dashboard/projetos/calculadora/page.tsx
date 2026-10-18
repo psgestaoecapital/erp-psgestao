@@ -8,7 +8,7 @@ import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import EditorRegras from "./EditorRegras";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
-import { custearItens, type ProdutoEstoque } from "@/lib/calculadora/depara";
+import { custearItens, sugerirVinculos, type ProdutoEstoque } from "@/lib/calculadora/depara";
 import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv } from "@/lib/calculadora/saida";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import {
@@ -76,6 +76,14 @@ export default function CalculadoraObraPage() {
     const { error } = await q;
     if (error) { setErroVinculo("Não consegui salvar o vínculo: " + error.message); return; }
     setVinculos((v) => { const n2 = { ...v }; if (produtoId) n2[chave] = produtoId; else delete n2[chave]; return n2; });
+  }
+
+  async function sugerirEVincular() {
+    if (!res.ok) return;
+    const sug = sugerirVinculos(res.itens, vinculos, produtos);
+    const chaves = Object.keys(sug);
+    if (chaves.length === 0) { setErroVinculo("Não achei produto parecido no estoque para os itens sem vínculo. Escolha à mão ou cadastre o produto."); return; }
+    for (const c of chaves) await vincular(c, sug[c]);
   }
 
   async function mandarParaOrcamento() {
@@ -227,6 +235,11 @@ export default function CalculadoraObraPage() {
               Custo estimado: <b>{fmtBRL(custo.total)}</b><AjudaCampo chave="projetos.calculadora.custo_total" rota="/dashboard/projetos/calculadora" />
               {custo.semCusto > 0 && <span className="ml-2 text-amber-700">{custo.semCusto} item(ns) sem custo — fora do total</span>}
             </p>
+          )}
+          {companyId && custo.semCusto > 0 && (
+            <button onClick={() => void sugerirEVincular()} data-testid="calc-sugerir-vinculos" className="mb-2 rounded-full bg-[#C8941A]/15 px-4 py-2 text-sm text-[#3D2314]">
+              Sugerir produtos do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" />
+            </button>
           )}
           {erroVinculo && <p className="mb-2 text-sm text-red-700">{erroVinculo}</p>}
           <ul className="divide-y divide-[#3D2314]/8">
