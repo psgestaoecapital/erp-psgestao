@@ -96,6 +96,7 @@ const fmtQuando = (iso: string) => {
 }
 
 const STATUS: Array<{ value: string; label: string; cor: string; bg: string }> = [
+  { value: 'orcamento',              label: 'Orçamento',               cor: C.amber,    bg: C.amberBg },   // #2867 · OS criada como orçamento
   { value: 'aberta',                 label: 'Aberta',                  cor: C.espresso, bg: C.neutralBg },
   { value: 'em_execucao',            label: 'Em execução',             cor: C.goldD,    bg: C.goldBg },
   { value: 'aguardando_peca',        label: 'Aguardando peça/material', cor: C.amber,    bg: C.amberBg },
