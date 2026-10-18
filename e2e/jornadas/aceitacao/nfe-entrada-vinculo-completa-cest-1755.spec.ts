@@ -1,6 +1,6 @@
 // #1755 (Gean) · continuação: produto que JÁ EXISTIA (ex.: peça nascida na OS) ficava sem CEST mesmo com o CEST na
 // nota de compra, porque o item da nota só era LIGADO a ele (a #2123 cobre só o "Criar produto" do item).
-// Migration 20261017230020 · @pos-migration. Na demonstração Comércio (GE): o teste cria uma NF recebida de mentira,
+// Migration 20261018031620 · @pos-migration. Na demonstração Comércio (GE): o teste cria uma NF recebida de mentira,
 // cria produtos pela função canônica COMO O ROBÔ, liga os itens com a MESMA RPC do botão "Vincular" e confere o cadastro.
 // Limpeza: os produtos ficam inativos e a NF de teste é apagada (só a que o próprio teste criou).
 

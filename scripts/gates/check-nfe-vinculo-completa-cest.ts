@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
 
-const mig = readFileSync('supabase/migrations/20261017230020_nfe_item_vinculo_completa_cest.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261018031620_nfe_item_vinculo_completa_cest.sql', 'utf8')
 const sql = mig.replace(/--[^\n]*/g, '')
 
 ok(/AFTER\s+INSERT\s+OR\s+UPDATE\s+OF\s+produto_id\s+ON\s+public\.erp_nfe_recebidas_itens/i.test(sql), 'gatilho no item da NF ao ligar (INSERT ou troca de produto_id)')
