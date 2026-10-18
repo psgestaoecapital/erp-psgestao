@@ -335,6 +335,15 @@ Gate: `scripts/gates/check-quarentena.ts`.
 - **Núcleo compartilhado** (financeiro, fiscal, cadastros, permissões/RLS, menu, segurança, `/_compartilhado`, qualquer função/tabela
   usada por mais de uma vertical) só é alterado pela `gilberto-desenv`; os Codes de vertical abrem pedido no BOX e o Eng. Chefe repassa.
 
+# Chamado de agente de sócio (CEO 05/10) — o `gilberto-chamados` NÃO age nele
+Chamado **aberto pelo sócio** ou com o sócio como **responsável** (`sugestoes.responsavel_id`) pertence ao agente de sócio
+(`erp_agente_escopo`: `rodrigo-code` ↔ equipe `code-rodrigo`). `fn_chamado_agente_dono(<chamado>)` devolve o dono (ou null).
+1. **`gilberto-chamados` (e qualquer outro agente) confere antes de começar:** se o dono não é null, não age — `fn_agente_chamado_responder`
+   recusa com `chamado_de_agente_socio`. O agente de sócio só age no próprio escopo (`chamado_fora_do_escopo`).
+2. Chamado novo (ou reatribuído) do escopo vira tarefa na caixa do agente de sócio (se `aciona=true`); o despertador aciona.
+3. **OK do sócio** (em vez do OK do CEO): o Code pede com `fn_agente_pedir_ok_socio(<id>, '<agente>', '<texto>')`; o sócio aprova ou recusa no bloco
+   "O Code pede sua aprovação" da tela do chamado (`fn_agente_ok_socio`, só `auth.uid()` = sócio). Só com `aprovado` o `fn_agente_chamado_responder` posta,
+   e o texto postado tem de estar contido no pedido aprovado.
 # Re-rodar teste (Eng. Chefe 07/10)
 A rede da sessão do Code troca o token pelo da integração: `POST .../runs/<id>/rerun` dá 403 com qualquer token nosso.
 **Para re-rodar teste, comente `/re-rodar` na PR** (exatamente isso; autor com permissão write): o workflow `comando-pr.yml`
