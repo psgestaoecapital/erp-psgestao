@@ -246,6 +246,9 @@ function Kpi({ label, n, cor, bg }: { label: string; n: number; cor: string; bg:
 }
 
 // ─────────────────────── CIÊNCIA MENSAL (#74) ───────────────────────
+// #2369: almoço do dia junto da jornada (janela da escala + minutos apurados)
+const textoAlmoco = (a?: { inicio?: string; fim?: string; min?: number } | null) => !a ? '' : `almoço ${a.inicio && a.fim ? `${a.inicio}–${a.fim}` : ''}${a.min != null ? `${a.inicio && a.fim ? ' ' : ''}(${a.min} min)` : ''}`.trim()
+
 // Gera o relatório mensal por colaborador, coleta a assinatura via link público (mesmo fluxo do
 // EPI) e acompanha quem falta. O documento declara a origem de cada horário (RD-38).
 // #74 (CEO 02/10): a lista é de TODOS os elegíveis à pausa térmica do mês (fn_nr36_ciencia_painel), não só de quem já
@@ -436,7 +439,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
     } catch (e) { alert('Falha ao anexar: ' + (e as Error).message) } finally { setSubindo(false) }
   }
   const snap = (doc?.colaborador_snapshot || {}) as Record<string, string>
-  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; pausas?: PausaDoc[]; ajuste?: AjusteDia | null }>
+  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; almoco?: { inicio?: string; fim?: string; min?: number } | null; pausas?: PausaDoc[]; ajuste?: AjusteDia | null }>
   const nEst = detalhe.reduce((a, d) => a + (d.pausas || []).filter(p => p.fim_origem === 'estimado').length, 0)
   // #587: mesma leitura da página de assinatura (lib/ponto/ajusteBatida) — retorno sem saída não sai invertido e o
   // horário ajustado aparece junto do original, com origem, quem e quando
@@ -476,7 +479,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
             {detalhe.map((d, i) => (
               <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span></div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span>{textoAlmoco(d.almoco) && <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }} data-testid="ciencia-almoco"> · {textoAlmoco(d.almoco)}</span>}</div>
                 {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.gray }} data-testid="ciencia-originais">{notaDiaDoc(d.ajuste)}</div>}
                 {(d.pausas || []).length === 0 ? <div style={{ fontSize: 11.5, color: C.gray, fontStyle: 'italic' }}>Sem pausa registrada.</div> :
                   (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}
@@ -487,13 +490,17 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                 {nEst} pausa(s) deste período tiveram o horário de término estimado por falta de registro de saída. A estimativa considera a duração padrão de 20 minutos e não substitui o registro.
               </div>
             )}
+            <div data-testid="ciencia-compromisso" style={{ marginTop: 16, fontSize: 11.5, color: C.espresso, lineHeight: 1.5 }}>
+              O colaborador declara que se compromete a usufruir das pausas térmicas no local adequado, e o supervisor fiscalizará o cumprimento.
+            </div>
             <div className="ps-print-assinatura" data-testid="ciencia-assinatura" style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
               {doc.status === 'assinado' ? (
                 <div style={{ color: C.green }}><b>✓ Assinado em {doc.assinado_em ? fmtDT(String(doc.assinado_em)) : ''}</b> · método {String(doc.metodo || '')} · hash {String(doc.hash_integridade || '').slice(0, 24)}…</div>
               ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
-                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do colaborador</div>
-                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Data</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }} data-testid="ciencia-linhas-assinatura">
+                  {['Assinatura do colaborador', 'Assinatura do supervisor', 'Assinatura do técnico de segurança do trabalho', 'Data'].map(t => (
+                    <div key={t} style={{ flex: '1 1 140px', borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>{t}</div>
+                  ))}
                 </div>
               )}
             </div>

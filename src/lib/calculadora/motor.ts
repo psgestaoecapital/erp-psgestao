@@ -32,7 +32,16 @@ export type RegrasRevestimentoColado = {
   gessoColaKgM2: number; sacoGessoColaKg: number
   massaKgM2: number; fitaMM2: number; baldeKg: number; rolofitaM: number
 }
-export type Regras = RegrasParede | RegrasForroF530 | RegrasForroAramado | RegrasRevestimentoColado
+export type RegrasRevestimentoEstruturado = {
+  tipo: 'revestimento_estruturado'
+  perda: number; areaChapa: number; comprimentoBarra: number; rolobandaM: number
+  faixas: FaixaPeDireito[]; faixas2: FaixaPeDireito[] // 1 chapa e 2 chapas
+  parafusoPorM2: { '0.6': number; '0.4': number; '0.6d': number; '0.4d': number } // PPA25, 1 chapa
+  parafusoDuasPPA25PorM2: { '0.6': number; '0.4': number; '0.6d': number; '0.4d': number } // 1ª camada, 2 chapas
+  parafusoDuasPPA35PorM2: { '0.6': number; '0.4': number; '0.6d': number; '0.4d': number } // 2ª camada, 2 chapas
+  massaKgM2: number; fitaMM2: number; baldeKg: number; rolofitaM: number
+}
+export type Regras = RegrasParede | RegrasForroF530 | RegrasForroAramado | RegrasRevestimentoColado | RegrasRevestimentoEstruturado
 
 export type ItemCalculo = {
   chave: string; descricao: string; unidadeCompra: string
@@ -62,6 +71,24 @@ export const REGRAS_PAREDE_SIMPLES_ST: RegrasParede = {
   laRoloM2: 7.2, // lã mineral/PET: rolo de 1,20 × 6,00 m — referência de mercado a validar
 }
 
+// Parede separativa (entre unidades) e parede corta-fogo: mesma conta da parede, faixas de pé-direito PRÓPRIAS (dado, editável por empresa).
+// Valores: referência de mercado a validar com o fabricante. Separativa sem o montante a mais que o site de referência soma (anomalia a não copiar).
+const fx = (de: number, ate: number, bitola: FaixaPeDireito['bitola'], espacamento: 0.4 | 0.6, duplo = false): FaixaPeDireito => ({ de, ate, bitola, espacamento, duplo })
+export const REGRAS_PAREDE_SEPARATIVA: RegrasParede = {
+  ...REGRAS_PAREDE_SIMPLES_ST,
+  faixas: [
+    fx(0.2, 2.9, 'M48', 0.6), fx(2.95, 3.2, 'M48', 0.4), fx(3.25, 3.7, 'M70', 0.6), fx(3.75, 4.1, 'M70', 0.4),
+    fx(4.15, 4.4, 'M70', 0.6, true), fx(4.45, 4.8, 'M70', 0.4, true), fx(4.85, 5.0, 'M90', 0.6, true), fx(5.05, 5.5, 'M90', 0.4, true),
+  ],
+}
+export const REGRAS_PAREDE_CORTA_FOGO: RegrasParede = {
+  ...REGRAS_PAREDE_SIMPLES_ST, chapasPorFace: 2,
+  faixas: [
+    fx(0.2, 3.8, 'M70', 0.6), fx(3.85, 4.2, 'M70', 0.4), fx(4.25, 4.5, 'M70', 0.6, true), fx(4.55, 4.9, 'M70', 0.4, true),
+    fx(4.95, 5.1, 'M90', 0.6, true), fx(5.15, 5.6, 'M90', 0.4, true),
+  ],
+}
+
 export const REGRAS_FORRO_F530: RegrasForroF530 = {
   tipo: 'forro_f530', perda: 1.05, areaChapa: 2.16, comprimentoBarra: 3,
   perfilF530MM2: 1.7, pendularPorM2: 1.25, tiranteUnPorM2: 1.25, uniaoPorM2: 0.45,
@@ -82,6 +109,37 @@ export const REGRAS_FORRO_ARAMADO: RegrasForroAramado = {
 export const REGRAS_REVESTIMENTO_COLADO: RegrasRevestimentoColado = {
   tipo: 'revestimento_colado', perda: 1.05, areaChapa: 2.16,
   gessoColaKgM2: 12.5, sacoGessoColaKg: 5,
+  massaKgM2: 0.5, fitaMM2: 1.5, baldeKg: 22, rolofitaM: 150,
+}
+
+// Revestimento estruturado (chapa parafusada em estrutura própria encostada na alvenaria, uma face só). Valores: referência de mercado
+// a validar. Faixas de 2 chapas: o site de referência trava entre 2,30 e 2,95 m (anomalia a não copiar) — aqui essa faixa usa M70 @600,
+// a confirmar com o fabricante.
+const parafusos1 = { '0.6': 13, '0.4': 15, '0.6d': 18, '0.4d': 20 }
+export const REGRAS_REVESTIMENTO_ESTRUTURADO: RegrasRevestimentoEstruturado = {
+  tipo: 'revestimento_estruturado', perda: 1.05, areaChapa: 2.16, comprimentoBarra: 3, rolobandaM: 10,
+  faixas: [
+    { de: 0.2, ate: 1.5, bitola: 'M48', espacamento: 0.6, duplo: false },
+    { de: 1.55, ate: 1.8, bitola: 'M48', espacamento: 0.4, duplo: false },
+    { de: 1.85, ate: 2.0, bitola: 'M48', espacamento: 0.6, duplo: true },
+    { de: 2.05, ate: 2.2, bitola: 'M48', espacamento: 0.4, duplo: true },
+    { de: 2.25, ate: 2.3, bitola: 'M70', espacamento: 0.6, duplo: false },
+    { de: 2.35, ate: 2.55, bitola: 'M70', espacamento: 0.4, duplo: false },
+    { de: 2.6, ate: 2.75, bitola: 'M70', espacamento: 0.6, duplo: true },
+    { de: 2.8, ate: 3.05, bitola: 'M70', espacamento: 0.4, duplo: true },
+    { de: 3.1, ate: 3.2, bitola: 'M90', espacamento: 0.6, duplo: true },
+    { de: 3.25, ate: 3.55, bitola: 'M90', espacamento: 0.4, duplo: true },
+  ],
+  faixas2: [
+    { de: 0.2, ate: 2.25, bitola: 'M48', espacamento: 0.6, duplo: false },
+    { de: 2.3, ate: 2.95, bitola: 'M70', espacamento: 0.6, duplo: false },
+    { de: 3.0, ate: 3.05, bitola: 'M70', espacamento: 0.6, duplo: false },
+    { de: 3.1, ate: 3.65, bitola: 'M70', espacamento: 0.6, duplo: true },
+    { de: 3.7, ate: 4.2, bitola: 'M90', espacamento: 0.6, duplo: true },
+  ],
+  parafusoPorM2: parafusos1,
+  parafusoDuasPPA25PorM2: { '0.6': 6, '0.4': 7, '0.6d': 9, '0.4d': 10 },
+  parafusoDuasPPA35PorM2: { ...parafusos1 },
   massaKgM2: 0.5, fitaMM2: 1.5, baldeKg: 22, rolofitaM: 150,
 }
 
@@ -181,5 +239,35 @@ export function calcularRevestimentoColado(r: RegrasRevestimentoColado, e: Entra
     item('massa', 'Massa para junta', `balde ${r.baldeKg} kg`, (area * r.massaKgM2) / r.baldeKg, `${f(area)} m² × ${f(r.massaKgM2)} kg/m² ÷ ${r.baldeKg} kg por balde`),
     item('fita', 'Fita para junta', `rolo ${r.rolofitaM} m`, (area * r.fitaMM2) / r.rolofitaM, `${f(area)} m² × ${f(r.fitaMM2)} m/m² ÷ ${r.rolofitaM} m por rolo`),
   ]
+  return { ok: true, area, itens, avisos: [] }
+}
+
+// camadas: 1 ou 2 chapas (qualquer outro valor vira 1). Só uma face: guia piso/teto, montante e banda uma vez.
+export function calcularRevestimentoEstruturado(r: RegrasRevestimentoEstruturado, e: EntradaParede): Resultado {
+  if (!(e.comprimento > 0) || !(e.peDireito > 0)) return { ok: false, erro: 'Informe comprimento e altura maiores que zero.' }
+  const area = arred2(e.comprimento * e.peDireito - (e.vaos ?? 0))
+  if (area <= 0) return { ok: false, erro: 'Os vãos descontados são maiores que a parede.' }
+  const cam = e.camadas === 2 ? 2 : 1
+  const fx = faixaDoPeDireito(cam === 2 ? r.faixas2 : r.faixas, e.peDireito)
+  if (!fx) return { ok: false, erro: `Altura de ${f(e.peDireito)} m fora das faixas cadastradas para ${cam} chapa${cam > 1 ? 's' : ''} — ajuste as regras do sistema.` }
+  const L = e.comprimento, p = r.perda
+  const k = `${fx.espacamento}${fx.duplo ? 'd' : ''}` as keyof RegrasRevestimentoEstruturado['parafusoPorM2']
+  const itens = [
+    item('chapa', 'Chapa de gesso', 'chapa', (area * cam * p) / r.areaChapa, `${f(area)} m² × ${cam} chapa${cam > 1 ? 's' : ''} × perda ${f(p)} ÷ ${f(r.areaChapa)} m² por chapa`),
+    item('guia', `Guia ${fx.bitola}`, 'barra 3 m', (L * 2 * p) / r.comprimentoBarra, `${f(L)} m × 2 (piso e teto) × perda ${f(p)} ÷ ${r.comprimentoBarra} m por barra`),
+    item('montante', `Montante ${fx.bitola}${fx.duplo ? ' duplo' : ''} a cada ${fx.espacamento * 100} cm`, 'barra 3 m',
+      ((L / fx.espacamento) * p * e.peDireito * (fx.duplo ? 2 : 1)) / r.comprimentoBarra,
+      `${f(L)} m ÷ ${fx.espacamento} m × perda ${f(p)} × altura ${f(e.peDireito)} m${fx.duplo ? ' × 2 (duplo)' : ''} ÷ ${r.comprimentoBarra} m por barra`),
+    item('banda', 'Banda acústica', 'rolo 10 m', (L * 2 * p) / r.rolobandaM, `${f(L)} m × 2 × perda ${f(p)} ÷ ${r.rolobandaM} m por rolo`),
+  ]
+  if (cam === 1) itens.push(item('parafuso', 'Parafuso PPA25', 'cento', (area * r.parafusoPorM2[k]) / 100, `${f(area)} m² × ${r.parafusoPorM2[k]} un/m² ÷ 100 por cento`))
+  else {
+    itens.push(item('parafuso', 'Parafuso PPA25 (1ª chapa)', 'cento', (area * r.parafusoDuasPPA25PorM2[k]) / 100, `${f(area)} m² × ${r.parafusoDuasPPA25PorM2[k]} un/m² ÷ 100 por cento`))
+    itens.push(item('parafuso_ppa35', 'Parafuso PPA35 (2ª chapa)', 'cento', (area * r.parafusoDuasPPA35PorM2[k]) / 100, `${f(area)} m² × ${r.parafusoDuasPPA35PorM2[k]} un/m² ÷ 100 por cento`))
+  }
+  itens.push(
+    item('massa', 'Massa para junta', `balde ${r.baldeKg} kg`, (area * r.massaKgM2) / r.baldeKg, `${f(area)} m² × ${f(r.massaKgM2)} kg/m² ÷ ${r.baldeKg} kg por balde`),
+    item('fita', 'Fita para junta', `rolo ${r.rolofitaM} m`, (area * r.fitaMM2) / r.rolofitaM, `${f(area)} m² × ${f(r.fitaMM2)} m/m² ÷ ${r.rolofitaM} m por rolo`),
+  )
   return { ok: true, area, itens, avisos: [] }
 }
