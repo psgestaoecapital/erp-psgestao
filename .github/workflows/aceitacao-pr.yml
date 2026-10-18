@@ -85,14 +85,17 @@ jobs:
             :
           fi
           echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
-          # VAGA = banco do pool desta rodada (o operador % não existe nas expressões do Actions, por isso aqui no bash).
-          # Com ACEITACAO_VAGAS=1 (padrão) a vaga é sempre 0 → um grupo de concorrência só → serial, como hoje.
-          vagas="$VAGAS"; case "$vagas" in ''|*[!0-9]*) vagas=1;; esac; [ "$vagas" -ge 1 ] || vagas=1
-          v=$(( (${{ github.run_number }} + ${{ github.run_attempt }}) % vagas ))  # re-run (attempt+1) troca de vaga: vaga suja/travada não prende a PR
-          # Segurança: só faz sharding numa vaga > 0 se o banco dela estiver provisionado (segredo presente). Senão cai
-          # para 0 — nunca deixa dois grupos (vagas) baterem no MESMO banco (a colisão de seed/reset que queremos evitar).
-          case "$v" in 1) [ -n "$URL1" ] || v=0;; 2) [ -n "$URL2" ] || v=0;; esac
-          echo "vaga de aceitação: $v (de $vagas)"
+          # VAGA = banco do pool desta rodada. Sorteio CIENTE DE OCUPAÇÃO (CEO 18/10): escolhe a vaga de PR (0 ou 2 — a
+          # vaga 1 é RESERVADA para a aceitação da main, grupo aceitacao-testes-1) com MENOS runs ativos/na fila;
+          # empate → menor número. Se a consulta de ocupação falhar, cai no sorteio antigo (determinístico) sobre as
+          # vagas elegíveis. Com ACEITACAO_VAGAS=1 (padrão) só a vaga 0 é elegível → serial, idêntico a antes.
+          # Provas (a..d) em scripts/gates/check-aceitacao-vaga-ocupacao.ts; lógica em scripts/merge/aceitacao-sortear-vaga.sh.
+          v=$(RUN=$(( ${{ github.run_number }} + ${{ github.run_attempt }} )) VAGAS="$VAGAS" URL1="$URL1" URL2="$URL2" \
+                REPO="$REPO" GH_TOKEN="$GH_TOKEN" SELF_RUN_ID="$RUN_ID" scripts/merge/aceitacao-sortear-vaga.sh)
+          case "$v" in ''|*[!0-9]*) v=0;; esac   # cinto de segurança: saída inesperada → vaga 0 (serial)
+          echo "vaga de aceitação: $v"
+          # Marcador estável lido pelo sorteio ciente de ocupação (NÃO renomeia o check obrigatório "aceitacao").
+          echo "ACEITACAO_VAGA_ESCOLHIDA=$v"
           echo "vaga=$v" >> "$GITHUB_OUTPUT"
 
   aceitacao:
@@ -351,6 +354,14 @@ jobs:
             sleep 2
           done
           cat next-start.log; echo "::error::a PR não subiu em 2 min"; exit 1
+      # CEO 18/10 — DESTRAVE TEMPORÁRIO: a aceitação de PR roda SÓ o projeto [computador] até o CORTE
+      # (19/10 16:00 BRT); depois volta ao [celular] (o seletor decide pela data). O [celular] está instável no runner
+      # desde a #2848 e travava PRs verdes no [computador]. A aceitação da MAIN roda os dois projetos (detecta regressão).
+      - name: Projeto Playwright da aceitação de PR (destrave [celular] temporário)
+        run: |
+          proj=$(scripts/merge/aceitacao-projeto.sh)
+          echo "projeto da aceitação de PR: $proj"
+          echo "ACEITACAO_PROJETO=$proj" >> "$GITHUB_ENV"
       # @pos-migration (CEO 26/09): teste que depende de migration só é verdade DEPOIS do merge (o deploy-migrations
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
@@ -368,7 +379,7 @@ jobs:
         # --pass-with-no-tests: PR sem .spec.ts em aceitacao/ (hotfix, infra, docs) passa; PR com spec e julgada pelo spec.
         # A obrigacao de trazer o spec e do processo (RD-78), nao de um check que quebra por ausencia. Sem isto, a propria PR-I
         # (que nao traz spec) ficaria vermelha para sempre e o check nunca poderia ser obrigatorio.
-        run: npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=celular --pass-with-no-tests --grep-invert @pos-migration
+        run: npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=${ACEITACAO_PROJETO:-celular} --pass-with-no-tests --grep-invert @pos-migration
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
       # CEO 12/10 (fila não drenava): só roda se a suíte passou e com teto de 8 min. Antes rodava também após a suíte
@@ -386,7 +397,7 @@ jobs:
           TRAVA_DEMO_ESPERA_MIN: '15'
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
-          if npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=celular --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
+          if npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=${ACEITACAO_PROJETO:-celular} --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
             echo "### @pos-migration no preview: verde" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=@pos-migration (informativo)::vermelho no preview — esperado se a migration da PR ainda não entrou. Veredito: aceitacao-pos-migration em produção, logo após o merge."

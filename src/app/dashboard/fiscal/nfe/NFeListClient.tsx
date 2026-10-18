@@ -19,6 +19,7 @@ import {
   History, CheckCircle2, Ban, Clock, FileSignature, AlertTriangle,
 } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
+import { AVISO_PROCESSANDO, resumoConsulta } from '@/lib/fiscal/consultaRetorno'
 
 interface Documento {
   grupo_chave: string
@@ -93,6 +94,7 @@ const RESULTADO_ROTULO: Record<string, { t: string; cor: string }> = {
 export default function NFeListClient() {
   const router = useRouter()
   const [reabrindo, setReabrindo] = useState<string | null>(null)
+  const [consultando, setConsultando] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [erroEmpresa, setErroEmpresa] = useState<string | null>(null)
   const [documentos, setDocumentos] = useState<Documento[]>([])
@@ -252,6 +254,19 @@ export default function NFeListClient() {
   }
 
   function aplicarBusca() { setBuscaSubmit(busca.trim()); setPagina(1) }
+
+  // #2946 · nota presa em "processando": consulta a Focus na hora (mesma rota do modal) em vez de esperar a rotina.
+  async function consultarAgora(doc: Documento) {
+    setConsultando(doc.principal_id)
+    try {
+      const r = await authFetch(`/api/fiscal/nfe/consultar/${doc.principal_id}`)
+      const json = (await r.json().catch(() => ({}))) as { status?: string; numero?: string | number | null; motivoRejeicao?: string | null; mensagem?: string }
+      alert(resumoConsulta(r.ok ? json : { status: 'erro', mensagem: json.mensagem }))
+      await carregar()
+    } finally {
+      setConsultando(null)
+    }
+  }
 
   // "Corrigir e reenviar" documento não emitido — devolução (reabre a tela de devolução pré-preenchida
   // pela nota de compra referenciada) ou nota de OS (#2167: abre a própria OS, onde o botão vira "Reenviar NF-e").
@@ -415,6 +430,8 @@ export default function NFeListClient() {
                       historicoCC={chaveAberta === doc.grupo_chave ? historicoCC : []}
                       reabrindo={reabrindo}
                       baixando={baixando}
+                      consultando={consultando}
+                      onConsultar={() => consultarAgora(doc)}
                       onReenviar={() => corrigirEReenviar(doc)}
                       onCancelar={() => { setJustifCancel(''); setErroCancel(null); setCancelando({ id: doc.principal_id, numero: doc.numero }) }}
                       onCartaCorrecao={() => { setCcCorrecao(''); setErroCC(null); setCcAberta({ id: doc.principal_id, numero: doc.numero }) }}
@@ -526,11 +543,12 @@ function DocumentoLinhas(props: {
   doc: Documento; aberto: boolean; onToggle: () => void
   timeline: TimelineEvento[] | null
   historicoCC: { id: string; sequencia: number; correcao: string | null; status: string; protocolo: string | null; motivo_rejeicao: string | null; criado_em: string }[]
-  reabrindo: string | null; baixando: string | null
+  reabrindo: string | null; baixando: string | null; consultando: string | null
+  onConsultar: () => void
   onReenviar: () => void; onCancelar: () => void; onCartaCorrecao: () => void
   onBaixar: (notaId: string, tipo: 'xml' | 'pdf', url?: string | null) => void
 }) {
-  const { doc, aberto, onToggle, timeline, historicoCC, reabrindo, baixando, onReenviar, onCancelar, onCartaCorrecao, onBaixar } = props
+  const { doc, aberto, onToggle, timeline, historicoCC, reabrindo, baixando, consultando, onConsultar, onReenviar, onCancelar, onCartaCorrecao, onBaixar } = props
   const finBadge = doc.finalidade && doc.finalidade !== 'normal' ? (FINALIDADE_BADGE[doc.finalidade] ?? doc.finalidade.toUpperCase()) : null
 
   return (
@@ -575,7 +593,17 @@ function DocumentoLinhas(props: {
       {aberto && (
         <tr className="bg-[#FAF7F2]/60 border-t border-[#3D2314]/8">
           <td colSpan={7} className="px-5 py-4">
+            {doc.status_principal === 'processando' && (
+              <p className="mb-2 text-[11.5px] text-[#8A4B08]" data-testid="nfe-aviso-processando">{AVISO_PROCESSANDO}</p>
+            )}
             <div className="flex gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+              {doc.status_principal === 'processando' && (
+                <button type="button" onClick={onConsultar} disabled={consultando === doc.principal_id}
+                  data-testid="nfe-consultar-agora"
+                  className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-1.5 disabled:opacity-50">
+                  {consultando === doc.principal_id ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />} Consultar agora
+                </button>
+              )}
               {doc.pode_reenviar && (
                 <button type="button" onClick={onReenviar} disabled={reabrindo === doc.grupo_chave}
                   data-testid="nfe-corrigir-reenviar"

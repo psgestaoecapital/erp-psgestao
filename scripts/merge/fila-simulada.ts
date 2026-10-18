@@ -23,6 +23,7 @@ export type PrSimulada = {
   autorizada?: boolean         // injeta o comentário MERGE AUTORIZADO do revisor com o patch-id correto do conteúdo
   specsProprios?: string[]     // arquivos e2e/*.spec.ts que a PR criou/alterou (vão para pulls/<n>/files)
   aceitacaoSpecs?: string[]    // specs que FALHARAM na aceitação da PR (anotações do check-run) — regra do teste próprio
+  aceitacaoSpecsDesktop?: string[]  // specs que falharam no projeto computador (anotação sem a marca [celular])
   sqlMigration?: string        // SQL da migration da PR (lote de migrations independentes, CEO 16/10); padrão: select 1;
   autorCode?: string           // Code autor em erp_dev_entrega (para o acionamento automático do @pos, Parte 2)
 }
@@ -111,10 +112,12 @@ esac
         const accCompleta = acc === 'success' || acc === 'failure'
         // regra do teste próprio (CEO 16/10): aceitação falha com specs → o check aponta p/ um run cujas anotações têm os specs
         const accRun = 70000 + p.n, accJob = 97000 + p.n
-        const accUrl = p.aceitacaoSpecs?.length ? `https://github.com/o/r/actions/runs/${accRun}/job/${accJob}` : ''
-        if (p.aceitacaoSpecs?.length) {
+        const accUrl = (p.aceitacaoSpecs?.length || p.aceitacaoSpecsDesktop?.length) ? `https://github.com/o/r/actions/runs/${accRun}/job/${accJob}` : ''
+        if (p.aceitacaoSpecs?.length || p.aceitacaoSpecsDesktop?.length) {
           put(`${R}/actions/runs/${accRun}/jobs`, { jobs: [{ id: accJob, conclusion: 'failure' }] })
-          put(`${R}/check-runs/${accJob}/annotations`, p.aceitacaoSpecs.map((s) => ({ annotation_level: 'failure', path: s, title: `[celular] › ${s}:10:7`, message: `  [celular] › ${s}:10:7 › x` })))
+          put(`${R}/check-runs/${accJob}/annotations`, [
+            ...(p.aceitacaoSpecs ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[celular] › ${s}:10:7`, message: `  [celular] › ${s}:10:7 › x` })),
+            ...(p.aceitacaoSpecsDesktop ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[computador] › ${s}:10:7`, message: `  [computador] › ${s}:10:7 › x` }))])
         }
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [
           { name: 'check_menu', status: p.checksRodando ? 'in_progress' : 'completed', conclusion: p.checksRodando ? null : 'success', details_url: '' },
