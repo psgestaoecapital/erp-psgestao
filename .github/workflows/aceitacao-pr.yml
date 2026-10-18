@@ -210,9 +210,11 @@ jobs:
           echo "target_url      = ${TARGET_URL:-<vazio>}"
           echo "PROD_BASE_URL   = ${PROD_BASE_URL:-<vazio>}"
       # Pool de bancos (CEO 10/10): escolhe o banco da VAGA (0/1/2) e exporta SUPABASE_URL/ANON/SERVICE para os passos de
-      # teste abaixo. Em produção (ACEITACAO_BANCO != testes), usa os segredos de produção. A triagem já garante que a
-      # vaga > 0 só vem com o banco provisionado — aqui o mapeamento é direto, sem colisão de dados entre vagas.
-      - name: Selecionar o banco da vaga (pool de aceitação)
+      # teste abaixo. CEO/Eng. Chefe 18/10: a aceitação de PR SÓ roda em banco de TESTES — o fallback de PRODUÇÃO (PURL/
+      # PSRK) foi REMOVIDO. Se ACEITACAO_BANCO != 'testes', o job ABORTA com erro claro, em vez de rodar o código da PR
+      # contra a produção. NENHUM segredo de produção é referenciado aqui nem gravado em $GITHUB_ENV. A triagem já garante
+      # que a vaga > 0 só vem com o banco provisionado — aqui o mapeamento é direto, sem colisão de dados entre vagas.
+      - name: Selecionar o banco da vaga (pool de aceitação — só banco de testes)
         env:
           VAGA: ${{ needs.triagem.outputs.vaga }}
           MODO_TESTES: ${{ vars.ACEITACAO_BANCO == 'testes' }}
@@ -228,28 +230,25 @@ jobs:
           ANON2: ${{ secrets.TEST_SUPABASE_ANON_KEY_2 }}
           SRK2: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_2 }}
           DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
-          PURL: ${{ secrets.SUPABASE_URL }}
-          PANON: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          PSRK: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -u
-          DBURL=""
-          if [ "$MODO_TESTES" = "true" ]; then
-            case "${VAGA:-0}" in
-              1) URL="$URL1"; ANON="$ANON1"; SRK="$SRK1"; DBURL="$DBURL1";;
-              2) URL="$URL2"; ANON="$ANON2"; SRK="$SRK2"; DBURL="$DBURL2";;
-              *) URL="$URL0"; ANON="$ANON0"; SRK="$SRK0"; DBURL="$DBURL0";;
-            esac
-            echo "banco da aceitação: vaga ${VAGA:-0} (banco de testes)"
-          else
-            URL="$PURL"; ANON="$PANON"; SRK="$PSRK"
-            echo "banco da aceitação: produção"
+          # A aceitação de PR NUNCA roda contra a produção: sem ACEITACAO_BANCO=testes, aborta (não há mais fallback).
+          if [ "$MODO_TESTES" != "true" ]; then
+            echo "::error::ACEITACAO_BANCO != 'testes' — a aceitação de PR só roda em banco de TESTES (nunca produção). Configure a variável ACEITACAO_BANCO=testes. Abortado."
+            exit 1
           fi
-          [ -n "$URL" ] && [ -n "$SRK" ] || { echo "::error::banco da vaga ${VAGA:-0} sem segredo — abortado"; exit 1; }
+          DBURL=""
+          case "${VAGA:-0}" in
+            1) URL="$URL1"; ANON="$ANON1"; SRK="$SRK1"; DBURL="$DBURL1";;
+            2) URL="$URL2"; ANON="$ANON2"; SRK="$SRK2"; DBURL="$DBURL2";;
+            *) URL="$URL0"; ANON="$ANON0"; SRK="$SRK0"; DBURL="$DBURL0";;
+          esac
+          echo "banco da aceitação: vaga ${VAGA:-0} (banco de testes)"
+          [ -n "$URL" ] && [ -n "$SRK" ] || { echo "::error::banco da vaga ${VAGA:-0} sem segredo de TESTE — abortado"; exit 1; }
           echo "::add-mask::$SRK"
           { echo "SUPABASE_URL=$URL"; echo "NEXT_PUBLIC_SUPABASE_URL=$URL"; echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON"; echo "SUPABASE_SERVICE_ROLE_KEY=$SRK"; echo "ACEITACAO_VAGA=${VAGA:-0}"; } >> "$GITHUB_ENV"
-          # URL do Postgres (Session pooler) da vaga — usada só para SINCRONIZAR as migrations pendentes antes dos testes
-          # (passo abaixo). Em produção fica vazia (não sincronizamos a produção). Normaliza aspas/espaço e mascara.
+          # URL do Postgres (Session pooler) da vaga de TESTE — usada só para SINCRONIZAR as migrations pendentes antes
+          # dos testes (passo abaixo). Normaliza aspas/espaço e mascara.
           if [ -n "$DBURL" ]; then
             DBURL="$(printf '%s' "$DBURL" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]\$//")"
             echo "::add-mask::$DBURL"
