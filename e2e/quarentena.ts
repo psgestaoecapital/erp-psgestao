@@ -244,6 +244,14 @@ export const QUARENTENA: SpecQuarentenado[] = [
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
     code: 'gilberto-desenv',
   },
+  {
+    spec: 'e2e/jornadas/aceitacao/kgf-quantidade-fracionada-102.spec.ts',
+    area: 'kgf-quantidade',
+    motivo: 'falha igual em todas as PRs (#2563, #2839, #2827): a DEMO Oficina das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T22:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-esteira',
+  },
   /* quarentena:fim */
 ]
 
