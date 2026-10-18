@@ -383,10 +383,22 @@ comentar_celular_info() {
 # vermelha de uma PR, cada spec que falhou TAMBÉM na aceitação de ≥2 OUTRAS PRs distintas nas últimas 6 h (qualquer vaga de
 # PR) é AMBIENTE e não bloqueia. Continuam bloqueando: spec da PRÓPRIA PR (checado antes); qualquer falha que NÃO apareça em
 # ≥2 outras PRs (inclui "dados insuficientes": < 2 outras PRs → nenhum spec alcança o limiar); falha ilegível; falha de
-# setup/guarda (a PR nem rodou → sem spec). VALIDADE: até FALHA_COMUM_FIM; depois volta sozinha ao comportamento atual.
+# setup/guarda (a PR nem rodou → sem spec); e LISTA TRUNCADA (Eng. Chefe 18/10): se o total que falhou (resumo "N failed")
+# for MAIOR que o nº de specs nomeados que lemos, a lista é parcial → não dá pra concluir "todas comuns" → bloqueia
+# (fail-closed). VALIDADE: até FALHA_COMUM_FIM; depois volta sozinha ao comportamento atual.
 # FILA_FALHA_COMUM_CONTAGEM (linhas "spec<TAB>N<TAB>pr1,pr2") sobrescreve a contagem das OUTRAS PRs (para o gate).
 FALHA_COMUM_FIM='2026-10-21T21:00:00Z'   # 21/10/2026 18:00 America/Sao_Paulo (BRT = UTC-3)
 falha_comum_janela() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$FALHA_COMUM_FIM" +%s)" ]; }
+# TOTAL de testes que FALHARAM num run, pelo número "N failed" do resumo "🎭 Playwright Run Summary" (RD-38: a contagem
+# do relatório, não a lista de anotações — que o GitHub TRUNCA). Ecoa o maior N encontrado, ou vazio se não houver resumo
+# legível. Usado só como GUARDA DE TRUNCAMENTO: se o total > nº de specs nomeados que conseguimos ler, a lista é parcial.
+pos_total_falhas() {
+  local run=$1 jid
+  for jid in $(api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
+    api "repos/$REPO/check-runs/$jid/annotations" --paginate \
+      --jq '.[] | select((.title // "") | test("Playwright Run Summary")) | (.message // "")' 2>/dev/null
+  done | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' | sort -rn | head -1
+}
 # Para a PR $1: ecoa "spec<TAB>N<TAB>pr1,pr2,…" — N = nº de OUTRAS PRs distintas (≠ $1) cuja aceitação FALHOU naquele spec
 # nas últimas 6 h. Lê os runs do aceitacao-pr.yml que falharam na janela, mapeia run→PR e junta os specs falhos (anotações,
 # técnica da #2677). Os pares (spec,PR) são calculados UMA vez por rodada e cacheados em $TMPF.
@@ -483,24 +495,34 @@ estado_checks() {
       proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
       [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
       if [ -n "$falhos" ]; then
-        local contagem restantes amb_lines info n_out prs spec
-        contagem=$(falha_comum_contagem "$n")
-        restantes=""; amb_lines=""
-        while IFS= read -r spec; do
-          [ -n "$spec" ] || continue
-          info=$(awk -F'\t' -v s="$spec" '$1==s{print; exit}' <<< "$contagem")
-          n_out=$(cut -f2 <<< "$info"); prs=$(cut -f3 <<< "$info")
-          if [ -n "$info" ] && [ "${n_out:-0}" -ge 2 ] 2>/dev/null; then
-            amb_lines+="$spec (também em $(sed 's/\([0-9][0-9]*\)/#\1/g' <<< "$prs"))"$'\n'
-          else
-            restantes+="$spec"$'\n'
+        local contagem restantes amb_lines info n_out prs spec total nomeados
+        # GUARDA DE TRUNCAMENTO (Eng. Chefe 18/10): o GitHub TRUNCA as anotações do check-run (ex.: #2850 dizia "28 falhas"
+        # mas só 8 nomes vinham). Se o TOTAL que falhou (resumo "N failed", RD-38) for MAIOR que o nº de specs nomeados que
+        # conseguimos ler, a lista é parcial → NÃO dá pra concluir "todas comuns". Fail-closed: bloqueia (acc_quar=0, o
+        # caminho normal reprova). Só classifica como ambiente com a lista COMPLETA (total legível e total ≤ nomeados).
+        total=$(pos_total_falhas "$acc_run")
+        nomeados=$(printf '%s\n' "$falhos" | sed '/^$/d' | wc -l | tr -d ' ')
+        if [ -z "$total" ] || { [ "$total" -gt "$nomeados" ] 2>/dev/null; }; then
+          log "#$n: aceitação vermelha com lista de falhas TRUNCADA/ilegível (total='${total:-?}' > nomeados=$nomeados) — bloqueia (fail-closed, Eng. Chefe 18/10)" >&2
+        else
+          contagem=$(falha_comum_contagem "$n")
+          restantes=""; amb_lines=""
+          while IFS= read -r spec; do
+            [ -n "$spec" ] || continue
+            info=$(awk -F'\t' -v s="$spec" '$1==s{print; exit}' <<< "$contagem")
+            n_out=$(cut -f2 <<< "$info"); prs=$(cut -f3 <<< "$info")
+            if [ -n "$info" ] && [ "${n_out:-0}" -ge 2 ] 2>/dev/null; then
+              amb_lines+="$spec (também em $(sed 's/\([0-9][0-9]*\)/#\1/g' <<< "$prs"))"$'\n'
+            else
+              restantes+="$spec"$'\n'
+            fi
+          done <<< "$falhos"
+          restantes=$(printf '%s' "$restantes" | sed '/^$/d')
+          if [ -z "$restantes" ] && [ -n "$amb_lines" ]; then
+            acc_quar=1
+            log "#$n: aceitação vermelha só com falhas de AMBIENTE (comuns a ≥2 outras PRs nas últimas 6 h) — não bloqueia (CEO 18/10 · registro de plantão): $(tr '\n' ' ' <<< "$amb_lines")" >&2
+            comentar_falha_comum "$n" "$amb_lines" "$acc_run" >&2
           fi
-        done <<< "$falhos"
-        restantes=$(printf '%s' "$restantes" | sed '/^$/d')
-        if [ -z "$restantes" ] && [ -n "$amb_lines" ]; then
-          acc_quar=1
-          log "#$n: aceitação vermelha só com falhas de AMBIENTE (comuns a ≥2 outras PRs nas últimas 6 h) — não bloqueia (CEO 18/10 · registro de plantão): $(tr '\n' ' ' <<< "$amb_lines")" >&2
-          comentar_falha_comum "$n" "$amb_lines" "$acc_run" >&2
         fi
       fi
     fi

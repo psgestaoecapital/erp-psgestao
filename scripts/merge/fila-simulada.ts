@@ -24,6 +24,7 @@ export type PrSimulada = {
   specsProprios?: string[]     // arquivos e2e/*.spec.ts que a PR criou/alterou (vão para pulls/<n>/files)
   aceitacaoSpecs?: string[]    // specs que FALHARAM na aceitação da PR (anotações do check-run) — regra do teste próprio
   aceitacaoSpecsDesktop?: string[]  // specs que falharam no projeto computador (anotação sem a marca [celular])
+  aceitacaoTotal?: number      // "N failed" do resumo Playwright da aceitação da PR (p/ a guarda de truncamento); padrão = nº de specs nomeados
   sqlMigration?: string        // SQL da migration da PR (lote de migrations independentes, CEO 16/10); padrão: select 1;
   autorCode?: string           // Code autor em erp_dev_entrega (para o acionamento automático do @pos, Parte 2)
 }
@@ -115,9 +116,13 @@ esac
         const accUrl = (p.aceitacaoSpecs?.length || p.aceitacaoSpecsDesktop?.length) ? `https://github.com/o/r/actions/runs/${accRun}/job/${accJob}` : ''
         if (p.aceitacaoSpecs?.length || p.aceitacaoSpecsDesktop?.length) {
           put(`${R}/actions/runs/${accRun}/jobs`, { jobs: [{ id: accJob, conclusion: 'failure' }] })
+          const nomeados = (p.aceitacaoSpecs?.length ?? 0) + (p.aceitacaoSpecsDesktop?.length ?? 0)
+          const total = p.aceitacaoTotal ?? nomeados
           put(`${R}/check-runs/${accJob}/annotations`, [
             ...(p.aceitacaoSpecs ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[celular] › ${s}:10:7`, message: `  [celular] › ${s}:10:7 › x` })),
-            ...(p.aceitacaoSpecsDesktop ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[computador] › ${s}:10:7`, message: `  [computador] › ${s}:10:7 › x` }))])
+            ...(p.aceitacaoSpecsDesktop ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[computador] › ${s}:10:7`, message: `  [computador] › ${s}:10:7 › x` })),
+            // resumo Playwright da aceitação (guarda de truncamento, Eng. Chefe 18/10): o "N failed" é a verdade do total
+            { annotation_level: 'notice', path: '.github', title: '🎭 Playwright Run Summary', message: `  ${total} failed\n  197 passed` }])
         }
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [
           { name: 'check_menu', status: p.checksRodando ? 'in_progress' : 'completed', conclusion: p.checksRodando ? null : 'success', details_url: '' },

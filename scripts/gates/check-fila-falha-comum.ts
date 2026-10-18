@@ -17,6 +17,8 @@ ok(/FALHA_COMUM_FIM='2026-10-21T21:00:00Z'/.test(sh), 'fim explícito no código
 ok(/aceitacao-pr\.yml\/runs/.test(sh), 'a contagem vem dos runs do aceitacao-pr.yml que falharam')
 ok(/\$2!=this/.test(sh), 'conta OUTRAS PRs distintas (exclui a própria) por spec')
 ok(/n_out:-0\}" -ge 2/.test(sh), 'limiar: spec é ambiente só com ≥2 outras PRs')
+ok(/pos_total_falhas\(\)/.test(sh) && /Playwright Run Summary/.test(sh), 'guarda de truncamento: lê o total "N failed" do resumo Playwright')
+ok(/-z "\$total" \]\s*\|\|\s*\{\s*\[ "\$total" -gt "\$nomeados"/.test(sh), 'truncamento: total vazio OU total > nomeados → bloqueia (fail-closed)')
 
 const S1 = 'e2e/jornadas/aceitacao/xml-compra-lote.spec.ts'
 const S2 = 'e2e/jornadas/aceitacao/caminho-oficina-diagnostico.spec.ts'
@@ -56,6 +58,14 @@ if (!temFerramentas()) {
     // (f) falha ilegível (sem spec) → fail-closed
     x = rodar([{ ...rev }], false, 5000, { ...env, FILA_FALHA_COMUM_CONTAGEM: `${S1}\t2\t7,8` })
     ok(merges(x.escritas).length === 0, '(f) falha ilegível → fail-closed, bloqueia')
+
+    // (g) lista TRUNCADA: 1 spec nomeado (comum a ≥2) mas o resumo diz 5 falhas → não dá pra concluir "todas comuns" → bloqueia
+    x = rodar([{ ...rev, aceitacaoSpecs: [S1], aceitacaoTotal: 5 }], false, 5000, { ...env, FILA_FALHA_COMUM_CONTAGEM: `${S1}\t2\t7,8` })
+    ok(merges(x.escritas).length === 0 && /TRUNCADA\/ilegível/.test(x.log), '(g) total de falhas > nomes lidos → truncada, bloqueia (fail-closed)')
+
+    // (h) lista COMPLETA (total == nomeados) e todas comuns → publica (controle do caso g)
+    x = rodar([{ ...rev, aceitacaoSpecs: [S1], aceitacaoTotal: 1 }], false, 5000, { ...env, FILA_FALHA_COMUM_CONTAGEM: `${S1}\t2\t7,8` })
+    ok(merges(x.escritas).join() === '1', '(h) lista completa (total = nomeados) e todas comuns → publica')
   })
 }
 
