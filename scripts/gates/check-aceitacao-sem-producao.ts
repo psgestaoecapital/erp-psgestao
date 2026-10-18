@@ -8,10 +8,23 @@ let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 const pr = readFileSync('.github/workflows/aceitacao-pr.yml', 'utf8')
 
-// nenhum segredo de PRODUÇÃO referenciado no workflow (PURL/PANON/PSRK removidos)
-ok(!/secrets\.SUPABASE_URL\b/.test(pr), 'nenhuma referência a secrets.SUPABASE_URL (produção)')
-ok(!/secrets\.SUPABASE_SERVICE_ROLE_KEY\b/.test(pr), 'nenhuma referência a secrets.SUPABASE_SERVICE_ROLE_KEY (produção)')
-ok(!/secrets\.NEXT_PUBLIC_SUPABASE_ANON_KEY\b/.test(pr), 'nenhuma referência a secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY (produção)')
+// Recorta UM job pelo recuo de 2 espaços ("  nome:" até o próximo "  outro:"); comentários "  #" não casam.
+const job = (nome: string): string => {
+  const i = pr.search(new RegExp(`^  ${nome}:\\s*$`, 'm'))
+  if (i < 0) return ''
+  const rel = pr.slice(i + 1).search(/^  [A-Za-z0-9_-]+:\s*$/m)
+  return pr.slice(i, rel < 0 ? pr.length : i + 1 + rel)
+}
+
+// O FOCO deste gate: o job que faz checkout e RODA O CÓDIGO DA PR (aceitacao) não pode ver segredo de PRODUÇÃO. Os jobs
+// `triagem` (checkout `ref: main`, código CONFIÁVEL — reserva a vaga) e `liberar-reserva` (sem checkout) usam a chave de
+// produção só para a reserva de vaga (#2855); isso é responsabilidade do check-esteira-reserva-vaga.ts (nenhum job com
+// checkout DA PR recebe a chave), não deste gate. Por isso a proibição é escopada ao job `aceitacao`, não ao arquivo todo.
+const acc = job('aceitacao')
+ok(acc !== '', 'o job `aceitacao` (que roda o código da PR) foi encontrado no workflow')
+ok(!/secrets\.SUPABASE_URL\b/.test(acc), 'o job aceitação não referencia secrets.SUPABASE_URL (produção)')
+ok(!/secrets\.SUPABASE_SERVICE_ROLE_KEY\b/.test(acc), 'o job aceitação não referencia secrets.SUPABASE_SERVICE_ROLE_KEY (produção)')
+ok(!/secrets\.NEXT_PUBLIC_SUPABASE_ANON_KEY\b/.test(acc), 'o job aceitação não referencia secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY (produção)')
 ok(!/\b(PURL|PSRK|PANON):/.test(pr) && !/\$(PURL|PSRK|PANON)\b/.test(pr) && !/\$\{(PURL|PSRK|PANON)[:}]/.test(pr),
   'variáveis PURL/PSRK/PANON (fallback de produção) removidas — não há env nem uso delas (menção em comentário não conta)')
 
