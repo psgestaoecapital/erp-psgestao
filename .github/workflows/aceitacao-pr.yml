@@ -56,6 +56,11 @@ jobs:
           VAGAS: ${{ vars.ACEITACAO_VAGAS || '1' }}
           URL1: ${{ secrets.TEST_SUPABASE_URL_1 }}
           URL2: ${{ secrets.TEST_SUPABASE_URL_2 }}
+          # Reserva de vaga no banco (CEO 18/10): a triagem reserva a vaga chamando fn_esteira_reservar_vaga via REST RPC
+          # (função guarda só a tabela de orquestração da esteira — sem dado de cliente). Produção, chave de serviço da
+          # esteira. Só a triagem (código confiável da main) a usa; a reserva é liberada no fim do job de aceitação.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           rodar=true
           pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null || true)
@@ -85,16 +90,28 @@ jobs:
             :
           fi
           echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
-          # VAGA = banco do pool desta rodada. Sorteio CIENTE DE OCUPAÇÃO (CEO 18/10): escolhe a vaga de PR (0 ou 2 — a
-          # vaga 1 é RESERVADA para a aceitação da main, grupo aceitacao-testes-1) com MENOS runs ativos/na fila;
-          # empate → menor número. Se a consulta de ocupação falhar, cai no sorteio antigo (determinístico) sobre as
-          # vagas elegíveis. Com ACEITACAO_VAGAS=1 (padrão) só a vaga 0 é elegível → serial, idêntico a antes.
-          # Provas (a..d) em scripts/gates/check-aceitacao-vaga-ocupacao.ts; lógica em scripts/merge/aceitacao-sortear-vaga.sh.
-          v=$(RUN=$(( ${{ github.run_number }} + ${{ github.run_attempt }} )) VAGAS="$VAGAS" URL1="$URL1" URL2="$URL2" \
-                REPO="$REPO" GH_TOKEN="$GH_TOKEN" SELF_RUN_ID="$RUN_ID" scripts/merge/aceitacao-sortear-vaga.sh)
+          # VAGA = banco do pool desta rodada. CEO 18/10: PRIMEIRO a RESERVA NO BANCO (fn_esteira_reservar_vaga) —
+          # transacional com pg_advisory_xact_lock, então várias triagens concorrentes NÃO correm (a corrida do sorteio por
+          # log, que lia a ocupação em runs sem log ainda e mandava quase todas para a vaga 0). A função conta as reservas
+          # ATIVAS por vaga e grava na com MENOS (empate → menor); a vaga 1 é da main (a função a exclui). Se a reserva
+          # falhar (rede/segredo), cai no SORTEIO POR LOG (determinístico); cinto final → vaga 0 (serial).
+          # Provas: scripts/gates/check-esteira-reserva-vaga.ts (reserva) e check-aceitacao-vaga-ocupacao.ts (sorteio).
+          v=""
+          if [ "$rodar" = true ] && [ -n "$pr" ] && [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            vagas='[0]'; { [ "${VAGAS:-1}" -ge 3 ] && [ -n "$URL2" ]; } && vagas='[0,2]'
+            v=$(curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_esteira_reservar_vaga" \
+                  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+                  -H 'Content-Type: application/json' \
+                  -d "{\"p_pr\":$pr,\"p_run_id\":$RUN_ID,\"p_vagas\":$vagas}" 2>/dev/null | tr -d '[:space:]')
+            case "$v" in ''|*[!0-9]*) echo "::notice::reserva no banco falhou — caindo no sorteio por log"; v="";; *) echo "vaga RESERVADA no banco: $v (vagas elegíveis $vagas)";; esac
+          fi
+          if [ -z "$v" ]; then
+            v=$(RUN=$(( ${{ github.run_number }} + ${{ github.run_attempt }} )) VAGAS="$VAGAS" URL1="$URL1" URL2="$URL2" \
+                  REPO="$REPO" GH_TOKEN="$GH_TOKEN" SELF_RUN_ID="$RUN_ID" scripts/merge/aceitacao-sortear-vaga.sh)
+          fi
           case "$v" in ''|*[!0-9]*) v=0;; esac   # cinto de segurança: saída inesperada → vaga 0 (serial)
           echo "vaga de aceitação: $v"
-          # Marcador estável lido pelo sorteio ciente de ocupação (NÃO renomeia o check obrigatório "aceitacao").
+          # Marcador estável lido pelo sorteio por log (NÃO renomeia o check obrigatório "aceitacao").
           echo "ACEITACAO_VAGA_ESCOLHIDA=$v"
           echo "vaga=$v" >> "$GITHUB_OUTPUT"
 
@@ -441,6 +458,21 @@ jobs:
           SUPABASE_URL: ${{ env.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/e2e-trava-soltar.ts
+      # CEO 18/10: libera a RESERVA de vaga no banco ao fim do run (sempre). Produção + chave de serviço SÓ neste passo
+      # (os passos que rodam o código da PR não a enxergam). Se falhar, a reserva expira sozinha em 2 h — nunca trava a vaga.
+      - name: Liberar a reserva de vaga no banco (sempre)
+        if: always()
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || { echo "sem segredo — a reserva expira sozinha em 2 h"; exit 0; }
+          curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_esteira_liberar_vaga" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' -d "{\"p_run_id\":$RUN_ID}" >/dev/null \
+            && echo "reserva da vaga liberada (run $RUN_ID)" || echo "::notice::não liberou a reserva (expira sozinha em 2 h)"
       # Sempre sobe o diagnóstico do global-setup (screenshots com/sem ps_allow_preview); relatório completo só na falha.
       - name: Upload diagnóstico do host (sempre)
         if: always()
