@@ -318,8 +318,8 @@ comentar_herdadas_main() {
 # [CELULAR] INFORMATIVO (CEO 17/10 19:30Z, msg 7dd43fa6; REGRA TEMPORÁRIA): aceitação vermelha da PR só com falhas no projeto
 # [celular] NÃO bloqueia (comentário na PR lista como informativas). Falha em QUALQUER spec do projeto computador (desktop, ou
 # anotação sem a marca [celular] → fail-closed) bloqueia como hoje; spec da PRÓPRIA PR bloqueia em qualquer projeto; falha
-# ilegível bloqueia. VALIDADE: 24 h a partir de CELULAR_INFO_INICIO OU até a aceitação da main passar no [celular] (a última
-# aceitação da main com suíte real sem falha [celular]) — o que vier primeiro; depois volta a bloquear sozinha.
+# ilegível bloqueia. VALIDADE: até CELULAR_INFO_FIM OU até a aceitação da main passar no [celular] DUAS vezes seguidas (as 2 últimas
+# aceitações da main com suíte real sem falha [celular]; uma passada isolada não desliga) — o que vier primeiro; depois volta a bloquear sozinha.
 # FILA_CELULAR_MAIN_FALHA (0|1) sobrescreve a leitura da main (para o gate).
 CELULAR_INFO_INICIO='2026-10-17T19:30:00Z'
 CELULAR_INFO_FIM='2026-10-18T19:30:00Z'
@@ -338,18 +338,34 @@ pos_specs_falhos_desktop() {
               else ([(.path // ""), (.title // ""), (.message // "")] | join(" ") | gsub("\n"; " ")) end' 2>/dev/null
   done | grep -v '\[celular\]' | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts' | sort -u
 }
-# a última aceitação da main com suíte real ainda falha no [celular]? (0 = sim, regra segue; 1 = não, regra desliga)
+# a main ainda NÃO provou estabilidade no [celular]? (0 = sim, regra segue; 1 = não, regra desliga). Uma passada isolada não
+# prova nada (CEO 17/10, msg de5bc80b): só desliga quando as DUAS últimas aceitações da main com suíte real (success|failure)
+# não têm falha [celular]. FILA_CELULAR_MAIN_SEQ="falha,ok" (mais recente primeiro) sobrescreve a leitura (para o gate).
 celular_main_falhando() {
+  if [ -n "${FILA_CELULAR_MAIN_SEQ:-}" ]; then
+    local r n=0
+    for r in ${FILA_CELULAR_MAIN_SEQ//,/ }; do
+      n=$((n + 1)); [ "$r" = ok ] || return 0
+      [ "$n" -ge 2 ] && return 1
+    done
+    return 0
+  fi
   [ -z "${FILA_CELULAR_MAIN_FALHA:-}" ] || { [ "$FILA_CELULAR_MAIN_FALHA" = 1 ]; return; }
-  local rid conc id= jid
+  local rid conc jid achados=0 lidos=0
   for rid in $(api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" --jq '.workflow_runs[].id' 2> /dev/null || true); do
     conc=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="aceitacao-main")|.conclusion]|first // empty' 2> /dev/null || true)
-    case "$conc" in success|failure) id=$rid; break ;; esac
+    case "$conc" in success|failure) ;; *) continue ;; esac
+    lidos=$((lidos + 1))
+    if [ "$conc" = failure ]; then
+      for jid in $(api "repos/$REPO/actions/runs/$rid/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
+        api "repos/$REPO/check-runs/$jid/annotations" --paginate --jq '.[] | [(.title // ""), (.message // "")] | join(" ")' 2>/dev/null
+      done | grep -q '\[celular\]' && return 0
+    fi
+    achados=$((achados + 1))
+    [ "$achados" -ge 2 ] && return 1
   done
-  [ "$conc" = failure ] && [ -n "$id" ] || return 1
-  for jid in $(api "repos/$REPO/actions/runs/$id/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
-    api "repos/$REPO/check-runs/$jid/annotations" --paginate --jq '.[] | [(.title // ""), (.message // "")] | join(" ")' 2>/dev/null
-  done | grep -q '\[celular\]'
+  # sem NENHUMA aceitação da main legível (API falhou/vazia): fail-closed, a regra desliga e a PR bloqueia como antes
+  [ "$lidos" -gt 0 ]
 }
 # Comenta UMA vez por run na PR $1 as falhas do celular tratadas como informativas. $2 = specs, $3 = run da aceitação da PR.
 comentar_celular_info() {
