@@ -15,7 +15,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // CEO/Eng. Chefe 18/10: o [celular] falhava aleatoriamente com "Target page, context or browser has been closed"
+  // (Chromium morto no runner). Na CI cada teste ganha uma 2ª retentativa; falha real continua falhando nas 3.
+  retries: process.env.CI ? 2 : 0,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
@@ -25,6 +27,8 @@ export default defineConfig({
     baseURL: BASE_URL,
     storageState: STORAGE_STATE,
     ignoreHTTPSErrors: true,
+    // /dev/shm de 64 MB do runner derruba o Chromium ("browser has been closed"): usa /tmp em vez de memória compartilhada.
+    launchOptions: { args: ['--disable-dev-shm-usage'] },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     // RD-78: preview da Vercel com Deployment Protection responde 401 ao robô; o bypass oficial é este header.
