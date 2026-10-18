@@ -19,7 +19,6 @@ const PENDENTES = [
   'src/app/dashboard/projetos/desempenho/page.tsx',
   'src/app/dashboard/projetos/engenharia/page.tsx',
   'src/app/dashboard/projetos/insumos/page.tsx',
-  'src/app/dashboard/projetos/obras/page.tsx',
   'src/app/dashboard/projetos/oportunidades/OportunidadeFormModal.tsx',
   'src/app/dashboard/projetos/oportunidades/OportunidadesKanban.tsx',
   'src/app/dashboard/projetos/oportunidades/[id]/page.tsx',
