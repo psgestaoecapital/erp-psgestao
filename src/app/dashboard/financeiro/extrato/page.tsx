@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import GerarSegundoPlanoButton from '@/components/relatorios/GerarSegundoPlanoButton'
 
 interface Linha {
   id: string
@@ -197,9 +198,15 @@ export default function ExtratoPage() {
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: '#3D2314', margin: '0 0 6px' }}>
           Extrato Conta Corrente
         </h1>
-        <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, marginBottom: 24 }}>
-          {extrato ? `${fmtDate(extrato.periodo.inicio)} a ${fmtDate(extrato.periodo.fim)} · ${linhasFiltradas.length} lançamentos` : 'Carregando…'}
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
+          <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, margin: 0 }}>
+            {extrato ? `${fmtDate(extrato.periodo.inicio)} a ${fmtDate(extrato.periodo.fim)} · ${linhasFiltradas.length} lançamentos` : 'Carregando…'}
+          </p>
+          {/* #3281: movimentação de todas as contas do período, em Excel, sem esperar na tela */}
+          {empresaUnica && (
+            <GerarSegundoPlanoButton companyId={empresaUnica} tipo="financeiro_movimentacao" dataInicio={dataInicio} dataFim={dataFim} chaveAjuda="relatorio.segundo_plano.extrato" />
+          )}
+        </div>
 
         <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#FAF7F2', padding: '8px 0 16px', marginBottom: 16, borderBottom: '0.5px solid rgba(61,35,20,0.08)' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
