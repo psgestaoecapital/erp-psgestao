@@ -224,7 +224,7 @@ export default function CalculadoraObraPage() {
           <h2 className="mb-3 text-base font-medium text-[#3D2314]">O que comprar <span className="text-sm text-[#3D2314]/50">· área {fmt(res.area)} m²</span><AjudaCampo chave="projetos.calculadora.resultado" rota="/dashboard/projetos/calculadora" /></h2>
           {companyId && (
             <p className="mb-2 text-sm text-[#3D2314]/70" data-testid="calc-custo-total">
-              Custo estimado: <b>{fmtBRL(custo.total)}</b><AjudaCampo chave="projetos.calculadora.custo_total" rota="/dashboard/projetos/calculadora" />
+              Custo estimado: <b>{custo.linhas.length > 0 && custo.semCusto === custo.linhas.length ? "sem custo — vincule os itens ao estoque" : fmtBRL(custo.total)}</b><AjudaCampo chave="projetos.calculadora.custo_total" rota="/dashboard/projetos/calculadora" />
               {custo.semCusto > 0 && <span className="ml-2 text-amber-700">{custo.semCusto} item(ns) sem custo — fora do total</span>}
             </p>
           )}
