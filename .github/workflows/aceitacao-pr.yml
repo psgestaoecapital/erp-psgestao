@@ -317,7 +317,7 @@ jobs:
           fi
           set +e
           VAGA="${ACEITACAO_VAGA:-0}" TEST_DATABASE_URL="$TEST_DATABASE_URL" REF_DATABASE_URL="$REF_DATABASE_URL" \
-            scripts/banco-testes/reconciliar-referencia.sh
+            MAIN_MIGR_DIR="$mmain/supabase/migrations" scripts/banco-testes/reconciliar-referencia.sh
           rc=$?
           set -e
           if [ "$rc" = 2 ]; then

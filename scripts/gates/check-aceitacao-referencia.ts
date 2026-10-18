@@ -54,16 +54,17 @@ ok(!/drop\s+schema/i.test(sh), 'nunca DROP SCHEMA')
   ok(/drop policy if exists \\?"\$pl\\?" on public\./.test(sh), 'policy: DROP POLICY … ON public.')
 }
 
-// ── (a) versão órfã sai do ledger ─────────────────────────────────────────────────────────────────────────────────
-ok(/comm -13 "\$dir\/ref\.led" "\$dir\/vaga\.led" > "\$dir\/orphan\.led"/.test(sh),
-  '(a) órfão = versão do ledger na vaga e ausente na referência (comm vaga−ref)')
-ok(/delete from supabase_migrations\.schema_migrations where version not in \(select version from _refled\)/.test(sh),
-  '(a) remove do ledger só os órfãos (ausentes na referência) — nunca as versões que a referência também tem')
+// ── (a) versão órfã sai do ledger (ausente na referência E na main) ───────────────────────────────────────────────
+ok(/comm -13 "\$dir\/ref\.led" "\$dir\/vaga\.led" > "\$dir\/orphan\.pre"/.test(sh)
+  && /comm -23 "\$dir\/orphan\.pre" "\$dir\/main\.led" > "\$dir\/orphan\.led"/.test(sh),
+  '(a) órfão = versão na vaga, ausente na referência (comm vaga−ref) E ausente na main (comm −main)')
+ok(/delete from supabase_migrations\.schema_migrations where version not in \(select version from _refled\) and version not in \(select version from _mainled\)/.test(sh),
+  '(a) remove do ledger só os órfãos (ausentes na referência E na main) — nunca uma versão de migration da main (P1)')
 
 // ── (b) objeto criado por PR (vaga-only) é removido ───────────────────────────────────────────────────────────────
 ok(/comm -13 "\$dir\/ref\.keys" "\$dir\/vaga\.keys" > "\$dir\/vaga_only\.keys"/.test(sh),
   '(b) vaga-only = objeto na vaga e ausente na referência')
-ok(/"func "\*\)\s*echo "drop function if exists \$\{k#func \} cascade;"/.test(sh)
+ok(/"func "\*\)\s*echo "drop function if exists \$\{k#func \};"/.test(sh)
   && /"table "\*\)\s*echo "drop table if exists public\./.test(sh),
   '(b) vaga-only vira DROP (função/tabela/… no public)')
 
@@ -106,6 +107,8 @@ ok(/Reconciliar a vaga com a referência \(vaga 1, só leitura\) — antes dos t
 ok(/REF_DATABASE_URL: \$\{\{ secrets\.TEST_DATABASE_URL_1 \}\}/.test(pr),
   'aceitacao-pr: a referência é a vaga 1 (secrets.TEST_DATABASE_URL_1) — banco de TESTES, não produção (Pilar 2)')
 ok(/scripts\/banco-testes\/reconciliar-referencia\.sh/.test(pr), 'aceitacao-pr: chama reconciliar-referencia.sh')
+ok(/MAIN_MIGR_DIR="\$mmain\/supabase\/migrations" scripts\/banco-testes\/reconciliar-referencia\.sh/.test(pr),
+  'aceitacao-pr: passa MAIN_MIGR_DIR (origin/main) para a proteção "referência atrasada" (P1)')
 // o passo roda ANTES do "Sincronizar só-com-a-main → foto → aplicar migrations da PR" (reconcilia antes de aplicar a PR)
 {
   const iRec = pr.indexOf('Reconciliar a vaga com a referência')
@@ -117,6 +120,41 @@ ok(/rc" = 2[\s\S]{0,800}gh workflow run montar-banco-testes\.yml -f vaga="\$\{AC
 // Pilar 2: o passo (e o workflow) não carregam segredo de produção
 ok(!/prod-url\.sh/.test(pr) && !/SUPABASE_ACCESS_TOKEN/.test(pr) && !/SUPABASE_DB_PASSWORD/.test(pr),
   'aceitacao-pr NÃO carrega segredo de produção (Pilar 2) — a referência é lida com o segredo de TESTE da vaga 1')
+
+// ── P1: REFERÊNCIA ATRASADA — só reconcilia com o ledger da referência contendo toda a main e mesma versão máxima ──
+ok(/MAIN_MIGR_DIR:\?MAIN_MIGR_DIR ausente/.test(sh), 'P1: MAIN_MIGR_DIR é obrigatório (última migration da main)')
+ok(/comm -23 "\$dir\/main\.led" "\$dir\/ref\.led" \| grep -c \. \|\| true/.test(sh)
+  && /faltando" -ne 0 \]; then[\s\S]{0,200}pular "referência atrás da main/.test(sh),
+  'P1: migration da main ausente no ledger da referência → PULA (referência atrás da main), não reconcilia')
+ok(/if \[ "\$ref_max" != "\$main_max" \]; then\s*\n\s*pular /.test(sh),
+  'P1: versão máxima da referência ≠ última migration da main → PULA')
+ok(/pular\(\)\s*\{[\s\S]{0,160}exit 0; \}/.test(sh), 'P1/P2: "pular" é exit 0 (segue o comportamento atual), nunca remove nada')
+ok(/comm -23 "\$dir\/orphan\.pre" "\$dir\/main\.led"/.test(sh) && /version not in \(select version from _mainled\)/.test(sh),
+  'P1: NUNCA remove da vaga uma versão/objeto que pertença a uma migration presente na main (órfão e DELETE excluem a main)')
+
+// ── P2: LEITURA CONSISTENTE — lê o ledger da referência antes e depois do catálogo; mudou → pula ──────────────────
+ok(/ref\.led\.antes[\s\S]*ref\.sig[\s\S]*ref\.led\.depois/.test(sh),
+  'P2: ledger da referência lido ANTES e DEPOIS de coletar o catálogo')
+ok(/if ! cmp -s "\$dir\/ref\.led\.antes" "\$dir\/ref\.led\.depois"; then\s*\n\s*pular "o ledger da referência mudou/.test(sh),
+  'P2: ledger da referência mudou durante a leitura (aceitação da main rodou no meio) → descarta e PULA')
+
+// ── P3: EXTENSÕES — objetos de extensão (pg_depend deptype=e) fora da comparação e de qualquer DROP ───────────────
+{
+  const extCount = (sh.match(/not exists \(select 1 from pg_depend d where d\.objid=[^\n]*and d\.deptype='e'\)/g) || []).length
+  ok(extCount >= 10, `P3: a assinatura exclui objetos de extensão (deptype='e') em todas as classes (${extCount} filtros)`)
+}
+ok(/not exists \(select 1 from pg_depend d join pg_class c2 on c2\.oid=d\.objid[\s\S]{0,160}c2\.relname=ic\.table_name and d\.deptype='e'\)/.test(sh),
+  'P3: colunas de tabela de extensão também são excluídas')
+// como objetos de extensão nunca entram na assinatura, nunca aparecem em vaga_only/ref_only/diff → nunca são derrubados
+ok(/EXCLUINDO objetos de extensão/.test(sh), 'P3: documentado — objeto de extensão nunca entra na comparação nem vira DROP')
+
+// ── P4: SEM CASCADE — nenhum DROP ... CASCADE; DROP com dependência → Montar ──────────────────────────────────────
+ok(!/echo "[^"]*cascade[^"]*" >> "\$txn"/i.test(sh), 'P4: nenhum comando SQL emitido na transação (echo … >> $txn) usa CASCADE')
+ok(/em ORDEM DE DEPEND[ÊE]NCIA/.test(sh)
+  && /for classe in policy trigger constraint index col view table sequence type func; do emitir/.test(sh),
+  'P4: DROPs emitidos SEM cascade, em ordem de dependência (dependentes primeiro)')
+ok(/if ! "\$PSQL" "\$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "\$txn"; then\s*\n\s*montar /.test(sh),
+  'P4: DROP que falha por dependência (sem cascade) aborta a transação → montar (caso d), não remenda')
 
 if (falhas) { console.error(`\n${falhas} verificação(ões) falharam — reconciliação com a referência (ETAPA B)`); process.exit(1) }
 console.log('\ncheck-aceitacao-referencia: ok')
