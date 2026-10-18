@@ -85,14 +85,17 @@ jobs:
             :
           fi
           echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
-          # VAGA = banco do pool desta rodada (o operador % não existe nas expressões do Actions, por isso aqui no bash).
-          # Com ACEITACAO_VAGAS=1 (padrão) a vaga é sempre 0 → um grupo de concorrência só → serial, como hoje.
-          vagas="$VAGAS"; case "$vagas" in ''|*[!0-9]*) vagas=1;; esac; [ "$vagas" -ge 1 ] || vagas=1
-          v=$(( (${{ github.run_number }} + ${{ github.run_attempt }}) % vagas ))  # re-run (attempt+1) troca de vaga: vaga suja/travada não prende a PR
-          # Segurança: só faz sharding numa vaga > 0 se o banco dela estiver provisionado (segredo presente). Senão cai
-          # para 0 — nunca deixa dois grupos (vagas) baterem no MESMO banco (a colisão de seed/reset que queremos evitar).
-          case "$v" in 1) [ -n "$URL1" ] || v=0;; 2) [ -n "$URL2" ] || v=0;; esac
-          echo "vaga de aceitação: $v (de $vagas)"
+          # VAGA = banco do pool desta rodada. Sorteio CIENTE DE OCUPAÇÃO (CEO 18/10): escolhe a vaga de PR (0 ou 2 — a
+          # vaga 1 é RESERVADA para a aceitação da main, grupo aceitacao-testes-1) com MENOS runs ativos/na fila;
+          # empate → menor número. Se a consulta de ocupação falhar, cai no sorteio antigo (determinístico) sobre as
+          # vagas elegíveis. Com ACEITACAO_VAGAS=1 (padrão) só a vaga 0 é elegível → serial, idêntico a antes.
+          # Provas (a..d) em scripts/gates/check-aceitacao-vaga-ocupacao.ts; lógica em scripts/merge/aceitacao-sortear-vaga.sh.
+          v=$(RUN=$(( ${{ github.run_number }} + ${{ github.run_attempt }} )) VAGAS="$VAGAS" URL1="$URL1" URL2="$URL2" \
+                REPO="$REPO" GH_TOKEN="$GH_TOKEN" SELF_RUN_ID="$RUN_ID" scripts/merge/aceitacao-sortear-vaga.sh)
+          case "$v" in ''|*[!0-9]*) v=0;; esac   # cinto de segurança: saída inesperada → vaga 0 (serial)
+          echo "vaga de aceitação: $v"
+          # Marcador estável lido pelo sorteio ciente de ocupação (NÃO renomeia o check obrigatório "aceitacao").
+          echo "ACEITACAO_VAGA_ESCOLHIDA=$v"
           echo "vaga=$v" >> "$GITHUB_OUTPUT"
 
   aceitacao:
