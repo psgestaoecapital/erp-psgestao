@@ -46,6 +46,15 @@ export default function OficinaAgendaPage() {
   const [erro, setErro] = useState('')
   const [msg, setMsg] = useState('')
   const [novo, setNovo] = useState(false)
+  // #2867 etapa 3 · vindo de uma OS-orçamento (?os=…): abre o Novo agendamento já preenchido.
+  const [daOS, setDaOS] = useState<DaOS | null>(null)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const os = q.get('os')
+    if (!os) return
+    setDaOS({ osId: os, osNumero: q.get('osn') || '', cliente: q.get('cliente') || '', clienteId: q.get('clienteId') || null, placa: q.get('placa') || '' })
+    setNovo(true)
+  }, [])
   const [editAg, setEditAg] = useState<Ag | null>(null)
   // Triches #133 · impressão: período visível (dia/semana), de todos ou de um mecânico
   const [mecImp, setMecImp] = useState('')
@@ -182,7 +191,7 @@ export default function OficinaAgendaPage() {
 
       <FolhaAgenda dias={modo === 'dia' ? [range.de] : diasSemana} ags={ags} mecanico={mecImp} titulo={modo === 'dia' ? new Date(range.de + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : `Semana ${fmtDiaCurto(range.de)} – ${fmtDiaCurto(range.ate)}`} />
 
-      {novo && companyId && <ModalNovo companyId={companyId} dataDefault={modo === 'dia' ? range.de : iso(new Date())} onClose={() => setNovo(false)} onCriou={(m) => { setNovo(false); setMsg(m); void carregar() }} />}
+      {novo && companyId && <ModalNovo daOS={daOS} companyId={companyId} dataDefault={modo === 'dia' ? range.de : iso(new Date())} onClose={() => setNovo(false)} onCriou={(m) => { setNovo(false); setMsg(m); void carregar() }} />}
       {editAg && companyId && <ModalEditar companyId={companyId} ag={editAg} onClose={() => setEditAg(null)} onSalvou={(m) => { setEditAg(null); setMsg(m); void carregar() }} />}
     </div>
   )
@@ -338,9 +347,11 @@ type ItemCliente = { id: string; nome: string }
 type ItemVeiculo = { placa: string; veiculo: string }
 type ItemMecanico = { id: string; nome: string }
 
-function ModalNovo({ companyId, dataDefault, onClose, onCriou }: { companyId: string; dataDefault: string; onClose: () => void; onCriou: (msg: string) => void }) {
-  const [f, setF] = useState({ cliente: '', placa: '', veiculo: '', responsavel: '', data: dataDefault, hi: '09:00', hf: '10:00', obs: '' })
-  const [clienteId, setClienteId] = useState<string | null>(null)
+type DaOS = { osId: string; osNumero: string; cliente: string; clienteId: string | null; placa: string }
+
+function ModalNovo({ daOS, companyId, dataDefault, onClose, onCriou }: { daOS?: DaOS | null; companyId: string; dataDefault: string; onClose: () => void; onCriou: (msg: string) => void }) {
+  const [f, setF] = useState({ cliente: daOS?.cliente ?? '', placa: daOS?.placa ?? '', veiculo: '', responsavel: '', data: dataDefault, hi: '09:00', hf: '10:00', obs: daOS ? `Agendado a partir do orçamento (OS ${daOS.osNumero || daOS.osId}). Ordem gerada através de um orçamento: verifique o diagnóstico na chegada.` : '' })
+  const [clienteId, setClienteId] = useState<string | null>(daOS?.clienteId ?? null)
   const [responsavelId, setResponsavelId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -406,7 +417,7 @@ function ModalNovo({ companyId, dataDefault, onClose, onCriou }: { companyId: st
       p_cliente_id: clienteId, p_cliente_nome: f.cliente.trim() || null,
       p_responsavel_id: responsavelId, p_responsavel_nome: f.responsavel.trim() || null,
       p_data: f.data, p_hora_inicio: f.hi || null, p_hora_fim: f.hf || null,
-      p_dados: { placa: f.placa.trim() || undefined, veiculo: f.veiculo.trim() || undefined },
+      p_dados: { placa: f.placa.trim() || undefined, veiculo: f.veiculo.trim() || undefined, os_orcamento_id: daOS?.osId || undefined },
       p_observacao: f.obs.trim() || null, p_orcamento_id: null,
     })
     setBusy(false)

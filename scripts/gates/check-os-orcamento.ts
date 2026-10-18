@@ -58,5 +58,21 @@ else {
   else ok('OrdemServicoCard: status orcamento no seletor')
 }
 
+
+// 4) Etapa 3 (#2867): agendar o serviço a partir da OS-orçamento (card → agenda preenchida, com ajuda RD-95).
+{
+  const card = existsSync('src/components/comum/OrdemServicoCard.tsx') ? readFileSync('src/components/comum/OrdemServicoCard.tsx', 'utf8') : ''
+  const ag = existsSync('src/app/dashboard/oficina/agenda/page.tsx') ? readFileSync('src/app/dashboard/oficina/agenda/page.tsx', 'utf8') : ''
+  if (!card.includes('os-agendar-orcamento') || !card.includes("os.status === 'orcamento'")) erro('OrdemServicoCard: botão "Agendar serviço" da OS-orçamento ausente')
+  else ok('card: Agendar serviço na OS-orçamento')
+  if (!card.includes('os.orcamento.agendar')) erro('OrdemServicoCard: "?" (os.orcamento.agendar) ausente (RD-95)')
+  if (!ag.includes("q.get('os')") || !ag.includes('os_orcamento_id')) erro('agenda: não lê ?os= nem grava os_orcamento_id')
+  else ok('agenda: abre preenchida a partir da OS-orçamento')
+  const mig2 = migs.find((f) => readFileSync(join(DIR, f), 'utf8').includes('os.orcamento.agendar'))
+  if (!mig2) erro('migration da ajuda os.orcamento.agendar ausente (RD-95)')
+  else ok('erp_ajuda_campo: os.orcamento.agendar')
+}
+
+
 if (falhas) { console.error(`\n${falhas} verificação(ões) do #2867 falharam.`); process.exit(1) }
 console.log('✓ #2867: OS como orçamento ligada ponta-a-ponta (banco + tela)')

@@ -649,6 +649,20 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         </select>
       </label>
 
+      {/* #2867 etapa 3 · OS-orçamento: agenda o serviço direto daqui (a agenda abre já preenchida; na chegada do veículo faz-se a recepção/checklist). */}
+      {os.status === 'orcamento' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <a
+            href={`/dashboard/oficina/agenda?${new URLSearchParams({ os: os.id, osn: os.numero ?? '', cliente: os.cliente_nome ?? '', clienteId: os.cliente_id ?? '', placa: os.placa ?? '' }).toString()}`}
+            data-testid="os-agendar-orcamento"
+            style={{ ...btnPri, minHeight: 44, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+          >
+            Agendar serviço
+          </a>
+          <AjudaCampo chave="os.orcamento.agendar" rota="/dashboard/os" />
+        </div>
+      )}
+
       {/* #135 (Triches) · atendimento centralizado: aprovar o orçamento aqui mesmo (a tela de Aprovação fica opcional) */}
       {podeAprovarNaOS(oficina.modelo, oficina.podePreco, os.status, itensPendentes.length) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
