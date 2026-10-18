@@ -15,9 +15,10 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
-  // CEO/Eng. Chefe 18/10: o [celular] falhava aleatoriamente com "Target page, context or browser has been closed"
-  // (Chromium morto no runner). Na CI cada teste ganha uma 2ª retentativa; falha real continua falhando nas 3.
-  retries: process.env.CI ? 2 : 0,
+  // CEO/Eng. Chefe 18/10: 1 retentativa na CI. A #2848 subiu para 2, mas com falha em massa (dezenas de specs vermelhos)
+  // o passo da aceitação estourava os 30 min, o Playwright morria sem o "Run Summary" e a fila lia "falha ilegível"
+  // (bloqueava mesmo com a regra do [celular]). O flake do Chromium morto é coberto pelo --disable-dev-shm-usage abaixo.
+  retries: process.env.CI ? 1 : 0,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
