@@ -33,7 +33,12 @@ export default function OrcamentoItensPage() {
     setCarregandoOrcs(true);
     void Promise.resolve(supabase.from("erp_orcamentos").select("id,numero,cliente_nome,status").eq("company_id", empresa)
       .order("created_at", { ascending: false }).limit(100))
-      .then(({ data }) => setOrcs((data as Orc[]) ?? []), () => setOrcs([]))
+      .then(({ data, error }) => {
+        const l = (data as Orc[]) ?? [];
+        setOrcs(l);
+        if (error) setMsg({ tipo: "erro", texto: error.message });
+        else if (l.length > 0) setOrcId((atual) => atual || l[0].id);
+      }, () => setOrcs([]))
       .finally(() => setCarregandoOrcs(false));
   }, [empresa]);
 
