@@ -247,7 +247,7 @@ function Kpi({ label, n, cor, bg }: { label: string; n: number; cor: string; bg:
 
 // ─────────────────────── CIÊNCIA MENSAL (#74) ───────────────────────
 // #2369: almoço do dia junto da jornada (janela da escala + minutos apurados)
-const textoAlmoco = (a?: { inicio?: string; fim?: string; min?: number } | null) => !a ? '' : `almoço ${a.inicio && a.fim ? `${a.inicio}–${a.fim}` : ''}${a.min != null ? `${a.inicio && a.fim ? ' ' : ''}(${a.min} min)` : ''}`.trim()
+const textoAlmoco = (a?: { inicio?: string; fim?: string; min?: number } | null) => !a ? '' : `almoço ${a.inicio && a.fim ? `${a.inicio}–${a.fim}` : ''}`.trim()
 
 // Gera o relatório mensal por colaborador, coleta a assinatura via link público (mesmo fluxo do
 // EPI) e acompanha quem falta. O documento declara a origem de cada horário (RD-38).
