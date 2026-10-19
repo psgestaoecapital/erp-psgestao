@@ -162,6 +162,9 @@ jobs:
           if ! supabase db push --include-all --db-url "$TEST_DATABASE_URL"; then
             echo "::error::banco da vaga 1 não sincronizou (supabase db push falhou) — aceitação da main abortada para não gerar vermelho FALSO"; exit 1
           fi
+          # 19/10: dados fiscais das DEMOs espelho da produção (uf_fiscal 'SC', IE da GE) — o checkout aqui é a própria main
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/banco-testes/semente-fiscal-demo.sql \
+            || { echo "::error::semente fiscal das DEMOs falhou na vaga 1 — aceitação da main abortada"; exit 1; }
           depois=$(led "$TEST_DATABASE_URL")
           {
             echo "### Sincronização do banco da vaga 1 (referência) com a produção"
