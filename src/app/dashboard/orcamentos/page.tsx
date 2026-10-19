@@ -258,6 +258,21 @@ export default function OrcamentosPage(){
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[companyIds.join(",")]);
 
+  // #3272 · bloco "Informações da oportunidade" (somente leitura) dentro do Editar orçamento.
+  type OportInfo={id:string;titulo:string|null;etapa:string|null;origem:string|null;obra_endereco:string|null;obra_bairro:string|null;obra_cidade:string|null;responsavel_nome:string|null;observacoes:string|null;data_prevista_fechamento:string|null};
+  const[oportInfo,setOportInfo]=useState<OportInfo|null>(null);
+  useEffect(()=>{
+    setOportInfo(null);
+    const oid=editing?.id;
+    if(!showForm||!oid)return;
+    let alive=true;
+    void(async()=>{
+      const{data}=await supabase.from("erp_crm_oportunidade").select("id,titulo,etapa,origem,obra_endereco,obra_bairro,obra_cidade,responsavel_nome,observacoes,data_prevista_fechamento").eq("orcamento_id",oid).is("deleted_at",null).limit(1);
+      if(alive)setOportInfo(((data??[])[0] as OportInfo|undefined)??null);
+    })();
+    return()=>{alive=false;};
+  },[showForm,editing?.id]);
+
   const abrirNovo=async()=>{
     if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa");return;}
     
@@ -730,6 +745,24 @@ export default function OrcamentosPage(){
             </div>
             <button onClick={()=>{setShowForm(false);setEditing(null);setPermEdit(null);}} style={{background:"none",border:"none",color:TXD,fontSize:18,cursor:"pointer"}}>✕</button>
           </div>
+
+          {editing&&oportInfo&&(
+            <div style={{background:BG3,border:`1px solid ${BD}`,borderRadius:8,padding:12,marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:600,color:B,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                📌 Informações da oportunidade <AjudaCampo chave="orcamentos.oportunidade.info" rota="/dashboard/orcamentos"/>
+                <a href={`/dashboard/projetos/oportunidades/${oportInfo.id}`} style={{marginLeft:"auto",fontSize:10,color:GO}}>Abrir oportunidade →</a>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:8,fontSize:11,color:TX}}>
+                <div><div style={{fontSize:9,color:TXD}}>Oportunidade</div>{oportInfo.titulo||"—"}</div>
+                <div><div style={{fontSize:9,color:TXD}}>Etapa</div>{oportInfo.etapa||"—"}</div>
+                <div><div style={{fontSize:9,color:TXD}}>Responsável</div>{oportInfo.responsavel_nome||"—"}</div>
+                <div><div style={{fontSize:9,color:TXD}}>Origem</div>{oportInfo.origem||"—"}</div>
+                <div><div style={{fontSize:9,color:TXD}}>Obra</div>{[oportInfo.obra_endereco,oportInfo.obra_bairro,oportInfo.obra_cidade].filter(Boolean).join(" · ")||"—"}</div>
+                <div><div style={{fontSize:9,color:TXD}}>Previsão de fechamento</div>{oportInfo.data_prevista_fechamento?new Date(oportInfo.data_prevista_fechamento+"T12:00:00").toLocaleDateString("pt-BR"):"—"}</div>
+              </div>
+              {oportInfo.observacoes&&<div style={{marginTop:8,fontSize:11,color:TX,whiteSpace:"pre-wrap"}}><span style={{fontSize:9,color:TXD}}>Observações</span><br/>{oportInfo.observacoes}</div>}
+            </div>
+          )}
 
           {/* Cliente */}
           <div style={{fontSize:11,fontWeight:600,color:B,marginBottom:8}}>👥 Cliente</div>
