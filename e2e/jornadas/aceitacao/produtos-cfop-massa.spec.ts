@@ -11,7 +11,8 @@ const DEMO = 'b0700000-0000-4000-a000-000000000004'
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 const RUN = Date.now().toString(36).toUpperCase()
-const NCM = `98${RUN.replace(/\D/g, '').padEnd(6, '3').slice(0, 6)}`
+// NCM único por execução (milissegundos): os dígitos do RUN em base 36 repetiam o NCM entre execuções e entre specs
+const NCM = `98${(Date.now() % 1_000_000).toString().padStart(6, '0')}`
 const MARCA = `E2E CFOP ${RUN} — provisório, confirmar com o contador`
 const produtos: string[] = []
 let token = ''
