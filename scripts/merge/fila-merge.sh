@@ -36,6 +36,9 @@
 set -euo pipefail
 # shellcheck source=scripts/merge/patch-id-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/patch-id-lib.sh"
+# REGIME DE CONSTRUÇÃO (CEO 19/10): fonte ÚNICA do núcleo e da validade (REGIME_FIM, REGIME_NUCLEO_RE, regime_janela).
+# shellcheck source=scripts/merge/regime-nucleo.sh
+source "$(dirname "${BASH_SOURCE[0]}")/regime-nucleo.sh"
 : "${GH_TOKEN:?GH_TOKEN (PAT) ausente}" "${REPO:?REPO ausente}"
 LABEL='fila-merge'
 NAO_PUBLICAR='nao-publicar'
@@ -456,9 +459,43 @@ Não bloqueia a publicação. Falha só desta PR, spec da própria PR, ou que n�
   printf '%s\n' "\"<!-- fila:falha-comum-$run -->\"" >> "$TMPF/c-$pr"
 }
 
+# REGIME DE CONSTRUÇÃO (CEO 19/10) — REDE DE SEGURANÇA: antes de dispensar a suíte de uma PR elegível, a fila confere se a
+# ÚLTIMA aceitacao-main (vaga 1, suíte real) está VERDE. Se não estiver verde OU não for legível, o regime DESLIGA nesta
+# rodada (toda elegível volta a exigir a suíte) e a fila REGISTRA o aviso. SEM subshell: `log` escreve direto (stderr +
+# sumário + snapshot), para o aviso não se perder (se isto rodasse dentro de $(...), o aviso iria para o valor capturado).
+# Resultado cacheado por rodada em REGIME_MAIN_OK. FILA_REGIME_MAIN (sim|nao) sobrescreve a leitura (para o gate).
+regime_main_ok() {
+  if [ -z "${REGIME_MAIN_OK:-}" ]; then
+    local conc=''
+    if [ -n "${FILA_REGIME_MAIN:-}" ]; then
+      [ "$FILA_REGIME_MAIN" = sim ] && conc=success || conc=nao
+    else
+      local rid
+      for rid in $(api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" --jq '.workflow_runs[].id' 2> /dev/null || true); do
+        conc=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="aceitacao-main")|.conclusion]|first // empty' 2> /dev/null || true)
+        [ -n "$conc" ] && break
+      done
+    fi
+    REGIME_MAIN_OK=$([ "$conc" = success ] && echo sim || echo nao)
+    [ "$REGIME_MAIN_OK" = sim ] || log "REGIME DE CONSTRUÇÃO DESLIGADO nesta rodada: a última aceitacao-main (vaga 1) não está verde/legível (conclusão='${conc:-ilegível}') — as PRs elegíveis voltam a exigir a suíte (rede de segurança, CEO 19/10)"
+  fi
+  [ "$REGIME_MAIN_OK" = sim ]
+}
+# Comenta UMA vez por run as falhas tratadas como informativas pelo regime. $2 = specs (um por linha), $3 = run da aceitação.
+comentar_regime() {
+  local pr=$1 lista=$2 run=$3
+  comentarios "$pr" | grep -qF "<!-- fila:regime-$run -->" && return 0
+  comentar "$pr" "Fila de merge: **regime de construção** (CEO 19/10, revisão semanal, vale até $REGIME_FIM). Esta PR é elegível (sem migration e sem núcleo) e a última aceitacao-main (vaga 1) está verde, então a **suíte completa é informativa** — não bloqueia. Falhas observadas:
+$(printf '%s' "$lista" | sed '/^$/d; s/^/- /')
+Continuam obrigatórios: gates, guarda de funções, réguas, compilação, preview e, se sensível, o MERGE AUTORIZADO do revisor. **Spec da própria PR continua bloqueando.**
+<!-- fila:regime-$run -->"
+  [ "$COMENTOU" = 1 ] || return 0
+  printf '%s\n' "\"<!-- fila:regime-$run -->\"" >> "$TMPF/c-$pr"
+}
+
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
@@ -553,6 +590,27 @@ estado_checks() {
           fi
         fi
       fi
+    fi
+  fi
+  # REGIME DE CONSTRUÇÃO (CEO 19/10, regra temporária até REGIME_FIM): PR ELEGÍVEL (sem migration e sem núcleo; a elegibilidade
+  # e a rede de segurança da main verde são decididas no laço, que só passa regime_disp=1 quando valem). Aqui a SUÍTE COMPLETA
+  # é dispensada (acc_quar=1 → sai do cálculo de pendentes/vermelhos e a fila NÃO espera o job). Continua obrigatório: spec da
+  # PRÓPRIA PR bloqueia (abaixo); gates/guardas/réguas/compilação/preview e, se sensível, o MERGE AUTORIZADO (fora daqui).
+  if [ "$regime_disp" = 1 ] && [ "$acc_quar" != 1 ] && [ -n "$n" ]; then
+    acc_conc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
+    acc_url=$(awk -F'\t' '$1 == "aceitacao" {print $4}' <<< "$linhas" | tail -1)
+    acc_run=$(sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' <<< "$acc_url")
+    if [ "$acc_conc" = failure ] && [ -n "$acc_run" ]; then
+      falhos=$(pos_specs_falhos "$acc_run")
+      proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
+      [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
+      acc_quar=1
+      log "#$n: REGIME DE CONSTRUÇÃO — elegível (sem migration, sem núcleo; main verde): suíte informativa, não bloqueia (CEO 19/10): $(tr '\n' ' ' <<< "$falhos")" >&2
+      comentar_regime "$n" "$falhos" "$acc_run" >&2
+    else
+      # aceitação verde/pulada/pendente/ausente: dispensada de qualquer forma (a fila não espera o job)
+      acc_quar=1
+      log "#$n: REGIME DE CONSTRUÇÃO — elegível (sem migration, sem núcleo; main verde): aceitação (${acc_conc:-ausente}) dispensada, não espera o job (CEO 19/10)" >&2
     fi
   fi
   # [CELULAR] INFORMATIVO (CEO 17/10, regra temporária): vermelho só no [celular], sem spec da própria PR → não bloqueia
@@ -808,9 +866,17 @@ for n in $fila; do
     log "#$n: autorização do gilberto-revisor confere com o conteúdo (patch-id)"
   fi
 
+  # REGIME DE CONSTRUÇÃO (CEO 19/10): PR ELEGÍVEL = dentro da janela, SEM migration e SEM núcleo (REGIME_NUCLEO_RE, fonte
+  # única em regime-nucleo.sh). REDE DE SEGURANÇA: só dispensa a suíte se a última aceitacao-main (vaga 1) estiver verde
+  # (regime_main_ok, sem subshell, registra o aviso e desliga o regime se não estiver). Núcleo/migration/janela vencida/
+  # main não-verde → regime_disp=0 (a PR volta a exigir a suíte como hoje).
+  regime_disp=0
+  if regime_janela && [ "$com_migration" = 0 ] && ! grep -qiE "$REGIME_NUCLEO_RE" <<< "$arquivos"; then
+    regime_main_ok && regime_disp=1
+  fi
   # checks ANTES de atualizar com a main (CEO 08/10, fila sem etiqueta): só a PR verde é atualizada — a vermelha
   # recebe o aviso e fica como está (sem empurrar merge da main no ramo de quem ainda não acabou a PR).
-  c=$(estado_checks "$sha" "$via" "$so_docs" "$n")
+  c=$(estado_checks "$sha" "$via" "$so_docs" "$n" "$regime_disp")
   case "$c" in
     vermelho:*)
       # Deadlock 12/10: vermelho SÓ de guarda que lê o estado da main (check_fn_guards etc.) numa PR atrás da main costuma ser
