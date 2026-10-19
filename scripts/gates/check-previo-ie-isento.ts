@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const mig = readFileSync('supabase/migrations/20261017230020_fiscal_previo_ie_isento.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261019122420_fiscal_previo_ie_isento.sql', 'utf8')
 
 ok(mig.includes('coalesce(ie_isento, false) as ie_isento into emp'), 'lê companies.ie_isento')
 ok(/v_ie_isento_sem_ie boolean := not \(coalesce\(btrim\(emp\.inscricao_estadual\), ''\) <> ''\) and coalesce\(emp\.ie_isento, false\)/.test(mig),
