@@ -162,7 +162,10 @@ fi
 pertence_a_tabela_nova() { grep -qxF "$1" "$dir/tdrop.names"; }
 
 txn="$dir/restore.sql"
-{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"; } > "$txn"
+{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"
+  # pg_trgm (similarity etc.) vive em extensions/public: sem isto a recriação de view/função/índice que a usa falha
+  # com "function similarity(text,text) does not exist" e a vaga fica SUJA (19/10, drenagem parada).
+  echo "set local search_path = public, extensions, pg_catalog;"; } > "$txn"
 # 1) DROP do que a PR criou (objetos vaga-only em relação à foto)
 nd=0
 while IFS= read -r k; do
