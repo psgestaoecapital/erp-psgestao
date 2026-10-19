@@ -138,31 +138,31 @@ export default function CartaoRecebimentoModal({ companyId, receber, dataVenda, 
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div style={{ gridColumn: '1 / -1' }}><Rotulo txt="Operadora" chave="financeiro.cartao_recebimento.adquirente" />
+          <div style={{ gridColumn: '1 / -1' }} data-ajuda="financeiro.cartao_recebimento.adquirente"><Rotulo txt="Operadora" chave="financeiro.cartao_recebimento.adquirente" />
             <select style={inp} value={adq} onChange={(e) => { setAdq(e.target.value); setBandeira('') }} aria-label="Operadora">
               <option value="">—</option>
               {adquirentes.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
             </select>
           </div>
-          <div><Rotulo txt="Modalidade" chave="financeiro.cartao_recebimento.modalidade" />
+          <div data-ajuda="financeiro.cartao_recebimento.modalidade"><Rotulo txt="Modalidade" chave="financeiro.cartao_recebimento.modalidade" />
             <select style={inp} value={modalidade} onChange={(e) => { setModalidade(e.target.value); setBandeira(''); setParcelas('1') }} aria-label="Modalidade">
               <option value="">Escolha…</option>
               <option value="debito">Débito</option>
               <option value="credito">Crédito</option>
             </select>
           </div>
-          <div><Rotulo txt="Bandeira" chave="financeiro.cartao_recebimento.bandeira" />
+          <div data-ajuda="financeiro.cartao_recebimento.bandeira"><Rotulo txt="Bandeira" chave="financeiro.cartao_recebimento.bandeira" />
             <select style={inp} value={bandeira} onChange={(e) => setBandeira(e.target.value)} disabled={!modalidade} aria-label="Bandeira">
               <option value="">{modalidade ? 'Escolha…' : 'Escolha a modalidade'}</option>
               {bandeiras.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
-          <div><Rotulo txt="Parcelas" chave="financeiro.cartao_recebimento.parcelas" />
+          <div data-ajuda="financeiro.cartao_recebimento.parcelas"><Rotulo txt="Parcelas" chave="financeiro.cartao_recebimento.parcelas" />
             <select style={inp} value={String(nParcelas)} onChange={(e) => setParcelas(e.target.value)} disabled={modalidade !== 'credito'} aria-label="Parcelas">
               {Array.from({ length: maxParcelas }, (_, k) => k + 1).map((k) => <option key={k} value={k}>{k}x</option>)}
             </select>
           </div>
-          <div><Rotulo txt="Data da venda" chave="financeiro.cartao_recebimento.data_venda" />
+          <div data-ajuda="financeiro.cartao_recebimento.data_venda"><Rotulo txt="Data da venda" chave="financeiro.cartao_recebimento.data_venda" />
             <input style={inp} type="date" value={data} onChange={(e) => setData(e.target.value || hoje())} aria-label="Data da venda" />
           </div>
         </div>
