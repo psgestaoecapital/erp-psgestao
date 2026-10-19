@@ -23,6 +23,9 @@ export type PrSimulada = {
   autorizada?: boolean         // injeta o comentário MERGE AUTORIZADO do revisor com o patch-id correto do conteúdo
   specsProprios?: string[]     // arquivos e2e/*.spec.ts que a PR criou/alterou (vão para pulls/<n>/files)
   aceitacaoSpecs?: string[]    // specs que FALHARAM na aceitação da PR (anotações do check-run) — regra do teste próprio
+  aceitacaoSpecsDesktop?: string[]  // specs que falharam no projeto computador (anotação sem a marca [celular])
+  aceitacaoTotal?: number      // "N failed" do resumo Playwright da aceitação da PR (p/ a guarda de truncamento); padrão = nº de specs nomeados
+  aceitacaoSemLog?: boolean    // log do job da aceitação ilegível/ausente (a lista completa vem do LOG, P3 18/10) → fila bloqueia
   sqlMigration?: string        // SQL da migration da PR (lote de migrations independentes, CEO 16/10); padrão: select 1;
   autorCode?: string           // Code autor em erp_dev_entrega (para o acionamento automático do @pos, Parte 2)
 }
@@ -111,10 +114,24 @@ esac
         const accCompleta = acc === 'success' || acc === 'failure'
         // regra do teste próprio (CEO 16/10): aceitação falha com specs → o check aponta p/ um run cujas anotações têm os specs
         const accRun = 70000 + p.n, accJob = 97000 + p.n
-        const accUrl = p.aceitacaoSpecs?.length ? `https://github.com/o/r/actions/runs/${accRun}/job/${accJob}` : ''
-        if (p.aceitacaoSpecs?.length) {
+        const accUrl = (p.aceitacaoSpecs?.length || p.aceitacaoSpecsDesktop?.length) ? `https://github.com/o/r/actions/runs/${accRun}/job/${accJob}` : ''
+        if (p.aceitacaoSpecs?.length || p.aceitacaoSpecsDesktop?.length) {
           put(`${R}/actions/runs/${accRun}/jobs`, { jobs: [{ id: accJob, conclusion: 'failure' }] })
-          put(`${R}/check-runs/${accJob}/annotations`, p.aceitacaoSpecs.map((s) => ({ annotation_level: 'failure', path: s, title: `[celular] › ${s}:10:7`, message: `  [celular] › ${s}:10:7 › x` })))
+          const nomeados = (p.aceitacaoSpecs?.length ?? 0) + (p.aceitacaoSpecsDesktop?.length ?? 0)
+          const total = p.aceitacaoTotal ?? nomeados
+          // LOG do job (P3, 18/10): relatório "list" do Playwright com TODAS as falhas numeradas + resumo "N failed", com o
+          // prefixo de data e ANSI do log real. As anotações abaixo são cortadas em 10 (teto real do GitHub).
+          if (!p.aceitacaoSemLog) {
+            const nomes = [...(p.aceitacaoSpecs ?? []).map((s) => `[celular] › ${s}`), ...(p.aceitacaoSpecsDesktop ?? []).map((s) => `[computador] › ${s}`)]
+            const linhas = ['Running 208 tests using 2 workers', ...nomes.map((nm, i) => `\u001b[31m  ${i + 1}) ${nm}:10:7 › x ─────\u001b[39m`), `  ${total} failed`, ...nomes.map((nm) => `    ${nm}:10:7 › x`), '  197 passed']
+            writeFileSync(join(fx, `${`${R}/actions/jobs/${accJob}/logs`.replace(/[^A-Za-z0-9]/g, '_')}.json`),
+              linhas.map((l) => `2026-10-19T00:00:00.0000000Z ${l}`).join('\n') + '\n')
+          }
+          put(`${R}/check-runs/${accJob}/annotations`, [
+            ...[...(p.aceitacaoSpecs ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[celular] › ${s}:10:7`, message: `  [celular] › ${s}:10:7 › x` })),
+              ...(p.aceitacaoSpecsDesktop ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[computador] › ${s}:10:7`, message: `  [computador] › ${s}:10:7 › x` }))].slice(0, 10),
+            // resumo Playwright da aceitação (guarda de truncamento, Eng. Chefe 18/10): o "N failed" é a verdade do total
+            { annotation_level: 'notice', path: '.github', title: '🎭 Playwright Run Summary', message: `  ${total} failed\n  197 passed` }])
         }
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [
           { name: 'check_menu', status: p.checksRodando ? 'in_progress' : 'completed', conclusion: p.checksRodando ? null : 'success', details_url: '' },
