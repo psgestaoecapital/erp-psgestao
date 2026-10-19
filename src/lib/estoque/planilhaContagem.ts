@@ -6,8 +6,8 @@
 // Volta: a planilha preenchida é lida sem gravar nada (lerPlanilhaContagem) e montarPrevia compara com o saldo ATUAL
 // do sistema. A tela mostra a prévia das diferenças; o inventário só é criado com as contagens depois de confirmar, e o
 // estoque só é ajustado no "Fechar inventário" (outra confirmação), pelo caminho que já existe (fechar_inventario).
-// Contrato: linha LINHA_CHAVES = chaves técnicas (cinza); dados a partir de PRIMEIRA_LINHA_DADOS. A coluna 'id' (uuid do
-// produto) fica oculta e é o que casa a linha com o produto; sem ela, casa pelo código.
+// Contrato: linha LINHA_CHAVES = chaves técnicas (cinza); dados a partir de PRIMEIRA_LINHA_DADOS. A chave é o CÓDIGO; a coluna 'id' (uuid do
+// produto, oculta) só confere — id que não bate com o código recusa a linha (ordenar só as colunas visíveis desalinha o id).
 
 import ExcelJS from 'exceljs'
 
@@ -235,7 +235,7 @@ export async function lerPlanilhaContagem(bytes: ArrayBuffer | Uint8Array): Prom
     const q = lerQuantidade(g('quantidade_contada'))
     if (q == null) { emBranco++; continue }
     if (Number.isNaN(q) || q < 0) { erros.push({ linha: r, mensagem: `Quantidade inválida em "${descricao || codigo}": use um número maior ou igual a zero.` }); continue }
-    const chave = id ?? `cod:${codigo}`
+    const chave = codigo ? `cod:${codigo}` : `id:${id}`
     if (vistos.has(chave)) { erros.push({ linha: r, mensagem: `"${descricao || codigo}" aparece de novo (já na linha ${vistos.get(chave)}). Some as quantidades numa linha só.` }); continue }
     vistos.set(chave, r)
     linhas.push({ linha: r, id, codigo, descricao, quantidade: q, observacao: texto(g('observacao')) })
@@ -281,12 +281,22 @@ export function montarPrevia(leitura: LeituraContagem, produtos: ProdutoAtual[])
   const itens: ItemPrevia[] = []
   const usados = new Set<string>()
   for (const l of leitura.linhas) {
-    let p = l.id ? porId.get(l.id) : undefined
-    if (!p && !l.id && l.codigo) {
+    // chave = CÓDIGO; o id (oculto) só confere. Divergência = recusa a linha (nunca ajusta o produto errado).
+    let p: ProdutoAtual | undefined
+    if (l.codigo) {
       const c = porCodigo.get(l.codigo)
-      if (c === null) { erros.push({ linha: l.linha, mensagem: `Código "${l.codigo}" repetido no cadastro — baixe a planilha de novo (ela identifica o produto sem depender do código).` }); continue }
-      p = c
-    }
+      if (c === null) {
+        // código repetido no cadastro: só o id, e só se o produto dele tiver mesmo esse código
+        const doId = l.id ? porId.get(l.id) : undefined
+        if (!doId || (doId.codigo ?? '').trim() !== l.codigo) {
+          erros.push({ linha: l.linha, mensagem: `Código "${l.codigo}" repetido no cadastro — baixe a planilha de novo.` }); continue
+        }
+        p = doId
+      } else p = c
+      if (p && l.id && p.id !== l.id) {
+        erros.push({ linha: l.linha, mensagem: `Linha recusada: o id da linha não é o do código "${l.codigo}" (planilha reordenada ou editada). Baixe a planilha de novo.` }); continue
+      }
+    } else if (l.id) p = porId.get(l.id)
     if (!p) { erros.push({ linha: l.linha, mensagem: `"${l.descricao || l.codigo}" não é um produto ativo desta empresa.` }); continue }
     if (usados.has(p.id)) { erros.push({ linha: l.linha, mensagem: `"${p.nome}" aparece em mais de uma linha.` }); continue }
     usados.add(p.id)

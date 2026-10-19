@@ -52,6 +52,8 @@ try {
     '#2282 (com migration) aguardando a main: @pos-migration da main em andamento (329) — PRs sem migration podem seguir',
     '#2331 segue a via revisada (aceitação verde + MERGE AUTORIZADO)',
     '#2331 aguardando: checks rodando: aceitacao — segue para a próxima',
+    '#2723 segue a via revisada (aceitação verde + MERGE AUTORIZADO) (com migration)',
+    '#2723 aguardando: checks rodando: aceitacao — segue para a próxima',
     '#2235 fora desta rodada: check vermelho: check_fn_guards (commit 36518be)',
     '#2372 MERGEADA (via rápida)',
     '#430 tem a label nao-publicar: pulada',
@@ -62,11 +64,17 @@ try {
   const payload = JSON.parse(out)
   const by: Record<string, { via: string | null; estado: string; motivo: string; tem_migration: boolean }> =
     Object.fromEntries(payload.p_estados.map((e: { pr: string }) => [e.pr, e]))
-  ok(payload.p_run_url === 'http://run/1' && payload.p_estados.length === 5, 'parser: run_url + 5 PRs no snapshot')
+  ok(payload.p_run_url === 'http://run/1' && payload.p_estados.length === 6, 'parser: run_url + 6 PRs no snapshot')
   ok(by['2282'].via === 'rapida' && by['2282'].tem_migration === true && by['2282'].estado === 'esperando'
     && /aguardando a main/.test(by['2282'].motivo), 'parser: #2282 via rápida + migration + esperando (motivo bate com o log)')
   ok(by['2331'].via === 'revisada' && by['2331'].estado === 'esperando' && /checks rodando: aceitacao/.test(by['2331'].motivo),
     'parser: #2331 revisada, esperando a aceitação (motivo real)')
+  // 19/10: PR com migration no caminho normal (parada na aceitação) — o espelho mostrava tem_migration=false (12 PRs)
+  ok(by['2723'].via === 'revisada' && by['2723'].tem_migration === true && by['2723'].estado === 'esperando'
+    && /checks rodando: aceitacao/.test(by['2723'].motivo), 'parser: #2723 com migration parada na aceitação → tem_migration=true')
+  ok(by['2331'].tem_migration === false, 'parser: #2331 sem migration → tem_migration=false')
+  ok(/log "#\$n segue a .*\$\(\[ "\$com_migration" = 1 \] && echo ' \(com migration\)'\)"/.test(sh),
+    'fila: a linha "segue a via" marca "(com migration)" pela lista de arquivos (com_migration)')
   ok(by['2235'].estado === 'fora-da-rodada' && /check vermelho: check_fn_guards/.test(by['2235'].motivo), 'parser: #2235 fora-da-rodada (check vermelho)')
   ok(by['2372'].estado === 'mergeada', 'parser: #2372 mergeada')
   ok(by['430'].estado === 'fora' && /nao-publicar/.test(by['430'].motivo), 'parser: #430 fora (nao-publicar)')

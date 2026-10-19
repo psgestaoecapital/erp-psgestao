@@ -9,16 +9,19 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { parseSaldoFechamento, ehLinhaSaldoOFX } from '@/lib/ofx-parser'
+import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
 import { temConectorExtrato } from '@/lib/banco/extratoConector'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
 import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
 import TransferenciaContaModal from '@/components/conciliacao/TransferenciaContaModal'
 import PickerTituloExistenteModal from '@/components/conciliacao/PickerTituloExistenteModal'
+import PagamentosDoTitulo from '@/components/conciliacao/PagamentosDoTitulo'
+import { valorReferencia, type BaixaTitulo, type TituloReceber } from '@/lib/conciliacao/baixasTitulo'
 // #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
 import NovaDespesaModal from '@/components/financeiro/NovaDespesaModal'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'
+import { rotuloLote } from '@/lib/conciliacao/rotuloLote'
 
 interface Item {
   movimento_id: string
@@ -207,8 +210,11 @@ function parseOFX(text: string): MovimentoOFX[] {
     const dt = get('DTPOSTED').slice(0, 8)
     if (dt.length < 8) continue
     const data_transacao = `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)}`
-    const amt = parseFloat(get('TRNAMT').replace(',', '.'))
-    if (isNaN(amt)) continue
+    const amtBruto = get('TRNAMT')
+    const amt = parseValorOFX(amtBruto)
+    if (amt === null) {
+      throw new Error(`Valor inválido no lançamento ${movimentos.length + 1} do OFX (TRNAMT "${amtBruto}")`)
+    }
     movimentos.push({
       data_transacao,
       valor: Math.abs(amt),
@@ -448,7 +454,7 @@ export default function InboxPage() {
     }
     setImportando(true)
     try {
-      const text = await arquivoOFX.text()
+      const text = decodificarOFX(await arquivoOFX.arrayBuffer())
       const brutos = parseOFX(text)
       // Adendo #1541 "Saldo Anterior": alguns bancos emitem o saldo como uma LINHA <STMTTRN>
       // ("SALDO ANTERIOR" / "SALDO DO DIA" / só "SALDO"). Isso NÃO é movimento — separa aqui:
@@ -528,8 +534,7 @@ export default function InboxPage() {
         r.lote_id ? lst.find((l) => l.id === r.lote_id) : lst[0],
       )
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      alert('Erro ao importar OFX: ' + msg)
+      alert('Erro ao importar OFX: ' + mensagemErroOFX(e))
     } finally {
       setImportando(false)
     }
@@ -624,11 +629,21 @@ export default function InboxPage() {
     if (!operadorId) { setErro('Sessão expirada · faça login novamente'); return }
     const lancTabela = it.sugestao_lancamento_tabela
     const lancId = it.sugestao_lancamento_id
+    const valorBanco = Math.abs(Number(it.valor) || 0)
+    // #106: título a receber com pagamento já registrado → compara o crédito com o pagamento/saldo, não com o valor cheio
+    let valorLancamento = Number(it.sugestao_valor ?? 0)
+    if (lancTabela === 'erp_receber') {
+      const [{ data: t }, { data: b }] = await Promise.all([
+        supabase.from('erp_receber').select('valor, juros, multa, desconto, valor_pago').eq('id', lancId).maybeSingle(),
+        supabase.from('erp_receber_baixa').select('id, valor, data, forma, movimento_banco_id').eq('receber_id', lancId).is('deleted_at', null),
+      ])
+      if (t && (b ?? []).length > 0) valorLancamento = valorReferencia(t as TituloReceber, (b ?? []) as BaixaTitulo[], valorBanco)
+    }
 
     conciliarComAjuste({
       movimentoId: it.movimento_id,
-      valorBanco: Math.abs(Number(it.valor) || 0),
-      valorLancamento: Number(it.sugestao_valor ?? 0),
+      valorBanco,
+      valorLancamento,
       lancamentoId: lancId,
       lancamentoTabela: lancTabela,
       descricao: it.descricao ?? undefined,
@@ -700,7 +715,8 @@ export default function InboxPage() {
     setExpandidos(ns)
   }
 
-  async function aplicarSugestao(it: Item, sug: SugestaoMatch) {
+  // #106: valorReferencia = o pagamento (baixa) ou o saldo escolhido no título parcial; sem ele, o valor do título.
+  async function aplicarSugestao(it: Item, sug: SugestaoMatch, valorReferencia?: number) {
     const { data: userResp } = await supabase.auth.getUser()
     const operadorId = userResp.user?.id ?? null
     if (!operadorId) { setErro('Sessão expirada · faça login novamente'); return }
@@ -709,7 +725,7 @@ export default function InboxPage() {
     conciliarComAjuste({
       movimentoId: movId,
       valorBanco: Math.abs(Number(it.valor) || 0),
-      valorLancamento: Number(sug.valor_lancamento ?? 0),
+      valorLancamento: valorReferencia ?? Number(sug.valor_lancamento ?? 0),
       lancamentoId: sug.lancamento_id,
       lancamentoTabela: sug.lancamento_tabela,
       descricao: it.descricao ?? undefined,
@@ -937,7 +953,7 @@ export default function InboxPage() {
               {lotesDoTipo.length === 0 && <option value="">Nenhum lote {tipoExtrato === 'bancario' ? 'bancário' : 'de cartão'} importado</option>}
               {lotesDoTipo.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.nome ?? '(sem nome)'} — {(l.total_conciliados ?? 0) + (l.total_ignorados ?? 0)}/{l.total_movimentos ?? 0} ok
+                  {rotuloLote(l)}
                 </option>
               ))}
             </select>
@@ -1284,6 +1300,14 @@ export default function InboxPage() {
                                       <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.5)', marginTop: 2, wordBreak: 'break-word' }}>
                                         {sug.descricao_lancamento}
                                       </div>
+                                    )}
+                                    {sug.lancamento_tabela === 'erp_receber' && (
+                                      <PagamentosDoTitulo
+                                        receberId={sug.lancamento_id}
+                                        credito={Math.abs(Number(it.valor) || 0)}
+                                        desabilitado={aplicando}
+                                        onConciliar={(v) => void aplicarSugestao(it, sug, v)}
+                                      />
                                     )}
                                   </div>
                                   <div style={{ display: 'flex', gap: 6 }}>
