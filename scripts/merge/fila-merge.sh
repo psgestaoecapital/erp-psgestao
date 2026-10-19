@@ -389,15 +389,37 @@ comentar_celular_info() {
 # FILA_FALHA_COMUM_CONTAGEM (linhas "spec<TAB>N<TAB>pr1,pr2") sobrescreve a contagem das OUTRAS PRs (para o gate).
 FALHA_COMUM_FIM='2026-10-21T21:00:00Z'   # 21/10/2026 18:00 America/Sao_Paulo (BRT = UTC-3)
 falha_comum_janela() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$FALHA_COMUM_FIM" +%s)" ]; }
-# TOTAL de testes que FALHARAM num run, pelo número "N failed" do resumo "🎭 Playwright Run Summary" (RD-38: a contagem
-# do relatório, não a lista de anotações — que o GitHub TRUNCA). Ecoa o maior N encontrado, ou vazio se não houver resumo
-# legível. Usado só como GUARDA DE TRUNCAMENTO: se o total > nº de specs nomeados que conseguimos ler, a lista é parcial.
-pos_total_falhas() {
-  local run=$1 jid
+# LISTA COMPLETA pelo LOG do job (Eng. Chefe/CEO 18/10 — P3): as anotações do check-run são limitadas a 10; o log do job
+# traz o relatório "list" do Playwright com TODAS as falhas numeradas ("  1) [celular] › e2e/x.spec.ts:10:7 › ...") e o
+# resumo "  N failed". Ecoa, por job falho, uma linha "N<TAB>spec" por falha numerada (spec vazio = número sem arquivo
+# legível) e uma "T<TAB>total" (vazio = resumo ilegível). Log ilegível/ausente → nenhuma linha T → quem chama bloqueia.
+pos_log_limpo() {
+  api "repos/$REPO/actions/jobs/$1/logs" 2>/dev/null \
+    | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g; s/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //'
+}
+# Fonte 1 (19/10): a anotação única PW-FALHAS-COMPLETAS que a aceitação publica (aceitacao-pr.yml › scripts/merge/anotar-falhas-completas.cjs):
+# "total=N" + uma linha por teste que falhou (arquivo do spec ou "?"). O log do job dá 404 com o token da fila (run da 03:13 de 19/10:
+# total='?' numeradas=0 em 25 PRs); a anotação é o mesmo canal que pos_specs_falhos já lê. Mesmo formato de saída do log: N<TAB>spec e T<TAB>total.
+pos_anot_falhas() {
+  api "repos/$REPO/check-runs/$1/annotations" --paginate \
+    --jq '.[] | select((.title // "") == "PW-FALHAS-COMPLETAS") | (.message // "")' 2>/dev/null \
+    | awk '
+      NR == 1 { achou = 1 }
+      /^total=/ { t = substr($0, 7); next }
+      /^[[:space:]]*$/ { next }
+      { s = ($0 ~ /^e2e\/[A-Za-z0-9_.\/-]+\.spec\.ts$/) ? $0 : ""; print "N\t" s }
+      END { if (achou) print "T\t" (t ~ /^[0-9]+$/ ? t : "") }'
+}
+pos_log_falhas() {
+  local run=$1 jid anot
   for jid in $(api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
-    api "repos/$REPO/check-runs/$jid/annotations" --paginate \
-      --jq '.[] | select((.title // "") | test("Playwright Run Summary")) | (.message // "")' 2>/dev/null
-  done | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' | sort -rn | head -1
+    anot=$(pos_anot_falhas "$jid" || true)
+    if [ -n "$anot" ]; then printf '%s\n' "$anot"; continue; fi
+    { pos_log_limpo "$jid" || true; } | awk '
+      /^[[:space:]]*[0-9]+\) / { s = ""; if (match($0, /e2e\/[A-Za-z0-9_.\/-]+\.spec\.ts/)) s = substr($0, RSTART, RLENGTH); print "N\t" s }
+      /^[[:space:]]*[0-9]+ failed[[:space:]]*$/ { t = $1 }
+      END { print "T\t" t }'
+  done
 }
 # Para a PR $1: ecoa "spec<TAB>N<TAB>pr1,pr2,…" — N = nº de OUTRAS PRs distintas (≠ $1) cuja aceitação FALHOU naquele spec
 # nas últimas 6 h. Lê os runs do aceitacao-pr.yml que falharam na janela, mapeia run→PR e junta os specs falhos (anotações,
@@ -414,7 +436,8 @@ falha_comum_contagem() {
       [ "$(date -u -d "$created" +%s 2>/dev/null || echo 0)" -ge "$desde" ] || break   # runs vêm do mais recente p/ o mais antigo
       prn=$(api "repos/$REPO/commits/$hsha/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
       [ -n "$prn" ] || continue
-      pos_specs_falhos "$rid" | while IFS= read -r s; do [ -n "$s" ] && printf '%s\t%s\n' "$s" "$prn"; done
+      { pos_specs_falhos "$rid" || true; pos_log_falhas "$rid" | awk -F'\t' '$1=="N" && $2!="" {print $2}'; } | sort -u \
+        | while IFS= read -r s; do [ -n "$s" ] && printf '%s\t%s\n' "$s" "$prn"; done
     done < <(api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=completed&per_page=80" \
                --jq '.workflow_runs[] | select(.conclusion=="failure") | "\(.id)\t\(.created_at)\t\(.head_sha)"' 2>/dev/null) \
       | sort -u > "$pares"
@@ -495,15 +518,20 @@ estado_checks() {
       proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
       [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
       if [ -n "$falhos" ]; then
-        local contagem restantes amb_lines info n_out prs spec total nomeados
-        # GUARDA DE TRUNCAMENTO (Eng. Chefe 18/10): o GitHub TRUNCA as anotações do check-run (ex.: #2850 dizia "28 falhas"
-        # mas só 8 nomes vinham). Se o TOTAL que falhou (resumo "N failed", RD-38) for MAIOR que o nº de specs nomeados que
-        # conseguimos ler, a lista é parcial → NÃO dá pra concluir "todas comuns". Fail-closed: bloqueia (acc_quar=0, o
-        # caminho normal reprova). Só classifica como ambiente com a lista COMPLETA (total legível e total ≤ nomeados).
-        total=$(pos_total_falhas "$acc_run")
-        nomeados=$(printf '%s\n' "$falhos" | sed '/^$/d' | wc -l | tr -d ' ')
-        if [ -z "$total" ] || { [ "$total" -gt "$nomeados" ] 2>/dev/null; }; then
-          log "#$n: aceitação vermelha com lista de falhas TRUNCADA/ilegível (total='${total:-?}' > nomeados=$nomeados) — bloqueia (fail-closed, Eng. Chefe 18/10)" >&2
+        local contagem restantes amb_lines info n_out prs spec total nomeados numerados logf
+        # LISTA COMPLETA PELO LOG (P3, CEO 18/10): as anotações do check-run têm teto de 10; a lista vem do LOG do job
+        # (falhas numeradas do relatório do Playwright). Só classifica como ambiente se o TOTAL do resumo "N failed"
+        # estiver legível E for igual ao nº de falhas numeradas lidas E todas tiverem arquivo de spec. Log ilegível,
+        # incompleto, total ausente ou divergente → bloqueia (fail-closed).
+        logf=$(pos_log_falhas "$acc_run" || true)
+        total=$(awk -F'\t' '$1=="T" { if ($2 == "") ruim = 1; soma += $2; achou = 1 } END { if (achou && !ruim) print soma }' <<< "$logf")
+        numerados=$(awk -F'\t' '$1=="N"' <<< "$logf" | wc -l | tr -d ' ')
+        nomeados=$(awk -F'\t' '$1=="N" && $2!=""' <<< "$logf" | wc -l | tr -d ' ')
+        falhos=$(awk -F'\t' '$1=="N" && $2!="" {print $2}' <<< "$logf" | sort -u)
+        proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
+        [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
+        if [ -z "$total" ] || [ "$total" -eq 0 ] || [ "$total" -ne "$numerados" ] || [ "$numerados" -ne "$nomeados" ]; then
+          log "#$n: aceitação vermelha sem lista COMPLETA de falhas no log (total='${total:-?}' numeradas=$numerados com spec=$nomeados) — bloqueia (fail-closed, P3 18/10)" >&2
         else
           contagem=$(falha_comum_contagem "$n")
           restantes=""; amb_lines=""
