@@ -24,6 +24,7 @@ export type PrSimulada = {
   specsProprios?: string[]     // arquivos e2e/*.spec.ts que a PR criou/alterou (vão para pulls/<n>/files)
   aceitacaoSpecs?: string[]    // specs que FALHARAM na aceitação da PR (anotações do check-run) — regra do teste próprio
   aceitacaoSpecsDesktop?: string[]  // specs que falharam no projeto computador (anotação sem a marca [celular])
+  aceitacaoAnotCompleta?: string[]   // linhas da anotação PW-FALHAS-COMPLETAS (publicada pela aceitação; a fila a lê no lugar do log do job)
   aceitacaoTotal?: number      // "N failed" do resumo Playwright da aceitação da PR (p/ a guarda de truncamento); padrão = nº de specs nomeados
   aceitacaoSemLog?: boolean    // log do job da aceitação ilegível/ausente (a lista completa vem do LOG, P3 18/10) → fila bloqueia
   sqlMigration?: string        // SQL da migration da PR (lote de migrations independentes, CEO 16/10); padrão: select 1;
@@ -131,7 +132,8 @@ esac
             ...[...(p.aceitacaoSpecs ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[celular] › ${s}:10:7`, message: `  [celular] › ${s}:10:7 › x` })),
               ...(p.aceitacaoSpecsDesktop ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[computador] › ${s}:10:7`, message: `  [computador] › ${s}:10:7 › x` }))].slice(0, 10),
             // resumo Playwright da aceitação (guarda de truncamento, Eng. Chefe 18/10): o "N failed" é a verdade do total
-            { annotation_level: 'notice', path: '.github', title: '🎭 Playwright Run Summary', message: `  ${total} failed\n  197 passed` }])
+            { annotation_level: 'notice', path: '.github', title: '🎭 Playwright Run Summary', message: `  ${total} failed\n  197 passed` },
+            ...(p.aceitacaoAnotCompleta ? [{ annotation_level: 'failure', path: '.github', title: 'PW-FALHAS-COMPLETAS', message: p.aceitacaoAnotCompleta.join('\n') }] : [])])
         }
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [
           { name: 'check_menu', status: p.checksRodando ? 'in_progress' : 'completed', conclusion: p.checksRodando ? null : 'success', details_url: '' },

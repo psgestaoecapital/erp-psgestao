@@ -397,9 +397,24 @@ pos_log_limpo() {
   api "repos/$REPO/actions/jobs/$1/logs" 2>/dev/null \
     | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g; s/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //'
 }
+# Fonte 1 (19/10): a anotação única PW-FALHAS-COMPLETAS que a aceitação publica (aceitacao-pr.yml › scripts/merge/anotar-falhas-completas.cjs):
+# "total=N" + uma linha por teste que falhou (arquivo do spec ou "?"). O log do job dá 404 com o token da fila (run da 03:13 de 19/10:
+# total='?' numeradas=0 em 25 PRs); a anotação é o mesmo canal que pos_specs_falhos já lê. Mesmo formato de saída do log: N<TAB>spec e T<TAB>total.
+pos_anot_falhas() {
+  api "repos/$REPO/check-runs/$1/annotations" --paginate \
+    --jq '.[] | select((.title // "") == "PW-FALHAS-COMPLETAS") | (.message // "")' 2>/dev/null \
+    | awk '
+      NR == 1 { achou = 1 }
+      /^total=/ { t = substr($0, 7); next }
+      /^[[:space:]]*$/ { next }
+      { s = ($0 ~ /^e2e\/[A-Za-z0-9_.\/-]+\.spec\.ts$/) ? $0 : ""; print "N\t" s }
+      END { if (achou) print "T\t" (t ~ /^[0-9]+$/ ? t : "") }'
+}
 pos_log_falhas() {
-  local run=$1 jid
+  local run=$1 jid anot
   for jid in $(api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
+    anot=$(pos_anot_falhas "$jid" || true)
+    if [ -n "$anot" ]; then printf '%s\n' "$anot"; continue; fi
     { pos_log_limpo "$jid" || true; } | awk '
       /^[[:space:]]*[0-9]+\) / { s = ""; if (match($0, /e2e\/[A-Za-z0-9_.\/-]+\.spec\.ts/)) s = substr($0, RSTART, RLENGTH); print "N\t" s }
       /^[[:space:]]*[0-9]+ failed[[:space:]]*$/ { t = $1 }
