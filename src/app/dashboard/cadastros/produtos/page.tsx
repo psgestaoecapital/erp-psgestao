@@ -13,7 +13,6 @@ import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
   ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle,
 } from 'lucide-react'
-import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
 
 export const dynamic = 'force-dynamic'
