@@ -8,6 +8,9 @@ ALTER TABLE public.orcamento_config_empresa ADD COLUMN IF NOT EXISTS visita_feit
 
 -- Definição VIVA de fn_crm_visita_salvar (pg_get_functiondef em 19/10) + um bloco: com a opção ligada na empresa,
 -- a oportunidade que acabou de ir para 'visita_feita' segue direto para 'orcando'.
+-- Assinatura original (20260625210000) já foi trocada em produção; o DROP é no-op lá e zera o overload para o gate.
+DROP FUNCTION IF EXISTS public.fn_crm_visita_salvar(uuid, uuid, timestamptz, uuid, text, text, text, numeric, numeric, jsonb);
+
 CREATE OR REPLACE FUNCTION public.fn_crm_visita_salvar(p_oportunidade_id uuid DEFAULT NULL::uuid, p_data_visita timestamp with time zone DEFAULT NULL::timestamp with time zone, p_responsavel_id uuid DEFAULT NULL::uuid, p_status text DEFAULT 'agendada'::text, p_endereco text DEFAULT NULL::text, p_anotacoes text DEFAULT NULL::text, p_gps_lat numeric DEFAULT NULL::numeric, p_gps_lng numeric DEFAULT NULL::numeric, p_fotos jsonb DEFAULT '[]'::jsonb, p_id uuid DEFAULT NULL::uuid, p_cliente_id uuid DEFAULT NULL::uuid, p_responsavel_nome text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
