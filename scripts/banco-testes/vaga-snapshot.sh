@@ -66,13 +66,17 @@ pr_migr_files() {
     [ -e "$MAIN_MIGR_DIR/$b" ] || printf '%s\n' "$f"
   done
 }
+# tabelas APPEND-ONLY (RD-54: trigger bloqueia DELETE/UPDATE) ficam FORA da foto e da restauração — migration/teste só
+# acrescenta linhas e isso não suja a vaga; restaurar por DELETE falhava e re-sujava a vaga (Eng. Chefe 18/10). Sem bypass de trigger.
+APPEND_ONLY_RE='audit_log_global'
 # tabelas que as migrations da PR populam (INSERT INTO [public.]<tabela>) — catálogo a restaurar (ex.: erp_ajuda_campo).
 pr_insert_tables() {
   local files; files=$(pr_migr_files)
   [ -n "$files" ] || return 0
   # shellcheck disable=SC2086
   grep -hioE 'insert[[:space:]]+into[[:space:]]+(public\.)?"?[a-z_][a-z0-9_]*"?' $files 2>/dev/null \
-    | sed -E 's/.*into[[:space:]]+//I; s/public\.//I; s/"//g' | tr 'A-Z' 'a-z' | sort -u
+    | sed -E 's/.*into[[:space:]]+//I; s/public\.//I; s/"//g' | tr 'A-Z' 'a-z' | sort -u \
+    | grep -vxE "$APPEND_ONLY_RE" || true
 }
 
 dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
@@ -168,7 +172,7 @@ while IFS= read -r k; do
     "view "*)     echo "drop view if exists public.\"${k#view }\" cascade;" >> "$txn";;
     "table "*)    echo "drop table if exists public.\"${k#table }\" cascade;" >> "$txn";;
     "type "*)     echo "drop type if exists public.\"${k#type }\" cascade;" >> "$txn";;
-    "sequence "*) echo "drop sequence if exists public.\"${k#sequence }\" cascade;" >> "$txn";;
+    "sequence "*) echo "do \$d\$ begin drop sequence if exists public.\"${k#sequence }\" cascade; exception when dependent_objects_still_exist then null; end \$d\$;" >> "$txn";;
     "col "*)      tc=${k#col }; t=${tc%%.*}; c=${tc#*.}; pertence_a_tabela_nova "$t" || echo "alter table if exists public.\"$t\" drop column if exists \"$c\" cascade;" >> "$txn";;
     # índice que sustenta PK/UNIQUE (ou de tabela nova, derrubada adiante) não se derruba sozinho (2BP01): o DROP da
     # constraint/tabela já o leva; a verificação antes do COMMIT garante que nada sobrou.
