@@ -83,7 +83,7 @@ export default function EmitirNFSeOSButton({
       const [rpc, prod, os] = await Promise.all([
         supabase.rpc('fn_os_nfse_preparar', { p_os_id: osId }),
         carregarProducaoDisponivel(companyId),
-        supabase.from('erp_os').select('cliente_id, numero, modelo, placa, veiculo:veic_veiculo(marca, modelo, placa)')
+        supabase.from('erp_os').select('cliente_id, numero, marca, modelo, placa, veiculo:veic_veiculo(marca, modelo, placa)')
           .eq('id', osId).eq('company_id', companyId).maybeSingle(),
       ])
       if (rpc.error) { setErro(rpc.error.message); return }
