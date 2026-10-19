@@ -11,8 +11,10 @@ import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModa
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Tags, AlertTriangle,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle,
 } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
 
 export const dynamic = 'force-dynamic'
 
@@ -87,6 +89,31 @@ export default function ProdutosPage() {
   const [etiquetasAberto, setEtiquetasAberto] = useState(false)
   const alternarSel = (id: string) =>
     setSelecionados((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  // Baixar produtos (.xlsx): a RPC fn_produtos_exportar serve os dados (custo/valor só com permissão + auditoria no
+  // banco), respeitando os filtros da tela; o arquivo re-importa pela "Importar estoque (planilha)".
+  const [exportando, setExportando] = useState(false)
+  const exportarProdutos = useCallback(async () => {
+    if (!companyId || exportando) return
+    setExportando(true)
+    setErro(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_produtos_exportar', {
+        p_company_id: companyId,
+        p_situacao: situacao,
+        p_busca: buscaDebounced || null,
+        p_grupo: grupo || null,
+        p_unidade: unidade || null,
+      })
+      const res = data as ExportProdutosResult | null
+      if (error || !res?.ok) { setErro(error?.message ?? 'Não consegui baixar os produtos agora.'); return }
+      await exportarProdutosXlsx(res)
+    } catch (e) {
+      setErro((e as Error)?.message ?? 'Não consegui baixar os produtos agora.')
+    } finally {
+      setExportando(false)
+    }
+  }, [companyId, exportando, situacao, buscaDebounced, grupo, unidade])
 
   const offsetRef = useRef(0)
 
@@ -387,6 +414,18 @@ export default function ProdutosPage() {
             >
               <Upload size={15} /> Importar estoque (planilha)
             </a>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void exportarProdutos()}
+                disabled={!companyId || exportando}
+                data-testid="produto-exportar"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-45 disabled:hover:bg-transparent flex items-center gap-2"
+              >
+                {exportando ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Baixar produtos (.xlsx)
+              </button>
+              <AjudaCampo chave="cadastros.produtos.exportar" />
+            </span>
             <a
               href="/dashboard/compras/precificacao"
               data-testid="produto-formar-precos"
