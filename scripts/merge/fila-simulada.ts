@@ -21,11 +21,18 @@ export type PrSimulada = {
   comentarios?: string[]       // corpos de comentários já existentes na PR
   aceitacao?: 'success' | 'in_progress' | 'failure'
   autorizada?: boolean         // injeta o comentário MERGE AUTORIZADO do revisor com o patch-id correto do conteúdo
+  specsProprios?: string[]     // arquivos e2e/*.spec.ts que a PR criou/alterou (vão para pulls/<n>/files)
+  aceitacaoSpecs?: string[]    // specs que FALHARAM na aceitação da PR (anotações do check-run) — regra do teste próprio
+  aceitacaoSpecsDesktop?: string[]  // specs que falharam no projeto computador (anotação sem a marca [celular])
+  aceitacaoTotal?: number      // "N failed" do resumo Playwright da aceitação da PR (p/ a guarda de truncamento); padrão = nº de specs nomeados
+  aceitacaoSemLog?: boolean    // log do job da aceitação ilegível/ausente (a lista completa vem do LOG, P3 18/10) → fila bloqueia
+  sqlMigration?: string        // SQL da migration da PR (lote de migrations independentes, CEO 16/10); padrão: select 1;
+  autorCode?: string           // Code autor em erp_dev_entrega (para o acionamento automático do @pos, Parte 2)
 }
 // Estado do @pos-migration da main (janela da linha-de-base, CEO 15/10). Com conclusion='failure', a fila lê o log do
 // job falho e compara os specs com a linha-de-base (FILA_POS_BASELINE).
 export type PosMain = { conclusion?: 'success' | 'failure' | 'cancelled'; specs?: string[]; headPr?: number }
-export type Rodada = { log: string; escritas: string[]; status: number }
+export type Rodada = { log: string; escritas: string[]; status: number; curl: string[] }
 
 export function comFilaSimulada<T>(fn: (rodar: (prs: PrSimulada[], mainOcupada?: boolean, cota?: number, env?: Record<string, string>, posMain?: PosMain) => Rodada) => T): T {
   const raiz = mkdtempSync(join(tmpdir(), 'fila-gate-'))
@@ -62,6 +69,21 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
 `)
     chmodSync(join(bin, 'gh'), 0o755)
 
+    // curl simulado: a fila usa curl só com SUPABASE_URL (flush_estado e acionar_autor_pos). Loga cada chamada e responde:
+    //  - GET erp_dev_entrega?pr_numero=eq.N → <fx>/autor_N.json (o Code autor) ou [];
+    //  - POST rpc/fn_agente_mensagem_enviar → {ok:true} (acionamento do Code); o resto → {}.
+    writeFileSync(join(bin, 'curl'), `#!/usr/bin/env bash
+m=GET; url=; data=
+while [ $# -gt 0 ]; do case "$1" in -X) m=$2; shift 2;; -H) shift 2;; -d|--data) data=$2; shift 2;; http*) url=$1; shift;; -*) shift;; *) shift;; esac; done
+echo "$m $url $data" >> "$FX/curl.log"
+case "$url" in
+  *rest/v1/erp_dev_entrega*) pr=$(sed -nE 's/.*pr_numero=eq\\.([0-9]+).*/\\1/p' <<< "$url"); [ -f "$FX/autor_$pr.json" ] && cat "$FX/autor_$pr.json" || echo '[]';;
+  *rpc/fn_agente_mensagem_enviar*) echo '{"ok":true,"id":"00000000-0000-0000-0000-000000000000"}';;
+  *) echo '{}';;
+esac
+`)
+    chmodSync(join(bin, 'curl'), 0o755)
+
     const R = 'repos/o/r'
     const rodar = (prs: PrSimulada[], mainOcupada = false, cota = 5000, envExtra: Record<string, string> = {}, posMain: PosMain = {}): Rodada => {
       rmSync(fx, { recursive: true, force: true }); execFileSync('mkdir', ['-p', fx])
@@ -79,16 +101,41 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
         put(`${R}/pulls/${p.n}`, { number: p.n, title: `PR ${p.n}`, draft: !!p.draft, mergeable: true, base: { ref: 'main' },
           head: { sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: labels.map((name) => ({ name })) })
         const arq = p.migration ? `${(p.migrationBaixa ? 20261001000000 : 20261009000000) + p.n}_m.sql` : ''
-        put(`${R}/pulls/${p.n}/files`, [{ status: p.migrationCorrige ? 'modified' : 'added', filename: p.migration ? `supabase/migrations/${arq}` : `src/${p.n}.ts` }])
+        const files: unknown[] = [{ status: p.migrationCorrige ? 'modified' : 'added', filename: p.migration ? `supabase/migrations/${arq}` : `src/${p.n}.ts` }]
+        for (const s of p.specsProprios ?? []) files.push({ status: 'added', filename: s })
+        put(`${R}/pulls/${p.n}/files`, files)
         if (arq) put(`${R}/contents/supabase/migrations/${arq}?ref=pr${p.n}`, { content: 'c2VsZWN0IDE7Cg==', sha: 'abc123' })
+        if (arq) put(`${R}/contents/supabase/migrations/${arq}?ref=${sha[p.n]}`, { content: Buffer.from(p.sqlMigration ?? 'select 1;\n').toString('base64'), sha: 'abc123' })
         put(`${R}/git/trees/main:supabase/migrations`, { tree: [{ path: '20261008150005_ultima.sql' }, { path: 'README.md' }] })
         put(`${R}/compare/main...${sha[p.n]}`, { behind_by: p.atras ?? 0 })
         put(`${R}/compare/${main0}...${sha[p.n]}`, { behind_by: p.atras ?? 0 })   // a fila compara contra MAIN0 (constante na rodada)
+        if (p.autorCode) put(`autor_${p.n}`, [{ code: p.autorCode }])   // vira autor_N.json no fx (lido pelo curl simulado)
         const acc = p.aceitacao ?? 'in_progress'
         const accCompleta = acc === 'success' || acc === 'failure'
+        // regra do teste próprio (CEO 16/10): aceitação falha com specs → o check aponta p/ um run cujas anotações têm os specs
+        const accRun = 70000 + p.n, accJob = 97000 + p.n
+        const accUrl = (p.aceitacaoSpecs?.length || p.aceitacaoSpecsDesktop?.length) ? `https://github.com/o/r/actions/runs/${accRun}/job/${accJob}` : ''
+        if (p.aceitacaoSpecs?.length || p.aceitacaoSpecsDesktop?.length) {
+          put(`${R}/actions/runs/${accRun}/jobs`, { jobs: [{ id: accJob, conclusion: 'failure' }] })
+          const nomeados = (p.aceitacaoSpecs?.length ?? 0) + (p.aceitacaoSpecsDesktop?.length ?? 0)
+          const total = p.aceitacaoTotal ?? nomeados
+          // LOG do job (P3, 18/10): relatório "list" do Playwright com TODAS as falhas numeradas + resumo "N failed", com o
+          // prefixo de data e ANSI do log real. As anotações abaixo são cortadas em 10 (teto real do GitHub).
+          if (!p.aceitacaoSemLog) {
+            const nomes = [...(p.aceitacaoSpecs ?? []).map((s) => `[celular] › ${s}`), ...(p.aceitacaoSpecsDesktop ?? []).map((s) => `[computador] › ${s}`)]
+            const linhas = ['Running 208 tests using 2 workers', ...nomes.map((nm, i) => `\u001b[31m  ${i + 1}) ${nm}:10:7 › x ─────\u001b[39m`), `  ${total} failed`, ...nomes.map((nm) => `    ${nm}:10:7 › x`), '  197 passed']
+            writeFileSync(join(fx, `${`${R}/actions/jobs/${accJob}/logs`.replace(/[^A-Za-z0-9]/g, '_')}.json`),
+              linhas.map((l) => `2026-10-19T00:00:00.0000000Z ${l}`).join('\n') + '\n')
+          }
+          put(`${R}/check-runs/${accJob}/annotations`, [
+            ...[...(p.aceitacaoSpecs ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[celular] › ${s}:10:7`, message: `  [celular] › ${s}:10:7 › x` })),
+              ...(p.aceitacaoSpecsDesktop ?? []).map((s) => ({ annotation_level: 'failure', path: s, title: `[computador] › ${s}:10:7`, message: `  [computador] › ${s}:10:7 › x` }))].slice(0, 10),
+            // resumo Playwright da aceitação (guarda de truncamento, Eng. Chefe 18/10): o "N failed" é a verdade do total
+            { annotation_level: 'notice', path: '.github', title: '🎭 Playwright Run Summary', message: `  ${total} failed\n  197 passed` }])
+        }
         put(`${R}/commits/${sha[p.n]}/check-runs?per_page=100`, { check_runs: [
           { name: 'check_menu', status: p.checksRodando ? 'in_progress' : 'completed', conclusion: p.checksRodando ? null : 'success', details_url: '' },
-          { name: 'aceitacao', status: accCompleta ? 'completed' : 'in_progress', conclusion: accCompleta ? acc : null, details_url: '' },
+          { name: 'aceitacao', status: accCompleta ? 'completed' : 'in_progress', conclusion: accCompleta ? acc : null, details_url: accUrl },
           { name: 'gates', status: 'completed', conclusion: 'success', details_url: '' }] })
         put(`${R}/commits/${sha[p.n]}/status`, { statuses: [{ context: 'Vercel', state: 'success', description: 'Deployment has completed' }] })
       })
@@ -117,7 +164,9 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
       const log = `${r.stdout}${r.stderr}`
       if (r.status !== 0) console.error(log)
       const escritas = readFileSync(join(fx, 'chamadas.log'), 'utf8').split('\n').filter((l) => l && !l.startsWith('GET '))
-      return { log, escritas, status: r.status ?? 1 }
+      let curl: string[] = []
+      try { curl = readFileSync(join(fx, 'curl.log'), 'utf8').split('\n').filter(Boolean) } catch { /* sem curl nesta rodada */ }
+      return { log, escritas, status: r.status ?? 1, curl }
     }
     return fn(rodar)
   } finally {
@@ -128,3 +177,5 @@ if [ -n "$jqe" ]; then jq -r "$jqe" "$f"; else cat "$f"; fi
 export const merges = (e: string[]) => e.filter((l) => /\/merge merge_method/.test(l)).map((l) => Number(l.match(/pulls\/(\d+)\/merge/)?.[1]))
 export const updates = (e: string[]) => e.filter((l) => /update-branch/.test(l)).map((l) => Number(l.match(/pulls\/(\d+)\/update-branch/)?.[1]))
 export const comentariosEm = (e: string[], n: number) => e.filter((l) => l.startsWith(`POST repos/o/r/issues/${n}/comments`))
+// Parte 2 (CEO 16/10): acionamentos automáticos de Code via fn_agente_mensagem_enviar (linhas do curl simulado).
+export const acionamentos = (c: string[]) => c.filter((l) => /rpc\/fn_agente_mensagem_enviar/.test(l))

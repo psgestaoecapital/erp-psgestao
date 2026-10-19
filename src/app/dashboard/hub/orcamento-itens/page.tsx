@@ -22,15 +22,24 @@ export default function OrcamentoItensPage() {
   const { sel } = useCompanyIds();
   const empresa = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const [orcs, setOrcs] = useState<Orc[]>([]);
+  const [carregandoOrcs, setCarregandoOrcs] = useState(false);
   const [orcId, setOrcId] = useState("");
   const [lista, setLista] = useState<Lista | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
 
   useEffect(() => {
-    if (!empresa) return;
+    if (!empresa) { setOrcs([]); return; }
+    setCarregandoOrcs(true);
     void Promise.resolve(supabase.from("erp_orcamentos").select("id,numero,cliente_nome,status").eq("company_id", empresa)
-      .order("created_at", { ascending: false }).limit(100)).then(({ data }) => setOrcs((data as Orc[]) ?? []));
+      .order("created_at", { ascending: false }).limit(100))
+      .then(({ data, error }) => {
+        const l = (data as Orc[]) ?? [];
+        setOrcs(l);
+        if (error) setMsg({ tipo: "erro", texto: error.message });
+        else if (l.length > 0) setOrcId((atual) => atual || l[0].id);
+      }, () => setOrcs([]))
+      .finally(() => setCarregandoOrcs(false));
   }, [empresa]);
 
   const carregar = useCallback(async (id: string) => {
@@ -75,6 +84,9 @@ export default function OrcamentoItensPage() {
           {orcs.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.cliente_nome ?? "sem cliente"} · {o.status}</option>)}
         </select>
       </label>
+      {!empresa && <p className="mt-3 text-[14px] text-[#7A6A5E]" data-testid="orc-sem-empresa">Escolha uma empresa no seletor do topo para ver os orçamentos.</p>}
+      {empresa && carregandoOrcs && <p className="mt-3 text-[14px] text-[#7A6A5E]">Carregando orçamentos…</p>}
+      {empresa && !carregandoOrcs && orcs.length === 0 && <p className="mt-3 text-[14px] text-[#7A6A5E]" data-testid="orc-vazio">Esta empresa ainda não tem orçamentos. Crie um em Orçamentos para lançar os itens aqui.</p>}
       {msg && <p role="status" data-testid="orc-msg" className={`mt-3 rounded-lg border px-3 py-2 text-[14px] ${msg.tipo === "ok" ? "border-[#1baf7a] text-[#1baf7a]" : "border-[#c0392b] text-[#c0392b]"}`}>{msg.texto}</p>}
       {lista && (
         <section className="mt-5">
