@@ -23,6 +23,7 @@ interface OS {
   id: string
   numero: string | null
   status: string
+  nasceu_orcamento?: boolean | null  // #2867 · OS criada como orçamento
   total: number | null
   company_id: string
   pedido_id: string | null
@@ -351,7 +352,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const carregar = useCallback(async () => {
     setLoading(true)
     // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
-    const cols = 'id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const cols = 'id,numero,status,nasceu_orcamento,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
     const q = supabase.from('erp_os').select(cols)
     const { data, error } = osId
       ? await q.eq('id', osId).maybeSingle()
@@ -469,7 +470,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (resp?.os_id) {
       const { data: row } = await supabase
         .from('erp_os')
-        .select('id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
+        .select('id,numero,status,nasceu_orcamento,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
         .eq('id', resp.os_id)
         .maybeSingle()
       if (row) {
@@ -499,6 +500,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     // BUG #16a · não deixar "entregar" com os valores zerados sem avisar (não passa silencioso).
     if (novoStatus === 'entregue' && Number(os.total ?? 0) === 0) {
       if (!window.confirm('Esta OS está com total R$ 0,00 (sem peças/mão de obra fechados). Entregar assim mesmo? O custo/lucro sairá zerado nos relatórios.')) return
+    }
+    // #2867 · OS nascida de orçamento: o orçamento pode ter sido feito só com o relato do cliente; avisa para conferir o diagnóstico.
+    if (os.nasceu_orcamento && novoStatus !== os.status) {
+      if (!window.confirm('Ordem de serviço gerada através de um orçamento, verifique o diagnóstico.\n\nO orçamento pode ter sido feito só com as informações do cliente; confira se o serviço é realmente o solicitado. Continuar e alterar o status?')) return
     }
     setErro(null)
     const { data, error } = await supabase.rpc('fn_os_salvar', {
