@@ -13,7 +13,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABAS
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 const RUN = Date.now().toString(36).toUpperCase()
 // NCM de teste, exclusivo desta execução (8 dígitos que não existem na TIPI), para o filtro pegar só os 2 produtos
-const NCM = `99${RUN.replace(/\D/g, '').padEnd(6, '7').slice(0, 6)}`
+const NCM = `99${(Date.now() % 1_000_000).toString().padStart(6, '0')}`
 const VALORES = { tipo_item_sped: '00', cst_icms: '102', cst_pis: '49', cst_cofins: '49' }
 const MARCA = `E2E regra provisória ${RUN} — confirmar com o contador`
 const produtos: string[] = []

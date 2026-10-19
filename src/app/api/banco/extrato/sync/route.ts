@@ -19,7 +19,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const BANCO = '756' // Sicoob por default; adapter tem base URL propria
+const BANCO = '756' // Sicoob por default (config antiga sem banco_codigo); adapter tem base URL propria
 
 // SPEC SONDA-SALDO (diagnóstico, TEMPORÁRIO): captura o retrato de saldo da resposta do Sicoob e
 // registra em erp_banco_sync_log via fn_sonda_saldo_registrar. Vire false (ou remova) após o veredito.
@@ -80,10 +80,10 @@ function menos30dias(iso: string): string {
   return d.toISOString().slice(0, 10)
 }
 
-async function logSync(company_id: string, provider: string, status: 'ok' | 'erro', mensagem: string, payload: unknown) {
+async function logSync(company_id: string, provider: string, status: 'ok' | 'erro', mensagem: string, payload: unknown, bancoCodigo: string = BANCO) {
   try {
     await supabaseAdmin.from('erp_banco_sync_log').insert({
-      company_id, banco_codigo: BANCO, provider,
+      company_id, banco_codigo: bancoCodigo, provider,
       tipo: 'extrato_sync', status, qtd: 0, mensagem: mensagem.slice(0, 1000),
       payload_resumo: payload,
     })
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
     // 1) config do provider
     let cfgQuery = supabaseAdmin
       .from('erp_banco_provider_config')
-      .select('id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, convenio, banco_conta_id, cursor_extrato, cap_extrato, ativo')
+      .select('id, provider, banco_codigo, ambiente, client_id, cooperativa, conta, codigo_beneficiario, convenio, banco_conta_id, cursor_extrato, cap_extrato, ativo')
       .eq('company_id', companyId)
       .eq('ativo', true)
       .eq('cap_extrato', true)
@@ -127,9 +127,10 @@ export async function POST(req: NextRequest) {
     const provider = cfg.provider as string
     if (!cfg.banco_conta_id) return NextResponse.json({ ok: false, erro: 'banco_conta_id ausente na config' }, { status: 412 })
 
-    // 2) credencial (Vault) — reusa fn_banco_obter_credencial do Sicoob
+    // 2) credencial (Vault) — pelo banco DA CONFIG (#1736: antes fixo em 756 = Sicoob)
+    const bancoCodigo = cfg.banco_codigo ? String(cfg.banco_codigo) : BANCO
     const credResp = await supabaseAdmin.rpc('fn_banco_obter_credencial', {
-      p_company_id: companyId, p_banco_codigo: BANCO, p_ambiente: cfg.ambiente,
+      p_company_id: companyId, p_banco_codigo: bancoCodigo, p_ambiente: cfg.ambiente,
     })
     const credRow = credResp.data as Record<string, unknown> | null
     if (!credRow || credRow.ok === false) {
@@ -138,7 +139,13 @@ export async function POST(req: NextRequest) {
     const clientId = credRow.client_id as string | null
     const certBase64 = credRow.cert_base64 as string | null
     const certSenha = credRow.cert_senha as string | null
-    if (!clientId || !certBase64 || !certSenha) {
+    // BB (#1736): OAuth por client_id/secret + gw-dev-app-key; o certificado é checado pelo adapter
+    // (exigido em produção). Demais bancos seguem exigindo client_id + certificado + senha.
+    if (provider === 'bb') {
+      if (!clientId || !credRow.client_secret || !credRow.api_key) {
+        return NextResponse.json({ ok: false, erro: 'credencial incompleta (client_id/client_secret/gw-dev-app-key)' }, { status: 412 })
+      }
+    } else if (!clientId || !certBase64 || !certSenha) {
       return NextResponse.json({ ok: false, erro: 'credencial incompleta (client_id/cert/senha)' }, { status: 412 })
     }
 
@@ -156,12 +163,15 @@ export async function POST(req: NextRequest) {
         client_id: clientId,
         base_url: '', // adapter usa host propro por ambiente
         ambiente: cfg.ambiente as 'producao' | 'homologacao',
-        pfx: Buffer.from(certBase64, 'base64'),
-        passphrase: certSenha,
+        pfx: Buffer.from(certBase64 ?? '', 'base64'),
+        passphrase: certSenha ?? '',
         cooperativa: (credRow.cooperativa as string | null) ?? cfg.cooperativa ?? '',
         conta: (credRow.conta as string | null) ?? cfg.conta ?? '',
         codigo_beneficiario: (credRow.codigo_beneficiario as string | null) ?? cfg.codigo_beneficiario ?? '',
         convenio: (credRow.convenio as string | null) ?? cfg.convenio ?? '',
+        client_secret: (credRow.client_secret as string | null) ?? '',
+        api_key: (credRow.api_key as string | null) ?? '',
+        agencia: (credRow.agencia as string | null) ?? '',
       }, { begin, end }, SONDA_SALDO_ATIVA ? { onRetratoSaldo: (r) => retratosSonda.push(r) } : undefined)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -169,11 +179,13 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin.from('erp_banco_provider_config')
         .update({ ultimo_sync_em: new Date().toISOString(), ultimo_sync_status: `erro:${msg.slice(0, 120)}` })
         .eq('id', cfg.id)
-      await logSync(companyId, provider, 'erro', msg, { begin, end })
+      await logSync(companyId, provider, 'erro', msg, { begin, end }, bancoCodigo)
       return NextResponse.json({
         ok: false,
         erro: naoHabilitado
-          ? 'API Conta Corrente do Sicoob ainda nao autorizada (verifique escopo cco_consulta no app do portal). Nada foi salvo.'
+          ? (provider === 'bb'
+            ? 'API Extratos do Banco do Brasil ainda nao autorizada para este app (verifique no BB Developers a API Extratos e o escopo extrato-info). Nada foi salvo.'
+            : 'API Conta Corrente do Sicoob ainda nao autorizada (verifique escopo cco_consulta no app do portal). Nada foi salvo.')
           : 'Falha ao puxar o extrato.',
         detalhe: msg,
       }, { status: 502 })
@@ -230,12 +242,12 @@ export async function POST(req: NextRequest) {
       p_periodo_fim: end,
     })
     if (impErr) {
-      await logSync(companyId, provider, 'erro', `importar_sistema falhou: ${impErr.message}`, { begin, end })
+      await logSync(companyId, provider, 'erro', `importar_sistema falhou: ${impErr.message}`, { begin, end }, bancoCodigo)
       return NextResponse.json({ ok: false, erro: 'falha ao gravar movimentos' }, { status: 500 })
     }
     const j = imp as { sucesso?: boolean; lote_id?: string; inseridos?: number; ignorados_duplicados?: number } | null
     if (!j?.sucesso) {
-      await logSync(companyId, provider, 'erro', 'importar_sistema sucesso=false', { j, begin, end })
+      await logSync(companyId, provider, 'erro', 'importar_sistema sucesso=false', { j, begin, end }, bancoCodigo)
       return NextResponse.json({ ok: false, erro: 'falha ao criar lote' }, { status: 500 })
     }
     const loteId = j.lote_id!
@@ -272,7 +284,7 @@ export async function POST(req: NextRequest) {
 
     await logSync(companyId, provider, 'ok',
       `inseridos=${inseridos} ignorados=${ignorados} sugestoes=${sugestoes}`,
-      { lote_id: loteId, begin, end, auto_aplicar: autoAplicar })
+      { lote_id: loteId, begin, end, auto_aplicar: autoAplicar }, bancoCodigo)
 
     return NextResponse.json({
       ok: true,
