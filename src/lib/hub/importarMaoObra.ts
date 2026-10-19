@@ -12,6 +12,8 @@ export const COLUNAS_FUNC = [
   'Matrícula*', 'Nome completo*', 'CPF*', 'Data de admissão*', 'Função*', 'CBO', 'Setor', 'Vínculo*', 'Forma de pagamento*', 'Salário base (R$)*',
   'Valor por unidade (R$)', 'Insalubridade', 'Periculosidade', 'Outros adicionais', 'Vale-transporte', 'Alimentação', 'Plano de saúde', 'Seguro de vida',
   'EPI e uniforme (R$/mês)', 'Horas produtivas/mês', 'Dias trabalhados/mês', 'Vigência a partir de*', 'MEI de obra (Sim/Não)', 'Observações',
+  // opcionais, no fim (planilhas antigas sem estas colunas continuam valendo)
+  'Horas extras 50% (média/mês)', 'Horas extras 100% (média/mês)',
 ] as const
 // campos da aba 1_Encargos_empresa (vertical campo/valor)
 export const CAMPOS_ENC = [
@@ -62,6 +64,7 @@ export interface LinhaFunc {
   insalubridade: number; periculosidade: number; outros: number
   vt: number; alimentacao: number; saude: number; seguro: number; epi: number
   horas: number | null; dias: number | null; vigencia: string; mei: boolean; obs: string
+  he50: number; he100: number
 }
 
 const CAMPO_OBRIG: [string, string][] = [['matricula', 'Matrícula'], ['nome', 'Nome completo'], ['cpf', 'CPF'], ['admissao', 'Data de admissão'], ['funcao', 'Função'],
@@ -72,7 +75,8 @@ const chaveColuna = (h: string): string | null => {
   const mapa: Record<string, string> = { matricula: 'matricula', 'nome completo': 'nome', cpf: 'cpf', 'data de admissao': 'admissao', funcao: 'funcao', cbo: 'cbo', setor: 'setor', vinculo: 'vinculo',
     'forma de pagamento': 'forma', 'salario base': 'salario', 'valor por unidade': 'valorUnidade', insalubridade: 'insalubridade', periculosidade: 'periculosidade', 'outros adicionais': 'outros',
     'vale-transporte': 'vt', alimentacao: 'alimentacao', 'plano de saude': 'saude', 'seguro de vida': 'seguro', 'epi e uniforme': 'epi', 'horas produtivas/mes': 'horas',
-    'dias trabalhados/mes': 'dias', 'vigencia a partir de': 'vigencia', 'mei de obra': 'mei', observacoes: 'obs' }
+    'dias trabalhados/mes': 'dias', 'vigencia a partir de': 'vigencia', 'mei de obra': 'mei', observacoes: 'obs',
+    'horas extras 50%': 'he50', 'horas extras 100%': 'he100' }
   return mapa[n] ?? null
 }
 // colunas que NÃO entram (LGPD: o modelo não pede dado pessoal além do CPF)
@@ -130,17 +134,18 @@ export function validarFuncionarios(linhas: Linha[], primeira = 2): ResultadoLei
     const vt = num('vt', 'Vale-transporte') ?? 0, alimentacao = num('alimentacao', 'Alimentação') ?? 0, saude = num('saude', 'Plano de saúde') ?? 0
     const seguro = num('seguro', 'Seguro de vida') ?? 0, epi = num('epi', 'EPI e uniforme') ?? 0
     const horas = num('horas', 'Horas produtivas/mês'), dias = num('dias', 'Dias trabalhados/mês')
+    const he50 = num('he50', 'Horas extras 50%') ?? 0, he100 = num('he100', 'Horas extras 100%') ?? 0
     const mei = simNao(r.mei)
     if (mei === null) erros.push(`MEI de obra "${txt('mei')}": responda Sim ou Não.`)
     if (mei && vinculo && vinculo !== 'pj') av.push('MEI de obra só vale para vínculo PJ — ignorado.')
     out.push({ linha: nLinha, erros, avisos: av, ok: erros.length === 0, matricula: txt('matricula'), nome: txt('nome'), cpf, admissao: admissao ?? '', funcao: txt('funcao'), cbo: txt('cbo'),
       setor: txt('setor'), vinculo: vinculo ?? '', forma: forma ?? '', salario: salario ?? 0, valorUnidade, insalubridade, periculosidade, outros, vt, alimentacao, saude, seguro, epi,
-      horas, dias, vigencia: vigencia ?? '', mei: !!mei && vinculo === 'pj', obs: txt('obs') })
+      horas, dias, vigencia: vigencia ?? '', mei: !!mei && vinculo === 'pj', obs: txt('obs'), he50, he100 })
   })
   return { linhas: out, avisos }
 }
 
-export interface ComponenteImp { tipo: string; subtipo: string | null; descricao?: string; valor: number; quantidade?: number; unidade?: string | null; estimado?: boolean }
+export interface ComponenteImp { tipo: string; subtipo: string | null; descricao?: string; valor: number; quantidade?: number; percentual?: number; unidade?: string | null; estimado?: boolean }
 
 /** Remuneração da linha → componentes que o banco já entende (as chaves de incidência o banco preenche pelo vínculo). */
 export function componentesDaLinha(l: LinhaFunc): ComponenteImp[] {
@@ -157,6 +162,9 @@ export function componentesDaLinha(l: LinhaFunc): ComponenteImp[] {
   if (l.insalubridade > 0) c.push({ tipo: 'adicional', subtipo: 'outro', descricao: 'Insalubridade', valor: l.insalubridade })
   if (l.periculosidade > 0) c.push({ tipo: 'adicional', subtipo: 'outro', descricao: 'Periculosidade', valor: l.periculosidade })
   if (l.outros > 0) c.push({ tipo: 'adicional', subtipo: 'outro', descricao: 'Outros adicionais', valor: l.outros })
+  // horas extras médias do mês: valor da hora vazio (0) = salário ÷ 220; reflexos pelas chaves do vínculo (o banco preenche)
+  if (l.he50 > 0) c.push({ tipo: 'hora_extra', subtipo: null, descricao: 'Horas extras 50%', valor: 0, quantidade: l.he50, percentual: 50 })
+  if (l.he100 > 0) c.push({ tipo: 'hora_extra', subtipo: null, descricao: 'Horas extras 100%', valor: 0, quantidade: l.he100, percentual: 100 })
   return c
 }
 

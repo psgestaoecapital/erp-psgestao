@@ -7,6 +7,7 @@
 #       scripts/merge/patch-id.sh <commit-ish>      (ex.: HEAD, para conferir o próprio ramo antes de pedir revisão)
 # O gilberto-revisor cola no comentário:  MERGE AUTORIZADO #N — gilberto-revisor · patch-id <40 hex>
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/patch-id-lib.sh"
 alvo="${1:?uso: scripts/merge/patch-id.sh <nº da PR | commit>}"
 git fetch -q origin main
 if [[ "$alvo" =~ ^[0-9]+$ ]]; then
@@ -14,4 +15,5 @@ if [[ "$alvo" =~ ^[0-9]+$ ]]; then
   alvo="refs/fila/pr-$alvo"
 fi
 base=$(git merge-base origin/main "$alvo")
-git diff "$base" "$alvo" | git patch-id --stable | cut -d' ' -f1
+# estável à renumeração de migration (CEO 16/10): renumerar o arquivo não muda o id e a autorização continua valendo
+patch_id_estavel "$base" "$alvo"

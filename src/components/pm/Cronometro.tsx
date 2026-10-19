@@ -60,11 +60,10 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
     if (!job) { setMsg("Escolha o job."); return; }
     if (aberto && !(await parar(true))) return;
     setOcupado(true);
-    const { data: eq } = await supabase.from("agency_equipe").select("custo_hora").eq("company_id", empresa).eq("user_id", userId).maybeSingle();
     const ini = new Date();
     const { error } = await supabase.from("agency_timesheet").insert({
       company_id: empresa, job_id: job, user_id: userId, data: ini.toISOString().slice(0, 10), horas: 0,
-      inicio_em: ini.toISOString(), custo_hora: (eq as { custo_hora: number | null } | null)?.custo_hora ?? null, descricao: "cronômetro",
+      inicio_em: ini.toISOString(), descricao: "cronômetro", // custo/hora da pessoa: o servidor preenche (LGPD, gatilho trg_agency_timesheet_custo_auto)
     });
     setOcupado(false);
     if (error) { setMsg(`Não foi possível iniciar: ${error.message}`); return; }

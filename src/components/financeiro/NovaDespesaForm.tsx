@@ -166,6 +166,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   // destaque vermelho no campo (erroCampo); sucesso → toast CRIOU/ALTEROU/EXCLUIU.
   const { salvar: rpcSalvar, salvando: loading, feedback, erroCampo, limpar: limparFeedback, setFeedback, setErroCampo } = useSalvar()
   const [toast, setToast] = useState<string | null>(null)
+  // Antiduplicidade (CEO 14/10): no 23505 da trava, oferecer "lançar mesmo assim" em vez do erro genérico.
+  const [dupWarn, setDupWarn] = useState(false)
+  const [dupModo, setDupModo] = useState<'fechar' | 'nova' | 'duplicar'>('fechar')
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t) }, [toast])
 
   // ANTI-DUPLICIDADE (código de barras) — captura + alerta no REGISTRO (não bloqueia).
@@ -503,9 +506,10 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   // modo: 'fechar' = comportamento padrão (redireciona/onSucesso);
   //       'nova' = salva e limpa o form pra lançar outra; 'duplicar' = salva e MANTÉM os
   //       valores pra lançar uma parecida. (Fatia 3 · "Salvar" dropdown estilo ContaAzul.)
-  async function salvar(modo: 'fechar' | 'nova' | 'duplicar' = 'fechar') {
+  async function salvar(modo: 'fechar' | 'nova' | 'duplicar' = 'fechar', forcar = false) {
     setSalvarMenu(false)
     setToast(null)
+    setDupWarn(false)
     limparFeedback()
 
     // Validação client-side no padrão: banner + destaque no campo, antes da RPC.
@@ -563,6 +567,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             p_parcelas: parcelasEdit.map((p, idx) => ({
               n: idx + 1, data_vencimento: p.vencimento, valor: p.valor, data_competencia: null,
             })),
+            p_forcar_dup: forcar,
           })
         : supabase.rpc('fn_pagar_criar_com_parcelas', {
             p_company_id: companyId,
@@ -579,8 +584,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             p_observacao: observacao || null,
             p_intervalo_dias: intervaloDias,
             p_conta_bancaria: contaBancaria || null,
+            p_forcar_dup: forcar,
           }),
-      { acao: 'criar', label: labelSucesso },
+      { acao: 'criar', label: labelSucesso, onDuplicado: () => { setDupModo(modo); setDupWarn(true) } },
     )
     if (!ret.sucesso) return // hook já exibiu banner + destaque de campo
 
@@ -1308,6 +1314,21 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             </div>
             <div style={{ padding: '12px 16px', borderTop: '0.5px solid rgba(61,35,20,0.12)', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setDupVer(null)} style={{ background: PSGC_COLORS.dourado, color: '#3D2314', border: 'none', padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dupWarn && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 440, width: '100%', border: '1px solid #E7DED3' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314', marginBottom: 8 }}>Já existe um lançamento igual</div>
+            <div style={{ fontSize: 13, color: '#6b5444', lineHeight: 1.5, marginBottom: 16 }}>
+              Já existe uma despesa igual: <strong style={{ color: '#3D2314' }}>{descricao.trim() || montarDescricao() || '—'}</strong> · {fmtBRL(parseFloat(valor || '0') || 0)} · venc {dataVencimento ? dataVencimento.split('-').reverse().join('/') : '—'} (mesma descrição, valor e vencimento). Isso costuma ser duplicidade. Deseja lançar mesmo assim?
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDupWarn(false)} style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #E7DED3', background: '#fff', color: '#3D2314', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={() => salvar(dupModo, true)} disabled={loading} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: PSGC_COLORS.dourado, color: '#3D2314', fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1 }}>Lançar mesmo assim</button>
             </div>
           </div>
         </div>

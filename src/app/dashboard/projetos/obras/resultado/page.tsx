@@ -1,13 +1,14 @@
 'use client'
 
 // HB1 · Resultado por obra (fatia 2) — lê v_obra_resultado (receita serviço + material, custo material + viagens,
-// previsto × realizado). Só leitura. 3 estados: erro / vazio (ensina) / dados. Linha "Consolidado" no fim. Excel (CSV).
+// previsto × realizado). Só leitura. 3 estados: erro / vazio (ensina) / dados. Linha "Consolidado" no fim. Excel (CSV) e PDF (impressão do navegador).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 
@@ -15,11 +16,13 @@ type Linha = {
   obra_id: string; numero: string; nome: string; status: string
   custo_previsto: number; receita_prevista: number; receita_servico: number; receita_material: number
   custo_material: number; custo_viagens: number; margem_realizada: number
+  custo_mao_obra?: number; custo_rateio?: number; margem_alocada?: number
 }
 
 const n = (v: unknown) => Number(v ?? 0)
 const receita = (l: Linha) => n(l.receita_servico) + n(l.receita_material)
-const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens)
+const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens) + n(l.custo_mao_obra) + n(l.custo_rateio)
+const margem = (l: Linha) => l.margem_alocada ?? n(l.margem_realizada)
 
 export default function ResultadoObrasPage() {
   const { companyIds } = useCompanyIds()
@@ -31,24 +34,27 @@ export default function ResultadoObrasPage() {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
     try {
-      const { data, error } = await comPrazo(
-        async () => await supabase.from('v_obra_resultado').select('*').in('company_id', companyIds).order('numero', { ascending: false }),
-        { ms: 8000, tentativas: 1, label: 'v_obra_resultado' },
+      // Fonte única do custo por obra: v_obra_resultado_alocado (#2687). Sem ela (ainda não publicada), cai para a v_obra_resultado.
+      const ler = (view: string) => comPrazo(
+        async () => await supabase.from(view).select('*').in('company_id', companyIds).order('numero', { ascending: false }),
+        { ms: 8000, tentativas: 1, label: view },
       )
-      if (error) { setErro(error.message); return }
-      setLinhas((data ?? []) as Linha[])
+      let r = await ler('v_obra_resultado_alocado')
+      if (r.error) r = await ler('v_obra_resultado')
+      if (r.error) { setErro(r.error.message); return }
+      setLinhas((r.data ?? []) as Linha[])
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
 
   const total = useMemo(() => linhas.reduce((a, l) => ({
-    receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + n(l.margem_realizada),
+    receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + margem(l),
     prevista: a.prevista + n(l.receita_prevista), custoPrev: a.custoPrev + n(l.custo_previsto),
   }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [linhas])
 
   const baixarCsv = () => {
-    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Margem', 'Receita prevista', 'Custo previsto']
-    const rows = linhas.map(l => [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, l.margem_realizada, l.receita_prevista, l.custo_previsto])
+    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Margem', 'Receita prevista', 'Custo previsto']
+    const rows = linhas.map(l => [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), margem(l), l.receita_prevista, l.custo_previsto])
     const csv = [cab, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
@@ -64,7 +70,7 @@ export default function ResultadoObrasPage() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <Link href="/dashboard/projetos/obras" style={{ color: GOLD, fontSize: 13 }}>← Obras</Link>
         <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>Resultado por obra</h1>
-        <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Receita (serviço medido + material vendido) menos custo (material e viagens), previsto × realizado.</p>
+        <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Receita (serviço medido + material vendido) menos custo (material, viagens e mão de obra apontada), previsto × realizado.</p>
         {loading && <p data-testid="resultado-carregando">Carregando…</p>}
         {!loading && erro && <p role="alert" style={{ color: VERM }}>{erro} <button onClick={carregar}>Tentar de novo</button></p>}
         {!loading && !erro && linhas.length === 0 && (
@@ -72,25 +78,33 @@ export default function ResultadoObrasPage() {
         )}
         {!loading && !erro && linhas.length > 0 && (
           <>
-            <button onClick={baixarCsv} style={{ marginBottom: 8, padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Baixar Excel (CSV)</button>
+            <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+              <button onClick={baixarCsv} style={{ padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Baixar Excel (CSV)</button>
+              <AjudaCampo chave="projetos.resultado_obra.excel" />
+              <button data-testid="resultado-pdf" onClick={() => window.print()} style={{ padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Baixar PDF</button>
+              <AjudaCampo chave="projetos.resultado_obra.pdf" />
+            </div>
+            <style>{'@media print{.no-print{display:none!important}body{background:#fff}}'}</style>
             <div style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
               <table data-testid="resultado-tabela" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
                   <th style={{ ...th, textAlign: 'left' }}>Obra</th><th style={th}>Receita</th><th style={th}>Custo</th>
-                  <th style={th}>Margem</th><th style={th}>Receita prevista</th><th style={th}>Custo previsto</th>
+                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Margem</th><th style={th}>Receita prevista</th><th style={th}>Custo previsto</th>
                 </tr></thead>
                 <tbody>
                   {linhas.map(l => (
                     <tr key={l.obra_id} style={{ borderBottom: `1px solid ${LINE}` }}>
                       <td style={{ ...td, textAlign: 'left' }}>{l.numero} · {l.nome}</td>
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
-                      <td style={{ ...td, color: cor(n(l.margem_realizada)), fontWeight: 600 }}>{fmtR(n(l.margem_realizada))}</td>
+                      <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
+                      <td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
                       <td style={td}>{fmtR(n(l.receita_prevista))}</td><td style={td}>{fmtR(n(l.custo_previsto))}</td>
                     </tr>
                   ))}
                   <tr data-testid="resultado-consolidado" style={{ fontWeight: 700 }}>
                     <td style={{ ...td, textAlign: 'left' }}>Consolidado</td>
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
+                    <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
                     <td style={td}>{fmtR(total.prevista)}</td><td style={td}>{fmtR(total.custoPrev)}</td>
                   </tr>

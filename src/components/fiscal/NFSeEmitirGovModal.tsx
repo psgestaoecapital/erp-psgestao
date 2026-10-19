@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
 import TomadorEnderecoPendente from '@/components/fiscal/TomadorEnderecoPendente'
+import { CAMPOS_CADASTRO_TOMADOR, escolherCadastroTomador, filtroCadastroTomador, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@/components/comum/BlocoObraFiscal'
 import { aplicarRetencoesNota, calcularRetencoesFederais, MSG_EXIGE_SERVICO_NFSE, retencoesNotaDoCadastro, retencoesNotaIguais, sugerirRetencoesNota, TRIBUTOS_RETENCAO, type RetencoesNota, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
@@ -50,6 +51,8 @@ interface RespFocus {
   retencoesFederais?: { inss: number; irrf: number; pis: number; cofins: number; csll: number; total: number } | null
   issRetido?: number | null
   avisosTributos?: string[]
+  // caixa jordana-code 3352399e · dois cadastros ativos com o documento do tomador: a rota não chuta, pede a escolha
+  tomadorAmbiguo?: boolean
 }
 
 interface Props {
@@ -64,6 +67,8 @@ interface Props {
   tomadorTipo?: 'cpf' | 'cnpj' | 'indefinido'
   tomadorNome?: string
   tomadorEmail?: string
+  // cliente da OS/venda: é ELE o tomador (caixa jordana-code 3352399e — nunca um duplicado com o mesmo CNPJ)
+  tomadorClienteId?: string
   descricaoServico?: string
   codigoServicoMunicipio?: string
   codigoLC116?: string
@@ -141,7 +146,7 @@ function mensagemAmigavel(raw: string | null | undefined): string {
 
 export default function NFSeEmitirGovModal({
   companyId, aberto, onFechar, onEmitida, producaoDisponivel = false,
-  tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail,
+  tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail, tomadorClienteId,
   descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
   servicoId, issNoLocalPrestacao = false, obraId, municipioPrestacaoIbge, municipioPrestacaoLabel,
   permitirObra = false, pedidoId, pedidoNumero, medicao,
@@ -167,6 +172,8 @@ export default function NFSeEmitirGovModal({
   const [tomTipo, setTomTipo] = useState<TomadorTipo>(tomTipoSeed)
   const [tomDoc, setTomDoc] = useState(tomDocSeed)
   const [tomNome, setTomNome] = useState(tomadorNome ?? '')
+  // cadastro do cliente que é o tomador (o da operação, ou o escolhido quando há dois com o mesmo documento)
+  const [tomClienteId, setTomClienteId] = useState<string | null>(tomadorClienteId ?? null)
   // tomadorEmail nao tem input no modal hoje · guardamos pra payload futuro
   void tomadorEmail
   const [descricao, setDescricao] = useState(descricaoServico ?? '')
@@ -304,6 +311,7 @@ export default function NFSeEmitirGovModal({
     setTomTipo(tomTipoSeed)
     setTomDoc(tomDocSeed)
     setTomNome(tomadorNome ?? '')
+    setTomClienteId(tomadorClienteId ?? null)
     setDescricao(descricaoServico ?? '')
     setValor(valorSeed)
     setCodigoTrib(codTribSeed)
@@ -323,7 +331,7 @@ export default function NFSeEmitirGovModal({
     setNfseIdGerado(null); setFinRet({ iss: '', irrf: '', pis: '', cofins: '', csll: '', inss: '', deducoes: '', desconto: '' })
     setFinVenc(''); setFinFase('idle'); setFinMsg(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
+  }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, tomadorClienteId, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
 
   // Item 2 (print Rodrigo) · em PRODUÇÃO, se o tomador for um usuário da própria empresa (mesmo CPF),
   // avisa que a nota é REAL para si mesmo — não bloqueia, só alerta (best-effort; falha silenciosa = sem aviso).
@@ -429,7 +437,7 @@ export default function NFSeEmitirGovModal({
 
   function resetForm() {
     // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · reset volta pros seeds (se houver) ou vazio
-    setTomDoc(tomDocSeed); setTomNome(tomadorNome ?? '')
+    setTomDoc(tomDocSeed); setTomNome(tomadorNome ?? ''); setTomClienteId(tomadorClienteId ?? null)
     setDescricao(descricaoServico ?? '')
     setValor(valorSeed)
     setCodigoTrib(codTribSeed); setAliquota(aliquotaSeed)
@@ -467,11 +475,20 @@ export default function NFSeEmitirGovModal({
     if (tomTipo === 'CPF' && doc.length !== 11) { setBuscaDocMsg('Informe o CPF completo (11 dígitos).'); return }
     setBuscandoDoc(true)
     try {
-      const { data: cli } = await supabase.from('erp_clientes')
-        .select('razao_social,nome_fantasia,logradouro,numero,bairro,cidade,uf,cep,endereco,cidade_estado')
-        .eq('company_id', companyId).or(`cpf_cnpj.eq.${doc},cnpj_cpf.eq.${doc}`).limit(1).maybeSingle()
-      if (cli) {
-        const c = cli as Record<string, string | null>
+      // a MESMA regra da emissão (escolherCadastroTomador): cliente da operação; senão um ATIVO pelo documento;
+      // dois ativos → o bloco abaixo pede a escolha. Antes: limit(1) com o documento sem máscara, inativo incluído.
+      const filtroCad = filtroCadastroTomador(doc, tomClienteId)
+      const { data: cands } = filtroCad
+        ? await supabase.from('erp_clientes').select(CAMPOS_CADASTRO_TOMADOR + ', cidade_estado').eq('company_id', companyId).or(filtroCad).limit(20)
+        : { data: null }
+      const escolha = escolherCadastroTomador((cands ?? []) as unknown as (CadastroTomador & { cidade_estado?: string | null })[], doc, tomClienteId)
+      if (escolha.tipo === 'ambiguo') {
+        setBuscaDocMsg(`Há ${escolha.candidatos.length} cadastros ativos com este documento — escolha o tomador abaixo.`)
+        return
+      }
+      if (escolha.tipo === 'cliente') {
+        const c = escolha.cliente
+        setTomClienteId(c.id)
         setTomNome(c.razao_social || c.nome_fantasia || tomNome)
         const endCad = [c.logradouro, c.numero, c.bairro, (c.cidade && c.uf) ? `${c.cidade}/${c.uf}` : (c.cidade || c.cidade_estado), c.cep]
           .filter(Boolean).join(', ')
@@ -616,6 +633,7 @@ export default function NFSeEmitirGovModal({
     }
 
     setFase('enviando')
+    let voltarAoForm = false
     try {
       if (emitirViaFocus) {
         // Mesmo formato do NFSePreviewModal/EmitirNFSeButton: authFetch (Bearer) + emissão por erp_receber.
@@ -657,6 +675,7 @@ export default function NFSeEmitirGovModal({
               razaoSocial: tomNome.trim() || (tomTipo === 'CPF' ? 'Pessoa Física' : 'Pessoa Jurídica'),
               cnpj: tomTipo === 'CNPJ' && docDig ? docDig : undefined,
               cpf: tomTipo === 'CPF' && docDig ? docDig : undefined,
+              clienteId: tomClienteId ?? undefined,
             },
           }
         }
@@ -667,6 +686,10 @@ export default function NFSeEmitirGovModal({
         const json = (await resp.json().catch(() => null)) as RespFocus | null
         if (!json) {
           setResultado({ erro: 'Sem resposta do emissor fiscal.' })
+        } else if (json.tomadorAmbiguo) {
+          // volta ao formulário: o bloco do tomador lista os cadastros para a escolha
+          setErroLocal(json.mensagem ?? 'Escolha qual cadastro é o tomador desta nota.')
+          voltarAoForm = true
         } else {
           const st = json.status
           const okEmissao = resp.ok && (json.ok || st === 'processando' || st === 'autorizada')
@@ -737,7 +760,7 @@ export default function NFSeEmitirGovModal({
     } catch (e) {
       setResultado({ erro: e instanceof Error ? e.message : 'Erro inesperado' })
     } finally {
-      setFase('concluido')
+      setFase(voltarAoForm ? 'form' : 'concluido')
     }
   }
 
@@ -919,7 +942,8 @@ export default function NFSeEmitirGovModal({
                 )}
                 {buscaDocMsg && <div className="text-[11px] text-[#3D2314]/60">{buscaDocMsg}</div>}
                 {/* caixa jordana-code 25fac6b6 (4) · tomador do cadastro sem IBGE/número: pede o CEP (ou cidade) aqui e grava no cliente */}
-                <TomadorEnderecoPendente companyId={companyId} documento={tomDoc} />
+                <TomadorEnderecoPendente companyId={companyId} documento={tomDoc} clienteId={tomClienteId}
+                  onEscolher={(id) => { setTomClienteId(id); setErroLocal(null); setBuscaDocMsg('') }} />
               </fieldset>
 
               <fieldset className="space-y-3 border-t border-[#3D2314]/10 pt-4">

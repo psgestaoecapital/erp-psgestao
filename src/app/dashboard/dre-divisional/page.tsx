@@ -69,6 +69,17 @@ export default function DreDivisionalPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [ordemPersonalizada, setOrdemPersonalizada] = useState<Array<{ linha_id: string; ordem: number; visivel?: boolean }>>([])
 
+  const [semVinculo, setSemVinculo] = useState(0)
+  useEffect(() => {
+    let ignore = false
+    setSemVinculo(0)
+    if (!empresaUnica) return
+    supabase.rpc('fn_psgc_contas_sem_vinculo', { p_company_id: empresaUnica }).then(({ data: r }) => {
+      if (!ignore && r && typeof r.qtd === 'number') setSemVinculo(r.qtd)
+    })
+    return () => { ignore = true }
+  }, [empresaUnica])
+
   const carregar = useCallback(async () => {
     if (!empresaUnica) {
       setData(null)
@@ -162,6 +173,12 @@ export default function DreDivisionalPage() {
       onFecharModal={() => setModalAberto(false)}
       empresa={data?.metadata.empresa.razao_social || null}
     >
+      {semVinculo > 0 && (
+        <div data-testid="dre-aviso-sem-vinculo" role="status" style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: C.redBg, color: C.espresso, fontSize: 13, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span>{semVinculo} {semVinculo === 1 ? 'conta sem vínculo' : 'contas sem vínculo'} na DRE — herdam o vínculo da conta pai ou o tipo da conta.</span>
+          <Link href="/dashboard/dre-divisional/plano-contas" style={{ fontWeight: 700, color: C.espresso }}>Configurar DRE</Link>
+        </div>
+      )}
       {/* Filtros sticky */}
       <section
         style={{
