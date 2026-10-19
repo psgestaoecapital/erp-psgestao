@@ -1,5 +1,5 @@
 // POST /api/banco/testar-conexao  — TESTE DE CONEXÃO BANCÁRIA (chamado #14, pedido do CEO)
-// GENÉRICO (Sicoob, Sicredi, Bradesco e qualquer banco que entrar). READ-ONLY:
+// GENÉRICO (Sicoob, Sicredi, Bradesco, Banco do Brasil e qualquer banco que entrar). READ-ONLY:
 //   1) valida o certificado A1 (existe, senha confere, não venceu) — local, sem rede;
 //   2) faz a AUTENTICAÇÃO real no banco (OAuth/mTLS) — uma chamada de leitura que NÃO escreve nada.
 // ⚠️ NUNCA emite boleto de teste nem envia remessa. Teste que escreve não é teste.
@@ -18,6 +18,7 @@ import { validarCertBase64, type CertInfo } from '@/lib/banco/cert'
 import { obterToken as sicoobToken, SICOOB_SCOPE_CONSULTAR_BOLETO, type SicoobAmbiente } from '@/lib/banco/sicoob'
 import { obterToken as bradescoToken, type BradescoAmbiente } from '@/lib/banco/bradesco'
 import { obterToken as sicrediToken, type SicrediAmbiente } from '@/lib/banco/sicredi'
+import { obterToken as bbToken, faltasCredencialBb, BB_SCOPE_EXTRATO, type BbAmbiente } from '@/lib/banco/bb'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -87,6 +88,19 @@ async function autenticar(
       })
       return { suportado: true, ok: true, erro: null }
     }
+    if (provider === 'bb') {
+      // #1736 · Banco do Brasil: OAuth client_credentials (Basic client_id:client_secret) no escopo de LEITURA
+      // do extrato. Diz o que falta antes de chamar o banco.
+      const bb = {
+        client_id: s('client_id'), client_secret: s('client_secret'), app_key: s('api_key'),
+        ambiente: (ambiente === 'homologacao' ? 'homologacao' : 'producao') as BbAmbiente,
+        pfx: s('cert_base64') ? Buffer.from(s('cert_base64'), 'base64') : null, passphrase: s('cert_senha'),
+      }
+      const faltas = faltasCredencialBb(bb)
+      if (faltas.length) return { suportado: true, ok: false, erro: `Falta preencher: ${faltas.join(', ')} (BB Developers › sua aplicação › Credenciais).` }
+      await bbToken(bb, BB_SCOPE_EXTRATO)
+      return { suportado: true, ok: true, erro: null }
+    }
     return { suportado: false, ok: false, erro: `Teste automático de conexão ainda não disponível para "${provider}".` }
   } catch (e) {
     return { suportado: true, ok: false, erro: e instanceof Error ? e.message : String(e) }
@@ -94,6 +108,8 @@ async function autenticar(
 }
 
 const USA_CERTIFICADO = new Set(['sicoob', 'bradesco'])
+// BB (#1736): o certificado é opcional no OAuth (exigido só no extrato em produção) — valida SE foi enviado.
+const CERTIFICADO_OPCIONAL = new Set(['bb'])
 
 export async function POST(req: NextRequest) {
   try {
@@ -138,6 +154,8 @@ export async function POST(req: NextRequest) {
       cert = credOk
         ? validarCertBase64(cred!.cert_base64 as string | null, cred!.cert_senha as string | null)
         : { presente: false, senha_ok: false, valido: false, not_before: null, not_after: null, dias_para_vencer: null, status: 'ausente' }
+    } else if (CERTIFICADO_OPCIONAL.has(provider) && credOk && cred!.cert_base64) {
+      cert = validarCertBase64(cred!.cert_base64 as string | null, cred!.cert_senha as string | null)
     } else {
       cert = { presente: false, senha_ok: false, valido: false, not_before: null, not_after: null, dias_para_vencer: null, status: 'nao_aplicavel' }
     }
@@ -147,13 +165,13 @@ export async function POST(req: NextRequest) {
     let erro: string | null = null
     if (!credOk) {
       erro = 'Credencial não encontrada nesta empresa/ambiente. Salve a configuração antes de testar.'
-    } else if (USA_CERTIFICADO.has(provider) && (cert.status === 'ausente' || cert.status === 'senha_invalida' || cert.status === 'vencido' || cert.status === 'erro')) {
+    } else if ((USA_CERTIFICADO.has(provider) || cert.presente) && (cert.status === 'ausente' || cert.status === 'senha_invalida' || cert.status === 'vencido' || cert.status === 'erro')) {
       authOk = false
       // #14 (Rodrigo/Bradesco) · regra 0e580f96 (dizer o que falta E o que é): o certificado que o
       // banco exige para a CONEXÃO (mTLS) é o de COMUNICAÇÃO bancária — NÃO é o A1 fiscal (que assina
       // NF-e/NFS-e). Antes a mensagem dizia "Certificado A1 não está salvo" mesmo com o A1 fiscal
       // cadastrado há meses em outra tela, e o cliente ficava perdido. Agora nomeia o certificado certo.
-      const nomeBanco = provider === 'bradesco' ? 'o Bradesco' : provider === 'sicoob' ? 'o Sicoob' : 'o banco'
+      const nomeBanco = provider === 'bradesco' ? 'o Bradesco' : provider === 'sicoob' ? 'o Sicoob' : provider === 'bb' ? 'o Banco do Brasil' : 'o banco'
       erro = cert.status === 'vencido'
         ? `O certificado de comunicação bancária venceu em ${cert.not_after ? new Date(cert.not_after).toLocaleDateString('pt-BR') : '—'}. Envie um novo (.pfx do banco, ou .crt + .key) e salve de novo.`
         : cert.status === 'senha_invalida' ? 'A senha do certificado de comunicação bancária não confere. Reenvie o certificado com a senha correta.'

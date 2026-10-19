@@ -30,7 +30,7 @@ on:
 # Antes ele tinha grupo próprio e rodava no MEIO da aceitação da main/PR (mesmo banco): companies/plano_contas sumiam
 # no meio do run → dezenas de specs vermelhos por dado ausente (run 196: 84 falhas, 298 passaram; montar 204 rodou
 # 06:06–06:11 dentro do run 05:31–06:22). Agora entra na MESMA fila FIFO do banco (aceitacao-testes-0 = vaga 0 do
-# aceitacao-pr.yml; a aceitacao-main usa o grupo 'aceitacao-testes'), e espera a vez em vez de derrubar o run.
+# aceitacao-pr.yml; CEO 18/10: a aceitacao-main passou a usar o grupo da vaga 1, 'aceitacao-testes-1'), e espera a vez.
 # Vagas extras (1/2) têm banco próprio → grupo próprio da vaga.
 concurrency:
   group: ${{ (github.event_name == 'workflow_dispatch' && inputs.vaga != '0') && format('aceitacao-testes-{0}', inputs.vaga) || 'aceitacao-testes' }}
@@ -144,6 +144,13 @@ jobs:
         run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
       # 13/10: após o deploy de migration, as vagas extras provisionadas (1/2) recebem as mesmas migrations; vaga sem
       # segredos é pulada com aviso (nunca falha). Vale só no workflow_run; no disparo manual a vaga é a escolhida.
+      # 19/10 (gilberto-desenv): este passo roda sob a trava da vaga 0 (aceitacao-testes), NÃO sob a das vagas 1/2. Com uma
+      # aceitação de PR no meio da vaga 2 (migrations da PR aplicadas até o "Desfazer"), o db push aqui via a versão da PR
+      # ("Remote migration versions not found" — 20261018234130 da #2845 às 11:43, 20261019122420 da #2799 às 12:50) e
+      # ABORTAVA o Montar inteiro: catálogos, semente e fn_demo_reset da vaga 0 não rodavam, a aceitação da main era pulada
+      # e o regime de construção desligava. Falha numa vaga extra agora é AVISO e o Montar da vaga 0 segue: cada vaga se
+      # sincroniza com a main sob a PRÓPRIA trava antes de testar (aceitacao-pr "Sincronizar só-com-a-main"; vaga 1 na
+      # aceitacao-main). As travas de produção/pooler continuam abortando.
       - name: Migrations novas nas vagas extras provisionadas
         if: github.event_name == 'workflow_run'
         env:
@@ -159,7 +166,10 @@ jobs:
             case "$u" in *horsymhsinqcimflrtjo*) echo "::error::vaga $v aponta para a PRODUÇÃO — abortado"; exit 1;; esac
             case "$u" in *pooler.supabase.com*) ;; *) echo "::error::vaga $v: precisa ser Session pooler"; exit 1;; esac
             echo "== vaga $v =="
-            supabase db push --include-all --db-url "$u"
+            if ! supabase db push --include-all --db-url "$u"; then
+              echo "::warning title=Vaga $v::db push falhou (vaga em uso por uma aceitação ou com sobra de PR) — a vaga $v se sincroniza com a main sob a própria trava na próxima aceitação; o Montar da vaga 0 segue"
+              echo "### Vaga $v: db push falhou aqui (vaga em uso) — sincroniza na próxima aceitação dela" >> "$GITHUB_STEP_SUMMARY"
+            fi
           done
       # 13/10 (CEO): o dump --schema public NÃO traz as extensões. Uma vaga NOVA (ex.: a vaga 1) pode não ter o
       # `unaccent`, que o f_unaccent e o índice de erp_gov_nfse_municipios usam como public.unaccent — sem ele a carga

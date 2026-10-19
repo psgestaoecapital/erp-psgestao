@@ -152,7 +152,7 @@ export default function SignNr36Page() {
         <div key={i} style={{ ...card, padding: 12, breakInside: 'avoid' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
             <strong style={{ color: C.espresso, fontSize: 13 }}>{fmtData(d.data)}</strong>
-            <span style={{ fontSize: 11, color: C.muted }}>{d.jornada?.inicio && d.jornada?.fim ? `jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}{d.almoco ? `${d.jornada?.inicio ? ' · ' : ''}almoço ${d.almoco.inicio && d.almoco.fim ? `${d.almoco.inicio}–${d.almoco.fim}` : ''}${d.almoco.min != null ? ` (${d.almoco.min} min)` : ''}` : ''}</span>
+            <span style={{ fontSize: 11, color: C.muted }}>{d.jornada?.inicio && d.jornada?.fim ? `jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}{d.almoco ? `${d.jornada?.inicio ? ' · ' : ''}almoço ${d.almoco.inicio && d.almoco.fim ? `${d.almoco.inicio}–${d.almoco.fim}` : ''}` : ''}</span>
           </div>
           {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{notaDiaDoc(d.ajuste)}</div>}
           {(d.pausas || []).length === 0 ? <div style={{ fontSize: 12, color: C.muted, fontStyle: 'italic' }}>Nenhuma pausa registrada neste dia.</div> :

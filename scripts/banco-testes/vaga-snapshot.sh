@@ -66,13 +66,17 @@ pr_migr_files() {
     [ -e "$MAIN_MIGR_DIR/$b" ] || printf '%s\n' "$f"
   done
 }
+# tabelas APPEND-ONLY (RD-54: trigger bloqueia DELETE/UPDATE) ficam FORA da foto e da restauração — migration/teste só
+# acrescenta linhas e isso não suja a vaga; restaurar por DELETE falhava e re-sujava a vaga (Eng. Chefe 18/10). Sem bypass de trigger.
+APPEND_ONLY_RE='audit_log_global'
 # tabelas que as migrations da PR populam (INSERT INTO [public.]<tabela>) — catálogo a restaurar (ex.: erp_ajuda_campo).
 pr_insert_tables() {
   local files; files=$(pr_migr_files)
   [ -n "$files" ] || return 0
   # shellcheck disable=SC2086
   grep -hioE 'insert[[:space:]]+into[[:space:]]+(public\.)?"?[a-z_][a-z0-9_]*"?' $files 2>/dev/null \
-    | sed -E 's/.*into[[:space:]]+//I; s/public\.//I; s/"//g' | tr 'A-Z' 'a-z' | sort -u
+    | sed -E 's/.*into[[:space:]]+//I; s/public\.//I; s/"//g' | tr 'A-Z' 'a-z' | sort -u \
+    | grep -vxE "$APPEND_ONLY_RE" || true
 }
 
 dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
@@ -91,7 +95,7 @@ if [ "$MODO" = "snapshot" ]; then
     echo "drop schema if exists _vaga_snapshot cascade;"
     echo "create schema _vaga_snapshot;"
     echo "create table _vaga_snapshot.sig as $SIG;"
-    echo "create table _vaga_snapshot.fndef as select p.oid::regprocedure::text as sig, pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prokind in ('f','p','w');"
+    echo "create table _vaga_snapshot.fndef as select p.oid::regprocedure::text as sig, pg_get_functiondef(p.oid) as def, (select string_agg(format('grant %s on function %s to %s;', a.privilege_type, p.oid::regprocedure, case when a.grantee=0 then 'public' else a.grantee::regrole::text end), ' ') from aclexplode(p.proacl) a) as grants from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prokind in ('f','p','w');"
     echo "create table _vaga_snapshot.viewdef as select c.relname::text as relname, pg_get_viewdef(c.oid,true) as def from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('v','m');"
     # defs de constraint/índice/trigger (Eng. Chefe 15/10: CHECK ampliado por DO $$ da PR do Hub deixava a vaga suja — modificado
     # de classe "não restaurável" caía em recriar SEM tocar o ledger). Agora a classe é revertida à def da foto.
@@ -141,8 +145,12 @@ comm -23 "$dir/foto.keys" "$dir/agora.keys" > "$dir/sumiu.keys"   # na foto e n�
 comm -3 "$dir/foto.sig" "$dir/agora.sig" | sed 's/^[[:space:]]*//' | cut -d'|' -f1 | sort -u > "$dir/mud.all"
 comm -12 "$dir/mud.all" "$dir/foto.keys" | comm -12 - "$dir/agora.keys" > "$dir/mud.keys"  # em ambos, diferente
 
-if [ -s "$dir/sumiu.keys" ]; then
-  echo "a PR removeu objeto(s) que havia na foto (não restauramos recriação por aqui):"; sed 's/^/  - /' "$dir/sumiu.keys" | head
+# Função sumida (ex.: PR que troca a assinatura com DROP+CREATE do mesmo nome) é recriada do DDL da foto (passo 2b).
+# View/tabela/tipo/etc. sumidos continuam exigindo recriar: restauração parcial seria insegura.
+{ grep '^func ' "$dir/sumiu.keys" || true; } > "$dir/sumiu.func"
+{ grep -v '^func ' "$dir/sumiu.keys" || true; } > "$dir/sumiu.outros"
+if [ -s "$dir/sumiu.outros" ]; then
+  echo "a PR removeu objeto(s) que havia na foto (não restauramos recriação por aqui):"; sed 's/^/  - /' "$dir/sumiu.outros" | head
   recriar "a PR fez DROP/rename de objeto aprovado — restauração parcial seria insegura; rode o Montar (recriar)"
 fi
 if grep -qvE '^(func|view|constraint|index|trigger) ' "$dir/mud.keys" 2>/dev/null; then
@@ -154,7 +162,10 @@ fi
 pertence_a_tabela_nova() { grep -qxF "$1" "$dir/tdrop.names"; }
 
 txn="$dir/restore.sql"
-{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"; } > "$txn"
+{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"
+  # pg_trgm (similarity etc.) vive em extensions/public: sem isto a recriação de view/função/índice que a usa falha
+  # com "function similarity(text,text) does not exist" e a vaga fica SUJA (19/10, drenagem parada).
+  echo "set local search_path = public, extensions, pg_catalog;"; } > "$txn"
 # 1) DROP do que a PR criou (objetos vaga-only em relação à foto)
 nd=0
 while IFS= read -r k; do
@@ -164,7 +175,7 @@ while IFS= read -r k; do
     "view "*)     echo "drop view if exists public.\"${k#view }\" cascade;" >> "$txn";;
     "table "*)    echo "drop table if exists public.\"${k#table }\" cascade;" >> "$txn";;
     "type "*)     echo "drop type if exists public.\"${k#type }\" cascade;" >> "$txn";;
-    "sequence "*) echo "drop sequence if exists public.\"${k#sequence }\" cascade;" >> "$txn";;
+    "sequence "*) echo "do \$d\$ begin drop sequence if exists public.\"${k#sequence }\" cascade; exception when dependent_objects_still_exist then null; end \$d\$;" >> "$txn";;
     "col "*)      tc=${k#col }; t=${tc%%.*}; c=${tc#*.}; pertence_a_tabela_nova "$t" || echo "alter table if exists public.\"$t\" drop column if exists \"$c\" cascade;" >> "$txn";;
     # índice que sustenta PK/UNIQUE (ou de tabela nova, derrubada adiante) não se derruba sozinho (2BP01): o DROP da
     # constraint/tabela já o leva; a verificação antes do COMMIT garante que nada sobrou.
@@ -199,6 +210,17 @@ while IFS= read -r k; do
       [ -n "$def" ] && printf 'drop trigger "%s" on public."%s"; %s;\n' "$tg" "$tbl" "$def" >> "$txn" || recriar "sem definição da foto p/ trigger $tn";;
   esac
 done < "$dir/mud.keys"
+# 2b) FUNÇÕES que a PR dropou (sumiram) → recriadas do DDL da foto, com os grants da foto
+nf=0
+while IFS= read -r k; do
+  [ -z "$k" ] && continue; nf=$((nf+1)); sig=${k#func }
+  ddl=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select def from _vaga_snapshot.fndef where sig = \$x\$${sig}\$x\$")
+  [ -n "$ddl" ] || recriar "sem definição da foto p/ função sumida $sig"
+  printf '%s;\n' "$ddl" >> "$txn"
+  echo "revoke all on function ${sig} from public, anon, authenticated, service_role;" >> "$txn"
+  gr=$("$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "select coalesce(grants,'') from _vaga_snapshot.fndef where sig = \$x\$${sig}\$x\$")
+  [ -z "$gr" ] || printf '%s\n' "$gr" >> "$txn"
+done < "$dir/sumiu.func"
 # 3) CATÁLOGO: apaga as linhas que a PR inseriu (linhas de hoje cujo md5 não está na foto), por tabela fotografada.
 while IFS= read -r t; do
   [ -z "$t" ] && continue
@@ -220,7 +242,7 @@ echo "delete from supabase_migrations.schema_migrations where version not in (se
   echo "commit;"
 } >> "$txn"
 
-echo "restaurando a vaga ${VAGA} à foto: $nd objeto(s) criado(s) pela PR a derrubar, $nr função/view a reverter…"
+echo "restaurando a vaga ${VAGA} à foto: $nd objeto(s) criado(s) pela PR a derrubar, $nr função/view a reverter, $nf função(ões) sumida(s) a recriar…"
 # 1ª tentativa; se estourar timeout/falhar, UMA nova tentativa (a transação é atômica: ROLLBACK não deixa meia-restauração).
 if ! "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$txn"; then
   echo "::warning::vaga ${VAGA}: restauração falhou — tentando uma vez mais"
