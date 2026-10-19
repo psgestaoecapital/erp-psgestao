@@ -172,7 +172,7 @@ while IFS= read -r k; do
     "view "*)     echo "drop view if exists public.\"${k#view }\" cascade;" >> "$txn";;
     "table "*)    echo "drop table if exists public.\"${k#table }\" cascade;" >> "$txn";;
     "type "*)     echo "drop type if exists public.\"${k#type }\" cascade;" >> "$txn";;
-    "sequence "*) echo "drop sequence if exists public.\"${k#sequence }\" cascade;" >> "$txn";;
+    "sequence "*) echo "do \$d\$ begin drop sequence if exists public.\"${k#sequence }\" cascade; exception when dependent_objects_still_exist then null; end \$d\$;" >> "$txn";;
     "col "*)      tc=${k#col }; t=${tc%%.*}; c=${tc#*.}; pertence_a_tabela_nova "$t" || echo "alter table if exists public.\"$t\" drop column if exists \"$c\" cascade;" >> "$txn";;
     # índice que sustenta PK/UNIQUE (ou de tabela nova, derrubada adiante) não se derruba sozinho (2BP01): o DROP da
     # constraint/tabela já o leva; a verificação antes do COMMIT garante que nada sobrou.
