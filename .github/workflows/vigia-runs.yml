@@ -105,6 +105,41 @@ jobs:
       - name: Liberar vaga (cancela aceitação de PR morta / SHA superado — inclui presos na fila)
         run: scripts/merge/aceitacao-prune.sh || true
 
+      # 19/10 (gilberto-desenv) — RECONCILIAÇÃO das reservas de vaga no banco contra o run real. O prune acima CANCELA o
+      # run morto, mas não libera a reserva (erp_esteira_vaga_reserva): o job liberar-reserva tem `needs: aceitacao` e o
+      # GitHub o cancela junto quando o run é cancelado, então a reserva vaza e só expira em 2 h (dentro da janela, as
+      # reservas acumulam e serializam as vagas → cadência ~1/h). Aqui, para cada reserva ATIVA: se o run terminou,
+      # cancelou ou sumiu → libera (fn_esteira_liberar_vaga); se ainda roda mas está aberta > 90 min (2× a média) → alerta.
+      - name: Reconciliar reservas de vaga (libera run morto; alerta preso > 90 min)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -uo pipefail
+          [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || { echo "sem segredo Supabase — reconciliação pulada (reservas expiram em 2 h)"; exit 0; }
+          sb() { curl -fsS -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" "$@"; }
+          ativas=$(sb "$SUPABASE_URL/rest/v1/erp_esteira_vaga_reserva?liberada_em=is.null&select=pr_numero,vaga,run_id,run_attempt,criada_em" 2>/dev/null || echo '[]')
+          echo "$ativas" | jq -c '.[]?' | while read -r row; do
+            rid=$(jq -r '.run_id' <<< "$row"); att=$(jq -r '.run_attempt' <<< "$row")
+            pr=$(jq -r '.pr_numero' <<< "$row"); vg=$(jq -r '.vaga' <<< "$row"); cri=$(jq -r '.criada_em' <<< "$row")
+            st=$(gh api "repos/$REPO/actions/runs/$rid" --jq '.status' 2>/dev/null || echo "nao_existe")
+            idade=$(( ( $(date -u +%s) - $(date -u -d "$cri" +%s) ) / 60 ))
+            case "$st" in
+              in_progress|queued|waiting|pending|requested)
+                if [ "$idade" -ge 90 ]; then
+                  echo "::warning title=Reserva de vaga presa::#$pr vaga $vg run $rid ($st há ${idade} min > 90)"
+                  echo "- ⚠️ reserva presa: #$pr vaga $vg · run $rid · $st há ${idade} min (> 90)" >> "$GITHUB_STEP_SUMMARY"
+                fi ;;
+              *)
+                sb -X POST "$SUPABASE_URL/rest/v1/rpc/fn_esteira_liberar_vaga" -H 'Content-Type: application/json' \
+                   -d "{\"p_run_id\":$rid,\"p_run_attempt\":$att}" > /dev/null 2>&1 \
+                   && echo "reconciliada: #$pr vaga $vg · run $rid ($st) → liberada" \
+                   || echo "::notice::não liberou a reserva do run $rid (tenta na próxima rodada)"
+                echo "- ✅ reserva de run morto liberada: #$pr vaga $vg · run $rid · $st" >> "$GITHUB_STEP_SUMMARY" ;;
+            esac
+          done
+          echo "reconciliação de reservas de vaga concluída"
+
       - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
         env:
           # PAT da fila; sem ele cai no token do job (que pode dar 403 e o passo só avisa)
