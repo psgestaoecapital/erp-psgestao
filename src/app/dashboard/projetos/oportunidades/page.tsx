@@ -6,6 +6,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
 import OportunidadesKanban from './OportunidadesKanban'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Row = {
   id: string
@@ -68,6 +69,23 @@ export default function OportunidadesPage() {
   const [excluindoId, setExcluindoId] = useState<string | null>(null)
   const [countKanban, setCountKanban] = useState(0)
   const [kanbanKey, setKanbanKey] = useState(0)
+  // #3268 · opção por empresa: visita realizada leva a oportunidade direto para Orçando (desligada por padrão).
+  const [visitaVaiOrcar, setVisitaVaiOrcar] = useState(false)
+
+  useEffect(() => {
+    if (!empresaUnica) { setVisitaVaiOrcar(false); return }
+    supabase.from('orcamento_config_empresa').select('visita_feita_vai_orcar').eq('company_id', empresaUnica).maybeSingle()
+      .then(({ data }) => setVisitaVaiOrcar(!!data?.visita_feita_vai_orcar))
+  }, [empresaUnica])
+
+  async function salvarVisitaVaiOrcar(v: boolean) {
+    if (!empresaUnica) return
+    setVisitaVaiOrcar(v)
+    const { error } = await supabase.from('orcamento_config_empresa')
+      .upsert({ company_id: empresaUnica, visita_feita_vai_orcar: v, updated_at: new Date().toISOString() })
+    if (error) { setVisitaVaiOrcar(!v); setToast('Não foi possível salvar a opção agora.'); return }
+    setToast(v ? 'Visita realizada agora leva a oportunidade para Orçando.' : 'Visita realizada volta a parar em Visita feita.')
+  }
 
   const reload = useCallback(async () => {
     if (!empresaUnica) { setRows([]); setResumo(null); setLoading(false); return }
@@ -196,6 +214,12 @@ export default function OportunidadesPage() {
         <Kpi titulo={`Ganhas em ${mesAtual}`} valor={String(resumo?.ganhas_mes ?? 0)} />
         <Kpi titulo="Pipeline (R$)" valor={brl(resumo?.valor_pipeline)} destaque />
       </div>
+
+      <label className="flex items-center gap-2 mb-3 text-sm">
+        <input type="checkbox" checked={visitaVaiOrcar} onChange={(e) => salvarVisitaVaiOrcar(e.target.checked)} />
+        Visita feita vai direto para Orçando
+        <AjudaCampo chave="projetos.oportunidades.visita_feita_vai_orcar" rota="/dashboard/projetos/oportunidades" />
+      </label>
 
       {/* Filtros herdados da antiga Lista — agora sempre visíveis (Kanban é a única visão) */}
       <div className="flex flex-wrap gap-2 mb-3 items-center">
