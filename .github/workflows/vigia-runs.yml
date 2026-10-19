@@ -105,6 +105,28 @@ jobs:
       - name: Liberar vaga (cancela aceitação de PR morta / SHA superado — inclui presos na fila)
         run: scripts/merge/aceitacao-prune.sh || true
 
+      # Zumbi 19/10: o run 39277869344 da Fila de merge ficou "in_progress" 38 min com o único job já concluído (failure),
+      # segurando o grupo de concorrência `fila-merge` (20+ runs pending) — a esteira parou e a drenagem esperou. Run da
+      # fila EM ANDAMENTO cujos jobs estão todos concluídos há mais de 10 min está preso: cancela (force-cancel se preciso).
+      - name: Cancelar run da fila de merge preso (todos os jobs concluídos há mais de 10 min)
+        run: |
+          set -uo pipefail
+          agora=$(date -u +%s); n=0
+          for id in $(gh api "repos/$REPO/actions/workflows/fila-merge.yml/runs?status=in_progress&per_page=50" --jq '.workflow_runs[].id' 2>/dev/null); do
+            pend=$(gh api "repos/$REPO/actions/runs/$id/jobs?filter=latest&per_page=100" --jq '[.jobs[] | select(.status != "completed")] | length' 2>/dev/null || echo 1)
+            [ "$pend" = "0" ] || continue
+            fim=$(gh api "repos/$REPO/actions/runs/$id/jobs?filter=latest&per_page=100" --jq '[.jobs[].completed_at] | max // empty' 2>/dev/null || true)
+            [ -n "$fim" ] || continue
+            min=$(( (agora - $(date -u -d "$fim" +%s)) / 60 ))
+            [ "$min" -gt 10 ] || continue
+            echo "::warning title=fila de merge presa cancelada::run $id com jobs concluídos há $min min"
+            echo "- fila-merge · run $id · jobs concluídos há $min min → cancelado (zumbi)" >> "$GITHUB_STEP_SUMMARY"
+            gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null \
+              || gh api -X POST "repos/$REPO/actions/runs/$id/force-cancel" > /dev/null || true
+            n=$((n + 1))
+          done
+          echo "runs da fila presos cancelados: $n"
+
       - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
         env:
           # PAT da fila; sem ele cai no token do job (que pode dar 403 e o passo só avisa)
