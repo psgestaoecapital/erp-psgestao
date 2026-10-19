@@ -41,6 +41,7 @@ ON CONFLICT (id) DO UPDATE SET
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
 SELECT v.chave, 'Produtos', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, '/dashboard/produtividade/produtos', 'industria', 'publicado'
 FROM (VALUES
+  ('prod.produto.planta', 'Planta', 'A planta industrial cujos produtos você quer ver/editar.', 'O cadastro é por planta; trocar a planta mostra os produtos dela.', 'Frigorífico Frioeste', 'Editar produtos achando que é de outra planta.', 5),
   ('prod.produto.codigo', 'Código', 'O código do item como ele aparece no seu sistema atual (ATAK) ou na etiqueta.', 'Liga o produto ao que já existe na sua operação e evita duplicar cadastro.', '64', 'Deixar em branco ou repetir o código de outro item.', 10),
   ('prod.produto.nome', 'Nome do produto', 'O nome do corte/produto como a equipe chama no dia a dia.', 'Identifica o produto nas telas de fluxo, apontamento e relatórios.', 'PICHANHA FATIADA RESF CXP', 'Nome genérico demais que se confunde com outro corte.', 20),
   ('prod.produto.papel', 'Papel', 'O que o item é no fluxo: entrada do animal, carcaça, quarto, para desossa, produto final (com/sem osso), miúdo ou subproduto.', 'Organiza a árvore de desmontagem (do animal ao produto final) e os cálculos.', 'produto_final_sem_osso', 'Classificar um produto final como entrada, ou vice-versa.', 30),

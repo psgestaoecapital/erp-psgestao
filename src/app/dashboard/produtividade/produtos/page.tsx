@@ -168,17 +168,17 @@ function Inner() {
       {/* Seletores + ações */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '14px 0 10px' }}>
         {plants.length > 1 && (
-          <label style={{ fontSize: 12, color: C.espM }}>Planta&nbsp;
+          <label data-ajuda="prod.produto.planta" style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center' }}>Planta<Aj k="prod.produto.planta" />&nbsp;
             <select data-testid="produtos-planta" value={plantId ?? ''} onChange={(e) => setPlantId(e.target.value)} style={{ ...inp, width: 'auto' }}>
               {plants.map((p) => <option key={p.id} value={p.id}>{p.nome_planta}</option>)}
             </select>
           </label>
         )}
-        <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center' }}>
+        <label data-ajuda="prod.produto.busca" style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center' }}>
           Buscar<Aj k="prod.produto.busca" />&nbsp;
           <input data-testid="produtos-busca" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="código ou nome" style={{ ...inp, width: 200 }} />
         </label>
-        <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center' }}>
+        <label data-ajuda="prod.produto.filtro_papel" style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center' }}>
           Papel<Aj k="prod.produto.filtro_papel" />&nbsp;
           <select data-testid="produtos-filtro-papel" value={filtroPapel} onChange={(e) => setFiltroPapel(e.target.value)} style={{ ...inp, width: 'auto' }}>
             {papelFiltroOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -453,9 +453,11 @@ function ColarListaModal({ companyId, plantId, onClose, onGravou }: {
         </div>
         <div style={{ fontSize: 11.5, color: C.espL, marginBottom: 8 }}>A primeira linha pode ser o cabeçalho (começando por “codigo”).</div>
         {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 11px', borderRadius: 7, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
-        <textarea data-testid="colar-texto" value={texto} onChange={(e) => { setTexto(e.target.value); setPrevia(null) }} rows={8}
-          placeholder={'codigo;nome;papel;linha;secao;peso;conservacao\n1001;Dianteiro com osso;produto_final_com_osso;padrao;desossa;12,5;RESFRIADO'}
-          style={{ ...inp, fontFamily: 'ui-monospace, monospace', fontSize: 12.5, resize: 'vertical' }} />
+        <div data-ajuda="prod.produto.colar_lista">
+          <textarea data-testid="colar-texto" value={texto} onChange={(e) => { setTexto(e.target.value); setPrevia(null) }} rows={8}
+            placeholder={'codigo;nome;papel;linha;secao;peso;conservacao\n1001;Dianteiro com osso;produto_final_com_osso;padrao;desossa;12,5;RESFRIADO'}
+            style={{ ...inp, fontFamily: 'ui-monospace, monospace', fontSize: 12.5, resize: 'vertical' }} />
+        </div>
 
         {previa && (
           <div style={{ marginTop: 12, fontSize: 12.5 }}>
