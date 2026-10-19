@@ -82,6 +82,7 @@ ON CONFLICT (chave) DO NOTHING;
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
 SELECT v.chave, 'Apontamento horário', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, '/dashboard/produtividade/apontamento', 'industria', 'publicado'
 FROM (VALUES
+  ('prod.apont.planta', 'Planta', 'A planta industrial cujo apontamento você vai lançar/ver.', 'O apontamento é por planta; trocar a planta troca os postos e produtos.', 'Frigorífico Frioeste', 'Lançar produção na planta errada.', 5),
   ('prod.apont.fluxo', 'Fluxo', 'O fluxo cujo apontamento você vai lançar/ver.', 'Separa a produção por fluxo (produto final).', 'Desossa de Dianteiro', 'Lançar no fluxo errado.', 10),
   ('prod.apont.data', 'Data', 'O dia do apontamento.', 'Organiza a produção por dia e permite o confronto hora a hora.', '2026-10-19', 'Lançar numa data trocada.', 20),
   ('prod.apont.posto', 'Posto', 'O posto onde a produção foi feita.', 'Permite comparar o produzido com a capacidade daquele posto.', 'Posto 3', 'Lançar sem posto e perder o confronto de capacidade.', 30),

@@ -193,19 +193,19 @@ function Inner() {
       {/* Filtros: fluxo + data */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', margin: '6px 0 14px' }}>
         {plants.length > 1 && (
-          <label style={{ fontSize: 12, color: C.espM }}>Planta<br />
+          <label data-ajuda="prod.apont.planta" style={{ fontSize: 12, color: C.espM }}>Planta<Aj k="prod.apont.planta" /><br />
             <select value={plantId ?? ''} onChange={(e) => setPlantId(e.target.value)} style={{ ...inp, width: 'auto', minWidth: 180 }}>
               {plants.map((p) => <option key={p.id} value={p.id}>{p.nome_planta}</option>)}
             </select>
           </label>
         )}
-        <label style={{ fontSize: 12, color: C.espM }}>Fluxo<Aj k="prod.apont.fluxo" /><br />
+        <label data-ajuda="prod.apont.fluxo" style={{ fontSize: 12, color: C.espM }}>Fluxo<Aj k="prod.apont.fluxo" /><br />
           <select data-testid="apont-fluxo" value={fluxoId ?? ''} onChange={(e) => setFluxoId(e.target.value)} style={{ ...inp, width: 'auto', fontWeight: 700, minWidth: 220 }}>
             {fluxos.length === 0 && <option value="">— nenhum fluxo —</option>}
             {fluxos.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
           </select>
         </label>
-        <label style={{ fontSize: 12, color: C.espM }}>Dia<Aj k="prod.apont.data" /><br />
+        <label data-ajuda="prod.apont.data" style={{ fontSize: 12, color: C.espM }}>Dia<Aj k="prod.apont.data" /><br />
           <input data-testid="apont-data" type="date" value={data} onChange={(e) => setData(e.target.value)} style={{ ...inp, width: 'auto' }} />
         </label>
       </div>
@@ -218,14 +218,14 @@ function Inner() {
           <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 16px 18px', marginBottom: 18 }}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Lançar apontamento</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-              <label style={{ fontSize: 12, color: C.espM }}>Posto<Aj k="prod.apont.posto" />
+              <label data-ajuda="prod.apont.posto" style={{ fontSize: 12, color: C.espM }}>Posto<Aj k="prod.apont.posto" />
                 <select data-testid="apont-posto" value={postoId} onChange={(e) => setPostoId(e.target.value)} style={inp}>
                   <option value="">— escolher posto —</option>
                   {postos.map((p) => <option key={p.id} value={p.id}>{p.numero} · {p.atividade}</option>)}
                 </select>
               </label>
 
-              <label style={{ fontSize: 12, color: C.espM }}>Produto<Aj k="prod.apont.produto" />
+              <label data-ajuda="prod.apont.produto" style={{ fontSize: 12, color: C.espM }}>Produto<Aj k="prod.apont.produto" />
                 <input data-testid="apont-produto-busca" value={buscaProd} onChange={(e) => setBuscaProd(e.target.value)} placeholder="Buscar por código ou nome…" style={{ ...inp, marginBottom: 6 }} />
                 <select data-testid="apont-produto" value={produtoId} onChange={(e) => setProdutoId(e.target.value)} style={inp}>
                   <option value="">— escolher produto —</option>
@@ -233,23 +233,23 @@ function Inner() {
                 </select>
               </label>
 
-              <label style={{ fontSize: 12, color: C.espM }}>Hora (0–23)<Aj k="prod.apont.hora" />
+              <label data-ajuda="prod.apont.hora" style={{ fontSize: 12, color: C.espM }}>Hora (0–23)<Aj k="prod.apont.hora" />
                 <input data-testid="apont-hora" type="number" min={0} max={23} step={1} value={hora} onChange={(e) => setHora(e.target.value)} style={inp} />
               </label>
 
-              <label style={{ fontSize: 12, color: C.espM }}>Quantidade produzida<Aj k="prod.apont.qtd" />
+              <label data-ajuda="prod.apont.qtd" style={{ fontSize: 12, color: C.espM }}>Quantidade produzida<Aj k="prod.apont.qtd" />
                 <input data-testid="apont-qtd" type="number" min={0} step="any" value={qtd} onChange={(e) => setQtd(e.target.value)} placeholder="ex.: 320" style={inp} />
               </label>
 
-              <label style={{ fontSize: 12, color: C.espM }}>Unidade<Aj k="prod.apont.unidade" />
+              <label data-ajuda="prod.apont.unidade" style={{ fontSize: 12, color: C.espM }}>Unidade<Aj k="prod.apont.unidade" />
                 <input data-testid="apont-unidade" value={unidade} onChange={(e) => setUnidade(e.target.value)} placeholder="un, kg, cx…" style={inp} />
               </label>
 
-              <label style={{ fontSize: 12, color: C.espM }}>Pessoas presentes (contagem — sem nomes)<Aj k="prod.apont.pessoas" />
+              <label data-ajuda="prod.apont.pessoas" style={{ fontSize: 12, color: C.espM }}>Pessoas presentes (contagem — sem nomes)<Aj k="prod.apont.pessoas" />
                 <input data-testid="apont-pessoas" type="number" min={0} step={1} value={pessoas} onChange={(e) => setPessoas(e.target.value)} placeholder="opcional" style={inp} />
               </label>
 
-              <label style={{ fontSize: 12, color: C.espM }}>Fonte<Aj k="prod.apont.fonte" />
+              <label data-ajuda="prod.apont.fonte" style={{ fontSize: 12, color: C.espM }}>Fonte<Aj k="prod.apont.fonte" />
                 <select data-testid="apont-fonte" value={fonte} onChange={(e) => setFonte(e.target.value as Fonte)} style={inp}>
                   <option value="manual">Manual</option>
                   <option value="ponto">Ponto</option>
