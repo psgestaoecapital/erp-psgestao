@@ -385,8 +385,10 @@ jobs:
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
       - name: Jornadas de aceitação contra o preview
+        id: jornadas
         timeout-minutes: 30
         env:
+          PW_JSON_SAIDA: pw-resultado.json
           PROD_BASE_URL: http://localhost:3000
           # SUPABASE_URL/ANON/SERVICE vêm do passo "Selecionar o banco da vaga" (GITHUB_ENV).
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
@@ -399,6 +401,12 @@ jobs:
         # A obrigacao de trazer o spec e do processo (RD-78), nao de um check que quebra por ausencia. Sem isto, a propria PR-I
         # (que nao traz spec) ficaria vermelha para sempre e o check nunca poderia ser obrigatorio.
         run: npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=${ACEITACAO_PROJETO:-celular} --pass-with-no-tests --grep-invert @pos-migration
+      # Lista COMPLETA de falhas numa única anotação (esteira 19/10): a fila não lê o log do job (404 com o token dela) e as
+      # anotações do Playwright cortam em 10. Título PW-FALHAS-COMPLETAS; lido por pos_anot_falhas em scripts/merge/fila-merge.sh.
+      - name: Publicar a lista completa de falhas (anotação para a fila)
+        if: always() && steps.jornadas.conclusion == 'failure'
+        continue-on-error: true
+        run: node scripts/merge/anotar-falhas-completas.cjs pw-resultado.json
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
       # CEO 12/10 (fila não drenava): só roda se a suíte passou e com teto de 8 min. Antes rodava também após a suíte
