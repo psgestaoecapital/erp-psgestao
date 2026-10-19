@@ -27,3 +27,20 @@ export function montarObservacoesNfseOS(os: DadosOSNfse | null | undefined): str
   ].filter(Boolean)
   return partes.join(' · ')
 }
+
+type VeiculoNfse = DadosOSNfse['veiculo']
+
+// Veículo ligado à OS em consulta PRÓPRIA (fora do select da OS, que traz o tomador): qualquer erro ou exceção
+// só deixa o texto sem o veículo — nunca derruba a leitura do cliente da OS.
+export async function buscarVeiculoLigado(
+  veiculoId: string | null | undefined,
+  consultar: (id: string) => PromiseLike<{ data: unknown; error: unknown }>,
+): Promise<VeiculoNfse> {
+  if (!veiculoId) return null
+  try {
+    const { data, error } = await consultar(veiculoId)
+    return error ? null : ((data as VeiculoNfse) ?? null)
+  } catch {
+    return null
+  }
+}

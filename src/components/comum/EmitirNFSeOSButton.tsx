@@ -20,7 +20,7 @@ import { supabase } from '@/lib/supabase'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import { NotaDaOSStatus, notaJaEmitida, useNotaDaOS } from '@/components/comum/NotaFiscalDaOS'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
-import { montarObservacoesNfseOS, type DadosOSNfse } from '@/lib/oficina/observacoesNfseOS'
+import { buscarVeiculoLigado, montarObservacoesNfseOS, type DadosOSNfse } from '@/lib/oficina/observacoesNfseOS'
 
 type ServicoFiscal = {
   id: string
@@ -83,16 +83,18 @@ export default function EmitirNFSeOSButton({
       const [rpc, prod, os] = await Promise.all([
         supabase.rpc('fn_os_nfse_preparar', { p_os_id: osId }),
         carregarProducaoDisponivel(companyId),
-        supabase.from('erp_os').select('cliente_id, numero, marca, modelo, placa, veiculo:veic_veiculo(marca, modelo, placa)')
+        // consulta da OS SEM embed: o tomador (cliente_id) nunca depende da busca do veículo
+        supabase.from('erp_os').select('cliente_id, numero, marca, modelo, placa, veic_veiculo_id')
           .eq('id', osId).eq('company_id', companyId).maybeSingle(),
       ])
       if (rpc.error) { setErro(rpc.error.message); return }
       const p = rpc.data as Prep | null
       if (!p?.ok) { setErro(p?.erro ?? 'Não foi possível preparar a NFS-e.'); return }
       setPrep(p)
-      const osDados = os.data as (DadosOSNfse & { cliente_id?: string | null }) | null
+      const osDados = os.data as (DadosOSNfse & { cliente_id?: string | null; veic_veiculo_id?: string | null }) | null
       setClienteId(osDados?.cliente_id ?? null)
-      setObsOS(montarObservacoesNfseOS(osDados))
+      setObsOS(montarObservacoesNfseOS(osDados ? { ...osDados, veiculo: await buscarVeiculoLigado(osDados.veic_veiculo_id,
+        (id) => supabase.from('veic_veiculo').select('marca, modelo, placa').eq('id', id).maybeSingle()) } : null))
       setProducao(prod)
       setServSel(p.servico_fiscal_id_default ?? p.servicos_fiscais?.[0]?.id ?? '')
       setConfirmAberto(true)
