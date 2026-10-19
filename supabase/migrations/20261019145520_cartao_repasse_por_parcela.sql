@@ -175,7 +175,12 @@ BEGIN
     IF n = d THEN
       RAISE WARNING '#3740: trecho de fn_conciliacao_sugerir_match_lote não encontrado — sugestão em lote segue sem o líquido do repasse';
     ELSE
+      -- função SQL: o corpo é validado no CREATE com o search_path da sessão; no banco de testes o pg_trgm
+      -- (similarity) não está no search_path do db push. Recria sem validar o corpo (como o pg_dump faz):
+      -- a resolução de similarity() em execução continua igual à da função atual.
+      PERFORM set_config('check_function_bodies', 'off', true);
       EXECUTE n;
+      PERFORM set_config('check_function_bodies', 'on', true);
     END IF;
   END IF;
 END $mig$;
