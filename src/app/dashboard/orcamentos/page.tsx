@@ -66,7 +66,7 @@ const FRETES = ['CIF (por conta do fornecedor)','FOB (por conta do cliente)','Re
 
 const STATUS_CFG:Record<string,{cor:string;icon:string;label:string}> = {
   rascunho:    {cor:TXD,icon:"📝",label:"Rascunho"},
-  em_elaboracao:{cor:B,icon:"✏️",label:"Em elaboração"},
+  em_elaboracao:{cor:B,icon:"",label:"Em elaboração"},
   enviado:     {cor:B,  icon:"📨",label:"Enviado"},
   visualizado: {cor:P,  icon:"👁️",label:"Visualizado"},
   aprovado:    {cor:G,  icon:"✅",label:"Aprovado"},
@@ -578,11 +578,11 @@ export default function OrcamentosPage(){
     const viraElaboracao=!!nome&&o.status==='rascunho';
     if(viraElaboracao)update.status='em_elaboracao';
     const{error}=await supabase.from("erp_orcamentos").update(update).eq("id",o.id);
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("Erro: "+error.message);return;}
     await supabase.from("erp_orcamento_historico").insert({
       orcamento_id:o.id,company_id:o.company_id,evento:'orcamentista',detalhe:nome?`Orçamentista: ${nome}${viraElaboracao?' · situação: Em elaboração':''}`:'Orçamentista removido'
     });
-    setMsg(nome?`✅ Orçamentista: ${nome}`:"✅ Orçamentista removido");
+    setMsg(nome?`Orçamentista: ${nome}`:"Orçamentista removido");
     loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
   };
