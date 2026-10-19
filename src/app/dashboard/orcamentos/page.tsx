@@ -48,6 +48,7 @@ type Orcamento = {
   cliente_id:string; cliente_nome:string; cliente_cnpj:string; cliente_email:string; cliente_telefone:string;
   data_emissao:string; data_validade:string; data_aprovacao:string; data_previsao_faturamento?:string|null;
   status:string; vendedor_nome:string; comissao_percentual:number;
+  orcamentista_id?:string|null; orcamentista_nome?:string|null; // #3270/#3271 · quem elabora o orçamento
   condicao_pagamento:string; prazo_entrega_dias:number; forma_pagamento:string;
   frete_tipo:string; frete_valor:number;
   subtotal:number; desconto_percentual:number; desconto_valor:number; acrescimo_valor:number; total:number;
@@ -65,6 +66,7 @@ const FRETES = ['CIF (por conta do fornecedor)','FOB (por conta do cliente)','Re
 
 const STATUS_CFG:Record<string,{cor:string;icon:string;label:string}> = {
   rascunho:    {cor:TXD,icon:"📝",label:"Rascunho"},
+  em_elaboracao:{cor:B,icon:"✏️",label:"Em elaboração"},
   enviado:     {cor:B,  icon:"📨",label:"Enviado"},
   visualizado: {cor:P,  icon:"👁️",label:"Visualizado"},
   aprovado:    {cor:G,  icon:"✅",label:"Aprovado"},
@@ -98,6 +100,10 @@ export default function OrcamentosPage(){
   const [loading,setLoading]=useState(true);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
+  // #3270 · orçamentista: filtro "Meus" e identidade de quem está logado
+  const [soMeus,setSoMeus]=useState(false);
+  const [eu,setEu]=useState<{id:string;nome:string}|null>(null);
+  useEffect(()=>{supabase.auth.getUser().then(({data:{user}})=>{if(user)setEu({id:user.id,nome:String(user.user_metadata?.nome||user.user_metadata?.full_name||user.email||'Eu')});});},[]);
   // F2.7 · vínculo com oportunidade: filtro "Sem oportunidade" + recorte por ?oportunidades= (link da coluna do Kanban).
   const [filtroVinculo,setFiltroVinculo]=useState<'todos'|'sem_oport'>('todos');
   const [linkedOrcIds,setLinkedOrcIds]=useState<Set<string>>(new Set());
@@ -566,6 +572,21 @@ export default function OrcamentosPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  // #3270/#3271 · atribui o orçamentista; orçamento em Rascunho passa para "Em elaboração" (os demais mantêm a situação).
+  const atribuirOrcamentista=async(o:Orcamento,nome:string,id:string|null)=>{
+    const update:any={orcamentista_id:nome?id:null,orcamentista_nome:nome||null};
+    const viraElaboracao=!!nome&&o.status==='rascunho';
+    if(viraElaboracao)update.status='em_elaboracao';
+    const{error}=await supabase.from("erp_orcamentos").update(update).eq("id",o.id);
+    if(error){setMsg("❌ "+error.message);return;}
+    await supabase.from("erp_orcamento_historico").insert({
+      orcamento_id:o.id,company_id:o.company_id,evento:'orcamentista',detalhe:nome?`Orçamentista: ${nome}${viraElaboracao?' · situação: Em elaboração':''}`:'Orçamentista removido'
+    });
+    setMsg(nome?`✅ Orçamentista: ${nome}`:"✅ Orçamentista removido");
+    loadOrcamentos();
+    setTimeout(()=>setMsg(""),3000);
+  };
+
   const mudarStatus=async(o:Orcamento,novoStatus:string)=>{
     const update:any={status:novoStatus};
     if(novoStatus==='aprovado')update.data_aprovacao=new Date().toISOString();
@@ -620,6 +641,7 @@ export default function OrcamentosPage(){
   const filtrados=useMemo(()=>{
     let r=orcamentos;
     if(filtroStatus!=="todos")r=r.filter(o=>o.status===filtroStatus);
+    if(soMeus&&eu)r=r.filter(o=>o.orcamentista_id===eu.id);
     if(busca.trim()){
       const b=busca.toLowerCase();
       r=r.filter(o=>(o.numero||'').toLowerCase().includes(b)||(o.cliente_nome||'').toLowerCase().includes(b)||(o.cliente_cnpj||'').includes(b.replace(/\D/g,'')));
@@ -627,7 +649,8 @@ export default function OrcamentosPage(){
     if(oportFiltroOrcIds!==null)r=r.filter(o=>oportFiltroOrcIds.includes(o.id)); // F2.7 · recorte por oportunidades da coluna
     if(filtroVinculo==='sem_oport')r=r.filter(o=>!linkedOrcIds.has(o.id));       // F2.7 · só os sem oportunidade
     return r;
-  },[orcamentos,filtroStatus,busca,oportFiltroOrcIds,filtroVinculo,linkedOrcIds]);
+  },[orcamentos,filtroStatus,soMeus,eu,busca,oportFiltroOrcIds,filtroVinculo,linkedOrcIds]);
+  const nomesOrcamentistas=useMemo(()=>Array.from(new Set(orcamentos.map(o=>o.orcamentista_nome).filter((n):n is string=>!!n&&n!==eu?.nome))).sort(),[orcamentos,eu]);
 
   // F2.7 · "Total ativos" deixa de contar rascunho: Ativos e Rascunhos separados (achado P2).
   const kpiAtivos=orcamentos.filter(o=>!['recusado','expirado','rascunho'].includes(o.status)).length;
@@ -709,6 +732,10 @@ export default function OrcamentosPage(){
           {Object.entries(STATUS_CFG).map(([k,cfg])=>(
             <button key={k} onClick={()=>setFiltroStatus(k)} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroStatus===k?cfg.cor:BD}`,background:filtroStatus===k?cfg.cor+"12":"transparent",color:filtroStatus===k?cfg.cor:TXM,cursor:"pointer",fontWeight:filtroStatus===k?600:400}}>{cfg.icon} {cfg.label}</button>
           ))}
+          <label style={{display:"inline-flex",alignItems:"center",gap:4,padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${soMeus?GO:BD}`,color:soMeus?GO:TXM,cursor:"pointer"}}>
+            <input type="checkbox" checked={soMeus} onChange={e=>setSoMeus(e.target.checked)} data-testid="orc-filtro-meus"/> Meus
+            <AjudaCampo chave="orcamentos.filtro.meus" rota="/dashboard/orcamentos"/>
+          </label>
           {/* F2.7 · filtrar os órfãos (sem oportunidade vinculada) */}
           <button onClick={()=>setFiltroVinculo(v=>v==='sem_oport'?'todos':'sem_oport')} title="Orçamentos que não estão vinculados a nenhuma oportunidade"
             style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroVinculo==='sem_oport'?GO:BD}`,background:filtroVinculo==='sem_oport'?GO+"12":"transparent",color:filtroVinculo==='sem_oport'?GO:TXM,cursor:"pointer",fontWeight:filtroVinculo==='sem_oport'?600:400}}>🔗 Sem oportunidade</button>
@@ -1001,6 +1028,7 @@ export default function OrcamentosPage(){
               <thead><tr style={{borderBottom:`2px solid ${BD}`,background:BG3}}>
                 <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Número</th>
                 <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente</th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Orçamentista <AjudaCampo chave="orcamentos.lista.orcamentista" rota="/dashboard/orcamentos"/></th>
                 <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Emissão</th>
                 <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Validade</th>
                 <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Status</th>
@@ -1020,6 +1048,14 @@ export default function OrcamentosPage(){
                       <td style={{padding:"8px"}}>
                         <div style={{fontWeight:500,color:TX}}>{o.cliente_nome||"—"}</div>
                         {o.cliente_cnpj&&<div style={{fontSize:9,color:TXD,fontFamily:"monospace"}}>{o.cliente_cnpj}</div>}
+                      </td>
+                      <td style={{padding:"8px"}}>
+                        <select data-testid="orc-orcamentista" value={o.orcamentista_nome||""} onChange={e=>{const v=e.target.value;atribuirOrcamentista(o,v,v&&v===eu?.nome?eu.id:null);}} style={{fontSize:10,padding:"3px 6px",borderRadius:4,border:`1px solid ${BD}`,background:"#FFF",color:TX,maxWidth:140}}>
+                          <option value="">— sem orçamentista —</option>
+                          {eu&&<option value={eu.nome}>Eu ({eu.nome})</option>}
+                          {nomesOrcamentistas.map(n=><option key={n} value={n}>{n}</option>)}
+                          {o.orcamentista_nome&&o.orcamentista_nome!==eu?.nome&&!nomesOrcamentistas.includes(o.orcamentista_nome)&&<option value={o.orcamentista_nome}>{o.orcamentista_nome}</option>}
+                        </select>
                       </td>
                       <td style={{padding:"8px",textAlign:"center",color:TXM,fontSize:10}}>{fmtD(o.data_emissao)}</td>
                       <td style={{padding:"8px",textAlign:"center",fontSize:10,color:expirado?R:TXM,fontWeight:expirado?600:400}}>{fmtD(o.data_validade)}{expirado&&" ⚠️"}</td>
