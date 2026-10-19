@@ -70,6 +70,7 @@ done
 case "$path" in
   *status=in_progress*) printf '%s\\n' \${GH_INPROGRESS:-}; exit 0;;
   *status=queued*)      printf '%s\\n' \${GH_QUEUED:-};     exit 0;;
+  *status=pending*)     printf '%s\\n' \${GH_PENDING:-};    exit 0;;
   */actions/runs/*/jobs)
      rid=$(printf '%s' "$path" | sed -nE 's#.*/actions/runs/([0-9]+)/jobs#\\1#p')
      case "$jqx" in
@@ -99,7 +100,16 @@ exit 0
     '(b) ambas livres → empate resolve pela menor (0); a vaga 1 nunca é escolhida')
   // job aceitacao COMPLETED não ocupa vaga → conta como livre → 0
   ok(sortear({ RUN: '4', GH_INPROGRESS: '111', GH_ACC_111: 'completed', GH_TJID_111: '911', GH_VAGALOG_911: '0' }) === '0',
-    'run com aceitacao já concluída não ocupa vaga (só queued/in_progress contam)')
+    'run com aceitacao já concluída não ocupa vaga (só queued/in_progress/pending/waiting contam)')
+  // pending/waiting (esperando o grupo de concorrência) CONTAM como ocupação: vaga 0 com 1 rodando + 2 pending, vaga 2 vazia → 2
+  const v0 = { GH_INPROGRESS: '111', GH_ACC_111: 'in_progress', GH_TJID_111: '911', GH_VAGALOG_911: '0',
+    GH_PENDING: '112 113', GH_ACC_112: 'pending', GH_TJID_112: '912', GH_VAGALOG_912: '0',
+    GH_ACC_113: 'waiting', GH_TJID_113: '913', GH_VAGALOG_913: '0' }
+  ok(sortear({ RUN: '4', ...v0 }) === '2', 'vaga 0 com 1 rodando + 2 pending e vaga 2 vazia → a PR vai para a vaga 2')
+  // discriminante: vaga 2 com 2 rodando; vaga 0 = 1 rodando + 2 pending (3). Só com os pending contados a 2 (2 < 3) vence
+  ok(sortear({ RUN: '4', ...v0, GH_QUEUED: '221 222', GH_ACC_221: 'queued', GH_TJID_221: '921', GH_VAGALOG_921: '2',
+    GH_ACC_222: 'in_progress', GH_TJID_222: '922', GH_VAGALOG_922: '2' }) === '2',
+    'pending/waiting contam como ocupação (vaga 0 com 3 > vaga 2 com 2 → vaga 2)')
   // (d) consulta de ocupação falha → sorteio antigo determinístico sobre as elegíveis [0,2]: RUN%2
   ok(sortear({ RUN: '4', GH_FAIL: '1' }) === '0' && sortear({ RUN: '5', GH_FAIL: '1' }) === '2',
     '(d) consulta de ocupação falha → mantém o sorteio antigo (RUN % nº de vagas elegíveis) sobre {0,2}')

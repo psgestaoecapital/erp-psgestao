@@ -11,7 +11,8 @@
 # só a vaga 0 é elegível → serial, idêntico a antes.
 #
 # Ocupação por vaga (sem depender de renomear o check obrigatório "aceitacao"): lista os runs do aceitacao-pr.yml
-# ativos/na fila; para cada run cujo job "aceitacao" está queued/in_progress (ocupando ou esperando a vaga), lê a vaga
+# ativos/na fila; para cada run cujo job "aceitacao" está queued/in_progress/pending/waiting (ocupando ou esperando a vaga;
+# pending/waiting = preso no grupo de concorrência, que antes NÃO contava e deixava a vaga 0 parecer livre), lê a vaga
 # escolhida no LOG da triagem (marcador estável ACEITACAO_VAGA_ESCOLHIDA=<n>, que o aceitacao-pr.yml emite). Só o gh é
 # externo (mockável no gate). NÃO toca produção.
 #
@@ -38,13 +39,13 @@ api() { gh api -H 'Accept: application/vnd.github+json' "$@" 2>/dev/null; }
 declare -A cnt
 for v in "${elig[@]}"; do cnt[$v]=0; done
 erro=0
-for st in in_progress queued; do
+for st in in_progress queued pending waiting; do   # pending/waiting = esperando o grupo de concorrência (CEO 18/10)
   ids=$(api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=$st&per_page=100" --jq '.workflow_runs[].id') || { erro=1; break; }
   for rid in $ids; do
     [ -n "$rid" ] || continue
     [ "$rid" = "${SELF_RUN_ID:-}" ] && continue      # não conta o próprio run desta rodada
     acc=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="aceitacao")|.status]|first // empty') || { erro=1; break; }
-    case "$acc" in queued|in_progress) : ;; *) continue;; esac   # só conta quem ocupa/aguarda a vaga
+    case "$acc" in queued|in_progress|pending|waiting) : ;; *) continue;; esac   # só conta quem ocupa/aguarda a vaga
     tjid=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="triagem")|.id]|first // empty') || { erro=1; break; }
     [ -n "$tjid" ] || continue
     vg=$(api "repos/$REPO/actions/jobs/$tjid/logs" | sed -nE 's/.*ACEITACAO_VAGA_ESCOLHIDA=([0-9]+).*/\1/p' | tail -1)

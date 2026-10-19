@@ -218,7 +218,9 @@ jobs:
           # rodar spec nenhum, derrubando o portão. 40 min cobre 1-2 suítes de PR na frente; suíte da main leva ~15.
           TRAVA_DEMO_ESPERA_MIN: '40'
         # suíte inteira (inclui @pos-migration: o banco de testes recebe as migrations da main pelo montar-banco-testes)
-        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
+        # CEO 18/10: a MAIN roda OS DOIS projetos ([computador] E [celular]) para detectar regressão de verdade, mesmo
+        # enquanto a aceitação de PR roda só [computador] no destrave temporário.
+        run: npx playwright test e2e/jornadas/aceitacao --project=computador --project=celular --pass-with-no-tests
       - name: Soltar a trava da demo (sempre)
         if: steps.ja.outputs.pular == 'false' && (always())
         continue-on-error: true

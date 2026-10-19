@@ -56,6 +56,13 @@ jobs:
           VAGAS: ${{ vars.ACEITACAO_VAGAS || '1' }}
           URL1: ${{ secrets.TEST_SUPABASE_URL_1 }}
           URL2: ${{ secrets.TEST_SUPABASE_URL_2 }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          # Reserva de vaga no banco (CEO 18/10): a triagem reserva a vaga chamando fn_esteira_reservar_vaga via REST RPC
+          # (função guarda só a tabela de orquestração da esteira — sem dado de cliente). Produção, chave de serviço da
+          # esteira. A triagem faz checkout de `ref: main` (código CONFIÁVEL — nunca o código da PR) e só roda gh/curl e
+          # scripts da main enquanto tem a chave. A reserva é liberada num JOB SEPARADO (liberar-reserva), sem checkout.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           rodar=true
           pr=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null || true)
@@ -85,16 +92,28 @@ jobs:
             :
           fi
           echo "rodar=$rodar" >> "$GITHUB_OUTPUT"
-          # VAGA = banco do pool desta rodada. Sorteio CIENTE DE OCUPAÇÃO (CEO 18/10): escolhe a vaga de PR (0 ou 2 — a
-          # vaga 1 é RESERVADA para a aceitação da main, grupo aceitacao-testes-1) com MENOS runs ativos/na fila;
-          # empate → menor número. Se a consulta de ocupação falhar, cai no sorteio antigo (determinístico) sobre as
-          # vagas elegíveis. Com ACEITACAO_VAGAS=1 (padrão) só a vaga 0 é elegível → serial, idêntico a antes.
-          # Provas (a..d) em scripts/gates/check-aceitacao-vaga-ocupacao.ts; lógica em scripts/merge/aceitacao-sortear-vaga.sh.
-          v=$(RUN=$(( ${{ github.run_number }} + ${{ github.run_attempt }} )) VAGAS="$VAGAS" URL1="$URL1" URL2="$URL2" \
-                REPO="$REPO" GH_TOKEN="$GH_TOKEN" SELF_RUN_ID="$RUN_ID" scripts/merge/aceitacao-sortear-vaga.sh)
+          # VAGA = banco do pool desta rodada. CEO 18/10: PRIMEIRO a RESERVA NO BANCO (fn_esteira_reservar_vaga) —
+          # transacional com pg_advisory_xact_lock, então várias triagens concorrentes NÃO correm (a corrida do sorteio por
+          # log, que lia a ocupação em runs sem log ainda e mandava quase todas para a vaga 0). A função conta as reservas
+          # ATIVAS por vaga e grava na com MENOS (empate → menor); a vaga 1 é da main (a função a exclui). Se a reserva
+          # falhar (rede/segredo), cai no SORTEIO POR LOG (determinístico); cinto final → vaga 0 (serial).
+          # Provas: scripts/gates/check-esteira-reserva-vaga.ts (reserva) e check-aceitacao-vaga-ocupacao.ts (sorteio).
+          v=""
+          if [ "$rodar" = true ] && [ -n "$pr" ] && [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            vagas='[0]'; { [ "${VAGAS:-1}" -ge 3 ] && [ -n "$URL2" ]; } && vagas='[0,2]'
+            v=$(curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_esteira_reservar_vaga" \
+                  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+                  -H 'Content-Type: application/json' \
+                  -d "{\"p_pr\":$pr,\"p_run_id\":$RUN_ID,\"p_run_attempt\":$RUN_ATTEMPT,\"p_vagas\":$vagas}" 2>/dev/null | tr -d '[:space:]')
+            case "$v" in ''|*[!0-9]*) echo "::notice::reserva no banco falhou — caindo no sorteio por log"; v="";; *) echo "vaga RESERVADA no banco: $v (vagas elegíveis $vagas)";; esac
+          fi
+          if [ -z "$v" ]; then
+            v=$(RUN=$(( ${{ github.run_number }} + ${{ github.run_attempt }} )) VAGAS="$VAGAS" URL1="$URL1" URL2="$URL2" \
+                  REPO="$REPO" GH_TOKEN="$GH_TOKEN" SELF_RUN_ID="$RUN_ID" scripts/merge/aceitacao-sortear-vaga.sh)
+          fi
           case "$v" in ''|*[!0-9]*) v=0;; esac   # cinto de segurança: saída inesperada → vaga 0 (serial)
           echo "vaga de aceitação: $v"
-          # Marcador estável lido pelo sorteio ciente de ocupação (NÃO renomeia o check obrigatório "aceitacao").
+          # Marcador estável lido pelo sorteio por log (NÃO renomeia o check obrigatório "aceitacao").
           echo "ACEITACAO_VAGA_ESCOLHIDA=$v"
           echo "vaga=$v" >> "$GITHUB_OUTPUT"
 
@@ -286,6 +305,48 @@ jobs:
         if: vars.ACEITACAO_BANCO == 'testes'
         with:
           version: 2.118.0
+      # CEO 18/10 (ETAPA B): RECONCILIAÇÃO NO INÍCIO, ANTES de aplicar a migration da PR — compara a vaga da PR (0 ou 2)
+      # com o BANCO DE REFERÊNCIA (vaga 1, SÓ LEITURA, mantido no estado da main pela aceitação da main). É a garantia da
+      # vaga limpa; o "Desfazer" do fim segue, mas não é mais o que garante. Primeiro sincroniza a vaga SÓ com a main
+      # (db push idempotente) para que "atrás da main" não vire falso Montar; depois reconciliar-referencia.sh remove o
+      # que sobrou de PR não aprovada (objetos vaga-only, funções/permissões divergentes, versões órfãs do ledger),
+      # comparando com a vaga 1. Diferença estrutural não corrigível (tabela/coluna ausente) → dispara o Montar da vaga e
+      # marca a PR para re-rodar (o run falha; a próxima rodada pega a vaga recriada). Pilar 2 intacto: a referência é
+      # outro banco de TESTES (TEST_DATABASE_URL_1), lido só por SELECT — nenhum segredo de produção.
+      - name: Reconciliar a vaga com a referência (vaga 1, só leitura) — antes dos testes
+        if: vars.ACEITACAO_BANCO == 'testes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL_1 }}
+        run: |
+          set -uo pipefail
+          [ -n "${TEST_DATABASE_URL:-}" ] || { echo "::error::vaga ${ACEITACAO_VAGA:-?} sem TEST_DATABASE_URL — abortado"; exit 1; }
+          if [ -z "${REF_DATABASE_URL:-}" ]; then
+            echo "::notice::vaga 1 (referência) não provisionada — reconciliação com a referência pulada; a guarda de contaminação e o Desfazer seguem valendo."
+            exit 0
+          fi
+          REF_DATABASE_URL="$(printf '%s' "$REF_DATABASE_URL" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]\$//")"
+          echo "::add-mask::$REF_DATABASE_URL"
+          # a vaga precisa estar em dia com a main antes de comparar com a referência (idempotente — db push só aplica o que falta)
+          git fetch --no-tags --depth=1 origin main
+          mmain=$(mktemp -d); git archive origin/main -- supabase | tar -x -C "$mmain"
+          if ! ( cd "$mmain" && supabase db push --include-all --db-url "$TEST_DATABASE_URL" ); then
+            echo "::error::sync da main na vaga ${ACEITACAO_VAGA:-?} falhou (db push) — aceitação abortada"; exit 1
+          fi
+          set +e
+          VAGA="${ACEITACAO_VAGA:-0}" TEST_DATABASE_URL="$TEST_DATABASE_URL" REF_DATABASE_URL="$REF_DATABASE_URL" \
+            MAIN_MIGR_DIR="$mmain/supabase/migrations" scripts/banco-testes/reconciliar-referencia.sh
+          rc=$?
+          set -e
+          if [ "$rc" = 2 ]; then
+            echo "::warning title=Reconciliação com a referência::vaga ${ACEITACAO_VAGA:-0} precisa de Montar (diferença estrutural não corrigível com segurança). Disparando o Montar e marcando a PR para re-rodar."
+            echo "### Vaga ${ACEITACAO_VAGA:-0}: reconciliação com a referência pediu Montar — a PR re-roda após o Montar" >> "$GITHUB_STEP_SUMMARY"
+            gh workflow run montar-banco-testes.yml -f vaga="${ACEITACAO_VAGA:-0}" -f recriar=true -R "$REPO" \
+              || echo "::warning::não consegui disparar o Montar automaticamente — rode-o à mão na vaga ${ACEITACAO_VAGA:-0}"
+            exit 1
+          fi
+          [ "$rc" = 0 ] || { echo "::error::reconciliação com a referência falhou (trava/erro de uso) — aceitação abortada"; exit 1; }
       # CEO 14/10 — a aceitação SUJAVA a vaga: aplicava as migrations da PR e nada as desfazia. Agora: (1) sincroniza SÓ a
       # main (ledger-alvo de origin/main, nunca a PR); (2) tira a FOTO da vaga nesse estado (schema _vaga_snapshot); (3) só
       # então aplica as migrations da PR para o preview testar o schema novo. O passo "Desfazer migrations da PR" ao fim
@@ -354,12 +415,22 @@ jobs:
             sleep 2
           done
           cat next-start.log; echo "::error::a PR não subiu em 2 min"; exit 1
+      # CEO 18/10 — DESTRAVE TEMPORÁRIO: a aceitação de PR roda SÓ o projeto [computador] até o CORTE
+      # (19/10 16:00 BRT); depois volta ao [celular] (o seletor decide pela data). O [celular] está instável no runner
+      # desde a #2848 e travava PRs verdes no [computador]. A aceitação da MAIN roda os dois projetos (detecta regressão).
+      - name: Projeto Playwright da aceitação de PR (destrave [celular] temporário)
+        run: |
+          proj=$(scripts/merge/aceitacao-projeto.sh)
+          echo "projeto da aceitação de PR: $proj"
+          echo "ACEITACAO_PROJETO=$proj" >> "$GITHUB_ENV"
       # @pos-migration (CEO 26/09): teste que depende de migration só é verdade DEPOIS do merge (o deploy-migrations
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
       - name: Jornadas de aceitação contra o preview
+        id: jornadas
         timeout-minutes: 30
         env:
+          PW_JSON_SAIDA: pw-resultado.json
           PROD_BASE_URL: http://localhost:3000
           # SUPABASE_URL/ANON/SERVICE vêm do passo "Selecionar o banco da vaga" (GITHUB_ENV).
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
@@ -371,7 +442,13 @@ jobs:
         # --pass-with-no-tests: PR sem .spec.ts em aceitacao/ (hotfix, infra, docs) passa; PR com spec e julgada pelo spec.
         # A obrigacao de trazer o spec e do processo (RD-78), nao de um check que quebra por ausencia. Sem isto, a propria PR-I
         # (que nao traz spec) ficaria vermelha para sempre e o check nunca poderia ser obrigatorio.
-        run: npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=celular --pass-with-no-tests --grep-invert @pos-migration
+        run: npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=${ACEITACAO_PROJETO:-celular} --pass-with-no-tests --grep-invert @pos-migration
+      # Lista COMPLETA de falhas numa única anotação (esteira 19/10): a fila não lê o log do job (404 com o token dela) e as
+      # anotações do Playwright cortam em 10. Título PW-FALHAS-COMPLETAS; lido por pos_anot_falhas em scripts/merge/fila-merge.sh.
+      - name: Publicar a lista completa de falhas (anotação para a fila)
+        if: always() && steps.jornadas.conclusion == 'failure'
+        continue-on-error: true
+        run: node scripts/merge/anotar-falhas-completas.cjs pw-resultado.json
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
       # CEO 12/10 (fila não drenava): só roda se a suíte passou e com teto de 8 min. Antes rodava também após a suíte
@@ -389,7 +466,7 @@ jobs:
           TRAVA_DEMO_ESPERA_MIN: '15'
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
-          if npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=celular --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
+          if npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=${ACEITACAO_PROJETO:-celular} --pass-with-no-tests --grep @pos-migration --output=test-results/pos-migration; then
             echo "### @pos-migration no preview: verde" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=@pos-migration (informativo)::vermelho no preview — esperado se a migration da PR ainda não entrou. Veredito: aceitacao-pos-migration em produção, logo após o merge."
@@ -451,3 +528,26 @@ jobs:
             test-results/
             next-start.log
           if-no-files-found: ignore
+
+  # CEO/Eng. Chefe 18/10 — libera a RESERVA de vaga no banco ao fim do run, num JOB SEPARADO que NÃO faz checkout e NÃO
+  # roda código do repositório (só uma chamada REST inline). Assim a chave de serviço de produção fica FORA do job que
+  # roda o código da PR (job aceitacao). Se a liberação falhar, a reserva expira sozinha em 2 h — nunca trava a vaga.
+  liberar-reserva:
+    needs: aceitacao
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: none
+    steps:
+      - name: Liberar a reserva de vaga no banco (REST inline, sem checkout)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || { echo "sem segredo — a reserva expira sozinha em 2 h"; exit 0; }
+          curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_esteira_liberar_vaga" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' -d "{\"p_run_id\":$RUN_ID,\"p_run_attempt\":$RUN_ATTEMPT}" >/dev/null \
+            && echo "reserva da vaga liberada (run $RUN_ID attempt $RUN_ATTEMPT)" || echo "::notice::não liberou a reserva (expira sozinha em 2 h)"
