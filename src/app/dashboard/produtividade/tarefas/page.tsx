@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel, type OpcaoCelula } from '@/components/produtividade/CelulaEditavel'
+import { Video } from 'lucide-react'
 
 const ROTA = '/dashboard/produtividade/tarefas'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -151,7 +152,7 @@ function Inner() {
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>Indústria · Produtividade</div>
       <div style={{ display: 'flex', gap: 14, fontSize: 14, margin: '6px 0' }}>
         <Link href="/dashboard/produtividade" style={{ color: C.espM }}>Cadastro por fluxo</Link>
         <b style={{ borderBottom: `2px solid ${C.gold}` }}>Tarefas</b>
@@ -291,7 +292,7 @@ function TabelaTarefas({ ctx, etapaId, tarefas, carregando, cargosOpt, proximaOr
                   <td style={{ ...cel, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button type="button" data-testid={`tarefa-videos-${t.id}`} onClick={() => setAbertoVideo((v) => v === t.id ? null : t.id)}
                       style={{ background: abertoVideo === t.id ? C.goldBg : 'transparent', border: `1px solid ${C.border}`, color: C.esp, borderRadius: 7, padding: '5px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                      🎥 Vídeos {abertoVideo === t.id ? '▲' : '▼'}
+                      <Video size={13} strokeWidth={1.5} style={{ verticalAlign: '-2px', marginRight: 4 }} />Vídeos {abertoVideo === t.id ? '▲' : '▼'}
                     </button>
                     <button type="button" data-testid={`tarefa-arquivar-${t.id}`} onClick={() => void arquivar(t)}
                       style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.red, borderRadius: 7, padding: '5px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginLeft: 6 }}>
@@ -496,7 +497,7 @@ function BlocoVideos({ ctx, tarefa }: { ctx: Ctx; tarefa: Tarefa }) {
                 <div style={{ fontSize: 13, color: C.esp, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{nome}</div>
                 <div style={{ fontSize: 11.5, color: C.espM, marginTop: 2 }}>
                   {v.duracao_seg != null ? `${v.duracao_seg}s · ` : ''}
-                  {v.protocolo_ok ? 'protocolo ✔' : 'protocolo não confirmado'}
+                  {v.protocolo_ok ? 'protocolo confirmado' : 'protocolo não confirmado'}
                   {v.guardar_ate ? ` · guardar até ${v.guardar_ate}` : ''}
                 </div>
                 <div style={{ fontSize: 11.5, color: C.espM, marginTop: 2 }}>A análise (ciclos, ergonomia) entra na próxima fatia.</div>

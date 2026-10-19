@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
+import { ClipboardList } from 'lucide-react'
 
 const ROTA = '/dashboard/produtividade/produtos'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -67,7 +68,7 @@ export default function ProdutosPage() {
 function Aviso({ texto }: { texto: string }) {
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>Indústria · Produtividade</div>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 10px' }}>Produtos</h1>
       <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '26px 16px', textAlign: 'center', color: C.espM, fontSize: 13.5 }}>{texto}</div>
     </div>
@@ -154,7 +155,7 @@ function Inner() {
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>Indústria · Produtividade</div>
       <div style={{ display: 'flex', gap: 14, fontSize: 14, margin: '6px 0' }}>
         <Link href="/dashboard/produtividade" style={{ color: C.espM }}>Cadastro</Link>
         <b style={{ borderBottom: `2px solid ${C.gold}` }}>Produtos</b>
@@ -185,7 +186,7 @@ function Inner() {
           </select>
         </label>
         <button data-testid="produtos-novo" onClick={() => setNovoAberto(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo produto</button>
-        <button data-testid="produtos-colar" onClick={() => setColarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5 }}>📋 Colar lista</button>
+        <button data-testid="produtos-colar" onClick={() => setColarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ClipboardList size={14} strokeWidth={1.5} />Colar lista</button>
       </div>
 
       {carregando && produtos.length === 0 ? (

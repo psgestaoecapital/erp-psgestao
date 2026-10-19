@@ -181,7 +181,7 @@ function Inner() {
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>Indústria · Produtividade</div>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Apontamento hora a hora</h1>
       <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>
         Lance o produzido por posto e hora. A tela confronta com a capacidade do posto e mostra a produtividade e a ociosidade, com semáforo.
