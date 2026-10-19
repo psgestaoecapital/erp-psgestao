@@ -112,6 +112,14 @@ jobs:
       # CEO 18/10: 3 travas do banco da VAGA 1 (referência) em scripts/merge/aceitacao-main-trava-banco.sh —
       #  (1) allowlist positivo do projeto da vaga 1 (mgyxiamybepkphtfhway) na URL da API e na do Postgres;
       #  (2) anti-produção (horsymhsinqcimflrtjo em qualquer URL → aborta); (3) Session pooler (*.pooler.supabase.com).
+      # 19/10 (gilberto-desenv): o checkout vem ANTES da trava — a trava é um script do repo e, sem o checkout, saía com
+      # 127 (comando não encontrado) em ~13 s desde a #2849: toda aceitação da main falhava, a main nunca ficava verde e
+      # o regime de construção ficava desligado. O checkout não toca banco; a trava continua antes de qualquer acesso a ele.
+      - uses: actions/checkout@v4
+        if: steps.ja.outputs.pular == 'false'
+        with:
+          ref: ${{ steps.ja.outputs.sha }}
+          fetch-depth: 0
       - name: Trava de segurança (vaga 1 de referência, nunca a produção)
         if: steps.ja.outputs.pular == 'false'
         env:
@@ -122,11 +130,6 @@ jobs:
           [ -n "$TEST_SUPABASE_ANON_KEY" ] && [ -n "$TEST_SUPABASE_SERVICE_ROLE_KEY" ] \
             || { echo "::error::segredos TEST_SUPABASE_*_1 (vaga 1) ausentes"; exit 1; }
           scripts/merge/aceitacao-main-trava-banco.sh
-      - uses: actions/checkout@v4
-        if: steps.ja.outputs.pular == 'false'
-        with:
-          ref: ${{ steps.ja.outputs.sha }}
-          fetch-depth: 0
       # CEO 13/10 19:58 (CEO 18/10: vaga 1): barra o banco da VAGA 1 (referência) CONTAMINADO por PR antes de testar a
       # main. O checkout acima é a própria main (steps.ja.outputs.sha), então supabase/migrations do working tree É o
       # alvo. Contaminado (ledger com versão > a da main) → falha "vaga 1 precisa de recriar"; o Montar recriar limpa.

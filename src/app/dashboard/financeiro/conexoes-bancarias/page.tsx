@@ -11,7 +11,7 @@
 //  - erp_credencial (Cofre B.9): armazena as credenciais (client_id/client_secret/
 //    cert A1/senha do cert) via fn_credencial_salvar, cifradas no Vault.
 //
-// Adapters prontos: Sicoob (756), Bradesco (237). Sicredi (748) = proximo.
+// Adapters prontos: Sicoob (756), Bradesco (237), Sicredi (748). Banco do Brasil (001) = piloto (#1736).
 
 import { useCallback, useEffect, useState } from 'react'
 import { acharErroCatalogo, textoErroCatalogo, type ErroCatalogo } from '@/lib/banco/erroCatalogo'
@@ -84,10 +84,13 @@ interface BancoConta {
   banco: string | null
 }
 
-type CampoConexao = 'client_id' | 'client_secret' | 'cooperativa' | 'conta' | 'codigo_beneficiario' | 'cert_a1' | 'cert_senha' | 'api_key' | 'codigo_acesso' | 'posto'
+type CampoConexao = 'client_id' | 'client_secret' | 'cooperativa' | 'conta' | 'codigo_beneficiario' | 'cert_a1' | 'cert_senha' | 'api_key' | 'codigo_acesso' | 'posto' | 'agencia' | 'convenio' | 'carteira'
 type BancoDef = {
-  codigo: number; sigla: string; nome: string; cor: string; pronto: boolean;
+  codigo: number | string; sigla: string; nome: string; cor: string; pronto: boolean;
   campos: readonly CampoConexao[];
+  // #1736: banco em PILOTO só aparece em "Conectar novo banco" para o admin PS (que configura e testa pela
+  // empresa) ou para a empresa que já tem a config. Sai do piloto quando o teste de conexão passar em produção.
+  piloto?: boolean
 }
 const BANCOS: readonly BancoDef[] = [
   {
@@ -106,6 +109,14 @@ const BANCOS: readonly BancoDef[] = [
     codigo: 748, sigla: 'sicredi', nome: 'Sicredi',
     cor: '#3F8B29', pronto: true,
     campos: ['api_key', 'codigo_acesso', 'cooperativa', 'codigo_beneficiario', 'posto'],
+  },
+  {
+    // #1736 (FC Pisos) · Banco do Brasil — BB Developers: OAuth2 client_credentials (client_id + client_secret)
+    // + gw-dev-app-key em toda chamada (guardada no slot api_key do Vault). Certificado de comunicação: o BB
+    // exige mTLS no extrato em produção. Convênio/carteira = cobrança (2ª etapa).
+    codigo: '001', sigla: 'bb', nome: 'Banco do Brasil',
+    cor: '#0038A8', pronto: true, piloto: true,
+    campos: ['client_id', 'client_secret', 'api_key', 'agencia', 'conta', 'convenio', 'carteira', 'cert_a1', 'cert_senha'],
   },
 ]
 
@@ -170,6 +181,11 @@ export default function ConexoesBancariasPage() {
   // editar-config-existente · reabre o modal pré-preenchido pra um banco JÁ conectado
   const [editando, setEditando] = useState<{ banco: BancoDef; cfg: ProviderConfig } | null>(null)
   const [cnabEdit, setCnabEdit] = useState<ProviderConfig | null>(null)   // editor de identidade CNAB (sem credenciais)
+  // #1736: bancos em piloto (BB) só aparecem para o admin PS — is_admin() no banco, não um flag de tela.
+  const [adminPS, setAdminPS] = useState(false)
+  useEffect(() => {
+    supabase.rpc('is_admin').then(({ data, error }) => setAdminPS(!error && data === true))
+  }, [])
 
   // #1673: marca o banco que emite os boletos da empresa (um só por empresa; a função valida ativo + cap_boleto)
   async function definirResponsavelBoleto(cfg: ProviderConfig) {
@@ -273,7 +289,7 @@ export default function ConexoesBancariasPage() {
 
   const bancosNaoConectados = BANCOS.filter((b) =>
     !configs.some((c) => c.provider === b.sigla || c.provider.startsWith(`banco_${b.sigla}_`)),
-  )
+  ).filter((b) => !b.piloto || adminPS)
 
   // RD-51 (badge não mente): "conectado" deriva do estado REAL, não da mera existência
   // do registro. Só homologado/producao com ativo=true é conexão viva. Inativo ou
@@ -645,7 +661,7 @@ export default function ConexoesBancariasPage() {
                       <div style={{ textAlign: 'left' }}>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{b.nome}</div>
                         <div style={{ fontSize: 10, color: ESP60 }}>
-                          {b.codigo}{b.pronto ? '' : ' · em breve'}
+                          {b.codigo}{b.pronto ? '' : ' · em breve'}{b.piloto ? ' · piloto' : ''}
                         </div>
                       </div>
                       {b.pronto && <Plus size={14} style={{ marginLeft: 'auto', color: GOLD }} />}
@@ -816,6 +832,10 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
   const [apiKey, setApiKey] = useState('')
   const [codigoAcesso, setCodigoAcesso] = useState('')
   const [posto, setPosto] = useState(cfgExistente?.posto ?? '')
+  // #1736 (BB): agência + convênio/carteira de cobrança
+  const [agencia, setAgencia] = useState(cfgExistente?.agencia ?? '')
+  const [convenio, setConvenio] = useState(cfgExistente?.convenio ?? '')
+  const [carteira, setCarteira] = useState(cfgExistente?.carteira ?? '')
   const [capBoleto, setCapBoleto] = useState(cfgExistente?.cap_boleto ?? true)
   const [capExtrato, setCapExtrato] = useState(cfgExistente?.cap_extrato ?? true)
   // Encargos do boleto (bloco espelhando o OMIE). Guardados como texto no form; convertidos ao salvar.
@@ -942,6 +962,9 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         p_conta: cs.includes('conta') ? (conta || null) : null,
         p_codigo_beneficiario: cs.includes('codigo_beneficiario') ? (codBenef || null) : null,
         p_posto: cs.includes('posto') ? (posto || null) : null,
+        p_agencia: cs.includes('agencia') ? (agencia || null) : null,
+        p_convenio: cs.includes('convenio') ? (convenio || null) : null,
+        p_carteira: cs.includes('carteira') ? (carteira || null) : null,
         // cap_pagamento (remessa CNAB) NÃO é capacidade desta tela de API: null preserva o valor (RD-57).
         p_cap_boleto: capBoleto, p_cap_extrato: capExtrato, p_cap_pagamento: null, p_ativo: true,
         // validade do cert (só quando um cert novo foi enviado; null preserva a existente na fn).
@@ -1066,8 +1089,27 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </Field>
           )}
           {banco.campos.includes('api_key') && (
-            <Field label="x-api-key (Portal do Desenvolvedor)">
-              <input type="password" name="ps_apikey_nofill" autoComplete="new-password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={inp} placeholder={jaTem('api_key_vault_id') ? PH_CONFIG : 'UUID da app'} />
+            <Field
+              ajuda="banco.api_key"
+              label={banco.sigla === 'bb' ? 'Chave da aplicação (gw-dev-app-key)' : 'x-api-key (Portal do Desenvolvedor)'}
+              hint={banco.sigla === 'bb' ? 'BB Developers › sua aplicação › Credenciais (developer_application_key). Fica cifrada no Vault.' : undefined}
+            >
+              <input type="password" name="ps_apikey_nofill" autoComplete="new-password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} style={inp} placeholder={jaTem('api_key_vault_id') ? PH_CONFIG : (banco.sigla === 'bb' ? 'chave da aplicação' : 'UUID da app')} />
+            </Field>
+          )}
+          {banco.campos.includes('agencia') && (
+            <Field label="Agência" ajuda="banco.agencia" hint={banco.sigla === 'bb' ? 'Sem o dígito também funciona (ex.: 1505-2 ou 1505).' : undefined}>
+              <input name="ps_agencia_nofill" autoComplete="off" value={agencia} onChange={(e) => setAgencia(e.target.value)} style={inp} placeholder="ex.: 1505-2" />
+            </Field>
+          )}
+          {banco.campos.includes('convenio') && (
+            <Field label="Convênio de cobrança" ajuda="banco.convenio" hint="Número do convênio de cobrança (7 dígitos no BB). Só é preciso para emitir boleto.">
+              <input name="ps_convenio_nofill" autoComplete="off" inputMode="numeric" value={convenio} onChange={(e) => setConvenio(e.target.value)} style={inp} placeholder="ex.: 3128557" />
+            </Field>
+          )}
+          {banco.campos.includes('carteira') && (
+            <Field label="Carteira / variação" ajuda="banco.carteira" hint="Ex.: 17 / 35 (carteira e variação do convênio). Só é preciso para emitir boleto.">
+              <input name="ps_carteira_nofill" autoComplete="off" value={carteira} onChange={(e) => setCarteira(e.target.value)} style={inp} placeholder="ex.: 17/35" />
             </Field>
           )}
           {banco.campos.includes('codigo_acesso') && (
@@ -1182,7 +1224,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
           )}
           {/* chamado #14: o Rodrigo perguntou "como faço os testes de conexão?" (04/09). Resposta honesta na
               própria tela — bancos fora da escada automática (hoje só Sicoob/Sicredi) não têm ping. */}
-          {!['sicoob', 'sicredi'].includes(banco.sigla) && (
+          {!['sicoob', 'sicredi', 'bb'].includes(banco.sigla) && (
             <div style={{ background: '#FEF3C7', border: `0.5px solid rgba(200,148,26,0.4)`, color: '#7A5A0F', borderRadius: 6, padding: '9px 11px', fontSize: 11, lineHeight: 1.45 }}>
               ℹ️ O {banco.nome} ainda não tem <b>teste automático de conexão</b>. Depois de <b>salvar</b>, as credenciais ficam guardadas no Vault (cifradas) e são validadas na <b>primeira emissão de boleto ou sincronização de extrato</b>. Se algo falhar ali, o erro aparece com o que fazer — você não precisa &quot;continuar&quot; em nenhuma outra tela.
             </div>
@@ -1206,10 +1248,10 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({ label, hint, ajuda, children }: { label: string; hint?: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>{label}</label>
+      <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>{label}{ajuda && <> <AjudaCampo chave={ajuda} /></>}</label>
       {children}
       {hint && <small style={{ display: 'block', fontSize: 10, color: ESP60, marginTop: 3, lineHeight: 1.4 }}>{hint}</small>}
     </div>
