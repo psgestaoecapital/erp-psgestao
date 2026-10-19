@@ -56,6 +56,11 @@ else {
   const t = readFileSync(CARD, 'utf8')
   if (!/value:\s*'orcamento'/.test(t)) erro(`${CARD}: seletor de status sem 'orcamento'`)
   else ok('OrdemServicoCard: status orcamento no seletor')
+  // Etapa 2: aviso ao mudar o status de OS nascida de orçamento
+  if (!/select\(cols\)/.test(t) || !/const cols = '[^']*nasceu_orcamento/.test(t)) erro(`${CARD}: leitura da OS sem nasceu_orcamento`)
+  else ok('OrdemServicoCard: lê nasceu_orcamento')
+  if (!/os\.nasceu_orcamento[\s\S]{0,200}verifique o diagnóstico/.test(t)) erro(`${CARD}: aviso "verifique o diagnóstico" ausente ao mudar status`)
+  else ok('OrdemServicoCard: aviso ao mudar status de OS nascida de orçamento')
 }
 
 
