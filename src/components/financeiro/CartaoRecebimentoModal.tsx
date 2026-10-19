@@ -5,6 +5,7 @@
 // (bruto, taxa, líquido e data de repasse), cada um com a sua taxa como despesa financeira.
 // Taxa/prazo vêm do cadastro (RD-52), nunca digitados; a prévia por parcela usa o mesmo arredondamento do banco.
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CreditCard } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { parcelasCartao } from '@/lib/financeiro/cartaoParcelas'
@@ -128,7 +129,7 @@ export default function CartaoRecebimentoModal({ companyId, receber, dataVenda, 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1200 }}>
       <div onClick={(e) => e.stopPropagation()} data-testid="cartao-recebimento-modal" style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 500, padding: 20, border: `0.5px solid ${LINE}`, maxHeight: '92vh', overflowY: 'auto' }}>
-        <div style={{ fontSize: 16, fontWeight: 800, color: ESP }}>💳 Recebido em cartão</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: ESP, display: 'flex', alignItems: 'center', gap: 6 }}><CreditCard size={18} strokeWidth={1.5} color={GOLD} />Recebido em cartão</div>
         <div style={{ fontSize: 12, color: ESP60, margin: '2px 0 14px' }}>{receber.descricao} · <b>R$ {brl(receber.valor)}</b></div>
 
         {adquirentes.length === 0 && (
