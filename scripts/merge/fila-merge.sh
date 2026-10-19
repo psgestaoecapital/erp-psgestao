@@ -857,7 +857,9 @@ for n in $fila; do
     api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
     continue
   fi
-  log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')"
+  # Espelho (19/10): o tem_migration do erp_esteira_pr_estado vem do texto do log; sem esta marca, PR com migration que
+  # seguia o caminho normal ("checks rodando: aceitacao") aparecia com tem_migration=false (12 PRs de 19/10 — diagnóstico errado).
+  log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')$([ "$com_migration" = 1 ] && echo ' (com migration)')"
 
   # (c) sensível → autorização pelo conteúdo
   if [ "$via" = revisada ]; then
