@@ -305,6 +305,48 @@ jobs:
         if: vars.ACEITACAO_BANCO == 'testes'
         with:
           version: 2.118.0
+      # CEO 18/10 (ETAPA B): RECONCILIAÇÃO NO INÍCIO, ANTES de aplicar a migration da PR — compara a vaga da PR (0 ou 2)
+      # com o BANCO DE REFERÊNCIA (vaga 1, SÓ LEITURA, mantido no estado da main pela aceitação da main). É a garantia da
+      # vaga limpa; o "Desfazer" do fim segue, mas não é mais o que garante. Primeiro sincroniza a vaga SÓ com a main
+      # (db push idempotente) para que "atrás da main" não vire falso Montar; depois reconciliar-referencia.sh remove o
+      # que sobrou de PR não aprovada (objetos vaga-only, funções/permissões divergentes, versões órfãs do ledger),
+      # comparando com a vaga 1. Diferença estrutural não corrigível (tabela/coluna ausente) → dispara o Montar da vaga e
+      # marca a PR para re-rodar (o run falha; a próxima rodada pega a vaga recriada). Pilar 2 intacto: a referência é
+      # outro banco de TESTES (TEST_DATABASE_URL_1), lido só por SELECT — nenhum segredo de produção.
+      - name: Reconciliar a vaga com a referência (vaga 1, só leitura) — antes dos testes
+        if: vars.ACEITACAO_BANCO == 'testes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL_1 }}
+        run: |
+          set -uo pipefail
+          [ -n "${TEST_DATABASE_URL:-}" ] || { echo "::error::vaga ${ACEITACAO_VAGA:-?} sem TEST_DATABASE_URL — abortado"; exit 1; }
+          if [ -z "${REF_DATABASE_URL:-}" ]; then
+            echo "::notice::vaga 1 (referência) não provisionada — reconciliação com a referência pulada; a guarda de contaminação e o Desfazer seguem valendo."
+            exit 0
+          fi
+          REF_DATABASE_URL="$(printf '%s' "$REF_DATABASE_URL" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]\$//")"
+          echo "::add-mask::$REF_DATABASE_URL"
+          # a vaga precisa estar em dia com a main antes de comparar com a referência (idempotente — db push só aplica o que falta)
+          git fetch --no-tags --depth=1 origin main
+          mmain=$(mktemp -d); git archive origin/main -- supabase | tar -x -C "$mmain"
+          if ! ( cd "$mmain" && supabase db push --include-all --db-url "$TEST_DATABASE_URL" ); then
+            echo "::error::sync da main na vaga ${ACEITACAO_VAGA:-?} falhou (db push) — aceitação abortada"; exit 1
+          fi
+          set +e
+          VAGA="${ACEITACAO_VAGA:-0}" TEST_DATABASE_URL="$TEST_DATABASE_URL" REF_DATABASE_URL="$REF_DATABASE_URL" \
+            MAIN_MIGR_DIR="$mmain/supabase/migrations" scripts/banco-testes/reconciliar-referencia.sh
+          rc=$?
+          set -e
+          if [ "$rc" = 2 ]; then
+            echo "::warning title=Reconciliação com a referência::vaga ${ACEITACAO_VAGA:-0} precisa de Montar (diferença estrutural não corrigível com segurança). Disparando o Montar e marcando a PR para re-rodar."
+            echo "### Vaga ${ACEITACAO_VAGA:-0}: reconciliação com a referência pediu Montar — a PR re-roda após o Montar" >> "$GITHUB_STEP_SUMMARY"
+            gh workflow run montar-banco-testes.yml -f vaga="${ACEITACAO_VAGA:-0}" -f recriar=true -R "$REPO" \
+              || echo "::warning::não consegui disparar o Montar automaticamente — rode-o à mão na vaga ${ACEITACAO_VAGA:-0}"
+            exit 1
+          fi
+          [ "$rc" = 0 ] || { echo "::error::reconciliação com a referência falhou (trava/erro de uso) — aceitação abortada"; exit 1; }
       # CEO 14/10 — a aceitação SUJAVA a vaga: aplicava as migrations da PR e nada as desfazia. Agora: (1) sincroniza SÓ a
       # main (ledger-alvo de origin/main, nunca a PR); (2) tira a FOTO da vaga nesse estado (schema _vaga_snapshot); (3) só
       # então aplica as migrations da PR para o preview testar o schema novo. O passo "Desfazer migrations da PR" ao fim
@@ -385,8 +427,10 @@ jobs:
       # aplica no push da main; o preview roda o código novo contra o banco ATUAL). Aqui ele fica FORA do passo que
       # bloqueia e roda no passo informativo abaixo; o veredito é o aceitacao-pos-migration.yml, em produção.
       - name: Jornadas de aceitação contra o preview
+        id: jornadas
         timeout-minutes: 30
         env:
+          PW_JSON_SAIDA: pw-resultado.json
           PROD_BASE_URL: http://localhost:3000
           # SUPABASE_URL/ANON/SERVICE vêm do passo "Selecionar o banco da vaga" (GITHUB_ENV).
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
@@ -399,6 +443,12 @@ jobs:
         # A obrigacao de trazer o spec e do processo (RD-78), nao de um check que quebra por ausencia. Sem isto, a propria PR-I
         # (que nao traz spec) ficaria vermelha para sempre e o check nunca poderia ser obrigatorio.
         run: npx playwright test ${ACEITACAO_ALVO:-e2e/jornadas/aceitacao} --project=${ACEITACAO_PROJETO:-celular} --pass-with-no-tests --grep-invert @pos-migration
+      # Lista COMPLETA de falhas numa única anotação (esteira 19/10): a fila não lê o log do job (404 com o token dela) e as
+      # anotações do Playwright cortam em 10. Título PW-FALHAS-COMPLETAS; lido por pos_anot_falhas em scripts/merge/fila-merge.sh.
+      - name: Publicar a lista completa de falhas (anotação para a fila)
+        if: always() && steps.jornadas.conclusion == 'failure'
+        continue-on-error: true
+        run: node scripts/merge/anotar-falhas-completas.cjs pw-resultado.json
       # Informativo: roda os @pos-migration no preview e NÃO bloqueia (continue-on-error). Vermelho aqui é esperado
       # enquanto a migration não entrou; o aviso sai na aba de resumo. Quem decide é o job pós-merge em produção.
       # CEO 12/10 (fila não drenava): só roda se a suíte passou e com teto de 8 min. Antes rodava também após a suíte
