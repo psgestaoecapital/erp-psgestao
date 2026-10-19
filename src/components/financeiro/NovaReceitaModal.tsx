@@ -1,6 +1,7 @@
 'use client'
 
 import NovaReceitaForm from './NovaReceitaForm'
+import FichaTituloAbas from './FichaTituloAbas'
 
 interface NovaReceitaModalProps {
   companyId: string
@@ -48,16 +49,18 @@ export default function NovaReceitaModal({
           overflowY: 'auto',
         }}
       >
-        <NovaReceitaForm
-          companyId={companyId}
-          editarId={editarId}
-          initial={initial}
-          onSucesso={(id) => {
-            onSucesso?.(id)
-            onFechar()
-          }}
-          onCancelar={onFechar}
-        />
+        <FichaTituloAbas tipo="receber" editarId={editarId}>
+          <NovaReceitaForm
+            companyId={companyId}
+            editarId={editarId}
+            initial={initial}
+            onSucesso={(id) => {
+              onSucesso?.(id)
+              onFechar()
+            }}
+            onCancelar={onFechar}
+          />
+        </FichaTituloAbas>
       </div>
     </div>
   )
