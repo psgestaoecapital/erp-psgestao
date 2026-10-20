@@ -1,5 +1,5 @@
 // P&M · apontamento de horas em 1 toque (onda 2 da P&M da Pdois, mapeamento do SIGA, Parte S, atrito 18).
-// Migration 20261019185320 (textos do "?") · @pos-migration. Na "Agência (P&M) - DEMO", como o robô:
+// Migration 20261020121020 (textos do "?") · @pos-migration. Na "Agência (P&M) - DEMO", como o robô:
 //   1) o link "Lançar horas" (?job=) abre o Apontamento com o job já escolhido;
 //   2) um toque em "+30 min" grava 0,5 h nesse job, para o robô, com a data de hoje — sem digitar nada;
 //   3) Meus trabalhos mostra o "?" do ▶ (e o ▶ em cada job do robô, quando houver).
