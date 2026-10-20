@@ -7,6 +7,7 @@ import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
+import { validarNFeAvulsa, ufDestino, soDigitos, type CfopSaida, type FinalidadeNFe } from '@/lib/fiscal/nfeAvulsa'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -18,9 +19,19 @@ interface RemessaBody {
   tipoId?: string  // erp_fiscal_remessa_tipos.id (informativo)
   cfop: string     // CFOP final (vem do tipo mas editavel)
   naturezaOperacao: string
-  itens: Array<{ produtoId: string; quantidade: number; valorUnitarioOverride?: number }>
+  itens: Array<{ produtoId: string; quantidade: number; valorUnitarioOverride?: number; cfop?: string }>
   ambiente?: 'homologacao' | 'producao'
+  // #3861 · NF-e avulsa: finalidade + chave referenciada, ICMS da operação (CSOSN/CST), informações complementares, frete
+  finalidade?: FinalidadeNFe
+  chaveReferenciada?: string
+  icmsCodigo?: string
+  observacoes?: string
+  modalidadeFrete?: number
+  valorFrete?: number
 }
+
+const FINALIDADES: FinalidadeNFe[] = ['normal', 'complementar', 'ajuste', 'devolucao']
+const MODALIDADES_FRETE = [0, 1, 2, 3, 4, 9]
 
 export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
@@ -48,6 +59,19 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       return NextResponse.json({ ok: false, mensagem: 'Informe pelo menos 1 item' }, { status: 400 })
     }
 
+    const finalidade: FinalidadeNFe = body.finalidade ?? 'normal'
+    if (!FINALIDADES.includes(finalidade)) {
+      return NextResponse.json({ ok: false, mensagem: 'finalidade invalida' }, { status: 400 })
+    }
+    const modalidadeFrete = body.modalidadeFrete ?? 9
+    const valorFrete = Number(body.valorFrete ?? 0)
+    if (!MODALIDADES_FRETE.includes(modalidadeFrete) || !(valorFrete >= 0)) {
+      return NextResponse.json({ ok: false, mensagem: 'frete invalido' }, { status: 400 })
+    }
+    if (modalidadeFrete === 9 && valorFrete > 0) {
+      return NextResponse.json({ ok: false, mensagem: 'Frete com valor exige a modalidade (CIF, FOB ou terceiros).' }, { status: 400 })
+    }
+
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'remessa', endpoint: 'nfe/remessa' } })
     if (negado) return negado
 
@@ -72,12 +96,40 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const doc = String(destAny.cnpj_cpf ?? destAny.cpf_cnpj ?? '').replace(/\D/g, '')
     const ehCnpj = doc.length === 14
 
-    const itensBuilder: NFeBuilderItemInput[] = body.itens.map((it) => ({
+    // #3861 · CFOP pela UF (5 dentro · 6 outra UF, com aviso · 7 exterior), finalidade/chave e ICMS da operação —
+    // a mesma regra que a tela mostra antes de emitir (src/lib/fiscal/nfeAvulsa.ts)
+    const [{ data: emp }, { data: catalogo }] = await Promise.all([
+      supabaseAdmin.from('companies').select('uf_fiscal, regime_tributario').eq('id', body.companyId).maybeSingle(),
+      supabaseAdmin.from('erp_fiscal_cfop_saida').select('cfop, descricao, natureza_sugerida, exige_referenciada').eq('ativo', true),
+    ])
+    const empAny = (emp ?? {}) as { uf_fiscal?: string | null; regime_tributario?: string | null }
+    const simples = String(empAny.regime_tributario ?? '').toLowerCase().includes('simples')
+    const avulsa = validarNFeAvulsa({
+      cfop: body.cfop,
+      itensCfop: body.itens.map((it) => it.cfop),
+      ufEmitente: ufDestino(empAny.uf_fiscal),
+      ufDestino: ufDestino(destAny.uf),
+      finalidade,
+      chaveReferenciada: body.chaveReferenciada,
+      icmsCodigo: body.icmsCodigo,
+      simples,
+      catalogo: (catalogo ?? []) as CfopSaida[],
+    })
+    if (avulsa.erros.length > 0) {
+      return NextResponse.json({ ok: false, mensagem: avulsa.erros.join(' · '), erros: avulsa.erros, avisos: avulsa.avisos }, { status: 400 })
+    }
+    const icmsCodigo = soDigitos(body.icmsCodigo)
+    // ICMS escolhido para a operação (remessa não destaca imposto): sem base, alíquota nem valor
+    const icmsOverride = icmsCodigo ? { csosn: icmsCodigo, base: 0, aliquota: 0, valor: 0 } : undefined
+
+    const itensBuilder: NFeBuilderItemInput[] = body.itens.map((it, i) => ({
       produtoId: it.produtoId,
       quantidade: Number(it.quantidade),
       valorUnitarioOverride: it.valorUnitarioOverride !== undefined ? Number(it.valorUnitarioOverride) : undefined,
-      cfopOverride: body.cfop.trim(),
+      cfopOverride: avulsa.itensCfop[i] ?? avulsa.cfop,
+      ...(icmsOverride ? { icmsOverride } : {}),
     }))
+    const chaveRef = soDigitos(body.chaveReferenciada)
 
     const enderecoBuilder = destAny.logradouro
       ? {
@@ -103,7 +155,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         },
         itens: itensBuilder,
         naturezaOperacao: body.naturezaOperacao,
-        finalidade: 'normal',
+        finalidade,
+        ...(chaveRef ? { chaveReferenciada: chaveRef } : {}),
+        ...(body.observacoes?.trim() ? { observacoes: body.observacoes.trim().slice(0, 2000) } : {}),
+        totais: { modalidadeFrete, ...(valorFrete > 0 ? { frete: valorFrete } : {}) },
       },
     })
 
@@ -136,7 +191,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       protocolo: resposta.protocolo,
       natureza_operacao: nfeReq.naturezaOperacao,
       finalidade: nfeReq.finalidade,
-      valor_total: valorProdutos,
+      valor_total: valorProdutos + valorFrete,
       valor_produtos: valorProdutos,
       emitente_cnpj: nfeReq.emitente.cnpj,
       emitente_razao_social: nfeReq.emitente.razaoSocial,
@@ -185,7 +240,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       motivoRejeicao: resposta.motivoRejeicao,
       providerReference: resposta.providerReference,
       ambiente: svc.ambiente,
-      cfop: body.cfop,
+      cfop: avulsa.cfop,
+      avisos: avulsa.avisos,
     })
   } catch (err) {
     if (isFiscalError(err)) {
