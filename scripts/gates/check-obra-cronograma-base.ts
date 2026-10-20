@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const sql = readFileSync('supabase/migrations/20261020133030_hb3_cronograma_obra_base.sql', 'utf8').replace(/--[^\n]*/g, '')
+const sql = readFileSync('supabase/migrations/20261020170030_hb3_cronograma_obra_base.sql', 'utf8').replace(/--[^\n]*/g, '')
 
 ok(/ENABLE ROW LEVEL SECURITY/.test(sql) && (sql.match(/ENABLE ROW LEVEL SECURITY/g) ?? []).length === 2, 'RLS ligada nas 2 tabelas')
 ok(/REVOKE ALL ON public\.projetos_obra_tarefa, public\.projetos_obra_tarefa_dependencia FROM PUBLIC, anon;/.test(sql), 'tabelas fechadas ao anon')
