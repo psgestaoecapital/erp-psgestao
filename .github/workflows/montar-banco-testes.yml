@@ -141,7 +141,11 @@ jobs:
         if: github.event_name == 'workflow_run' || !inputs.recriar
         env:
           SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
-        run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+        run: |
+          # 20/10: ~50% dos Montar (todos em workflow_run) morriam em segundos aqui por órfão apply-time no ledger da vaga
+          # ("Remote migration versions not found", 20261019122120). Poda só o ledger do banco de TESTES antes do push.
+          scripts/banco-testes/podar-orfas-ledger.sh
+          supabase db push --include-all --db-url "$TEST_DATABASE_URL"
       # 13/10: após o deploy de migration, as vagas extras provisionadas (1/2) recebem as mesmas migrations; vaga sem
       # segredos é pulada com aviso (nunca falha). Vale só no workflow_run; no disparo manual a vaga é a escolhida.
       # 19/10 (gilberto-desenv): este passo roda sob a trava da vaga 0 (aceitacao-testes), NÃO sob a das vagas 1/2. Com uma
