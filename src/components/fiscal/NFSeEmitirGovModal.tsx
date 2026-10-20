@@ -16,6 +16,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@/components/comum/BlocoObraFiscal'
 import { aplicarRetencoesNota, calcularRetencoesFederais, MSG_EXIGE_SERVICO_NFSE, retencoesNotaDoCadastro, retencoesNotaIguais, sugerirRetencoesNota, TRIBUTOS_RETENCAO, type RetencoesNota, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 import { conferirMedicaoEscopo, brl as brlEscopo, type ItemEscopo } from '@/lib/fiscal/medicaoEscopoObra'
+import { modoObraInicial, textoBloqueioNfse } from '@/lib/fiscal/bloqueioNfseTexto'
 
 // bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos).
 // obra_sem_cno saiu (CNO virou opcional); obra_endereco_incompleto é o novo — a prefeitura exige endereço.
@@ -218,6 +219,8 @@ export default function NFSeEmitirGovModal({
   // bloqueio sem ter como vincular a obra (o beco sem saída do print). Mesmo componente da venda/reenvio.
   const [obraFiscal, setObraFiscal] = useState<ObraFiscalState>(obraFiscalStateInicial)
   const [exigeObra, setExigeObra] = useState(false)
+  // #3862 · a pessoa já mexeu no quadro da obra? Sem mexer, o quadro abre em "Informar o endereço agora".
+  const [obraTocada, setObraTocada] = useState(false)
   // aviso (não bloqueia): produção + tomador é um usuário da própria empresa → "nota REAL pra você mesmo"
   const [avisoAutoTomador, setAvisoAutoTomador] = useState(false)
   // NFS-e PRIMEIRO → financeiro pelo LÍQUIDO. Após a nota AUTORIZADA, o passo "Gerar financeiro desta
@@ -259,6 +262,12 @@ export default function NFSeEmitirGovModal({
     return () => { vivo = false }
   }, [aberto, obraIdEff])
   const mostrarObra = !obraId && (permitirObra || exigeObra)
+  // #3862 · serviço exige obra e nada escolhido ainda → abre em "Informar o endereço agora" (o endereço basta).
+  useEffect(() => {
+    if (!mostrarObra) return
+    const modo = modoObraInicial({ modo: obraFiscal.modo, obraSel: obraFiscal.obraSel, tocado: obraTocada }, exigeObra)
+    if (modo !== obraFiscal.modo) setObraFiscal((st) => ({ ...st, modo }))
+  }, [mostrarObra, exigeObra, obraTocada, obraFiscal.modo, obraFiscal.obraSel])
 
   // #32/#35 · servico_id efetivo: o que veio do pedido/OS (prop) OU o escolhido aqui no modal.
   // issNoLocalEff idem — habilita o seletor de município e a busca de alíquota também na emissão avulsa.
@@ -327,7 +336,7 @@ export default function NFSeEmitirGovModal({
     setServicoSelId(''); setServicoIssLocal(false); setIssInfo('')
     setTomEndereco(''); setBuscaDocMsg(''); setBuscandoDoc(false)
     setObraFiscal(obraFiscalStateInicial)
-    setExigeObra(false); setAvisoAutoTomador(false); setProviderAtivo(undefined)
+    setExigeObra(false); setObraTocada(false); setAvisoAutoTomador(false); setProviderAtivo(undefined)
     setNfseIdGerado(null); setFinRet({ iss: '', irrf: '', pis: '', cofins: '', csll: '', inss: '', deducoes: '', desconto: '' })
     setFinVenc(''); setFinFase('idle'); setFinMsg(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1087,7 +1096,7 @@ export default function NFSeEmitirGovModal({
 
               {/* A③ · obra no reenvio de nota rejeitada por E0370 sem obra (mesmo bloco da venda) */}
               {mostrarObra && (
-                <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={setObraFiscal} />
+                <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={(st) => { setObraTocada(true); setObraFiscal(st) }} />
               )}
 
               {/* #32 · Local da execução — quando o serviço tem ISS no local da prestação. Aparece
@@ -1132,11 +1141,19 @@ export default function NFSeEmitirGovModal({
                     <AlertCircle size={14} /> Esta nota não pode ser emitida ainda
                   </div>
                   <ul className="space-y-1.5">
-                    {bloqueios.map((b, i) => (
-                      <li key={i} className="text-[12px] text-[#791F1F]">
-                        • {b.mensagem}{b.acao ? <span className="text-[#3D2314]/60"> — {b.acao}{b.onde ? ` (${b.onde})` : ''}</span> : null}
-                      </li>
-                    ))}
+                    {bloqueios.map((b, i) => {
+                      const t = textoBloqueioNfse(b)
+                      return (
+                        <li key={i} className="text-[12px] text-[#791F1F]">
+                          • {t.mensagem}{t.acao ? <span className="text-[#3D2314]/60"> — {t.acao}</span> : null}
+                          {t.link && (
+                            <>{' '}<Link href={t.link.href} target="_blank" className="text-[#8B5612] underline underline-offset-2 inline-flex items-center gap-0.5">
+                              {t.link.rotulo} <ExternalLink size={10} />
+                            </Link></>
+                          )}
+                        </li>
+                      )
+                    })}
                   </ul>
                 </div>
               )}
