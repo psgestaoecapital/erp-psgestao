@@ -6,6 +6,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { observacoesComSimples, TEXTO_SIMPLES } from '../../src/lib/fiscal/creditoIcmsSimples'
+import { LIMITE_INF_CPL, excedeLimiteInfCpl, textoInformacoesComplementares } from '../../src/lib/fiscal/informacoesComplementares'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
@@ -25,6 +26,20 @@ const obs = observacoesComSimples('Ordem de compra nº 123', 38, 3.8)
 ok(obs.startsWith('Ordem de compra nº 123 | ') && obs.includes(TEXTO_SIMPLES) && obs.includes('APROVEITAMENTO DO CRÉDITO DE ICMS'), 'texto final: pedido | Simples | crédito')
 const final = [obs, 'Valor aproximado dos tributos: R$ 1,14 (11,39%)'].map((s) => s.trim()).filter(Boolean).join(' | ')
 ok(final.indexOf('Ordem de compra') < final.indexOf('OPTANTE') && final.indexOf('OPTANTE') < final.indexOf('Valor aproximado'), 'ordem: pedido → Simples → 12.741')
+
+// Etapa 2: prévia editável + limite do campo (infCpl ≤ 5000), sem cortar calado.
+ok(LIMITE_INF_CPL === 5000, 'limite do infCpl = 5000 caracteres (leiaute NF-e 4.00)')
+ok(textoInformacoesComplementares('composto', undefined) === 'composto' && textoInformacoesComplementares('composto', ' editado ') === 'editado', 'texto editado na tela substitui o composto')
+ok(textoInformacoesComplementares('composto', '') === undefined, 'texto apagado na tela = nota sem informações complementares')
+ok(!excedeLimiteInfCpl('x'.repeat(5000)) && excedeLimiteInfCpl('x'.repeat(5001)), 'acima de 5000 caracteres excede')
+const iPrevia = route.indexOf('if (body.apenasPrevia) {')
+const iEmitir = route.indexOf('await svc.emitirNFe(nfeReq)')
+ok(iPrevia > 0 && iPrevia < iEmitir && route.indexOf('excedeLimiteInfCpl(nfeReq.observacoes)') < iEmitir, 'rota: prévia volta antes de emitir e o limite trava a emissão')
+ok(route.indexOf('textoInformacoesComplementares(nfeReq.observacoes, body.informacoesComplementares)') > route.lastIndexOf('[nfeReq.observacoes, bloco]'), 'rota: edição aplicada depois dos textos legais (o que a tela viu é o que sai)')
+ok(/if \(!body\.apenasPrevia\) await registrarFalhaEmissaoNFe/.test(route), 'rota: prévia não registra tentativa de emissão')
+const card = readFileSync('src/components/comum/NFeCard.tsx', 'utf8')
+ok(/apenasPrevia: true/.test(card) && /payload\.informacoesComplementares = textoInfCpl/.test(card), 'card do pedido: carrega a prévia e envia o texto editado')
+ok((card.match(/\{secaoInfCpl\}/g) ?? []).length === 2 && (card.match(/disabled=\{emitindo \|\| excedeInfCpl\}/g) ?? []).length === 2, 'card do pedido: texto antes de Emitir/Reemitir e botão travado acima do limite')
 
 if (falhas) { console.error(`\n[check-nfe-observacoes-pedido] ${falhas} falha(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-nfe-observacoes-pedido] observações do pedido na NF-e conferidas.')

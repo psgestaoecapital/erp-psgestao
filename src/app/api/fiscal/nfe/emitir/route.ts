@@ -9,6 +9,7 @@ import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
+import { LIMITE_INF_CPL, excedeLimiteInfCpl, mensagemLimiteInfCpl, textoInformacoesComplementares } from '@/lib/fiscal/informacoesComplementares'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -43,6 +44,10 @@ interface EmitirNFeBody {
   }
   // indFinal escolhido na venda (modal/pedido). undefined → o builder deriva do indIEDest.
   consumidorFinal?: boolean
+  // Pedido Jordana 20/10: apenasPrevia=true só monta a nota e devolve o texto final das Informações Complementares
+  // (não emite, não grava). informacoesComplementares = texto editado na tela; substitui o composto por inteiro.
+  apenasPrevia?: boolean
+  informacoesComplementares?: string | null
 }
 
 export const POST = withAuth(async (req: NextRequest, { userId }) => {
@@ -88,7 +93,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     try {
       validateNFeRequest(nfeReq)
     } catch (e) {
-      await registrarFalhaEmissaoNFe(ctxEmissao, e)
+      if (!body.apenasPrevia) await registrarFalhaEmissaoNFe(ctxEmissao, e)
       throw e
     }
 
@@ -187,6 +192,21 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           }
         }
       }
+    }
+
+    // Prévia / edição das Informações Complementares (pedido Jordana 20/10). O texto composto acima (observação do
+    // pedido + Simples/crédito + Lei 12.741) é o que a tela mostra; o editado substitui por inteiro. Acima do limite do
+    // campo a nota NÃO sai (o provedor cortaria calado) — a tela avisa antes.
+    nfeReq.observacoes = textoInformacoesComplementares(nfeReq.observacoes, body.informacoesComplementares)
+    const tamanhoInfCpl = (nfeReq.observacoes ?? '').length
+    if (body.apenasPrevia) {
+      return NextResponse.json({
+        ok: true,
+        previa: { informacoesComplementares: nfeReq.observacoes ?? '', tamanho: tamanhoInfCpl, limite: LIMITE_INF_CPL, avisoIbpt },
+      })
+    }
+    if (excedeLimiteInfCpl(nfeReq.observacoes)) {
+      return NextResponse.json({ ok: false, mensagem: mensagemLimiteInfCpl(tamanhoInfCpl) }, { status: 400 })
     }
 
     const svc = await createFiscalService(body.companyId, { ambienteOverride: body.ambiente })
