@@ -141,7 +141,24 @@ jobs:
         if: github.event_name == 'workflow_run' || !inputs.recriar
         env:
           SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
-        run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+        run: |
+          set -uo pipefail
+          # 20/10 (gilberto-desenv): causa raiz dos vermelhos do Montar (#473–#494, ~50%): a vaga 0 guarda no ledger a versão
+          # de uma migration de PR aplicada pela aceitação (ex.: 20261019145520) que NÃO existe na main → o db push aborta
+          # em 1 s com "Remote migration versions not found" e o Montar inteiro (catálogos, semente, fn_demo_reset) não roda.
+          # Disparo manual passa porque o operador limpa a vaga antes. Aqui: se o push falhar por esse motivo, tira do ledger
+          # DESTE banco de testes (a trava anterior garante que não é produção) só as versões sem arquivo local e tenta de novo.
+          if supabase db push --include-all --db-url "$TEST_DATABASE_URL" 2> push-erro.log; then cat push-erro.log; exit 0; fi
+          cat push-erro.log
+          grep -q 'Remote migration versions not found' push-erro.log || exit 1
+          case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          ls supabase/migrations/*.sql | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -u > locais.txt
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "select version from supabase_migrations.schema_migrations" | sort -u > remotas.txt
+          comm -13 locais.txt remotas.txt > orfas.txt
+          echo "::warning title=Ledger da vaga::$(wc -l < orfas.txt) versão(ões) órfã(s) tiradas do ledger do banco de testes: $(tr '\n' ' ' < orfas.txt)"
+          [ -s orfas.txt ] || exit 1
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "set statement_timeout='15s'; delete from supabase_migrations.schema_migrations where version = any(string_to_array('$(paste -sd, orfas.txt)', ','))"
+          supabase db push --include-all --db-url "$TEST_DATABASE_URL"
       # 13/10: após o deploy de migration, as vagas extras provisionadas (1/2) recebem as mesmas migrations; vaga sem
       # segredos é pulada com aviso (nunca falha). Vale só no workflow_run; no disparo manual a vaga é a escolhida.
       # 19/10 (gilberto-desenv): este passo roda sob a trava da vaga 0 (aceitacao-testes), NÃO sob a das vagas 1/2. Com uma
