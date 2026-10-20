@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS public.prod_apontamento_hora (
   criado_por uuid,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (company_id, fluxo_id, posto_id, produto_id, data, hora)
+  -- NULLS NOT DISTINCT (PG15+): sem posto, NULL ainda deduplica — o upsert de apontamento é idempotente (revisor #2874)
+  UNIQUE NULLS NOT DISTINCT (company_id, fluxo_id, posto_id, produto_id, data, hora)
 );
 CREATE INDEX IF NOT EXISTS ix_prod_apont_dia ON public.prod_apontamento_hora(company_id, plant_id, fluxo_id, data);
 
@@ -162,6 +163,11 @@ CREATE POLICY prod_tarefa_video_acesso_sel ON public.prod_tarefa_video_acesso FO
 REVOKE ALL ON public.prod_tarefa_video_acesso FROM PUBLIC, anon;
 GRANT SELECT ON public.prod_tarefa_video_acesso TO authenticated;
 
+-- LGPD (revisor #2874): o documento (CPF) do colaborador NÃO fica legível no SELECT direto da tabela.
+-- O GRANT SELECT acima é por tabela; aqui removemos a coluna sensível do alcance de authenticated.
+-- Leitura do documento só por RPC com guarda (fatia seguinte), ou pela conta de serviço.
+REVOKE SELECT (colaborador_documento) ON public.prod_video_consentimento FROM authenticated;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 5. Bucket privado + storage RLS (caminho <company_id>/<tarefa_id>/<arquivo>)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -169,15 +175,28 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('industria-produtividade','industria-produtividade', false)
 ON CONFLICT (id) DO NOTHING;
 
+-- Caminho exigido: <company_id>/<tarefa_id>/<arquivo> (revisor #2874).
+-- INSERT: só na própria empresa E o 2º segmento tem de ser uma prod_tarefa dessa empresa (cast seguro por regexp).
 DROP POLICY IF EXISTS prod_video_insert ON storage.objects;
 CREATE POLICY prod_video_insert ON storage.objects FOR INSERT TO authenticated
-  WITH CHECK (bucket_id='industria-produtividade' AND (split_part(name,'/',1) IN (SELECT public.get_user_company_ids()::text) OR public.is_admin()));
+  WITH CHECK (
+    bucket_id = 'industria-produtividade'
+    AND split_part(name,'/',1) IN (SELECT public.get_user_company_ids()::text)
+    AND split_part(name,'/',2) ~ '^[0-9a-fA-F-]{36}$'
+    AND EXISTS (
+      SELECT 1 FROM public.prod_tarefa t
+      WHERE t.id = split_part(name,'/',2)::uuid
+        AND t.company_id::text = split_part(name,'/',1)
+    )
+  );
+-- SELECT/DELETE diretos por usuário comum: REMOVIDOS (revisor #2874). A leitura sai por URL assinada gerada em RPC
+-- que registra o acesso (fn_prod_video_acesso_registrar); a exclusão é por rotina de retenção (guardar_ate).
+-- Admin mantém acesso de curadoria; a conta de serviço (service_role) ignora RLS para gerar a URL assinada.
 DROP POLICY IF EXISTS prod_video_select ON storage.objects;
 CREATE POLICY prod_video_select ON storage.objects FOR SELECT TO authenticated
-  USING (bucket_id='industria-produtividade' AND (split_part(name,'/',1) IN (SELECT public.get_user_company_ids()::text) OR public.is_admin()));
-DROP POLICY IF EXISTS prod_video_delete ON storage.objects;
-CREATE POLICY prod_video_delete ON storage.objects FOR DELETE TO authenticated
-  USING (bucket_id='industria-produtividade' AND (split_part(name,'/',1) IN (SELECT public.get_user_company_ids()::text) OR public.is_admin()));
+  USING (bucket_id = 'industria-produtividade' AND public.is_admin());
+-- sem policy de DELETE para authenticated: exclusão só pela conta de serviço / rotina de retenção.
+-- (policy prod_video_delete é introduzida nesta PR; como não a criamos, não há o que derrubar.)
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 6. RPCs (SECURITY DEFINER, search_path public, guarda fn_prod_assert_planta, autoria por auth.uid())
@@ -211,6 +230,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.prod_fluxo_etapa e
                  WHERE e.id = p_etapa_id AND e.company_id = p_company_id AND e.plant_id = p_plant_id)
   THEN RAISE EXCEPTION 'etapa_nao_encontrada'; END IF;
+  -- cargo (quando informado) tem de ser da mesma empresa/planta (revisor #2874)
+  IF p_cargo_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.prod_cargo c
+                 WHERE c.id = p_cargo_id AND c.company_id = p_company_id AND c.plant_id = p_plant_id)
+  THEN RAISE EXCEPTION 'cargo_invalido'; END IF;
   IF p_id IS NULL THEN
     INSERT INTO public.prod_tarefa (company_id, plant_id, etapa_id, ordem, nome, cargo_id, cap_hora, unidade_cap, estado, criado_por)
     VALUES (p_company_id, p_plant_id, p_etapa_id, coalesce(p_ordem,0), p_nome, p_cargo_id, p_cap_hora, p_unidade_cap,
@@ -255,6 +278,17 @@ BEGIN
   THEN RAISE EXCEPTION 'fluxo_nao_encontrado'; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.prod_produto p WHERE p.id = p_produto_id AND p.company_id = p_company_id AND p.plant_id = p_plant_id)
   THEN RAISE EXCEPTION 'produto_nao_encontrado'; END IF;
+  -- Validar as FKs opcionais contra a mesma empresa/planta (e a etapa contra o fluxo) quando informadas,
+  -- para não aceitar referência cruzada de outra empresa.
+  IF p_posto_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM public.prod_posto po WHERE po.id = p_posto_id AND po.company_id = p_company_id AND po.plant_id = p_plant_id)
+  THEN RAISE EXCEPTION 'posto_nao_encontrado'; END IF;
+  IF p_etapa_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM public.prod_fluxo_etapa e WHERE e.id = p_etapa_id AND e.company_id = p_company_id AND e.plant_id = p_plant_id AND e.fluxo_id = p_fluxo_id)
+  THEN RAISE EXCEPTION 'etapa_nao_encontrada'; END IF;
+  IF p_tarefa_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM public.prod_tarefa t WHERE t.id = p_tarefa_id AND t.company_id = p_company_id AND t.plant_id = p_plant_id)
+  THEN RAISE EXCEPTION 'tarefa_nao_encontrada'; END IF;
   INSERT INTO public.prod_apontamento_hora (company_id, plant_id, fluxo_id, etapa_id, tarefa_id, posto_id, produto_id,
       data, hora, qtd_produzida, unidade, pessoas_presentes, fonte, criado_por)
   VALUES (p_company_id, p_plant_id, p_fluxo_id, p_etapa_id, p_tarefa_id, p_posto_id, p_produto_id,
@@ -409,12 +443,19 @@ BEGIN
       END IF;
       v_ok := v_ok + 1;
       IF p_gravar THEN
+        -- INSERT usa 'acabado' só como padrão de linha NOVA; UPDATE preserva o valor atual
+        -- quando a coluna colada veio vazia (coluna NULL), para não regredir dado já existente.
         INSERT INTO public.prod_produto (company_id, plant_id, codigo, nome, papel, linha, secao_origem, peso_aprox_kg, conservacao, chave_externa)
         VALUES (p_company_id, p_plant_id, v_codigo, v_nome, coalesce(v_papel,'acabado'), v_linha_prod, v_secao, v_peso, v_conserv, v_codigo)
         ON CONFLICT (company_id, plant_id, codigo) DO UPDATE SET
-          nome = EXCLUDED.nome, papel = EXCLUDED.papel, linha = EXCLUDED.linha, secao_origem = EXCLUDED.secao_origem,
-          peso_aprox_kg = EXCLUDED.peso_aprox_kg, conservacao = EXCLUDED.conservacao, chave_externa = EXCLUDED.chave_externa,
-          updated_at = now();
+          nome          = v_nome,
+          papel         = coalesce(v_papel,     public.prod_produto.papel),
+          linha         = coalesce(v_linha_prod, public.prod_produto.linha),
+          secao_origem  = coalesce(v_secao,     public.prod_produto.secao_origem),
+          peso_aprox_kg = coalesce(v_peso,      public.prod_produto.peso_aprox_kg),
+          conservacao   = coalesce(v_conserv,   public.prod_produto.conservacao),
+          chave_externa = coalesce(public.prod_produto.chave_externa, v_codigo),
+          updated_at    = now();
         v_grav := v_grav + 1;
       END IF;
     END LOOP;
