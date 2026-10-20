@@ -21,7 +21,7 @@ jobs:
       github.event.deployment_status.state == 'success' &&
       !contains(github.event.deployment.environment, 'Production') &&
       !contains(github.event.deployment.environment, 'production')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     timeout-minutes: 5
     permissions:
       contents: read
@@ -125,7 +125,7 @@ jobs:
       github.event.deployment_status.state == 'success' &&
       !contains(github.event.deployment.environment, 'Production') &&
       !contains(github.event.deployment.environment, 'production')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
     # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
     # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
@@ -330,6 +330,10 @@ jobs:
           # a vaga precisa estar em dia com a main antes de comparar com a referência (idempotente — db push só aplica o que falta)
           git fetch --no-tags --depth=1 origin main
           mmain=$(mktemp -d); git archive origin/main -- supabase | tar -x -C "$mmain"
+          # 20/10 (gilberto-desenv): FONTE da órfã apply-time (RD-52) que re-sujava a vaga 0: PR com migration aplica a versão
+          # na vaga (db push da PR); se a PR é renumerada pela fila/refeita/fechada, a versão fica no ledger SEM arquivo e
+          # ABAIXO da maior da main — a guarda de contaminação (só vê > max) não pega e o db push aborta. Poda antes (só vaga).
+          MIGR_DIR="$mmain/supabase/migrations" scripts/banco-testes/podar-orfas-ledger.sh
           if ! ( cd "$mmain" && supabase db push --include-all --db-url "$TEST_DATABASE_URL" ); then
             echo "::error::sync da main na vaga ${ACEITACAO_VAGA:-?} falhou (db push) — aceitação abortada"; exit 1
           fi
@@ -364,6 +368,8 @@ jobs:
           mmain=$(mktemp -d)
           git archive origin/main -- supabase | tar -x -C "$mmain"   # config.toml + migrations SÓ da main
           antes=$(led "$TEST_DATABASE_URL")
+          echo "0) podando órfãos do ledger da vaga (versão sem arquivo na main, RD-52)…"
+          MIGR_DIR="$mmain/supabase/migrations" scripts/banco-testes/podar-orfas-ledger.sh
           echo "1) sincronizando a vaga ${ACEITACAO_VAGA:-0} SÓ com a main (db push idempotente)…"
           if ! ( cd "$mmain" && supabase db push --include-all --db-url "$TEST_DATABASE_URL" ); then
             echo "::error::banco da vaga ${ACEITACAO_VAGA:-?} não sincronizou com a main (supabase db push falhou) — aceitação abortada"; exit 1
@@ -534,7 +540,7 @@ jobs:
   liberar-reserva:
     needs: aceitacao
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     permissions:
       contents: none
     steps:
