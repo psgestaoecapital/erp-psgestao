@@ -230,8 +230,20 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   // então o mês atual esconderia parte deles e o total não bateria com o card.
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const st = new URLSearchParams(window.location.search).get('status')
-    if (st === 'vencido') {
+    const qs = new URLSearchParams(window.location.search)
+    const st = qs.get('status')
+    // #3866: link "Ver pagas/recebidas sem conta" da composição do saldo (?status=pagos&sem_conta=1&desde=AAAA-MM-DD).
+    // O período da listagem é pelo vencimento: abre do início do controle até o fim do mês atual.
+    if (qs.get('sem_conta') === '1') setContasSel(new Set([SEM_CONTA]))
+    const desde = qs.get('desde')
+    if (desde && /^\d{4}-\d{2}-\d{2}$/.test(desde)) {
+      setPeriodoChoice('personalizado')
+      setDataInicio(desde)
+      setDataFim(fimMesAtual())
+    }
+    if (st === 'pagos') {
+      setStatusSel(['pagos'])
+    } else if (st === 'vencido') {
       setStatusSel(['vencidos'])
       setPeriodoChoice('personalizado')
       setDataInicio(`${new Date().getFullYear() - 5}-01-01`)
