@@ -2,7 +2,7 @@ import type { NFeRequest, NFeProdutoItem } from './types'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
 import { enderecoComMunicipioOficial } from './municipioDestinatario'
-import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, empresaComCreditoSN, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
+import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
 
 // UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
 const UFS_BR = new Set([
@@ -455,11 +455,14 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario,
     itens: itensNFe,
     chaveReferenciada: input.manual?.chaveReferenciada,
-    observacoes: empresaComCreditoSN(condCreditoSN) && aliqCreditoSN != null
+    // #2876 (ajuste Jordana 20/10): a frase do Simples ("DOCUMENTO EMITIDO POR ME OU EPP…") sai em TODA nota de
+    // emitente do Simples, com ou sem alíquota de crédito cadastrada (a NF-e nº 2 da FCR saiu sem nenhum texto e as
+    // da Gean também). A frase do crédito (art. 23) só entra quando algum item saiu 101 com vCredICMSSN.
+    observacoes: ehSimples
       ? observacoesComSimples(
           input.manual?.observacoes ?? observacoesOrigem,
           itensNFe.reduce((a, i) => a + (i.icms?.creditoSN?.valor ?? 0), 0) || null,
-          aliqCreditoSN,
+          aliqCreditoSN ?? 0,
         )
       : (input.manual?.observacoes ?? observacoesOrigem),
     totais: input.manual?.totais,
