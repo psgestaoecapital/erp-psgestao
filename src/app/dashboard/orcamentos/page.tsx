@@ -268,9 +268,9 @@ export default function OrcamentosPage(){
     const u=(usuariosPorEmpresa[o.company_id]||[]).find(x=>x.id===uid);
     const nome=u?(u.full_name||u.email||null):null;
     const{error}=await supabase.from("erp_orcamentos").update({orcamentista_id:uid||null,orcamentista_nome:uid?nome:null}).eq("id",o.id);
-    if(error){setMsg("❌ Não foi possível atribuir o orçamentista");return;}
+    if(error){setMsg("Não foi possível atribuir o orçamentista");return;}
     setOrcamentos(l=>l.map(x=>x.id===o.id?{...x,orcamentista_id:uid||null,orcamentista_nome:uid?nome:null}:x));
-    setMsg(uid?`✅ ${nome} é o orçamentista de ${o.numero}`:`✅ Orçamentista removido de ${o.numero}`);setTimeout(()=>setMsg(""),3000);
+    setMsg(uid?`${nome} é o orçamentista de ${o.numero}`:`Orçamentista removido de ${o.numero}`);setTimeout(()=>setMsg(""),3000);
   };
 
   const loadProdutos=async()=>{
@@ -794,7 +794,7 @@ export default function OrcamentosPage(){
 
           {editing&&infoOport&&(
             <div style={{background:BG3,border:`1px solid ${BD}`,borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:11,color:TX}}>
-              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>🧭 Informações da oportunidade</div>
+              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>Informações da oportunidade</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:6}}>
                 <div><span style={{color:TXD}}>Oportunidade: </span>{infoOport.titulo||'—'}</div>
                 <div><span style={{color:TXD}}>Cliente: </span>{infoOport.cliente||'—'}</div>
@@ -832,8 +832,8 @@ export default function OrcamentosPage(){
               <input type="number" min={1} max={365} placeholder={String(VALIDADE_PADRAO_DIAS)} defaultValue={validadePadraoDias??''} key={`vp-${editing?.company_id||companyIdParaCadastro}-${validadePadraoDias??''}`}
                 onBlur={e=>salvarValidadePadrao(e.target.value)} style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Visita feita vai para Orçando</div>
-              <AjudaCampo chave="orcamentos.config.visita_vai_orcar" rota="/dashboard/orcamentos"/>
               <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:TX}}>
+                <AjudaCampo chave="orcamentos.config.visita_vai_orcar" rota="/dashboard/orcamentos"/>
                 <input type="checkbox" checked={visitaVaiOrcar} onChange={e=>salvarVisitaVaiOrcar(e.target.checked)}/> Ligado nesta empresa</label></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}} title="Quando se espera faturar — alimenta a previsão de receita">Previsão de Faturamento</div>
               <input type="date" value={form.data_previsao_faturamento??''} onChange={e=>setForm({...form,data_previsao_faturamento:e.target.value||null})} style={inp}/></div>
@@ -1111,7 +1111,7 @@ export default function OrcamentosPage(){
                         </select>
                       </td>
                       <td style={{padding:"8px",textAlign:"center"}}>
-                        <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{o.status==='rascunho'&&o.orcamentista_id?"✍️ Em elaboração":`${cfg.icon} ${cfg.label}`}</span>
+                        <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{o.status==='rascunho'&&o.orcamentista_id?"Em elaboração":`${cfg.icon} ${cfg.label}`}</span>
                         {o.qtd_visualizacoes>0&&<div style={{fontSize:8,color:TXD,marginTop:2}}>👁 {o.qtd_visualizacoes} visualiz.</div>}
                       </td>
                       <td style={{padding:"8px",textAlign:"right",color:G,fontWeight:600}}>{fmtR(Number(o.total))}</td>
