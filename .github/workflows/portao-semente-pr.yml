@@ -1,0 +1,56 @@
+name: Portão de semente (PR)
+
+# Onda INFRA-TESTES · Slice 1 (erp_contexto_projeto f076af2d) — gilberto-desenv, 20/10. ADITIVO: sinal novo, não toca
+# banco de testes nem produção. Numa vaga limpa do Actions, monta um Postgres/Supabase LOCAL só das migrations do repo
+# (supabase start aplica supabase/migrations em ordem), planta o bot e roda scripts/banco-testes/smoke.sh. Pega a PR que
+# dessincroniza migration × semente ANTES do merge. Não depende de segredo nem de produção (funciona em PR de fork).
+# Só PR Ready que toca migration/semente/e2e support; draft não gasta runner.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/banco-testes/**'
+      - 'e2e/support/**'
+      - '.github/workflows/portao-semente-pr.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: portao-semente-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  portao:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PLAYWRIGHT_USER_EMAIL: bot-portao@testes.local
+      PLAYWRIGHT_USER_PASSWORD: portao-semente-local-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      - name: Subir banco local (aplica TODAS as migrations do repo)
+        run: |
+          set -euo pipefail
+          t0=$(date +%s)
+          supabase start -x studio,imgproxy,edge-runtime,logflare,vector,mailpit,realtime,storage-api,postgres-meta,supavisor
+          echo "### Portão de semente: banco local + migrations em $(( $(date +%s) - t0 )) s" >> "$GITHUB_STEP_SUMMARY"
+      - name: Bot do Playwright (id fixo) + smoke
+        run: |
+          set -euo pipefail
+          eval "$(supabase status -o env)"
+          ROBO_ID=74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API_URL/auth/v1/admin/users" \
+            -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg id "$ROBO_ID" --arg e "$PLAYWRIGHT_USER_EMAIL" --arg p "$PLAYWRIGHT_USER_PASSWORD" '{id:$id,email:$e,password:$p,email_confirm:true}')")
+          echo "criar bot: HTTP $code"
+          [ "$code" = 200 ] || [ "$code" = 201 ] || { echo "::error title=Portão de semente::login do bot não criado (Auth local HTTP $code)"; exit 1; }
+          LOCAL_DATABASE_URL="$DB_URL" scripts/banco-testes/smoke.sh
+      - if: always()
+        run: supabase stop --no-backup || true
