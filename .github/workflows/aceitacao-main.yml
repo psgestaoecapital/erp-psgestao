@@ -33,7 +33,7 @@ jobs:
   # novo — vale para a agenda e para o disparo pós-montagem (merges seguidos não enfileiram runs repetidos).
   # workflow_dispatch roda sempre.
   decide:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     timeout-minutes: 3
     outputs:
       rodar: ${{ steps.d.outputs.rodar }}
@@ -63,7 +63,7 @@ jobs:
   aceitacao-main:
     needs: decide
     if: needs.decide.outputs.rodar == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     # CEO 18/10: a aceitação da main roda SÓ na VAGA 1 (banco de referência), no grupo JÁ EXISTENTE da vaga 1
     # (aceitacao-testes-1) — a MESMA exclusão mútua do banco usada pelo montar/reconciliar da vaga 1 e por qualquer
     # aceitação de PR em transição nela. Como a vaga 1 sai do sorteio das PRs, esse grupo vira, na prática, só da main.
