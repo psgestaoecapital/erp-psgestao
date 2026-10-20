@@ -113,6 +113,10 @@ if [ "$MODO" = "snapshot" ]; then
     # só tabelas reais do public (evita alvo inválido / injeção: nome já veio saneado do grep)
     exists=$("$PSQL" "$TEST_DATABASE_URL" -tAc "select to_regclass('public.\"$t\"') is not null")
     [ "$exists" = "t" ] || continue
+    # tabela com trava de DELETE físico (RD-30, fn_bloqueia_delete_fisico: erp_pagar etc.) não se restaura por DELETE —
+    # fica fora da foto, como as append-only (19/10: a menção a "INSERT INTO erp_pagar" numa migration da PR re-sujava a vaga 0).
+    guarded=$("$PSQL" "$TEST_DATABASE_URL" -tAc "select exists(select 1 from pg_trigger g join pg_proc p on p.oid=g.tgfoid where g.tgrelid=to_regclass('public.\"$t\"') and not g.tgisinternal and p.proname='fn_bloqueia_delete_fisico')")
+    [ "$guarded" = "t" ] && { echo "vaga ${VAGA}: $t tem trava de DELETE físico (RD-30) — fora da foto de catálogo."; continue; }
     n_cat=$((n_cat+1))
     {
       echo "insert into _vaga_snapshot.cattbl values ('$t');"
@@ -162,7 +166,10 @@ fi
 pertence_a_tabela_nova() { grep -qxF "$1" "$dir/tdrop.names"; }
 
 txn="$dir/restore.sql"
-{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"; } > "$txn"
+{ echo "\\set ON_ERROR_STOP on"; echo "begin;"; echo "set local statement_timeout='10min'; set local lock_timeout='20s';"
+  # pg_trgm (similarity etc.) vive em extensions/public: sem isto a recriação de view/função/índice que a usa falha
+  # com "function similarity(text,text) does not exist" e a vaga fica SUJA (19/10, drenagem parada).
+  echo "set local search_path = public, extensions, pg_catalog;"; } > "$txn"
 # 1) DROP do que a PR criou (objetos vaga-only em relação à foto)
 nd=0
 while IFS= read -r k; do

@@ -48,10 +48,12 @@ SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 # Leitura (GET, sem -X) tenta até 3x: resposta vazia/transitória da API ("unexpected end of JSON input") derrubava a rodada
 # inteira (set -e) e deixava a esteira parada (runs 14909/14916, 14/10). Escrita (-X) NUNCA repete: não é idempotente.
+# `timeout 60` (19/10): um `gh api` pendurado (sem resposta) segurava o passo até os 8 min, o runner matava a rodada na PR
+# #2608 e nenhuma PR depois dela era avaliada (nada publicado por 80 min). Estourou → falha como qualquer erro de API.
 api() {
   local t=1 out
-  case " $* " in *" -X "*) gh api -H 'Accept: application/vnd.github+json' "$@"; return;; esac
-  until out=$(gh api -H 'Accept: application/vnd.github+json' "$@"); do
+  case " $* " in *" -X "*) timeout 60 gh api -H 'Accept: application/vnd.github+json' "$@"; return;; esac
+  until out=$(timeout 60 gh api -H 'Accept: application/vnd.github+json' "$@"); do
     [ "$t" -ge 3 ] && return 1
     sleep $((t * 2)); t=$((t + 1))
   done
@@ -857,7 +859,9 @@ for n in $fila; do
     api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
     continue
   fi
-  log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')"
+  # Espelho (19/10): o tem_migration do erp_esteira_pr_estado vem do texto do log; sem esta marca, PR com migration que
+  # seguia o caminho normal ("checks rodando: aceitacao") aparecia com tem_migration=false (12 PRs de 19/10 — diagnóstico errado).
+  log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')$([ "$com_migration" = 1 ] && echo ' (com migration)')"
 
   # (c) sensível → autorização pelo conteúdo
   if [ "$via" = revisada ]; then
