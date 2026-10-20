@@ -125,3 +125,7 @@ BEGIN
 
   RETURN v_pedido_id;
 END $function$;
+
+-- Mantém os mesmos privilégios de produção (authenticated + service_role; nunca anon).
+REVOKE ALL ON FUNCTION public.fn_converter_orcamento_em_pedido(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_converter_orcamento_em_pedido(uuid) TO authenticated, service_role;
