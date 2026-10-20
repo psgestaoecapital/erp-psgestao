@@ -13,6 +13,9 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { selecionarTodas } from '@/lib/selecionarTodas'
+import { resumirNotasPorOS, situacaoNotaOS, passaFiltroNotaOS, rotuloNotaOS, type NotaOSLinha, type NotaOSResumo, type FiltroNotaOS } from '@/lib/oficina/osNotaFiscal'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +30,7 @@ const C = {
 }
 
 const STATUS_CFG: Record<string, { label: string; cor: string; bg: string }> = {
+  orcamento:             { label: 'Orçamento',               cor: C.amber,    bg: C.amberBg },  // #2867 · OS criada como orçamento (cliente ainda não aprovou)
   aberta:                { label: 'Aberta',                  cor: C.espresso, bg: C.cream },
   em_execucao:           { label: 'Em execução',             cor: C.gold,     bg: C.goldBg },
   aguardando_peca:       { label: 'Aguardando peça',         cor: C.amber,    bg: C.amberBg },
@@ -36,7 +40,7 @@ const STATUS_CFG: Record<string, { label: string; cor: string; bg: string }> = {
   entregue:              { label: 'Entregue',                cor: C.greenD,   bg: C.greenBg },
   cancelada:             { label: 'Cancelada',               cor: C.red,      bg: C.redBg },
 }
-const STATUS_ORDER = ['aberta','aguardando_aprovacao','aprovada','em_execucao','aguardando_peca','pronta','entregue','cancelada'] as const
+const STATUS_ORDER = ['orcamento','aberta','aguardando_aprovacao','aprovada','em_execucao','aguardando_peca','pronta','entregue','cancelada'] as const
 
 interface OSRow {
   id: string
@@ -93,6 +97,9 @@ export default function OSMecanicoPage() {
   const [oss, setOss] = useState<OSRow[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroStatus, setFiltroStatus] = useState<string>('todas')
+  // Chamado #3242: dentro de "Entregue", separa as OS com NF emitida das que faltam emitir.
+  const [filtroNota, setFiltroNota] = useState<FiltroNotaOS>('todas')
+  const [notasOS, setNotasOS] = useState<Map<string, NotaOSResumo>>(new Map())
   const [busca, setBusca] = useState('')
   const [novoAberto, setNovoAberto] = useState(false)
   const [osAberta, setOsAberta] = useState<string | null>(null)
@@ -129,6 +136,16 @@ export default function OSMecanicoPage() {
     const safe = ((r?.itens ?? []) as OSRow[]).filter((o) => o.company_id === companyIdAtiva)
     setOss(safe)
     setLoading(false)
+    // Chamado #3242: notas ligadas à OS (NF-e de peças e NFS-e de serviços), lidas pela RLS da empresa.
+    const ler = (tabela: 'erp_nfe_emitidas' | 'erp_nfse_emitidas') => selecionarTodas<NotaOSLinha>((de, ate) => supabase
+      .from(tabela)
+      .select('os_id, status, numero')
+      .eq('company_id', companyIdAtiva)
+      .not('os_id', 'is', null)
+      .order('id')
+      .range(de, ate))
+    const [nfe, nfse] = await Promise.all([ler('erp_nfe_emitidas'), ler('erp_nfse_emitidas')])
+    setNotasOS(resumirNotasPorOS(nfe.data, nfse.data))
   }, [companyIdAtiva, verExcluidas])
 
   const restaurarOS = useCallback(async (o: OSRow) => {
@@ -154,6 +171,7 @@ export default function OSMecanicoPage() {
   const filtradas = useMemo(() => {
     let r = oss
     if (filtroStatus !== 'todas') r = r.filter((o) => o.status === filtroStatus)
+    if (filtroStatus === 'entregue' && filtroNota !== 'todas') r = r.filter((o) => passaFiltroNotaOS(situacaoNotaOS(notasOS, o.id), filtroNota))
     if (busca.trim()) {
       const b = busca.toLowerCase()
       const bPlaca = b.replace(/[^a-z0-9]/g, '')
@@ -166,7 +184,7 @@ export default function OSMecanicoPage() {
       )
     }
     return r
-  }, [oss, filtroStatus, busca])
+  }, [oss, filtroStatus, filtroNota, notasOS, busca])
 
   const contagens = useMemo(() => {
     const c: Record<string, number> = {}
@@ -276,6 +294,29 @@ export default function OSMecanicoPage() {
             >{STATUS_CFG[s].label} ({contagens[s] ?? 0})</button>
           ))}
         </div>
+        {filtroStatus === 'entregue' && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }} data-testid="os-filtro-nota">
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>
+              Nota fiscal<AjudaCampo chave="os.filtro.nota_fiscal" rota="/dashboard/os" />
+            </span>
+            {([['todas', 'Todas'], ['com_nota', 'NF emitida'], ['falta_emitir', 'Falta emitir']] as const).map(([k, rot]) => {
+              const n = k === 'todas' ? (contagens.entregue ?? 0)
+                : oss.filter((o) => o.status === 'entregue' && passaFiltroNotaOS(situacaoNotaOS(notasOS, o.id), k)).length
+              const ativo = filtroNota === k
+              return (
+                <button key={k} onClick={() => setFiltroNota(k)} data-testid={`os-filtro-nota-${k}`}
+                  style={{
+                    minHeight: 36, padding: '6px 12px', borderRadius: 999,
+                    border: `1px solid ${ativo ? C.greenD : C.border}`,
+                    background: ativo ? C.greenBg : C.white,
+                    color: ativo ? C.greenD : C.espressoM,
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >{rot} ({n})</button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* Lista */}
@@ -329,6 +370,17 @@ export default function OSMecanicoPage() {
                     <span style={{ fontSize: 13, color: C.espressoM, fontWeight: 600 }}>🚗 {modeloTxt}</span>
                   )}
                   <StatusBadge status={o.status} />
+                  {o.status === 'entregue' && (() => {
+                    const nf = situacaoNotaOS(notasOS, o.id)
+                    const emitida = nf.situacao === 'emitida'
+                    return (
+                      <span data-testid="os-nota-badge" data-situacao={nf.situacao} style={{
+                        fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: '3px 9px',
+                        color: emitida ? C.greenD : nf.situacao === 'processando' ? C.amber : C.red,
+                        background: emitida ? C.greenBg : nf.situacao === 'processando' ? C.amberBg : C.redBg,
+                      }}>{rotuloNotaOS(nf)}</span>
+                    )
+                  })()}
                 </div>
 
                 {/* cliente — coadjuvante, cinza */}
@@ -458,6 +510,8 @@ function ModalNovaOS({
   const [defeito, setDefeito] = useState('')
   const [tecnicoNome, setTecnicoNome] = useState('')
   const [prioridade, setPrioridade] = useState('normal')
+  // #2867 · marcar a OS como orçamento (o veículo pode nem estar no pátio); nasce com status "Orçamento".
+  const [orcamento, setOrcamento] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
   // aviso (não bloqueio): já existe OS aberta pra esta placa?
@@ -468,6 +522,47 @@ function ModalNovaOS({
   const [busca, setBusca] = useState('')
   const [resultados, setResultados] = useState<Cliente[]>([])
   const [cliente, setCliente] = useState<Cliente | null>(null)
+  // cadastro inline (#2260): mesmo fluxo da recepção — fn_cliente_criar_inline
+  const [cadAberto, setCadAberto] = useState(false)
+  const [cadNome, setCadNome] = useState('')
+  const [cadDoc, setCadDoc] = useState('')
+  const [cadTel, setCadTel] = useState('')
+  const [cadSalvando, setCadSalvando] = useState(false)
+  const [cadMsg, setCadMsg] = useState<string | null>(null)
+
+  function abrirCadastroCliente() {
+    const t = busca.trim()
+    const soDig = t.replace(/\D/g, '')
+    if (soDig.length === 11 || soDig.length === 14) { setCadDoc(soDig); setCadNome('') } else { setCadNome(t); setCadDoc('') }
+    setCadTel(''); setCadMsg(null); setCadAberto(true)
+  }
+
+  async function buscarCnpjCadastro(doc: string) {
+    if (doc.length !== 14) return
+    try {
+      const r = await fetch(`/api/cnpj-lookup?cnpj=${doc}`)
+      if (!r.ok) { setCadMsg(r.status === 404 ? 'CNPJ não encontrado — preencha o nome à mão.' : 'Consulta externa indisponível — preencha o nome à mão.'); return }
+      const d = await r.json() as { razao_social?: string; nome_fantasia?: string }
+      if (d.razao_social && !cadNome.trim()) setCadNome(d.razao_social)
+    } catch { setCadMsg('Consulta externa indisponível — preencha o nome à mão.') }
+  }
+
+  async function salvarCadastroCliente() {
+    if (!companyIdAtiva) return
+    if (!cadNome.trim()) { setCadMsg('Informe o nome do cliente.'); return }
+    setCadSalvando(true); setCadMsg(null)
+    const extra: Record<string, string> = {}
+    if (cadTel.trim()) extra.telefone = cadTel.trim()
+    const doc = cadDoc.replace(/\D/g, '')
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', {
+      p_company_id: companyIdAtiva, p_nome: cadNome.trim(), p_cpf_cnpj: doc || null,
+      p_extra: Object.keys(extra).length ? extra : null,
+    })
+    setCadSalvando(false)
+    if (error) { setCadMsg('❌ ' + error.message); return }
+    setCliente({ id: data as string, razao_social: cadNome.trim(), nome_fantasia: null, cpf_cnpj: doc || null, company_id: companyIdAtiva })
+    setResultados([]); setCadAberto(false)
+  }
 
   // Pre-fill tecnicoNome com o email do usuario
   useEffect(() => {
@@ -526,6 +621,9 @@ function ModalNovaOS({
       p_prioridade: prioridade,
       p_placa: placa.trim() || null,
       p_modelo: veiculo.trim() || null,
+      // p_orcamento só é enviado quando marcado: a criação comum segue casando com a assinatura ATUAL do
+      // fn_os_criar antes do deploy da migration (o orçamento é novo e só funciona depois do deploy).
+      ...(orcamento ? { p_orcamento: true } : {}),
     })
     setSalvando(false)
     if (error) { setErroLocal('Erro: ' + error.message); return }
@@ -567,7 +665,7 @@ function ModalNovaOS({
           </div>
 
           <div>
-            <label style={lbl}>Cliente (opcional)</label>
+            <label style={lbl}>Cliente (opcional)<AjudaCampo chave="os.nova.cliente" rota="/dashboard/os" /></label>
             {cliente ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: 10, background: C.cream, borderRadius: 8 }}>
                 <div>
@@ -584,6 +682,36 @@ function ModalNovaOS({
                   placeholder="Buscar cliente por nome ou CNPJ (ou deixar sem cliente)"
                   style={inp}
                 />
+                {!cadAberto && resultados.length === 0 && busca.trim().length >= 2 && (
+                  <button type="button" onClick={abrirCadastroCliente} data-testid="os-nova-cadastrar-cliente"
+                    style={{ marginTop: 6, width: '100%', textAlign: 'left', background: C.cream, border: `1px dashed ${C.border}`, borderRadius: 8, padding: 10, cursor: 'pointer', minHeight: 44, fontSize: 13, color: C.espresso }}>
+                    + Cadastrar novo cliente “{busca.trim()}”
+                  </button>
+                )}
+                {cadAberto && (
+                  <div style={{ marginTop: 6, padding: 10, background: C.cream, borderRadius: 8, display: 'grid', gap: 8 }} data-testid="os-nova-cliente-inline">
+                    <div>
+                      <label style={lbl}>Nome / razão social<AjudaCampo chave="os.nova.cliente_novo_nome" rota="/dashboard/os" /></label>
+                      <input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>CPF / CNPJ<AjudaCampo chave="os.nova.cliente_novo_doc" rota="/dashboard/os" /></label>
+                      <input value={cadDoc} onChange={(e) => setCadDoc(e.target.value)} onBlur={() => void buscarCnpjCadastro(cadDoc.replace(/\D/g, ''))} inputMode="numeric" style={inp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Telefone<AjudaCampo chave="os.nova.cliente_novo_tel" rota="/dashboard/os" /></label>
+                      <input value={cadTel} onChange={(e) => setCadTel(e.target.value)} inputMode="tel" style={inp} />
+                    </div>
+                    {cadMsg && <div style={{ fontSize: 12, color: C.espressoM }}>{cadMsg}</div>}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" onClick={() => void salvarCadastroCliente()} disabled={cadSalvando} data-testid="os-nova-cliente-salvar"
+                        style={{ flex: 1, minHeight: 44, borderRadius: 8, border: 'none', background: C.espresso, color: C.white, cursor: 'pointer', fontWeight: 600 }}>
+                        {cadSalvando ? 'Salvando…' : 'Cadastrar e vincular'}
+                      </button>
+                      <button type="button" onClick={() => setCadAberto(false)} style={{ minHeight: 44, borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', cursor: 'pointer', padding: '0 14px' }}>Cancelar</button>
+                    </div>
+                  </div>
+                )}
                 {resultados.length > 0 && (
                   <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, marginTop: 4, maxHeight: 200, overflowY: 'auto' }}>
                     {resultados.map((c) => (
@@ -671,6 +799,12 @@ function ModalNovaOS({
             </div>
           </div>
 
+          {/* #2867 · OS como orçamento: nasce com status "Orçamento"; quando o cliente aprovar, muda o status e segue (inclusive agendar). */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 10, background: orcamento ? C.amberBg : 'transparent' }}>
+            <input type="checkbox" checked={orcamento} onChange={(e) => setOrcamento(e.target.checked)} data-testid="os-nova-orcamento" style={{ width: 18, height: 18, cursor: 'pointer' }} />
+            <span style={{ fontSize: 13, color: C.espresso, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>É orçamento?<AjudaCampo chave="os.nova.orcamento" rota="/dashboard/os" /></span>
+          </label>
+
           {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '10px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>❌ {erroLocal}</div>}
 
           <button
@@ -685,7 +819,7 @@ function ModalNovaOS({
             }}
             data-testid="os-nova-salvar"
           >
-            {salvando ? 'Criando…' : 'Criar OS'}
+            {salvando ? 'Criando…' : orcamento ? 'Criar orçamento' : 'Criar OS'}
           </button>
         </div>
       </div>

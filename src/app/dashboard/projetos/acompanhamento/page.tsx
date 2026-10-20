@@ -1,21 +1,8 @@
-"use client";
-import { TrendingUp } from "lucide-react";
-import { PlaceholderTab } from "../_components/PlaceholderTab";
+// Hub · "Orçado vs realizado" já existe pronto em /obras/resultado (v_obra_resultado: previsto × realizado
+// por obra). Redirect de servidor (sem estado, sem loading): o redirect de cliente ficava preso em
+// "Abrindo Orçado vs realizado…" na auditoria do chamado #3418.
+import { redirect } from 'next/navigation'
 
 export default function AcompanhamentoPage() {
-  return (
-    <PlaceholderTab
-      icon={TrendingUp}
-      titulo="Orçado vs realizado"
-      descricao="Análise gerencial: comparativo entre o orçamento e o custo real da obra. Curva S, margens, alertas, decisões."
-      fase="Fase 6"
-      funcoesFuturas={[
-        "Curva S",
-        "Margem real por obra",
-        "Comparativo entre obras",
-        "DRE divisional por obra",
-        "Insights IA",
-      ]}
-    />
-  );
+  redirect('/dashboard/projetos/obras/resultado')
 }

@@ -11,7 +11,13 @@ const TAG = `E2E ${Date.now()}`
 type Posto = { id: string; numero: string; atividade: string; capacidade_hora: number | null; centro_custo: string | null; cargo_id: string | null; ativo: boolean }
 
 async function posto(atividade: string): Promise<Posto> {
-  const l = await dbSelect<Posto>('prod_posto', `company_id=eq.${DEMO_IND}&atividade=eq.${encodeURIComponent(atividade)}&select=id,numero,atividade,capacidade_hora,centro_custo,cargo_id,ativo`)
+  // o salvar da tela é assíncrono (resolve o cargo e depois chama a RPC): espera o posto aparecer antes de conferir (corrida vista na main 08/10)
+  let l: Posto[] = []
+  for (let i = 0; i < 20; i++) {
+    l = await dbSelect<Posto>('prod_posto', `company_id=eq.${DEMO_IND}&atividade=eq.${encodeURIComponent(atividade)}&select=id,numero,atividade,capacidade_hora,centro_custo,cargo_id,ativo`)
+    if (l.length > 0) break
+    await new Promise((r) => setTimeout(r, 500))
+  }
   expect(l.length, `posto "${atividade}" no banco`).toBe(1)
   return l[0]
 }
@@ -179,6 +185,8 @@ test.describe('Produtividade — Cadastro por fluxo editável', () => {
       await page.getByTestId('posto-novo-atividade').fill(`${TAG} posto cargo`)
       await page.getByTestId('posto-novo-cargo').fill(`${funcao} · 2`)
       await page.getByTestId('posto-novo-salvar').click()
+      // salvar = resolver cargo (RPC) → posto (RPC): só depois a linha nova é limpa; ler o banco antes disso é corrida
+      await expect(page.getByTestId('posto-novo-atividade'), 'salvou (linha nova limpa)').toHaveValue('', { timeout: 20_000 })
       const p0 = await posto(`${TAG} posto cargo`)
       const cg = await dbSelect<{ id: string }>('prod_cargo', `company_id=eq.${DEMO_IND}&plant_id=eq.${plantId}&nome=eq.${encodeURIComponent(funcao)}&select=id`)
       expect(cg.length, 'prod_cargo criado a partir da função do ponto').toBe(1)

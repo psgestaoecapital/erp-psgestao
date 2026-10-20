@@ -1,6 +1,6 @@
 // Produtividade › Cadastro › produto acabado + árvore de origem (Onda 2, caixa 6570c1c9). Genérico: a demonstração Indústria não tem
 // código de empresa nenhum; o teste cria o que usa e remove no fim. Prova como usuário, pela tela (RD-82); o banco só confere.
-// Depende da migration 20261007150010 (tabelas prod_produto/prod_estrutura) → @pos-migration.
+// Depende da migration 20261020130005 (tabelas prod_produto/prod_estrutura) → @pos-migration.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { dbSelect, dbInsert, dbDelete, registrarJornada } from '../../support/api'

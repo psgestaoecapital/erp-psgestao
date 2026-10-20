@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { contarPendentesAprovacao } from '@/lib/sugestoes/filaAtendimento'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import { BotaoDitar } from '@/components/melhorias/BotaoDitar'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -40,6 +41,8 @@ const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'dup
 // #63 · abas da Central pela ótica do AUTOR (a Jordana): separar o que ESPERA a equipe do que
 // PRECISA DELA (resposta chegou, falta ela dizer se resolveu) do que já ACABOU. Antes era lista plana.
 type BucketMelhoria = 'precisa_voce' | 'aguardando' | 'concluidas'
+// A aba da Central. 'todos' (padrão) mostra tudo — o quadro nunca abre vazio quando há chamados; as demais filtram por bucket.
+type AbaMelhoria = 'todos' | BucketMelhoria
 const bucketMelhoria = (m: { status: string; resposta: string | null; confirmado_pelo_autor: boolean }, souAutor = true): BucketMelhoria => {
   if (STATUS_TERMINAL.includes(m.status)) return 'concluidas'
   // resposta aprovada chegou, falta confirmar — só "precisa de VOCÊ" se você é o autor (o colega acompanha)
@@ -47,14 +50,14 @@ const bucketMelhoria = (m: { status: string; resposta: string | null; confirmado
   return 'aguardando'
 }
 
-type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null; user_id: string; user_name: string | null }
+type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; concluido_em?: string | null; conclusao_automatica?: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null; user_id: string; user_name: string | null; rota: string | null }
 
 export default function MelhoriasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
 }
 
 function Inner() {
-  const { selInfo, sel } = useCompanyIds()
+  const { selInfo, sel, companyIds } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
   const searchParams = useSearchParams()
   // rota #5: se o usuário chegou pelo ícone do cabeçalho, a rota anterior vem no ?from — assim ele
@@ -76,7 +79,12 @@ function Inner() {
   const [conversaAberta, setConversaAberta] = useState<string | null>(null)
   const [motivoAberto, setMotivoAberto] = useState<string | null>(null) // #61 · qual chamado está com o textarea de "não resolveu"
   const [naoResolveuFotos, setNaoResolveuFotos] = useState<FotoItem[]>([]) // #2 fast-follow · fotos da devolutiva "ainda não resolveu"
-  const [abaMelhoria, setAbaMelhoria] = useState<BucketMelhoria>('precisa_voce') // #63 · aba de status da Central
+  // #63 · aba de status da Central. Padrão 'todos' (CEO 13/10 — cliente Frioeste via o quadro vazio porque abria na aba
+  // "Precisa de você", que pode ter 0, enquanto havia 29 chamados nas outras abas). Todos → nunca abre vazio.
+  const [abaMelhoria, setAbaMelhoria] = useState<AbaMelhoria>('todos')
+  // filtro OPCIONAL "só desta tela" (desligado por padrão): quando a pessoa chega pelo ícone do cabeçalho de uma tela,
+  // o ?from traz a rota de origem; aqui ela pode afunilar só nos chamados daquela tela, mas o padrão é ver TODOS.
+  const [soDestaTela, setSoDestaTela] = useState(false)
   const [foco, setFoco] = useState<string | null>(null)   // nº destacado ao chegar pelo link do e-mail
 
   const carregar = useCallback(async () => {
@@ -96,8 +104,13 @@ function Inner() {
     // selecionada, abertos por colegas (CEO 28/09: quem abre em nome da empresa e quem acompanha veem o mesmo
     // chamado — evita chamado repetido). A RLS de sugestoes libera a leitura pela empresa (get_user_company_ids).
     // Mostramos de QUAL empresa é cada um (embed companies). Arquivadas saem da lista por padrão (CEO).
-    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,ia_analise,created_at,company_id,user_id,user_name,companies(nome_fantasia,razao_social)')
-    q = companyId && !sup ? q.or(`user_id.eq.${user.id},company_id.eq.${companyId}`) : q.eq('user_id', user.id)
+    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,concluido_em,conclusao_automatica,ia_analise,created_at,company_id,user_id,user_name,rota,companies(nome_fantasia,razao_social)')
+    // CEO 13/10: incluir SEMPRE os chamados DAS EMPRESAS da pessoa (não só da empresa selecionada) — assim os abertos
+    // pela equipe PS em nome dela também aparecem, mesmo em "consolidado". A RLS de sugestoes já limita pela empresa.
+    const empresasVisiveis = companyId ? [companyId] : (companyIds ?? [])
+    q = !sup && empresasVisiveis.length
+      ? q.or(`user_id.eq.${user.id},company_id.in.(${empresasVisiveis.join(',')})`)
+      : q.eq('user_id', user.id)
     q = verArquivadas ? q.eq('status', 'arquivada') : q.neq('status', 'arquivada')
     const { data } = await q.order('created_at', { ascending: false }).limit(50)
     type Row = Minha & { companies?: { nome_fantasia: string | null; razao_social: string | null } | { nome_fantasia: string | null; razao_social: string | null }[] | null }
@@ -105,7 +118,7 @@ function Inner() {
       const co = Array.isArray(companies) ? companies[0] : companies
       return { ...m, empresa: co?.nome_fantasia || co?.razao_social || null, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null }
     }))
-  }, [verArquivadas, companyId])
+  }, [verArquivadas, companyId, companyIds])
   useEffect(() => { void carregar() }, [carregar])
 
   // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
@@ -187,6 +200,15 @@ function Inner() {
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao confirmar'); return }
     setMotivoAberto(null); setNaoResolveuFotos([])
     setMsg(funcionou ? 'Que bom! Chamado concluído. 🎉' : 'Reabrimos — a equipe volta a trabalhar nisso.')
+    void carregar()
+  }, [carregar])
+
+  // Reabrir com um clique em até 30 dias após a conclusão (inclusive a automática). Volta à fila com prioridade.
+  const reabrir = useCallback(async (id: string) => {
+    const { data, error } = await supabase.rpc('fn_sugestao_reabrir', { p_id: id })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro(error?.message || (r?.erro === 'prazo_de_30_dias_vencido' ? 'Passaram mais de 30 dias: abra um novo chamado.' : r?.erro) || 'Falha ao reabrir'); return }
+    setMsg('Reabrimos — a equipe volta a trabalhar nisso.')
     void carregar()
   }, [carregar])
 
@@ -290,29 +312,53 @@ function Inner() {
           {verArquivadas ? '← voltar às ativas' : 'ver arquivadas'}
         </button>
       </div>
-      {/* #63 · abas por status (só nas ativas) — a Jordana vê o que PRECISA dela separado do que espera a equipe */}
+      {/* #63 · abas por status (só nas ativas). Padrão "Todos" (CEO 13/10): o quadro nunca abre vazio quando há chamados.
+          Filtro OPCIONAL "só desta tela" (desligado) para quem chegou pelo ícone do cabeçalho de uma tela. */}
       {!verArquivadas && minhas.length > 0 && (() => {
-        const cont = { precisa_voce: 0, aguardando: 0, concluidas: 0 }
-        for (const m of minhas) cont[bucketMelhoria(m, m.user_id === userId)]++
+        const daTela = (m: Minha) => !soDestaTela || m.rota === rotaOrigem
+        const base = minhas.filter(daTela)
+        const cont = { todos: base.length, precisa_voce: 0, aguardando: 0, concluidas: 0 }
+        for (const m of base) cont[bucketMelhoria(m, m.user_id === userId)]++
+        const veioDeTela = rotaOrigem !== '/dashboard/melhorias'
         return (
-          <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap', borderBottom: `1px solid ${C.border}` }}>
-            {([
-              ['precisa_voce', '⭐ Precisa de você', cont.precisa_voce],
-              ['aguardando', '🔵 Com a equipe', cont.aguardando],
-              ['concluidas', '✓ Concluídas', cont.concluidas],
-            ] as [BucketMelhoria, string, number][]).map(([k, label, n]) => (
-              <button key={k} type="button" onClick={() => setAbaMelhoria(k)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '8px 13px', border: 'none', background: 'transparent', borderBottom: `2px solid ${abaMelhoria === k ? C.gold : 'transparent'}`, marginBottom: -1, fontSize: 12.5, fontWeight: abaMelhoria === k ? 800 : 600, color: abaMelhoria === k ? C.esp : C.espM }}>
-                {label} <span style={{ fontSize: 11.5, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: abaMelhoria === k ? C.gold : C.cream, color: abaMelhoria === k ? '#fff' : C.espM }}>{n}</span>
-              </button>
-            ))}
-          </div>
+          <>
+            {veioDeTela && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                <button type="button" data-testid="melhorias-so-desta-tela" onClick={() => setSoDestaTela((v) => !v)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '5px 11px', borderRadius: 999, border: `1px solid ${soDestaTela ? C.gold : C.border}`, background: soDestaTela ? C.cream : 'transparent', fontSize: 12, fontWeight: 600, color: soDestaTela ? C.esp : C.espM }}>
+                  {soDestaTela ? '✓ ' : ''}só desta tela
+                </button>
+                {soDestaTela && (
+                  <button type="button" data-testid="melhorias-ver-todos" onClick={() => { setSoDestaTela(false); setAbaMelhoria('todos') }}
+                    style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: 0 }}>
+                    ver todos →
+                  </button>
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap', borderBottom: `1px solid ${C.border}` }}>
+              {([
+                ['todos', '📋 Todos', cont.todos],
+                ['precisa_voce', '⭐ Precisa de você', cont.precisa_voce],
+                ['aguardando', '🔵 Com a equipe', cont.aguardando],
+                ['concluidas', '✓ Concluídas', cont.concluidas],
+              ] as [AbaMelhoria, string, number][]).map(([k, label, n]) => (
+                <button key={k} type="button" data-testid={`melhorias-aba-${k}`} onClick={() => setAbaMelhoria(k)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '8px 13px', border: 'none', background: 'transparent', borderBottom: `2px solid ${abaMelhoria === k ? C.gold : 'transparent'}`, marginBottom: -1, fontSize: 12.5, fontWeight: abaMelhoria === k ? 800 : 600, color: abaMelhoria === k ? C.esp : C.espM }}>
+                  {label} <span style={{ fontSize: 11.5, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: abaMelhoria === k ? C.gold : C.cream, color: abaMelhoria === k ? '#fff' : C.espM }}>{n}</span>
+                </button>
+              ))}
+            </div>
+          </>
         )
       })()}
       {(() => {
-        const lista = verArquivadas ? minhas : minhas.filter((m) => bucketMelhoria(m, m.user_id === userId) === abaMelhoria)
+        const daTela = (m: Minha) => !soDestaTela || m.rota === rotaOrigem
+        const lista = verArquivadas
+          ? minhas
+          : minhas.filter((m) => daTela(m) && (abaMelhoria === 'todos' || bucketMelhoria(m, m.user_id === userId) === abaMelhoria))
         if (minhas.length === 0) return <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>{verArquivadas ? 'Nenhuma sugestão arquivada.' : 'Você ainda não abriu nenhuma.'}</div>
-        if (lista.length === 0) return <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>Nada nesta aba.</div>
+        if (lista.length === 0) return <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>{soDestaTela ? 'Nenhum chamado desta tela — toque em “ver todos” para ver os demais.' : 'Nada nesta aba.'}</div>
         return (
         <div style={{ display: 'grid', gap: 8 }}>
           {lista.map((m) => (
@@ -356,6 +402,13 @@ function Inner() {
                       )}
                     </>
                   )}
+                </div>
+              )}
+              {m.status === 'concluida' && m.user_id === userId && m.concluido_em && Date.now() - new Date(m.concluido_em).getTime() <= 30 * 86400000 && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button type="button" data-testid="chamado-reabrir" onClick={() => void reabrir(m.id)} style={{ background: '#fff', color: C.red, border: `1px solid ${C.red}`, borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Reabrir chamado</button>
+                  <AjudaCampo chave="chamado.reabrir" rota="/dashboard/melhorias" />
+                  <span style={{ fontSize: 11.5, color: C.espM }}>{m.conclusao_automatica ? 'Concluído automaticamente por falta de retorno. ' : ''}Você pode reabrir em até 30 dias.</span>
                 </div>
               )}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>

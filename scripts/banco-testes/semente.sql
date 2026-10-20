@@ -27,10 +27,18 @@ BEGIN
     ('b0700000-0000-4000-a000-000000000003'::uuid, 'Demonstração Revenda',   'auditoria'),
     ('b0700000-0000-4000-a000-000000000004'::uuid, 'Demonstração Gestão Empresarial', 'auditoria'),
     ('b0700000-0000-4000-a000-000000000005'::uuid, 'Demonstração Indústria SST',      'auditoria'),
+    ('b0700000-0000-4000-a000-000000000006'::uuid, 'Construtora Modelo - DEMO',        'auditoria'),
     ('ded00000-0000-4000-a000-000000000001'::uuid, 'Demonstração Mecânica',  'demo')
   ) AS d(id, nome, ambiente)
   ON CONFLICT (id) DO UPDATE SET is_demo = true, ambiente_tenant = EXCLUDED.ambiente_tenant, is_active = true;
 END $$;
+
+-- empresa interna PS (c_ps de fn_agente_coleta_vigiar; a spec vigia-coleta-agentes espera o chamado nela). Sem dado de cliente;
+-- is_demo falso de propósito (é a empresa interna), por isso fica fora do CROSS JOIN das demos acima.
+INSERT INTO public.companies (id, org_id, razao_social, nome_fantasia, is_demo, is_active)
+SELECT 'b26c19c0-bf6d-495b-b8d1-9fa8d6896725', (SELECT id FROM public.organizations ORDER BY created_at NULLS LAST LIMIT 1),
+       'Ps Gestao LTDA', 'Ps Gestao LTDA', false, true
+ON CONFLICT (id) DO NOTHING;
 
 -- plano ativo de cada demo (plan_catalog vem da whitelist de catálogos, que roda antes da semente)
 INSERT INTO public.tenant_subscriptions (company_id, plan_id, status, monthly_price_brl)
@@ -42,6 +50,8 @@ FROM (VALUES
   ('b0700000-0000-4000-a000-000000000004'::uuid, 'v15_gestao_empresarial_pro'),
   ('b0700000-0000-4000-a000-000000000004'::uuid, 'v15_hub_t1'),
   ('b0700000-0000-4000-a000-000000000005'::uuid, 'v15_compliance'),
+  ('b0700000-0000-4000-a000-000000000006'::uuid, 'v15_hub_t1'),
+  ('b0700000-0000-4000-a000-000000000006'::uuid, 'v15_gestao_empresarial_pro'),
   ('ded00000-0000-4000-a000-000000000001'::uuid, 'v15_oficina_grande')
 ) AS p(company_id, plan_id)
 WHERE EXISTS (SELECT 1 FROM public.plan_catalog c WHERE c.id = p.plan_id)
@@ -50,7 +60,7 @@ WHERE EXISTS (SELECT 1 FROM public.plan_catalog c WHERE c.id = p.plan_id)
 UPDATE public.tenant_subscriptions SET status = 'active'
 WHERE company_id IN ('b0700000-0000-4000-a000-000000000001','b0700000-0000-4000-a000-000000000002',
                      'b0700000-0000-4000-a000-000000000003','b0700000-0000-4000-a000-000000000004',
-                     'b0700000-0000-4000-a000-000000000005','ded00000-0000-4000-a000-000000000001')
+                     'b0700000-0000-4000-a000-000000000005','b0700000-0000-4000-a000-000000000006','ded00000-0000-4000-a000-000000000001')
   AND status IS DISTINCT FROM 'active';
 
 -- usuário do Playwright: 'adm' em todas as demos (igual à produção) ...
@@ -78,6 +88,25 @@ UPDATE public.tenant_user_roles t SET is_active = true
 FROM auth.users u
 WHERE t.user_id = u.id AND lower(u.email) = lower(:'bot_email')
   AND t.company_id = 'ded00000-0000-4000-a000-000000000001' AND t.role = 'CLIENT_OWNER' AND NOT t.is_active;
+
+-- Eng. Chefe 15/10: o robô precisa de vínculo CLIENT_OWNER em TODAS as demos (a semente criava só na ded0…001; sem ele
+-- as telas respondem "Sem acesso a esta empresa"). Idempotente.
+INSERT INTO public.tenant_user_roles (user_id, company_id, role, is_active)
+SELECT u.id, c.id, 'CLIENT_OWNER', true
+FROM auth.users u CROSS JOIN public.companies c
+WHERE lower(u.email) = lower(:'bot_email') AND c.is_demo
+  AND NOT EXISTS (SELECT 1 FROM public.tenant_user_roles t
+                  WHERE t.user_id = u.id AND t.company_id = c.id AND t.role = 'CLIENT_OWNER');
+UPDATE public.tenant_user_roles t SET is_active = true
+FROM auth.users u, public.companies c
+WHERE t.user_id = u.id AND t.company_id = c.id AND c.is_demo
+  AND lower(u.email) = lower(:'bot_email') AND t.role = 'CLIENT_OWNER' AND NOT t.is_active;
+
+-- regime tributário das demos como na produção (os testes esperam simples_nacional; NULL derrubava specs)
+UPDATE public.companies SET regime_tributario = 'simples_nacional'
+WHERE id = 'b0700000-0000-4000-a000-000000000004' AND regime_tributario IS DISTINCT FROM 'simples_nacional';
+UPDATE public.companies SET regime_tributario = 'Simples Nacional'
+WHERE id = 'ded00000-0000-4000-a000-000000000001' AND regime_tributario IS DISTINCT FROM 'Simples Nacional';
 
 -- trava da demo: nenhuma lease herdada de run que falhou/cancelou (a tabela só existe depois do restore)
 DO $$ BEGIN
