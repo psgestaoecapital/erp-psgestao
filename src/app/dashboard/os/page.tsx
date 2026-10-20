@@ -14,8 +14,8 @@ import OrdemServicoCard from '@/components/comum/OrdemServicoCard'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { selecionarTodas } from '@/lib/selecionarTodas'
-import { resumirNotasPorOS, situacaoNotaOS, passaFiltroNotaOS, rotuloNotaOS, type NotaOSLinha, type NotaOSResumo, type FiltroNotaOS } from '@/lib/oficina/osNotaFiscal'
+import OSNotaEtiquetas from '@/components/comum/OSNotaEtiquetas'
+import { mapaSituacaoNF, passaFiltroNF, etiquetasNF, type SituacaoNFItem, type FiltroNFLista } from '@/lib/oficina/osNotaLista'
 
 export const dynamic = 'force-dynamic'
 
@@ -97,9 +97,10 @@ export default function OSMecanicoPage() {
   const [oss, setOss] = useState<OSRow[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroStatus, setFiltroStatus] = useState<string>('todas')
-  // Chamado #3242: dentro de "Entregue", separa as OS com NF emitida das que faltam emitir.
-  const [filtroNota, setFiltroNota] = useState<FiltroNotaOS>('todas')
-  const [notasOS, setNotasOS] = useState<Map<string, NotaOSResumo>>(new Map())
+  // Chamados #3242 / #2167: situação da NF de cada OS (etiquetas + filtro "NF pendente") e data de corte da empresa.
+  const [filtroNota, setFiltroNota] = useState<FiltroNFLista>('todas')
+  const [situacaoNF, setSituacaoNF] = useState<Map<string, SituacaoNFItem>>(new Map())
+  const [corteNF, setCorteNF] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [novoAberto, setNovoAberto] = useState(false)
   const [osAberta, setOsAberta] = useState<string | null>(null)
@@ -136,17 +137,21 @@ export default function OSMecanicoPage() {
     const safe = ((r?.itens ?? []) as OSRow[]).filter((o) => o.company_id === companyIdAtiva)
     setOss(safe)
     setLoading(false)
-    // Chamado #3242: notas ligadas à OS (NF-e de peças e NFS-e de serviços), lidas pela RLS da empresa.
-    const ler = (tabela: 'erp_nfe_emitidas' | 'erp_nfse_emitidas') => selecionarTodas<NotaOSLinha>((de, ate) => supabase
-      .from(tabela)
-      .select('os_id, status, numero')
-      .eq('company_id', companyIdAtiva)
-      .not('os_id', 'is', null)
-      .order('id')
-      .range(de, ate))
-    const [nfe, nfse] = await Promise.all([ler('erp_nfe_emitidas'), ler('erp_nfse_emitidas')])
-    setNotasOS(resumirNotasPorOS(nfe.data, nfse.data))
+    // Chamados #3242 / #2167: NF-e/NFS-e ligadas, "NF fora da OS" e data de corte — UMA chamada agregada por empresa.
+    const nf = await supabase.rpc('fn_os_nf_situacao', { p_company_id: companyIdAtiva })
+    const rnf = nf.data as { ok?: boolean; data_corte?: string | null; itens?: SituacaoNFItem[] } | null
+    setSituacaoNF(mapaSituacaoNF(rnf?.ok ? rnf.itens : []))
+    setCorteNF(rnf?.ok ? (rnf.data_corte ?? null) : null)
   }, [companyIdAtiva, verExcluidas])
+
+  // #2167 · data de corte do controle de NF (OS concluída antes dela = "anterior ao controle", sem alerta)
+  const definirCorteNF = useCallback(async (data: string | null) => {
+    if (!companyIdAtiva) return
+    const { data: r, error } = await supabase.rpc('fn_os_nf_corte_definir', { p_company_id: companyIdAtiva, p_data_corte: data })
+    const res = r as { ok?: boolean; erro?: string } | null
+    if (error || !res?.ok) { setErro(error?.message ?? res?.erro ?? 'Não foi possível mudar a data de corte.'); return }
+    setCorteNF(data)
+  }, [companyIdAtiva])
 
   const restaurarOS = useCallback(async (o: OSRow) => {
     setRestaurandoId(o.id)
@@ -171,7 +176,7 @@ export default function OSMecanicoPage() {
   const filtradas = useMemo(() => {
     let r = oss
     if (filtroStatus !== 'todas') r = r.filter((o) => o.status === filtroStatus)
-    if (filtroStatus === 'entregue' && filtroNota !== 'todas') r = r.filter((o) => passaFiltroNotaOS(situacaoNotaOS(notasOS, o.id), filtroNota))
+    if (filtroNota !== 'todas') r = r.filter((o) => passaFiltroNF(filtroNota, o.status, situacaoNF.get(o.id), corteNF))
     if (busca.trim()) {
       const b = busca.toLowerCase()
       const bPlaca = b.replace(/[^a-z0-9]/g, '')
@@ -184,7 +189,7 @@ export default function OSMecanicoPage() {
       )
     }
     return r
-  }, [oss, filtroStatus, filtroNota, notasOS, busca])
+  }, [oss, filtroStatus, filtroNota, situacaoNF, corteNF, busca])
 
   const contagens = useMemo(() => {
     const c: Record<string, number> = {}
@@ -294,29 +299,35 @@ export default function OSMecanicoPage() {
             >{STATUS_CFG[s].label} ({contagens[s] ?? 0})</button>
           ))}
         </div>
-        {filtroStatus === 'entregue' && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }} data-testid="os-filtro-nota">
-            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>
-              Nota fiscal<AjudaCampo chave="os.filtro.nota_fiscal" rota="/dashboard/os" />
-            </span>
-            {([['todas', 'Todas'], ['com_nota', 'NF emitida'], ['falta_emitir', 'Falta emitir']] as const).map(([k, rot]) => {
-              const n = k === 'todas' ? (contagens.entregue ?? 0)
-                : oss.filter((o) => o.status === 'entregue' && passaFiltroNotaOS(situacaoNotaOS(notasOS, o.id), k)).length
-              const ativo = filtroNota === k
-              return (
-                <button key={k} onClick={() => setFiltroNota(k)} data-testid={`os-filtro-nota-${k}`}
-                  style={{
-                    minHeight: 36, padding: '6px 12px', borderRadius: 999,
-                    border: `1px solid ${ativo ? C.greenD : C.border}`,
-                    background: ativo ? C.greenBg : C.white,
-                    color: ativo ? C.greenD : C.espressoM,
-                    fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-                  }}
-                >{rot} ({n})</button>
-              )
-            })}
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }} data-testid="os-filtro-nota">
+          <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>
+            Nota fiscal<AjudaCampo chave="os.filtro.nota_fiscal" rota="/dashboard/os" />
+          </span>
+          {([['todas', 'Todas'], ['pendente', 'NF pendente'], ['emitida', 'NF emitida'], ['fora', 'NF fora da OS']] as const).map(([k, rot]) => {
+            const base = filtroStatus === 'todas' ? oss : oss.filter((o) => o.status === filtroStatus)
+            const n = base.filter((o) => passaFiltroNF(k, o.status, situacaoNF.get(o.id), corteNF)).length
+            const ativo = filtroNota === k
+            return (
+              <button key={k} onClick={() => setFiltroNota(k)} data-testid={`os-filtro-nota-${k}`}
+                style={{
+                  minHeight: 36, padding: '6px 12px', borderRadius: 999,
+                  border: `1px solid ${ativo ? (k === 'pendente' ? C.amber : C.greenD) : C.border}`,
+                  background: ativo ? (k === 'pendente' ? C.amberBg : C.greenBg) : C.white,
+                  color: ativo ? (k === 'pendente' ? C.amber : C.greenD) : C.espressoM,
+                  fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                }}
+              >{rot} ({n})</button>
+            )
+          })}
+          <AjudaCampo chave="os.filtro.nf_pendente" rota="/dashboard/os" />
+          <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+            Controle de NF desde
+            <input type="date" value={corteNF ?? ''} data-testid="os-nf-corte"
+              onChange={(e) => void definirCorteNF(e.target.value || null)}
+              style={{ minHeight: 36, padding: '4px 8px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, color: C.espresso, background: C.white }} />
+            <AjudaCampo chave="os.nf_corte" rota="/dashboard/os" />
+          </label>
+        </div>
       </div>
 
       {/* Lista */}
@@ -370,17 +381,6 @@ export default function OSMecanicoPage() {
                     <span style={{ fontSize: 13, color: C.espressoM, fontWeight: 600 }}>🚗 {modeloTxt}</span>
                   )}
                   <StatusBadge status={o.status} />
-                  {o.status === 'entregue' && (() => {
-                    const nf = situacaoNotaOS(notasOS, o.id)
-                    const emitida = nf.situacao === 'emitida'
-                    return (
-                      <span data-testid="os-nota-badge" data-situacao={nf.situacao} style={{
-                        fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: '3px 9px',
-                        color: emitida ? C.greenD : nf.situacao === 'processando' ? C.amber : C.red,
-                        background: emitida ? C.greenBg : nf.situacao === 'processando' ? C.amberBg : C.redBg,
-                      }}>{rotuloNotaOS(nf)}</span>
-                    )
-                  })()}
                 </div>
 
                 {/* cliente — coadjuvante, cinza */}
@@ -394,6 +394,13 @@ export default function OSMecanicoPage() {
                   {Number(o.total ?? 0) > 0 && <><span>·</span><span style={{ color: C.green, fontWeight: 600 }}>{fmtBRL(Number(o.total))}</span></>}
                 </div>
               </button>
+
+              {/* #2167 · situação da NF (verde = abre o PDF; azul = NF fora da OS; amarelo = pendente) */}
+              {!verExcluidas && etiquetasNF(o.status, situacaoNF.get(o.id), corteNF).length > 0 && (
+                <div style={{ padding: '0 12px 12px 16px', marginTop: -6 }}>
+                  <OSNotaEtiquetas etiquetas={etiquetasNF(o.status, situacaoNF.get(o.id), corteNF)} companyId={o.company_id} />
+                </div>
+              )}
 
               {/* AÇÕES · canto direito, discretas (nada escondido em menu 3-pontos) */}
               <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 6 }}>
