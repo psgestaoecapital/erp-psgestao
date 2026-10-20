@@ -12,6 +12,7 @@ const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗',
 
 const src = readFileSync('scripts/banco-testes/vaga-snapshot.sh', 'utf8')
 ok(/APPEND_ONLY_RE='[^']*audit_log_global[^']*'/.test(src), 'vaga-snapshot: audit_log_global declarado como append-only')
+ok(/fn_bloqueia_delete_fisico/.test(src) && /guarded/.test(src), 'vaga-snapshot: tabela com trava de DELETE físico (RD-30) fica fora da foto de catálogo')
 ok(!/disable trigger|session_replication_role/i.test(src), 'vaga-snapshot: sem bypass de trigger')
 
 const m = src.match(/^APPEND_ONLY_RE=.*$/m)
