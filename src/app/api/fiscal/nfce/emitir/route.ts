@@ -43,6 +43,22 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfce', operacao: 'emissao', endpoint: 'nfce/emitir' } })
     if (negado) return negado
 
+    // #3753 · NFC-e tem série própria (nunca a da NF-e). Sem série configurada → recusa antes da Focus.
+    const { data: cfgNfce } = await supabaseAdmin
+      .from('erp_fiscal_provider_config')
+      .select('serie_nfce')
+      .eq('company_id', body.companyId)
+      .eq('provider', 'focusnfe')
+      .eq('ativo', true)
+      .maybeSingle()
+    const serieNfce = (cfgNfce as { serie_nfce?: string | null } | null)?.serie_nfce ?? null
+    if (!serieNfce) {
+      return NextResponse.json(
+        { ok: false, codigo: 'NFCE_SEM_SERIE', mensagem: 'Configure a série da NFC-e em Configuração Fiscal antes de emitir o cupom fiscal.' },
+        { status: 400 }
+      )
+    }
+
     const nfceReq = await buildNFeRequest({
       companyId: body.companyId,
       pedidoId: body.pedidoId,
@@ -56,6 +72,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           }
         : undefined,
     })
+
+    nfceReq.serie = serieNfce
 
     // consumidor + forma de pagamento (NFC-e exige)
     if (body.cpfConsumidor) nfceReq.destinatario.cpf = body.cpfConsumidor.replace(/\D/g, '')
