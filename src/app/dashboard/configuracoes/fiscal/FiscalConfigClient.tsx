@@ -10,6 +10,8 @@ import WebhookConfigCard from '@/components/fiscal/WebhookConfigCard'
 import CardBoundary from '@/components/fiscal/CardBoundary'
 import PreVooFiscalCard from '@/components/fiscal/PreVooFiscalCard'
 import IbptTokenCard from '@/components/fiscal/IbptTokenCard'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { Landmark } from 'lucide-react'
 import { ShieldCheck, AlertCircle, Loader2, FileCheck, CheckCircle2, XCircle, Lock } from 'lucide-react'
 
 // FIX-FISCAL-UX-v1 · Saneamento V1 Fase 1
@@ -480,6 +482,20 @@ export default function FiscalConfigClient() {
         </div>
         <span className="text-[12.5px] font-medium text-[#C8941A] whitespace-nowrap">Alterar →</span>
       </a>
+
+      {/* ISS por município: alíquota por município da execução × item da LC 116 (a NFS-e com ISS no local da prestação lê daqui) */}
+      <div className="bg-white border border-[#3D2314]/10 rounded-xl px-4 py-3 flex items-center gap-3 hover:border-[#C8941A] transition-colors">
+        <Landmark className="w-[18px] h-[18px] text-[#3D2314]/70 shrink-0" strokeWidth={1.5} aria-hidden />
+        <div className="flex-1 min-w-0 text-[12.5px]">
+          <div className="font-medium text-[#3D2314] flex items-center gap-1">
+            ISS por município<AjudaCampo chave="fiscal.config.iss_municipios" />
+          </div>
+          <div className="text-[#3D2314]/70 mt-0.5">Alíquota de ISS de cada município onde a empresa presta serviço, com vigência. Usada na NFS-e.</div>
+        </div>
+        <a href="/dashboard/configuracoes/fiscal/iss-municipios" className="text-[12.5px] font-medium text-[#C8941A] whitespace-nowrap">
+          Abrir →
+        </a>
+      </div>
 
       <CardBoundary nome="ConfigFiscalEditCard">
         <ConfigFiscalEditCard
