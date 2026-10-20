@@ -10,8 +10,9 @@ import ConfirmarClonar from '@/components/cadastros/ConfirmarClonar'
 import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle, Trash2,
 } from 'lucide-react'
+import ExcluirProdutoModal from '@/components/cadastros/ExcluirProdutoModal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
 
@@ -281,6 +282,7 @@ export default function ProdutosPage() {
 
   // Clonar: busca a linha completa (igual abrirEdicao) e abre o form em modo NOVO pré-preenchido (clonarDe).
   const [confirmarCloneId, setConfirmarCloneId] = useState<string | null>(null)
+  const [excluindoId, setExcluindoId] = useState<string | null>(null) // chamado #3856: exclusão lógica com checagem de vínculos
   async function clonarProduto(id: string) {
     if (!companyId) return
     const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
@@ -786,6 +788,15 @@ export default function ProdutosPage() {
                           >
                             <Edit size={14} />
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setExcluindoId(p.id)}
+                            data-testid="produto-excluir"
+                            className="text-red-700 hover:text-red-900"
+                            title="Excluir"
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -846,6 +857,15 @@ export default function ProdutosPage() {
                         >
                           <Edit size={14} />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setExcluindoId(p.id)}
+                          data-testid="produto-excluir-mobile"
+                          className="text-red-700 hover:text-red-900"
+                          title="Excluir"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -873,6 +893,13 @@ export default function ProdutosPage() {
             </>
           )}
         </div>
+
+        <ExcluirProdutoModal
+          produtoId={excluindoId}
+          companyId={companyId}
+          onFechar={() => setExcluindoId(null)}
+          onExcluido={() => { setExcluindoId(null); carregar(true) }}
+        />
 
         <ConfirmarClonar
           aberto={!!confirmarCloneId}
