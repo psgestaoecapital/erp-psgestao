@@ -17,7 +17,7 @@ ok(iSemSerie > iCfg && iSemSerie < iEmitir, 'sem série → recusa (NFCE_SEM_SER
 ok(/nfceReq\.serie = serieNfce/.test(rota) && rota.indexOf('nfceReq.serie = serieNfce') < iEmitir, 'nota sai na série da NFC-e (não na serie_nfe_padrao do builder)')
 ok(/ambienteOverride: body\.ambiente \?\? 'homologacao'/.test(rota), 'régua mantida: NFC-e nasce em homologação')
 
-const mig = readFileSync('supabase/migrations/20261019190020_fiscal_nfce_serie.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261020130020_fiscal_nfce_serie.sql', 'utf8')
 ok(/ADD COLUMN IF NOT EXISTS serie_nfce text;/.test(mig), 'coluna nova nula por padrão (NFC-e desligada até cadastrar)')
 ok(/fn__guarda_empresa\(p_company_id\)/.test(mig) && /fn_pagar_usuario_master\(p_company_id\)/.test(mig), 'gravação com guarda de empresa e de Master')
 ok(/precisa ser diferente da série da NF-e/.test(mig), 'série da NFC-e não pode repetir a da NF-e')
