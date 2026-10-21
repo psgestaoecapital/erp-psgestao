@@ -32,6 +32,9 @@ ok(exigeViaRevisada([{ nome: 'supabase/migrations/7.sql', conteudo: 'CREATE TABL
 ok(exigeViaRevisada([{ nome: 'supabase/migrations/8_nfe_x.sql', conteudo: 'CREATE TABLE y(id uuid);' }]).revisada, 'migration de nome fiscal (nfe) → revisada')
 ok(exigeViaRevisada([{ nome: 'supabase/migrations/9.sql' }]).revisada, 'migration SEM conteúdo p/ avaliar → revisada (viés de segurança)')
 ok(exigeViaRevisada([{ nome: 'supabase/migrations/10.sql', conteudo: 'CREATE OR REPLACE VIEW v_saldo AS SELECT 1;' }]).revisada, 'CREATE OR REPLACE VIEW → revisada')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/12.sql', conteudo: 'CREATE OR REPLACE FUNCTION fn_pagar() RETURNS void AS $$ BEGIN UPDATE public.titulo SET pago=true; END $$ LANGUAGE plpgsql;' }]).revisada, 'RPC que mexe em titulo (crítico) → revisada')
+// RPC que mexe em tabela NÃO-crítica dentro do corpo = produto novo → direto (caso #2942 cronômetro)
+ok(!exigeViaRevisada([{ nome: 'supabase/migrations/13.sql', conteudo: 'CREATE TABLE public.prod_tarefa_tempo(id uuid); DROP POLICY IF EXISTS p ON public.prod_tarefa_tempo; CREATE POLICY p ON public.prod_tarefa_tempo FOR SELECT USING (true); CREATE OR REPLACE FUNCTION f() RETURNS void AS $$ BEGIN UPDATE public.prod_tarefa SET cap_hora=1; END $$ LANGUAGE plpgsql; REVOKE ALL ON FUNCTION f() FROM anon;' }]).revisada, 'RPC que mexe em prod_tarefa (não-crítica) + DROP POLICY IF EXISTS + REVOKE → direto')
 
 const y = readFileSync('.github/workflows/etiquetar-revisao.yml', 'utf8').replace(/^\s*#.*$/gm, '')
 ok(/pull_request_target:\s*\n\s*types:\s*\[opened, reopened, synchronize, ready_for_review\]/.test(y) && !/\n\s+pull_request:/.test(y), 'pull_request_target (código da main)')
