@@ -371,7 +371,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
             {/* Opção tributária (opcao_simples_nacional): sempre visível para permitir "Não optante" (Lucro
                 Presumido/Real). Regime de apuração e % tributos são exclusivos do Simples (2/3). */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
-              <Field label="Opção SN">
+              <Field label="Opção SN" ajuda="fiscal.config.opcao_sn">
                 <select
                   value={opcaoSN}
                   onChange={(e) => setOpcaoSN(e.target.value)}
@@ -384,7 +384,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
               </Field>
               {opcaoSN !== '1' && (
                 <>
-                  <Field label="Regime de apuração">
+                  <Field label="Regime de apuração do Simples" ajuda="fiscal.config.regime_apuracao_sn">
                     <select
                       value={apuracaoSN}
                       onChange={(e) => setApuracaoSN(e.target.value)}
@@ -395,7 +395,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
                       <option value="3">3 · Fed e ISS fora</option>
                     </select>
                   </Field>
-                  <Field label="% total tributos aprox.">
+                  <Field label="% total tributos aprox." ajuda="fiscal.config.pct_tributos_sn">
                     <input
                       type="text"
                       inputMode="decimal"
@@ -678,11 +678,11 @@ function Section({ titulo, children }: { titulo: string; children: React.ReactNo
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, ajuda, children }: { label: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <label className="block">
       <span className="text-[10px] text-[#3D2314]/60 uppercase tracking-[0.6px] font-semibold block mb-1">
-        {label}
+        {label}{ajuda && <> <AjudaCampo chave={ajuda} /></>}
       </span>
       {children}
     </label>
