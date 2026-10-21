@@ -12,7 +12,7 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 const sh = readFileSync(SCRIPT_FILA, 'utf8')
 ok(/baseline_main_ativa\(\)/.test(sh) && /baseline_main_specs\(\)/.test(sh) && /comentar_herdadas_main\(\)/.test(sh),
   'fila-merge.sh tem a comparação com a main (ativa, specs da main, comentário das herdadas)')
-ok(/BASELINE_MAIN_INICIO='2026-10-17T17:35:00Z'/.test(sh) && /BASELINE_MAIN_FIM='2026-10-18T17:35:00Z'/.test(sh), 'início e fim (24 h) registrados')
+ok(/baseline_main_ativa\(\)\s*{\s*return 0;\s*}/.test(sh), 'regra é PERMANENTE (CEO 21/10): baseline_main_ativa sempre true — a trava real é a main verde, não a data')
 ok(/aceitacao-main\.yml\/runs/.test(sh), 'a lista da main vem da última aceitação da main (aceitacao-main.yml)')
 
 const M1 = 'e2e/jornadas/aceitacao/xml-compra-lote.spec.ts'
@@ -39,8 +39,9 @@ if (!temFerramentas()) {
     x = rodar([{ ...rev, aceitacaoSpecs: [M1], specsProprios: [M1] }], false, 5000, env)
     ok(merges(x.escritas).length === 0 && /spec da própria PR falhando/.test(x.log), '(c) spec da PRÓPRIA PR (mesmo na main) → bloqueia')
 
+    // PERMANENTE (CEO 21/10): fora da antiga janela de 24 h a regra CONTINUA valendo — a trava é a main verde, não a data.
     x = rodar([{ ...rev, aceitacaoSpecs: [M1] }], false, 5000, { ...env, FILA_AGORA_EPOCH: vencida })
-    ok(merges(x.escritas).length === 0, '(d) regra vencida (>24 h) → bloqueia como antes')
+    ok(merges(x.escritas).join() === '1', '(d) fora da antiga janela (>24 h) → ainda publica (regra permanente)')
 
     x = rodar([{ ...rev, aceitacaoSpecs: [M1] }], false, 5000, { ...env, FILA_BASELINE_MAIN_SPECS: '' })
     ok(merges(x.escritas).length === 0, '(e) main sem falhas (voltou a passar) → regra desligada, bloqueia')
