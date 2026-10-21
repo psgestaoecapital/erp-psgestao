@@ -33,7 +33,7 @@ jobs:
   # novo — vale para a agenda e para o disparo pós-montagem (merges seguidos não enfileiram runs repetidos).
   # workflow_dispatch roda sempre.
   decide:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     timeout-minutes: 3
     outputs:
       rodar: ${{ steps.d.outputs.rodar }}
@@ -63,7 +63,7 @@ jobs:
   aceitacao-main:
     needs: decide
     if: needs.decide.outputs.rodar == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     # CEO 18/10: a aceitação da main roda SÓ na VAGA 1 (banco de referência), no grupo JÁ EXISTENTE da vaga 1
     # (aceitacao-testes-1) — a MESMA exclusão mútua do banco usada pelo montar/reconciliar da vaga 1 e por qualquer
     # aceitação de PR em transição nela. Como a vaga 1 sai do sorteio das PRs, esse grupo vira, na prática, só da main.
@@ -162,6 +162,9 @@ jobs:
           if ! supabase db push --include-all --db-url "$TEST_DATABASE_URL"; then
             echo "::error::banco da vaga 1 não sincronizou (supabase db push falhou) — aceitação da main abortada para não gerar vermelho FALSO"; exit 1
           fi
+          # 19/10: dados fiscais das DEMOs espelho da produção (uf_fiscal 'SC', IE da GE) — o checkout aqui é a própria main
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/banco-testes/semente-fiscal-demo.sql \
+            || { echo "::error::semente fiscal das DEMOs falhou na vaga 1 — aceitação da main abortada"; exit 1; }
           depois=$(led "$TEST_DATABASE_URL")
           {
             echo "### Sincronização do banco da vaga 1 (referência) com a produção"
