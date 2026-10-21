@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { compararContaExtrato } from '@/lib/financeiro/saldoContaExtrato'
+import { saldosPorConta, rotuloDataSaldo, type ContaSaldo } from '@/lib/financeiro/saldoPorConta'
 
 // FIN-R1 · SALDO BANCÁRIO LIDO, NÃO CALCULADO (veredito da sonda #1156).
 // Fonte única: fn_saldos_empresa — classifica banco × caixa × cartão × controle e
@@ -35,16 +36,12 @@ type Saldos = {
   tem_extrato: boolean
   diferenca: Diferenca | null
   sem_conta?: { recebido: number; pago: number; n_titulos: number; valor: number }
+  contas?: ContaSaldo[]
 }
 
 function fmt(n: number | null | undefined): string {
   if (n === null || n === undefined) return '—'
   return 'R$ ' + Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-function horaCurta(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 function maisDe24h(iso: string | null | undefined): boolean {
   if (!iso) return false
@@ -61,6 +58,7 @@ function nomeOrigem(o: string | null | undefined): string {
 export default function HeroSaldoBancario({ companyId }: { companyId: string }) {
   const router = useRouter()
   const [d, setD] = useState<Saldos | null>(null)
+  const [bancos, setBancos] = useState<Record<string, string | null>>({})
   const [loading, setLoading] = useState(true)
   const [showComp, setShowComp] = useState(false)
 
@@ -69,9 +67,13 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
     let ignore = false
     setLoading(true)
     ;(async () => {
-      const { data } = await supabase.rpc('fn_saldos_empresa', { p_company_ids: [companyId] })
+      const [{ data }, { data: cad }] = await Promise.all([
+        supabase.rpc('fn_saldos_empresa', { p_company_ids: [companyId] }),
+        supabase.from('erp_banco_contas').select('id,banco').eq('company_id', companyId),
+      ])
       if (!ignore) {
         setD(data as Saldos)
+        setBancos(Object.fromEntries(((cad ?? []) as { id: string; banco: string | null }[]).map((b) => [b.id, b.banco])))
         setLoading(false)
       }
     })()
@@ -106,8 +108,10 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
   }
 
   const negativo = (principal ?? 0) < 0
+  // #3952: um bloco por conta bancária ativa (empresa com Sicredi + Cresol vê cada saldo) e o total embaixo.
+  const porConta = saldosPorConta(d.contas ?? [], bancos)
   const badge = origem === 'lido'
-    ? { txt: `✅ lido do ${nomeOrigem(banc.origem)}${banc.lido_em ? ' às ' + horaCurta(banc.lido_em) : ''}`, cor: COLORS.verde, bg: COLORS.verdeSoft }
+    ? { txt: `✅ lido do ${nomeOrigem(banc.origem)}${banc.lido_em ? ' · saldo de ' + rotuloDataSaldo(banc.lido_em) : ''}`, cor: COLORS.verde, bg: COLORS.verdeSoft }
     : origem === 'calculado'
       ? { txt: '📐 calculado (saldo inicial + títulos liquidados)', cor: COLORS.ambar, bg: COLORS.ambarSoft }
       : { txt: '— sem leitura de extrato', cor: COLORS.cinza, bg: 'transparent' }
@@ -119,6 +123,32 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
         {/* Bancário */}
         <div style={cardTopo}>
           <div style={rotulo}>🏦 Saldo bancário</div>
+          {origem === 'lido' && porConta.linhas.length > 1 && (
+            <div data-testid="saldo-por-conta" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+              {porConta.linhas.map((l) => (
+                <div key={l.id} data-testid="saldo-conta" style={{ background: '#FFFFFF', border: `1px solid ${COLORS.linha}`, borderRadius: 10, padding: '8px 12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: COLORS.espresso }}>
+                      {l.nome}{l.banco && !l.nome.toLowerCase().includes(l.banco.toLowerCase()) ? <span style={{ fontWeight: 400, color: COLORS.cinza }}> · {l.banco}</span> : null}
+                    </span>
+                    <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: (l.saldo ?? 0) < 0 ? COLORS.vermelho : COLORS.espresso }}>{fmt(l.saldo)}</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: COLORS.cinza, marginTop: 2, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
+                    {l.saldo === null
+                      ? <span>sem leitura de extrato</span>
+                      : <span>saldo de {l.data} · {nomeOrigem(l.origem)}</span>}
+                    {l.comparacao && (
+                      <span style={{ color: l.comparacao.bate ? COLORS.verde : COLORS.ambar }}>
+                        {' · '}{l.comparacao.bate ? 'sistema e extrato batem' : <>diferença sistema − extrato: <b>{fmt(l.comparacao.diferenca)}</b></>}
+                      </span>
+                    )}
+                    <AjudaCampo chave="ge.saldo.conta_extrato" rota={ROTA_AJUDA_SALDO} />
+                  </div>
+                </div>
+              ))}
+              <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600, marginTop: 4 }}>Total das contas</div>
+            </div>
+          )}
           <div style={{ fontSize: 32, fontWeight: 700, color: negativo ? COLORS.vermelho : COLORS.espresso, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
             {fmt(principal)}
           </div>
@@ -275,7 +305,7 @@ function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClo
                       return (
                         <div data-testid="saldo-composicao-extrato" style={{ fontSize: 12, marginTop: 6, padding: '6px 8px', borderRadius: 6, background: bate ? COLORS.verdeSoft : COLORS.ambarSoft, color: bate ? COLORS.verde : COLORS.ambar, fontVariantNumeric: 'tabular-nums', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
                           <span>
-                            Último extrato{lida?.saldo_extrato_origem || lida?.saldo_extrato_em ? ` (${[lida?.saldo_extrato_origem ? nomeOrigem(lida.saldo_extrato_origem) : '', lida?.saldo_extrato_em ? horaCurta(lida.saldo_extrato_em) : ''].filter(Boolean).join(' · ')})` : ''}: <b>{fmt(cmp.extrato)}</b>
+                            Último extrato{lida?.saldo_extrato_origem || lida?.saldo_extrato_em ? ` (${[lida?.saldo_extrato_origem ? nomeOrigem(lida.saldo_extrato_origem) : '', lida?.saldo_extrato_em ? 'saldo de ' + rotuloDataSaldo(lida.saldo_extrato_em) : ''].filter(Boolean).join(' · ')})` : ''}: <b>{fmt(cmp.extrato)}</b>
                             {' · '}{bate ? 'sistema e extrato batem' : <>diferença sistema − extrato: <b>{fmt(dif)}</b></>}
                           </span>
                           <AjudaCampo chave="ge.saldo.conta_extrato" rota={ROTA_AJUDA_SALDO} />
