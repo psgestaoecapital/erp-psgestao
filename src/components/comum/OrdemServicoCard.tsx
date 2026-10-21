@@ -17,7 +17,8 @@ import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
 import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
-import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
+import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
+import { aprovaPendentesAoAvancar, proximoPassoOS } from '@/lib/oficina/avancoNaOS'   // #135 · Iniciar → Finalizar → Entregar na ficha
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { Package, PencilLine, Search, Wrench } from 'lucide-react'
 
@@ -178,6 +179,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [descPrecisaAprovacao, setDescPrecisaAprovacao] = useState(false)
   // #135 (Triches) · atendimento centralizado: aprovar o orçamento na própria OS (sem a tela de Aprovação)
   const [aprovandoOrc, setAprovandoOrc] = useState(false)
+  const [avancando, setAvancando] = useState(false)   // #135 · Iniciar/Finalizar/Entregar (centralizado)
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
@@ -269,7 +271,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
 
   // #135 (Triches) · etapa 2: grava pela MESMA RPC do Diagnóstico (fn_oficina_diagnostico_salvar). Relê o diagnóstico
   // na hora de salvar e devolve TODOS os itens atuais (a RPC apaga o que não vier) + texto e km como estão.
-  const editarItens = podeEditarItensNaOS(oficina.modelo, oficina.podePreco, String(os?.status ?? ''))
+  const editarItens = podeEditarItensNaOS(oficina.modelo, oficina.podePreco, String(os?.status ?? ''), faturada)
+  const motivoItensBloq = motivoItensBloqueadosOS(oficina.modelo, String(os?.status ?? ''), faturada)
   function addItemOS(tipo: 'peca' | 'servico') {
     setEdItens((p) => [...(p ?? []), { id: null, chave: `novo-${Date.now()}-${(p ?? []).length}`, tipo, descricao: '', quantidade: '1', preco: '' }])
   }
@@ -519,6 +522,35 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     await carregar()
   }
 
+  // #135 (Triches) · ajuste 21/10: no centralizado a OS anda na própria ficha, sem Diagnóstico nem Aprovação.
+  // Itens sem decisão são aprovados junto (mesma RPC do botão "Aprovar orçamento"), senão o total ficaria R$ 0,00.
+  // O status grava pela fn_os_salvar, a mesma do seletor: quem mudou e quando ficam em audit_log_global.
+  const passoOS = proximoPassoOS(oficina.modelo, String(os?.status ?? ''))
+  async function avancarOS() {
+    if (!os || !passoOS) return
+    const aprovar = aprovaPendentesAoAvancar(passoOS, oficina.podePreco, itensPendentes.length)
+    const semValor = passoOS.para === 'entregue' && Number(os.total ?? 0) === 0 && !aprovar
+    const extra = aprovar ? `\n\n${itensPendentes.length === 1 ? 'O item ainda sem aprovação será aprovado' : `Os ${itensPendentes.length} itens ainda sem aprovação serão aprovados`} junto (entram no total da OS).` : ''
+    const aviso0 = semValor ? '\n\nAtenção: a OS está com total R$ 0,00 — o custo/lucro sairá zerado nos relatórios.' : ''
+    if (!window.confirm(`${passoOS.rotulo} a OS ${os.numero ?? ''}?${extra}${aviso0}`)) return
+    setAvancando(true); setErro(null)
+    if (aprovar) {
+      const { data, error } = await supabase.rpc('fn_oficina_orcamento_registrar', {
+        p_company_id: os.company_id, p_os_id: os.id,
+        p_dados: { aprovador_nome: clienteNome || os.cliente_nome || null, canal: 'presencial', observacao: `Aprovado ao clicar em "${passoOS.rotulo}" na Ordem de Serviço (atendimento centralizado)`,
+          itens: itensPendentes.map((it) => ({ item_id: it.id, aprovado: true })) },
+      })
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (error || r?.ok === false) { setAvancando(false); setErro(error?.message ?? r?.erro ?? 'Falha ao aprovar os itens'); return }
+    }
+    const { data, error } = await supabase.rpc('fn_os_salvar', { p_os_id: os.id, p_dados: { status: passoOS.para } })
+    setAvancando(false)
+    const resp = data as { ok?: boolean; erro?: string } | null
+    if (error || resp?.ok === false) { setErro(error?.message ?? resp?.erro ?? 'Falha ao alterar status'); await carregar(); return }
+    flash(passoOS.para === 'em_execucao' ? 'Serviço INICIADO.' : passoOS.para === 'pronta' ? 'OS FINALIZADA (pronta).' : 'OS ENTREGUE.')
+    await carregar()
+  }
+
   // BUG #16b · reabrir OS entregue → em_execucao (Master/BPO/admin), com log. Destrava o ajuste de valores.
   async function reabrir() {
     if (!os) return
@@ -655,6 +687,17 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           {STATUS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
       </label>
+
+      {/* #135 (Triches) · ajuste 21/10: centralizado — Iniciar serviço → Finalizar → Entregar aqui mesmo */}
+      {passoOS && !bloqueadoEntrega && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button type="button" onClick={() => void avancarOS()} disabled={avancando} data-testid={passoOS.testid}
+            style={{ ...btnPri, minHeight: 44, flex: 1 }}>
+            {avancando ? 'Salvando…' : `▶ ${passoOS.rotulo}`}
+          </button>
+          <AjudaCampo chave="oficina.os.avancar_status" rota="/dashboard/os" />
+        </div>
+      )}
 
       {/* #135 (Triches) · atendimento centralizado: aprovar o orçamento aqui mesmo (a tela de Aprovação fica opcional) */}
       {podeAprovarNaOS(oficina.modelo, oficina.podePreco, os.status, itensPendentes.length) && (
@@ -910,6 +953,11 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
               </span>
             )}
           </div>
+          {motivoItensBloq && edItens === null && (
+            <div data-testid="os-itens-bloqueados" style={{ fontSize: 12, color: C.espresso, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
+              🔒 {motivoItensBloq}
+            </div>
+          )}
           {edItens !== null && (
             <div data-testid="os-itens-edicao" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
               {itensDiag.some((it) => !itemEditavelNaOS(it)) && (
