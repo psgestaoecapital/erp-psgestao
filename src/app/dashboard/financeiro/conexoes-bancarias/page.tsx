@@ -96,7 +96,8 @@ const BANCOS: readonly BancoDef[] = [
   {
     codigo: 756, sigla: 'sicoob', nome: 'Sicoob',
     cor: '#003641', pronto: true,
-    campos: ['client_id', 'cooperativa', 'conta', 'codigo_beneficiario', 'cert_a1', 'cert_senha'],
+    // #3864: o Sicoob usa DOIS identificadores distintos (código do beneficiário e convênio de cobrança).
+    campos: ['client_id', 'cooperativa', 'conta', 'codigo_beneficiario', 'convenio', 'cert_a1', 'cert_senha'],
   },
   {
     codigo: 237, sigla: 'bradesco', nome: 'Bradesco',
@@ -1078,14 +1079,13 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </Field>
           )}
           {banco.campos.includes('codigo_beneficiario') && (
-            // Rótulo/ajuda POR PROVIDER (RD-26): Sicoob e Sicredi usam o mesmo campo com nomes diferentes.
             <Field
-              label={banco.sigla === 'sicoob' ? 'Convênio de cobrança' : 'Código do beneficiário'}
+              label="Código do beneficiário" ajuda="banco.codigo_beneficiario"
               hint={banco.sigla === 'sicoob'
-                ? 'Como aparece no seu boleto Sicoob (campo Convênio) ou no internet banking, em Cobrança. Na dúvida, peça ao gerente de cobrança.'
+                ? 'Código do beneficiário no Sicoob (internet banking, em Cobrança). É diferente do convênio de cobrança.'
                 : undefined}
             >
-              <input name="ps_benef_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} placeholder={banco.sigla === 'sicoob' ? 'ex.: 5795443' : 'código do beneficiário'} />
+              <input name="ps_benef_nofill" autoComplete="off" inputMode="numeric" pattern="[0-9]*" value={codBenef} onChange={(e) => setCodBenef(e.target.value)} style={inp} placeholder="ex.: 5795443" />
             </Field>
           )}
           {banco.campos.includes('api_key') && (
@@ -1103,7 +1103,9 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </Field>
           )}
           {banco.campos.includes('convenio') && (
-            <Field label="Convênio de cobrança" ajuda="banco.convenio" hint="Número do convênio de cobrança (7 dígitos no BB). Só é preciso para emitir boleto.">
+            <Field label="Convênio de cobrança" ajuda="banco.convenio" hint={banco.sigla === 'sicoob'
+              ? 'Como aparece no seu boleto Sicoob (campo Convênio) ou no internet banking, em Cobrança. Na dúvida, peça ao gerente de cobrança.'
+              : 'Número do convênio de cobrança (7 dígitos no BB). Só é preciso para emitir boleto.'}>
               <input name="ps_convenio_nofill" autoComplete="off" inputMode="numeric" value={convenio} onChange={(e) => setConvenio(e.target.value)} style={inp} placeholder="ex.: 3128557" />
             </Field>
           )}
