@@ -201,6 +201,8 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          # Causa 2: no montar do_zero (schema das migrations), carrega os catálogos por interseção de colunas (tolera drift da prod)
+          SEED_INTERSECAO: ${{ (github.event_name == 'workflow_dispatch' && inputs.do_zero) && '1' || '' }}
         run: |
           set -euo pipefail
           # produção é Postgres 17 e o pg_dump precisa ser >= servidor (o runner traz o 16)

@@ -80,6 +80,23 @@ WHERE a.attrelid = ('public.' || quote_ident(:'t'))::regclass AND a.attnum > 0 A
 SQL
 )
   [ -n "$cols" ] || erro "$t: sem colunas para copiar"
+  # Causa 2 (CEO 21/10): com SEED_INTERSECAO=1 (montar do_zero, schema das migrations do zero), copia só as colunas em
+  # COMUM entre produção e banco de testes — colunas que só existem na prod (drift) são ignoradas, sem quebrar o COPY.
+  # No montar atual (schemas iguais) a interseção == colunas da prod: no-op.
+  if [ "${SEED_INTERSECAO:-}" = "1" ]; then
+    tcols=$("$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -At -v t="$t" -v auditoria="$AUDITORIA" <<'SQL'
+SET statement_timeout = '15s';
+SELECT string_agg(quote_ident(a.attname), ',') FROM pg_attribute a
+WHERE a.attrelid = ('public.' || quote_ident(:'t'))::regclass AND a.attnum > 0 AND NOT a.attisdropped
+  AND a.attgenerated = '' AND a.attname !~ :'auditoria';
+SQL
+)
+    inter=""; IFS=',' read -ra PA <<< "$cols"
+    for c in "${PA[@]}"; do case ",$tcols," in *",$c,"*) inter="${inter:+$inter,}$c";; esac; done
+    [ -n "$inter" ] || erro "$t: nenhuma coluna em comum entre produção e banco de testes"
+    [ "$inter" = "$cols" ] || echo "::notice::$t: seed por interseção (colunas só-da-prod ignoradas)"
+    cols="$inter"
+  fi
   echo "$cols" > "$dir/$(printf '%02d' "$i").cols"
   PGOPTIONS='-c statement_timeout=120s -c lock_timeout=5s' "$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q \
     -c "\\copy (SELECT $cols FROM public.$t) TO '$f'"
