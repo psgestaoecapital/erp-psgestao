@@ -1,0 +1,47 @@
+name: Esteira — reset diário das vagas (3h BRT)
+
+# SPEC Bootstrap do Code Esteira · item 4 (RD-INFRA-01: "Reset diário das vagas 0 e 2 deve rodar às 3h BRT via
+# montar-banco-testes recriar=true — ESTAVA FALTANDO 19/10 — criar"). Para as vagas de teste 0 e 2 começarem o dia
+# LIMPAS, este workflow dispara o "Montar banco de testes" (recriar=true) para cada uma às 03:00 America/Sao_Paulo.
+# Dispara e segue (fire-and-forget): cada montagem tem a própria fila/concurrency por vaga (aceitacao-testes-{0,2}).
+# NÃO toca a produção; só aciona o montar, que tem as travas anti-produção. Usa o PAT FILA_MERGE_TOKEN (mesmo do
+# /re-rodar e da fila): dispatch com o GITHUB_TOKEN não encadeia outro workflow de forma confiável.
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 06:00 UTC = 03:00 America/Sao_Paulo (BRT = UTC-3)
+  workflow_dispatch: {}
+
+concurrency:
+  group: esteira-reset-3h
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Disparar montar-banco-testes (recriar) para as vagas 0 e 2
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::FILA_MERGE_TOKEN ausente — reset das vagas NÃO disparado (configurar o segredo)"
+            exit 0
+          fi
+          falhou=0
+          for v in 0 2; do
+            echo "== recriar vaga $v =="
+            if gh workflow run montar-banco-testes.yml -R psgestaoecapital/erp-psgestao -f recriar=true -f "vaga=$v"; then
+              echo "vaga $v: dispatch enviado"
+            else
+              echo "::warning::vaga $v: dispatch do montar-banco-testes falhou"
+              falhou=1
+            fi
+          done
+          # fire-and-forget: a montagem corre na fila própria de cada vaga; não bloqueia aqui.
+          [ "$falhou" = 0 ] || { echo "::error::ao menos uma vaga não foi disparada"; exit 1; }
+          echo "### Reset das vagas 0 e 2 disparado (montar-banco-testes recriar=true)" >> "$GITHUB_STEP_SUMMARY"
