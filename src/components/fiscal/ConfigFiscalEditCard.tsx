@@ -87,6 +87,9 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
   // #2876 · alíquota do crédito de ICMS do Simples (pCredSN), informada pelo contador. Vazio = sem crédito na nota.
   const [credSN, setCredSN] = useState('')
   const [salvandoCredSN, setSalvandoCredSN] = useState(false)
+  // #3753 · série própria da NFC-e (modelo 65). Vazio = NFC-e desligada.
+  const [serieNfce, setSerieNfce] = useState('')
+  const [salvandoSerieNfce, setSalvandoSerieNfce] = useState(false)
 
   // carrega checklist inicial pra pre-preencher
   useEffect(() => {
@@ -204,6 +207,32 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
     const r = data as { ok?: boolean; erro?: string }
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao salvar a alíquota do crédito'); return }
     setToast(v === null ? 'Crédito de ICMS do Simples desligado.' : `Alíquota do crédito de ICMS do Simples salva: ${String(v).replace('.', ',')}%`)
+    onSalvo?.(); setTimeout(() => setToast(null), 4000)
+  }
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const { data } = await supabase.from('erp_fiscal_provider_config').select('serie_nfce')
+        .eq('company_id', companyId).eq('provider', 'focusnfe').eq('ativo', true).maybeSingle()
+      if (!alive || !data) return
+      setSerieNfce((data as { serie_nfce?: string | null }).serie_nfce ?? '')
+    })()
+    return () => { alive = false }
+  }, [companyId])
+
+  async function salvarSerieNfce() {
+    setErro(null); setToast(null)
+    const txt = serieNfce.trim()
+    if (txt !== '' && (!/^\d{1,3}$/.test(txt) || Number(txt) < 1)) { setErro('Série da NFC-e: número de 1 a 999 (ou deixe vazio para desligar).'); return }
+    setSalvandoSerieNfce(true)
+    const { data, error } = await supabase.rpc('fn_fiscal_nfce_serie_salvar', { p_company_id: companyId, p_serie: txt })
+    setSalvandoSerieNfce(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string; serie?: string | null }
+    if (!r?.ok) { setErro(r?.erro ?? 'Erro ao salvar a série da NFC-e'); return }
+    setSerieNfce(r.serie ?? '')
+    setToast(r.serie ? `Série da NFC-e salva: ${r.serie}` : 'NFC-e desligada (sem série).')
     onSalvo?.(); setTimeout(() => setToast(null), 4000)
   }
 
@@ -520,6 +549,32 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
                 className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-[#C8941A] text-white text-[12px] font-medium disabled:opacity-40">
                 {salvandoAliq ? 'Salvando…' : 'Salvar alíquota do mês'}
               </button>
+            </div>
+          </Section>
+
+          {/* #3753 · NFC-e (cupom fiscal, modelo 65) — série própria; CSC/ID do token ficam na Focus */}
+          <Section titulo="Cupom fiscal (NFC-e)">
+            <div className="text-[11px] text-[#3D2314]/60 mb-2">
+              Série do cupom fiscal eletrônico para venda a consumidor final. Diferente da série da NF-e. O CSC e o ID do
+              token (fornecidos pela SEFAZ) são cadastrados na Focus. Vazio = a empresa não emite NFC-e. Teste primeiro em homologação.
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <label className="block">
+                <span className="text-[10px] text-[#3D2314]/60 uppercase tracking-[0.6px] font-semibold flex items-center gap-1 mb-1">
+                  Série da NFC-e <AjudaCampo chave="fiscal.config.serie_nfce" />
+                </span>
+                <input type="text" inputMode="numeric" maxLength={3} value={serieNfce}
+                  onChange={(e) => setSerieNfce(e.target.value.replace(/\D/g, ''))} placeholder="ex.: 2"
+                  data-testid="config-fiscal-serie-nfce"
+                  className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]" />
+              </label>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => void salvarSerieNfce()} disabled={salvandoSerieNfce}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-[#C8941A] text-white text-[12px] font-medium disabled:opacity-40">
+                  {salvandoSerieNfce ? 'Salvando…' : 'Salvar série da NFC-e'}
+                </button>
+                <AjudaCampo chave="fiscal.config.salvar_serie_nfce" />
+              </div>
             </div>
           </Section>
 
