@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import CartaoRecebimentoModal from './CartaoRecebimentoModal'
 
 interface ContaBancaria {
   id: string
@@ -49,6 +50,9 @@ export default function MarcarPagoModal({
   // chamado #2688: sem conta o Confirmar ficava travado sem explicar; agora avisa e deixa tentar de novo
   const [contasMsg, setContasMsg] = useState<string | null>(null)
   const [tentativa, setTentativa] = useState(0)
+  // #3740: recebimento em cartão não é dinheiro na conta hoje — vai para a tela do cartão (bandeira/modalidade/parcelas)
+  // e vira títulos da operadora por parcela
+  const cartao = tipo === 'receber' && forma === 'Cartão'
 
   useEffect(() => {
     if (!open || !companyId) return
@@ -107,6 +111,18 @@ export default function MarcarPagoModal({
   }
 
   if (!open) return null
+
+  if (cartao) {
+    return (
+      <CartaoRecebimentoModal
+        companyId={companyId}
+        receber={{ id: itemId, descricao, valor: valorTotal }}
+        dataVenda={dataPag}
+        onClose={() => setForma('PIX')}
+        onSucesso={() => { setForma('PIX'); onSucesso(); onClose() }}
+      />
+    )
+  }
 
   return (
     <div

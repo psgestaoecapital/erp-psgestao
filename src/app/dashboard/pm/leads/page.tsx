@@ -322,13 +322,13 @@ export default function LeadsPage() {
     setToast(`Movido para ${etapaCfg(etapa).rotulo}.`)
   }
   async function ganhar(l: Lead) {
-    if (!confirm(`Marcar "${l.nome}" como GANHO?\nCria o cliente na agência e GERA uma proposta.`)) return
+    if (!confirm(`Marcar "${l.nome}" como GANHO?\nCria o cliente na agência e usa a proposta já feita no lead (ou GERA uma, se não houver).`)) return
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_agency_lead_ganhar', { p_lead_id: l.id })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
     if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
-    setToast('GANHOU → proposta gerada.'); void carregar()
+    setToast('GANHOU → proposta pronta.'); void carregar()
     setTimeout(() => router.push('/dashboard/pm/propostas'), 700)
   }
   async function perder(l: Lead) {
