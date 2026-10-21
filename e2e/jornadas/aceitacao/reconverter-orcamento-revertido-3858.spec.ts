@@ -1,6 +1,6 @@
 // Aceitação do chamado #3858 (FCR · jordana-code): orçamento revertido de pedido não convertia de novo — o pedido
 // 'revertido' guarda o número 'PED-' || orc.numero e a reconversão violava erp_pedidos_company_id_numero_key.
-// Migration 20261020180020: a reconversão gera PED-<numero>-2 (-3, ...), leva os itens ATUAIS do orçamento e recusa,
+// Migration 20261021042020: a reconversão gera PED-<numero>-2 (-3, ...), leva os itens ATUAIS do orçamento e recusa,
 // com mensagem simples, um 2º pedido ativo do mesmo orçamento. @pos-migration: veredito em PRODUÇÃO.
 // Demonstração Comércio (GE). As RPCs são chamadas COMO O ROBÔ (mesmo caminho da tela). Dados de teste apagados no fim (só a DEMO).
 
