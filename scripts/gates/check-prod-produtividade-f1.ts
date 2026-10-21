@@ -7,12 +7,15 @@
 //  (4) fn_prod_produto_colar com p_gravar=false não grava (prévia) e, no UPDATE, não regride dado existente;
 //  (5) fn_prod_apontar_hora valida etapa/tarefa/posto contra empresa/planta e é idempotente (NULLS NOT DISTINCT).
 // Estático (sem rede/banco), conforme a regra "um arquivo por gate".
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 
-const SQL = readFileSync('supabase/migrations/20261019150030_prod_produtividade_f1_banco.sql', 'utf8')
+// Acha a migration pelo sufixo: a fila de merge renumera a versão (20261019150030 -> 20261021130030) e o nome fixo quebrava o gate.
+const ARQ = readdirSync('supabase/migrations').find((f) => f.endsWith('_prod_produtividade_f1_banco.sql'))
+if (!ARQ) { console.error('✗ migration *_prod_produtividade_f1_banco.sql não encontrada'); process.exit(1) }
+const SQL = readFileSync(`supabase/migrations/${ARQ}`, 'utf8')
 const tem = (re: RegExp) => re.test(SQL)
 
 const TABELAS = [
