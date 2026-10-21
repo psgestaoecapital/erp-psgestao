@@ -20,7 +20,7 @@ import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
 import { aprovaPendentesAoAvancar, proximoPassoOS } from '@/lib/oficina/avancoNaOS'   // #135 · Iniciar → Finalizar → Entregar na ficha
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
-import { Package, PencilLine, Search, Wrench } from 'lucide-react'
+import { Lock, Package, PencilLine, Play, Search, Wrench } from 'lucide-react'
 
 interface OS {
   id: string
@@ -693,7 +693,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button type="button" onClick={() => void avancarOS()} disabled={avancando} data-testid={passoOS.testid}
             style={{ ...btnPri, minHeight: 44, flex: 1 }}>
-            {avancando ? 'Salvando…' : `▶ ${passoOS.rotulo}`}
+            {!avancando && <Play size={14} strokeWidth={1.5} style={{ verticalAlign: '-2px', marginRight: 6 }} />}{avancando ? 'Salvando…' : passoOS.rotulo}
           </button>
           <AjudaCampo chave="oficina.os.avancar_status" rota="/dashboard/os" />
         </div>
@@ -955,7 +955,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           </div>
           {motivoItensBloq && edItens === null && (
             <div data-testid="os-itens-bloqueados" style={{ fontSize: 12, color: C.espresso, background: C.neutralBg, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', marginBottom: 8 }}>
-              🔒 {motivoItensBloq}
+              <Lock size={14} strokeWidth={1.5} style={{ verticalAlign: '-2px', marginRight: 6 }} />{motivoItensBloq}
             </div>
           )}
           {edItens !== null && (
