@@ -81,6 +81,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
               </div>
               <Link href={`/dashboard/projetos/obras/${id}/horas?area=hub`} data-testid="link-lancar-horas" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginRight: 12 }}>Lançar horas →</Link>
               <Link href={`/dashboard/projetos/obras/${id}/linha-do-tempo?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver linha do tempo →</Link>
+              <Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Ver cronograma →</Link>
             </>
           )}
       </div>
