@@ -74,7 +74,7 @@ test.describe('Recebimento em cartão → títulos da operadora por parcela (Jor
   async function tituloCliente(valor: number): Promise<string> {
     const { id } = await dbInsert<{ id: string }>('erp_receber', {
       company_id: DEMO_COMERCIO, cliente_nome: 'Cliente Aceitação 3740', descricao: `Aceitação #3740 OS ${RUN} · ${clientes.length}`,
-      valor, data_emissao: dia(0), data_vencimento: dia(0), status: 'aberto',
+      valor, data_emissao: dia(-30), data_vencimento: dia(-30), status: 'aberto',
     })
     clientes.push(id)
     return id
@@ -82,7 +82,7 @@ test.describe('Recebimento em cartão → títulos da operadora por parcela (Jor
   const registrar = (receber: string, bandeira: string, modalidade: string, parcelas: number) =>
     rpcRobo<{ ok: boolean; erro?: string; parcelas?: unknown[] }>('fn_cartao_registrar_recebimento', {
       p_company_id: DEMO_COMERCIO, p_receber_id: receber, p_adquirente_id: adq,
-      p_bandeira: bandeira, p_modalidade: modalidade, p_parcelas: parcelas, p_data_venda: dia(0),
+      p_bandeira: bandeira, p_modalidade: modalidade, p_parcelas: parcelas, p_data_venda: dia(-30),
     })
   const repasses = (cliente: string) => dbSelect<Repasse>('erp_receber',
     `origem_recebivel_id=eq.${cliente}&eh_repasse_cartao=is.true&deleted_at=is.null&select=id,valor,valor_taxa,valor_liquido,data_vencimento,status,taxa_pagar_id,valor_pago&order=data_vencimento`)
@@ -109,7 +109,7 @@ test.describe('Recebimento em cartão → títulos da operadora por parcela (Jor
     expect(reps.map((x) => Number(x.valor))).toEqual([300, 300, 300])
     expect(reps.map((x) => Number(x.valor_taxa))).toEqual([6.75, 6.75, 6.75])
     expect(reps.map((x) => Number(x.valor_liquido))).toEqual([293.25, 293.25, 293.25])
-    expect(reps.map((x) => x.data_vencimento), 'repasse D+30 por parcela').toEqual([dia(30), dia(60), dia(90)])
+    expect(reps.map((x) => x.data_vencimento), 'repasse D+30 por parcela').toEqual([dia(0), dia(30), dia(60)])
     for (const x of reps) {
       expect(x.taxa_pagar_id, 'a taxa da parcela é despesa ligada ao repasse').toBeTruthy()
       const [tx] = await dbSelect<{ valor: number; status: string }>('erp_pagar', `id=eq.${x.taxa_pagar_id}&select=valor,status`)
@@ -121,10 +121,11 @@ test.describe('Recebimento em cartão → títulos da operadora por parcela (Jor
     expect((await registrar(cliente, 'Master', 'credito', 3)).erro).toBe('titulo_ja_baixado')
     expect(await repasses(cliente)).toHaveLength(3)
 
-    // extrato: "CIELO CREDITO" de 293,25 no dia do 1º repasse → a sugestão traz a parcela 1
+    // extrato: "CIELO CREDITO" de 293,25 no dia do 1º repasse → a sugestão traz a parcela 1. A venda é de 30 dias
+    // atrás para o 1º repasse cair HOJE: movimento com data futura entra como "ignorado" (lançamento futuro) e não concilia
     const p1 = reps[0]
     const mov = (await dbInsert<{ id: string }>('conciliacao_movimento', {
-      lote_id: lote, company_id: DEMO_COMERCIO, data_transacao: dia(30), valor: 293.25,
+      lote_id: lote, company_id: DEMO_COMERCIO, data_transacao: dia(0), valor: 293.25,
       descricao: `CIELO CREDITO ${RUN}`, natureza: 'credito', status: 'pendente',
     })).id
     const sug = await rpcRobo<{ lancamento_id: string; match_score: number }[]>('fn_conciliacao_sugerir_match', { p_movimento_id: mov, p_max_sugestoes: 5 })
