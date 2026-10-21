@@ -6,11 +6,12 @@
 // preço unitário aqui, e a Aprovação do Cliente só registra a decisão.
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check, Camera, X, MessageCircle, Copy, ExternalLink, Pencil } from 'lucide-react'
+import { Stethoscope, ChevronLeft, Plus, Trash2, Search, Wrench, Package, Check, X, MessageCircle, Copy, ExternalLink, Pencil } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { PlacaInline } from '../_components/PlacaInline'
 import SolicitarPecaModal from '@/components/oficina/SolicitarPecaModal'
 import AnotarModal from '@/components/oficina/AnotarModal'
+import FotosMultiplas, { type FotoSubida } from '@/components/oficina/FotosMultiplas'   // #135 item 6 · fotos em lote
 import AnotacaoOverlay from '@/components/oficina/AnotacaoOverlay'
 import { temAnotacao } from '@/components/oficina/anotacao'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
@@ -20,20 +21,6 @@ import { useOficinaModelo } from '@/lib/oficina/modelo'
 import { decimalBanco } from '@/lib/decimalBanco'
 
 const BUCKET = 'oficina-recepcao'   // RD-26 · mesmo bucket/mecanismo da recepção (#831)
-// comprime a foto no celular/tablet antes de subir (mesmo padrão da recepção)
-async function comprimirImagem(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  try {
-    const bitmap = await createImageBitmap(file)
-    const MAX = 1600
-    let { width, height } = bitmap
-    if (width > MAX || height > MAX) { const r = Math.min(MAX / width, MAX / height); width = Math.round(width * r); height = Math.round(height * r) }
-    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height
-    const ctx = canvas.getContext('2d'); if (!ctx) return file
-    ctx.drawImage(bitmap, 0, 0, width, height)
-    return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.7))
-  } catch { return file }
-}
 type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; diagnostico_item_id?: string | null; anotacao?: unknown; _url?: string | null }
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
@@ -118,10 +105,8 @@ export default function DiagnosticoPage() {
   const [solicitarAberto, setSolicitarAberto] = useState(false)  // R5 · modal solicitar peça ao dono
   // RD-41 · fotos do diagnóstico (reusa erp_os_registro_foto, etapa='diagnostico')
   const [fotosDiag, setFotosDiag] = useState<FotoDiag[]>([])
-  const [fotoPend, setFotoPend] = useState<{ path: string; url?: string | null; descricao: string } | null>(null)
-  const [subindoFoto, setSubindoFoto] = useState(false)
+  const [legDiag, setLegDiag] = useState<Record<string, string>>({})   // #135 item 6 · legenda editável na miniatura
   // DVI (Onda 2): a foto pendente pode estar ligada a um ITEM do diagnóstico (a foto do item converte +19%)
-  const [fotoItemId, setFotoItemId] = useState<string | null>(null)
   const [fotoZoom, setFotoZoom] = useState<{ url: string; anotacao?: unknown } | null>(null)   // lightbox (com anotação por cima)
   const [anotarFoto, setAnotarFoto] = useState<FotoDiag | null>(null)   // DVI (Onda 2) · editor de anotação da foto
   // DVI (Onda 2) · enviar orçamento ao cliente por link público (WhatsApp, RD-42 · custo zero)
@@ -137,6 +122,7 @@ export default function DiagnosticoPage() {
       return { ...r, _url: s?.signedUrl ?? null }
     }))
     setFotosDiag(comUrl)
+    setLegDiag(Object.fromEntries(comUrl.map((r) => [r.id, r.descricao ?? ''])))
   }, [companyId])
 
   const carregarLista = useCallback(async () => {
@@ -150,7 +136,7 @@ export default function DiagnosticoPage() {
 
   const abrirOS = async (os: OSLinha) => {
     if (!companyId) return
-    setOsSel(os); setFotoPend(null); setFotosDiag([]); setLinkPub(null); void carregarFotos(os.id)
+    setOsSel(os); setFotosDiag([]); setLinkPub(null); void carregarFotos(os.id)
     const { data } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: companyId, p_os_id: os.id })
     const d = data as { os?: { diagnostico?: string; km?: number }; itens?: (ItemLaudo & { preco?: number; subtotal?: number; status_item?: string })[]; resumo?: Resumo } | null
     setDiagnostico(d?.os?.diagnostico ?? '')
@@ -224,30 +210,27 @@ export default function DiagnosticoPage() {
   const setItem = (i: number, patch: Partial<ItemLaudo>) => setItens((p) => p.map((it, idx) => (idx === i ? { ...it, ...patch } : it)))
   const delItem = (i: number) => setItens((p) => p.filter((_, idx) => idx !== i))
 
-  // captura a foto (comprime + sobe pro bucket) → fica pendente pra descrever e salvar
-  const onFotoDiag = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = Array.from(e.target.files ?? []).find((f) => f.type.startsWith('image/'))
-    e.target.value = ''
-    if (!file || !companyId || !osSel) return
-    setSubindoFoto(true)
-    const blob = await comprimirImagem(file)
-    const path = `${companyId}/diagnostico/${osSel.id}/${crypto.randomUUID()}.jpg`
-    const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
-    if (error) { setSubindoFoto(false); setMsg('❌ Falha ao subir a foto — tente de novo.'); return }
-    const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600)
-    setFotoPend({ path, url: signed?.signedUrl, descricao: '' }); setSubindoFoto(false)
-  }
-  // salva o registro da foto (etapa='diagnostico') — aparece na impressão (#843)
-  const salvarFotoDiag = async () => {
-    if (!companyId || !osSel || !fotoPend) return
-    const desc = fotoPend.descricao.trim() || 'Foto do diagnóstico'
-    const { data } = await supabase.rpc('fn_oficina_registro_salvar', {
-      p_company_id: companyId, p_os_id: osSel.id, p_foto_path: fotoPend.path, p_descricao: desc, p_etapa: 'diagnostico',
-      p_diagnostico_item_id: fotoItemId,   // DVI: liga a foto ao item quando veio de um item
+  // #135 item 6 · cada foto escolhida (uma ou várias) já é ligada à OS (etapa='diagnostico') — aparece na impressão (#843).
+  // Vinda de "Foto do item", liga ao item do laudo (DVI). A legenda é opcional e se edita na miniatura.
+  const ligarFotoDiag = (itemId: string | null) => async (foto: FotoSubida) => {
+    if (!companyId || !osSel) throw new Error('OS não selecionada')
+    const { data, error } = await supabase.rpc('fn_oficina_registro_salvar', {
+      p_company_id: companyId, p_os_id: osSel.id, p_foto_path: foto.path, p_descricao: 'Foto do diagnóstico', p_etapa: 'diagnostico',
+      p_diagnostico_item_id: itemId,   // DVI: liga a foto ao item quando veio de um item
     })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (!r?.ok) { setMsg('❌ ' + (r?.erro ?? 'Falha ao salvar a foto')); return }
-    setFotoPend(null); setFotoItemId(null); setMsg('📷 Foto do diagnóstico salva'); void carregarFotos(osSel.id)
+    if (error || !r?.ok) throw new Error(error?.message ?? r?.erro ?? 'Falha ao salvar a foto')
+    return foto
+  }
+  const fimFotosDiag = (_ok: unknown[], _falhas: unknown[], m: string) => { setMsg(m); if (osSel) void carregarFotos(osSel.id) }
+  const salvarLegendaDiag = async (f: FotoDiag) => {
+    const nova = (legDiag[f.id] ?? '').trim()
+    if (nova === (f.descricao ?? '').trim()) return
+    const { data, error } = await supabase.rpc('fn_oficina_registro_legenda', { p_id: f.id, p_descricao: nova || null })
+    const r = data as { ok?: boolean; erro?: string; descricao?: string } | null
+    if (error || !r?.ok) { setMsg('❌ Legenda não salva: ' + (error?.message ?? r?.erro ?? 'falha')); return }
+    setFotosDiag((p) => p.map((x) => (x.id === f.id ? { ...x, descricao: r.descricao ?? nova } : x)))
+    setLegDiag((p) => ({ ...p, [f.id]: r.descricao ?? nova }))
   }
   // exclui a foto (pedido Gean) — RPC com guard de company; a foto some do histórico/impressão, então confirma.
   // A RPC apaga a linha e devolve foto_path; o arquivo do storage é removido no mesmo bucket do upload.
@@ -547,10 +530,9 @@ export default function DiagnosticoPage() {
                 {(() => { const nf = it.id ? fotosDiag.filter((f) => f.diagnostico_item_id === it.id).length : 0
                   return <span style={{ fontSize: 12, fontWeight: 700, color: nf > 0 ? ESP : ESP60 }}>📷 {nf} foto(s) deste item</span> })()}
                 {it.id ? (
-                  <label onClick={() => setFotoItemId(it.id ?? null)} style={{ ...btnLineGhost, cursor: 'pointer', padding: '6px 10px' }}>
-                    <Camera size={13} /> Foto do item
-                    <input type="file" accept="image/*" capture="environment" onChange={onFotoDiag} style={{ display: 'none' }} />
-                  </label>
+                  <FotosMultiplas compacto companyId={companyId} pasta={`diagnostico/${osSel?.id ?? 'sem-os'}`} rotulo="Foto do item"
+                    chaveAjuda="oficina.diagnostico.fotos_enviar" testId="diag-item-fotos"
+                    aoSubir={ligarFotoDiag(it.id ?? null)} aoTerminar={fimFotosDiag} />
                 ) : (
                   <span style={{ fontSize: 11, color: ESP60 }}>salve o laudo p/ anexar foto a este item</span>
                 )}
@@ -590,10 +572,8 @@ export default function DiagnosticoPage() {
 
         {/* RD-41 · Fotos do diagnóstico (tablet do mecânico) — entram no histórico fotográfico da impressão (#843) */}
         <Sec titulo={ramo.automotivo ? 'Fotos do diagnóstico' : `Fotos da ${ramo.objetoLabelCurto}`}>
-          <label onClick={() => setFotoItemId(null)} style={{ ...btnGold, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: 'auto' }}>
-            <Camera size={18} /> {subindoFoto ? 'Enviando…' : 'Tirar / anexar foto'}
-            <input type="file" accept="image/*" capture="environment" onChange={onFotoDiag} style={{ display: 'none' }} />
-          </label>
+          <FotosMultiplas companyId={companyId} pasta={`diagnostico/${osSel?.id ?? 'sem-os'}`} rotulo="Fotos"
+            chaveAjuda="oficina.diagnostico.fotos_enviar" testId="diag-fotos" aoSubir={ligarFotoDiag(null)} aoTerminar={fimFotosDiag} />
           <div style={{ fontSize: 11, color: ESP60, marginTop: 6 }}>Ex.: peça com defeito, vazamento, desgaste. Aparecem na impressão da OS (histórico fotográfico).</div>
           {/* DVI · contador + referência do setor (sem chantagem, só o número) */}
           <div style={{ fontSize: 12, color: fotosDiag.length >= 20 ? OK : GOLD, fontWeight: 700, marginTop: 8 }}>
@@ -601,22 +581,8 @@ export default function DiagnosticoPage() {
             <span style={{ fontWeight: 400, color: ESP60 }}> · inspeções com 20+ fotos aprovam ~30% mais</span>
           </div>
 
-          {fotoPend && (
-            <div style={{ marginTop: 10, border: `1px solid ${GOLD}`, borderRadius: 10, padding: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {fotoPend.url && <img src={fotoPend.url} alt="foto do diagnóstico" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <input value={fotoPend.descricao} onChange={(e) => setFotoPend((p) => (p ? { ...p, descricao: e.target.value } : p))} placeholder="Descreva a foto (ex.: pastilha gasta)" style={{ ...inp, padding: '9px 11px', fontSize: 13 }} autoFocus />
-                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                  <button onClick={() => void salvarFotoDiag()} style={{ ...btnGold, flex: 1, padding: '9px 12px', fontSize: 13 }}>Salvar foto</button>
-                  <button onClick={() => setFotoPend(null)} style={{ ...btnLine, padding: '9px 12px', fontSize: 13 }}><X size={14} /></button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {fotosDiag.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10, marginTop: 12 }}>
+            <div data-ajuda="oficina.diagnostico.foto_legenda" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10, marginTop: 12 }}>
               {fotosDiag.map((f) => (
                 <div key={f.id} style={{ position: 'relative', border: `1px solid ${LINE}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
                   <button
@@ -633,7 +599,9 @@ export default function DiagnosticoPage() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   {f._url ? <img src={f._url} alt={f.descricao ?? 'foto'} onClick={() => f._url && setFotoZoom({ url: f._url, anotacao: f.anotacao })} title="Clique para ampliar" style={{ width: '100%', height: 72, objectFit: 'cover', display: 'block', cursor: 'zoom-in' }} />
                     : <div style={{ width: '100%', height: 72, background: '#F0EADE' }} />}
-                  <div style={{ fontSize: 10.5, color: ESP60, padding: '5px 7px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.descricao || 'Foto'}{f.criado_por_nome ? ` · ${f.criado_por_nome}` : ''}</div>
+                  <input value={legDiag[f.id] ?? ''} onChange={(e) => setLegDiag((p) => ({ ...p, [f.id]: e.target.value }))} onBlur={() => void salvarLegendaDiag(f)}
+                    placeholder="Legenda (opcional)" aria-label="Legenda da foto" maxLength={200} title={f.criado_por_nome ? `por ${f.criado_por_nome}` : undefined}
+                    style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderTop: `1px solid ${LINE}`, padding: '5px 7px', fontSize: 10.5, color: ESP, background: '#fff' }} />
                   {f._url && (
                     <button onClick={() => setAnotarFoto(f)} title="Anotar na foto"
                       style={{ width: '100%', borderTop: `1px solid ${LINE}`, background: '#fff', color: ESP, border: 'none', padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
@@ -642,6 +610,11 @@ export default function DiagnosticoPage() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+          {fotosDiag.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: ESP60, marginTop: 6 }}>
+              Legenda: toque na linha abaixo da foto <AjudaCampo chave="oficina.diagnostico.foto_legenda" />
             </div>
           )}
         </Sec>
