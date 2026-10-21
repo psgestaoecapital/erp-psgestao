@@ -228,7 +228,7 @@ export default function DiagnosticoPage() {
     if (nova === (f.descricao ?? '').trim()) return
     const { data, error } = await supabase.rpc('fn_oficina_registro_legenda', { p_id: f.id, p_descricao: nova || null })
     const r = data as { ok?: boolean; erro?: string; descricao?: string } | null
-    if (error || !r?.ok) { setMsg('❌ Legenda não salva: ' + (error?.message ?? r?.erro ?? 'falha')); return }
+    if (error || !r?.ok) { setMsg('Legenda não salva: ' + (error?.message ?? r?.erro ?? 'falha')); return }
     setFotosDiag((p) => p.map((x) => (x.id === f.id ? { ...x, descricao: r.descricao ?? nova } : x)))
     setLegDiag((p) => ({ ...p, [f.id]: r.descricao ?? nova }))
   }

@@ -28,7 +28,7 @@ export default function FotosMultiplas<T = FotoSubida>({ companyId, pasta, aoSub
 }) {
   const [estados, setEstados] = useState<EstadoFoto[]>([])
   const [enviando, setEnviando] = useState(false)
-  const [aviso, setAviso] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<{ texto: string; erro: boolean } | null>(null)
 
   const escolher = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const arquivos = soImagens(Array.from(e.target.files ?? []))
@@ -55,7 +55,7 @@ export default function FotosMultiplas<T = FotoSubida>({ companyId, pasta, aoSub
       }
     }, { onEstado: setEstados })
     const msg = mensagemLote(arquivos.length, falhas)
-    setEnviando(false); setAviso(msg)
+    setEnviando(false); setAviso({ texto: msg, erro: falhas.length > 0 })
     if (!falhas.length) setEstados([])
     aoTerminar?.(ok, falhas, msg)
   }
@@ -67,14 +67,14 @@ export default function FotosMultiplas<T = FotoSubida>({ companyId, pasta, aoSub
   const bloqueado = desabilitado || enviando || !companyId
 
   return (
-    <div data-testid={testId} data-ajuda={chaveAjuda}>
+    <div data-testid={testId}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label style={{ ...btn, opacity: bloqueado ? 0.6 : 1, cursor: bloqueado ? 'not-allowed' : 'pointer' }}>
+        <label data-ajuda={chaveAjuda} style={{ ...btn, opacity: bloqueado ? 0.6 : 1, cursor: bloqueado ? 'not-allowed' : 'pointer' }}>
           {enviando ? <Loader2 size={compacto ? 13 : 16} className="animate-spin" /> : <Camera size={compacto ? 13 : 16} />}
           {enviando ? 'Enviando…' : compacto ? 'Câmera' : `${rotulo}: câmera`}
           <input type="file" accept="image/*" capture="environment" onChange={escolher} disabled={bloqueado} style={{ display: 'none' }} />
         </label>
-        <label style={{ ...btn2, opacity: bloqueado ? 0.6 : 1, cursor: bloqueado ? 'not-allowed' : 'pointer' }}>
+        <label data-ajuda={chaveAjuda} style={{ ...btn2, opacity: bloqueado ? 0.6 : 1, cursor: bloqueado ? 'not-allowed' : 'pointer' }}>
           <Images size={compacto ? 13 : 16} /> {compacto ? 'Galeria' : 'Galeria / arquivos (várias)'}
           <input type="file" accept="image/*" multiple onChange={escolher} disabled={bloqueado} data-testid={testId ? `${testId}-galeria` : undefined} style={{ display: 'none' }} />
         </label>
@@ -97,7 +97,7 @@ export default function FotosMultiplas<T = FotoSubida>({ companyId, pasta, aoSub
         </div>
       )}
       {aviso && (
-        <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: aviso.startsWith('❌') ? RED : OK }}>{aviso}</div>
+        <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: aviso.erro ? RED : OK }}>{aviso.texto}</div>
       )}
     </div>
   )

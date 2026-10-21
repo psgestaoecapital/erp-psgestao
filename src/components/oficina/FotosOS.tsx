@@ -3,7 +3,7 @@
 // opcional e exclusão. Cada foto vira um registro em erp_os_registro_foto (fn_oficina_registro_salvar, a mesma do
 // diagnóstico/execução) e aparece no histórico fotográfico da impressão da OS. Usado na ficha da OS e na execução.
 import { useCallback, useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { Camera, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import FotosMultiplas from './FotosMultiplas'
@@ -49,7 +49,7 @@ export default function FotosOS({ companyId, osId, etapa = 'servico', listarEtap
     if (nova === (f.descricao ?? '').trim()) return
     const { data, error } = await supabase.rpc('fn_oficina_registro_legenda', { p_id: f.id, p_descricao: nova || null })
     const r = data as { ok?: boolean; erro?: string; descricao?: string } | null
-    if (error || !r?.ok) { setMsg('❌ Legenda não salva: ' + (error?.message ?? r?.erro ?? 'falha')); return }
+    if (error || !r?.ok) { setMsg('Legenda não salva: ' + (error?.message ?? r?.erro ?? 'falha')); return }
     setFotos((p) => p.map((x) => (x.id === f.id ? { ...x, descricao: r.descricao ?? nova } : x)))
     setLegendas((p) => ({ ...p, [f.id]: r.descricao ?? nova }))
   }
@@ -58,7 +58,7 @@ export default function FotosOS({ companyId, osId, etapa = 'servico', listarEtap
     if (!confirm('Excluir esta foto?\n\nEla sai do histórico fotográfico da OS (some também da impressão).')) return
     const { data, error } = await supabase.rpc('fn_os_foto_excluir', { p_id: f.id })
     const r = data as { sucesso?: boolean; erro?: string; foto_path?: string } | null
-    if (error || !r?.sucesso) { setMsg('❌ ' + (r?.erro === 'sem_acesso' ? 'Sem permissão para excluir esta foto.' : (error?.message ?? r?.erro ?? 'Falha ao excluir'))); return }
+    if (error || !r?.sucesso) { setMsg((r?.erro === 'sem_acesso' ? 'Sem permissão para excluir esta foto.' : (error?.message ?? r?.erro ?? 'Falha ao excluir'))); return }
     if (r.foto_path) await supabase.storage.from(BUCKET).remove([r.foto_path])
     setFotos((p) => p.filter((x) => x.id !== f.id))
   }
@@ -84,7 +84,7 @@ export default function FotosOS({ companyId, osId, etapa = 'servico', listarEtap
         aoTerminar={() => { setMsg(null); void carregar() }}
       />
       {msg && <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: RED }}>{msg}</div>}
-      <div style={{ fontSize: 11.5, color: ESP60, marginTop: 6 }}>📷 {fotos.length} foto(s) nesta OS · aparecem na impressão (histórico fotográfico)</div>
+      <div style={{ fontSize: 11.5, color: ESP60, marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}><Camera size={13} strokeWidth={1.5} /> {fotos.length} foto(s) nesta OS · aparecem na impressão (histórico fotográfico)</div>
       {fotos.length > 0 && (
         <div data-ajuda={chaveLegenda} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 8, marginTop: 8 }}>
           {fotos.map((f) => (

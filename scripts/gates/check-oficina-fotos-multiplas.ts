@@ -36,7 +36,7 @@ async function logica() {
   ok(ultimos.some((l) => l.some((e) => e.fase === 'enviando' && e.pct === PCT_FASE.enviando)), 'progresso intermediário aparece durante o envio')
   const msg = mensagemLote(10, r.falhas)
   ok(msg.includes('9 de 10') && msg.includes('foto-7.jpg'), `aviso ao usuário: "${msg}"`)
-  ok(mensagemLote(10, []) === '📷 10 fotos salvas.', 'lote sem falha: "10 fotos salvas"')
+  ok(mensagemLote(10, []) === '10 fotos salvas.', 'lote sem falha: "10 fotos salvas"')
   const vazio = await enviarFotosEmLote([], async () => 1)
   ok(vazio.ok.length === 0 && vazio.falhas.length === 0, 'lote vazio não quebra')
 }

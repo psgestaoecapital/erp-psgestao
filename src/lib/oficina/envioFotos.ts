@@ -56,9 +56,9 @@ export async function enviarFotosEmLote<F extends { name: string }, T>(
 // aviso ao usuário depois do lote: quantas subiram e QUAIS não subiram (pelo nome do arquivo)
 export function mensagemLote(totalEscolhidas: number, falhas: FalhaFoto[]): string {
   const subiram = totalEscolhidas - falhas.length
-  if (!falhas.length) return subiram === 1 ? '📷 1 foto salva.' : `📷 ${subiram} fotos salvas.`
+  if (!falhas.length) return subiram === 1 ? '1 foto salva.' : `${subiram} fotos salvas.`
   const nomes = falhas.map((f) => f.nome).join(', ')
-  return `❌ ${subiram} de ${totalEscolhidas} foto(s) salvas. Não subiu: ${nomes}. Tente enviar essa(s) de novo.`
+  return `${subiram} de ${totalEscolhidas} foto(s) salvas. Não subiu: ${nomes}. Tente enviar essa(s) de novo.`
 }
 
 // Comprime no navegador antes de subir: lado maior até 1600 px, JPEG 0,7 (mesmo padrão da recepção, legível na
