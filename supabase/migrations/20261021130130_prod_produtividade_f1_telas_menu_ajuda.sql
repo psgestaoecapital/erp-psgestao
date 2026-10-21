@@ -128,5 +128,5 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('ok', true, 'id', v_id);
 END $$;
-REVOKE ALL ON FUNCTION public.fn_prod_produto_f1_salvar(uuid,uuid,text,text,uuid,text,text,numeric,text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_prod_produto_f1_salvar(uuid,uuid,text,text,uuid,text,text,numeric,text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_prod_produto_f1_salvar(uuid,uuid,text,text,uuid,text,text,text,numeric,text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_produto_f1_salvar(uuid,uuid,text,text,uuid,text,text,text,numeric,text) TO authenticated, service_role;
