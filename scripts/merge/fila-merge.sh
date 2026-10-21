@@ -48,10 +48,12 @@ SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 # Leitura (GET, sem -X) tenta até 3x: resposta vazia/transitória da API ("unexpected end of JSON input") derrubava a rodada
 # inteira (set -e) e deixava a esteira parada (runs 14909/14916, 14/10). Escrita (-X) NUNCA repete: não é idempotente.
+# `timeout 60` (19/10): um `gh api` pendurado (sem resposta) segurava o passo até os 8 min, o runner matava a rodada na PR
+# #2608 e nenhuma PR depois dela era avaliada (nada publicado por 80 min). Estourou → falha como qualquer erro de API.
 api() {
   local t=1 out
-  case " $* " in *" -X "*) gh api -H 'Accept: application/vnd.github+json' "$@"; return;; esac
-  until out=$(gh api -H 'Accept: application/vnd.github+json' "$@"); do
+  case " $* " in *" -X "*) timeout 60 gh api -H 'Accept: application/vnd.github+json' "$@"; return;; esac
+  until out=$(timeout 60 gh api -H 'Accept: application/vnd.github+json' "$@"); do
     [ "$t" -ge 3 ] && return 1
     sleep $((t * 2)); t=$((t + 1))
   done
