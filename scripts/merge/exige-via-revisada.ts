@@ -19,38 +19,47 @@ export type Arq = string | { nome: string; conteudo?: string }
 
 const SO_DOC_TESTE_CI = /^(docs\/|\.github\/|e2e\/|.*\.md$)/
 const CALCULO = /^src\/(lib|libs|server|utils)\/.*(calc|motor|imposto|tribut|rateio|markup|folha|dre|fiscal|financ)/
-// tabelas de dado de cliente / financeiro / fiscal cujo toque por migration é sempre crítico
-const TABELAS_CRITICAS = /\b(erp_clientes|cliente_unificacao|companies|user_companies|tenant_subscriptions|titulo|parcela|conta_bancaria|conciliac|boleto|nfe|nfse|nota_fiscal|imposto|repasse|cartao|folha|salario|wealth|cvm)\w*/
 
 function nomeDe(a: Arq): string { return typeof a === 'string' ? a : a.nome }
 function conteudoDe(a: Arq): string | undefined { return typeof a === 'string' ? undefined : a.conteudo }
 
-// Uma migration/.sql é CRÍTICA se mexe em objeto/dado que JÁ EXISTE, ou toca área crítica. Criar coisa nova é DIRETO.
+// Uma migration/.sql é CRÍTICA só quando MUTA objeto/dado que JÁ EXISTE. Criar coisa nova — mesmo com DROP ... IF EXISTS
+// idempotente, REVOKE FROM anon, ou FK para uma tabela crítica — é aditivo e publica DIRETO.
+// tabelas de dado de cliente/financeiro/fiscal: mexer no dado delas (mesmo dentro de um RPC) é sempre crítico
+const TABELA_CRITICA = /^(erp_clientes|cliente_unificacao|titulo|titulos|parcela|conta_bancaria|conciliac|boleto|nfe|nfse|nota_fiscal|imposto|repasse|cartao|salario|folha_pag)/
+
 export function migracaoCritica(nome: string, sql?: string): string | null {
   if (sql === undefined) return `migration sem conteúdo para avaliar (${nome}) — na dúvida, espera verde`
-  // só o CÓDIGO (sem comentários nem literais de string), p/ não casar termo crítico em texto de ajuda inocente
-  const s = sql.toLowerCase().replace(/--[^\n]*/g, ' ').replace(/'[^']*'/g, "''")
-  if (TABELAS_CRITICAS.test(s)) return `migration toca tabela de cliente/financeiro/fiscal (${nome})`
-  // sinais IRREVERSÍVEIS / mutantes em dado existente
-  if (/\bdrop\s+(table|column|function|view|policy|schema|index|type|trigger|constraint)\b/.test(s)) return `migration com DROP (${nome})`
-  if (/\btruncate\b/.test(s)) return `migration com TRUNCATE (${nome})`
-  if (/\bdelete\s+from\b/.test(s)) return `migration com DELETE em dado existente (${nome})`
-  if (/\bupdate\s+(?:only\s+)?(?:public\.)?["a-z0-9_]+\s+set\b/.test(s)) return `migration com UPDATE em dado existente (${nome})`
-  if (/\brevoke\b/.test(s)) return `migration com REVOKE (${nome})`
-  // tabelas criadas NESTA migration (ALTER/RLS nelas é parte do "criar novo" = ok)
+  const limpo = sql.toLowerCase().replace(/--[^\n]*/g, ' ').replace(/'[^']*'/g, "''")
+  // o corpo de função ($$…$$) é a LÓGICA do RPC, não uma mutação em tempo de migration — tira do check de DML de migration
+  const topo = limpo.replace(/\$([a-z0-9_]*)\$[\s\S]*?\$\1\$/g, ' corpo_de_funcao ')
   const criadas = new Set<string>()
-  for (const m of s.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?"?([a-z0-9_]+)"?/g)) criadas.add(m[1])
-  for (const m of s.matchAll(/alter\s+table\s+(?:only\s+)?(?:public\.)?"?([a-z0-9_]+)"?/g)) {
-    if (!criadas.has(m[1])) return `migration com ALTER em tabela existente (${m[1]} · ${nome})`
+  for (const m of topo.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?"?([a-z0-9_]+)"?/g)) criadas.add(m[1])
+  const novo = (t?: string) => !!t && criadas.has(t)
+
+  // 1) mexer em DADO de tabela crítica (cliente/financeiro/fiscal) — vale até dentro de função (é o que o RPC faz)
+  for (const m of limpo.matchAll(/(?:insert\s+into|update|delete\s+from)\s+(?:only\s+)?(?:public\.)?"?([a-z0-9_]+)"?/g)) {
+    if (TABELA_CRITICA.test(m[1])) return `migration/RPC mexe em dado crítico (${m[1]} · ${nome})`
   }
-  for (const m of s.matchAll(/(?:create|alter)\s+policy[^;]*?\son\s+(?:public\.)?"?([a-z0-9_]+)"?/g)) {
-    if (!criadas.has(m[1])) return `migration mexe em RLS de tabela existente (${m[1]} · ${nome})`
+  // 2) DDL/DML em tempo de migration sobre objeto que JÁ EXISTE (fora de corpo de função)
+  if (/\btruncate\b/.test(topo)) return `migration com TRUNCATE (${nome})`
+  for (const m of topo.matchAll(/drop\s+(table|view|function|column|type|schema|trigger|constraint|index)\s+(?:if\s+exists\s+)?(?:public\.)?"?([a-z0-9_]+)"?/g)) {
+    if (!/if\s+exists/.test(m[0]) && !novo(m[2])) return `migration com DROP de ${m[1]} existente (${m[2]} · ${nome})`
   }
-  for (const m of s.matchAll(/alter\s+table\s+(?:only\s+)?(?:public\.)?"?([a-z0-9_]+)"?[^;]*row\s+level\s+security/g)) {
-    if (!criadas.has(m[1])) return `migration liga/desliga RLS em tabela existente (${m[1]} · ${nome})`
+  for (const m of topo.matchAll(/(?:update|delete\s+from)\s+(?:only\s+)?(?:public\.)?"?([a-z0-9_]+)"?/g)) {
+    if (!novo(m[1])) return `migration com UPDATE/DELETE em dado existente (${m[1]} · ${nome})`
   }
-  if (/create\s+or\s+replace\s+view\b/.test(s)) return `migration com CREATE OR REPLACE VIEW (muda leitura existente · ${nome})`
-  return null // só cria coisa nova / INSERT em catálogo / GRANT em objeto novo → DIRETO
+  for (const m of topo.matchAll(/alter\s+table\s+(?:only\s+)?(?:public\.)?"?([a-z0-9_]+)"?/g)) {
+    if (!novo(m[1])) return `migration com ALTER em tabela existente (${m[1]} · ${nome})`
+  }
+  for (const m of topo.matchAll(/(?:create|alter|drop)\s+policy[^;]*?\son\s+(?:public\.)?"?([a-z0-9_]+)"?/g)) {
+    if (!novo(m[1])) return `migration mexe em RLS de tabela existente (${m[1]} · ${nome})`
+  }
+  for (const m of topo.matchAll(/alter\s+table\s+(?:only\s+)?(?:public\.)?"?([a-z0-9_]+)"?[^;]*row\s+level\s+security/g)) {
+    if (!novo(m[1])) return `migration liga/desliga RLS em tabela existente (${m[1]} · ${nome})`
+  }
+  if (/create\s+or\s+replace\s+view\b/.test(topo)) return `migration com CREATE OR REPLACE VIEW (muda leitura existente · ${nome})`
+  return null // cria coisa nova / RPC em tabela não-crítica / INSERT em catálogo / FK p/ tabela crítica → DIRETO
 }
 
 export function exigeViaRevisada(arquivos: Arq[]): ViaRevisada {
