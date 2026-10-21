@@ -7,16 +7,22 @@
 -- Prova (21/10, todas as empresas, conciliados nos últimos 30 dias): 83 a pagar e 96 a receber sem conta; 4 a receber
 -- com conta diferente da do extrato. Pdois: tarifa 8cab34d4 (R$ 0,90) conciliada no SICREDI PRIGOL e ainda sem conta.
 --
--- Regra: o título conciliado com movimento de extrato bancário passa a ter a conta desse extrato (a do movimento
--- conciliado mais recente, se houver mais de um). Lote sem conta bancária (cartão) não mexe. Desvincular não volta a
--- conta. Só a partir de agora: o histórico já conciliado NÃO é alterado aqui (correção em massa = decisão à parte).
+-- Regra (especificação da Jordana, mensagem 740eeb50):
+--   1. o título conciliado com movimento de extrato bancário passa a ter a conta desse extrato (a do movimento
+--      conciliado mais recente, se houver mais de um) e o histórico do título registra
+--      "Conta alterada de X para Y pela conciliação" (erp_lancamento_log, acao CONTA_PELA_CONCILIACAO);
+--   2. se o título já tem conta informada E uma baixa que não é dinheiro deste extrato (manual solta ou ligada a
+--      movimento de outra conta), NÃO troca sozinho: grava o aviso CONCILIACAO_CONTA_DIVERGENTE no histórico
+--      (uma vez por conta de extrato) para o operador confirmar.
+-- Lote sem conta bancária (cartão) não mexe. Desvincular não volta a conta. Só a partir de agora: o histórico já
+-- conciliado NÃO é alterado aqui (a correção dos casos antigos de Prigol/Troian/Gean é migration de dado à parte).
 
 CREATE OR REPLACE FUNCTION public.fn_titulo_conta_pela_conciliacao(p_tabela text, p_id uuid)
  RETURNS void
  LANGUAGE plpgsql
  SET search_path TO 'public'
 AS $function$
-DECLARE v_conta uuid; v_nome text;
+DECLARE v_conta uuid; v_nome text; v_atual_id uuid; v_atual_nome text; v_company uuid; v_outra boolean;
 BEGIN
   IF p_id IS NULL OR p_tabela NOT IN ('erp_receber','erp_pagar') THEN RETURN; END IF;
 
@@ -34,18 +40,59 @@ BEGIN
   IF v_conta IS NULL THEN RETURN; END IF;
 
   IF p_tabela = 'erp_receber' THEN
+    SELECT t.company_id, t.conta_bancaria_id, t.conta_bancaria INTO v_company, v_atual_id, v_atual_nome
+      FROM public.erp_receber t WHERE t.id = p_id;
+    -- baixa ativa que NÃO é dinheiro deste extrato (manual solta, ou ligada a movimento de outra conta)
+    SELECT EXISTS (SELECT 1 FROM public.erp_receber_baixa b
+                     LEFT JOIN public.conciliacao_movimento m ON m.id = b.movimento_banco_id
+                     LEFT JOIN public.conciliacao_lote l ON l.id = m.lote_id
+                    WHERE b.receber_id = p_id AND b.deleted_at IS NULL
+                      AND l.conta_bancaria_id IS DISTINCT FROM v_conta) INTO v_outra;
+  ELSE
+    SELECT t.company_id, NULL::uuid, t.conta_bancaria INTO v_company, v_atual_id, v_atual_nome
+      FROM public.erp_pagar t WHERE t.id = p_id;
+    SELECT EXISTS (SELECT 1 FROM public.erp_pagar_baixa b
+                     LEFT JOIN public.conciliacao_movimento m ON m.id = b.movimento_banco_id
+                     LEFT JOIN public.conciliacao_lote l ON l.id = m.lote_id
+                    WHERE b.pagar_id = p_id AND b.deleted_at IS NULL
+                      AND l.conta_bancaria_id IS DISTINCT FROM v_conta) INTO v_outra;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.erp_banco_contas bc WHERE bc.id = v_conta AND bc.company_id = v_company) THEN RETURN; END IF;
+
+  -- já está na conta do extrato
+  IF (p_tabela = 'erp_receber' AND v_atual_id IS NOT DISTINCT FROM v_conta AND v_atual_nome IS NOT DISTINCT FROM v_nome)
+     OR (p_tabela = 'erp_pagar' AND v_atual_nome IS NOT DISTINCT FROM v_nome) THEN
+    RETURN;
+  END IF;
+
+  -- título com conta informada e baixa em outra conta: não troca sozinho, deixa o aviso no histórico
+  IF (v_atual_id IS NOT NULL OR NULLIF(btrim(v_atual_nome), '') IS NOT NULL) AND v_outra THEN
+    INSERT INTO public.erp_lancamento_log (lancamento_id, tabela_origem, user_email, acao, campos_alterados)
+    SELECT p_id, p_tabela, (SELECT u.email FROM auth.users u WHERE u.id = auth.uid()), 'CONCILIACAO_CONTA_DIVERGENTE',
+           jsonb_build_object('conta_bancaria', jsonb_build_object('atual', v_atual_nome, 'extrato', v_nome),
+                              'motivo', 'Conciliado no extrato de ' || v_nome || ', mas o título tem baixa em outra conta ('
+                                        || COALESCE(v_atual_nome, 'sem conta') || '). Conta mantida: confirme a troca.')
+     WHERE NOT EXISTS (SELECT 1 FROM public.erp_lancamento_log g
+                        WHERE g.lancamento_id = p_id AND g.acao = 'CONCILIACAO_CONTA_DIVERGENTE'
+                          AND g.campos_alterados->'conta_bancaria'->>'extrato' = v_nome);
+    RETURN;
+  END IF;
+
+  IF p_tabela = 'erp_receber' THEN
     UPDATE public.erp_receber t
        SET conta_bancaria_id = v_conta, conta_bancaria = v_nome, updated_at = now()
-     WHERE t.id = p_id
-       AND (t.conta_bancaria_id IS DISTINCT FROM v_conta OR t.conta_bancaria IS DISTINCT FROM v_nome)
-       AND EXISTS (SELECT 1 FROM public.erp_banco_contas bc WHERE bc.id = v_conta AND bc.company_id = t.company_id);
+     WHERE t.id = p_id;
   ELSE
     UPDATE public.erp_pagar t
        SET conta_bancaria = v_nome, updated_at = now()
-     WHERE t.id = p_id
-       AND t.conta_bancaria IS DISTINCT FROM v_nome
-       AND EXISTS (SELECT 1 FROM public.erp_banco_contas bc WHERE bc.id = v_conta AND bc.company_id = t.company_id);
+     WHERE t.id = p_id;
   END IF;
+
+  INSERT INTO public.erp_lancamento_log (lancamento_id, tabela_origem, user_email, acao, campos_alterados)
+  VALUES (p_id, p_tabela, (SELECT u.email FROM auth.users u WHERE u.id = auth.uid()), 'CONTA_PELA_CONCILIACAO',
+          jsonb_build_object('conta_bancaria', jsonb_build_object('de', v_atual_nome, 'para', v_nome),
+                             'motivo', 'Conta alterada de ' || COALESCE(NULLIF(btrim(v_atual_nome), ''), 'sem conta')
+                                       || ' para ' || v_nome || ' pela conciliação'));
 END $function$;
 
 REVOKE ALL ON FUNCTION public.fn_titulo_conta_pela_conciliacao(text, uuid) FROM PUBLIC, anon, authenticated;
