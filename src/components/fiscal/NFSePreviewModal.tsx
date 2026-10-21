@@ -182,9 +182,12 @@ export default function NFSePreviewModal(props: Props) {
     }
   }
 
+  // Hook ANTES do retorno antecipado: com o modal montado fechado (EmitirNFSeButton), um hook depois do
+  // `return null` muda a contagem de hooks ao abrir e o React derruba a tela ("This page couldn't load").
+  const nfseIdConsulta = useRef<string | null>(null)
+
   if (!props.open) return null
 
-  const nfseIdConsulta = useRef<string | null>(null)
   function consultarAgora() {
     if (!nfseIdConsulta.current) return
     setStatus('consultando')
