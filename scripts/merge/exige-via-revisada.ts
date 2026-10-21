@@ -25,8 +25,10 @@ function conteudoDe(a: Arq): string | undefined { return typeof a === 'string' ?
 
 // Uma migration/.sql é CRÍTICA só quando MUTA objeto/dado que JÁ EXISTE. Criar coisa nova — mesmo com DROP ... IF EXISTS
 // idempotente, REVOKE FROM anon, ou FK para uma tabela crítica — é aditivo e publica DIRETO.
-// tabelas de dado de cliente/financeiro/fiscal: mexer no dado delas (mesmo dentro de um RPC) é sempre crítico
-const TABELA_CRITICA = /^(erp_clientes|cliente_unificacao|titulo|titulos|parcela|conta_bancaria|conciliac|boleto|nfe|nfse|nota_fiscal|imposto|repasse|cartao|salario|folha_pag)/
+// tabelas de dado de cliente/financeiro/fiscal: mexer no dado delas (mesmo dentro de um RPC) é sempre crítico.
+// Inclui contrato/pedido/comissão/cobrança do cliente (compromisso financeiro) — gap do incidente 21/10: #2613
+// (INSERT erp_contratos + agency_comissao) e #2896 (UPDATE erp_pedidos num RPC) passaram como "aditivos" sem isto.
+const TABELA_CRITICA = /^(erp_clientes|cliente_unificacao|titulo|titulos|parcela|conta_bancaria|conciliac|boleto|nfe|nfse|nota_fiscal|imposto|repasse|cartao|salario|folha_pag|erp_contrato|erp_pedido|agency_comissao|agency_contrato|cobranca|fatura)/
 
 export function migracaoCritica(nome: string, sql?: string): string | null {
   if (sql === undefined) return `migration sem conteúdo para avaliar (${nome}) — na dúvida, espera verde`
