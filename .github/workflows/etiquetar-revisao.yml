@@ -38,7 +38,12 @@ jobs:
       - name: Classificar e etiquetar
         run: |
           set -uo pipefail
-          arquivos=$(gh api "repos/$REPO/pulls/$N/files" --paginate --jq '.[].filename') || { echo "::warning::não li os arquivos da PR #$N"; exit 0; }
+          # para .sql/migration, anexa o CONTEÚDO (linhas + do patch, base64) para o classificador decidir aditiva×crítica
+          arquivos=$(gh api "repos/$REPO/pulls/$N/files" --paginate --jq '
+            .[] | select(.status != "removed") |
+            if (.filename | test("\\.sql$"))
+            then .filename + "\t" + ((.patch // "") | split("\n") | map(select(startswith("+")) | ltrimstr("+")) | join("\n") | @base64)
+            else .filename end') || { echo "::warning::não li os arquivos da PR #$N"; exit 0; }
           r=$(printf '%s\n' "$arquivos" | npx --yes tsx scripts/merge/exige-via-revisada.ts) || { echo "::warning::classificador falhou"; exit 0; }
           echo "$r"
           if [ "$(jq -r .revisada <<< "$r")" = true ]; then
