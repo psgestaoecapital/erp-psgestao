@@ -105,6 +105,28 @@ SQL
   echo "dump $t: $n linha(s)"
 done
 
+# Causa 2 (CEO 21/10): no montar do_zero carrega TABELA A TABELA, tolerante — a tabela cujo dado da prod não encaixa no
+# schema das migrations (drift da prod) é PULADA com aviso e o montar segue verde. A lista de puladas é o mapa exato de
+# onde a produção divergiu das migrations (pra reconciliar depois). O fluxo atual (schemas iguais) segue abaixo, intacto.
+if [ "${SEED_INTERSECAO:-}" = "1" ]; then
+  puladas=""; carregadas=0; i=0
+  for t in "${TABELAS[@]}"; do
+    i=$((i + 1)); f=$(printf '%s/%02d_%s.copy' "$dir" "$i" "$t"); cf="$dir/$(printf '%02d' "$i").cols"
+    if "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q 2> "$dir/err.log" \
+         -c "SET session_replication_role = replica;" -c "DELETE FROM public.$t;" \
+         -c "\\copy public.$t ($(cat "$cf")) FROM '$f'"; then
+      carregadas=$((carregadas + 1))
+    else
+      puladas="$puladas $t"
+      echo "::warning::catálogo $t não encaixou no schema das migrations (drift prod×migrations) — PULADA: $(tr '\n' ' ' < "$dir/err.log" | sed 's/^ *//' | cut -c1-160)"
+    fi
+  done
+  PSQL="$PSQL" "$(dirname "$0")/acertar-sequences.sh" || true
+  echo "### Catálogos do_zero (tolerante): $carregadas carregada(s) · puladas:${puladas:-nenhuma}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  echo "catálogos (do_zero, tolerante): ok · carregadas=$carregadas · puladas:${puladas:-nenhuma}"
+  exit 0
+fi
+
 # Carga no banco de TESTES: transação única (ou entra tudo ou nada).
 {
   echo '\set ON_ERROR_STOP on'
