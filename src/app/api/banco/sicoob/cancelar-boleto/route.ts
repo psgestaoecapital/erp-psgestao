@@ -87,13 +87,20 @@ export async function POST(req: NextRequest) {
     }
 
     // So o boleto: limpa os dados de pagamento e marca 'cancelado'. O titulo nao e tocado (status/valor/baixa).
-    await supabaseAdmin.from('erp_receber').update({
+    const { error: errUpd } = await supabaseAdmin.from('erp_receber').update({
       boleto_status: 'cancelado',
       boleto_linha_digitavel: null,
       boleto_codigo_barras: null,
       boleto_qr_code: null,
       boleto_url: null,
     }).eq('id', receber_id).eq('company_id', companyId)
+    if (errUpd) {
+      // O banco já baixou o boleto: registra para conciliar à mão em vez de deixar o ERP "registrado" sem aviso.
+      await logSync(companyId, 'erro', `boleto baixado no banco mas o ERP não atualizou: ${errUpd.message}`, {
+        receber_id, nosso_numero: rec.boleto_nosso_numero, por: user.id,
+      })
+      return NextResponse.json({ ok: false, erro: 'O banco cancelou o boleto, mas o sistema não conseguiu atualizar o título. Avise o suporte: o boleto já não pode ser pago.' }, { status: 500 })
+    }
 
     await logSync(companyId, 'ok', `boleto cancelado nu=${rec.boleto_nosso_numero}`, {
       receber_id, nosso_numero: rec.boleto_nosso_numero, por: user.id, em: new Date().toISOString(), ambiente, retorno: r.raw,

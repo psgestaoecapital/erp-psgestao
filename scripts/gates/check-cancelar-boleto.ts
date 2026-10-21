@@ -17,5 +17,7 @@ ok(upd.length > 0 && !/\bstatus:|valor_pago|data_pagamento|deleted_at|ativo/.tes
 ok(/boleto_cancelar/.test(rota) && /por: user\.id/.test(rota), 'rota: auditoria (quem, quando, retorno do banco)')
 ok(/window\.confirm\(/.test(acoes) && /boleto-cancelar/.test(acoes) && /!pago &&/.test(acoes), 'tela: confirmação antes e ação oculta para título pago')
 ok(/provider === 'sicoob'/.test(acoes) && /ainda não está disponível/.test(acoes), 'tela: provedor sem suporte avisa em vez de falhar calado')
+ok(/errUpd/.test(rota) && /não atualizou/.test(rota), 'rota: erro do UPDATE local após a baixa no banco é tratado e auditado')
+ok(/<AjudaCampo chave="financeiro\.receber\.cancelar_boleto"/.test(acoes), 'tela: "?" (AjudaCampo) no botão')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }

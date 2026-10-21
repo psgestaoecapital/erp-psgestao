@@ -20,6 +20,7 @@
 
 import { useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { baixarBlob } from '@/lib/download/baixarArquivo'
 import { nomeDoContentDisposition } from '@/lib/download/nomeArquivo'
 
@@ -399,6 +400,7 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
         style={boleto.qrCode ? btnSec : btnDisabled}>
         {copiou === 'pix' ? 'Copiado!' : 'Copiar Pix'}
       </button>
+      {!pago && <AjudaCampo chave="financeiro.receber.cancelar_boleto" rota="/dashboard/financeiro/receber" />}
       {!pago && (
         provider === 'sicoob' ? (
           <button type="button" onClick={cancelarBoleto} disabled={cancelando}
