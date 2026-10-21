@@ -22,16 +22,21 @@ export default function FotosOS({ osId, companyId, onFlash }: { osId: string; co
   const [enviando, setEnviando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
 
-  const carregar = useCallback(async () => {
+  // lista todas as fotos da OS com URL assinada (bucket privado); o resultado entra no estado só no callback
+  const buscar = useCallback(async (): Promise<FotoOS[]> => {
     const { data } = await supabase.rpc('fn_oficina_registro_listar', { p_company_id: companyId, p_os_id: osId, p_etapa: null })
     const regs = (data as FotoOS[] | null) ?? []
-    const comUrl = await Promise.all(regs.map(async (r) => {
+    return Promise.all(regs.map(async (r) => {
       const { data: s } = await supabase.storage.from(BUCKET_OFICINA).createSignedUrl(r.foto_path, 3600)
       return { ...r, _url: s?.signedUrl ?? null }
     }))
-    setFotos(comUrl)
   }, [companyId, osId])
-  useEffect(() => { void carregar() }, [carregar])
+  const carregar = useCallback(() => { void buscar().then(setFotos) }, [buscar])
+  useEffect(() => {
+    let vivo = true
+    void buscar().then((fs) => { if (vivo) setFotos(fs) })
+    return () => { vivo = false }
+  }, [buscar])
 
   const enviar = async (files: File[]) => {
     setEnviando(true); setAviso(null)
@@ -53,7 +58,7 @@ export default function FotosOS({ osId, companyId, onFlash }: { osId: string; co
     const a = avisoFalhas(r)
     setAviso(a)
     if (!a) onFlash?.(`📷 ${r.enviadas.length} foto(s) salvas na OS`)
-    void carregar()
+    carregar()
   }
 
   const excluir = async (f: FotoOS) => {
@@ -86,6 +91,7 @@ export default function FotosOS({ osId, companyId, onFlash }: { osId: string; co
           {fotos.map((f) => (
             <div key={f.id} data-testid="os-foto-miniatura" style={{ border: `1px solid ${LINE}`, borderRadius: 8, overflow: 'hidden', background: '#FAF7F2' }}>
               {f._url
+                // eslint-disable-next-line @next/next/no-img-element
                 ? <a href={f._url} target="_blank" rel="noreferrer"><img src={f._url} alt={f.descricao || 'foto'} style={{ width: '100%', height: 80, objectFit: 'cover', display: 'block' }} /></a>
                 : <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: ESP60 }}>sem prévia</div>}
               <div style={{ padding: '4px 6px', fontSize: 11, color: ESP, lineHeight: 1.3 }}>

@@ -13,7 +13,6 @@ import { avisoFalhas, enviarFotos, type ProgressoFoto } from '@/lib/oficina/envi
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
-const BUCKET = 'oficina-recepcao'
 const CHECK_ITENS = ['Pneus', 'Estepe', 'Faróis / lanternas', 'Retrovisores', 'Vidros', 'Documentos', 'Tapetes / objetos']
 const COMBUSTIVEL = [{ v: 'vazio', l: 'Vazio' }, { v: '1_4', l: '1/4' }, { v: 'meio', l: '1/2' }, { v: '3_4', l: '3/4' }, { v: 'cheio', l: 'Cheio' }]
 
