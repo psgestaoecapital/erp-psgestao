@@ -5,14 +5,33 @@ import { exigeViaRevisada } from '../merge/exige-via-revisada'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 
-ok(exigeViaRevisada(['supabase/migrations/20261015120030_x.sql', 'src/app/dashboard/financeiro/dre/page.tsx']).revisada, 'migration + tela de financeiro (caso #2592) → revisada')
-ok(exigeViaRevisada(['src/app/dashboard/obras/page.tsx']).revisada, 'tela → revisada')
-ok(exigeViaRevisada(['src/lib/preco/calculo-markup.ts']).revisada, 'cálculo → revisada')
-ok(exigeViaRevisada(['src/lib/nfe/montar-xml.ts']).revisada, 'fiscal/NF-e → revisada')
-ok(exigeViaRevisada(['supabase/functions/x/index.ts']).revisada, 'edge function → revisada')
-ok(!exigeViaRevisada(['docs/x.md', '.github/workflows/a.yml', 'e2e/jornadas/a.spec.ts']).revisada, 'docs/CI/e2e → via rápida')
-ok(!exigeViaRevisada(['scripts/gates/check-x.ts']).revisada, 'só script/gate → via rápida')
-ok(!exigeViaRevisada([]).revisada, 'sem arquivos → sem sinal')
+// Modelo CEO 21/10: PRODUTO NOVO/aditivo publica DIRETO; só o núcleo crítico (fiscal, financeiro-cliente, RLS/LGPD,
+// migration não-aditiva, cálculo) espera verde — pelo CONTEÚDO, com viés de segurança.
+const AD = `CREATE TABLE public.hub_x (id uuid primary key, company_id uuid, nome text);
+  ALTER TABLE public.hub_x ENABLE ROW LEVEL SECURITY;
+  CREATE POLICY p ON public.hub_x FOR SELECT TO authenticated USING (true);
+  CREATE OR REPLACE FUNCTION public.fn_hub_x() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql;
+  GRANT EXECUTE ON FUNCTION public.fn_hub_x() TO authenticated;`
+// — DIRETO (Mundo 1) —
+ok(!exigeViaRevisada(['src/app/dashboard/obras/page.tsx']).revisada, 'tela nova → publica direto')
+ok(!exigeViaRevisada(['supabase/functions/x/index.ts']).revisada, 'edge function genérica → direto')
+ok(!exigeViaRevisada([{ nome: 'supabase/migrations/1_hub.sql', conteudo: AD }]).revisada, 'migration aditiva (cria tabela/função/RLS NOVAS) → direto')
+ok(!exigeViaRevisada([{ nome: 'supabase/migrations/2_ajuda.sql', conteudo: "INSERT INTO public.erp_ajuda_campo (chave) VALUES ('x');\nINSERT INTO public.module_catalog (id) VALUES ('y');" }]).revisada, 'INSERT em ajuda/menu → direto')
+ok(!exigeViaRevisada(['docs/x.md', '.github/workflows/a.yml', 'e2e/jornadas/a.spec.ts']).revisada, 'docs/CI/e2e → direto')
+ok(!exigeViaRevisada(['scripts/gates/check-x.ts']).revisada, 'script/gate → direto')
+ok(!exigeViaRevisada([]).revisada, 'sem arquivos → direto')
+// — CRÍTICO (espera verde) —
+ok(exigeViaRevisada(['src/app/dashboard/financeiro/dre/page.tsx']).revisada, 'tela de financeiro (área crítica no caminho) → revisada')
+ok(exigeViaRevisada(['src/lib/preco/calculo-markup.ts']).revisada, 'cálculo financeiro → revisada')
+ok(exigeViaRevisada(['src/lib/nfe/montar-xml.ts']).revisada, 'fiscal/NF-e no caminho → revisada')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/3.sql', conteudo: 'ALTER TABLE public.erp_clientes ADD COLUMN z text;' }]).revisada, 'ALTER em tabela existente → revisada')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/4.sql', conteudo: 'DROP TABLE antiga;' }]).revisada, 'DROP → revisada')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/5.sql', conteudo: 'DELETE FROM public.config WHERE k=1;' }]).revisada, 'DELETE em dado existente → revisada')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/6.sql', conteudo: 'UPDATE public.clientes SET ativo=true;' }]).revisada, 'UPDATE em dado existente → revisada')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/7.sql', conteudo: 'CREATE TABLE nova(id uuid); CREATE POLICY p ON public.titulos FOR SELECT USING (true);' }]).revisada, 'RLS em tabela existente (titulos) → revisada')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/8_nfe_x.sql', conteudo: 'CREATE TABLE y(id uuid);' }]).revisada, 'migration de nome fiscal (nfe) → revisada')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/9.sql' }]).revisada, 'migration SEM conteúdo p/ avaliar → revisada (viés de segurança)')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/10.sql', conteudo: 'CREATE OR REPLACE VIEW v_saldo AS SELECT 1;' }]).revisada, 'CREATE OR REPLACE VIEW → revisada')
 
 const y = readFileSync('.github/workflows/etiquetar-revisao.yml', 'utf8').replace(/^\s*#.*$/gm, '')
 ok(/pull_request_target:\s*\n\s*types:\s*\[opened, reopened, synchronize, ready_for_review\]/.test(y) && !/\n\s+pull_request:/.test(y), 'pull_request_target (código da main)')
