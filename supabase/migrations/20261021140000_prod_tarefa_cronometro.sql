@@ -84,6 +84,9 @@ FROM (VALUES
      'Deixar vazio quando mediu um lote — aí a conta fica por 1 peça só.', 220),
   ('prod.tarefa.crono_media', 'Cap./h calculada', 'Resultado automático: 3600 ÷ média de segundos por peça dos ciclos medidos.',
      'Mostra a capacidade do posto com base no cronômetro; com 3+ ciclos a tarefa vira "válida".', '83 peças/h',
-     'Confiar em 1 único ciclo — meça pelo menos 3 para a média ter confiança.', 230)
+     'Confiar em 1 único ciclo — meça pelo menos 3 para a média ter confiança.', 230),
+  ('prod.tarefa.crono_obs', 'Observação (opcional)', 'Uma nota curta sobre a medição (ritmo, condição do posto).',
+     'Ajuda a entender depois por que um ciclo saiu diferente.', 'ritmo normal',
+     'Escrever um texto longo — aqui é só uma nota curta.', 240)
 ) v(chave, rotulo, o_que, para_que, exemplo, erro, ordem)
 ON CONFLICT (chave) DO NOTHING;

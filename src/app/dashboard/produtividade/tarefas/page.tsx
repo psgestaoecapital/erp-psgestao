@@ -398,7 +398,7 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
           <input data-testid={`crono-pecas-${tarefa.id}`} value={pecas} onChange={(e) => setPecas(e.target.value)} inputMode="decimal" placeholder="ex.: 3" style={inp} />
         </div>
         <div style={{ flex: '2 1 180px' }}>
-          <label style={lab}>Observação (opcional)</label>
+          <label style={lab}>Observação (opcional)<Aj k="prod.tarefa.crono_obs" /></label>
           <input data-testid={`crono-obs-${tarefa.id}`} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="ex.: ritmo normal" style={inp} />
         </div>
         <button type="button" data-testid={`crono-gravar-${tarefa.id}`} onClick={() => void gravar()} disabled={salvando} style={btn(!salvando)}>
