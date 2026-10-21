@@ -4,12 +4,14 @@
  * dispara ao ligar (INSERT ou troca de produto_id), por qualquer caminho (vincular, OS, de-para) · gatilho fechado
  * ao cliente (REVOKE de PUBLIC, anon e authenticated).
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
 
-const mig = readFileSync('supabase/migrations/20261021121020_nfe_item_vinculo_completa_cest.sql', 'utf8')
+const arq = readdirSync('supabase/migrations').find((f) => f.endsWith('_nfe_item_vinculo_completa_cest.sql'))
+ok(!!arq, 'migration _nfe_item_vinculo_completa_cest.sql existe')
+const mig = arq ? readFileSync(`supabase/migrations/${arq}`, 'utf8') : ''
 const sql = mig.replace(/--[^\n]*/g, '')
 
 ok(/AFTER\s+INSERT\s+OR\s+UPDATE\s+OF\s+produto_id\s+ON\s+public\.erp_nfe_recebidas_itens/i.test(sql), 'gatilho no item da NF ao ligar (INSERT ou troca de produto_id)')
