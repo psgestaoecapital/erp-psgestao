@@ -22,6 +22,8 @@ import { useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { baixarBlob } from '@/lib/download/baixarArquivo'
 import { nomeDoContentDisposition } from '@/lib/download/nomeArquivo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { suportaCancelarBoleto, motivoSemSuporte } from '@/lib/banco/cancelarBoleto'
 
 export type ClienteContato = {
   cpfCnpj: string | null
@@ -55,9 +57,11 @@ type Props = {
   cliente: ClienteContato | null
   empresaCnpj: string | null
   boleto: BoletoEstado
+  tituloQuitado?: boolean          // título pago/cancelado: não oferece cancelar o boleto
   onSucesso?: () => void
 }
 
+const ROTA_AJUDA = '/dashboard/financeiro/receber'
 const LABEL: Record<BoletoProvider, string> = { sicoob: 'Sicoob', sicredi: 'Sicredi', bradesco: 'Bradesco' }
 
 const onlyDigits = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '')
@@ -97,7 +101,7 @@ function validaPreEmissao(cliente: ClienteContato | null, empresaCnpj: string | 
   return null
 }
 
-export default function BoletoActions({ provider, receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, onSucesso }: Props) {
+export default function BoletoActions({ provider, receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, tituloQuitado, onSucesso }: Props) {
   const [busy, setBusy] = useState(false)
   const [imprimindo, setImprimindo] = useState(false)
   const [copiou, setCopiou] = useState<'linha' | 'pix' | 'barras' | null>(null)
@@ -109,6 +113,7 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
   // "impedir novos diálogos" e a partir daí a mensagem some — a Jordana clicava, o botão
   // voltava sozinho e nada aparecia, parecendo travado. Inline, a causa (a do banco) fica visível.
   const [erro, setErro] = useState<string | null>(null)
+  const [cancelando, setCancelando] = useState(false)
 
   const label = LABEL[provider]
 
@@ -231,6 +236,35 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
     const url = numero ? `https://wa.me/${numero}?text=${msg}` : `https://wa.me/?text=${msg}`
     window.open(url, '_blank', 'noopener,noreferrer')
     if (urlPdf && urlPdf !== boleto.url) onSucesso?.()
+  }
+
+  // Cancela SÓ o boleto no banco (baixa); o título segue ativo para ser quitado pelo pagamento feito por outro meio.
+  const cancelarBoleto = async () => {
+    if (cancelando) return
+    if (!suportaCancelarBoleto(provider)) { setErro(motivoSemSuporte(label)); return }
+    const ok = window.confirm(
+      `Cancelar o boleto ${boleto.nossoNumero ?? ''} no ${label}?\n\nO boleto deixa de poder ser pago e isso NÃO tem volta no banco. ` +
+      'O título (a receita) continua ativo — dê baixa nele pelo pagamento que o cliente fez, ou gere um novo boleto.',
+    )
+    if (!ok) return
+    setCancelando(true)
+    setErro(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch(`/api/banco/${provider}/cancelar-boleto`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', 'authorization': session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ receber_id: receberId }),
+      })
+      const j = await r.json()
+      if (!j.ok) { setErro(j.erro || 'Nao foi possivel cancelar o boleto.'); return }
+      onSucesso?.()
+    } catch (e) {
+      setErro(`Nao foi possivel cancelar o boleto: ${(e as Error).message || 'erro de rede'}`)
+    } finally {
+      setCancelando(false)
+    }
   }
 
   const abrirCadastroCliente = () => {
@@ -367,7 +401,26 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
         style={boleto.qrCode ? btnSec : btnDisabled}>
         {copiou === 'pix' ? 'Copiado!' : 'Copiar Pix'}
       </button>
+      {!tituloQuitado && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+          <button type="button" onClick={cancelarBoleto} disabled={cancelando}
+            data-testid="boleto-cancelar"
+            title="Cancela só o boleto no banco (o título continua ativo)"
+            style={{ ...btnSec, color: '#991B1B', borderColor: 'rgba(153,27,27,0.35)', opacity: cancelando ? 0.6 : 1, cursor: cancelando ? 'wait' : 'pointer' }}>
+            {cancelando ? 'Cancelando...' : 'Cancelar boleto'}
+          </button>
+          <AjudaCampo chave="receber.boleto.cancelar" rota={ROTA_AJUDA} />
+        </span>
+      )}
     </div>
+    {erro && (
+      <div role="alert" style={{
+        fontSize: 10.5, lineHeight: 1.4, color: '#991B1B', background: '#FEF2F2',
+        border: '0.5px solid rgba(153,27,27,0.25)', borderRadius: 4, padding: '5px 7px', maxWidth: 340, whiteSpace: 'normal',
+      }}>
+        {erro}
+      </div>
+    )}
 
     {/* Fallback sem papel: quando o PDF não abre, o operador ainda cobra pela linha digitável
         ou pelo código de barras. Modal em vez de alert (que some após alguns diálogos). */}
