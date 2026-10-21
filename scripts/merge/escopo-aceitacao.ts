@@ -16,7 +16,7 @@
 // aceitacao-pos-migration.yml em produção (roda a suíte COMPLETA pós-merge), e a aceitacao-main.yml roda a suíte
 // COMPLETA de hora em hora no banco de testes ("vermelho = corrigir em 1 h ou reverter"). Um escopo que erre por falta
 // cai nessas redes — mas, por isso mesmo, qualquer dúvida aqui vira "roda tudo".
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { QUARENTENA_CRITICOS, tokensDoSpec } from '../../e2e/quarentena'
 
@@ -48,9 +48,11 @@ export function tokensDeArquivos(arquivos: string[]): string[] {
 // Núcleo/compartilhado = migration, qualquer .sql (RLS/policy/grant/view/SECURITY DEFINER/guarda vivem em SQL),
 // edge function, .github/**, componentes/libs/hooks/server compartilhados, layout/global do app, config raiz,
 // helper de e2e (não-spec), tooling em scripts/, e qualquer caminho em área crítica (fiscal/financeiro/RLS/NR-36/LGPD/Wealth).
-export function tocaNucleoOuCompartilhado(arquivos: string[]): string | null {
+export function tocaNucleoOuCompartilhado(arquivos: string[], migAditivas: Set<string> = new Set()): string | null {
   for (const f0 of arquivos) {
     const f = f0.toLowerCase()
+    // migration/SQL cujo CONTEÚDO é aditivo-seguro (só cria tabela nova e mexe só nela) NÃO força a suíte completa
+    if ((f.startsWith('supabase/migrations/') || f.endsWith('.sql')) && migAditivas.has(f0)) continue
     if (f.startsWith('supabase/migrations/')) return `migration (${f0})`
     if (f.endsWith('.sql')) return `SQL — RLS/policy/grant/view/SECURITY DEFINER/guarda (${f0})`
     if (f.startsWith('.github/')) return `CI/.github (${f0})`
@@ -67,10 +69,88 @@ export function tocaNucleoOuCompartilhado(arquivos: string[]): string | null {
 
 export type Escopo = { full: boolean; specs: string[]; motivo: string }
 
+// Normaliza um identificador de tabela: tira aspas, prefixo de schema e espaços; minúsculas.
+function normTabela(id: string): string {
+  return id.replace(/["`]/g, '').replace(/^[a-z0-9_]+\./, '').toLowerCase().trim()
+}
+
+// Papéis/roles e pseudo-nomes que NÃO são tabela (aparecem em GRANT/REVOKE e podem ser citados com segurança).
+const PSEUDO_NAO_TABELA = new Set([
+  'public', 'authenticated', 'anon', 'service_role', 'postgres', 'current_user', 'session_user',
+  'all', 'tables', 'functions', 'sequences', 'schema', 'row', 'security', 'level', 'if', 'exists', 'not', 'on',
+])
+
+// Uma migration é ADITIVA-SEGURA para o escopo da aceitação quando SÓ cria objetos NOVOS e só mexe neles — logo
+// não pode alterar o comportamento de nenhuma vertical existente, e a aceitação pode rodar só a área da PR.
+// É CONSERVADORA: qualquer sinal de alteração de objeto EXISTENTE (ALTER/DROP/CREATE OR REPLACE, função nova,
+// INSERT/UPDATE/DELETE em tabela que não foi criada aqui, GRANT amplo) → false (o chamador roda a suíte completa).
+// A rede de segurança continua: o aceitacao-pos-migration roda a suíte COMPLETA pós-merge em produção.
+export function migracaoEhAditiva(sqlBruto: string): boolean {
+  // remove comentários de linha (--) e de bloco (/* */)
+  const sql = sqlBruto.replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
+  const low = sql.toLowerCase()
+
+  // (1) precisa criar ao menos UMA tabela nova — senão não é "migration aditiva de tabela nova"
+  const novas = new Set<string>()
+  for (const m of low.matchAll(/\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?([a-z0-9_."`]+)/g)) novas.add(normTabela(m[1]))
+  if (!novas.size) return false
+
+  // (2) sinais DUROS de não-aditiva — qualquer um reprova (roda tudo)
+  const duros: RegExp[] = [
+    /\bcreate\s+or\s+replace\b/,                                   // substitui função/view/trigger existente
+    /\bcreate\s+(or\s+replace\s+)?(function|view|procedure|materialized\s+view)\b/, // função/view nova = comportamento
+    /\bdrop\s+(table|function|view|schema|type|sequence|materialized|column|constraint|index|publication)\b/,
+    /\btruncate\b/,
+    /\bdelete\s+from\b/,
+    /\bupdate\s+[a-z0-9_."`]+\s+set\b/,
+    /\balter\s+(function|view|type|schema|sequence|publication|default\s+privileges|role|system)\b/,
+    /\bgrant\s+[\s\S]{0,120}?\bon\s+(all|database|schema)\b/,       // grant amplo (schema/all) é compartilhado
+    /\brevoke\s+[\s\S]{0,120}?\bon\s+(all|database|schema)\b/,
+  ]
+  for (const re of duros) if (re.test(low)) return false
+
+  // (3) todo ALVO explícito de operação (alter/insert/policy/grant/references/trigger/on table) precisa ser tabela NOVA
+  // NB: `references <existente>` (FK) é SEGURO — só impõe integridade referencial, não altera a existente; fica de fora.
+  const alvos: RegExp[] = [
+    /\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?([a-z0-9_."`]+)/g,
+    /\binsert\s+into\s+([a-z0-9_."`]+)/g,
+    /\bon\s+table\s+([a-z0-9_."`]+)/g,
+    /\bcreate\s+policy\s+[a-z0-9_."`]+\s+on\s+([a-z0-9_."`]+)/g,
+    /\bdrop\s+policy\s+[\s\S]{0,80}?\bon\s+([a-z0-9_."`]+)/g,
+    /\bcreate\s+trigger\s+[a-z0-9_."`]+[\s\S]{0,200}?\bon\s+([a-z0-9_."`]+)/g,
+    /\bdrop\s+trigger\s+[\s\S]{0,80}?\bon\s+([a-z0-9_."`]+)/g,
+    /\bgrant\s+[\s\S]{0,120}?\bon\s+(?:table\s+)?([a-z0-9_."`]+)/g,
+    /\brevoke\s+[\s\S]{0,120}?\bon\s+(?:table\s+)?([a-z0-9_."`]+)/g,
+  ]
+  for (const re of alvos) {
+    for (const m of low.matchAll(re)) {
+      const t = normTabela(m[1])
+      if (t && !novas.has(t) && !PSEUDO_NAO_TABELA.has(t)) return false
+    }
+  }
+
+  // (4) bloco DO/dynamic SQL (padrão da casa: FOREACH t IN ARRAY['tab1','tab2'] ... ENABLE RLS/CREATE POLICY):
+  //     todo identificador entre aspas simples que PARECE nome de tabela (snake_case) precisa ser tabela NOVA.
+  if (/\bdo\s+\$/.test(low) || /\bexecute\s+format\b/.test(low)) {
+    for (const m of low.matchAll(/'([a-z_][a-z0-9_]*)'/g)) {
+      const t = normTabela(m[1])
+      // só exige para nomes que parecem tabela de domínio (>=4 chars, com _ ); ignora papéis/keywords
+      if (t.length >= 4 && t.includes('_') && !novas.has(t) && !PSEUDO_NAO_TABELA.has(t)) {
+        // tolera sufixos de policy/trigger derivados do nome da tabela nova (ex.: prod_tarefa_sel)
+        const ehDerivado = [...novas].some((n) => t.startsWith(n + '_') || t === n)
+        if (!ehDerivado) return false
+      }
+    }
+  }
+  return true
+}
+
 // Decisão final. `arquivos` = arquivos da PR; `specs` = TODAS as specs de aceitação disponíveis (caminhos).
-export function decidirEscopo(arquivos: string[], specs: string[]): Escopo {
+// `migAditivas` = conjunto de migrations da PR cujo CONTEÚDO é aditivo-seguro (ver migracaoEhAditiva); quando uma
+// migration está aqui, ela NÃO força a suíte completa (o chamador — main — lê o conteúdo e preenche este conjunto).
+export function decidirEscopo(arquivos: string[], specs: string[], migAditivas: Set<string> = new Set()): Escopo {
   if (!arquivos.length) return { full: true, specs, motivo: 'sem lista de arquivos da PR — roda tudo (nunca pula)' }
-  const nucleo = tocaNucleoOuCompartilhado(arquivos)
+  const nucleo = tocaNucleoOuCompartilhado(arquivos, migAditivas)
   if (nucleo) return { full: true, specs, motivo: `fallback núcleo/compartilhado: ${nucleo}` }
   // specs de aceitação alteradas pela PRÓPRIA PR sempre entram
   const specsAlterados = arquivos.filter((f) => new RegExp(`^${DIR_ACEITACAO}/.+\\.spec\\.ts$`).test(f))
@@ -103,11 +183,25 @@ function arquivosDaPr(): string[] {
   } catch { return [] }
 }
 
+// Lê, dos arquivos da PR que são migration/.sql, os que têm conteúdo ADITIVO-SEGURO (migracaoEhAditiva).
+// O workflow faz checkout da PR, então os arquivos estão no disco. Falha ao ler um → NÃO entra (conservador: roda tudo).
+function migracoesAditivas(arquivos: string[]): Set<string> {
+  const out = new Set<string>()
+  for (const f of arquivos) {
+    if (!f.startsWith('supabase/migrations/') && !f.endsWith('.sql')) continue
+    try {
+      if (migracaoEhAditiva(readFileSync(f, 'utf8'))) out.add(f)
+    } catch { /* não leu → não é aditiva-segura → roda tudo */ }
+  }
+  return out
+}
+
 function main(): void {
   const arquivos = arquivosDaPr()
   const specs = listarSpecs()
+  const migAditivas = migracoesAditivas(arquivos)
   // Sem conseguir listar as specs localmente → roda tudo (o diretório é o alvo). Nunca pula.
-  const d = specs.length ? decidirEscopo(arquivos, specs) : { full: true, specs: [], motivo: 'não listei as specs localmente — roda tudo' }
+  const d = specs.length ? decidirEscopo(arquivos, specs, migAditivas) : { full: true, specs: [], motivo: 'não listei as specs localmente — roda tudo' }
   process.stdout.write(JSON.stringify(d))
 }
 
