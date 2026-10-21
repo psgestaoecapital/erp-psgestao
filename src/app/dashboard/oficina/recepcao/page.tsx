@@ -3,11 +3,13 @@
 // Busca por placa → prefill do histórico → cliente/veículo/km/queixa + checklist + FOTOS → cria OS (pátio).
 import React, { useEffect, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Camera, Car, Package, ChevronLeft, Check, X } from 'lucide-react'
+import { Search, Car, Package, ChevronLeft, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import AssinaturaModal from '@/components/oficina/AssinaturaModal'
 import Modal from '@/components/ui/Modal'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import FotosMultiplas from '@/components/oficina/FotosMultiplas'   // #135 item 6 · várias fotos de uma vez
+import { avisoFalhas, enviarFotos, type ProgressoFoto } from '@/lib/oficina/envioFotos'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
@@ -16,26 +18,6 @@ const CHECK_ITENS = ['Pneus', 'Estepe', 'Faróis / lanternas', 'Retrovisores', '
 const COMBUSTIVEL = [{ v: 'vazio', l: 'Vazio' }, { v: '1_4', l: '1/4' }, { v: 'meio', l: '1/2' }, { v: '3_4', l: '3/4' }, { v: 'cheio', l: 'Cheio' }]
 
 type Foto = { path: string; legenda: string; url?: string }
-
-// Comprime a foto no celular antes de subir (box com 4G ruim): redimensiona p/ máx 1600px e JPEG 0.7.
-async function comprimirImagem(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  try {
-    const bitmap = await createImageBitmap(file)
-    const MAX = 1600
-    let { width, height } = bitmap
-    if (width > MAX || height > MAX) {
-      const r = Math.min(MAX / width, MAX / height)
-      width = Math.round(width * r); height = Math.round(height * r)
-    }
-    const canvas = document.createElement('canvas')
-    canvas.width = width; canvas.height = height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return file
-    ctx.drawImage(bitmap, 0, 0, width, height)
-    return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.7))
-  } catch { return file }
-}
 
 function useCompanyId(): string | null {
   const [id, setId] = useState<string | null>(null)
@@ -91,6 +73,7 @@ export default function RecepcaoPage() {
   const [mecSelId, setMecSelId] = useState<string | null>(null)
   const [check, setCheck] = useState<Record<string, 'ok' | 'avaria'>>({}); const [avarias, setAvarias] = useState(''); const [objetos, setObjetos] = useState('')
   const [fotos, setFotos] = useState<Foto[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
+  const [progressoFotos, setProgressoFotos] = useState<ProgressoFoto[]>([])
   const [salvando, setSalvando] = useState(false); const [msg, setMsg] = useState<string | null>(null)
   const [assinarOsId, setAssinarOsId] = useState<string | null>(null)  // RD-41 · assinatura "ciente do checklist"
   // OFIC-B (#11) · "Somente orçamento": cria um orçamento (sem OS/pátio) e leva pro editor.
@@ -225,23 +208,19 @@ export default function RecepcaoPage() {
     setCadAberto(false); setMsg('✅ Cliente cadastrado e vinculado.')
   }
 
-  const onFotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith('image/'))
+  // #135 item 6 · várias fotos em paralelo (até 3), progresso de cada uma; a que falha não para as outras
+  const onFotos = async (files: File[]) => {
     if (!files.length || !companyId) return
     setSubindoFoto(true)
-    const novos: Foto[] = []
-    for (const f of files) {
-      const blob = await comprimirImagem(f)
-      const path = `${companyId}/recepcao/${crypto.randomUUID()}.jpg`
-      const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
-      if (error) continue
-      // gera signed URL já aqui: se o thumbnail renderiza, a LEITURA do bucket privado está OK (o ⚠️ do CEO)
-      const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600)
-      novos.push({ path, legenda: '', url: signed?.signedUrl })
-    }
-    setFotos((p) => [...p, ...novos]); setSubindoFoto(false)
-    if (novos.length < files.length) setMsg('Algumas fotos não subiram — tente de novo.')
-    e.target.value = '' // permite re-selecionar o mesmo arquivo / tirar outra foto
+    setProgressoFotos(files.map((f, idx) => ({ idx, nome: f.name, estado: 'fila', pct: 10 })))
+    const r = await enviarFotos(files, {
+      pasta: `${companyId}/recepcao`,
+      onProgresso: (p) => setProgressoFotos((prev) => prev.map((x) => (x.idx === p.idx ? p : x))),
+    })
+    // a signed URL gerada no envio prova a LEITURA do bucket privado (o thumbnail renderiza)
+    setFotos((p) => [...p, ...r.enviadas.map((f) => ({ path: f.path, legenda: '', url: f.url ?? undefined }))]); setSubindoFoto(false)
+    const aviso = avisoFalhas(r)
+    if (aviso) setMsg(aviso)
   }
   const setLegenda = (i: number, v: string) => setFotos((p) => p.map((f, idx) => (idx === i ? { ...f, legenda: v } : f)))
   const removerFoto = (i: number) => setFotos((p) => p.filter((_, idx) => idx !== i))
@@ -615,10 +594,7 @@ export default function RecepcaoPage() {
 
         {/* FOTOS */}
         <Sec titulo={ramo.automotivo ? 'Fotos de como o carro chegou' : `Fotos da ${ramo.objetoLabelCurto}`}>
-          <label style={{ ...btnGold, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: 'auto' }}>
-            <Camera size={18} /> {subindoFoto ? 'Enviando…' : 'Tirar / anexar fotos'}
-            <input type="file" accept="image/*" capture="environment" multiple onChange={onFotos} style={{ display: 'none' }} />
-          </label>
+          <FotosMultiplas onArquivos={(fs) => void onFotos(fs)} progresso={progressoFotos} enviando={subindoFoto} rotaAjuda="/dashboard/os" testid="recepcao-fotos" />
           {fotos.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10, marginTop: 12 }}>
               {fotos.map((f, i) => (

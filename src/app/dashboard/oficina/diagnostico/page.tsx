@@ -18,22 +18,10 @@ import { filtrarOS } from '@/lib/oficina/buscaOS'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useOficinaModelo } from '@/lib/oficina/modelo'
 import { decimalBanco } from '@/lib/decimalBanco'
+import FotosMultiplas from '@/components/oficina/FotosMultiplas'   // #135 item 6 · várias fotos de uma vez
+import { avisoFalhas, enviarFotos, soImagens, type ProgressoFoto } from '@/lib/oficina/envioFotos'
 
 const BUCKET = 'oficina-recepcao'   // RD-26 · mesmo bucket/mecanismo da recepção (#831)
-// comprime a foto no celular/tablet antes de subir (mesmo padrão da recepção)
-async function comprimirImagem(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  try {
-    const bitmap = await createImageBitmap(file)
-    const MAX = 1600
-    let { width, height } = bitmap
-    if (width > MAX || height > MAX) { const r = Math.min(MAX / width, MAX / height); width = Math.round(width * r); height = Math.round(height * r) }
-    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height
-    const ctx = canvas.getContext('2d'); if (!ctx) return file
-    ctx.drawImage(bitmap, 0, 0, width, height)
-    return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.7))
-  } catch { return file }
-}
 type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; diagnostico_item_id?: string | null; anotacao?: unknown; _url?: string | null }
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
@@ -120,6 +108,7 @@ export default function DiagnosticoPage() {
   const [fotosDiag, setFotosDiag] = useState<FotoDiag[]>([])
   const [fotoPend, setFotoPend] = useState<{ path: string; url?: string | null; descricao: string } | null>(null)
   const [subindoFoto, setSubindoFoto] = useState(false)
+  const [progressoFotos, setProgressoFotos] = useState<ProgressoFoto[]>([])   // #135 item 6
   // DVI (Onda 2): a foto pendente pode estar ligada a um ITEM do diagnóstico (a foto do item converte +19%)
   const [fotoItemId, setFotoItemId] = useState<string | null>(null)
   const [fotoZoom, setFotoZoom] = useState<{ url: string; anotacao?: unknown } | null>(null)   // lightbox (com anotação por cima)
@@ -224,18 +213,38 @@ export default function DiagnosticoPage() {
   const setItem = (i: number, patch: Partial<ItemLaudo>) => setItens((p) => p.map((it, idx) => (idx === i ? { ...it, ...patch } : it)))
   const delItem = (i: number) => setItens((p) => p.filter((_, idx) => idx !== i))
 
-  // captura a foto (comprime + sobe pro bucket) → fica pendente pra descrever e salvar
-  const onFotoDiag = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = Array.from(e.target.files ?? []).find((f) => f.type.startsWith('image/'))
-    e.target.value = ''
-    if (!file || !companyId || !osSel) return
+  // captura a foto (comprime + sobe pro bucket) → UMA foto fica pendente pra descrever e salvar;
+  // #135 item 6 · VÁRIAS de uma vez sobem em paralelo e já entram salvas (descrição padrão), com progresso de cada uma
+  const onFotosDiag = async (files: File[], itemId: string | null) => {
+    if (!files.length || !companyId || !osSel) return
+    const pasta = `${companyId}/diagnostico/${osSel.id}`
     setSubindoFoto(true)
-    const blob = await comprimirImagem(file)
-    const path = `${companyId}/diagnostico/${osSel.id}/${crypto.randomUUID()}.jpg`
-    const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
-    if (error) { setSubindoFoto(false); setMsg('❌ Falha ao subir a foto — tente de novo.'); return }
-    const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600)
-    setFotoPend({ path, url: signed?.signedUrl, descricao: '' }); setSubindoFoto(false)
+    if (files.length === 1) {
+      setProgressoFotos([])
+      const r = await enviarFotos(files, { pasta })
+      setSubindoFoto(false)
+      const f = r.enviadas[0]
+      if (!f) { setMsg('❌ Falha ao subir a foto — tente de novo.'); return }
+      setFotoPend({ path: f.path, url: f.url, descricao: '' }); return
+    }
+    const os = osSel
+    setProgressoFotos(files.map((f, idx) => ({ idx, nome: f.name, estado: 'fila', pct: 10 })))
+    const r = await enviarFotos(files, {
+      pasta,
+      onProgresso: (p) => setProgressoFotos((prev) => prev.map((x) => (x.idx === p.idx ? p : x))),
+      registrar: async (path) => {
+        const { data, error } = await supabase.rpc('fn_oficina_registro_salvar', {
+          p_company_id: companyId, p_os_id: os.id, p_foto_path: path, p_descricao: 'Foto do diagnóstico', p_etapa: 'diagnostico',
+          p_diagnostico_item_id: itemId,
+        })
+        const res = data as { ok?: boolean; erro?: string; id?: string } | null
+        if (error || !res?.ok) throw new Error(error?.message ?? res?.erro ?? 'falha ao salvar a foto')
+        return res.id ?? null
+      },
+    })
+    setSubindoFoto(false)
+    setMsg(avisoFalhas(r) ?? `📷 ${r.enviadas.length} foto(s) do diagnóstico salvas`)
+    void carregarFotos(os.id)
   }
   // salva o registro da foto (etapa='diagnostico') — aparece na impressão (#843)
   const salvarFotoDiag = async () => {
@@ -548,8 +557,9 @@ export default function DiagnosticoPage() {
                   return <span style={{ fontSize: 12, fontWeight: 700, color: nf > 0 ? ESP : ESP60 }}>📷 {nf} foto(s) deste item</span> })()}
                 {it.id ? (
                   <label onClick={() => setFotoItemId(it.id ?? null)} style={{ ...btnLineGhost, cursor: 'pointer', padding: '6px 10px' }}>
-                    <Camera size={13} /> Foto do item
-                    <input type="file" accept="image/*" capture="environment" onChange={onFotoDiag} style={{ display: 'none' }} />
+                    <Camera size={13} /> Fotos do item
+                    <input type="file" accept="image/*" multiple onChange={(e) => { const fs = soImagens(e.target.files); e.target.value = ''; void onFotosDiag(fs, it.id ?? null) }} style={{ display: 'none' }} />
+                    <AjudaCampo chave="oficina.fotos.enviar_varias" rota="/dashboard/os" />
                   </label>
                 ) : (
                   <span style={{ fontSize: 11, color: ESP60 }}>salve o laudo p/ anexar foto a este item</span>
@@ -590,10 +600,7 @@ export default function DiagnosticoPage() {
 
         {/* RD-41 · Fotos do diagnóstico (tablet do mecânico) — entram no histórico fotográfico da impressão (#843) */}
         <Sec titulo={ramo.automotivo ? 'Fotos do diagnóstico' : `Fotos da ${ramo.objetoLabelCurto}`}>
-          <label onClick={() => setFotoItemId(null)} style={{ ...btnGold, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: 'auto' }}>
-            <Camera size={18} /> {subindoFoto ? 'Enviando…' : 'Tirar / anexar foto'}
-            <input type="file" accept="image/*" capture="environment" onChange={onFotoDiag} style={{ display: 'none' }} />
-          </label>
+          <FotosMultiplas onArquivos={(fs) => { setFotoItemId(null); void onFotosDiag(fs, null) }} progresso={progressoFotos} enviando={subindoFoto} rotaAjuda="/dashboard/os" testid="diagnostico-fotos" />
           <div style={{ fontSize: 11, color: ESP60, marginTop: 6 }}>Ex.: peça com defeito, vazamento, desgaste. Aparecem na impressão da OS (histórico fotográfico).</div>
           {/* DVI · contador + referência do setor (sem chantagem, só o número) */}
           <div style={{ fontSize: 12, color: fotosDiag.length >= 20 ? OK : GOLD, fontWeight: 700, marginTop: 8 }}>

@@ -19,6 +19,7 @@ import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import FotosOS from '@/components/oficina/FotosOS'   // #135 item 6 · fotos da OS (várias de uma vez)
 import { Package, PencilLine, Search, Wrench } from 'lucide-react'
 
 interface OS {
@@ -1061,6 +1062,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           </div>
         )
       })()}
+
+      {/* #135 item 6 · várias fotos de uma vez, com progresso, miniaturas, legenda e excluir */}
+      <FotosOS osId={os.id} companyId={os.company_id} onFlash={onFlash} />
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
         {podeExcluir && (
