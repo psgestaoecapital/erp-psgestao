@@ -244,3 +244,20 @@ export async function consultarBoleto(c: Credencial, nossoNumero: string | numbe
     raw: d,
   }
 }
+
+export type BaixaBoletoResult = { status: number; ok: boolean; raw: unknown }
+
+// PATCH cobranca/boleto/v1/boletos/{nossoNumero}/baixa — Sicredi baixa (cancela) o boleto; o beneficiário
+// vai no header codigoBeneficiario. Resposta 2xx traz o comando de baixa aceito.
+export async function baixarBoleto(c: Credencial, nossoNumero: string | number): Promise<BaixaBoletoResult> {
+  const token = await obterToken(c)
+  const res = await fetch(`${base(c.ambiente)}/cobranca/boleto/v1/boletos/${encodeURIComponent(String(nossoNumero))}/baixa`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(c, token), codigoBeneficiario: c.codigo_beneficiario, 'content-type': 'application/json' },
+    body: '{}',
+  })
+  const raw = await res.text()
+  let d: unknown = raw
+  try { d = raw ? JSON.parse(raw) : null } catch { /* keep raw */ }
+  return { status: res.status, ok: res.ok, raw: d }
+}

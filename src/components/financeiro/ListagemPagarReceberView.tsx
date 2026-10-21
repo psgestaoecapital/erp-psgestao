@@ -1451,6 +1451,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                   cliente={clientesMap[r.id] ?? null}
                                   empresaCnpj={empresaCnpj}
                                   boleto={boletoMap[r.id] ?? { status: null, nossoNumero: null, linhaDigitavel: null, codigoBarras: null, qrCode: null, url: null }}
+                                  tituloAberto={['aberto', 'vencido', 'parcial'].includes(r.status)}
                                   onSucesso={() => setReloadKey((k) => k + 1)}
                                 />
                               ) : (
