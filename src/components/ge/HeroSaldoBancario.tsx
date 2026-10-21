@@ -111,7 +111,7 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
   // #3952: um bloco por conta bancária ativa (empresa com Sicredi + Cresol vê cada saldo) e o total embaixo.
   const porConta = saldosPorConta(d.contas ?? [], bancos)
   const badge = origem === 'lido'
-    ? { txt: `✅ lido do ${nomeOrigem(banc.origem)}${banc.lido_em ? ' · saldo de ' + rotuloDataSaldo(banc.lido_em) : ''}`, cor: COLORS.verde, bg: COLORS.verdeSoft }
+    ? { txt: `lido do ${nomeOrigem(banc.origem)}${banc.lido_em ? ' · saldo de ' + rotuloDataSaldo(banc.lido_em) : ''}`, cor: COLORS.verde, bg: COLORS.verdeSoft }
     : origem === 'calculado'
       ? { txt: '📐 calculado (saldo inicial + títulos liquidados)', cor: COLORS.ambar, bg: COLORS.ambarSoft }
       : { txt: '— sem leitura de extrato', cor: COLORS.cinza, bg: 'transparent' }
