@@ -21,6 +21,10 @@ on:
         type: choice
         options: ['0', '1', '2']
         default: '0'
+      do_zero:
+        description: 'Causa 2 — montar DETERMINÍSTICO: aplica as migrations do zero (schema+ledger batem com a main), em vez do dump da produção. Opt-in, paralelo.'
+        type: boolean
+        default: false
   workflow_run:
     workflows: ['Deploy Migrations (Production)']
     types: [completed]
@@ -113,7 +117,7 @@ jobs:
         with:
           version: 2.118.0
       - name: Montagem completa (dump da estrutura → restore → ledger → semente)
-        if: github.event_name == 'workflow_dispatch' && inputs.recriar
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar && !inputs.do_zero
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -133,8 +137,14 @@ jobs:
           echo "erros no restore: $(grep -c 'ERROR' restore-erros.log || true)"
           grep 'ERROR' restore-erros.log | sort | uniq -c | sort -rn | head -40 || true
           echo "### Montagem do banco de testes: $(( $(date +%s) - t0 )) s · erros no restore: $(grep -c 'ERROR' restore-erros.log || true)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Montagem do ZERO — determinística (migrations · Causa 2)
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar && inputs.do_zero
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: scripts/banco-testes/montar-do-zero.sh
       - name: Ledger (migrations do repo marcadas como aplicadas)
-        if: github.event_name == 'workflow_dispatch' && inputs.recriar
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar && !inputs.do_zero
         run: scripts/banco-testes/ledger.sh
       # 13/10: sem "recriar", o disparo manual também aplica as migrations pendentes na vaga escolhida (compara com o ledger).
       - name: Migrations novas (aplica só as pendentes no banco da vaga)
@@ -191,6 +201,8 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          # Causa 2: no montar do_zero (schema das migrations), carrega os catálogos por interseção de colunas (tolera drift da prod)
+          SEED_INTERSECAO: ${{ (github.event_name == 'workflow_dispatch' && inputs.do_zero) && '1' || '' }}
         run: |
           set -euo pipefail
           # produção é Postgres 17 e o pg_dump precisa ser >= servidor (o runner traz o 16)
