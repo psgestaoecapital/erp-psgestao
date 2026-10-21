@@ -26,7 +26,10 @@ erro() { echo "::error::$*"; exit 1; }
 case "$TEST_DATABASE_URL" in *"$PROD_REF"*) erro "TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado";; esac
 # vaga 0 = o projeto erp-psgestao-testes conhecido; vaga > 0 = qualquer Session pooler que NÃO seja a produção (mesma regra do
 # passo "Trava de segurança" do montar-banco-testes.yml; ACEITACAO_VAGA vem do GITHUB_ENV desse workflow).
-if [ "${ACEITACAO_VAGA:-0}" = 0 ]; then
+# Portão de semente no PR (INFRA-TESTES slice 1): banco EFÊMERO local (supabase start no runner), destino só em 127.0.0.1.
+if [ "${BANCO_EFEMERO_LOCAL:-0}" = 1 ]; then
+  case "$TEST_DATABASE_URL" in *@127.0.0.1:*|*@localhost:*) ;; *) erro "BANCO_EFEMERO_LOCAL=1 exige destino local (127.0.0.1/localhost)";; esac
+elif [ "${ACEITACAO_VAGA:-0}" = 0 ]; then
   case "$TEST_DATABASE_URL" in *"$TEST_REF"*) ;; *) erro "TEST_DATABASE_URL não é o projeto erp-psgestao-testes";; esac
 else
   case "$TEST_DATABASE_URL" in *pooler.supabase.com*) ;; *) erro "vaga ${ACEITACAO_VAGA}: TEST_DATABASE_URL precisa ser Session pooler (*.pooler.supabase.com)";; esac
