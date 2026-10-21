@@ -84,16 +84,20 @@ SQL
   # COMUM entre produção e banco de testes — colunas que só existem na prod (drift) são ignoradas, sem quebrar o COPY.
   # No montar atual (schemas iguais) a interseção == colunas da prod: no-op.
   if [ "${SEED_INTERSECAO:-}" = "1" ]; then
+    # to_regclass → NULL (sem erro) se a tabela não existe no schema das migrations; aí a interseção fica vazia e PULAMOS
     tcols=$("$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -At -v t="$t" -v auditoria="$AUDITORIA" <<'SQL'
 SET statement_timeout = '15s';
 SELECT string_agg(quote_ident(a.attname), ',') FROM pg_attribute a
-WHERE a.attrelid = ('public.' || quote_ident(:'t'))::regclass AND a.attnum > 0 AND NOT a.attisdropped
+WHERE a.attrelid = to_regclass('public.' || quote_ident(:'t')) AND a.attnum > 0 AND NOT a.attisdropped
   AND a.attgenerated = '' AND a.attname !~ :'auditoria';
 SQL
 )
     inter=""; IFS=',' read -ra PA <<< "$cols"
     for c in "${PA[@]}"; do case ",$tcols," in *",$c,"*) inter="${inter:+$inter,}$c";; esac; done
-    [ -n "$inter" ] || erro "$t: nenhuma coluna em comum entre produção e banco de testes"
+    if [ -z "$inter" ]; then
+      echo "::warning::catálogo $t: tabela ausente ou sem coluna em comum no schema das migrations — PULADA (drift prod×migrations)"
+      continue
+    fi
     [ "$inter" = "$cols" ] || echo "::notice::$t: seed por interseção (colunas só-da-prod ignoradas)"
     cols="$inter"
   fi
@@ -112,6 +116,7 @@ if [ "${SEED_INTERSECAO:-}" = "1" ]; then
   puladas=""; carregadas=0; i=0
   for t in "${TABELAS[@]}"; do
     i=$((i + 1)); f=$(printf '%s/%02d_%s.copy' "$dir" "$i" "$t"); cf="$dir/$(printf '%02d' "$i").cols"
+    [ -f "$cf" ] && [ -f "$f" ] || { puladas="$puladas $t"; echo "::warning::catálogo $t: ausente no schema das migrations — PULADA"; continue; }
     if "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q 2> "$dir/err.log" \
          -c "SET session_replication_role = replica;" -c "DELETE FROM public.$t;" \
          -c "\\copy public.$t ($(cat "$cf")) FROM '$f'"; then
