@@ -100,6 +100,7 @@ function validaPreEmissao(cliente: ClienteContato | null, empresaCnpj: string | 
 export default function BoletoActions({ provider, receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, onSucesso }: Props) {
   const [busy, setBusy] = useState(false)
   const [imprimindo, setImprimindo] = useState(false)
+  const [cancelando, setCancelando] = useState(false)
   const [copiou, setCopiou] = useState<'linha' | 'pix' | 'barras' | null>(null)
   // Fallback quando o PDF não abre (geração falhou): em vez de um alert que some, um modal com a
   // linha digitável + código de barras e botões de copiar — o cliente paga sem o papel (pedido do CEO).
@@ -231,6 +232,34 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
     const url = numero ? `https://wa.me/${numero}?text=${msg}` : `https://wa.me/?text=${msg}`
     window.open(url, '_blank', 'noopener,noreferrer')
     if (urlPdf && urlPdf !== boleto.url) onSucesso?.()
+  }
+
+  // Cancela SO o boleto no banco (irreversivel); o titulo continua ativo para ser quitado pelo pagamento real.
+  const cancelarBoleto = async () => {
+    if (cancelando) return
+    const ok = window.confirm(
+      `Cancelar o boleto ${boleto.nossoNumero ?? ''} no ${label}?\n\nO boleto deixa de poder ser pago e isso NÃO pode ser desfeito. ` +
+      'O título (a receita) continua ativo — dê a baixa pelo pagamento que o cliente fez, ou gere um novo boleto depois.',
+    )
+    if (!ok) return
+    setCancelando(true)
+    setErro(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch(`/api/banco/${provider}/cancelar-boleto`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', 'authorization': session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ receber_id: receberId }),
+      })
+      const j = await r.json()
+      if (!j.ok) { setErro(j.erro || 'Não foi possível cancelar o boleto.'); return }
+      onSucesso?.()
+    } catch (e) {
+      setErro(`Não foi possível cancelar o boleto: ${(e as Error).message || 'erro de rede'}`)
+    } finally {
+      setCancelando(false)
+    }
   }
 
   const abrirCadastroCliente = () => {
@@ -367,7 +396,24 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
         style={boleto.qrCode ? btnSec : btnDisabled}>
         {copiou === 'pix' ? 'Copiado!' : 'Copiar Pix'}
       </button>
+      {provider === 'sicoob' ? (
+        <button type="button" onClick={cancelarBoleto} disabled={cancelando}
+          data-testid="boleto-cancelar"
+          title="Cancela só o boleto no banco (o título continua ativo)"
+          style={{ ...btnSec, color: '#991B1B', opacity: cancelando ? 0.6 : 1, cursor: cancelando ? 'wait' : 'pointer' }}>
+          {cancelando ? 'Cancelando...' : 'Cancelar boleto'}
+        </button>
+      ) : (
+        <span title={`O cancelamento por aqui ainda não está disponível para o ${label}.`} style={{ fontSize: 10, color: '#8A6A45' }}>
+          Cancelar boleto: indisponível no {label}
+        </span>
+      )}
     </div>
+    {erro && (
+      <div role="alert" style={{ fontSize: 10.5, lineHeight: 1.4, color: '#991B1B', background: '#FEF2F2', border: '0.5px solid rgba(153,27,27,0.25)', borderRadius: 4, padding: '5px 7px', maxWidth: 340, whiteSpace: 'normal' }}>
+        {erro}
+      </div>
+    )}
 
     {/* Fallback sem papel: quando o PDF não abre, o operador ainda cobra pela linha digitável
         ou pelo código de barras. Modal em vez de alert (que some após alguns diálogos). */}
