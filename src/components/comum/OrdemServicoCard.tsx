@@ -10,8 +10,9 @@ import { supabase } from '@/lib/supabase'
 import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'   // chamado #20 §2.4 · "Gerar financeiro"
 import EmitirNFSeOSButton from '@/components/comum/EmitirNFSeOSButton'   // chamado #20 Fase 2 · NFS-e (serviços) da OS
-import EmitirNFeOSButton from '@/components/comum/EmitirNFeOSButton'
-import OSNotasFiscaisSelo from '@/components/comum/OSNotasFiscaisSelo'   // chamado #3242 · indicador de NF emitida na ficha   // chamado #20 Fase 3 · NF-e (peças) da OS
+import EmitirNFeOSButton from '@/components/comum/EmitirNFeOSButton'   // chamado #20 Fase 3 · NF-e (peças) da OS
+import OSNotasFiscaisSelo from '@/components/comum/OSNotasFiscaisSelo'   // chamado #3242 · indicador de NF emitida na ficha
+import OSNFForaDaOS from '@/components/comum/OSNFForaDaOS'   // chamado #2167 · marcação "NF fora da OS"
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
 import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
@@ -1106,6 +1107,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
             {!os.pedido_id && (
               <>
                 <OSNotasFiscaisSelo osId={os.id} companyId={os.company_id} />
+                <OSNFForaDaOS osId={os.id} companyId={os.company_id} />
                 <EmitirNFSeOSButton
                   osId={os.id}
                   companyId={os.company_id}
