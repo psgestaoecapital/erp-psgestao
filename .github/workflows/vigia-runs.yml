@@ -29,6 +29,14 @@ jobs:
       # aceitacao-main (CEO 11/10): build + suíte completa levam ~45-55 min; o teto de 45 a matava antes de fechar o verde.
       # Teto próprio de 70 min só para ela (job com timeout de 75); o zumbi de 90 min continua valendo para todos.
       LIMITE_MAIN_MIN: '70'
+      # Montar banco de testes (CEO 21/10): recria/repovoa a vaga em ~10-15 min; um Montar EXECUTANDO > 25 min está
+      # travado. Como ele COMPARTILHA o grupo de concorrência da aceitação (aceitacao-testes-<vaga>), um Montar preso
+      # segura TODA a fila daquela vaga → deadlock: a vaga nunca é recriada, as PRs falham na vaga suja, re-rodam e
+      # reocupam o grupo (incidente 21/10: Montar preso 1h15 travou ~1h30 de publicação). Teto curto PRÓPRIO (25 min)
+      # para matá-lo rápido — o timeout-minutes do job (40) não pegou no incidente. Libera o grupo para a próxima
+      # recriação. NÃO mudar a concorrência do Montar: o grupo compartilhado é de propósito (grupo próprio o fazia
+      # rodar no MEIO da aceitação e apagar companies/plano_contas → specs vermelhos).
+      LIMITE_MONTAR_MIN: '25'
       # workflows de e2e da demo (os que entram na fila demo-e2e) e a montagem do banco de testes
       VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml aceitacao-main.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
       # zumbi (Eng. Chefe 08/10): run de aceitação EM ANDAMENTO há mais de 90 min (idade do run, não do job) é cancelado
@@ -49,7 +57,9 @@ jobs:
                 --jq '[.jobs[] | select(.status == "in_progress") | .started_at] | min // empty')
               [ -n "$ini" ] || continue
               min=$(( (agora - $(date -u -d "$ini" +%s)) / 60 ))
-              limite=$LIMITE_MIN; [ "$wf" = "aceitacao-main.yml" ] && limite=$LIMITE_MAIN_MIN
+              limite=$LIMITE_MIN
+              [ "$wf" = "aceitacao-main.yml" ] && limite=$LIMITE_MAIN_MIN
+              [ "$wf" = "montar-banco-testes.yml" ] && limite=$LIMITE_MONTAR_MIN
               [ "$min" -gt "$limite" ] || continue
               echo "::warning title=run preso cancelado::$wf run $id com job executando há $min min (> $limite)"
               echo "- $wf · run $id · $min min executando → cancelado" >> "$GITHUB_STEP_SUMMARY"
