@@ -71,6 +71,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       companyId: body.companyId,
       erpReceberId: body.erpReceberId,
       pedidoId: body.pedidoId,
+      osId: body.osId,
       manual: body.manual,
       overrides: body.overrides,
       consumidorFinal: body.consumidorFinal,

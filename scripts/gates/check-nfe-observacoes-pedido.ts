@@ -41,5 +41,15 @@ const card = readFileSync('src/components/comum/NFeCard.tsx', 'utf8')
 ok(/apenasPrevia: true/.test(card) && /payload\.informacoesComplementares = textoInfCpl/.test(card), 'card do pedido: carrega a prévia e envia o texto editado')
 ok((card.match(/\{secaoInfCpl\}/g) ?? []).length === 2 && (card.match(/disabled=\{emitindo \|\| excedeInfCpl\}/g) ?? []).length === 2, 'card do pedido: texto antes de Emitir/Reemitir e botão travado acima do limite')
 
+// Item 5: NF-e de peças da OS — Observações para o cliente da OS (nunca as internas), mesma prévia editável.
+const iOs = builder.indexOf('if (input.osId && observacoesOrigem === undefined) {')
+const ramoOs = builder.slice(iOs, builder.indexOf('}', builder.indexOf('observacoesOrigem = (', iOs)))
+ok(iOs > 0 && /\.from\('erp_os'\)\s*\n\s*\.select\('observacoes_cliente'\)/.test(ramoOs) && /\.eq\('company_id', input\.companyId\)/.test(ramoOs), 'OS: lê as Observações para o cliente da própria empresa')
+ok(!/observacoes_internas/.test(ramoOs), 'OS: nunca as observações internas')
+ok(/osId: body\.osId,/.test(route), 'rota: passa a OS para o montador da nota')
+const osBtn = readFileSync('src/components/comum/EmitirNFeOSButton.tsx', 'utf8')
+ok(/apenasPrevia: true/.test(osBtn) && /body\.informacoesComplementares = textoInfCpl/.test(osBtn), 'NF-e da OS: carrega a prévia e envia o texto editado')
+ok(/oficina\.os\.nfe_informacoes_complementares"/.test(osBtn) && /!\(!!previa && textoInfCpl\.trim\(\)\.length > previa\.limite\)/.test(osBtn), 'NF-e da OS: "?" no campo e emissão travada acima do limite')
+
 if (falhas) { console.error(`\n[check-nfe-observacoes-pedido] ${falhas} falha(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-nfe-observacoes-pedido] observações do pedido na NF-e conferidas.')

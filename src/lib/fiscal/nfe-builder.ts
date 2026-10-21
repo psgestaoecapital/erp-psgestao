@@ -52,6 +52,8 @@ export interface NFeBuilderInput {
   erpReceberId?: string
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · terceiro modo: monta a partir do pedido
   pedidoId?: string
+  // NF-e de peças da OS (modo manual): a OS de origem dá as "Observações para o cliente" das Informações Complementares
+  osId?: string
   manual?: {
     destinatario: {
       razaoSocial: string
@@ -440,6 +442,17 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }
   })
 
+  // NF-e de peças da OS (pedido Jordana 20/10, item 5): as "Observações para o cliente" da OS vão para as Informações
+  // Complementares, como as Observações do pedido — nunca as observações internas.
+  if (input.osId && observacoesOrigem === undefined) {
+    const { data: os } = await supabaseAdmin
+      .from('erp_os')
+      .select('observacoes_cliente')
+      .eq('id', input.osId)
+      .eq('company_id', input.companyId)
+      .maybeSingle()
+    observacoesOrigem = (os?.observacoes_cliente ?? '').trim() || undefined
+  }
 
   return {
     serie: cfg?.serie_nfe_padrao ?? '1',

@@ -21,3 +21,22 @@ FROM (VALUES
 ON CONFLICT (chave) DO UPDATE SET rotulo = EXCLUDED.rotulo, o_que_preencher = EXCLUDED.o_que_preencher,
   para_que_serve = EXCLUDED.para_que_serve, exemplo = EXCLUDED.exemplo, erro_comum = EXCLUDED.erro_comum,
   ordem = EXCLUDED.ordem, rota = EXCLUDED.rota, status = EXCLUDED.status;
+
+-- Mesmo texto na NF-e de peças da OS (Oficina): Observações para o cliente da OS + textos legais (item 5 do pedido).
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, 'Oficina', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem,
+       '/dashboard/os', 'oficina', 'publicado'
+FROM (VALUES
+ ('oficina.os.nfe_informacoes_complementares', 'Informações complementares da nota',
+  'O texto que vai impresso na NF-e das peças, no quadro "Informações complementares". Ele já vem montado: primeiro as Observações para o cliente da OS, depois os textos obrigatórios do Simples e o valor aproximado dos tributos (Lei 12.741), quando a empresa usa. Pode editar antes de emitir.',
+  'É onde o cliente encontra dados como o número do pedido de compra dele ou a placa do veículo. O que estiver aqui na hora de emitir é exatamente o que sai na nota. As observações internas da OS nunca entram.',
+  'Pedido de compra nº 123 | DOCUMENTO EMITIDO POR ME OU EPP OPTANTE PELO SIMPLES NACIONAL...',
+  'Apagar o texto do Simples ou dos tributos sem combinar com o contador. Passar de 5.000 caracteres: a nota não sai até encurtar.', 60),
+ ('oficina.os.nfe_informacoes_complementares_restaurar', 'Voltar ao texto automático',
+  'Toque para desfazer a sua edição e voltar ao texto montado pelo sistema.',
+  'Útil quando apagou algo sem querer, como o texto obrigatório do Simples.',
+  '—', 'Tocar depois de digitar uma informação que você queria manter: ela some.', 61)
+) AS v(chave, rotulo, o_que, para_que, exemplo, erro, ordem)
+ON CONFLICT (chave) DO UPDATE SET rotulo = EXCLUDED.rotulo, o_que_preencher = EXCLUDED.o_que_preencher,
+  para_que_serve = EXCLUDED.para_que_serve, exemplo = EXCLUDED.exemplo, erro_comum = EXCLUDED.erro_comum,
+  ordem = EXCLUDED.ordem, rota = EXCLUDED.rota, status = EXCLUDED.status;
