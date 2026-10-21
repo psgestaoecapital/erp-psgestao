@@ -1283,9 +1283,10 @@ function TabSaldo({
       ) : (
         <div style={{ background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 800 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 880 }}>
               <thead style={{ background: C.cream }}>
                 <tr>
+                  <Th>Código</Th>
                   <Th>Produto</Th>
                   <Th>Local</Th>
                   <Th align="right">Físico</Th>
@@ -1304,10 +1305,8 @@ function TabSaldo({
                   const corDisp = r.disponivel < 0 ? C.red : r.reservado > 0 ? C.goldD : (r.disponivel > 0 ? C.green : C.espressoL)
                   return (
                     <tr key={`${r.produto_id}|${r.local_id ?? ''}`} style={{ borderTop: `1px solid ${C.borderL}` }} data-testid="saldo-row">
-                      <Td>
-                        <div style={{ fontWeight: 600 }}>{r.produto_nome}</div>
-                        {r.produto_codigo && <span style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{r.produto_codigo}</span>}
-                      </Td>
+                      <Td><span style={{ fontSize: 11, color: C.espressoM, fontFamily: 'monospace' }} data-testid="saldo-codigo">{r.produto_codigo || '—'}</span></Td>
+                      <Td><div style={{ fontWeight: 600 }}>{r.produto_nome}</div></Td>
                       <Td>{r.local_nome}</Td>
                       <Td align="right"><span style={{ color: r.saldo < 0 ? C.red : (r.saldo > 0 ? C.espresso : C.espressoL), fontWeight: r.saldo < 0 ? 700 : 400 }}>{fmtNum(r.saldo)}</span></Td>
                       <Td align="right">{r.reservado > 0 ? <span style={{ color: C.blue, fontWeight: 600 }} title="Comprometido em OS pronta/entregue não faturada">{fmtNum(r.reservado)}</span> : <span style={{ color: C.espressoL }}>—</span>}</Td>
