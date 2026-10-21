@@ -29,7 +29,7 @@ ok(/via=rapida\s*\n\s*jq -e --arg l "\$SENSIVEL" .* && via=revisada/.test(sh), '
 ok(/if \[ "\$via" = revisada \]; then\s*\n\s*a=\$\(autorizacao "\$n"\)/.test(sh), '(a) via revisada continua exigindo MERGE AUTORIZADO pelo patch-id')
 ok(/c=\$\(estado_checks "\$sha" "\$via"( "\$so_docs")?( "\$n")?( "\$regime_disp")?\)/.test(sh), '(a) o laço passa a via para estado_checks')
 ok(/via rápida/.test(sh) && /via revisada/.test(sh) && /log "#\$n segue a /.test(sh), '(a) o log diz a via de cada PR')
-ok(/m=\$\(estado_main\)/.test(sh) && /so_sem_migration=1/.test(sh), '(a) regra de migration intacta (espera o @pos-migration da anterior)')
+ok(/m=\$\(estado_main( "\$via")?\)/.test(sh) && /so_sem_migration=1/.test(sh), '(a) regra de migration intacta (espera o @pos-migration da anterior)')
 
 // (b) aceitação da main
 const wf = ler('.github/workflows/aceitacao-main.yml')
