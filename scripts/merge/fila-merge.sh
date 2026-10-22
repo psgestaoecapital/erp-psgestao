@@ -645,6 +645,18 @@ estado_checks() {
       fi
     fi
   fi
+  # ESTEIRA CONTÍNUA / NOVO MODELO (CEO 22/10, sessão ao vivo): a suíte 'gates' (100+ checagens estáticas de
+  # scripts/gates/, que "sempre trava em lugar diferente") SAI do caminho de bloqueio nas DUAS vias. Continuam
+  # bloqueando os guardas críticos FOCADOS e confiáveis (check_fn_guards/RLS, check_menu, check_migrations) e o
+  # preview (build real da Vercel). 'gates' segue rodando e aparecendo — informativo, não segura o merge; a
+  # verificação pesada é pós-merge (aceitação da main + reverter-automatico). Gate: check-vercel-build.ts.
+  linhas=$(awk -F'\t' '$1 != "gates"' <<< "$linhas")
+  # META-CHECKS DA PRÓPRIA ESTEIRA (CEO 22/10, sessão ao vivo): a própria 'fila' posta um check-run que a concorrência
+  # CANCELA (checks cancelados são normais quando uma rodada substitui a anterior); 'acionar'/'etiquetar'/'varredura'/
+  # 'liberar-reserva' e o comentário da Vercel são automações, não portões de qualidade. Nenhum deles pode segurar o
+  # merge — senão a fila trava na PRÓPRIA marca cancelada (era o que segurava TODAS as PRs). Saem do cálculo de
+  # pendentes/vermelhos/cancelados. Continuam bloqueando: preview (build real), check_fn_guards/menu/migrations, aceitação.
+  linhas=$(awk -F'\t' '$1 !~ /^(fila|acionar|etiquetar|varredura|liberar-reserva|Vercel Preview Comments)$/' <<< "$linhas")
   # via rápida SEMPRE, e via revisada DENTRO DA JANELA (CEO 15/10): tira a aceitação do cálculo de pendentes/vermelhos/cancelados
   if [ "$via" = rapida ] || aceitacao_dispensada || [ "$acc_quar" = 1 ]; then linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas"); fi
   pend=$(awk -F'\t' '$2 != "completed" {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
@@ -659,11 +671,9 @@ estado_checks() {
     [ "$esgotou" = 1 ] && { echo "vermelho:check cancelado 3 vezes seguidas (use /re-rodar ou empurre um commit)"; return; }
     echo "esperar:check cancelado re-disparado"; return
   fi
-  # gates (scripts/gates/): saíram do build da Vercel para o workflow gates.yml (CEO 07/10) — têm de existir e estar
-  # verdes nas DUAS vias
-  case "$(awk -F'\t' '$1 == "gates" {print $3}' <<< "$linhas" | tail -1)" in
-    success) ;; '') echo "esperar:gates ainda não rodaram"; return;; *) echo "vermelho:gates não estão verdes"; return;;
-  esac
+  # gates (scripts/gates/): INFORMATIVO desde o novo modelo (CEO 22/10) — já retirado de 'linhas' acima, não bloqueia
+  # nenhuma via. Os guardas críticos focados (check_fn_guards, check_menu, check_migrations) seguem no cálculo de
+  # pend/verm acima, e o preview (Vercel) logo abaixo; a suíte completa é julgada pós-merge na aceitação da main.
   # PR só de .md/docs/.github não tem preview nem aceitação (Ignored Build Step): basta checks + gates
   [ "$so_docs" = 1 ] && { echo ok; return; }
   # aceitação (preview): na via REVISADA tem de existir e estar verde (ou dispensada pela triagem) — salvo DENTRO da janela (CEO 15/10)
