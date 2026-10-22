@@ -8,10 +8,12 @@ import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarP
 import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModal'
 import ConfirmarClonar from '@/components/cadastros/ConfirmarClonar'
 import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Tags, AlertTriangle,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle,
 } from 'lucide-react'
+import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,6 +72,7 @@ export default function ProdutosPage() {
 
   // Modal edicao
   const [editando, setEditando] = useState<Produto | null>(null)
+  const [formSeq, setFormSeq] = useState(0)
   const [novoAberto, setNovoAberto] = useState(false)
   // Clonar: pré-preenche um NOVO produto a partir de um existente. Como a lista só traz colunas parciais (SELECT_COLS
   // da view), precisa buscar a linha INTEIRA (select '*') antes — senão o clone perderia os campos fiscais.
@@ -85,6 +88,31 @@ export default function ProdutosPage() {
   const [etiquetasAberto, setEtiquetasAberto] = useState(false)
   const alternarSel = (id: string) =>
     setSelecionados((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  // Baixar produtos (.xlsx): a RPC fn_produtos_exportar serve os dados (custo/valor só com permissão + auditoria no
+  // banco), respeitando os filtros da tela; o arquivo re-importa pela "Importar estoque (planilha)".
+  const [exportando, setExportando] = useState(false)
+  const exportarProdutos = useCallback(async () => {
+    if (!companyId || exportando) return
+    setExportando(true)
+    setErro(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_produtos_exportar', {
+        p_company_id: companyId,
+        p_situacao: situacao,
+        p_busca: buscaDebounced || null,
+        p_grupo: grupo || null,
+        p_unidade: unidade || null,
+      })
+      const res = data as ExportProdutosResult | null
+      if (error || !res?.ok) { setErro(error?.message ?? 'Não consegui baixar os produtos agora.'); return }
+      await exportarProdutosXlsx(res)
+    } catch (e) {
+      setErro((e as Error)?.message ?? 'Não consegui baixar os produtos agora.')
+    } finally {
+      setExportando(false)
+    }
+  }, [companyId, exportando, situacao, buscaDebounced, grupo, unidade])
 
   const offsetRef = useRef(0)
 
@@ -319,7 +347,8 @@ export default function ProdutosPage() {
   return (
     <div className="min-h-screen bg-[#FAF7F2] text-[#3D2314]">
       <div className="max-w-6xl mx-auto px-4 py-6">
-        <header className="mb-6 flex items-start justify-between gap-4">
+        {/* #3255: a barra quebra linha (antes o "Novo produto", último de 7 botões sem quebra, saía da tela) */}
+        <header className="mb-6 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div>
             <div className="text-[11px] text-[#3D2314]/60 tracking-[1px] uppercase font-medium mb-1">
               Cadastros · Gestao Empresarial
@@ -331,7 +360,18 @@ export default function ProdutosPage() {
               Catalogo pra emissao de NFe · vendas de produto fisico
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap lg:justify-end min-w-0">
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setNovoAberto(true)}
+                data-testid="produto-novo"
+                className="px-4 py-2 text-[13px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2"
+              >
+                <Plus size={15} /> Novo produto
+              </button>
+              <AjudaCampo chave="cadastros.produtos.novo" />
+            </span>
             <button
               type="button"
               onClick={() => setEtiquetasAberto(true)}
@@ -373,6 +413,18 @@ export default function ProdutosPage() {
             >
               <Upload size={15} /> Importar estoque (planilha)
             </a>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void exportarProdutos()}
+                disabled={!companyId || exportando}
+                data-testid="produto-exportar"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-45 disabled:hover:bg-transparent flex items-center gap-2"
+              >
+                {exportando ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Baixar produtos (.xlsx)
+              </button>
+              <AjudaCampo chave="cadastros.produtos.exportar" />
+            </span>
             <a
               href="/dashboard/compras/precificacao"
               data-testid="produto-formar-precos"
@@ -380,14 +432,6 @@ export default function ProdutosPage() {
             >
               <Tags size={15} /> Formar preços
             </a>
-            <button
-              type="button"
-              onClick={() => setNovoAberto(true)}
-              data-testid="produto-novo"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2"
-            >
-              <Plus size={15} /> Novo Produto
-            </button>
           </div>
         </header>
 
@@ -843,7 +887,7 @@ export default function ProdutosPage() {
 
         {(novoAberto || editando || clonando) && (
           <ProdutoForm
-            key={editando ? `edit-${editando.id}` : clonando ? `clone-${clonando.id}` : 'novo'}
+            key={editando ? `edit-${editando.id}` : clonando ? `clone-${clonando.id}` : `novo-${formSeq}`}
             companyId={companyId}
             produto={editando}
             clonarDe={clonando}
@@ -853,7 +897,9 @@ export default function ProdutosPage() {
               setEditando(null)
               setClonando(null)
             }}
-            onSalvo={() => {
+            onSalvo={(cadastrarOutro) => {
+              // "Salvar e cadastrar outro" (#3255): recarrega a lista e reabre o formulário limpo
+              if (cadastrarOutro) { setFormSeq((n) => n + 1); carregar(true); return }
               setNovoAberto(false)
               setEditando(null)
               setClonando(null)

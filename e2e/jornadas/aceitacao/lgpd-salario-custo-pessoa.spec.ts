@@ -91,7 +91,9 @@ test.describe('LGPD · salário_base e custo por pessoa protegidos', () => {
   })
 
   test('quem vê salário lê e grava pela função, e o acesso fica registrado', { tag: '@pos-migration' }, async () => {
-    const antes = await dbSelect<{ id: number }>('erp_custo_pessoa_acesso_log', `company_id=eq.${DEMO_SST}&user_id=eq.${roboId}&select=id`)
+    // o select do log é limitado a 1000 linhas: marca o maior id de antes e conta só o que este teste gerou
+    const [ult] = await dbSelect<{ id: number }>('erp_custo_pessoa_acesso_log', `company_id=eq.${DEMO_SST}&user_id=eq.${roboId}&select=id&order=id.desc&limit=1`)
+    const idAntes = ult?.id ?? 0
     const g = await chamar('fn_compliance_funcionario_salario_salvar', { p_id: funcId, p_valor: 4321.5 })
     expect(g.ok, `gravar pela função: ${g.status} ${g.ok ? '' : await g.text()}`).toBe(true)
     const l = await chamar('fn_compliance_funcionario_salario', { p_id: funcId })
@@ -102,8 +104,8 @@ test.describe('LGPD · salário_base e custo por pessoa protegidos', () => {
     const lista = await chamar('fn_compliance_salarios', { p_company_id: DEMO_SST })
     const linhas = (await lista.json()) as { id: string; salario_base: number | null }[]
     expect(linhas.find((x) => x.id === funcId)?.salario_base).toBe(4321.5)
-    const depois = await dbSelect<{ id: number; origem: string }>('erp_custo_pessoa_acesso_log', `company_id=eq.${DEMO_SST}&user_id=eq.${roboId}&select=id,origem`)
-    expect(depois.length, 'gravação + 2 leituras registradas').toBeGreaterThanOrEqual(antes.length + 3)
+    const depois = await dbSelect<{ id: number; origem: string }>('erp_custo_pessoa_acesso_log', `company_id=eq.${DEMO_SST}&user_id=eq.${roboId}&id=gt.${idAntes}&select=id,origem`)
+    expect(depois.length, 'gravação + 2 leituras registradas').toBeGreaterThanOrEqual(3)
     expect(depois.some((x) => x.origem === 'gravacao')).toBe(true)
     const media = await chamar('fn_compliance_salario_media_funcao', { p_company_id: DEMO_SST })
     expect(media.ok, 'média da função disponível a quem é da empresa').toBe(true)
