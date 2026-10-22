@@ -23,7 +23,11 @@ on:
       - 'Régua de menu (rota × página)'
       - 'Régua de migrations (versão única · sem colisão com o ledger)'
     types: [completed]
-  status:
+  # CEO 22/10 (esteira contínua): o gatilho `status:` (cada atualização de status de commit de TODAS as PRs — Vercel,
+  # cada check) disparava a fila dezenas de vezes por minuto; com a concorrência, as rodadas se cancelavam antes de
+  # completar e NADA publicava (0 passadas completas em 25 runs). Removido: os eventos úteis já chegam por
+  # workflow_run (fim de CI/aceitação/deploy), pull_request_target (mudança na PR), issue_comment (autorização),
+  # push na main e o schedule a cada 15 min. Menos gatilho = a rodada completa e publica.
   push:
     branches: [main]
   workflow_dispatch:
