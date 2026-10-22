@@ -20,9 +20,9 @@ ok(/JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'/.test(sh),
 ok(/aceitacao_dispensada\(\) \{ \[ "\$\{FILA_AGORA_EPOCH:-\$\(date -u \+%s\)\}" -lt "\$\(date -u -d "\$JANELA_ACEITACAO_REVISADA_FIM" \+%s\)" \]; \}/.test(sh),
   'aceitacao_dispensada compara o agora (FILA_AGORA_EPOCH ou real) com o fim da janela')
 // ligada nos DOIS pontos: na remoção da aceitação do cálculo e no "revisada exige aceitação verde"
-ok(/if \[ "\$via" = rapida \] \|\| aceitacao_dispensada; then linhas=\$\(awk/.test(sh),
+ok(/if \[ "\$via" = rapida \] \|\| aceitacao_dispensada \|\| \[ "\$acc_quar" = 1 \]; then linhas=\$\(awk/.test(sh),
   'dentro da janela a aceitação sai do cálculo de pendentes/vermelhos (como na via rápida)')
-ok(/if \[ "\$via" = revisada \] && ! aceitacao_dispensada; then/.test(sh),
+ok(/if \[ "\$via" = revisada \] && ! aceitacao_dispensada && \[ "\$acc_quar" != 1 \]; then/.test(sh),
   'a exigência "revisada: aceitação verde" só vale FORA da janela')
 // ritmo
 ok(/RITMO_MAX_HORA=\$\{RITMO_MAX_HORA:-4\}/.test(sh) && /rodada adiada/.test(sh) && /disp_hora=\$\(\(RITMO_MAX_HORA - pub_hora\)\)/.test(sh),
