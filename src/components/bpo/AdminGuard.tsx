@@ -17,7 +17,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
       const supabase = supabaseBrowser();
       const uid = await getUsuarioId();
       if (!uid) {
-        router.replace("/login");
+        router.replace("/");
         return;
       }
       const { data, error } = await supabase

@@ -16,3 +16,26 @@ export function custearItens(itens: ItemCalculo[], vinculos: Record<string, stri
   const total = Math.round(linhas.reduce((s, l) => s + (l.total ?? 0), 0) * 100) / 100
   return { linhas, total, semCusto: linhas.filter(l => l.total === null).length }
 }
+
+const normalizar = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const palavras = (s: string) => normalizar(s).split(/[^a-z0-9,.]+/).filter((w) => w.length >= 2)
+
+// Sugere o produto do estoque mais parecido (por palavras da descrição) só para os itens ainda sem vínculo. Nunca troca vínculo existente.
+export function sugerirVinculos(itens: ItemCalculo[], vinculos: Record<string, string>, produtos: ProdutoEstoque[]): Record<string, string> {
+  const sugestoes: Record<string, string> = {}
+  for (const item of itens) {
+    if (vinculos[item.chave]) continue
+    const alvo = new Set(palavras(item.descricao))
+    if (alvo.size === 0) continue
+    let melhor: { id: string; nota: number } | null = null
+    for (const p of produtos) {
+      const ps = palavras(p.nome)
+      if (ps.length === 0) continue
+      const acertos = ps.filter((w) => alvo.has(w)).length
+      const nota = (acertos / Math.max(alvo.size, ps.length)) + (p.custo && p.custo > 0 ? 0.01 : 0)
+      if (acertos >= 2 && nota >= 0.5 && (!melhor || nota > melhor.nota)) melhor = { id: p.id, nota }
+    }
+    if (melhor) sugestoes[item.chave] = melhor.id
+  }
+  return sugestoes
+}

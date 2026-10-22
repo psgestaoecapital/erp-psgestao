@@ -59,6 +59,7 @@ export default function DREHorizontal() {
   const now = useMemo(() => new Date(), [])
   const anoAtual = now.getFullYear()
 
+  const [visao, setVisao] = useState<'consolidado' | 'ln'>('consolidado') // CEO 14/10: abrir por linha de negócio
   const [regime, setRegime] = useState<'competencia' | 'caixa' | 'previsto'>('competencia')
   const [diaDrill, setDiaDrill] = useState<string | null>(null) // previsto: ymd do dia clicado → títulos a vencer
   const [ano, setAno] = useState<number>(anoAtual)
@@ -95,6 +96,8 @@ export default function DREHorizontal() {
 
   const carregar = useCallback(async () => {
     if (!membros.length) return
+    // Visão "por linha de negócio" tem carregamento próprio (componente DREPorLN).
+    if (visao === 'ln') { setLoading(false); return }
     setLoading(true); setErro(null)
     // Previsto (fluxo por vencimento) é sempre por DIA — mesmo se um intervalo estiver selecionado, usa o 1º mês.
     if (selIni === selFim || regime === 'previsto') {
@@ -126,9 +129,14 @@ export default function DREHorizontal() {
       })
     }
     setLoading(false)
-  }, [membros, ano, selIni, selFim, regime])
+  }, [membros, ano, selIni, selFim, regime, visao])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // "Previsto" é fluxo de caixa — não se abre por linha de negócio; ao entrar na visão LN, cai para competência.
+  useEffect(() => {
+    if (visao === 'ln' && regime === 'previsto') setRegime('competencia')
+  }, [visao, regime])
 
   useEffect(() => {
     if (!data) return
@@ -196,10 +204,19 @@ export default function DREHorizontal() {
               {grupoNome || '—'}{membros.length > 1 && <span style={{ fontWeight: 500, color: MUT }}>· {membros.length} CNPJs</span>}
             </div>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', border: `1px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+              <button type="button" onClick={() => setVisao('consolidado')} style={visao === 'consolidado' ? segOn : segOff}>Consolidado</button>
+              <button type="button" onClick={() => setVisao('ln')} style={visao === 'ln' ? segOn : segOff} title="Abrir o DRE por linha de negócio (colunas = linhas)">Por linha de negócio</button>
+            </div>
+            <AjudaCampo chave="financeiro.dre_consolidado.ln_visao" rota={ROTA_DRE} />
+          </div>
           <div style={{ display: 'flex', border: `1px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
             <button type="button" onClick={() => setRegime('competencia')} style={regime === 'competencia' ? segOn : segOff}>Competência</button>
             <button type="button" onClick={() => setRegime('caixa')} style={regime === 'caixa' ? segOn : segOff}>Caixa</button>
-            <button type="button" onClick={() => { setRegime('previsto'); setSelFim(selIni) }} style={regime === 'previsto' ? segOn : segOff} title="Fluxo de caixa por vencimento (previsão)">Previsto</button>
+            {visao === 'consolidado' && (
+              <button type="button" onClick={() => { setRegime('previsto'); setSelFim(selIni) }} style={regime === 'previsto' ? segOn : segOff} title="Fluxo de caixa por vencimento (previsão)">Previsto</button>
+            )}
           </div>
           <button type="button" onClick={() => setTudoAberto((v) => !v)} style={btnSec}>
             {tudoAberto ? '▾ Recolher tudo' : '▸ Expandir tudo'}
@@ -254,7 +271,10 @@ export default function DREHorizontal() {
           </div>
         )}
 
-        {loading || loadingSel ? (
+        {visao === 'ln' ? (
+          <DREPorLN membros={membros} ano={ano} selIni={selIni} selFim={selFim}
+            regime={regime === 'previsto' ? 'competencia' : regime} grupoNome={grupoNome} />
+        ) : loading || loadingSel ? (
           <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: MUT }}>Carregando DRE…</div>
         ) : !data || data.linhas.length === 0 ? (
           <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '32px 20px', textAlign: 'center', color: MUT, fontSize: 13 }}>
@@ -375,14 +395,14 @@ export default function DREHorizontal() {
           </div>
         )}
 
-        <p className="dre-noprint" style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
+        {visao === 'consolidado' && <p className="dre-noprint" style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
           Valores em reais completos; despesas e resultados negativos aparecem com “-” em vermelho.
           {data?.regime === 'previsto'
             ? <> <b>Previsto</b> = fluxo de caixa por <b>vencimento</b> (entradas − saídas → saldo acumulado). Não é DRE: previsão não tem lucro/EBITDA, tem <b>quanto vou ter em caixa</b>. Clique num <b>dia</b> (cabeçalho) pra ver os títulos a vencer.</>
             : umMes
             ? <> Sinais já aplicados: receitas somam, deduções/custos/despesas subtraem. Mostrando <b>{MESES_LBL[selIni - 1]}/{ano} por dia</b> — clique numa conta pra ver <b>clientes/fornecedores × dia</b>. A soma dos dias = o total da conta no mês.</>
             : <> Sinais já aplicados: receitas somam, deduções/custos/despesas subtraem. Intervalo com <b>meses</b> no cabeçalho. Clique <b>1 mês só</b> (ou use “Mês atual”) pra ver o diário.</>}
-        </p>
+        </p>}
 
         {/* PREVISTO · drill por dia: quem vou receber / quem vou pagar naquele vencimento (Parte B.3) */}
         <Modal open={!!diaDrill} onClose={() => setDiaDrill(null)}
@@ -393,6 +413,204 @@ export default function DREHorizontal() {
         </Modal>
       </div>
     </div>
+  )
+}
+
+// ── Visão "Por linha de negócio" (CEO 14/10): colunas = linhas de negócio, no período escolhido ──
+// Mesma árvore do consolidado (fn_psgc_dre_horizontal_por_ln), mas abrindo por LN. Despesa sem linha → coluna
+// "Comum / não alocado" (nunca some). "Rateio NBC TG 16" (mesma base do DRE Divisional) mostra o EBITDA real
+// por linha (depois de absorver o comum). Seletor filtra para uma linha só. Valor sempre cheio (RD do formato).
+type LNCol = { key: string; nome: string; is_comum: boolean }
+type LNLinha = {
+  ordem: number; kind: 'grupo' | 'conta' | 'resultado'; codigo: string; nome: string
+  grupo_ref?: string; sinal: '+' | '-' | '±' | '='; nivel: number; colapsavel: boolean
+  valores: Record<string, number>
+}
+type LNRateioLinha = { rob: number; ebitda_pre_rateio: number; rateio_sede_recebido: number; ebitda_pos_rateio: number; ebitda_pct_pos_rateio: number }
+type LNRateio = { tem_rateio: boolean; por_ln: Record<string, LNRateioLinha>; rateio_total: number; ebitda_pos_total: number }
+type LNData = {
+  ok: boolean; erro?: string; regime: string; empresas: number
+  colunas: LNCol[]; linhas: LNLinha[]; tem_rateio: boolean; rateio: LNRateio | null
+}
+
+function DREPorLN({ membros, ano, selIni, selFim, regime, grupoNome }: {
+  membros: string[]; ano: number; selIni: number; selFim: number; regime: string; grupoNome: string
+}) {
+  const [d, setD] = useState<LNData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [lnSel, setLnSel] = useState<string>('todas')      // 'todas' ou uma col.key
+  const [comRateio, setComRateio] = useState(false)         // antes × depois do rateio
+  const [colapsados, setColapsados] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    let alive = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading inicial da visão (padrão dos drills desta tela)
+    setLoading(true); setErro(null)
+    void supabase.rpc('fn_psgc_dre_horizontal_por_ln', {
+      p_company_ids: membros, p_mes_ini: `${ano}-${pad2(selIni)}-01`, p_mes_fim: `${ano}-${pad2(selFim)}-01`, p_regime: regime,
+    }).then(({ data, error }) => {
+      if (!alive) return
+      const r = data as LNData | null
+      if (error) { setErro(error.message); setD(null) }
+      else if (!r || r.ok === false) { setErro(r?.erro || 'Sem acesso'); setD(null) }
+      else { setD(r); setColapsados(new Set(r.linhas.filter((l) => l.kind === 'grupo').map((l) => l.codigo))) }
+      setLoading(false)
+    })
+    return () => { alive = false }
+  }, [membros, ano, selIni, selFim, regime])
+
+  const colsVisiveis = useMemo<LNCol[]>(() => {
+    if (!d) return []
+    if (lnSel === 'todas') return d.colunas
+    return d.colunas.filter((c) => c.key === lnSel)
+  }, [d, lnSel])
+
+  function toggleGrupo(codigo: string) {
+    setColapsados((prev) => { const n = new Set(prev); if (n.has(codigo)) n.delete(codigo); else n.add(codigo); return n })
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: MUT }}>Carregando DRE por linha…</div>
+  if (erro) return <div style={{ background: '#FCEBEB', color: RED, padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>{erro}</div>
+  if (!d || d.colunas.length === 0 || d.linhas.length === 0) {
+    return (
+      <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '32px 20px', textAlign: 'center', color: MUT, fontSize: 13 }}>
+        Sem DRE por linha de negócio no período. Verifique se os lançamentos estão classificados em linhas de negócio (2024+).
+      </div>
+    )
+  }
+
+  const linhasVisiveis = d.linhas.filter((l) => l.kind !== 'conta' || !colapsados.has(l.grupo_ref ?? ''))
+  const somaCols = (l: LNLinha) => colsVisiveis.reduce((s, c) => s + (l.valores[c.key] ?? 0), 0)
+  const robPorCol = (key: string) => d.linhas.find((l) => l.kind === 'grupo' && l.codigo === 'ROB')?.valores[key] ?? 0
+  const ebitdaPorCol = (key: string) => d.linhas.find((l) => l.kind === 'resultado' && l.codigo === 'EBITDA')?.valores[key] ?? 0
+  const margemCol = (key: string) => { const r = robPorCol(key); return r !== 0 ? (ebitdaPorCol(key) / r) * 100 : null }
+  const robTotal = colsVisiveis.reduce((s, c) => s + robPorCol(c.key), 0)
+  const ebitdaTotal = colsVisiveis.reduce((s, c) => s + ebitdaPorCol(c.key), 0)
+  const fmtPctLN = (p: number | null) => (p == null ? '—' : `${p.toFixed(1).replace('.', ',')}%`)
+  const nColsTot = colsVisiveis.length + 2
+
+  return (
+    <>
+      {/* Controles da visão LN: seletor de linha + rateio (antes/depois) */}
+      <div className="dre-noprint" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <label style={lbl}>Linha de negócio</label>
+          <select value={lnSel} onChange={(e) => setLnSel(e.target.value)} style={{ ...inp, minWidth: 180, cursor: 'pointer' }}>
+            <option value="todas">Todas (comparar)</option>
+            {d.colunas.map((c) => <option key={c.key} value={c.key}>{c.nome}</option>)}
+          </select>
+          <AjudaCampo chave="financeiro.dre_consolidado.ln_seletor" rota={ROTA_DRE} />
+        </div>
+        {d.tem_rateio && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', border: `1px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+              <button type="button" onClick={() => setComRateio(false)} style={!comRateio ? segOn : segOff} title="Despesa comum fica numa coluna à parte">Sem rateio</button>
+              <button type="button" onClick={() => setComRateio(true)} style={comRateio ? segOn : segOff} title="EBITDA real: distribui o comum entre as linhas (NBC TG 16)">EBITDA real (c/ rateio)</button>
+            </div>
+            <AjudaCampo chave="financeiro.dre_consolidado.ln_rateio" rota={ROTA_DRE} />
+          </div>
+        )}
+        <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>{d.empresas} empresa(s) · {d.regime} · colunas = linhas de negócio</span>
+      </div>
+
+      <div id="dre-tabela" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 250px)', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%', minWidth: 720 }}>
+          <thead>
+            <tr>
+              <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 4, background: CREAM, boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)' }}>Conta</th>
+              {colsVisiveis.map((c) => (
+                <th key={c.key} style={{ ...thMes, zIndex: 2, ...(c.is_comum ? { fontStyle: 'italic', color: '#8A6A1E' } : null) }}>
+                  {c.nome}
+                  {c.is_comum && <AjudaCampo chave="financeiro.dre_consolidado.ln_comum" rota={ROTA_DRE} />}
+                </th>
+              ))}
+              <th style={{ ...thMes, position: 'sticky', top: 0, right: 0, zIndex: 4, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)' }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhasVisiveis.map((l) => {
+              const isRes = l.kind === 'resultado'; const isGrp = l.kind === 'grupo'; const bold = isRes || isGrp
+              const total = somaCols(l)
+              return (
+                <tr key={`${l.kind}-${l.codigo}-${l.ordem}`} style={{ borderTop: `0.5px solid ${LINE}`, background: isRes ? '#FBF7EF' : '#FFF' }}>
+                  <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: isRes ? '#FBF7EF' : '#FFF', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', paddingLeft: 12 + l.nivel * 18, fontWeight: bold ? 700 : 500, color: ESP }}>
+                    {l.colapsavel ? (
+                      <button type="button" onClick={() => toggleGrupo(l.codigo)} style={caret} aria-label="expandir/recolher">{colapsados.has(l.codigo) ? '▸' : '▾'}</button>
+                    ) : <span style={{ display: 'inline-block', width: 16 }} />}
+                    {l.nome}
+                  </td>
+                  {colsVisiveis.map((c) => {
+                    const v = l.valores[c.key]
+                    const disp = v != null ? valorComSinalDre(v, l.sinal) : null
+                    return (
+                      <td key={c.key} title={disp != null ? cheio(disp) : ''} style={{ ...tdVal, ...(c.is_comum ? { background: '#FDFAF3' } : null), fontWeight: bold ? 700 : 400, color: disp != null && ehNegativoDre(disp) ? COR_VALOR_NEGATIVO : ESP }}>
+                        {disp != null ? fmtMoedaDre(disp) : ''}
+                      </td>
+                    )
+                  })}
+                  <td title={cheio(valorComSinalDre(total, l.sinal))} style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 700, color: ehNegativoDre(valorComSinalDre(total, l.sinal)) ? COR_VALOR_NEGATIVO : ESP }}>
+                    {fmtMoedaDre(valorComSinalDre(total, l.sinal))}
+                  </td>
+                </tr>
+              )
+            })}
+            {/* Margem EBITDA por linha (%) — a eficiência de cada linha */}
+            <tr style={{ borderTop: `1.5px solid ${LINE}`, background: '#F6EFE2' }}>
+              <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#F6EFE2', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 700, color: ESP }}>
+                Margem EBITDA (%)<AjudaCampo chave="financeiro.dre_consolidado.ln_margem" rota={ROTA_DRE} />
+              </td>
+              {colsVisiveis.map((c) => { const m = margemCol(c.key); return (
+                <td key={c.key} style={{ ...tdVal, fontWeight: 700, color: m == null ? MUT : m < 0 ? COR_VALOR_NEGATIVO : GREEN }}>{fmtPctLN(m)}</td>
+              )})}
+              <td style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: '#F6EFE2', boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 800, color: robTotal !== 0 && ebitdaTotal / robTotal < 0 ? COR_VALOR_NEGATIVO : GREEN }}>
+                {fmtPctLN(robTotal !== 0 ? (ebitdaTotal / robTotal) * 100 : null)}
+              </td>
+            </tr>
+            {/* DEPOIS DO RATEIO (EBITDA real) — base do DRE Divisional (NBC TG 16). Comum distribuído → '—'. */}
+            {comRateio && d.rateio && (
+              <>
+                <tr style={{ borderTop: `1.5px solid ${GOLD}`, background: '#FBF4E6' }}>
+                  <td colSpan={nColsTot} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, color: '#8A6A1E', position: 'sticky', left: 0 }}>
+                    EBITDA real após rateio NBC TG 16 — o comum é distribuído entre as linhas (mesma base do DRE Divisional)
+                  </td>
+                </tr>
+                <tr style={{ background: '#FBF4E6' }}>
+                  <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF4E6', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 700, color: ESP }}>
+                    = EBITDA real (c/ rateio)<AjudaCampo chave="financeiro.dre_consolidado.ln_rateio" rota={ROTA_DRE} />
+                  </td>
+                  {colsVisiveis.map((c) => {
+                    const rr = d.rateio!.por_ln[c.key]
+                    if (c.is_comum || !rr) return <td key={c.key} style={{ ...tdVal, color: MUT }}>—</td>
+                    return <td key={c.key} title={cheio(rr.ebitda_pos_rateio)} style={{ ...tdVal, fontWeight: 700, color: ehNegativoDre(rr.ebitda_pos_rateio) ? COR_VALOR_NEGATIVO : GREEN }}>{fmtMoedaDre(rr.ebitda_pos_rateio)}</td>
+                  })}
+                  <td title={cheio(d.rateio.ebitda_pos_total)} style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: '#FBF4E6', boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 800, color: ehNegativoDre(d.rateio.ebitda_pos_total) ? COR_VALOR_NEGATIVO : GREEN }}>
+                    {fmtMoedaDre(d.rateio.ebitda_pos_total)}
+                  </td>
+                </tr>
+                <tr style={{ background: '#FBF4E6' }}>
+                  <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF4E6', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', color: MUT }}>Margem real (%)</td>
+                  {colsVisiveis.map((c) => { const rr = d.rateio!.por_ln[c.key]; return (
+                    <td key={c.key} style={{ ...tdVal, color: c.is_comum || !rr ? MUT : rr.ebitda_pct_pos_rateio < 0 ? COR_VALOR_NEGATIVO : GREEN }}>{c.is_comum || !rr ? '—' : fmtPctLN(rr.ebitda_pct_pos_rateio)}</td>
+                  )})}
+                  <td style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: '#FBF4E6', boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', color: MUT }}>
+                    {fmtPctLN(robTotal !== 0 ? (d.rateio.ebitda_pos_total / robTotal) * 100 : null)}
+                  </td>
+                </tr>
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="dre-noprint" style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
+        Colunas = linhas de negócio em {MESES_LBL[selIni - 1]}{selIni !== selFim ? `–${MESES_LBL[selFim - 1]}` : ''}/{ano}, consolidando {grupoNome}. Valores em reais completos.
+        A despesa/receita sem linha fica em <b>Comum / não alocado</b> e nunca some; a soma das colunas fecha com o Total do grupo.
+        {d.tem_rateio
+          ? <> <b>EBITDA real (c/ rateio)</b> distribui o comum entre as linhas pela base do DRE Divisional (NBC TG 16).</>
+          : <> Cadastre o rateio da empresa (DRE Divisional) para ver o EBITDA real por linha.</>}
+      </p>
+    </>
   )
 }
 

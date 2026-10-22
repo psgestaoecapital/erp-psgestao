@@ -106,6 +106,11 @@ export default function PlanoAcaoPage() {
   const [fOrigem, setFOrigem] = useState('')
   const [soAtrasadas, setSoAtrasadas] = useState(false)
 
+  // visão (quadro/tabela) e arrastar cartão entre colunas (chamados #3177/#3181)
+  const [visao, setVisao] = useState<'quadro' | 'tabela'>('quadro')
+  const [arrastando, setArrastando] = useState<string | null>(null)
+  const [sobre, setSobre] = useState<Status | null>(null)
+
   // formulário
   const [formAberto, setFormAberto] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -224,6 +229,15 @@ export default function PlanoAcaoPage() {
     await carregar()
   }
 
+  // Arrastar o cartão para outra coluna = mudar o status (concluir pede o resultado, como no botão).
+  function soltarEm(destino: Status) {
+    const p = planos.find((x) => x.id === arrastando)
+    setArrastando(null); setSobre(null)
+    if (!p || p.status === destino) return
+    if (destino === 'concluida') { setConcluir(p); setResultado(''); return }
+    void mudarStatus(p, destino)
+  }
+
   // ── Reuniões ──
   const reuniaoAtual = reunioes.find((r) => r.id === reuniaoSel) ?? null
 
@@ -336,6 +350,17 @@ export default function PlanoAcaoPage() {
             <div style={{ fontSize: 12, color: MUT, marginTop: 2 }}>{empresaNome}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span role="group" aria-label="Forma de exibir as ações" style={{ display: 'inline-flex', border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+                {(['quadro', 'tabela'] as const).map((v) => (
+                  <button key={v} type="button" data-testid={`plano-visao-${v}`} aria-pressed={visao === v} onClick={() => setVisao(v)}
+                    style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', background: visao === v ? ESP : '#FFF', color: visao === v ? BG : ESP }}>
+                    {v === 'quadro' ? 'Quadro' : 'Tabela'}
+                  </button>
+                ))}
+              </span>
+              <AjudaCampo chave="industrial.plano_acao.visao" rota={ROTA} />
+            </span>
             <span style={{ display: 'inline-flex', alignItems: 'center' }}>
               <button type="button" data-testid="plano-exportar-pdf" onClick={() => exportar('pdf')} style={btnSec}>Exportar PDF</button>
               <AjudaCampo chave="industrial.plano_acao.exportar" rota={ROTA} />
@@ -442,10 +467,16 @@ export default function PlanoAcaoPage() {
 
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: MUT, fontSize: 13 }}>Carregando…</div>
+        ) : visao === 'tabela' ? (
+          <TabelaAcoes planos={filtrados} onEditar={abrirEdicao} />
         ) : (
           <div data-testid="plano-quadro" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, alignItems: 'start' }}>
             {STATUS_ORDEM.map((s) => (
-              <div key={s} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div key={s} data-testid={`plano-coluna-${s}`}
+                onDragOver={(e) => { if (arrastando) { e.preventDefault(); setSobre(s) } }}
+                onDragLeave={() => setSobre((v) => (v === s ? null : v))}
+                onDrop={(e) => { e.preventDefault(); soltarEm(s) }}
+                style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, minHeight: 80, borderRadius: 12, padding: 4, outline: sobre === s ? `2px dashed ${GOLD}` : '2px dashed transparent' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 2px' }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{STATUS_ROTULO[s]}</span>
                   <span style={{ fontSize: 12, color: MUT }}>{porStatus[s].length}</span>
@@ -453,7 +484,7 @@ export default function PlanoAcaoPage() {
                 {porStatus[s].length === 0 ? (
                   <div style={{ ...CARD, padding: 12, color: MUT, fontSize: 12, textAlign: 'center', borderStyle: 'dashed' }}>—</div>
                 ) : porStatus[s].map((p) => (
-                  <CardAcao key={p.id} p={p} onEditar={() => abrirEdicao(p)} onStatus={(st) => void mudarStatus(p, st)}
+                  <CardAcao key={p.id} p={p} arrastando={arrastando === p.id} onArrastar={(on) => { setArrastando(on ? p.id : null); if (!on) setSobre(null) }} onEditar={() => abrirEdicao(p)} onStatus={(st) => void mudarStatus(p, st)}
                     onConcluir={() => { setConcluir(p); setResultado('') }} onExcluir={() => void excluir(p)} />
                 ))}
               </div>
@@ -634,18 +665,19 @@ function Kpi({ chave, titulo, valor, cor, testid }: { chave: string; titulo: str
   )
 }
 
-function CardAcao({ p, onEditar, onStatus, onConcluir, onExcluir }: {
-  p: Plano; onEditar: () => void; onStatus: (s: Status) => void; onConcluir: () => void; onExcluir: () => void
+function CardAcao({ p, arrastando, onArrastar, onEditar, onStatus, onConcluir, onExcluir }: {
+  p: Plano; arrastando: boolean; onArrastar: (on: boolean) => void; onEditar: () => void; onStatus: (s: Status) => void; onConcluir: () => void; onExcluir: () => void
 }) {
   const concluida = p.status === 'concluida' || p.status === 'cancelada'
   return (
-    <div data-testid="plano-card" data-codigo={p.codigo} style={{ ...CARD, padding: 12, borderLeft: `3px solid ${PRIORIDADE_COR[p.prioridade]}`, display: 'grid', gap: 6 }}>
+    <div data-testid="plano-card" data-codigo={p.codigo} draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id); onArrastar(true) }} onDragEnd={() => onArrastar(false)}
+      style={{ ...CARD, padding: 12, borderLeft: `3px solid ${PRIORIDADE_COR[p.prioridade]}`, display: 'grid', gap: 8, minWidth: 0, cursor: 'grab', opacity: arrastando ? 0.5 : 1 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 11, color: MUT, fontWeight: 600 }}>{p.codigo}</span>
         <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: PRIORIDADE_COR[p.prioridade], fontWeight: 700 }}>{PRIORIDADE_ROTULO[p.prioridade]}</span>
       </div>
-      <button type="button" onClick={onEditar} style={{ all: 'unset', cursor: 'pointer', fontSize: 14, fontWeight: 600, color: ESP, lineHeight: 1.3 }}>{p.titulo}</button>
-      <div style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+      <button type="button" onClick={onEditar} style={{ all: 'unset', display: 'block', boxSizing: 'border-box', width: '100%', cursor: 'pointer', fontSize: 14, fontWeight: 600, color: ESP, lineHeight: 1.45, whiteSpace: 'normal', overflowWrap: 'anywhere', textAlign: 'left' }}>{p.titulo}</button>
+      <div style={{ fontSize: 12, lineHeight: 1.5, color: MUT, display: 'flex', alignItems: 'center', gap: '2px 6px', flexWrap: 'wrap', overflowWrap: 'anywhere' }}>
         {(p.setor_nome || p.onde) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><MapPin size={12} strokeWidth={1.5} /> {p.setor_nome || p.onde} ·</span>}
         {p.responsavel_nome ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><User size={12} strokeWidth={1.5} /> {p.responsavel_nome}</span> : <span style={{ color: VERM }}>sem responsável</span>}
       </div>
@@ -673,6 +705,34 @@ function CardAcao({ p, onEditar, onStatus, onConcluir, onExcluir }: {
       {p.status === 'cancelada' && (
         <div style={{ marginTop: 2 }}><BtnMini testid="plano-reabrir" onClick={() => onStatus('aberta')}>Reabrir</BtnMini></div>
       )}
+    </div>
+  )
+}
+
+function TabelaAcoes({ planos, onEditar }: { planos: Plano[]; onEditar: (p: Plano) => void }) {
+  const th: React.CSSProperties = { textAlign: 'left', padding: '10px 12px', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 700, borderBottom: `0.5px solid ${LINE}`, whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '10px 12px', fontSize: 13, lineHeight: 1.45, color: ESP, borderBottom: `0.5px solid ${LINE}`, verticalAlign: 'top', overflowWrap: 'anywhere' }
+  if (planos.length === 0) return <div data-testid="plano-tabela" style={{ ...CARD, textAlign: 'center', color: MUT, fontSize: 13 }}>Nenhuma ação com esses filtros. Limpe a busca ou crie uma ação em “+ Nova ação”.</div>
+  return (
+    <div data-testid="plano-tabela" style={{ ...CARD, padding: 0, overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+        <thead>
+          <tr>{['Código', 'Ação', 'Responsável', 'Setor / local', 'Prazo', 'Prioridade', 'Status'].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+        </thead>
+        <tbody>
+          {planos.map((p) => (
+            <tr key={p.id} data-testid="plano-linha" data-codigo={p.codigo}>
+              <td style={{ ...td, whiteSpace: 'nowrap', color: MUT, fontWeight: 600 }}>{p.codigo}</td>
+              <td style={td}><button type="button" onClick={() => onEditar(p)} style={{ all: 'unset', cursor: 'pointer', fontWeight: 600, color: ESP, lineHeight: 1.45 }}>{p.titulo}</button></td>
+              <td style={td}>{p.responsavel_nome || <span style={{ color: VERM }}>sem responsável</span>}</td>
+              <td style={td}>{p.setor_nome || p.onde || '—'}</td>
+              <td style={{ ...td, whiteSpace: 'nowrap', color: p.atrasada ? VERM : ESP, fontWeight: p.atrasada ? 700 : 400 }}>{dataBR(p.quando)}{p.atrasada ? ' · ATRASADA' : ''}</td>
+              <td style={{ ...td, color: PRIORIDADE_COR[p.prioridade], fontWeight: 700 }}>{PRIORIDADE_ROTULO[p.prioridade]}</td>
+              <td style={td}>{STATUS_ROTULO[p.status]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

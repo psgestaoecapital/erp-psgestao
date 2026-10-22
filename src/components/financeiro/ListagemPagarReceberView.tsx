@@ -20,6 +20,7 @@ import CartaoRecebimentoModal from './CartaoRecebimentoModal'
 import HistoricoLancamentoModal from './HistoricoLancamentoModal'
 import HistoricoGlobalModal from './HistoricoGlobalModal'
 import ExportarListaButton from './ExportarListaButton'
+import GerarSegundoPlanoButton from '@/components/relatorios/GerarSegundoPlanoButton'
 import { FORMAS_PAGAMENTO } from '@/lib/financeiro/formasPagamento'
 import { motivoValido } from '@/lib/financeiro/bloqueioPagamento'
 import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
@@ -874,6 +875,14 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               filtros={filtrosDesc}
               kpis={kpisExport}
               linhas={resultadosFiltrados}
+            />
+            {/* #3281: período longo sem esperar na tela — o Excel chega em Meus relatórios */}
+            <GerarSegundoPlanoButton
+              companyId={companyId}
+              tipo={tipo === 'pagar' ? 'financeiro_pagar' : 'financeiro_receber'}
+              dataInicio={dataInicio}
+              dataFim={dataFim}
+              chaveAjuda={tipo === 'pagar' ? 'relatorio.segundo_plano.pagar' : 'relatorio.segundo_plano.receber'}
             />
           </div>
         }
