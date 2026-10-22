@@ -16,6 +16,9 @@ import VincularVariosModal from '@/components/conciliacao/VincularVariosModal'
 import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
 import TransferenciaContaModal from '@/components/conciliacao/TransferenciaContaModal'
 import PickerTituloExistenteModal from '@/components/conciliacao/PickerTituloExistenteModal'
+import PagamentosDoTitulo from '@/components/conciliacao/PagamentosDoTitulo'
+import { valorReferencia, type BaixaTitulo, type TituloReceber } from '@/lib/conciliacao/baixasTitulo'
+import { extrairContaOFX, contaOFXConfere, mensagemContaErrada, movimentosJaNoGrupo, type ContaOFX, type MovimentoExistente } from '@/lib/conciliacao/ofxContaConfere'
 // #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
 import NovaDespesaModal from '@/components/financeiro/NovaDespesaModal'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'
@@ -281,7 +284,7 @@ export default function InboxPage() {
   const [sincExtratoBusy, setSincExtratoBusy] = useState(false)
   // #88: o botão só aparece se a empresa tem conexão ativa de um banco COM conector de extrato (hoje só Sicoob)
   const [temExtratoApi, setTemExtratoApi] = useState(false)
-  const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null }[]>([])
+  const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null; banco_codigo: string | null; agencia: string | null; conta: string | null }[]>([])
   const [contaImportId, setContaImportId] = useState<string>('')
   const [arquivoOFX, setArquivoOFX] = useState<File | null>(null)
   const [importando, setImportando] = useState(false)
@@ -402,7 +405,7 @@ export default function InboxPage() {
     if (!empresaUnica) return
     const { data } = await supabase
       .from('erp_banco_contas')
-      .select('id,nome,banco')
+      .select('id,nome,banco,banco_codigo,agencia,conta')
       .eq('company_id', empresaUnica)
       .eq('ativo', true)
       .order('nome')
@@ -445,6 +448,53 @@ export default function InboxPage() {
     }
   }
 
+  // Trava do OFX (Jordana 20/10): de quem é a conta do arquivo, entre as contas que o usuário enxerga (RLS).
+  async function acharContaDoOFX(ofx: ContaOFX): Promise<{ nome: string | null; empresa: string | null } | null> {
+    const { data } = await supabase
+      .from('erp_banco_contas')
+      .select('nome,banco,banco_codigo,agencia,conta,company_id')
+      .eq('ativo', true)
+      .not('conta', 'is', null)
+      .limit(1000)
+    const achada = (data ?? []).find((c) => contaOFXConfere(ofx, c).confere === true)
+    if (!achada) return null
+    const { data: emp } = await supabase
+      .from('companies')
+      .select('nome_fantasia,razao_social')
+      .eq('id', achada.company_id)
+      .maybeSingle()
+    return { nome: achada.nome, empresa: emp?.nome_fantasia || emp?.razao_social || null }
+  }
+
+  // Aviso (Jordana 20/10): movimentos do arquivo já importados em outra empresa do MESMO grupo
+  // (mesmo FITID, ou mesma data + valor + descrição). Devolve o texto do aviso ou null.
+  async function avisoMovimentosNoGrupo(movs: MovimentoOFX[]): Promise<string | null> {
+    if (!empresaUnica || movs.length === 0) return null
+    const { data: emp } = await supabase.from('companies').select('group_id').eq('id', empresaUnica).maybeSingle()
+    if (!emp?.group_id) return null
+    const { data: irmas } = await supabase
+      .from('companies')
+      .select('id,nome_fantasia,razao_social')
+      .eq('group_id', emp.group_id)
+      .neq('id', empresaUnica)
+    if (!irmas || irmas.length === 0) return null
+    const datas = movs.map((m) => m.data_transacao).sort()
+    const { data: existentes } = await supabase
+      .from('conciliacao_movimento')
+      .select('company_id,id_externo,data_transacao,valor,natureza,descricao')
+      .in('company_id', irmas.map((i) => i.id))
+      .gte('data_transacao', datas[0])
+      .lte('data_transacao', datas[datas.length - 1])
+      .limit(5000)
+    const contagem = movimentosJaNoGrupo(movs, (existentes ?? []) as MovimentoExistente[])
+    const partes = irmas
+      .filter((i) => contagem[i.id])
+      .map((i) => `${contagem[i.id]} na empresa ${i.nome_fantasia || i.razao_social || i.id}`)
+    if (partes.length === 0) return null
+    return `Atenção: movimentos deste arquivo já foram importados em outra empresa do grupo (${partes.join('; ')}). ` +
+      'Confira se o extrato é mesmo desta empresa e desta conta.\n\nImportar mesmo assim?'
+  }
+
   async function importarOFX() {
     if (!empresaUnica || !contaImportId || !arquivoOFX) {
       alert('Escolha a conta e o arquivo OFX.')
@@ -465,6 +515,15 @@ export default function InboxPage() {
         setImportando(false)
         return
       }
+      // Trava: o banco/conta do arquivo tem de ser a conta escolhida (extrato de outra empresa não entra).
+      const contaArquivo = extrairContaOFX(text)
+      const contaEscolhida = contas.find((c) => c.id === contaImportId)
+      if (contaArquivo && contaEscolhida && contaOFXConfere(contaArquivo, contaEscolhida).confere === false) {
+        alert(mensagemContaErrada(contaArquivo, contaEscolhida, await acharContaDoOFX(contaArquivo)))
+        return
+      }
+      const avisoGrupo = await avisoMovimentosNoGrupo(movimentos)
+      if (avisoGrupo && !window.confirm(avisoGrupo)) return
       const hash = `${text.length}-${movimentos[0]?.id_externo ?? ''}-${movimentos[movimentos.length - 1]?.id_externo ?? ''}`
       // Saldo Bancário: extrai o saldo de fechamento (LEDGERBAL) do OFX e deixa o backend gravá-lo
       // na MESMA transação do lote (ponto único de escrita, RD-65). Sem LEDGERBAL → segue sem saldo.
@@ -627,11 +686,21 @@ export default function InboxPage() {
     if (!operadorId) { setErro('Sessão expirada · faça login novamente'); return }
     const lancTabela = it.sugestao_lancamento_tabela
     const lancId = it.sugestao_lancamento_id
+    const valorBanco = Math.abs(Number(it.valor) || 0)
+    // #106: título a receber com pagamento já registrado → compara o crédito com o pagamento/saldo, não com o valor cheio
+    let valorLancamento = Number(it.sugestao_valor ?? 0)
+    if (lancTabela === 'erp_receber') {
+      const [{ data: t }, { data: b }] = await Promise.all([
+        supabase.from('erp_receber').select('valor, juros, multa, desconto, valor_pago').eq('id', lancId).maybeSingle(),
+        supabase.from('erp_receber_baixa').select('id, valor, data, forma, movimento_banco_id').eq('receber_id', lancId).is('deleted_at', null),
+      ])
+      if (t && (b ?? []).length > 0) valorLancamento = valorReferencia(t as TituloReceber, (b ?? []) as BaixaTitulo[], valorBanco)
+    }
 
     conciliarComAjuste({
       movimentoId: it.movimento_id,
-      valorBanco: Math.abs(Number(it.valor) || 0),
-      valorLancamento: Number(it.sugestao_valor ?? 0),
+      valorBanco,
+      valorLancamento,
       lancamentoId: lancId,
       lancamentoTabela: lancTabela,
       descricao: it.descricao ?? undefined,
@@ -703,7 +772,8 @@ export default function InboxPage() {
     setExpandidos(ns)
   }
 
-  async function aplicarSugestao(it: Item, sug: SugestaoMatch) {
+  // #106: valorReferencia = o pagamento (baixa) ou o saldo escolhido no título parcial; sem ele, o valor do título.
+  async function aplicarSugestao(it: Item, sug: SugestaoMatch, valorReferencia?: number) {
     const { data: userResp } = await supabase.auth.getUser()
     const operadorId = userResp.user?.id ?? null
     if (!operadorId) { setErro('Sessão expirada · faça login novamente'); return }
@@ -712,7 +782,7 @@ export default function InboxPage() {
     conciliarComAjuste({
       movimentoId: movId,
       valorBanco: Math.abs(Number(it.valor) || 0),
-      valorLancamento: Number(sug.valor_lancamento ?? 0),
+      valorLancamento: valorReferencia ?? Number(sug.valor_lancamento ?? 0),
       lancamentoId: sug.lancamento_id,
       lancamentoTabela: sug.lancamento_tabela,
       descricao: it.descricao ?? undefined,
@@ -1287,6 +1357,14 @@ export default function InboxPage() {
                                       <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.5)', marginTop: 2, wordBreak: 'break-word' }}>
                                         {sug.descricao_lancamento}
                                       </div>
+                                    )}
+                                    {sug.lancamento_tabela === 'erp_receber' && (
+                                      <PagamentosDoTitulo
+                                        receberId={sug.lancamento_id}
+                                        credito={Math.abs(Number(it.valor) || 0)}
+                                        desabilitado={aplicando}
+                                        onConciliar={(v) => void aplicarSugestao(it, sug, v)}
+                                      />
                                     )}
                                   </div>
                                   <div style={{ display: 'flex', gap: 6 }}>

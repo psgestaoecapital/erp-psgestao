@@ -27,10 +27,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # RD-97: o gate check-migration-segura compara com origin/main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
       - run: npm ci
       - name: Gates (scripts/gates/, todos — o mesmo que rodava dentro do build da Vercel)
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run gates

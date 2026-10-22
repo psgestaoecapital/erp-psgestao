@@ -34,3 +34,10 @@ export function urgenciaPermitida(
 export function podeAprovar(solicitanteId: string | null | undefined, aprovadorId: string | null | undefined): boolean {
   return !!aprovadorId && aprovadorId !== solicitanteId
 }
+
+/** Validação da tela de alçada antes de gravar (o banco confere de novo). Devolve a mensagem de erro ou null. */
+export function validarAlcadaForm(f: { principal: string; substituto: string }): string | null {
+  if (!f.principal) return 'Escolha o aprovador principal.'
+  if (f.substituto && f.substituto === f.principal) return 'Principal e substituto devem ser pessoas diferentes.'
+  return null
+}

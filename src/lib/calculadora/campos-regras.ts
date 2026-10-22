@@ -14,6 +14,7 @@ const comuns: CampoRegra[] = [
   { caminho: 'rolofitaM', rotulo: 'Rolo de fita', unidade: 'm', ajuda: 'metros por rolo de fita' },
 ]
 export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
+  parede_separativa: [], parede_corta_fogo: [],
   parede: [
     ...comuns,
     { caminho: 'chapasPorFace', rotulo: 'Chapas por face', unidade: 'un', ajuda: 'camadas de chapa em cada face da parede' },
@@ -60,6 +61,8 @@ export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
     { caminho: 'sacoGessoColaKg', rotulo: 'Saco de gesso cola', unidade: 'kg', ajuda: 'peso da embalagem de gesso cola' },
   ],
 }
+CAMPOS_REGRA.parede_separativa = CAMPOS_REGRA.parede
+CAMPOS_REGRA.parede_corta_fogo = CAMPOS_REGRA.parede
 export const chaveAjudaRegra = (s: SistemaCalc, caminho: string) => `projetos.calculadora.regra.${s}.${caminho}`.toLowerCase()
 
 export function lerCampo(regras: Regras, caminho: string): number | undefined {

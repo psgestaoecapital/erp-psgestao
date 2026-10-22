@@ -5,9 +5,9 @@ import { regrasReferencia, type SistemaCalc } from '../../src/lib/calculadora/re
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
-const sql = ['20261014170005_calculadora_regras_ajuda', '20261014190205_calculadora_regras_ajuda_aramado', '20261014200005_calculadora_parede_la_ajuda', '20261015000005_calculadora_revestimento_colado', '20261017000005_calculadora_revestimento_estruturado']
+const sql = ['20261014170005_calculadora_regras_ajuda', '20261014190205_calculadora_regras_ajuda_aramado', '20261014200005_calculadora_parede_la_ajuda', '20261015000005_calculadora_revestimento_colado', '20261017000005_calculadora_revestimento_estruturado', '20261017180005_calculadora_parede_separativa_corta_fogo']
   .map(n => readFileSync(`supabase/migrations/${n}.sql`, 'utf8')).join('\n')
-for (const s of ['parede', 'forro_f530', 'forro_aramado', 'revestimento_colado', 'revestimento_estruturado'] as SistemaCalc[]) {
+for (const s of ['parede', 'forro_f530', 'forro_aramado', 'revestimento_colado', 'revestimento_estruturado', 'parede_separativa', 'parede_corta_fogo'] as SistemaCalc[]) {
   const ref = regrasReferencia(s)
   const vals: Record<string, string> = {}
   for (const c of CAMPOS_REGRA[s]) {

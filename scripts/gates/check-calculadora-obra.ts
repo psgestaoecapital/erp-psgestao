@@ -1,6 +1,6 @@
 // Gate (Hub HB2, Parte O): motor da Calculadora de Obra nunca trava — varre o pé-direito de 0,20 a 4,60 m de 0,05 em 0,05
 // (parede simples) e confere o caso do Eng. Chefe: parede 12,5 × 2,8 m com porta 0,8 × 2,1 m.
-import { REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroAramado, calcularRevestimentoColado, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoEstruturado, REGRAS_REVESTIMENTO_ESTRUTURADO, calcularForroF530, calcularParede } from '../../src/lib/calculadora/motor'
+import { REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, calcularForroAramado, calcularRevestimentoColado, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoEstruturado, REGRAS_REVESTIMENTO_ESTRUTURADO, calcularForroF530, calcularParede, REGRAS_PAREDE_SEPARATIVA, REGRAS_PAREDE_CORTA_FOGO } from '../../src/lib/calculadora/motor'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -76,4 +76,18 @@ for (const cam of [1, 2]) for (let i = 4; i <= 92; i++) {
 ok(travouRE === 0 && semMsg === 0, 'revestimento estruturado: altura de 0,20 a 4,60 m (1 e 2 chapas) nunca trava nem zera item; fora da faixa vira erro explicado')
 const cobre = (cam: number, de: number, ate: number) => { for (let i = Math.round(de * 100); i <= Math.round(ate * 100); i += 5) if (!calcularRevestimentoEstruturado(REGRAS_REVESTIMENTO_ESTRUTURADO, { comprimento: 10, peDireito: i / 100, camadas: cam }).ok) return false; return true }
 ok(cobre(1, 0.2, 3.55) && cobre(2, 0.2, 4.2), 'revestimento estruturado: faixas de referência cobrem 0,20–3,55 m (1 chapa) e 0,20–4,20 m (2 chapas) sem buraco')
+// Parede separativa (0,20–5,50 m) e corta-fogo (0,20–5,60 m): faixas próprias, sem buraco, 0,05 em 0,05, com e sem lã/estrutura dupla
+for (const [nome, rg, ate] of [['separativa', REGRAS_PAREDE_SEPARATIVA, 5.5], ['corta-fogo', REGRAS_PAREDE_CORTA_FOGO, 5.6]] as const) {
+  let ruim = 0
+  for (let i = 4; i <= Math.round(ate * 20); i++) for (const extra of [{}, { comLa: true }, { estruturaDupla: true }]) {
+    const r = calcularParede(rg, { comprimento: 10, peDireito: Math.round(i * 5) / 100, ...extra })
+    if (!r.ok || r.itens.some(x => !(x.quantidade > 0) || !Number.isFinite(x.quantidade))) { ruim++; console.error('  travou', nome, i / 20, r.ok ? '' : r.erro) }
+  }
+  ok(ruim === 0, `parede ${nome}: nenhum pé-direito de 0,20 a ${ate} m (passo 0,05) trava`)
+}
+const sepP = calcularParede(REGRAS_PAREDE_SEPARATIVA, { comprimento: 12.5, peDireito: 2.8, vaos: 1.68 })
+ok(sepP.ok && sepP.itens.find(i => i.chave === 'montante')!.descricao.includes('M48') && sepP.itens.find(i => i.chave === 'montante')!.descricao.includes('60 cm'), 'separativa 2,80 m: montante M48 a cada 60 cm (faixa própria)')
+const cf = calcularParede(REGRAS_PAREDE_CORTA_FOGO, { comprimento: 12.5, peDireito: 2.8, vaos: 1.68 })
+ok(cf.ok && cf.itens.find(i => i.chave === 'chapa')!.quantidade === 65 && cf.itens.find(i => i.chave === 'montante')!.descricao.includes('M70'), 'corta-fogo 2,80 m: 2 camadas por face = 65 chapas e montante M70 (faixa própria)')
+ok(!calcularParede(REGRAS_PAREDE_CORTA_FOGO, { comprimento: 5, peDireito: 6.5 }).ok, 'corta-fogo: acima da última faixa devolve erro claro, não exceção')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }

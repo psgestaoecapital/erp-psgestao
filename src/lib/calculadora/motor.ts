@@ -71,6 +71,24 @@ export const REGRAS_PAREDE_SIMPLES_ST: RegrasParede = {
   laRoloM2: 7.2, // lã mineral/PET: rolo de 1,20 × 6,00 m — referência de mercado a validar
 }
 
+// Parede separativa (entre unidades) e parede corta-fogo: mesma conta da parede, faixas de pé-direito PRÓPRIAS (dado, editável por empresa).
+// Valores: referência de mercado a validar com o fabricante. Separativa sem o montante a mais que o site de referência soma (anomalia a não copiar).
+const fx = (de: number, ate: number, bitola: FaixaPeDireito['bitola'], espacamento: 0.4 | 0.6, duplo = false): FaixaPeDireito => ({ de, ate, bitola, espacamento, duplo })
+export const REGRAS_PAREDE_SEPARATIVA: RegrasParede = {
+  ...REGRAS_PAREDE_SIMPLES_ST,
+  faixas: [
+    fx(0.2, 2.9, 'M48', 0.6), fx(2.95, 3.2, 'M48', 0.4), fx(3.25, 3.7, 'M70', 0.6), fx(3.75, 4.1, 'M70', 0.4),
+    fx(4.15, 4.4, 'M70', 0.6, true), fx(4.45, 4.8, 'M70', 0.4, true), fx(4.85, 5.0, 'M90', 0.6, true), fx(5.05, 5.5, 'M90', 0.4, true),
+  ],
+}
+export const REGRAS_PAREDE_CORTA_FOGO: RegrasParede = {
+  ...REGRAS_PAREDE_SIMPLES_ST, chapasPorFace: 2,
+  faixas: [
+    fx(0.2, 3.8, 'M70', 0.6), fx(3.85, 4.2, 'M70', 0.4), fx(4.25, 4.5, 'M70', 0.6, true), fx(4.55, 4.9, 'M70', 0.4, true),
+    fx(4.95, 5.1, 'M90', 0.6, true), fx(5.15, 5.6, 'M90', 0.4, true),
+  ],
+}
+
 export const REGRAS_FORRO_F530: RegrasForroF530 = {
   tipo: 'forro_f530', perda: 1.05, areaChapa: 2.16, comprimentoBarra: 3,
   perfilF530MM2: 1.7, pendularPorM2: 1.25, tiranteUnPorM2: 1.25, uniaoPorM2: 0.45,
