@@ -3,7 +3,8 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { authFetch } from '@/lib/authFetch';
 import PainelCodes from '@/components/dev/PainelCodes';
-import { Activity, FileText, Bot, Wrench } from 'lucide-react';
+import AbaInfraestrutura from '@/components/dev/AbaInfraestrutura';
+import { Activity, FileText, Bot, Wrench, Workflow } from 'lucide-react';
 
 // Identidade PS (RD visual): Espresso #3D2314 (estrutura/texto) · Off-white #FAF7F2 (fundos) · Dourado #C8941A (destaques).
 // (Antes a Central estava invertida — fundo escuro. Corrigido para o padrão claro. Verde/amarelo/vermelho ficam só nas 3 barras (performance), em tons com contraste sobre off-white.)
@@ -16,10 +17,11 @@ const PROD_URL="https://erp-psgestao.vercel.app";
 export default function DevPage() {
   // Duas telas irmãs (Leitura · Desenvolvimento) para os quatro usuários. As "Ferramentas do dev"
   // (SQL/deploy/segurança) são utilitário técnico — ficam FORA do seletor, atrás de porta ?dev=ferramentas.
-  const [view, setView] = useState<'leitura'|'desenvolvimento'|'codes'|'ferramentas'>(()=>{
+  const [view, setView] = useState<'leitura'|'desenvolvimento'|'codes'|'infra'|'ferramentas'>(()=>{
     if (typeof window!=='undefined' && new URLSearchParams(window.location.search).get('dev')==='ferramentas') return 'ferramentas';
     // Aba "Codes" (CEO 07/10): rota própria /dashboard/dev/codes (system_screens) abre a Central já nela.
     if (typeof window!=='undefined' && (/\/dashboard\/dev\/codes\/?$/.test(window.location.pathname) || new URLSearchParams(window.location.search).get('aba')==='codes')) return 'codes';
+    if (typeof window!=='undefined' && new URLSearchParams(window.location.search).get('aba')==='infraestrutura') return 'infra';
     return 'leitura';
   });
   // Aba Codes só aparece no seletor para a equipe PS (mesma regra da RLS: fn_dev_painel_pode_ver).
@@ -93,6 +95,7 @@ export default function DevPage() {
           {id:'leitura',label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Activity size={14} strokeWidth={1.5}/>Leitura e diagnóstico</span>},
           {id:'desenvolvimento',label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><FileText size={14} strokeWidth={1.5}/>Desenvolvimento</span>},
           ...(podeCodes || view==='codes' ? [{id:'codes' as const,label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Bot size={14} strokeWidth={1.5}/>Codes</span>}] : []),
+          ...(podeCodes || view==='infra' ? [{id:'infra' as const,label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Workflow size={14} strokeWidth={1.5}/>Infraestrutura</span>}] : []),
           // 'Ferramentas do dev' fica fora do seletor (porta ?dev=ferramentas) — utilitário técnico.
           ...(view==='ferramentas' ? [{id:'ferramentas' as const,label:<span style={{display:'inline-flex',alignItems:'center',gap:6}}><Wrench size={14} strokeWidth={1.5}/>Ferramentas do dev</span>}] : []),
         ] as const).map(v=>(
@@ -106,6 +109,7 @@ export default function DevPage() {
       {view==='leitura' && <div style={{ padding:16 }}><LeituraDiagnostico/></div>}
       {view==='desenvolvimento' && <div style={{ padding:16 }}><DesenvolvimentoDoc isAdmin={isAdmin}/></div>}
       {view==='codes' && <div style={{ padding:16 }}><PainelCodes/></div>}
+      {view==='infra' && <div style={{ padding:16 }}><AbaInfraestrutura/></div>}
 
       {view==='ferramentas' && <>
         <div style={{ display:'flex', borderBottom:`1px solid ${BD}`, background:C.card, flexWrap:'wrap' }}>
