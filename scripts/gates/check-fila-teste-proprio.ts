@@ -26,7 +26,7 @@ ok(/proprios=\$\(comm -12 <\(pos_specs_falhos "\$acc_run"\) <\(pr_specs_proprios
 ok(/echo "vermelho:spec da própria PR falhando: /.test(sh), 'spec da própria PR falhando → vermelho (não publica)')
 ok(/pr_specs_proprios\(\)/.test(sh) && /pulls\/\$1\/files/.test(sh) && /grep -E '\^e2e\/\.\*\\\.spec\\\.ts\$'/.test(sh),
   'pr_specs_proprios: e2e/*.spec.ts criados/alterados pela PR (não removidos)')
-ok(/c=\$\(estado_checks "\$sha" "\$via" "\$so_docs" "\$n"\)/.test(sh), 'o laço passa o número da PR ($n) para estado_checks')
+ok(/c=\$\(estado_checks "\$sha" "\$via" "\$so_docs" "\$n"( "\$regime_disp")?\)/.test(sh), 'o laço passa o número da PR ($n) para estado_checks')
 // Parte 2: acionamento automático do autor
 ok(/acionar_autor_pos\(\)/.test(sh) && /rest\/v1\/erp_dev_entrega\?pr_numero=eq\.\$pr/.test(sh)
   && /rpc\/fn_agente_mensagem_enviar/.test(sh) && /p_de:"eng_chefe"/.test(sh) && /p_tipo:"tarefa"/.test(sh),

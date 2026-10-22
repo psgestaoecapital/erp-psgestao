@@ -1,5 +1,5 @@
 // Gate (CEO 18/10) — DESTRAVE TEMPORÁRIO do [celular]. Prova, rodando o seletor de projeto e lendo os workflows:
-//  (1) a aceitação de PR NÃO roda [celular] até o CORTE (19/10 16:00 BRT) — roda [computador];
+//  (1) a aceitação de PR NÃO roda [celular] até o CORTE (26/10 16:00 BRT, adiado de 19/10) — roda [computador];
 //  (2) depois do CORTE a aceitação de PR volta a rodar [celular];
 //  (3) a aceitação da MAIN roda OS DOIS projetos ([computador] E [celular]) — detecção de regressão.
 // Sem rede/banco: executa o script shell com uma data falsa (ACEITACAO_AGORA_TESTE) e lê o texto dos workflows.
@@ -15,14 +15,15 @@ const projeto = (dataISO: string): string =>
   execFileSync('bash', [SCRIPT], { env: { ...process.env, ACEITACAO_AGORA_TESTE: dataISO }, encoding: 'utf8' }).trim()
 
 const sh = ler(SCRIPT)
-ok(/CORTE='2026-10-19T19:00:00Z'/.test(sh), 'corte explícito no código: 2026-10-19T19:00:00Z (19/10 16:00 BRT)')
+ok(/CORTE='2026-10-26T19:00:00Z'/.test(sh), 'corte explícito no código: 2026-10-26T19:00:00Z (26/10 16:00 BRT, adiado de 19/10)')
 
 // (1) antes do corte → computador (PR não roda celular)
 ok(projeto('2026-10-18T12:00:00Z') === 'computador', '(1) antes do corte: aceitação de PR roda [computador] (não [celular])')
-ok(projeto('2026-10-19T18:59:00Z') === 'computador', '(1) véspera do corte (18:59): ainda [computador]')
+ok(projeto('2026-10-20T12:00:00Z') === 'computador', '(1) durante a janela adiada (20/10): ainda [computador]')
+ok(projeto('2026-10-26T18:59:00Z') === 'computador', '(1) véspera do corte (18:59): ainda [computador]')
 // (2) no corte e depois → celular (PR volta a rodar celular)
-ok(projeto('2026-10-19T19:00:00Z') === 'celular', '(2) no instante do corte: já volta a [celular]')
-ok(projeto('2026-10-20T00:00:00Z') === 'celular', '(2) depois do corte: aceitação de PR volta a rodar [celular]')
+ok(projeto('2026-10-26T19:00:00Z') === 'celular', '(2) no instante do corte: já volta a [celular]')
+ok(projeto('2026-10-27T00:00:00Z') === 'celular', '(2) depois do corte: aceitação de PR volta a rodar [celular]')
 
 // fiação na aceitação de PR: o seletor alimenta ACEITACAO_PROJETO e os DOIS runs usam --project=${ACEITACAO_PROJETO...}
 const pr = ler('.github/workflows/aceitacao-pr.yml')

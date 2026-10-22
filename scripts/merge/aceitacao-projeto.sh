@@ -9,7 +9,7 @@
 # Teste: ACEITACAO_AGORA_TESTE=<data ISO> aceitacao-projeto.sh  (sem a env, usa a hora atual).
 # Prova: scripts/gates/check-aceitacao-projeto-celular.ts.
 set -euo pipefail
-CORTE='2026-10-19T19:00:00Z'   # 19/10/2026 16:00 America/Sao_Paulo (BRT = UTC-3) — fim do destrave
+CORTE='2026-10-26T19:00:00Z'   # 26/10/2026 16:00 America/Sao_Paulo (BRT = UTC-3) — fim do destrave (adiado 19→26/10, CEO: causa da falha em massa do [celular] ainda não achada)
 if [ -n "${ACEITACAO_AGORA_TESTE:-}" ]; then
   agora=$(date -u -d "$ACEITACAO_AGORA_TESTE" +%s)
 else

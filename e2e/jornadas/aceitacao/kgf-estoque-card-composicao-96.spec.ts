@@ -27,7 +27,7 @@ test.describe('Estoque — clicar no card mostra o que compõe o número (#96)',
     await cardValor.click()
     await expect(page.getByTestId('saldo-composicao')).toContainText('Valor do estoque líquido')
     expect(num(await page.getByTestId('saldo-composicao-soma').textContent()), 'a soma da composição bate com o card').toBeCloseTo(valorCard, 2)
-    const valores = await page.getByTestId('saldo-row').evaluateAll((trs) => trs.map((tr) => (tr.querySelectorAll('td')[6]?.textContent ?? '')))
+    const valores = await page.getByTestId('saldo-row').evaluateAll((trs) => trs.map((tr) => (tr.querySelectorAll('td')[7]?.textContent ?? '')))
     const nums = valores.map((v) => Number(v.replace(/[^\d,-]/g, '').replace(',', '.')) || 0)
     for (let i = 1; i < nums.length; i++) expect(nums[i - 1], 'do maior para o menor valor').toBeGreaterThanOrEqual(nums[i])
 
