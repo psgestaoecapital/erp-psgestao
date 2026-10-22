@@ -18,7 +18,7 @@ async function buscarComoARota(doc: string) {
   const filtro = filtroDocumentoCliente(doc)
   expect(filtro, 'documento válido gera filtro').toBeTruthy()
   return dbSelect<ClienteEndereco & { email: string | null }>('erp_clientes',
-    `company_id=eq.${DEMO_GE}&or=(${encodeURIComponent(filtro!)})&select=logradouro,endereco,numero,complemento,bairro,cidade,uf,cep,codigo_ibge_municipio,email&limit=1`)
+    `company_id=eq.${DEMO_GE}&ativo=not.is.false&or=(${encodeURIComponent(filtro!)})&select=logradouro,endereco,numero,complemento,bairro,cidade,uf,cep,codigo_ibge_municipio,email&limit=1`)
 }
 
 test.describe('NFS-e avulsa · endereço do tomador vem do cadastro do cliente', () => {

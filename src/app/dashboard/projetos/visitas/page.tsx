@@ -52,15 +52,18 @@ export default function VisitasPage() {
   const [responsaveis, setResponsaveis] = useState<Array<{ id: string; email: string | null; full_name?: string | null }>>([])
   const [editing, setEditing] = useState<VisitaInicial | null | undefined>(undefined)
   const [toast, setToast] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     if (!empresaUnica) { setRows([]); setLoading(false); return }
     setLoading(true)
-    const { data } = await supabase
+    setErro(null)
+    const { data, error } = await supabase
       .from('erp_crm_visita')
       .select('id, company_id, oportunidade_id, data_visita, responsavel_id, status, endereco, anotacoes, gps_lat, gps_lng, fotos, created_at, erp_crm_oportunidade(id, titulo, obra_endereco, erp_clientes(nome_fantasia, razao_social))')
       .eq('company_id', empresaUnica)
       .order('data_visita', { ascending: false, nullsFirst: false })
+    if (error) setErro('Não foi possível carregar as visitas agora. Atualize a página; se persistir, avise o suporte.')
     setRows((data ?? []) as unknown as Row[])
     setLoading(false)
   }, [empresaUnica])
@@ -144,7 +147,9 @@ export default function VisitasPage() {
 
       {loading && <p className="opacity-60">Carregando…</p>}
 
-      {!loading && filtradas.length === 0 && (
+      {erro && <p role="alert" className="rounded-xl p-4 mb-3 text-sm" style={{ background: OFFWHITE }}>{erro}</p>}
+
+      {!loading && !erro && filtradas.length === 0 && (
         <div className="rounded-xl p-6 text-center" style={{ background: OFFWHITE }}>
           <p className="font-medium">Nenhuma visita ainda.</p>
           <p className="text-sm opacity-70">Clique em &ldquo;+ Nova visita&rdquo; para registrar.</p>

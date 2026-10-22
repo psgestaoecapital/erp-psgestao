@@ -1,5 +1,9 @@
 name: Deploy Migrations (Production)
 
+permissions:
+  contents: read
+  issues: write
+
 on:
   push:
     branches: [main]
@@ -33,10 +37,28 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 2.118.0
-      - run: supabase link --project-ref $SUPABASE_PROJECT_ID
+      # Retry no link (falha transitória de rede/API, ex.: #1873): 4 tentativas com recuo 5/10/20 s.
+      - name: supabase link (com retry)
+        run: |
+          for i in 1 2 3 4; do
+            supabase link --project-ref $SUPABASE_PROJECT_ID && exit 0
+            [ "$i" -lt 4 ] && { echo "::warning::supabase link falhou (tentativa $i/4); aguardando"; sleep $((5 * 2 ** (i - 1))); }
+          done
+          exit 1
       # --include-all: aplica migrations pendentes mesmo quando uma nova entra com timestamp
       # ANTERIOR à última já aplicada (ex.: PRs mergeados fora da ordem do nome do arquivo).
       # Só aplica versões NÃO rastreadas; nunca re-roda migrations já no schema_migrations.
       # Auditado em 2026-08-14: histórico consistente (0 órfãs), então o efeito é aplicar apenas
       # as pendentes reais, sem risco de re-executar migrations antigas não-idempotentes.
       - run: supabase db push --include-all
+
+      # Nunca falhar em silêncio: o job vermelho deixa a main vermelha; aqui também abre/atualiza UMA issue de aviso.
+      - name: Avisar (issue) se o deploy falhou
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          corpo="deploy-migrations falhou no commit ${GITHUB_SHA}: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} — migrations podem estar fora da produção. Corrigir e re-rodar (workflow_dispatch)."
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-migrations-vermelho --state open --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$corpo"
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "deploy-migrations vermelho na main" --label deploy-migrations-vermelho --body "$corpo" || gh issue create --repo "$GITHUB_REPOSITORY" --title "deploy-migrations vermelho na main" --body "$corpo"; fi

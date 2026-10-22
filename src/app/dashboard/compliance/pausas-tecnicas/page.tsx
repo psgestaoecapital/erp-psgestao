@@ -246,6 +246,9 @@ function Kpi({ label, n, cor, bg }: { label: string; n: number; cor: string; bg:
 }
 
 // ─────────────────────── CIÊNCIA MENSAL (#74) ───────────────────────
+// #2369: almoço do dia junto da jornada (janela da escala + minutos apurados)
+const textoAlmoco = (a?: { inicio?: string; fim?: string; min?: number } | null) => !a ? '' : `almoço ${a.inicio && a.fim ? `${a.inicio}–${a.fim}` : ''}`.trim()
+
 // Gera o relatório mensal por colaborador, coleta a assinatura via link público (mesmo fluxo do
 // EPI) e acompanha quem falta. O documento declara a origem de cada horário (RD-38).
 // #74 (CEO 02/10): a lista é de TODOS os elegíveis à pausa térmica do mês (fn_nr36_ciencia_painel), não só de quem já
@@ -293,6 +296,19 @@ function AbaCiencia({ companyId }: { companyId: string }) {
     setGerandoCpf(l.cpf); setErro('')
     try { await rpc('fn_nr36_ciencia_gerar', { p_company_id: companyId, p_competencia: `${comp}-01`, p_cpf: l.cpf }); await carregar() }
     catch (e) { setErro((e as Error).message) } finally { setGerandoCpf(null) }
+  }
+  const anexarAssinadoLinha = async (l: CienciaLinha, f: File | null) => {
+    if (!f || !l.id) return
+    setErro(''); setGerandoCpf(l.cpf)
+    try {
+      const path = `ciencia/${companyId}/${l.cpf}_${comp}_${Date.now()}.${(f.name.split('.').pop() || 'pdf')}`
+      const up = await supabase.storage.from('compliance-pausas').upload(path, f, { contentType: f.type || 'application/pdf', upsert: false })
+      if (up.error) throw up.error
+      const { data: pub } = supabase.storage.from('compliance-pausas').getPublicUrl(path)
+      const r = await rpc<{ ok: boolean; erro?: string }>('fn_nr36_ciencia_anexar_assinado', { p_id: l.id, p_arquivo_url: pub?.publicUrl || path })
+      if (r && r.ok === false) throw new Error(r.erro || 'Falha ao anexar.')
+      await carregar()
+    } catch (e) { setErro('Falha ao anexar o assinado: ' + (e as Error).message) } finally { setGerandoCpf(null) }
   }
   const gerarLink = async (l: CienciaLinha) => {
     if (!l.id) return
@@ -369,7 +385,9 @@ function AbaCiencia({ companyId }: { companyId: string }) {
                     {semDoc ? (l.situacao === 'sem_documento' && <span data-testid={`ciencia-gerar-${l.cpf}`}><BtnGhost onClick={() => gerarUm(l)}><RefreshCw size={13} /> {gerandoCpf === l.cpf ? 'Gerando…' : 'Gerar documento'}</BtnGhost></span>) : <>
                     <BtnGhost onClick={() => setVerDoc(l.id)}><FileText size={13} /> Ver/PDF</BtnGhost>{' '}
                     {l.status !== 'assinado' && <><BtnGhost onClick={() => gerarLink(l)}><Copy size={13} /> Link p/ assinar</BtnGhost>{' '}
-                    <BtnGhost onClick={() => recusar(l)}>Recusa</BtnGhost></>}
+                    <BtnGhost onClick={() => recusar(l)}>Recusa</BtnGhost>{' '}
+                    <label data-testid={`ciencia-anexar-${l.cpf}`} style={{ cursor: 'pointer', display: 'inline-block' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.gray}`, borderRadius: 6, padding: '4px 9px' }}><Upload size={13} /> {gerandoCpf === l.cpf ? 'Enviando…' : 'Anexar assinado'}</span>
+                      <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} disabled={gerandoCpf === l.cpf} onChange={e => { void anexarAssinadoLinha(l, e.target.files?.[0] || null); e.target.value = '' }} /></label></>}
                     {(l.status === 'assinado' || l.status === 'recusado') && l.desatualizado_em && <>{' '}<BtnGhost onClick={() => novaVersao(l)}><RefreshCw size={13} /> Nova versão</BtnGhost></>}
                     </>}
                   </td>
@@ -421,7 +439,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
     } catch (e) { alert('Falha ao anexar: ' + (e as Error).message) } finally { setSubindo(false) }
   }
   const snap = (doc?.colaborador_snapshot || {}) as Record<string, string>
-  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; pausas?: PausaDoc[]; ajuste?: AjusteDia | null }>
+  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; almoco?: { inicio?: string; fim?: string; min?: number } | null; pausas?: PausaDoc[]; ajuste?: AjusteDia | null }>
   const nEst = detalhe.reduce((a, d) => a + (d.pausas || []).filter(p => p.fim_origem === 'estimado').length, 0)
   // #587: mesma leitura da página de assinatura (lib/ponto/ajusteBatida) — retorno sem saída não sai invertido e o
   // horário ajustado aparece junto do original, com origem, quem e quando
@@ -460,11 +478,11 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
               <div><b>Função:</b> {snap.funcao || '—'}</div><div><b>Setor:</b> {snap.setor || '—'}</div>
             </div>
             {detalhe.map((d, i) => (
-              <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span></div>
+              <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0', breakInside: 'avoid' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span>{textoAlmoco(d.almoco) && <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }} data-testid="ciencia-almoco"> · {textoAlmoco(d.almoco)}</span>}</div>
                 {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.gray }} data-testid="ciencia-originais">{notaDiaDoc(d.ajuste)}</div>}
                 {(d.pausas || []).length === 0 ? <div style={{ fontSize: 11.5, color: C.gray, fontStyle: 'italic' }}>Sem pausa registrada.</div> :
-                  (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 28 }} data-testid="ciencia-pausas-dia">{(d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7, flex: '1 1 230px' }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}</div>}
               </div>
             ))}
             {nEst > 0 && (
@@ -472,13 +490,17 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                 {nEst} pausa(s) deste período tiveram o horário de término estimado por falta de registro de saída. A estimativa considera a duração padrão de 20 minutos e não substitui o registro.
               </div>
             )}
+            <div data-testid="ciencia-compromisso" style={{ marginTop: 16, fontSize: 11.5, color: C.espresso, lineHeight: 1.5 }}>
+              O colaborador declara que se compromete a usufruir das pausas térmicas no local adequado, e o supervisor fiscalizará o cumprimento.
+            </div>
             <div className="ps-print-assinatura" data-testid="ciencia-assinatura" style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
               {doc.status === 'assinado' ? (
                 <div style={{ color: C.green }}><b>✓ Assinado em {doc.assinado_em ? fmtDT(String(doc.assinado_em)) : ''}</b> · método {String(doc.metodo || '')} · hash {String(doc.hash_integridade || '').slice(0, 24)}…</div>
               ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
-                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do colaborador</div>
-                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Data</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }} data-testid="ciencia-linhas-assinatura">
+                  {['Assinatura do colaborador', 'Assinatura do supervisor', 'Assinatura do técnico de segurança do trabalho', 'Data'].map(t => (
+                    <div key={t} style={{ flex: '1 1 140px', borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>{t}</div>
+                  ))}
                 </div>
               )}
             </div>
@@ -801,6 +823,21 @@ function AbaHistorico({ companyId }: { companyId: string }) {
   }, [companyId, ini, fim])
   useEffect(() => { void carregar() }, [carregar])
 
+  // #1641: reimportar o relatório do mesmo dia não pode duplicar nem exigir ajuste manual — o upload novo SUBSTITUI o antigo
+  // (fn_nr36_upload_substituir estorna as pausas do antigo, mantém arquivo/hash e reapura o período dele).
+  const [substituindo, setSubstituindo] = useState<string | null>(null)
+  const substituir = async (novo: UploadRow, antigoId: string) => {
+    const antigo = rows.find(r => r.id === antigoId)
+    if (!antigo) return
+    if (!window.confirm(`As pausas do arquivo "${antigo.arquivo_nome}" serão removidas da apuração e substituídas pelas de "${novo.arquivo_nome}". O arquivo antigo continua guardado no Histórico. Confirmar?`)) return
+    setSubstituindo(novo.id); setErro('')
+    try {
+      const r = await rpc<{ ok: boolean; erro?: string }>('fn_nr36_upload_substituir', { p_upload_id_novo: novo.id, p_upload_id_antigo: antigoId, p_motivo: 'Reimportado para substituir (chamado #1641)' })
+      if (!r.ok) throw new Error(r.erro === 'sem_permissao' ? 'Você não tem permissão para substituir uploads.' : (r.erro || 'Falha ao substituir.'))
+      await carregar()
+    } catch (e) { setErro((e as Error).message) } finally { setSubstituindo(null) }
+  }
+
   const baixar = async (u: UploadRow) => {
     if (!u.arquivo_path) { alert('Sem arquivo original registrado.'); return }
     const { data, error } = await supabase.storage.from('compliance-pausas').createSignedUrl(u.arquivo_path, 60)
@@ -834,7 +871,15 @@ function AbaHistorico({ companyId }: { companyId: string }) {
                     : u.status === 'pendente' ? <span style={{ color: C.amber }}>não processado — reenvie</span>
                     : <span style={{ color: C.green }}>{u.status}</span>}</td>
                   <td style={{ ...td(), fontFamily: 'monospace', fontSize: 10.5, color: C.gray }} title={u.arquivo_hash}>{u.arquivo_hash?.slice(0, 10)}…</td>
-                  <td style={td()}>{u.arquivo_path && <BtnGhost onClick={() => void baixar(u)}><Download size={13} /> Baixar</BtnGhost>}</td>
+                  <td style={td()}>
+                    {u.arquivo_path && <BtnGhost onClick={() => void baixar(u)}><Download size={13} /> Baixar</BtnGhost>}
+                    {u.status === 'processado' && rows.some(o => o.id !== u.id && o.status === 'processado') && (
+                      <select aria-label={`Substituir um upload por ${u.arquivo_nome}`} disabled={substituindo === u.id} value="" onChange={e => { if (e.target.value) void substituir(u, e.target.value) }} style={{ ...inp(), marginTop: 6, maxWidth: 170 }}>
+                        <option value="">{substituindo === u.id ? 'Substituindo…' : 'Substituir outro por este…'}</option>
+                        {rows.filter(o => o.id !== u.id && o.status === 'processado').map(o => <option key={o.id} value={o.id}>{o.arquivo_nome} ({fmtData(o.periodo_inicio)}–{fmtData(o.periodo_fim)})</option>)}
+                      </select>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

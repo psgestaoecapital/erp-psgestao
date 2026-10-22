@@ -48,6 +48,11 @@ export default function LoginPage() {
       const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
       if (up?.role === "operador_bpo") dest = "/dashboard/bpo/inbox";
     }
+    // Volta para a página de origem (sessão expirada), só rota interna.
+    try {
+      const rt = new URLSearchParams(window.location.search).get("returnTo");
+      if (rt && rt.startsWith("/") && !rt.startsWith("//") && !rt.startsWith("/\\")) dest = rt;
+    } catch { /* mantém dest */ }
     router.push(dest);
   };
 

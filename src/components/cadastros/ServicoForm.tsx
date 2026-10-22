@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { normalizarCIndOp } from '@/lib/fiscal/retencoesFederaisNfse'
 import { X, Save, Loader2, AlertCircle, Trash2, Copy } from 'lucide-react'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import CategoriaCombobox from '@/components/financeiro/CategoriaCombobox'
@@ -209,6 +210,9 @@ export default function ServicoForm({ companyId, servico, clonarDe = null, onClo
     setErro(null)
     try {
       if (!descricaoResumida.trim()) throw new Error('Descricao resumida obrigatoria.')
+      // #1944 · cIndOp sempre com 6 dígitos (Anexo C — E0901); "100301.0" da correlação antiga é gravado como 100301.
+      const indOp = rtIndOp.trim()
+      if (indOp && !normalizarCIndOp(indOp)) throw new Error('Indicador de operação (cIndOp) tem 6 dígitos (ex.: 100301). Confira o código do Anexo C.')
       const payload: Record<string, unknown> = {
         company_id: companyId,
         codigo: codigo.trim() || null,
@@ -238,7 +242,7 @@ export default function ServicoForm({ companyId, servico, clonarDe = null, onClo
         aliquota_inss: num(aliqInss), retem_inss: retemInss,
         rt_cst: rtCst.trim() || null,
         rt_classificacao_tributaria: rtClass.trim() || null,
-        rt_indicador_operacao: rtIndOp.trim() || null,
+        rt_indicador_operacao: normalizarCIndOp(indOp),
         rt_aliquota_ibs_municipal: num(rtIbsM),
         rt_aliquota_ibs_estadual: num(rtIbsE),
         rt_aliquota_cbs: num(rtCbs),

@@ -7,6 +7,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import AnexosCard from '@/components/crm/AnexosCard'
 import { UNIDADES_ESTOQUE } from '@/lib/produtos/unidades'
+import PrecoVendaEntradaNota from '@/components/precificacao/PrecoVendaEntradaNota'
+import { custoProdutoDaNota } from '@/lib/precificacao/entradaNota'
 
 type Sugestao = {
   produto_id: string
@@ -614,6 +616,12 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
                   </div>
                 )
               })()}
+              {/* #2710 · preço de venda sugerido pelo markup padrão do produto (ou o geral), editável antes de gravar */}
+              {it.produto_id && it.entra_estoque !== false && (
+                <PrecoVendaEntradaNota companyId={companyId} produtoId={it.produto_id}
+                  custo={custoProdutoDaNota(extras[it.item_id]?.custo_unitario_real, it.valor_unitario, fatorSalvo[it.produto_id])}
+                  motivo="Entrada da nota de compra (markup padrão)" />
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-2">

@@ -11,8 +11,9 @@ import { registrarTentativaFiscal } from '@/lib/fiscal/tentativaLog'
 import { resolverOpcaoSimplesNacional, type NFSeRequest } from '@/lib/fiscal/types'
 import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
-import { enderecoFiscalDoCliente, filtroDocumentoCliente, type ClienteEndereco } from '@/lib/fiscal/tomadorEndereco'
-import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { dataBrasil } from '@/lib/fiscal/dataBrasil'
+import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
+import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -45,6 +46,8 @@ interface EmitirNFSeBody {
       cnpj?: string
       cpf?: string
       email?: string
+      // cliente da OS/venda (ou o escolhido na tela): é ELE o tomador, nunca outro cadastro com o mesmo CNPJ
+      clienteId?: string
     }
   }
   overrides?: {
@@ -161,6 +164,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     }
 
     let nfseReq: NFSeRequest
+    // cadastro do cliente usado como tomador na emissão avulsa — a mensagem de cadastro incompleto diz QUAL é
+    let cadastroTomadorUsado: string | null = null
     // IBPT por empresa: fonte dos tributos aproximados que foi na nota ('ibpt_empresa' | 'tabela_generica')
     let ibptFonte: 'ibpt_empresa' | 'tabela_generica' | null = null
     const { data: cfgIbpt } = await supabaseAdmin.from('erp_fiscal_provider_config').select('ibpt_empresa_nas_notas')
@@ -218,16 +223,36 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         },
         tomador: body.manual.tomador,
       }
-      // NFS-e avulsa: a tela manda só nome + documento; o endereço (exigido no leiaute nacional) vem do cadastro de
-      // clientes DESTA empresa, pelo documento. O e-mail não é copiado — só vai se a tela mandar.
+      // NFS-e avulsa: a tela manda só nome + documento (+ o cliente da OS/venda); o endereço (exigido no leiaute
+      // nacional) vem do cadastro de clientes DESTA empresa. O e-mail não é copiado — só vai se a tela mandar.
+      // Qual cadastro (caixa jordana-code 3352399e, OS-2026-0198): o cliente da operação manda; sem ele, só ATIVOS pelo
+      // documento; dois ativos com o mesmo CNPJ → a tela pede para escolher (escolherCadastroTomador).
+      const { clienteId, ...tomadorNota } = body.manual.tomador
+      nfseReq.tomador = tomadorNota
       if (!nfseReq.tomador.endereco) {
-        const filtro = filtroDocumentoCliente(nfseReq.tomador.cnpj ?? nfseReq.tomador.cpf)
+        const docTom = nfseReq.tomador.cnpj ?? nfseReq.tomador.cpf
+        const filtro = filtroCadastroTomador(docTom, clienteId)
         if (filtro) {
-          const { data: cli } = await supabaseAdmin.from('erp_clientes')
-            .select('logradouro, endereco, numero, complemento, bairro, cidade, uf, cep, codigo_ibge_municipio')
-            .eq('company_id', body.companyId).or(filtro).limit(1).maybeSingle()
-          const end = enderecoFiscalDoCliente(cli as ClienteEndereco | null)
-          if (end) nfseReq.tomador = { ...nfseReq.tomador, endereco: end }
+          const { data: cands } = await supabaseAdmin.from('erp_clientes').select(CAMPOS_CADASTRO_TOMADOR)
+            .eq('company_id', body.companyId).or(filtro).limit(20)
+          const escolha = escolherCadastroTomador((cands ?? []) as CadastroTomador[], docTom, clienteId)
+          if (escolha.tipo === 'ambiguo') {
+            return NextResponse.json({
+              ok: false,
+              tomadorAmbiguo: true,
+              candidatos: escolha.candidatos.map((c) => ({
+                id: c.id, nome: nomeCadastro(c), cidade: c.cidade ?? null, uf: c.uf ?? null,
+                enderecoCompleto: enderecoFiscalDoCliente(c) !== null,
+              })),
+              mensagem: `Há ${escolha.candidatos.length} cadastros ativos com este CNPJ/CPF nesta empresa. Escolha qual é o tomador desta nota (e depois unifique os cadastros em Clientes).`,
+            }, { status: 409 })
+          }
+          if (escolha.tipo === 'cliente') {
+            const c = escolha.cliente
+            cadastroTomadorUsado = nomeCadastro(c) + (c.cidade ? ` · ${c.cidade}${c.uf ? '/' + c.uf : ''}` : ' · sem cidade') + (c.ativo === false ? ' · INATIVO' : '')
+            const end = enderecoFiscalDoCliente(escolha.cliente)
+            if (end) nfseReq.tomador = { ...nfseReq.tomador, endereco: end }
+          }
         }
       }
     } else {
@@ -533,7 +558,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             }
             let aliqMunic: number | null = null
             if (muniPrest.length === 7 && lc116) {
-              const hoje = new Date().toISOString().slice(0, 10)
+              const hoje = dataBrasil()   // #1944 · vigência no dia de Brasília
               const { data: issRows } = await supabaseAdmin
                 .from('fiscal_iss_municipio')
                 .select('aliquota, vigencia_inicio, vigencia_fim')
@@ -625,8 +650,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           if (_optanteSN && (nfseReq.regimeApuracaoSN ?? 1) === 1) {
             const tpRet = nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1)
             const issRetido = tpRet === 2 || tpRet === 3
-            const bsb = new Date(Date.now() - 3 * 60 * 60 * 1000)  // competência = mês de Brasília (igual ao data_competencia da nota)
-            const compIso = `${bsb.getUTCFullYear()}-${String(bsb.getUTCMonth() + 1).padStart(2, '0')}-01`
+            const diaBR = dataBrasil()  // competência = mês de Brasília (igual ao data_competencia da nota) · #1944
+            const compIso = `${diaBR.slice(0, 7)}-01`
             const { data: aliq } = await supabaseAdmin
               .from('erp_fiscal_aliquota_sn')
               .select('aliquota')
@@ -636,7 +661,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             if (aliq?.aliquota == null) {
               if (issRetido) {
                 // ISS retido: a alíquota é obrigatória na nota (o tomador retém sobre ela) → bloqueia sem chutar.
-                const mm = `${String(bsb.getUTCMonth() + 1).padStart(2, '0')}/${bsb.getUTCFullYear()}`
+                const mm = `${diaBR.slice(5, 7)}/${diaBR.slice(0, 4)}`
                 return NextResponse.json({ ok: false, mensagem: `Informe a alíquota de ISS do Simples de ${mm} na Configuração Fiscal antes de emitir (ISS retido pelo tomador).` }, { status: 400 })
               }
               // ISS não retido: segue sem pAliq (E0625) — nota autorizada normalmente.
@@ -644,6 +669,10 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
               nfseReq.aliquotaISSSN = Number(aliq.aliquota)
             }
           }
+          // #1944 · IBS/CBS só COMPLETO (reformaIbsCbsDoServico): a config da empresa sozinha não vai mais — sem o
+          // cadastro do serviço (cIndOp só existe lá) a nota sai sem o grupo, como antes da Reforma.
+          const reformaEmpresa = nfseReq.reforma
+          nfseReq.reforma = undefined
           // codigo_nbs do serviço (opcional — só enviado se preenchido) + #286: tributos federais do cadastro
           if (body.servicoId) {
             const { data: sv } = await supabaseAdmin
@@ -671,14 +700,21 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
                 }
               }
               if (ret.apuracaoPropria) nfseReq.apuracaoPisCofins = ret.apuracaoPropria
-              // IBS/CBS do CADASTRO DO SERVIÇO quando a empresa não configurou: grupo IBSCBS exige CST, cClassTrib
-              // e cIndOp (6 díg., Anexo C — E0901). Sem cIndOp válido o grupo NÃO vai (aviso); nunca adivinhar.
+              // #1944 · grupo IBSCBS só completo: CST e cClassTrib (serviço; na falta, empresa) e cIndOp (6 díg., Anexo C
+              // — E0901, só do serviço). Incompleto → nenhuma chave da Reforma (aviso); nunca adivinhar.
               {
-                const ib = reformaIbsCbsDoServico(nfseReq.reforma, sv as ServicoIbsCbs)
+                const ib = reformaIbsCbsDoServico(reformaEmpresa, sv as ServicoIbsCbs)
                 nfseReq.reforma = ib.reforma
                 if (ib.aviso) avisosTributos.push(ib.aviso)
               }
             }
+          }
+          // #1944 · Simples Nacional: grupo IBS/CBS obrigatório a partir de 01/01/2027 — validação PRONTA e DESLIGADA
+          // (EXIGIR_IBS_CBS_SIMPLES em retencoesFederaisNfse.ts; ligar é decisão do CEO, por PR).
+          {
+            const optanteSN = nfseReq.opcaoSimplesNacional === 2 || nfseReq.opcaoSimplesNacional === 3
+            const msgIbs = validarIbsCbsObrigatorio({ optanteSimples: optanteSN, dataEmissaoBR: dataBrasil(), reforma: nfseReq.reforma })
+            if (msgIbs) return NextResponse.json({ ok: false, mensagem: msgIbs }, { status: 400 })
           }
           // Guard XSD (RD-51): o layout nacional EXIGE cMun (IBGE) e nro do tomador. Sem eles o Focus rejeita
           // no XSD. Bloqueia ANTES de enviar, com mensagem clara — não deixa virar erro fiscal obscuro.
@@ -690,7 +726,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             return NextResponse.json({
               ok: false,
               mensagem: 'Complete o cadastro fiscal do tomador antes de emitir a NFS-e nacional: ' +
-                faltando.join(' e ') + '. Edite o cliente em Clientes, informe o CEP (traz o IBGE) e o número, e emita de novo.',
+                faltando.join(' e ') + (cadastroTomadorUsado ? ` (cadastro usado: ${cadastroTomadorUsado})` : '') +
+                '. Edite o cliente em Clientes, informe o CEP (traz o IBGE) e o número, e emita de novo.',
             }, { status: 400 })
           }
         }
@@ -882,6 +919,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         medicaoAviso = (medicaoAviso ? medicaoAviso + ' ' : '') + 'A nota saiu, mas a medição não foi ligada ao escopo da obra — avise o suporte. ' +
           (voErr?.message ?? voj?.erro ?? '')
       }
+    }
+
+    // Competência da nota (a mesma data_competencia enviada ao provedor, dia de Brasília): fn_registrar_nfse_emitida
+    // não a grava — a NFS-e 603 da Pdois (08/10) ficou com data_competencia vazia. Só preenche se estiver vazia.
+    if (registroId) {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ data_competencia: dataBrasil() })
+        .eq('id', registroId).is('data_competencia', null)
     }
 
     // IBPT por empresa · grava a fonte dos tributos aproximados que foi na nota

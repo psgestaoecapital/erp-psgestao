@@ -5,6 +5,7 @@ import { authFetch } from '@/lib/authFetch'
 import { calcularImpostos } from '@/lib/fiscal/nfe-calc-impostos'
 import { supabase } from '@/lib/supabase'
 import { X, Loader2, Trash2, FileCheck, AlertTriangle, ExternalLink } from 'lucide-react'
+import { esperaConsulta } from '@/lib/fiscal/consultaRetorno'
 
 interface Props {
   open: boolean
@@ -136,13 +137,14 @@ export default function NFePreviewModal(props: Props) {
   )
 
   async function pollStatus(id: string, attempt: number) {
-    if (attempt > 10) {
-      // Ainda processando após o polling: NÃO é rejeição (RD-51). Mostra estado "processando"
+    const espera = esperaConsulta(attempt)
+    if (espera === null) {
+      // Ainda processando após o polling (~2 min, #2946): NÃO é rejeição (RD-51). Mostra estado "processando"
       // com opção de consultar de novo; o cron também reconsulta em background.
       setStatus('processando')
       return
     }
-    await new Promise((r) => setTimeout(r, 3000))
+    await new Promise((r) => setTimeout(r, espera))
     try {
       const r = await authFetch(`/api/fiscal/nfe/consultar/${id}`)
       const json = (await r.json()) as RespostaEmissao
@@ -423,7 +425,7 @@ export default function NFePreviewModal(props: Props) {
               <p className="mt-3 text-[13px] text-[#3D2314]">
                 {status === 'enviando' ? 'Enviando ao Focus NFe...' : 'Aguardando autorizacao SEFAZ...'}
               </p>
-              <p className="mt-1 text-[11px] text-[#3D2314]/60">Pode levar ate 30s</p>
+              <p className="mt-1 text-[11px] text-[#3D2314]/60">Normalmente em segundos; pode levar ate 2 min</p>
             </div>
           )}
 

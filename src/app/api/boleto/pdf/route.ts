@@ -17,6 +17,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { gerarPdfBoleto, type BoletoDados } from '@/lib/boleto/gerarPdfBoleto'
 import { salvarPdfBoletoNoBucket } from '@/lib/boleto/salvarPdfBoleto'
+import { nomeArquivoBoleto } from '@/lib/download/nomeArquivo'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -41,6 +42,22 @@ function userSupabase(req: NextRequest) {
     global: { headers: { Authorization: auth } },
     auth: { persistSession: false },
   })
+}
+
+// #2957: nome do arquivo = <Cliente>_<vencimento DDMMAAAA>.pdf (fantasia do cadastro; sem ele, a razão social).
+// O front lê esse nome do Content-Disposition ao baixar.
+async function nomeArquivoDoTitulo(rec: { cliente_id: string | null; cliente_nome: string | null; data_vencimento: string | null }): Promise<string> {
+  let fantasia: string | null = null
+  let razao: string | null = rec.cliente_nome
+  if (rec.cliente_id) {
+    try {
+      const { data: cli } = await supabaseAdmin.from('erp_clientes')
+        .select('nome_fantasia, razao_social').eq('id', rec.cliente_id).maybeSingle()
+      fantasia = (cli?.nome_fantasia as string | null) ?? null
+      razao = (cli?.razao_social as string | null) ?? razao
+    } catch { /* nome cai na razão do título */ }
+  }
+  return nomeArquivoBoleto({ fantasia, razao, vencimento: rec.data_vencimento })
 }
 
 function temSegredoValido(req: NextRequest): boolean {
@@ -113,7 +130,7 @@ export async function GET(req: NextRequest) {
             status: 200,
             headers: {
               'content-type': 'application/pdf',
-              'content-disposition': `inline; filename="boleto-${rec.boleto_nosso_numero ?? receberId}.pdf"`,
+              'content-disposition': `inline; filename="${await nomeArquivoDoTitulo(rec)}"`,
               'cache-control': 'private, max-age=60',
             },
           })
@@ -223,7 +240,7 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         'content-type': 'application/pdf',
-        'content-disposition': `inline; filename="boleto-${rec.boleto_nosso_numero ?? receberId}.pdf"`,
+        'content-disposition': `inline; filename="${await nomeArquivoDoTitulo(rec)}"`,
         'cache-control': 'private, max-age=60',
       },
     })

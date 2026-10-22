@@ -1,0 +1,52 @@
+name: Etiquetar revisão
+
+# Eng. Chefe 14/10 (furo da #2592): PR que toca tela, cálculo, migration/SQL ou área crítica vai OBRIGATORIAMENTE pela via
+# revisada. Este workflow COLOCA a etiqueta revisao-eng-chefe por conteúdo (scripts/merge/exige-via-revisada.ts); nunca a tira.
+# pull_request_target: roda o código da main; os arquivos da PR são lidos só como dado pela API (sem checkout da PR).
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: etiquetar-revisao-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  etiquetar:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN || github.token }}
+      REPO: ${{ github.repository }}
+      N: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Checkout da main (nunca da PR)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Classificar e etiquetar
+        run: |
+          set -uo pipefail
+          # para .sql/migration, anexa o CONTEÚDO (linhas + do patch, base64) para o classificador decidir aditiva×crítica
+          arquivos=$(gh api "repos/$REPO/pulls/$N/files" --paginate --jq '
+            .[] | select(.status != "removed") |
+            if (.filename | test("\\.sql$"))
+            then .filename + "\t" + ((.patch // "") | split("\n") | map(select(startswith("+")) | ltrimstr("+")) | join("\n") | @base64)
+            else .filename end') || { echo "::warning::não li os arquivos da PR #$N"; exit 0; }
+          r=$(printf '%s\n' "$arquivos" | npx --yes tsx scripts/merge/exige-via-revisada.ts) || { echo "::warning::classificador falhou"; exit 0; }
+          echo "$r"
+          if [ "$(jq -r .revisada <<< "$r")" = true ]; then
+            gh api -X POST "repos/$REPO/issues/$N/labels" -f "labels[]=revisao-eng-chefe" > /dev/null || { echo "::warning::não consegui etiquetar #$N"; exit 0; }
+            echo "#$N etiquetada revisao-eng-chefe: $(jq -r .motivo <<< "$r")"
+          fi

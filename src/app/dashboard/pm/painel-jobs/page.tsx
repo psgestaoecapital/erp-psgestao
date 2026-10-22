@@ -8,9 +8,11 @@ import { BarChart3, Filter, Save, Trash2, FileDown, FileSpreadsheet, Sparkles } 
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
+import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
 import {
   CABECALHO_FLUXO, SITUACOES, contarFiltroPainel, filtrarJobs, graficos, indicadores, legado, limparFiltroPainel, linhaParaArray, linhasFluxo, resumoParaIA,
-  type Barra, type FiltroPainel, type Hora, type JobPainel, type Nomes, type Rodada,
+  type Barra, type FiltroPainel, type Hora, type JobPainel, type LinhaFluxo, type Nomes, type Rodada,
 } from "@/lib/pm/painel";
 
 type Nome = { id: string; nome: string };
@@ -19,6 +21,11 @@ const CORES = ["#3D2314", "#C8941A", "#8a6a4f", "#b98b5e", "#5b7a6a", "#a35a4b",
 const cartao = "rounded-2xl border border-[#3D2314]/10 bg-white p-4";
 const campo = "w-full rounded-lg border border-[#E7DED3] bg-white px-2 py-2 text-[13px] text-[#3D2314] min-h-[40px]";
 const rotulo = "mb-1 block text-[11px] font-semibold uppercase tracking-wider text-[#3D2314]/60";
+// PDF = arquivo gerado (pdf-lib), nunca a impressão do navegador (window.print): o diálogo de impressão é modal e PARA a aba inteira até ser
+// fechado — no mapeamento da P&M (10/10) o clique em "PDF" deixava o navegador congelado. Mesmas colunas do Excel.
+const COLUNAS_PDF: Coluna<LinhaFluxo>[] = CABECALHO_FLUXO.map((header, i) => ({
+  header, get: (l: LinhaFluxo) => linhaParaArray(l)[i], peso: i === 1 ? 3 : i === 2 || i === 3 ? 2 : 1, align: i >= 6 ? "right" as const : "left" as const,
+}));
 const fmt = (n: number | null, suf = "") => (n === null ? "—" : `${n.toLocaleString("pt-BR")}${suf}`);
 
 function Multi({ valor, opcoes, onChange }: { valor?: string[]; opcoes: Nome[]; onChange: (v: string[]) => void }) {
@@ -51,7 +58,7 @@ function GraficoBarras({ titulo, dados, cor = "#3D2314" }: { titulo: string; dad
 }
 
 export default function PainelJobsPage() {
-  const { selInfo, companyIds } = useCompanyIds();
+  const { selInfo, companyIds, loading: carregandoEmpresa, companies } = useCompanyIds();
   const empresa = selInfo.tipo === "empresa" && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null);
   const [jobs, setJobs] = useState<JobPainel[]>([]);
   const [rodadas, setRodadas] = useState<Rodada[]>([]);
@@ -68,6 +75,7 @@ export default function PainelJobsPage() {
   const [insights, setInsights] = useState<{ titulo: string; detalhe: string }[] | null>(null);
   const [avisoIA, setAvisoIA] = useState<string | null>(null);
   const [gerando, setGerando] = useState(false);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
 
   const carregarOpcoes = useCallback(async () => {
     if (!empresa) return;
@@ -142,6 +150,20 @@ export default function PainelJobsPage() {
     XLSX.utils.book_append_sheet(wb, ws, "Fluxo de trabalho");
     XLSX.writeFile(wb, `painel-de-jobs-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
+  async function pdf() {
+    if (gerandoPdf) return;
+    setGerandoPdf(true);
+    try {
+      const nomeEmpresa = (companies as { id: string; nome_fantasia?: string | null; razao_social?: string | null }[]).find((c) => c.id === empresa);
+      await exportarPDF({
+        titulo: "Painel de Jobs - fluxo de trabalho",
+        empresa: nomeEmpresa?.nome_fantasia || nomeEmpresa?.razao_social || "Empresa",
+        filtros: `${ind.total} jobs · ${nFiltros ? `${nFiltros} filtro(s) aplicado(s)` : "sem filtro"} · alterações ${fmt(ind.alteracoes)} · realizado/estimado ${ind.realizadoSobreEstimado === null ? "—" : `${fmt(ind.realizadoSobreEstimado)}%`}`,
+        emitidoEmISO: new Date().toISOString(),
+      }, COLUNAS_PDF, fluxo);
+    } catch { setErro("Não foi possível gerar o PDF agora. Tente de novo ou use o Excel."); }
+    setGerandoPdf(false);
+  }
   async function gerarInsights() {
     if (!empresa) return;
     setGerando(true); setAvisoIA(null); setInsights(null);
@@ -157,7 +179,7 @@ export default function PainelJobsPage() {
     setGerando(false);
   }
 
-  if (!empresa) return <div className="p-8 text-[#6b5444]">Selecione uma empresa no topo.</div>;
+  if (!empresa) return <EmpresaNaoResolvida carregando={carregandoEmpresa} temEmpresa={companies.length > 0} tela="o Painel de Jobs" />;
 
   const cartoes: { r: string; v: string; d?: string }[] = [
     { r: "Total de jobs", v: fmt(ind.total) },
@@ -180,12 +202,27 @@ export default function PainelJobsPage() {
           <div className="flex flex-wrap gap-2 print:hidden">
             <button onClick={() => setFiltroAberto((v) => !v)} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><Filter size={14} /> Filtro{nFiltros ? ` (${nFiltros})` : ""}</button>
             <button onClick={excel} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><FileSpreadsheet size={14} /> Excel</button>
-            <button onClick={() => window.print()} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><FileDown size={14} /> PDF</button>
+            <button onClick={pdf} disabled={gerandoPdf} data-testid="painel-pdf" className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px] disabled:opacity-50"><FileDown size={14} /> {gerandoPdf ? "Gerando…" : "PDF"}</button>
             <button onClick={gerarInsights} disabled={gerando || ind.total === 0} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-[#3D2314] px-3 text-[13px] text-white disabled:opacity-50"><Sparkles size={14} /> {gerando ? "Analisando…" : "Insights com IA"}</button>
           </div>
         </header>
 
         {erro && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-[13px] text-red-800">{erro}</div>}
+        {/* RD-51 (Pdois 07/10): número zerado nunca calado — diz se a empresa não tem job ou se o filtro esconde todos */}
+        {!carregando && !erro && jobs.length === 0 && (
+          <div className="mb-3 rounded-lg border border-[#C8941A]/40 bg-[#FAEEDA] p-3 text-[13px]" role="status" data-testid="painel-sem-jobs">
+            A empresa ainda não tem jobs cadastrados — o painel se preenche quando a Pauta tiver jobs.
+          </div>
+        )}
+        {!carregando && !erro && jobs.length > 0 && visiveis.length === 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-[#C8941A]/40 bg-[#FAEEDA] p-3 text-[13px]" role="status" data-testid="painel-filtro-escondendo">
+            <span>A empresa tem {jobs.length} job(s), mas nenhum passa no filtro{nLegado === jobs.length && !filtro.incluir_legado ? " (todos são encerrados de legado, fora dos números por padrão)" : ""}.</span>
+            <button className="rounded-lg bg-[#3D2314] px-3 py-1.5 text-[12.5px] font-medium text-white" data-testid="painel-limpar-filtro"
+              onClick={() => { const f = nLegado === jobs.length ? { incluir_legado: true } : {}; setFiltro(f); setRascunho(f); }}>
+              {nLegado === jobs.length && !filtro.incluir_legado ? "Incluir os encerrados" : "Limpar filtro"}
+            </button>
+          </div>
+        )}
 
         {filtroAberto && (
           <section className={cartao + " mb-4 print:hidden"}>
