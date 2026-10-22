@@ -127,3 +127,7 @@ BEGIN
   -- o título conciliado fica na conta do extrato (#3961)
   PERFORM public.fn_titulo_conta_pela_conciliacao(p_tabela, p_id);
 END $function$;
+
+-- mesmo acesso de produção (só service_role; o gatilho roda como dono): explícito para a guarda de funções
+REVOKE ALL ON FUNCTION public.fn_recompute_baixa_titulo(text, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_recompute_baixa_titulo(text, uuid) TO service_role;
