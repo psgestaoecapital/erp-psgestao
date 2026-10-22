@@ -15,8 +15,8 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 
 // ── Parte 1: a data-limite e a mecânica estão no script ──
 const sh = readFileSync(SCRIPT_FILA, 'utf8')
-ok(/JANELA_ACEITACAO_REVISADA_FIM='2026-10-23T20:00:00Z'/.test(sh),
-  'data-limite carimbada: 2026-10-23T20:00:00Z (= 2026-10-23 17:00 America/Sao_Paulo)')
+ok(/JANELA_ACEITACAO_REVISADA_FIM=\$\{JANELA_ACEITACAO_REVISADA_FIM:-2026-10-23T20:00:00Z\}/.test(sh),
+  'data-limite carimbada: 2026-10-23T20:00:00Z (= 2026-10-23 17:00 America/Sao_Paulo), sobrescrevível por env nos testes')
 ok(/aceitacao_dispensada\(\) \{ \[ "\$\{FILA_AGORA_EPOCH:-\$\(date -u \+%s\)\}" -lt "\$\(date -u -d "\$JANELA_ACEITACAO_REVISADA_FIM" \+%s\)" \]; \}/.test(sh),
   'aceitacao_dispensada compara o agora (FILA_AGORA_EPOCH ou real) com o fim da janela')
 // ligada nos DOIS pontos: na remoção da aceitação do cálculo e no "revisada exige aceitação verde"
