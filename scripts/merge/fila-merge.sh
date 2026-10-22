@@ -812,7 +812,7 @@ em_preparo=0
 LOTE_MAX=${LOTE_MAX:-6}
 # RITMO (CEO 15/10): teto de publicações por hora. Conta as PRs já mergeadas na main na última hora (fail-open: erro de
 # API/valor não-numérico = 0, a rodada segue), para a janela aberta da via revisada não virar enxurrada de merges.
-RITMO_MAX_HORA=${RITMO_MAX_HORA:-6}
+RITMO_MAX_HORA=${RITMO_MAX_HORA:-10}
 pub_hora=${FILA_PUB_HORA:-$(api "search/issues?q=repo:$REPO+is:pr+is:merged+base:main+merged:>=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" --jq '.total_count' 2>/dev/null || echo 0)}
 [ "${pub_hora:-0}" -eq "${pub_hora:-0}" ] 2>/dev/null || pub_hora=0
 disp_hora=$((RITMO_MAX_HORA - pub_hora))
@@ -939,20 +939,31 @@ for n in $fila; do
 
   # atrás da main → atualiza (merge da main no ramo, sem reescrever histórico), MAS só as próximas ATUALIZA_NA_VEZ da
   # ordem; as demais esperam a vez (sem disparar preview/aceitação agora). Cada publicação gera ~N builds, não um por PR.
+  # VAZÃO / LOTE SEM MOER (CEO 22/10, com o CEO presente): se a PR está atrás MAS o GitHub garante merge limpo
+  # (mergeable=true — não há "require up to date": proteção sem strict, sem ruleset, sem merge queue), NÃO atualiza antes:
+  # segue direto para o merge 3-way. Assim o lote (até LOTE_MIG_MAX migrations / LOTE_MAX comuns) sai numa rodada só, sem o
+  # "moedor" em que cada publicação deixava as de trás atrás e forçava re-update (era o que limitava migration a ~1 por @pos).
+  # Só atualiza antes quando NÃO está comprovadamente limpa (conflito, ou o GitHub ainda calculando o mergeable): aí vale o
+  # caminho seguro de sempre (update-first, teto ATUALIZA_NA_VEZ). Conflito real cai na recusa do merge mais abaixo.
   atras=$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')
   if [ "$atras" -gt 0 ]; then
-    if [ "$em_preparo" -ge "$ATUALIZA_NA_VEZ" ]; then
-      log "#$n está $atras atrás da main, mas já há $em_preparo PR(s) da vez em preparo (teto $ATUALIZA_NA_VEZ): espera a vez — sem build agora"; continue
-    fi
-    # Só gasta vaga se o update-branch FUNCIONOU: PR com conflito não prepara build e não pode ocupar o teto (16/10: 4 PRs
-    # em conflito queimavam as 4 vagas e travavam 7 PRs prontas por horas).
-    if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
-      em_preparo=$((em_preparo + 1))
-      log "#$n estava $atras commit(s) atrás da main: atualizada (vaga $em_preparo/$ATUALIZA_NA_VEZ); aguardando os checks do novo commit — segue para a próxima"
+    mergeavel=$(api "repos/$REPO/pulls/$n" --jq '.mergeable' 2> /dev/null)
+    if [ "$mergeavel" = true ]; then
+      log "#$n está $atras atrás da main mas mergeable=true: segue para o merge 3-way sem atualizar antes (vazão — CEO 22/10)"
     else
-      tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"; continue
+      if [ "$em_preparo" -ge "$ATUALIZA_NA_VEZ" ]; then
+        log "#$n está $atras atrás da main (mergeable=$mergeavel), mas já há $em_preparo PR(s) da vez em preparo (teto $ATUALIZA_NA_VEZ): espera a vez — sem build agora"; continue
+      fi
+      # Só gasta vaga se o update-branch FUNCIONOU: PR com conflito não prepara build e não pode ocupar o teto (16/10: 4 PRs
+      # em conflito queimavam as 4 vagas e travavam 7 PRs prontas por horas).
+      if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+        em_preparo=$((em_preparo + 1))
+        log "#$n estava $atras commit(s) atrás da main (mergeable=$mergeavel): atualizada (vaga $em_preparo/$ATUALIZA_NA_VEZ); aguardando os checks do novo commit — segue para a próxima"
+      else
+        tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"
+      fi
+      continue
     fi
-    continue
   fi
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
