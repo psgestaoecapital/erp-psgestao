@@ -5,6 +5,7 @@ import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { curvaS } from '@/lib/hub/curvaS'
 
 const ROTA_AJUDA = '/dashboard/projetos/obras/[id]/cronograma'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
@@ -63,6 +64,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     const peso = tarefas.reduce((s, t) => s + dias(t.inicio, t.fim), 0)
     return peso > 0 ? tarefas.reduce((s, t) => s + (dias(t.inicio, t.fim) * Number(t.percentual)) / 100, 0) / peso * 100 : 0
   }, [tarefas])
+  const curva = useMemo(() => curvaS(tarefas, hoje()), [tarefas])
   const temBase = tarefas.some((t) => t.fim_base)
   const atrasadas = tarefas.filter((t) => t.fim_base && t.fim > t.fim_base).length
 
@@ -167,10 +169,20 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
             ) : (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-                  <Mini label="Tarefas" valor={String(tarefas.length)} />
-                  <Mini label="Avanço geral" valor={`${avancoGeral.toFixed(0)}%`} cor={VERDE} />
-                  <Mini label="Fora da linha de base" valor={temBase ? String(atrasadas) : '—'} cor={atrasadas > 0 ? VERM : ESP} />
+                  <Mini label="Tarefas" valor={String(tarefas.length)} ajuda="projetos.cronograma.ind_tarefas" />
+                  <Mini label="Avanço geral" valor={`${avancoGeral.toFixed(0)}%`} cor={VERDE} ajuda="projetos.cronograma.ind_avanco" />
+                  <Mini label="Planejado hoje" valor={curva ? `${curva.planejadoHoje.toFixed(0)}%` : '—'} ajuda="projetos.cronograma.ind_planejado" />
+                  <Mini label="Desvio" valor={curva ? `${curva.desvio > 0 ? '+' : ''}${curva.desvio.toFixed(0)} p.p.` : '—'} cor={curva && curva.desvio < -0.5 ? VERM : VERDE} ajuda="projetos.cronograma.ind_desvio" />
+                  <Mini label="Fora da linha de base" valor={temBase ? String(atrasadas) : '—'} cor={atrasadas > 0 ? VERM : ESP} ajuda="projetos.cronograma.ind_fora_base" />
                 </div>
+
+                {curva && (
+                  <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 6 }}>Curva S — planejado × realizado <AjudaCampo chave="projetos.cronograma.curva_s" rota={ROTA_AJUDA} /></div>
+                    <CurvaSvg curva={curva} />
+                    <div style={{ fontSize: 11, color: MUT, marginTop: 4 }}>Linha dourada: planejado acumulado{temBase ? ' (pela linha de base)' : ''}. Ponto: avanço realizado hoje.</div>
+                  </div>
+                )}
 
                 <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, overflowX: 'auto' }}>
                   <div style={{ minWidth: 560 }}>
@@ -180,6 +192,8 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                     {tarefas.map((t) => {
                       const p = predDe(t.id)
                       const atras = !!t.fim_base && t.fim > t.fim_base
+                      const pt = p ? tarefas.find((x) => x.id === p.predecessora_id) : undefined
+                      const conflito = !!pt && t.inicio < pt.fim
                       return (
                         <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
                           <div style={{ width: 152, flexShrink: 0 }}>
@@ -190,13 +204,19 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                             {t.inicio_base && t.fim_base && (
                               <div title="Linha de base" style={{ position: 'absolute', top: 15, height: 4, left: `${pos(t.inicio_base)}%`, width: `${larg(t.inicio_base, t.fim_base)}%`, background: LINE, borderRadius: 2 }} />
                             )}
+                            {pt && (
+                              <div title={conflito ? `Começa antes de "${pt.nome}" terminar` : `Depende de "${pt.nome}"`}
+                                style={{ position: 'absolute', top: 8, height: 0, left: `${Math.min(pos(pt.fim), pos(t.inicio))}%`, width: `${Math.abs(pos(t.inicio) - pos(pt.fim))}%`, borderTop: `2px dashed ${conflito ? VERM : MUT}` }} />
+                            )}
                             <div style={{ position: 'absolute', top: 2, height: 12, left: `${pos(t.inicio)}%`, width: `${larg(t.inicio, t.fim)}%`, background: '#FBF4E4', border: `1px solid ${atras ? VERM : GOLD}`, borderRadius: 4, overflow: 'hidden' }}>
                               <div style={{ width: `${Number(t.percentual)}%`, height: '100%', background: atras ? VERM : GOLD }} />
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                             <button onClick={() => editar(t)} style={btnMini}>Editar</button>
+                            <AjudaCampo chave="projetos.cronograma.acao_editar" rota={ROTA_AJUDA} />
                             <button onClick={() => void excluir(t)} style={{ ...btnMini, color: VERM }}>Excluir</button>
+                            <AjudaCampo chave="projetos.cronograma.acao_excluir" rota={ROTA_AJUDA} />
                           </div>
                         </div>
                       )
@@ -217,11 +237,32 @@ const inp: React.CSSProperties = { padding: '9px 10px', border: `1px solid ${LIN
 const btn = (principal: boolean): React.CSSProperties => ({ padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: `1px solid ${GOLD}`, background: principal ? GOLD : '#fff', color: principal ? '#fff' : '#A57A15' })
 const btnMini: React.CSSProperties = { padding: '5px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#fff', color: ESP }
 
-function Mini({ label, valor, cor = ESP }: { label: string; valor: string; cor?: string }) {
+function Mini({ label, valor, cor = ESP, ajuda }: { label: string; valor: string; cor?: string; ajuda: string }) {
   return (
     <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px' }}>
       <div style={{ fontSize: 16, fontWeight: 700, color: cor }}>{valor}</div>
-      <div style={{ fontSize: 10, color: MUT, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 10, color: MUT, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label} <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} /></div>
     </div>
+  )
+}
+
+function CurvaSvg({ curva }: { curva: NonNullable<ReturnType<typeof curvaS>> }) {
+  const W = 600, H = 180, PL = 34, PB = 20, PT = 8, PR = 8
+  const t0 = new Date(curva.inicio + 'T00:00:00').getTime(), t1 = new Date(curva.fim + 'T00:00:00').getTime()
+  const x = (d: string) => PL + ((new Date(d + 'T00:00:00').getTime() - t0) / Math.max(1, t1 - t0)) * (W - PL - PR)
+  const y = (v: number) => PT + (1 - v / 100) * (H - PT - PB)
+  const linha = curva.pontos.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.data).toFixed(1)},${y(p.planejado).toFixed(1)}`).join(' ')
+  const h = hoje(); const hx = x(h < curva.inicio ? curva.inicio : h > curva.fim ? curva.fim : h)
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Curva S do cronograma" style={{ display: 'block' }}>
+      {[0, 25, 50, 75, 100].map((v) => (
+        <g key={v}><line x1={PL} x2={W - PR} y1={y(v)} y2={y(v)} stroke={LINE} strokeWidth={0.5} /><text x={PL - 4} y={y(v) + 3} fontSize={9} textAnchor="end" fill={MUT}>{v}%</text></g>
+      ))}
+      <text x={PL} y={H - 5} fontSize={9} fill={MUT}>{fmt(curva.inicio)}</text>
+      <text x={W - PR} y={H - 5} fontSize={9} textAnchor="end" fill={MUT}>{fmt(curva.fim)}</text>
+      <path d={linha} fill="none" stroke={GOLD} strokeWidth={2} />
+      <line x1={hx} x2={hx} y1={PT} y2={H - PB} stroke={MUT} strokeWidth={0.8} strokeDasharray="3 3" />
+      <circle cx={hx} cy={y(curva.realizado)} r={5} fill={curva.desvio < -0.5 ? VERM : VERDE} stroke="#fff" strokeWidth={1.5} />
+    </svg>
   )
 }
