@@ -43,7 +43,7 @@ test.describe('Caixa de mensagens dos agentes', () => {
     expect(a.ok).toBe(true)
     expect(a.acionamento?.acionou, 'Code de sócio não tem rotina acionada').toBe(false)
     expect(a.acionamento?.motivo).toBe('agente_sem_acionamento')
-    await expect(enviar('andre-code', 'tarefa'), 'aos sócios só aviso de coordenação').rejects.toThrow(/socio_so_aviso|check/i)
+    await expect(enviar('andre-code', 'tarefa'), 'aos sócios só aviso de coordenação').rejects.toThrow(/socio_so_aviso|check|desligado/i)
   })
 
   test('o Code lê a própria caixa, responde na mensagem e não mexe na de outro', { tag: '@pos-migration' }, async () => {

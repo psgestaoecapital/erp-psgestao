@@ -36,6 +36,9 @@
 set -euo pipefail
 # shellcheck source=scripts/merge/patch-id-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/patch-id-lib.sh"
+# REGIME DE CONSTRUÇÃO (CEO 19/10): fonte ÚNICA do núcleo e da validade (REGIME_FIM, REGIME_NUCLEO_RE, regime_janela).
+# shellcheck source=scripts/merge/regime-nucleo.sh
+source "$(dirname "${BASH_SOURCE[0]}")/regime-nucleo.sh"
 : "${GH_TOKEN:?GH_TOKEN (PAT) ausente}" "${REPO:?REPO ausente}"
 LABEL='fila-merge'
 NAO_PUBLICAR='nao-publicar'
@@ -45,10 +48,12 @@ SUMARIO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 # Leitura (GET, sem -X) tenta até 3x: resposta vazia/transitória da API ("unexpected end of JSON input") derrubava a rodada
 # inteira (set -e) e deixava a esteira parada (runs 14909/14916, 14/10). Escrita (-X) NUNCA repete: não é idempotente.
+# `timeout 60` (19/10): um `gh api` pendurado (sem resposta) segurava o passo até os 8 min, o runner matava a rodada na PR
+# #2608 e nenhuma PR depois dela era avaliada (nada publicado por 80 min). Estourou → falha como qualquer erro de API.
 api() {
   local t=1 out
-  case " $* " in *" -X "*) gh api -H 'Accept: application/vnd.github+json' "$@"; return;; esac
-  until out=$(gh api -H 'Accept: application/vnd.github+json' "$@"); do
+  case " $* " in *" -X "*) timeout 60 gh api -H 'Accept: application/vnd.github+json' "$@"; return;; esac
+  until out=$(timeout 60 gh api -H 'Accept: application/vnd.github+json' "$@"); do
     [ "$t" -ge 3 ] && return 1
     sleep $((t * 2)); t=$((t + 1))
   done
@@ -180,14 +185,23 @@ escalar_pos_novo() {
   acionar_autor_pos "$pr" "$novos" "$run"
 }
 
-# (a) Estado da main para PR COM migration. Ecoa: livre | esperar:<motivo>
+# (a) Estado da main para PR COM migration. $1 = via (rapida | revisada). Ecoa: livre | esperar:<motivo>
+# MODELO CEO 21/10 ("produto novo na produção, crítico no banco de testes"):
+#   - VIA RÁPIDA (Mundo 1 = produto novo, migration ADITIVA não-crítica): gate é SÓ o deploy-migrations (PRODUÇÃO, a
+#     rede de segurança real do RD-52, que aplica a migration na produção). NÃO espera o @pos-migration (aceitação e2e)
+#     — esse fica para o crítico. Assim a migration aditiva não fica represada por @pos vermelho de causa ambiental
+#     (incidente 21/10: 22 PRs prontas travadas; @pos vermelho com 3 specs de ambiente, produção provada limpa).
+#   - VIA REVISADA (Mundo 2 = núcleo crítico): comportamento intacto — espera deploy-migrations E @pos-migration verdes.
 estado_main() {
-  local ult_mig r st conc id falhos novos
+  local via=${1:-revisada} ult_mig r st conc id falhos novos
   # deploy-migrations: rodando ou vermelho → espera (vermelho é trabalho AGORA de quem quebrou)
   r=$(api "repos/$REPO/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion)"')
   read -r id st conc <<< "$r"
   [ "$st" = completed ] || { echo "esperar:deploy-migrations da main em andamento ($id)"; return; }
   [ "$conc" = success ] || { echo "esperar:deploy-migrations da main não está verde ($conc, run $id)"; return; }
+
+  # Via rápida (Mundo 1): deploy-migrations verde basta — a migration aditiva já está na produção. Não espera o @pos (banco de testes).
+  [ "$via" = rapida ] && { echo livre; return; }
 
   r=$(api "repos/$REPO/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion)"')
   read -r id st conc <<< "$r"
@@ -248,7 +262,7 @@ ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 # 2026-10-17 11:00 America/Sao_Paulo (= 2026-10-17T14:00:00Z); depois volta a bloquear SOZINHA. Só a aceitação —
 # gates/checks estáticos, preview (Vercel), MERGE AUTORIZADO do revisor e conflito continuam valendo.
 # FILA_AGORA_EPOCH (epoch UTC) deixa o gate provar os dois lados da data; sem ela, usa o agora real.
-JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'
+JANELA_ACEITACAO_REVISADA_FIM=${JANELA_ACEITACAO_REVISADA_FIM:-2026-10-23T20:00:00Z}
 aceitacao_dispensada() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_ACEITACAO_REVISADA_FIM" +%s)" ]; }
 
 # QUARENTENA DE JORNADAS (CEO 17/10, presente): spec que falha na aceitação da PR mas JÁ está em
@@ -286,10 +300,14 @@ p1_quarentena() {
 # concluída não for falha (voltou a passar). FILA_BASELINE_MAIN_SPECS (mesmo vazio) sobrescreve a lista da main (para o gate).
 BASELINE_MAIN_INICIO='2026-10-17T17:35:00Z'
 BASELINE_MAIN_FIM='2026-10-18T17:35:00Z'
-baseline_main_ativa() {
-  local agora=${FILA_AGORA_EPOCH:-$(date -u +%s)}
-  [ "$agora" -ge "$(date -u -d "$BASELINE_MAIN_INICIO" +%s)" ] && [ "$agora" -lt "$(date -u -d "$BASELINE_MAIN_FIM" +%s)" ]
-}
+# PERMANENTE (CEO 21/10): a regra vale SEMPRE, não só na janela 17–18/10. Motivo (observação do CEO 21/10 + prova no
+# código): as janelas de tolerância expiraram sábado 17/10 11:00 BRT e foi EXATAMENTE aí que a publicação constante
+# virou travamento recorrente — toda falha de vaga suja (drift do banco de testes) passou a BLOQUEAR. Esta regra já
+# se AUTO-LIMITA: baseline_main_specs só devolve specs quando a ÚLTIMA aceitação da main TAMBÉM está vermelha nos MESMOS
+# specs (ambiente/vaga suja); main verde → lista vazia → regra INERTE. Falha que a main não tem, spec da PRÓPRIA PR
+# (checado antes) e falha ilegível (fail-closed) continuam BLOQUEANDO. Logo é seguro ser permanente: não mascara
+# regressão de verdade, só impede a PR de ser refém de uma vaga suja que a própria main está sofrendo.
+baseline_main_ativa() { return 0; }
 # specs que falharam na última aceitação da main (vazio = regra desligada: main verde, sem run ou ilegível). Um por linha.
 baseline_main_specs() {
   local r id conc
@@ -309,7 +327,7 @@ baseline_main_specs() {
 comentar_herdadas_main() {
   local pr=$1 specs=$2 run=$3
   comentarios "$pr" | grep -qF "<!-- fila:baseline-main-$run -->" && return 0
-  comentar "$pr" "Fila de merge: a aceitação desta PR está vermelha, mas **todas** as falhas já ocorrem na última aceitação da \`main\` (ambiente de teste, regra temporária do CEO 17/10, vale até $BASELINE_MAIN_FIM ou até a main voltar a passar): \`$(tr '\n' ' ' <<< "$specs")\`. Não bloqueia a publicação. Falha que a main não tem, ou spec desta PR, continua bloqueando.
+  comentar "$pr" "Fila de merge: a aceitação desta PR está vermelha, mas **todas** as falhas já ocorrem na última aceitação da \`main\` (ambiente de teste / vaga suja — regra permanente CEO 21/10; some sozinha quando a main volta a passar): \`$(tr '\n' ' ' <<< "$specs")\`. Não bloqueia a publicação. Falha que a main não tem, ou spec desta PR, continua bloqueando.
 <!-- fila:baseline-main-$run -->"
   [ "$COMENTOU" = 1 ] || return 0
   printf '%s\n' "\"<!-- fila:baseline-main-$run -->\"" >> "$TMPF/c-$pr"
@@ -389,15 +407,37 @@ comentar_celular_info() {
 # FILA_FALHA_COMUM_CONTAGEM (linhas "spec<TAB>N<TAB>pr1,pr2") sobrescreve a contagem das OUTRAS PRs (para o gate).
 FALHA_COMUM_FIM='2026-10-21T21:00:00Z'   # 21/10/2026 18:00 America/Sao_Paulo (BRT = UTC-3)
 falha_comum_janela() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$FALHA_COMUM_FIM" +%s)" ]; }
-# TOTAL de testes que FALHARAM num run, pelo número "N failed" do resumo "🎭 Playwright Run Summary" (RD-38: a contagem
-# do relatório, não a lista de anotações — que o GitHub TRUNCA). Ecoa o maior N encontrado, ou vazio se não houver resumo
-# legível. Usado só como GUARDA DE TRUNCAMENTO: se o total > nº de specs nomeados que conseguimos ler, a lista é parcial.
-pos_total_falhas() {
-  local run=$1 jid
+# LISTA COMPLETA pelo LOG do job (Eng. Chefe/CEO 18/10 — P3): as anotações do check-run são limitadas a 10; o log do job
+# traz o relatório "list" do Playwright com TODAS as falhas numeradas ("  1) [celular] › e2e/x.spec.ts:10:7 › ...") e o
+# resumo "  N failed". Ecoa, por job falho, uma linha "N<TAB>spec" por falha numerada (spec vazio = número sem arquivo
+# legível) e uma "T<TAB>total" (vazio = resumo ilegível). Log ilegível/ausente → nenhuma linha T → quem chama bloqueia.
+pos_log_limpo() {
+  api "repos/$REPO/actions/jobs/$1/logs" 2>/dev/null \
+    | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g; s/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //'
+}
+# Fonte 1 (19/10): a anotação única PW-FALHAS-COMPLETAS que a aceitação publica (aceitacao-pr.yml › scripts/merge/anotar-falhas-completas.cjs):
+# "total=N" + uma linha por teste que falhou (arquivo do spec ou "?"). O log do job dá 404 com o token da fila (run da 03:13 de 19/10:
+# total='?' numeradas=0 em 25 PRs); a anotação é o mesmo canal que pos_specs_falhos já lê. Mesmo formato de saída do log: N<TAB>spec e T<TAB>total.
+pos_anot_falhas() {
+  api "repos/$REPO/check-runs/$1/annotations" --paginate \
+    --jq '.[] | select((.title // "") == "PW-FALHAS-COMPLETAS") | (.message // "")' 2>/dev/null \
+    | awk '
+      NR == 1 { achou = 1 }
+      /^total=/ { t = substr($0, 7); next }
+      /^[[:space:]]*$/ { next }
+      { s = ($0 ~ /^e2e\/[A-Za-z0-9_.\/-]+\.spec\.ts$/) ? $0 : ""; print "N\t" s }
+      END { if (achou) print "T\t" (t ~ /^[0-9]+$/ ? t : "") }'
+}
+pos_log_falhas() {
+  local run=$1 jid anot
   for jid in $(api "repos/$REPO/actions/runs/$run/jobs" --jq '.jobs[] | select(.conclusion=="failure") | .id' 2>/dev/null); do
-    api "repos/$REPO/check-runs/$jid/annotations" --paginate \
-      --jq '.[] | select((.title // "") | test("Playwright Run Summary")) | (.message // "")' 2>/dev/null
-  done | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' | sort -rn | head -1
+    anot=$(pos_anot_falhas "$jid" || true)
+    if [ -n "$anot" ]; then printf '%s\n' "$anot"; continue; fi
+    { pos_log_limpo "$jid" || true; } | awk '
+      /^[[:space:]]*[0-9]+\) / { s = ""; if (match($0, /e2e\/[A-Za-z0-9_.\/-]+\.spec\.ts/)) s = substr($0, RSTART, RLENGTH); print "N\t" s }
+      /^[[:space:]]*[0-9]+ failed[[:space:]]*$/ { t = $1 }
+      END { print "T\t" t }'
+  done
 }
 # Para a PR $1: ecoa "spec<TAB>N<TAB>pr1,pr2,…" — N = nº de OUTRAS PRs distintas (≠ $1) cuja aceitação FALHOU naquele spec
 # nas últimas 6 h. Lê os runs do aceitacao-pr.yml que falharam na janela, mapeia run→PR e junta os specs falhos (anotações,
@@ -414,7 +454,8 @@ falha_comum_contagem() {
       [ "$(date -u -d "$created" +%s 2>/dev/null || echo 0)" -ge "$desde" ] || break   # runs vêm do mais recente p/ o mais antigo
       prn=$(api "repos/$REPO/commits/$hsha/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
       [ -n "$prn" ] || continue
-      pos_specs_falhos "$rid" | while IFS= read -r s; do [ -n "$s" ] && printf '%s\t%s\n' "$s" "$prn"; done
+      { pos_specs_falhos "$rid" || true; pos_log_falhas "$rid" | awk -F'\t' '$1=="N" && $2!="" {print $2}'; } | sort -u \
+        | while IFS= read -r s; do [ -n "$s" ] && printf '%s\t%s\n' "$s" "$prn"; done
     done < <(api "repos/$REPO/actions/workflows/aceitacao-pr.yml/runs?status=completed&per_page=80" \
                --jq '.workflow_runs[] | select(.conclusion=="failure") | "\(.id)\t\(.created_at)\t\(.head_sha)"' 2>/dev/null) \
       | sort -u > "$pares"
@@ -433,9 +474,43 @@ Não bloqueia a publicação. Falha só desta PR, spec da própria PR, ou que n�
   printf '%s\n' "\"<!-- fila:falha-comum-$run -->\"" >> "$TMPF/c-$pr"
 }
 
+# REGIME DE CONSTRUÇÃO (CEO 19/10) — REDE DE SEGURANÇA: antes de dispensar a suíte de uma PR elegível, a fila confere se a
+# ÚLTIMA aceitacao-main (vaga 1, suíte real) está VERDE. Se não estiver verde OU não for legível, o regime DESLIGA nesta
+# rodada (toda elegível volta a exigir a suíte) e a fila REGISTRA o aviso. SEM subshell: `log` escreve direto (stderr +
+# sumário + snapshot), para o aviso não se perder (se isto rodasse dentro de $(...), o aviso iria para o valor capturado).
+# Resultado cacheado por rodada em REGIME_MAIN_OK. FILA_REGIME_MAIN (sim|nao) sobrescreve a leitura (para o gate).
+regime_main_ok() {
+  if [ -z "${REGIME_MAIN_OK:-}" ]; then
+    local conc=''
+    if [ -n "${FILA_REGIME_MAIN:-}" ]; then
+      [ "$FILA_REGIME_MAIN" = sim ] && conc=success || conc=nao
+    else
+      local rid
+      for rid in $(api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10" --jq '.workflow_runs[].id' 2> /dev/null || true); do
+        conc=$(api "repos/$REPO/actions/runs/$rid/jobs" --jq '[.jobs[]|select(.name=="aceitacao-main")|.conclusion]|first // empty' 2> /dev/null || true)
+        [ -n "$conc" ] && break
+      done
+    fi
+    REGIME_MAIN_OK=$([ "$conc" = success ] && echo sim || echo nao)
+    [ "$REGIME_MAIN_OK" = sim ] || log "REGIME DE CONSTRUÇÃO DESLIGADO nesta rodada: a última aceitacao-main (vaga 1) não está verde/legível (conclusão='${conc:-ilegível}') — as PRs elegíveis voltam a exigir a suíte (rede de segurança, CEO 19/10)"
+  fi
+  [ "$REGIME_MAIN_OK" = sim ]
+}
+# Comenta UMA vez por run as falhas tratadas como informativas pelo regime. $2 = specs (um por linha), $3 = run da aceitação.
+comentar_regime() {
+  local pr=$1 lista=$2 run=$3
+  comentarios "$pr" | grep -qF "<!-- fila:regime-$run -->" && return 0
+  comentar "$pr" "Fila de merge: **regime de construção** (CEO 19/10, revisão semanal, vale até $REGIME_FIM). Esta PR é elegível (sem migration e sem núcleo) e a última aceitacao-main (vaga 1) está verde, então a **suíte completa é informativa** — não bloqueia. Falhas observadas:
+$(printf '%s' "$lista" | sed '/^$/d; s/^/- /')
+Continuam obrigatórios: gates, guarda de funções, réguas, compilação, preview e, se sensível, o MERGE AUTORIZADO do revisor. **Spec da própria PR continua bloqueando.**
+<!-- fila:regime-$run -->"
+  [ "$COMENTOU" = 1 ] || return 0
+  printf '%s\n' "\"<!-- fila:regime-$run -->\"" >> "$TMPF/c-$pr"
+}
+
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
@@ -495,15 +570,20 @@ estado_checks() {
       proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
       [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
       if [ -n "$falhos" ]; then
-        local contagem restantes amb_lines info n_out prs spec total nomeados
-        # GUARDA DE TRUNCAMENTO (Eng. Chefe 18/10): o GitHub TRUNCA as anotações do check-run (ex.: #2850 dizia "28 falhas"
-        # mas só 8 nomes vinham). Se o TOTAL que falhou (resumo "N failed", RD-38) for MAIOR que o nº de specs nomeados que
-        # conseguimos ler, a lista é parcial → NÃO dá pra concluir "todas comuns". Fail-closed: bloqueia (acc_quar=0, o
-        # caminho normal reprova). Só classifica como ambiente com a lista COMPLETA (total legível e total ≤ nomeados).
-        total=$(pos_total_falhas "$acc_run")
-        nomeados=$(printf '%s\n' "$falhos" | sed '/^$/d' | wc -l | tr -d ' ')
-        if [ -z "$total" ] || { [ "$total" -gt "$nomeados" ] 2>/dev/null; }; then
-          log "#$n: aceitação vermelha com lista de falhas TRUNCADA/ilegível (total='${total:-?}' > nomeados=$nomeados) — bloqueia (fail-closed, Eng. Chefe 18/10)" >&2
+        local contagem restantes amb_lines info n_out prs spec total nomeados numerados logf
+        # LISTA COMPLETA PELO LOG (P3, CEO 18/10): as anotações do check-run têm teto de 10; a lista vem do LOG do job
+        # (falhas numeradas do relatório do Playwright). Só classifica como ambiente se o TOTAL do resumo "N failed"
+        # estiver legível E for igual ao nº de falhas numeradas lidas E todas tiverem arquivo de spec. Log ilegível,
+        # incompleto, total ausente ou divergente → bloqueia (fail-closed).
+        logf=$(pos_log_falhas "$acc_run" || true)
+        total=$(awk -F'\t' '$1=="T" { if ($2 == "") ruim = 1; soma += $2; achou = 1 } END { if (achou && !ruim) print soma }' <<< "$logf")
+        numerados=$(awk -F'\t' '$1=="N"' <<< "$logf" | wc -l | tr -d ' ')
+        nomeados=$(awk -F'\t' '$1=="N" && $2!=""' <<< "$logf" | wc -l | tr -d ' ')
+        falhos=$(awk -F'\t' '$1=="N" && $2!="" {print $2}' <<< "$logf" | sort -u)
+        proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
+        [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
+        if [ -z "$total" ] || [ "$total" -eq 0 ] || [ "$total" -ne "$numerados" ] || [ "$numerados" -ne "$nomeados" ]; then
+          log "#$n: aceitação vermelha sem lista COMPLETA de falhas no log (total='${total:-?}' numeradas=$numerados com spec=$nomeados) — bloqueia (fail-closed, P3 18/10)" >&2
         else
           contagem=$(falha_comum_contagem "$n")
           restantes=""; amb_lines=""
@@ -525,6 +605,27 @@ estado_checks() {
           fi
         fi
       fi
+    fi
+  fi
+  # REGIME DE CONSTRUÇÃO (CEO 19/10, regra temporária até REGIME_FIM): PR ELEGÍVEL (sem migration e sem núcleo; a elegibilidade
+  # e a rede de segurança da main verde são decididas no laço, que só passa regime_disp=1 quando valem). Aqui a SUÍTE COMPLETA
+  # é dispensada (acc_quar=1 → sai do cálculo de pendentes/vermelhos e a fila NÃO espera o job). Continua obrigatório: spec da
+  # PRÓPRIA PR bloqueia (abaixo); gates/guardas/réguas/compilação/preview e, se sensível, o MERGE AUTORIZADO (fora daqui).
+  if [ "$regime_disp" = 1 ] && [ "$acc_quar" != 1 ] && [ -n "$n" ]; then
+    acc_conc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
+    acc_url=$(awk -F'\t' '$1 == "aceitacao" {print $4}' <<< "$linhas" | tail -1)
+    acc_run=$(sed -nE 's#.*/actions/runs/([0-9]+).*#\1#p' <<< "$acc_url")
+    if [ "$acc_conc" = failure ] && [ -n "$acc_run" ]; then
+      falhos=$(pos_specs_falhos "$acc_run")
+      proprios=$(comm -12 <(printf '%s\n' "$falhos" | sed '/^$/d') <(pr_specs_proprios "$n"))
+      [ -z "$proprios" ] || { echo "vermelho:spec da própria PR falhando: $(tr '\n' ' ' <<< "$proprios")"; return; }
+      acc_quar=1
+      log "#$n: REGIME DE CONSTRUÇÃO — elegível (sem migration, sem núcleo; main verde): suíte informativa, não bloqueia (CEO 19/10): $(tr '\n' ' ' <<< "$falhos")" >&2
+      comentar_regime "$n" "$falhos" "$acc_run" >&2
+    else
+      # aceitação verde/pulada/pendente/ausente: dispensada de qualquer forma (a fila não espera o job)
+      acc_quar=1
+      log "#$n: REGIME DE CONSTRUÇÃO — elegível (sem migration, sem núcleo; main verde): aceitação (${acc_conc:-ausente}) dispensada, não espera o job (CEO 19/10)" >&2
     fi
   fi
   # [CELULAR] INFORMATIVO (CEO 17/10, regra temporária): vermelho só no [celular], sem spec da própria PR → não bloqueia
@@ -700,7 +801,7 @@ em_preparo=0
 LOTE_MAX=${LOTE_MAX:-6}
 # RITMO (CEO 15/10): teto de publicações por hora. Conta as PRs já mergeadas na main na última hora (fail-open: erro de
 # API/valor não-numérico = 0, a rodada segue), para a janela aberta da via revisada não virar enxurrada de merges.
-RITMO_MAX_HORA=${RITMO_MAX_HORA:-4}
+RITMO_MAX_HORA=${RITMO_MAX_HORA:-6}
 pub_hora=${FILA_PUB_HORA:-$(api "search/issues?q=repo:$REPO+is:pr+is:merged+base:main+merged:>=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" --jq '.total_count' 2>/dev/null || echo 0)}
 [ "${pub_hora:-0}" -eq "${pub_hora:-0}" ] 2>/dev/null || pub_hora=0
 disp_hora=$((RITMO_MAX_HORA - pub_hora))
@@ -766,12 +867,16 @@ for n in $fila; do
   jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
   # Eng. Chefe 14/10: tela/cálculo/migration/área crítica NUNCA publica pela via rápida, mesmo sem etiqueta (furo da #2592):
   # a fila coloca a etiqueta e espera o MERGE AUTORIZADO do revisor (o patch-id é conferido na próxima rodada).
-  if [ "$via" = rapida ] && [ "$(printf '%s\n' "$arquivos" | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
-    log "#$n toca tela/cálculo/migration/área crítica sem etiqueta: ponho $SENSIVEL e espero a autorização"
+  # Modelo CEO 21/10: produto novo/aditivo publica direto; só o CRÍTICO espera verde. O classificador decide pelo conteúdo
+  # (para .sql anexa o patch em base64), com viés de segurança (migration ilegível → crítica).
+  if [ "$via" = rapida ] && [ "$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[] | select(.status != "removed") | if (.filename | test("\\.sql$")) then .filename + "\t" + ((.patch // "") | split("\n") | map(select(startswith("+")) | ltrimstr("+")) | join("\n") | @base64) else .filename end' 2>/dev/null | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
+    log "#$n toca núcleo crítico (fiscal/financeiro/RLS/LGPD/migration não-aditiva) sem etiqueta: ponho $SENSIVEL e espero a autorização"
     api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
     continue
   fi
-  log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')"
+  # Espelho (19/10): o tem_migration do erp_esteira_pr_estado vem do texto do log; sem esta marca, PR com migration que
+  # seguia o caminho normal ("checks rodando: aceitacao") aparecia com tem_migration=false (12 PRs de 19/10 — diagnóstico errado).
+  log "#$n segue a $([ "$via" = rapida ] && echo 'via rápida (checks + preview; aceitação informativa)' || echo 'via revisada (aceitação verde + MERGE AUTORIZADO)')$([ "$com_migration" = 1 ] && echo ' (com migration)')"
 
   # (c) sensível → autorização pelo conteúdo
   if [ "$via" = revisada ]; then
@@ -780,9 +885,17 @@ for n in $fila; do
     log "#$n: autorização do gilberto-revisor confere com o conteúdo (patch-id)"
   fi
 
+  # REGIME DE CONSTRUÇÃO (CEO 19/10): PR ELEGÍVEL = dentro da janela, SEM migration e SEM núcleo (REGIME_NUCLEO_RE, fonte
+  # única em regime-nucleo.sh). REDE DE SEGURANÇA: só dispensa a suíte se a última aceitacao-main (vaga 1) estiver verde
+  # (regime_main_ok, sem subshell, registra o aviso e desliga o regime se não estiver). Núcleo/migration/janela vencida/
+  # main não-verde → regime_disp=0 (a PR volta a exigir a suíte como hoje).
+  regime_disp=0
+  if regime_janela && [ "$com_migration" = 0 ] && ! grep -qiE "$REGIME_NUCLEO_RE" <<< "$arquivos"; then
+    regime_main_ok && regime_disp=1
+  fi
   # checks ANTES de atualizar com a main (CEO 08/10, fila sem etiqueta): só a PR verde é atualizada — a vermelha
   # recebe o aviso e fica como está (sem empurrar merge da main no ramo de quem ainda não acabou a PR).
-  c=$(estado_checks "$sha" "$via" "$so_docs" "$n")
+  c=$(estado_checks "$sha" "$via" "$so_docs" "$n" "$regime_disp")
   case "$c" in
     vermelho:*)
       # Deadlock 12/10: vermelho SÓ de guarda que lê o estado da main (check_fn_guards etc.) numa PR atrás da main costuma ser
@@ -833,7 +946,7 @@ for n in $fila; do
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
   if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ] && [ "$lote_mig_n" = 0 ]; then
-    m=$(estado_main)
+    m=$(estado_main "$via")
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
       so_sem_migration=1; continue
