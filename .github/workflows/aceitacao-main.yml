@@ -24,8 +24,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write        # revert automático (esteira contínua): cria o ramo de revert quando ligado
   issues: write
+  pull-requests: write   # revert automático: abre a PR de revert
   actions: read
 
 jobs:
@@ -245,6 +246,18 @@ jobs:
           RESULTADO: ${{ steps.suite.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: scripts/merge/main-vermelha.sh
+      # Esteira contínua (CEO 22/10): no vermelho, a fila tenta RESTAURAR a main sozinha (revert automático) em vez de
+      # travar. OBSERVAÇÃO por padrão (só diz o que FARIA); liga com a variável de repo REVERT_AUTO_LIGADO=1 depois do OK
+      # do CEO. Travas (todas): 2 reds seguidos (não-flaky), 1 só PR culpada, sem migration. Ver reverter-automatico.sh.
+      - name: Revert automático (restaura a main no vermelho)
+        if: steps.ja.outputs.pular == 'false' && failure()
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.ja.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVERT_AUTO: ${{ vars.REVERT_AUTO_LIGADO || '0' }}
+        run: scripts/merge/reverter-automatico.sh
       - name: Upload relatório (em caso de falha)
         if: steps.ja.outputs.pular == 'false' && (failure())
         uses: actions/upload-artifact@v4
