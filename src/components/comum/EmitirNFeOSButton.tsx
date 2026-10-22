@@ -17,9 +17,11 @@
 // passando osId + a justificativa, que ficam no registro da nota (recuperável depois).
 
 import { useState, type CSSProperties } from 'react'
+import { FileText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
+import { NotaDaOSStatus, notaJaEmitida, useNotaDaOS } from '@/components/comum/NotaFiscalDaOS'
 
 type ItemEmitivel = {
   item_id: string; produto_id: string; descricao: string; quantidade: number
@@ -57,6 +59,9 @@ export default function EmitirNFeOSButton({
   const [producao, setProducao] = useState(false)
   const [fase, setFase] = useState<'form' | 'enviando' | 'resultado'>('form')
   const [resultado, setResultado] = useState<{ ok?: boolean; status?: string; numero?: string | null; mensagem?: string; motivoRejeicao?: string } | null>(null)
+  // #2167 · nota já emitida para a OS → botão verde que abre o DANFE
+  const { nota, recarregar } = useNotaDaOS('nfe', osId, companyId)
+  const notaEmitida = notaJaEmitida(nota)
 
   async function preparar() {
     setErro(null); setCarregando(true)
@@ -120,7 +125,7 @@ export default function EmitirNFeOSButton({
     } catch (e) {
       setResultado({ ok: false, mensagem: e instanceof Error ? e.message : 'Falha na emissão' })
     } finally {
-      setFase('resultado'); onEmitida?.()
+      setFase('resultado'); onEmitida?.(); void recarregar()
     }
   }
 
@@ -130,12 +135,19 @@ export default function EmitirNFeOSButton({
 
   return (
     <>
-      <button type="button" onClick={() => void preparar()} disabled={carregando}
-        data-testid="os-nfe-emitir"
-        title="Emite a NF-e de produto (peças) da OS. Só peças com produto de catálogo e NCM entram — texto livre fica de fora."
-        style={{ ...defBtn, ...buttonStyle, opacity: carregando ? 0.6 : 1 }}>
-        {carregando ? 'Preparando…' : '📄 Emitir NF-e (peças)'}
-      </button>
+      {notaEmitida ? (
+        <NotaDaOSStatus tipo="nfe" nota={nota} companyId={companyId}
+          onAtualizar={() => void recarregar()} onEmitirOutra={() => void preparar()} />
+      ) : (
+        <button type="button" onClick={() => void preparar()} disabled={carregando}
+          data-testid="os-nfe-emitir"
+          title={nota?.status === 'rejeitada'
+            ? `A última NF-e desta OS foi rejeitada${nota.motivo_rejeicao ? `: ${nota.motivo_rejeicao}` : ''}. Corrija e emita de novo.`
+            : 'Emite a NF-e de produto (peças) da OS. Só peças com produto de catálogo e NCM entram — texto livre fica de fora.'}
+          style={{ ...defBtn, ...buttonStyle, opacity: carregando ? 0.6 : 1 }}>
+          {carregando ? 'Preparando…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileText size={14} aria-hidden />{nota?.status === 'rejeitada' ? 'Reenviar NF-e (peças)' : 'Emitir NF-e (peças)'}</span>}
+        </button>
+      )}
 
       {erro && !aberto && (
         <div role="alert" style={{ flexBasis: '100%', marginTop: 8, ...box(C.redBg, '#791F1F'), borderLeft: `4px solid ${C.red}` }}>

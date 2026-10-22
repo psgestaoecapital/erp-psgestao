@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { chaveDeLeitura, criarDisjuntor } from './disjuntorRequisicoes'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -18,7 +19,17 @@ function sinalizarSessaoSuspeita(): void {
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(EVENTO_SESSAO_SUSPEITA))
   } catch { /* nunca quebra o fetch */ }
 }
+const permitirLeitura = criarDisjuntor()
 const fetchComGuarda: typeof fetch = async (input, init) => {
+  // P1 17/10: leitura idêntica repetida além do limite = laço de tela; corta (429 local) em vez de martelar o banco.
+  try {
+    const metodo = init?.method ?? (typeof input === 'object' && 'method' in input ? input.method : 'GET')
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const chave = chaveDeLeitura(metodo, url)
+    if (chave && !permitirLeitura(chave)) {
+      return new Response(JSON.stringify({ message: 'Muitas leituras repetidas (laço interrompido no cliente)' }), { status: 429, headers: { 'Content-Type': 'application/json' } })
+    }
+  } catch { /* o disjuntor nunca quebra o fetch */ }
   const res = await fetch(input, init)
   try { if (res.status === 401) sinalizarSessaoSuspeita() } catch { /* noop */ }
   return res

@@ -80,6 +80,27 @@ WHERE a.attrelid = ('public.' || quote_ident(:'t'))::regclass AND a.attnum > 0 A
 SQL
 )
   [ -n "$cols" ] || erro "$t: sem colunas para copiar"
+  # Causa 2 (CEO 21/10): com SEED_INTERSECAO=1 (montar do_zero, schema das migrations do zero), copia só as colunas em
+  # COMUM entre produção e banco de testes — colunas que só existem na prod (drift) são ignoradas, sem quebrar o COPY.
+  # No montar atual (schemas iguais) a interseção == colunas da prod: no-op.
+  if [ "${SEED_INTERSECAO:-}" = "1" ]; then
+    # to_regclass → NULL (sem erro) se a tabela não existe no schema das migrations; aí a interseção fica vazia e PULAMOS
+    tcols=$("$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -At -v t="$t" -v auditoria="$AUDITORIA" <<'SQL'
+SET statement_timeout = '15s';
+SELECT string_agg(quote_ident(a.attname), ',') FROM pg_attribute a
+WHERE a.attrelid = to_regclass('public.' || quote_ident(:'t')) AND a.attnum > 0 AND NOT a.attisdropped
+  AND a.attgenerated = '' AND a.attname !~ :'auditoria';
+SQL
+)
+    inter=""; IFS=',' read -ra PA <<< "$cols"
+    for c in "${PA[@]}"; do case ",$tcols," in *",$c,"*) inter="${inter:+$inter,}$c";; esac; done
+    if [ -z "$inter" ]; then
+      echo "::warning::catálogo $t: tabela ausente ou sem coluna em comum no schema das migrations — PULADA (drift prod×migrations)"
+      continue
+    fi
+    [ "$inter" = "$cols" ] || echo "::notice::$t: seed por interseção (colunas só-da-prod ignoradas)"
+    cols="$inter"
+  fi
   echo "$cols" > "$dir/$(printf '%02d' "$i").cols"
   PGOPTIONS='-c statement_timeout=120s -c lock_timeout=5s' "$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q \
     -c "\\copy (SELECT $cols FROM public.$t) TO '$f'"
@@ -87,6 +108,29 @@ SQL
   echo "$t $n" >> "$dir/esperado.txt"
   echo "dump $t: $n linha(s)"
 done
+
+# Causa 2 (CEO 21/10): no montar do_zero carrega TABELA A TABELA, tolerante — a tabela cujo dado da prod não encaixa no
+# schema das migrations (drift da prod) é PULADA com aviso e o montar segue verde. A lista de puladas é o mapa exato de
+# onde a produção divergiu das migrations (pra reconciliar depois). O fluxo atual (schemas iguais) segue abaixo, intacto.
+if [ "${SEED_INTERSECAO:-}" = "1" ]; then
+  puladas=""; carregadas=0; i=0
+  for t in "${TABELAS[@]}"; do
+    i=$((i + 1)); f=$(printf '%s/%02d_%s.copy' "$dir" "$i" "$t"); cf="$dir/$(printf '%02d' "$i").cols"
+    [ -f "$cf" ] && [ -f "$f" ] || { puladas="$puladas $t"; echo "::warning::catálogo $t: ausente no schema das migrations — PULADA"; continue; }
+    if "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q 2> "$dir/err.log" \
+         -c "SET session_replication_role = replica;" -c "DELETE FROM public.$t;" \
+         -c "\\copy public.$t ($(cat "$cf")) FROM '$f'"; then
+      carregadas=$((carregadas + 1))
+    else
+      puladas="$puladas $t"
+      echo "::warning::catálogo $t não encaixou no schema das migrations (drift prod×migrations) — PULADA: $(tr '\n' ' ' < "$dir/err.log" | sed 's/^ *//' | cut -c1-160)"
+    fi
+  done
+  PSQL="$PSQL" "$(dirname "$0")/acertar-sequences.sh" || true
+  echo "### Catálogos do_zero (tolerante): $carregadas carregada(s) · puladas:${puladas:-nenhuma}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  echo "catálogos (do_zero, tolerante): ok · carregadas=$carregadas · puladas:${puladas:-nenhuma}"
+  exit 0
+fi
 
 # Carga no banco de TESTES: transação única (ou entra tudo ou nada).
 {
@@ -103,6 +147,8 @@ done
   echo 'COMMIT;'
 } > "$dir/carga.sql"
 "$PSQL" "$TEST_DATABASE_URL" -q -f "$dir/carga.sql"
+# Contadores: o \copy trouxe os ids da produção sem avançar as sequences (duplicate key na próxima inserção).
+PSQL="$PSQL" "$(dirname "$0")/acertar-sequences.sh"
 
 # Conferência (RD-38): contagem no banco de testes = linhas do dump, tabela a tabela.
 echo "### Catálogos globais copiados da produção (whitelist, só dados)" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

@@ -3,6 +3,7 @@
 // (Registrar Visita). Captura IBGE do ViaCEP (obrigatório na NF). Salva direto em erp_clientes (RLS por company).
 import React, { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { normalizarCep } from "@/lib/cadastro/cep";
 
 const BG3 = "var(--ps-bg3,#F0ECE3)", TX = "var(--ps-text,#3D2314)", TXD = "var(--ps-text-d,#9C8E80)";
 const BD = "var(--ps-border,#E0D8CC)", GO = "var(--ps-gold,#C8941A)";
@@ -121,7 +122,7 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel, hid
     // IBGE obrigatório na NF nacional: se tem CEP e o IBGE ainda não foi preenchido (usuário pode não ter
     // clicado no 🔍), busca automaticamente no submit via ViaCEP. Garante que nunca salva sem o código.
     let ibgeFinal = (form.codigo_ibge_municipio ?? '').trim();
-    const cepDigits = (form.cep || '').replace(/\D/g, '');
+    const cepDigits = normalizarCep(form.cep);
     if (!ibgeFinal && cepDigits.length === 8) {
       try {
         const r = await fetch(`/api/cep-lookup?cep=${cepDigits}`);
@@ -145,7 +146,7 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel, hid
       codigo: form.codigo ?? '', razao_social: (form.razao_social ?? '').trim(), nome_fantasia: form.nome_fantasia ?? '',
       tipo_pessoa: form.tipo_pessoa ?? 'PJ', cpf_cnpj: (form.cpf_cnpj || '').replace(/\D/g, ''), ie: form.ie ?? '',
       telefone: form.telefone ?? '', whatsapp: form.whatsapp ?? '', email: form.email ?? '',
-      cep: form.cep ?? '', logradouro: endNum.logradouro, numero: endNum.numero, complemento: form.complemento ?? '',
+      cep: cepDigits, logradouro: endNum.logradouro, numero: endNum.numero, complemento: form.complemento ?? '',
       bairro: form.bairro ?? '', cidade: form.cidade ?? '', uf: form.uf ?? '', codigo_ibge_municipio: ibgeFinal,
       limite_credito: Number(form.limite_credito) || 0, condicao_pagamento_padrao: form.condicao_pagamento_padrao ?? '',
       prazo_medio_dias: Number(form.prazo_medio_dias) || 0, vendedor_nome: form.vendedor_nome ?? '',

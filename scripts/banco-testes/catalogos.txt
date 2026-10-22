@@ -30,9 +30,6 @@ rbac_subgrupo_catalogo
 rbac_papel
 rbac_papel_acesso
 
-# EPI: categorias globais (fn_demo_reset da indústria SST resolve epi_catalogo.categoria_id por slug; sem elas → 23502)
-epi_categoria
-
 # Referência fiscal/geral usada pelas specs
 fiscal_codigo_catalogo      # LC 116 (200) e NBS (675)
 fiscal_correlacao_servico   # LC 116 ↔ NBS ↔ cClassTrib
@@ -59,3 +56,8 @@ compliance_tipos_documento  # tryo-documentos-so-aplicaveis-47, seguranca-rls-co
 erp_banco_manifesto         # seguranca-rls-conteudo-pr2
 erp_banco_erro_catalogo     # seguranca-rls-conteudo-pr2
 erp_ajuda_campo             # ajuda-campo-mao-obra, produtividade-cadastro-editavel (textos do "?", RD-95)
+
+# Plano de contas PSGC (19/10): global (codigo/nome/nivel/pai_codigo/dre_*, sem dono nem dado pessoal). A semente da DEMO
+# P&M (fn_demo_seed_pm_jornada, via fn_gold_pm_seed_reparar no fn_demo_reset) grava psgc_depara com psgc_codigo '1.3' (FK
+# psgc_depara_psgc_codigo_fkey); sem o catálogo o Montar 473-477 abortou na Semente.
+psgc_contas

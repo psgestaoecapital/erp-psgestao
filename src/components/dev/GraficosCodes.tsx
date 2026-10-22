@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, AreaChart } from 'recharts'
 import { supabase } from '@/lib/supabase'
+import GraficosHistoricoCodes from './GraficosHistoricoCodes'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CODES_PAINEL, duracao, type Entrega } from '@/lib/dev/painelCodes'
 import { PERIODOS, PERIODO_DIAS, pilhaProntas, publicacoesPorDia, publicacoesPorHora, totalPeriodo, vazaoPorDia, type Periodo } from '@/lib/dev/desempenhoCodes'
@@ -114,6 +115,7 @@ export default function GraficosCodes() {
           </Cartao>
         </div>
       )}
+      <GraficosHistoricoCodes periodo={periodo} />
     </div>
   )
 }
