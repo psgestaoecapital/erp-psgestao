@@ -247,7 +247,7 @@ function Kpi({ label, n, cor, bg }: { label: string; n: number; cor: string; bg:
 
 // ─────────────────────── CIÊNCIA MENSAL (#74) ───────────────────────
 // #2369: almoço do dia junto da jornada (janela da escala + minutos apurados)
-const textoAlmoco = (a?: { inicio?: string; fim?: string; min?: number } | null) => !a ? '' : `almoço ${a.inicio && a.fim ? `${a.inicio}–${a.fim}` : ''}${a.min != null ? `${a.inicio && a.fim ? ' ' : ''}(${a.min} min)` : ''}`.trim()
+const textoAlmoco = (a?: { inicio?: string; fim?: string; min?: number } | null) => !a ? '' : `almoço ${a.inicio && a.fim ? `${a.inicio}–${a.fim}` : ''}`.trim()
 
 // Gera o relatório mensal por colaborador, coleta a assinatura via link público (mesmo fluxo do
 // EPI) e acompanha quem falta. O documento declara a origem de cada horário (RD-38).
@@ -478,11 +478,11 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
               <div><b>Função:</b> {snap.funcao || '—'}</div><div><b>Setor:</b> {snap.setor || '—'}</div>
             </div>
             {detalhe.map((d, i) => (
-              <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
+              <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0', breakInside: 'avoid' }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span>{textoAlmoco(d.almoco) && <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }} data-testid="ciencia-almoco"> · {textoAlmoco(d.almoco)}</span>}</div>
                 {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.gray }} data-testid="ciencia-originais">{notaDiaDoc(d.ajuste)}</div>}
                 {(d.pausas || []).length === 0 ? <div style={{ fontSize: 11.5, color: C.gray, fontStyle: 'italic' }}>Sem pausa registrada.</div> :
-                  (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 28 }} data-testid="ciencia-pausas-dia">{(d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7, flex: '1 1 230px' }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}</div>}
               </div>
             ))}
             {nEst > 0 && (
