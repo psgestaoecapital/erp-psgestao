@@ -58,6 +58,24 @@ export async function baixarPdfNotaDaOS(tipo: TipoNotaOS, nota: NotaDaOS, compan
   await baixarUrlComNome(signed.data.signedUrl, nome)
 }
 
+/** #2167 (lista de OS) · abre o PDF de uma nota pelo id — mesma leitura e mesmo download do botão verde da OS. */
+export async function abrirPdfNotaPorId(tipo: TipoNotaOS, id: string, companyId: string): Promise<void> {
+  const q = tipo === 'nfe'
+    ? supabase.from('erp_nfe_emitidas')
+        .select('id, status, numero, data_emissao, criado_em, pdf_url:danfe_url, destinatario_cnpj, destinatario_cpf, razao:destinatario_razao_social, motivo_rejeicao')
+    : supabase.from('erp_nfse_emitidas')
+        .select('id, status, numero, data_emissao, criado_em, pdf_url, tomador_cnpj, tomador_cpf, razao:tomador_razao_social, motivo_rejeicao')
+  const { data, error } = await q.eq('id', id).eq('company_id', companyId).maybeSingle()
+  if (error) throw error
+  if (!data) throw new Error('Nota não encontrada.')
+  const r = data as unknown as Record<string, string | null>
+  await baixarPdfNotaDaOS(tipo, {
+    id: String(r.id), status: String(r.status ?? ''), numero: r.numero ?? null, data_emissao: r.data_emissao ?? null,
+    criado_em: r.criado_em ?? null, pdf_url: r.pdf_url ?? null, razao: r.razao ?? null, motivo_rejeicao: r.motivo_rejeicao ?? null,
+    doc: (tipo === 'nfe' ? (r.destinatario_cnpj || r.destinatario_cpf) : (r.tomador_cnpj || r.tomador_cpf)) ?? null,
+  }, companyId)
+}
+
 const C = { green: '#166534', greenBg: '#EAF3DE', amber: '#B45309', amberBg: '#FAEEDA', espressoM: '#6B5D4F' }
 
 /**

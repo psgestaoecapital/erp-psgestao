@@ -113,3 +113,6 @@ DO $$ BEGIN
   IF to_regclass('public.e2e_trava') IS NOT NULL THEN DELETE FROM public.e2e_trava; END IF;
 END $$;
 COMMIT;
+
+-- dados fiscais das DEMOs espelho da produção (uf_fiscal/IE) — ver semente-fiscal-demo.sql
+\ir semente-fiscal-demo.sql
