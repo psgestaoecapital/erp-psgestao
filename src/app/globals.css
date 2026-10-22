@@ -35,6 +35,37 @@
   --input-placeholder: #9A8F80;
 }
 
+/* ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ * TEMA POR USUÁRIO (CEO 10/10). O ThemeApplier põe data-modo (claro|escuro) e a cor de destaque (--gold) no <html>
+ * a partir da preferência do usuário (src/theme/theme-presets.ts). Só a cor de DESTAQUE e o MODO mudam.
+ * NUNCA muda: o semáforo (--green/--yellow/--red) e os campos de dados (--input-*) — ficam fixos na marca.
+ * Modo ESCURO = os tokens do :root acima (padrão). Modo CLARO = os overrides abaixo.
+ * ─────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+:root[data-modo="claro"] {
+  --bg-primary: #F5F2EC;   /* off-white quente da marca */
+  --bg-card: #FFFFFF;
+  --bg-elevated: #FBF9F4;
+  --bg-hover: #EFEAE0;
+  --border: #E4DDCF;
+  --border-light: #D4CBB8;
+  --text-primary: #2A211A;
+  --text-secondary: #5A4F42;
+  --text-muted: #8A7E6E;
+}
+
+/* Documentos cliente-facing: impressão/PDF do navegador SEMPRE na marca PS, ignorando o tema do usuário.
+ * (PDFs de servidor já não enxergam estas vars.) Trava crítica: nunca sai documento roxo/teal pro cliente. */
+@media print {
+  :root, :root[data-modo="claro"], :root[data-modo="escuro"] {
+    --gold: #C6973F; --gold-light: #E8C872; --gold-dark: #8B6914;
+    --gold-glow: rgba(198,151,63,0.15); --gold-subtle: rgba(198,151,63,0.06);
+    --bg-primary: #FFFFFF; --bg-card: #FFFFFF; --bg-elevated: #FFFFFF; --bg-hover: #F3EFE8;
+    --border: #E7DECF; --border-light: #D4CBB8;
+    --text-primary: #3D2314; --text-secondary: #5A4F42; --text-muted: #8A7E6E;
+    --green: #15803D; --yellow: #B45309; --red: #B91C1C; /* semáforo da marca no papel */
+  }
+}
+
 /* box-sizing fica fora de layer (afeta TODOS sem ser clobbed por nada) */
 * { box-sizing: border-box; }
 
