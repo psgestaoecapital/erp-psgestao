@@ -160,9 +160,9 @@ esac
         put(`${R}/actions/runs/2`, { head_sha: 'deadpos1', run_attempt: 1 })
         put(`${R}/commits/deadpos1/pulls`, [{ number: posMain.headPr ?? prs[0]?.n ?? 1 }])
       }
-      // Padrão: agora DEPOIS da janela da via revisada (CEO 15/10) e sem publicações na última hora, para os gates
-      // existentes verem o comportamento normal. Os testes da janela/ritmo passam FILA_AGORA_EPOCH / FILA_PUB_HORA em envExtra.
-      const envPadrao = { FILA_AGORA_EPOCH: String(Math.floor(Date.UTC(2026, 9, 20) / 1000)), FILA_PUB_HORA: '0' }
+      // Padrão: agora DEPOIS da janela da via revisada (reaberta CEO 22/10 até 2026-10-23T20:00:00Z) e sem publicações na
+      // última hora, para os gates existentes verem o comportamento normal. Os testes da janela/ritmo passam FILA_AGORA_EPOCH / FILA_PUB_HORA em envExtra.
+      const envPadrao = { FILA_AGORA_EPOCH: String(Math.floor(Date.UTC(2026, 9, 25) / 1000)), FILA_PUB_HORA: '0' }
       const r = spawnSync('bash', [SCRIPT_FILA], { cwd: w, encoding: 'utf8',
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FX: fx, GH_TOKEN: 'x', REPO: 'o/r', GITHUB_STEP_SUMMARY: '', ...envPadrao, ...envExtra } })
       const log = `${r.stdout}${r.stderr}`

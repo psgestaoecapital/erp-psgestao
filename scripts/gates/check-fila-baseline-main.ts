@@ -26,7 +26,9 @@ if (!temFerramentas()) {
 } else {
   const dir = mkdtempSync(join(tmpdir(), 'bmain-'))
   const vazia = join(dir, 'q.txt'); writeFileSync(vazia, '# vazia\n')
-  const env = { FILA_QUARENTENA_JORNADAS: vazia, FILA_AGORA_EPOCH: dentro, FILA_BASELINE_MAIN_SPECS: `${M1}\n${M2}` }
+  // Fecha a janela da aceitação revisada nestes testes (ela foi reaberta até 23/10, englobando as datas do baseline-main):
+  // assim a aceitação VERMELHA volta a bloquear e a lógica do baseline-main é de fato exercida.
+  const env = { FILA_QUARENTENA_JORNADAS: vazia, FILA_AGORA_EPOCH: dentro, FILA_BASELINE_MAIN_SPECS: `${M1}\n${M2}`, JANELA_ACEITACAO_REVISADA_FIM: '2026-10-16T00:00:00Z' }
   const rev = { n: 1, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'failure' as const }
   comFilaSimulada((rodar) => {
     let x = rodar([{ ...rev, aceitacaoSpecs: [M1] }], false, 5000, env)
