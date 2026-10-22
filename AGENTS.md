@@ -427,3 +427,9 @@ Escopo inicial: **rebase/resolução de conflito** e **PR multi-arquivo**. Funç
   `scripts/gates/check-fila-quarentena-jornadas.ts`.
 
 - **Comparação com a main (CEO 17/10 14:35 BRT, TEMPORÁRIA 24 h):** aceitação da main #462 vermelha (ambiente de teste doente). Na via revisada, se TODOS os specs que falharam na aceitação da PR já falharam na ÚLTIMA aceitação da main (`aceitacao-main.yml`), a fila não bloqueia e comenta as falhas herdadas; falha que a main não tem, spec da PRÓPRIA PR e falha ilegível bloqueiam. Vale de 2026-10-17T17:35Z a 2026-10-18T17:35Z (`BASELINE_MAIN_INICIO/FIM` em `fila-merge.sh`) e desliga sozinha quando a última aceitação da main concluída deixa de ser falha. Gate: `scripts/gates/check-fila-baseline-main.ts`.
+
+# Limite de PRs prontas esperando: no máximo 3 (CEO 14/10) — vale para TODOS os Codes (inclusive jordana-code e rodrigo-code)
+Antes de abrir PR NOVA, chame `SELECT fn_esteira_pode_abrir_pr('<seu-identificador>'[, p_urgente := true | p_correcao_esteira := true]);`
+(contagem igual à do painel "PRs prontas esperando"). Se `pode` = false (prontas > 3), **não abra PR nova**: trabalhe só em destravar —
+aceitação vermelha (re-rodar ou corrigir), "AJUSTES ANTES DO MERGE" do revisor, rascunho autorizado → Ready, conflito com a main,
+ordem das migrations. Exceções: tarefa marcada URGENTE (cliente/produção) e correção de esteira. Gate: `scripts/gates/check-esteira-limite-prontas.ts`.
