@@ -6,17 +6,18 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { curvaS } from '@/lib/hub/curvaS'
+import { fisicoFinanceiro } from '@/lib/hub/fisicoFinanceiro'
 
 const ROTA_AJUDA = '/dashboard/projetos/obras/[id]/cronograma'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 const DIA = 86400000
 
-type Tarefa = { id: string; nome: string; inicio: string; fim: string; percentual: number; inicio_base: string | null; fim_base: string | null; ordem: number }
+type Tarefa = { id: string; nome: string; inicio: string; fim: string; percentual: number; inicio_base: string | null; fim_base: string | null; ordem: number; custo_previsto: number | null }
 type Dep = { id: string; tarefa_id: string; predecessora_id: string; defasagem_dias: number }
-type Form = { id: string | null; nome: string; inicio: string; fim: string; percentual: string; predecessora: string; defasagem: string }
+type Form = { id: string | null; nome: string; inicio: string; fim: string; percentual: string; predecessora: string; defasagem: string; custo: string }
 
 const hoje = () => new Date().toISOString().slice(0, 10)
-const vazio = (): Form => ({ id: null, nome: '', inicio: hoje(), fim: hoje(), percentual: '0', predecessora: '', defasagem: '0' })
+const vazio = (): Form => ({ id: null, nome: '', inicio: hoje(), fim: hoje(), percentual: '0', predecessora: '', defasagem: '0', custo: '' })
 const ms = (d: string) => new Date(d + 'T00:00:00').getTime()
 const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 const dias = (a: string, b: string) => Math.round((ms(b) - ms(a)) / DIA) + 1
@@ -33,7 +34,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro(null)
-    const t = await supabase.from('projetos_obra_tarefa').select('id,nome,inicio,fim,percentual,inicio_base,fim_base,ordem')
+    const t = await supabase.from('projetos_obra_tarefa').select('id,nome,inicio,fim,percentual,inicio_base,fim_base,ordem,custo_previsto')
       .eq('obra_id', id).is('excluido_em', null).order('ordem').order('inicio')
     if (t.error) { setLoading(false); setErro(t.error.message); return }
     const lista = (t.data ?? []) as Tarefa[]
@@ -65,12 +66,14 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     return peso > 0 ? tarefas.reduce((s, t) => s + (dias(t.inicio, t.fim) * Number(t.percentual)) / 100, 0) / peso * 100 : 0
   }, [tarefas])
   const curva = useMemo(() => curvaS(tarefas, hoje()), [tarefas])
+  const ff = useMemo(() => fisicoFinanceiro(tarefas, hoje()), [tarefas])
+  const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const temBase = tarefas.some((t) => t.fim_base)
   const atrasadas = tarefas.filter((t) => t.fim_base && t.fim > t.fim_base).length
 
   function editar(t: Tarefa) {
     const p = predDe(t.id)
-    setForm({ id: t.id, nome: t.nome, inicio: t.inicio, fim: t.fim, percentual: String(t.percentual), predecessora: p?.predecessora_id ?? '', defasagem: String(p?.defasagem_dias ?? 0) })
+    setForm({ id: t.id, nome: t.nome, inicio: t.inicio, fim: t.fim, percentual: String(t.percentual), predecessora: p?.predecessora_id ?? '', defasagem: String(p?.defasagem_dias ?? 0), custo: t.custo_previsto == null ? '' : String(t.custo_previsto) })
   }
 
   async function salvar(e: React.FormEvent) {
@@ -81,11 +84,15 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     const pct = Number(form.percentual)
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) { setErro('O avanço deve ficar entre 0 e 100.'); return }
     setSalvando(true); setErro(null); setAviso(null)
+    const custo = form.custo.trim() === '' ? null : Number(form.custo.replace(',', '.'))
+    if (custo !== null && (!Number.isFinite(custo) || custo < 0)) { setErro('O custo previsto deve ser um valor maior ou igual a zero.'); return }
     const dados: Record<string, unknown> = { nome: form.nome.trim(), inicio: form.inicio, fim: form.fim, percentual: pct }
     if (form.id) dados.id = form.id; else dados.ordem = tarefas.length
     const r = await supabase.rpc('fn_obra_tarefa_salvar', { p_obra_id: id, p_dados: dados })
     if (r.error) { setSalvando(false); setErro(r.error.message); return }
     const tid = (r.data as { id: string }).id
+    const cr = await supabase.rpc('fn_obra_tarefa_custo_salvar', { p_id: tid, p_custo: custo })
+    if (cr.error) { setSalvando(false); setErro(cr.error.message); await carregar(); return }
     if (form.predecessora) {
       const dr = await supabase.rpc('fn_obra_tarefa_dependencia_salvar', { p_tarefa_id: tid, p_predecessora_id: form.predecessora, p_defasagem: Number(form.defasagem) || 0 })
       if (dr.error) { setSalvando(false); setErro(dr.error.message === 'Dependência circular' ? 'Essa dependência cria um ciclo: a predecessora já depende desta tarefa.' : dr.error.message); await carregar(); return }
@@ -145,6 +152,9 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                 <label style={lbl}>Avanço (%) <AjudaCampo chave="projetos.cronograma.percentual" rota={ROTA_AJUDA} />
                   <input type="number" min={0} max={100} step={1} value={form.percentual} onChange={(e) => setForm({ ...form, percentual: e.target.value })} style={inp} />
                 </label>
+                <label style={lbl}>Custo previsto (R$) <AjudaCampo chave="projetos.cronograma.custo_previsto" rota={ROTA_AJUDA} />
+                  <input inputMode="decimal" value={form.custo} onChange={(e) => setForm({ ...form, custo: e.target.value })} style={inp} placeholder="opcional" />
+                </label>
                 <label style={lbl}>Depende de <AjudaCampo chave="projetos.cronograma.predecessora" rota={ROTA_AJUDA} />
                   <select value={form.predecessora} onChange={(e) => setForm({ ...form, predecessora: e.target.value })} style={inp}>
                     <option value="">Nenhuma</option>
@@ -175,6 +185,14 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                   <Mini label="Desvio" valor={curva ? `${curva.desvio > 0 ? '+' : ''}${curva.desvio.toFixed(0)} p.p.` : '—'} cor={curva && curva.desvio < -0.5 ? VERM : VERDE} ajuda="projetos.cronograma.ind_desvio" />
                   <Mini label="Fora da linha de base" valor={temBase ? String(atrasadas) : '—'} cor={atrasadas > 0 ? VERM : ESP} ajuda="projetos.cronograma.ind_fora_base" />
                 </div>
+
+                {ff && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
+                    <Mini label="Custo previsto total" valor={brl(ff.previsto)} ajuda="projetos.cronograma.ind_custo_previsto" />
+                    <Mini label="Custo planejado hoje" valor={brl(ff.planejadoHoje)} ajuda="projetos.cronograma.ind_custo_planejado" />
+                    <Mini label="Custo apropriado" valor={brl(ff.apropriado)} cor={ff.desvio < -0.5 ? VERM : VERDE} ajuda="projetos.cronograma.ind_custo_apropriado" />
+                  </div>
+                )}
 
                 {curva && (
                   <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
