@@ -231,7 +231,7 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   continuam bloqueando só **gates/checks estáticos** (lint, guarda de funções/RLS, réguas, compilação), **preview
   (Vercel)**, conflito e, se sensível, o **`MERGE AUTORIZADO`** do revisor. Em `fila-merge.sh`,
   `aceitacao_dispensada()` devolve **verdadeiro por padrão**; `FILA_ACEITACAO_BLOQUEIA=1` força o caminho antigo (bloqueio)
-  **só nos testes dos gates**. **Ritmo:** no máximo `RITMO_MAX_HORA` (padrão **6**) publicações por hora.
+  **só nos testes dos gates**. **Ritmo:** no máximo `RITMO_MAX_HORA` (padrão **10**, CEO 22/10) publicações por hora.
   **Prioridade** (`FILA_PRIORIDADE`): Hub (`#2569 #2508 #2298`) e FC/FCR (`#2100`) na frente; o resto segue a ordem de
   entrada. Gate: `scripts/gates/check-fila-janela-aceitacao.ts` (prova os dois lados da data, o ritmo e a prioridade).
   **Janela temporária do @pos-migration por linha-de-base (CEO 15/10, com o CEO presente):** até a MESMA data-limite
