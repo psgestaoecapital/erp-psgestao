@@ -2,7 +2,7 @@
 // Aba Codes · gráficos do histórico (CEO 09/10, fatia 2): main/deploy verde-vermelho, sessões por Code e mensagens abertas.
 // Fonte: erp_dev_codes_snapshot (leitura só equipe PS, RLS). Recarrega a cada 60 s. "?" em cada indicador (RD-95).
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, AreaChart } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, AreaChart } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { linhaDoTempo, mensagensAbertas, sessoesPorCode, type Snapshot } from '@/lib/dev/snapshotCodes'
@@ -30,7 +30,8 @@ function Cartao({ chave, titulo, resumo, testid, children }: { chave: string; ti
 export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }) {
   const [snaps, setSnaps] = useState<Snapshot[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
-  const [chamados, setChamados] = useState<{ dia: string; resolvidos: number }[]>([])
+  const [chamados, setChamados] = useState<{ dia: string; ps: number; cliente: number; automaticos: number }[]>([])
+  const [espera, setEspera] = useState<{ esperando: number; antigo: number } | null>(null)
 
   const carregar = useCallback(async () => {
     const desde = new Date(Date.now() - PERIODO_DIAS[periodo] * 864e5).toISOString()
@@ -39,8 +40,12 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
       .gte('capturado_em', desde).order('capturado_em', { ascending: false }).limit(3000)
     if (error) { setErro(error.message); return }
     setErro(null); setSnaps((data ?? []) as Snapshot[])
-    const ch = await supabase.rpc('fn_dev_codes_chamados_por_dia', { p_dias: PERIODO_DIAS[periodo] })
-    if (!ch.error) setChamados(((ch.data ?? []) as { dia: string; resolvidos: number }[]).map((r) => ({ dia: r.dia.slice(8, 10) + '/' + r.dia.slice(5, 7), resolvidos: r.resolvidos })))
+    // Bloco isolado: erro aqui não derruba os outros gráficos (RD-97)
+    const ch = await supabase.rpc('fn_dev_codes_chamados_ps_x_cliente', { p_dias: PERIODO_DIAS[periodo] })
+    if (!ch.error) setChamados(((ch.data ?? []) as { dia: string; resolvidos_ps: number; confirmados_cliente: number; automaticos: number }[]).map((r) => ({ dia: r.dia.slice(8, 10) + '/' + r.dia.slice(5, 7), ps: r.resolvidos_ps, cliente: r.confirmados_cliente, automaticos: r.automaticos })))
+    const es = await supabase.rpc('fn_dev_codes_chamados_esperando_cliente')
+    const e0 = (es.data ?? [])[0] as { esperando: number; mais_antigo_dias: number } | undefined
+    if (!es.error && e0) setEspera({ esperando: e0.esperando, antigo: e0.mais_antigo_dias })
   }, [periodo])
 
   useEffect(() => {
@@ -90,15 +95,28 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
           </BarChart>
         </ResponsiveContainer>
       </Cartao>
-      <Cartao testid="grafico-chamados" chave="dev.codes.graficos.chamados" titulo="Chamados resolvidos por dia" resumo="Chamados concluídos em cada dia do período">
+      <Cartao testid="grafico-chamados" chave="dev.codes.graficos.chamados" titulo="Chamados resolvidos por dia" resumo="Resolvidos pela PS × confirmados pelo cliente, em cada dia do período">
         <ResponsiveContainer>
           <BarChart data={chamados} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
             <CartesianGrid stroke={BD} vertical={false} />
             <XAxis dataKey="dia" tick={eixo} interval="preserveStartEnd" /><YAxis allowDecimals={false} tick={eixo} />
-            <Tooltip /><Bar dataKey="resolvidos" name="Resolvidos" fill={ESP} />
+            <Tooltip /><Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="ps" name="Resolvidos pela PS" fill={ESP} />
+            <Bar dataKey="cliente" name="Confirmados pelo cliente" fill={DOU} />
+            <Bar dataKey="automaticos" name="Encerrados automaticamente" fill="#9C8B78" />
           </BarChart>
         </ResponsiveContainer>
       </Cartao>
+      {espera && (
+        <section data-testid="chamados-esperando-cliente" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, minWidth: 0 }}>
+          <header style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: ESP }}>Esperando o cliente</h3>
+            <AjudaCampo chave="dev.codes.graficos.chamados_espera" rota={ROTA} />
+          </header>
+          <div style={{ fontSize: 28, fontWeight: 700, color: ESP, marginTop: 6 }}>{espera.esperando}</div>
+          <div style={{ fontSize: 12, color: TXM }}>chamados respondidos pela PS aguardando confirmação · o mais antigo espera há {espera.antigo} {espera.antigo === 1 ? 'dia' : 'dias'}</div>
+        </section>
+      )}
     </div>
   )
 }

@@ -230,5 +230,5 @@ async function esteiraChecks() {
   ok(veredito([{ status: 'completed', conclusion: 'success' }])?.verde === true && veredito([]) === null, 'esteira: success = verde; sem run = sem dado')
   ok(esteira({ entregas: [], agora: new Date(), mainVerde: false, filaTestes: 3 }).cor === 'vermelha', 'esteira: main vermelha deixa a faixa vermelha')
   const pt = ler('src/components/dev/PainelCodes.tsx')
-  ok(pt.indexOf('<LinhaDoTempo') < pt.indexOf('CartaoCode key') && /erp_dev_esteira_status/.test(pt) && /ver todas/.test(pt), 'tela: publicações do dia acima dos cartões, assina a esteira, "ver todas" no celular')
+  ok(pt.indexOf('<LinhaDoTempo') < pt.indexOf('<CartaoCode ') && /erp_dev_esteira_status/.test(pt) && /ver todas/.test(pt), 'tela: publicações do dia acima dos cartões, assina a esteira, "ver todas" no celular')
 }

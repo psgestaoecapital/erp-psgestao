@@ -58,7 +58,10 @@ if (!temFerramentas()) {
   console.log('… cenários pulados: jq ou git ausente neste ambiente (a parte 1 continua valendo)')
 } else {
   comFilaSimulada((rodar) => {
-    const mig = { n: 1, migration: true as const, labels: [] as string[] }
+    // Modelo CEO 21/10: a VIA RÁPIDA (Mundo 1) não consulta mais o @pos — a janela da linha-de-base governa só a VIA
+    // REVISADA (Mundo 2). Por isso as migrations destes cenários são revisadas (etiqueta + autorização + aceitação verde),
+    // que é o que faz a PR chegar ao estado_main onde o @pos é avaliado.
+    const mig = { n: 1, migration: true as const, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'success' as const }
     const naJanela = (b: string) => ({ FILA_AGORA_EPOCH: ANTES, FILA_POS_BASELINE: b })
 
     // 1) BASE: @pos vermelho com EXATAMENTE a linha-de-base → migration publica (1/rodada)
@@ -71,7 +74,7 @@ if (!temFerramentas()) {
     ok(merges(x.escritas).join() === '1', '2) SUBCONJUNTO: só parte da linha-de-base falha → migration publica')
 
     // 3) FALHA NOVA: base + um spec fora da base → NÃO publica; comenta na PR do head (headPr=1) e propõe reversão
-    x = rodar([{ n: 1, draft: true, labels: [] }, { n: 2, migration: true, labels: [] }],
+    x = rodar([{ n: 1, draft: true, labels: [] }, { n: 2, migration: true, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'success' }],
       false, 5000, naJanela(BASELINE), { conclusion: 'failure', specs: [BASE_A, NOVO], headPr: 1 })
     ok(!merges(x.escritas).includes(2), '3) FALHA NOVA: a PR com migration NÃO publica (bloqueada)')
     ok(comentariosEm(x.escritas, 1).some((l) => /falha NOVA/.test(l) && /revert/i.test(l)),

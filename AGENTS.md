@@ -87,6 +87,13 @@ Code do próprio dono; empresa/chamado só da carteira dele; 30 pedidos/hora; tu
    **aprovado** (`pode_executar` = true na `fn_agente_caixa`). Sem o OK, só leia e aguarde.
 5. **Regras de merge INALTERADAS**: fila de merge, patch-id, `gilberto-revisor`, RD-94/94.1, etiqueta `revisao-eng-chefe`.
 Gate: `scripts/gates/check-canal-ps-banco.ts`.
+**Conector da Claude do sócio** (PR B): servidor MCP do próprio ERP em `/api/mcp` (Streamable HTTP, sem estado), login
+OAuth do **próprio usuário** do ERP (Supabase Auth como servidor de autorização; consentimento em `/oauth/consent`). Sem chave
+de serviço e sem SQL livre: as 6 ferramentas (meus_chamados, ler_chamado, enviar_tarefa_ao_meu_code, respostas_do_meu_code,
+minhas_prs, pedir_ok_ceo) só chamam RPCs com guarda, como o usuário; cada chamada fica em `erp_canal_ps_chamada` (limite
+20/min e 200/h por pessoa). Configuração (uma vez, no painel do Supabase): Authentication › **OAuth Server** ligado,
+"Authorization path" = `/oauth/consent` e registro dinâmico de clientes permitido. Passo a passo para o sócio: aba Codes ›
+"Conectar a minha Claude". Gate: `scripts/gates/check-canal-ps-conector.ts`.
 # Provas em produção — nunca derrubar o banco (incidente 03/10, registrado pelo Eng. Chefe)
 
 Em 03/10 uma prova "sem gravar" (transação desfeita) chamou uma função auxiliar por linha 365 mil vezes numa
@@ -217,11 +224,14 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
   Precisa do segredo `FILA_MERGE_TOKEN` (PAT): merge com o `GITHUB_TOKEN` não dispara o `deploy-migrations`.
   Com a fila, o Code não roda `gh pr merge` à mão para PR que está nela.
-  **Janela temporária da aceitação (CEO 15/10, com o CEO presente):** a aceitação **VERMELHA** da **via revisada** NÃO
-  bloqueia até **2026-10-17 11:00 America/Sao_Paulo** (`JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'` em
-  `fila-merge.sh`); depois do limite a fila volta a bloquear **sozinha**, sem ninguém mexer. Continuam bloqueando dentro
-  da janela: gates/checks estáticos vermelhos, preview (Vercel) com falha, conflito e falta do `MERGE AUTORIZADO` do
-  revisor para o patch-id atual. **Ritmo:** no máximo `RITMO_MAX_HORA` (padrão **4**) publicações por hora.
+  **Janela temporária da aceitação (CEO 15/10; REABERTA CEO 22/10, com o CEO presente):** a aceitação **VERMELHA** da
+  **via revisada** NÃO bloqueia até **2026-10-23 17:00 America/Sao_Paulo** (`JANELA_ACEITACAO_REVISADA_FIM='2026-10-23T20:00:00Z'`
+  em `fila-merge.sh`); depois do limite a fila volta a bloquear **sozinha**, sem ninguém mexer. Reaberta porque a infra do
+  banco de testes (referência da vaga 1 defasando da main) estava derrubando toda aceitação de PR sem ser regressão; a
+  **aceitação da main** (verde) é a rede pós-merge ("corrigir em 1 h ou reverter") enquanto o `desenv` reconcilia a
+  referência. Continuam bloqueando dentro da janela: gates/checks estáticos vermelhos, preview (Vercel) com falha,
+  conflito e falta do `MERGE AUTORIZADO` do revisor para o patch-id atual. **Ritmo:** no máximo `RITMO_MAX_HORA`
+  (padrão **6**) publicações por hora.
   **Prioridade** (`FILA_PRIORIDADE`): Hub (`#2569 #2508 #2298`) e FC/FCR (`#2100`) na frente; o resto segue a ordem de
   entrada. Gate: `scripts/gates/check-fila-janela-aceitacao.ts` (prova os dois lados da data, o ritmo e a prioridade).
   **Janela temporária do @pos-migration por linha-de-base (CEO 15/10, com o CEO presente):** até a MESMA data-limite
@@ -394,3 +404,13 @@ Escopo inicial: **rebase/resolução de conflito** e **PR multi-arquivo**. Funç
 `fn_agente_checkpoint_ler` (migration 20261013120030; só canal de serviço). Gate: `scripts/gates/check-agente-checkpoint.ts`.
 > ABERTO (Eng. Chefe): o sinal exato de "perto do limite de tempo da rodada" depende da runtime e NÃO é assumido aqui —
 > a doutrina é checkpointar a cada passo. Se a runtime expuser um sinal de tempo restante, o Eng. Chefe define como usá-lo.
+
+- **Quarentena de jornadas na fila (CEO 17/10, com o CEO presente):** depois da janela, a aceitação VERMELHA da via revisada
+  bloqueava toda PR por jornadas antigas (Sicredi #88, tryo-anexos-264-266, xml-compra-lote [celular]). Agora a fila lê os specs
+  falhos pelas anotações do check-run e: **spec da PRÓPRIA PR** → bloqueia; **todo spec falho em
+  `scripts/merge/quarentena-jornadas.txt`** (spec|desde|Code dono|obs) → aceitação vira informativa para essa PR e a fila abre
+  **P1 automático** ao Code dono (`fn_agente_mensagem_enviar`, sem repetir enquanto houver tarefa aberta); **spec fora da lista
+  (falha NOVA)** ou falha ilegível → bloqueia como antes. Sai da lista quando o dono conserta (a PR remove a linha). Gate:
+  `scripts/gates/check-fila-quarentena-jornadas.ts`.
+
+- **Comparação com a main (CEO 17/10 14:35 BRT, TEMPORÁRIA 24 h):** aceitação da main #462 vermelha (ambiente de teste doente). Na via revisada, se TODOS os specs que falharam na aceitação da PR já falharam na ÚLTIMA aceitação da main (`aceitacao-main.yml`), a fila não bloqueia e comenta as falhas herdadas; falha que a main não tem, spec da PRÓPRIA PR e falha ilegível bloqueiam. Vale de 2026-10-17T17:35Z a 2026-10-18T17:35Z (`BASELINE_MAIN_INICIO/FIM` em `fila-merge.sh`) e desliga sozinha quando a última aceitação da main concluída deixa de ser falha. Gate: `scripts/gates/check-fila-baseline-main.ts`.

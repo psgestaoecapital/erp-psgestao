@@ -1,6 +1,40 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabase";
+import { getUsuarioId } from "./AuthProvider";
+
+// P1 17/10 (laço de requisições): este hook roda em ~180 telas e em cada "?" (AjudaCampo). Antes, CADA instância
+// refazia getUser + users + company_groups + companies/user_companies → dezenas de pedidos por montagem. Agora as
+// instâncias compartilham UMA carga por usuário (dedupe do que está em andamento + validade curta). Falha não fica no cache.
+type Carga = { groups: any[]; companies: any[] };
+const VALIDADE_MS = 15_000;
+let cargaAtual: { userId: string; em: number; p: Promise<Carga | null> } | null = null;
+
+/** Descarta a carga em cache (chame após criar/editar empresa ou grupo para o próximo uso reler o banco). */
+export function invalidarCompanyIds() { cargaAtual = null; }
+
+async function carregarEmpresasEGrupos(): Promise<Carga | null> {
+  const userId = await getUsuarioId();
+  if (!userId) return null;
+  if (cargaAtual && cargaAtual.userId === userId && Date.now() - cargaAtual.em < VALIDADE_MS) return cargaAtual.p;
+  const p = (async (): Promise<Carga | null> => {
+    const { data: up } = await supabase.from("users").select("role").eq("id", userId).single();
+    const { data: grps } = await supabase.from("company_groups").select("*").order("nome");
+    let comps: any[] = [];
+    if (up?.role === "adm" || up?.role === "acesso_total" || up?.role === "adm_investimentos") {
+      const { data } = await supabase.from("companies").select("*").order("nome_fantasia");
+      comps = data || [];
+    } else {
+      const { data } = await supabase.from("user_companies").select("companies(*)").eq("user_id", userId);
+      comps = (data || []).map((uc: any) => uc.companies).filter(Boolean);
+    }
+    return { groups: grps || [], companies: comps };
+  })();
+  const registro = { userId, em: Date.now(), p };
+  cargaAtual = registro;
+  p.catch(() => { if (cargaAtual === registro) cargaAtual = null; });
+  return p;
+}
 
 /**
  * Hook para filtrar queries por empresa/grupo/consolidado.
@@ -27,31 +61,19 @@ export function useCompanyIds() {
   const [sel, setSel] = useState<string>("consolidado");
   const [loading, setLoading] = useState(true);
 
-  // Carrega empresas e grupos
+  // Carrega empresas e grupos (carga compartilhada entre todas as instâncias do hook)
   useEffect(() => {
+    let vivo = true;
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-
-      const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
-
-      const { data: grps } = await supabase.from("company_groups").select("*").order("nome");
-      setGroups(grps || []);
-
-      let comps: any[] = [];
-      if (up?.role === "adm" || up?.role === "acesso_total" || up?.role === "adm_investimentos") {
-        const { data } = await supabase.from("companies").select("*").order("nome_fantasia");
-        comps = data || [];
-      } else {
-        const { data } = await supabase
-          .from("user_companies")
-          .select("companies(*)")
-          .eq("user_id", user.id);
-        comps = (data || []).map((uc: any) => uc.companies).filter(Boolean);
+      try {
+        const carga = await carregarEmpresasEGrupos();
+        if (!vivo) return;
+        if (carga) { setGroups(carga.groups); setCompanies(carga.companies); }
+      } finally {
+        if (vivo) setLoading(false);
       }
-      setCompanies(comps);
-      setLoading(false);
     })();
+    return () => { vivo = false; };
   }, []);
 
   // Escuta mudanças no localStorage (quando usuário muda empresa no seletor do layout)

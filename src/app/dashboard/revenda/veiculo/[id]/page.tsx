@@ -128,6 +128,9 @@ function Inner() {
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
   async function mudarSituacao(nova: string) {
+    // Alliance #3725: 'vendido' sem venda registrada não pode passar por aqui (ficaria sem valor de venda e sem lucro real).
+    // Abre a janela de registrar venda, que exige o valor; a situação muda junto com a venda.
+    if (nova === 'vendido' && !venda) { setModal('venda'); return }
     const { data, error } = await supabase.rpc('fn_veic_mudar_situacao', { p_veiculo_id: id, p_nova: nova, p_user: await userId(), p_obs: null })
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
