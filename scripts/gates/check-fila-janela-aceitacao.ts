@@ -1,6 +1,6 @@
 // Gate (CEO 15/10, contexto e89e0d62, com o CEO presente) — janela temporária da aceitação na via REVISADA.
 // Em scripts/merge/fila-merge.sh a aceitação VERMELHA da via revisada NÃO bloqueia até 2026-10-17 11:00 America/Sao_Paulo
-// (= 2026-10-17T14:00:00Z) e VOLTA A BLOQUEAR sozinha depois. Continuam bloqueando dentro da janela: gates/checks
+// (REABERTA CEO 22/10: = 2026-10-23T20:00:00Z) e VOLTA A BLOQUEAR sozinha depois. Continuam bloqueando dentro da janela: gates/checks
 // estáticos vermelhos, preview (Vercel) com falha, conflito e falta do MERGE AUTORIZADO do revisor para o patch-id.
 // Ritmo máximo de 6 publicações/hora (CEO 22/10: meta acima de 4/h); prioridade Hub (#2569 #2508 #2298) e FC/FCR (#2100).
 //
@@ -15,8 +15,8 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 
 // ── Parte 1: a data-limite e a mecânica estão no script ──
 const sh = readFileSync(SCRIPT_FILA, 'utf8')
-ok(/JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'/.test(sh),
-  'data-limite carimbada: 2026-10-17T14:00:00Z (= 2026-10-17 11:00 America/Sao_Paulo)')
+ok(/JANELA_ACEITACAO_REVISADA_FIM='2026-10-23T20:00:00Z'/.test(sh),
+  'data-limite carimbada: 2026-10-23T20:00:00Z (= 2026-10-23 17:00 America/Sao_Paulo)')
 ok(/aceitacao_dispensada\(\) \{ \[ "\$\{FILA_AGORA_EPOCH:-\$\(date -u \+%s\)\}" -lt "\$\(date -u -d "\$JANELA_ACEITACAO_REVISADA_FIM" \+%s\)" \]; \}/.test(sh),
   'aceitacao_dispensada compara o agora (FILA_AGORA_EPOCH ou real) com o fim da janela')
 // ligada nos DOIS pontos: na remoção da aceitação do cálculo e no "revisada exige aceitação verde"
@@ -38,12 +38,12 @@ ok(/echo "vermelho:gates não estão verdes"/.test(sh) && /echo "vermelho:Vercel
   'dentro da janela, gates/Vercel/MERGE AUTORIZADO continuam bloqueando (só a aceitação é dispensada)')
 
 const ag = readFileSync('AGENTS.md', 'utf8')
-ok(/Janela temporária da aceitação \(CEO 15\/10/.test(ag) && /2026-10-17 11:00 America\/Sao_Paulo/.test(ag),
+ok(/Janela temporária da aceitação \(CEO 15\/10/.test(ag) && /2026-10-23 17:00 America\/Sao_Paulo/.test(ag),
   'AGENTS.md: janela documentada')
 
 // ── Parte 2: os dois lados da data, o ritmo e a prioridade ──
-const ANTES = String(Math.floor(Date.UTC(2026, 9, 16) / 1000))   // 2026-10-16T00:00:00Z: DENTRO da janela
-const DEPOIS = String(Math.floor(Date.UTC(2026, 9, 20) / 1000))  // 2026-10-20T00:00:00Z: FORA da janela (= padrão do harness)
+const ANTES = String(Math.floor(Date.UTC(2026, 9, 22) / 1000))   // 2026-10-22T00:00:00Z: DENTRO da janela (reaberta até 23/10 17:00)
+const DEPOIS = String(Math.floor(Date.UTC(2026, 9, 24) / 1000))  // 2026-10-24T00:00:00Z: FORA da janela
 
 if (!temFerramentas()) {
   console.log('… cenários pulados: jq ou git ausente neste ambiente (a parte 1 continua valendo)')
