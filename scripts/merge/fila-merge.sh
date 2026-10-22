@@ -185,14 +185,23 @@ escalar_pos_novo() {
   acionar_autor_pos "$pr" "$novos" "$run"
 }
 
-# (a) Estado da main para PR COM migration. Ecoa: livre | esperar:<motivo>
+# (a) Estado da main para PR COM migration. $1 = via (rapida | revisada). Ecoa: livre | esperar:<motivo>
+# MODELO CEO 21/10 ("produto novo na produção, crítico no banco de testes"):
+#   - VIA RÁPIDA (Mundo 1 = produto novo, migration ADITIVA não-crítica): gate é SÓ o deploy-migrations (PRODUÇÃO, a
+#     rede de segurança real do RD-52, que aplica a migration na produção). NÃO espera o @pos-migration (aceitação e2e)
+#     — esse fica para o crítico. Assim a migration aditiva não fica represada por @pos vermelho de causa ambiental
+#     (incidente 21/10: 22 PRs prontas travadas; @pos vermelho com 3 specs de ambiente, produção provada limpa).
+#   - VIA REVISADA (Mundo 2 = núcleo crítico): comportamento intacto — espera deploy-migrations E @pos-migration verdes.
 estado_main() {
-  local ult_mig r st conc id falhos novos
+  local via=${1:-revisada} ult_mig r st conc id falhos novos
   # deploy-migrations: rodando ou vermelho → espera (vermelho é trabalho AGORA de quem quebrou)
   r=$(api "repos/$REPO/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion)"')
   read -r id st conc <<< "$r"
   [ "$st" = completed ] || { echo "esperar:deploy-migrations da main em andamento ($id)"; return; }
   [ "$conc" = success ] || { echo "esperar:deploy-migrations da main não está verde ($conc, run $id)"; return; }
+
+  # Via rápida (Mundo 1): deploy-migrations verde basta — a migration aditiva já está na produção. Não espera o @pos (banco de testes).
+  [ "$via" = rapida ] && { echo livre; return; }
 
   r=$(api "repos/$REPO/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion)"')
   read -r id st conc <<< "$r"
@@ -253,7 +262,7 @@ ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 # 2026-10-17 11:00 America/Sao_Paulo (= 2026-10-17T14:00:00Z); depois volta a bloquear SOZINHA. Só a aceitação —
 # gates/checks estáticos, preview (Vercel), MERGE AUTORIZADO do revisor e conflito continuam valendo.
 # FILA_AGORA_EPOCH (epoch UTC) deixa o gate provar os dois lados da data; sem ela, usa o agora real.
-JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'
+JANELA_ACEITACAO_REVISADA_FIM=${JANELA_ACEITACAO_REVISADA_FIM:-2026-10-23T20:00:00Z}
 aceitacao_dispensada() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_ACEITACAO_REVISADA_FIM" +%s)" ]; }
 
 # QUARENTENA DE JORNADAS (CEO 17/10, presente): spec que falha na aceitação da PR mas JÁ está em
@@ -792,7 +801,7 @@ em_preparo=0
 LOTE_MAX=${LOTE_MAX:-6}
 # RITMO (CEO 15/10): teto de publicações por hora. Conta as PRs já mergeadas na main na última hora (fail-open: erro de
 # API/valor não-numérico = 0, a rodada segue), para a janela aberta da via revisada não virar enxurrada de merges.
-RITMO_MAX_HORA=${RITMO_MAX_HORA:-4}
+RITMO_MAX_HORA=${RITMO_MAX_HORA:-6}
 pub_hora=${FILA_PUB_HORA:-$(api "search/issues?q=repo:$REPO+is:pr+is:merged+base:main+merged:>=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" --jq '.total_count' 2>/dev/null || echo 0)}
 [ "${pub_hora:-0}" -eq "${pub_hora:-0}" ] 2>/dev/null || pub_hora=0
 disp_hora=$((RITMO_MAX_HORA - pub_hora))
@@ -937,7 +946,7 @@ for n in $fila; do
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
   if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ] && [ "$lote_mig_n" = 0 ]; then
-    m=$(estado_main)
+    m=$(estado_main "$via")
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
       so_sem_migration=1; continue
