@@ -6,7 +6,7 @@ let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
 const tela = readFileSync('src/app/dashboard/projetos/obras/[id]/cronograma/page.tsx', 'utf8')
-const mig = ['20261021180030_hb3_cronograma_tela_ajuda_menu', '20261022100030_hb3_cronograma_fatia3_ajuda']
+const mig = ['20261021180030_hb3_cronograma_tela_ajuda_menu', '20261022100030_hb3_cronograma_fatia3_ajuda', '20261022130030_hb3_cronograma_fatia6_curva_s_ajuda']
   .map((n) => readFileSync(`supabase/migrations/${n}.sql`, 'utf8')).join('\n')
 
 ok(!/\.(insert|update|delete|upsert)\(/.test(tela), 'a tela não grava direto nas tabelas')
