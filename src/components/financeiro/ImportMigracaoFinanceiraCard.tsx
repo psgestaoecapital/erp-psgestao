@@ -40,6 +40,7 @@ interface Resultado {
   importacao_id?: string
 }
 
+const LOTE_IMPORT = 150
 const STATUS_OK = new Set(['', 'aberto', 'pago', 'quitado', 'liquidado', 'parcial', 'vencido', 'atrasado', 'cancelado'])
 const FORMAS_OK = new Set(['', 'pix', 'boleto', 'dinheiro', 'transferencia', 'cartao', 'cartao_credito', 'cartao_debito', 'cheque', 'ted', 'doc', 'especie'])
 // Linhas de exemplo do modelo PS (assinatura tipo|valor|vencimento) — avisa se não apagadas.
@@ -79,6 +80,7 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
   const [parseErro, setParseErro] = useState<string | null>(null)
   const [importando, setImportando] = useState(false)
   const [resultado, setResultado] = useState<Resultado | null>(null)
+  const [progresso, setProgresso] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const cont = useMemo(() => {
@@ -203,14 +205,29 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
         status: l.situacao || null,
         valor_pago: l.valor_pago,
       }))
-      const { data, error } = await supabase.rpc('fn_import_financeiro_v3', {
-        p_company_id: companyId,
-        p_user_id: userData?.user?.id ?? null,
-        p_arquivo_nome: nomeArquivo || 'migracao_financeira.xlsx',
-        p_records: records,
-      })
-      if (error) { setParseErro(error.message); return }
-      setResultado((data ?? {}) as Resultado)
+      // #1738 (Troian): 1295 linhas numa chamada só estouravam o statement_timeout. Vai em lotes;
+      // a RPC é idempotente (ON CONFLICT DO NOTHING), então repetir o envio não duplica.
+      const total: Resultado = { total: records.length, inseridos: 0, duplicados: 0, erros: 0, lista_erros: [] }
+      for (let i = 0; i < records.length; i += LOTE_IMPORT) {
+        setProgresso(`${Math.min(i + LOTE_IMPORT, records.length)} de ${records.length}`)
+        const { data, error } = await supabase.rpc('fn_import_financeiro_v3', {
+          p_company_id: companyId,
+          p_user_id: userData?.user?.id ?? null,
+          p_arquivo_nome: nomeArquivo || 'migracao_financeira.xlsx',
+          p_records: records.slice(i, i + LOTE_IMPORT),
+        })
+        if (error) {
+          setResultado(total)
+          setParseErro(`${error.message} — ${total.inseridos} lançamento(s) já gravado(s) antes da falha; suba a planilha de novo, o que já entrou é ignorado.`)
+          return
+        }
+        const r = (data ?? {}) as Resultado
+        total.inseridos! += r.inseridos ?? 0
+        total.duplicados! += r.duplicados ?? 0
+        total.erros! += r.erros ?? 0
+        for (const e of r.lista_erros ?? []) total.lista_erros!.push({ ...e, linha: (e.linha ?? 0) + i })
+      }
+      setResultado(total)
     } catch (e) {
       setParseErro((e as Error)?.message ?? 'Falha ao importar')
     } finally {
@@ -295,7 +312,7 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
           </div>
           <button type="button" onClick={() => void importar()} disabled={!podeImportar}
             className="w-full rounded-xl py-3 text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: podeImportar ? 1 : 0.5 }}>
-            {importando ? 'Importando…' : `Importar ${cont.importaveis} lançamento(s) para ${empresaNome ?? 'a empresa'}`}
+            {importando ? `Importando… ${progresso}` : `Importar ${cont.importaveis} lançamento(s) para ${empresaNome ?? 'a empresa'}`}
           </button>
         </>
       )}

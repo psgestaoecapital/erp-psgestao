@@ -50,5 +50,7 @@ ok(prodPage.includes('clonarDe={clonando}') && prodPage.includes('onClonar={'), 
 // produto clona buscando a linha INTEIRA (select '*'), senão perderia os campos fiscais da view
 ok(/async function clonarProduto\(id: string\)[\s\S]*?\.select\('\*'\)/.test(prodPage), 'Produtos: clone busca a linha completa (select *), não a parcial da lista')
 
+ok(prodPage.includes('<ConfirmarClonar') && servPage.includes('<ConfirmarClonar'), 'Clonar pede confirmação antes (#2909)')
+
 if (falhas) { console.error(`\ncheck-clonar-cadastro: ${falhas} falha(s)`); process.exit(1) }
 console.log('\ncheck-clonar-cadastro: ok')

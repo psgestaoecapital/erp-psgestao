@@ -40,6 +40,27 @@ async function api(caminho) {
   return r.json()
 }
 
+// CEO 14/10 (tarefa ed3c58bc): a tela da main não vai ao ar antes da migration do mesmo commit. Se o commit da main toca
+// supabase/migrations/, o Ignored Build Step ESPERA o run do deploy-migrations daquele SHA terminar (teto ~25 min) e só
+// então manda buildar. Qualquer falha na consulta ou estouro do teto → builda (falha segura, como no resto do script).
+export const ESPERA_MAX_MS = 25 * 60_000
+export const PASSO_MS = 20_000
+export const TOCA_MIGRATION = /^supabase\/migrations\//
+
+export async function esperarMigration({ sha, dono, repo, consulta = api, dorme = (ms) => new Promise((r) => setTimeout(r, ms)), agora = Date.now }) {
+  if (!sha) return 'sem SHA: não espera'
+  const arquivos = (await consulta(`repos/${dono}/${repo}/commits/${sha}`)).files ?? []
+  if (!arquivos.some((f) => TOCA_MIGRATION.test(f.filename))) return 'commit sem migration: não espera'
+  const limite = agora() + ESPERA_MAX_MS
+  while (agora() < limite) {
+    const r = await consulta(`repos/${dono}/${repo}/actions/workflows/deploy-migrations.yml/runs?head_sha=${sha}&per_page=5`)
+    const run = (r.workflow_runs ?? [])[0]
+    if (run && run.status === 'completed') return `deploy-migrations ${run.conclusion}: libera o build`
+    await dorme(PASSO_MS)
+  }
+  return 'teto de espera estourado: builda mesmo assim'
+}
+
 async function principal() {
   const env = process.env.VERCEL_ENV ?? ''
   const ref = process.env.VERCEL_GIT_COMMIT_REF ?? ''
@@ -67,6 +88,12 @@ async function principal() {
         }
       } catch (e) { arquivos = undefined; console.log(`[vercel-ignore] ${e.message}`) }
     }
+  }
+  if (env === 'production' || ref === 'main') {
+    try {
+      const dono2 = dono, repo2 = repo
+      console.log(`[vercel-ignore] migration: ${await esperarMigration({ sha: process.env.VERCEL_GIT_COMMIT_SHA, dono: dono2, repo: repo2 })}`)
+    } catch (e) { console.log(`[vercel-ignore] espera da migration falhou (builda): ${e.message}`) }
   }
   const d = decidir({ env, ref, pr, arquivos })
   console.log(`[vercel-ignore] ${d.codigo === BUILDAR ? 'BUILDA' : 'NÃO builda'}: ${d.motivo}`)

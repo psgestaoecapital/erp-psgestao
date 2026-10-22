@@ -38,7 +38,8 @@ interface ConfigRow {
   id: string
   provider: string | null
   ambiente: string | null
-  api_key_encrypted: string | null
+  // #1944 · o token nunca vem para a tela (nem o legado em base64): só o id do cofre, para mostrar "configurado"
+  focus_token_vault_id: string | null
   gov_nfse_municipio_codigo: string | null
   gov_nfse_municipio_aderido: boolean | null
   gov_nfse_endpoint_base: string | null
@@ -265,7 +266,7 @@ export default function FiscalConfigClient() {
         supabase
           .from('erp_fiscal_provider_config')
           .select(
-            'id, provider, ambiente, api_key_encrypted, gov_nfse_municipio_codigo, gov_nfse_municipio_aderido, gov_nfse_endpoint_base, serie_nfse_padrao, proxima_numeracao_nfse, serie_nfe_padrao, proxima_numeracao_nfe, cnae_padrao, regime_tributario, opcao_simples_nacional, percentual_total_tributos_sn, regime_apuracao_sn'
+            'id, provider, ambiente, focus_token_vault_id, gov_nfse_municipio_codigo, gov_nfse_municipio_aderido, gov_nfse_endpoint_base, serie_nfse_padrao, proxima_numeracao_nfse, serie_nfe_padrao, proxima_numeracao_nfe, cnae_padrao, regime_tributario, opcao_simples_nacional, percentual_total_tributos_sn, regime_apuracao_sn'
           )
           .eq('company_id', sel.id)
           .eq('ativo', true)

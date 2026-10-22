@@ -6,6 +6,9 @@ import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { dbSelect, registrarJornada, obterSessionPayload } from '../../support/api'
 
 const DEMO_COMERCIO = 'b0700000-0000-4000-a000-000000000004'
+// CEO 08/10 (#2265, migration 20261008180010): a demo do Hub (demo_por_area 'hub') passou a ser a Construtora Modelo;
+// a demo GE continua com o Hub ativo a R$ 0.
+const DEMO_HUB_CONSTRUTORA = 'b0700000-0000-4000-a000-000000000006'
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
 
@@ -14,7 +17,7 @@ test.describe('Demonstração GE com a área Hub', () => {
     await registrarJornada('aceitacao-demo-ge-hub', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
 
-  test('demo GE tem o Hub ativo a R$ 0, é a demo do Hub, e o robô vê a área', { tag: '@pos-migration' }, async () => {
+  test('demo GE tem o Hub ativo a R$ 0, a demo do Hub é a Construtora Modelo, e o robô vê a área', { tag: '@pos-migration' }, async () => {
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO_COMERCIO}&select=is_demo`)
     expect(emp?.is_demo).toBe(true)
     const subs = await dbSelect<{ status: string; monthly_price_brl: number }>('tenant_subscriptions',
@@ -22,7 +25,7 @@ test.describe('Demonstração GE com a área Hub', () => {
     expect(subs.filter((s) => s.status === 'active'), 'uma assinatura Hub ativa').toHaveLength(1)
     expect(Number(subs.find((s) => s.status === 'active')?.monthly_price_brl ?? -1), 'demonstração não entra no MRR').toBe(0)
     const [dpa] = await dbSelect<{ company_id: string }>('demo_por_area', 'area=eq.hub&select=company_id')
-    expect(dpa?.company_id, 'demo_por_area: o Hub é exercitado na demo GE').toBe(DEMO_COMERCIO)
+    expect(dpa?.company_id, 'demo_por_area: o Hub é exercitado na Construtora Modelo (#2265)').toBe(DEMO_HUB_CONSTRUTORA)
 
     const token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
     const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fn_listar_areas_visiveis`, {

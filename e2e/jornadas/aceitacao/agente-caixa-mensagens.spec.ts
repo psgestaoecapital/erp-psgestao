@@ -4,7 +4,7 @@
 // requer_ok_ceo que nunca recebe o OK. Tudo de teste sai arquivado (nada é apagado).
 
 import { test, expect } from '../../support/fixtures'
-import { rpc, registrarJornada, obterSessionPayload } from '../../support/api'
+import { rpc, registrarJornada, obterSessionPayload, IS_PROD } from '../../support/api'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
@@ -15,6 +15,10 @@ type Caixa = { ok: boolean; mensagens: { id: string; status: string; pode_execut
 type Resp = { ok: boolean; erro?: string; status?: string }
 
 test.describe('Caixa de mensagens dos agentes', () => {
+  // ISOLAMENTO (Pilar 2): erp_agente_mensagem é GLOBAL (sem isolamento por empresa) e estes testes ESCREVEM nas caixas
+  // de agentes REAIS (andre-code, stephany-code, gilberto-chamados). Contra a produção isso soterra a caixa real — por
+  // isso a prova é só no banco de testes da vaga. Em produção o veredito pula (nunca grava a caixa real). Incidente 13/10.
+  test.skip(IS_PROD, 'caixa de agentes é tabela global — a aceitação só escreve no banco de testes, nunca em produção')
   const criadas: string[] = []
 
   test.afterEach(async ({}, testInfo) => {
@@ -39,7 +43,7 @@ test.describe('Caixa de mensagens dos agentes', () => {
     expect(a.ok).toBe(true)
     expect(a.acionamento?.acionou, 'Code de sócio não tem rotina acionada').toBe(false)
     expect(a.acionamento?.motivo).toBe('agente_sem_acionamento')
-    await expect(enviar('andre-code', 'tarefa'), 'aos sócios só aviso de coordenação').rejects.toThrow(/socio_so_aviso|check/i)
+    await expect(enviar('andre-code', 'tarefa'), 'aos sócios só aviso de coordenação').rejects.toThrow(/socio_so_aviso|check|desligado/i)
   })
 
   test('o Code lê a própria caixa, responde na mensagem e não mexe na de outro', { tag: '@pos-migration' }, async () => {
@@ -72,8 +76,15 @@ test.describe('Caixa de mensagens dos agentes', () => {
   test('usuário logado do ERP não lê nem grava a caixa (canal protegido)', { tag: '@pos-migration' }, async () => {
     const token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
     const h = { apikey: ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+    // CEO 07/10 (aba Codes, migration 20261007200060): a equipe PS LÊ a caixa (colunas do painel, por RLS); o usuário
+    // de cliente (o robô não é da equipe) segue sem ver NENHUMA linha, sem ver o corpo e sem gravar.
     const tabela = await fetch(`${SUPABASE_URL}/rest/v1/erp_agente_mensagem?select=id&limit=1`, { headers: h })
-    expect(tabela.ok, 'tabela fechada ao usuário logado').toBe(false)
+    if (tabela.ok) expect(await tabela.json(), 'usuário de cliente não vê nenhuma mensagem da caixa').toEqual([])
+    const corpo = await fetch(`${SUPABASE_URL}/rest/v1/erp_agente_mensagem?select=corpo&limit=1`, { headers: h })
+    expect(corpo.ok, 'o corpo das tarefas segue fechado ao usuário logado').toBe(false)
+    const grava = await fetch(`${SUPABASE_URL}/rest/v1/erp_agente_mensagem`, { method: 'POST', headers: h,
+      body: JSON.stringify({ para: 'gilberto-desenv', de: 'ceo', tipo: 'aviso', assunto: 'x', corpo: 'y' }) })
+    expect(grava.ok, 'logado não grava na caixa').toBe(false)
     const fn = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fn_agente_caixa`, { method: 'POST', headers: h, body: JSON.stringify({ p_agente: 'gilberto-desenv' }) })
     expect(fn.ok, 'função fechada ao usuário logado').toBe(false)
     const envio = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fn_agente_mensagem_enviar`, {

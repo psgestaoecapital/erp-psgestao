@@ -167,3 +167,36 @@ export const AGRUPAMENTOS: { id: Agrupar; rotulo: string }[] = [
 ]
 export const PRIORIDADES = ['baixa', 'media', 'alta', 'critica']
 export const POR_PAGINA = 50
+
+// RD-51 (Pdois/Marciana 07/10): a Pauta abre com o filtro salvo da última visita. Quando ele esconde jobs, a tela
+// DIZ qual filtro está aplicado (em palavras) e oferece "Mostrar todos" — nunca uma lista vazia calada.
+export type NomesFiltro = Partial<Record<'clientes' | 'responsaveis' | 'grupos' | 'campanhas' | 'fees' | 'servicos', Record<string, string>>>
+const ROTULO_LISTA: Record<keyof NomesFiltro, [string, string]> = {
+  clientes: ['Cliente', 'Clientes'], responsaveis: ['Responsável', 'Responsáveis'], grupos: ['Grupo', 'Grupos'],
+  campanhas: ['Campanha', 'Campanhas'], fees: ['Fee', 'Fees'], servicos: ['Serviço', 'Serviços'],
+}
+const ROTULO_DATA: Record<DataTipo, string> = { prazo: 'Prazo', criacao: 'Criação', entrega: 'Entrega', conclusao: 'Conclusão' }
+const dataBR = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+export function descreverFiltros(f: FiltrosPauta, nomes: NomesFiltro = {}, abaRotulo?: string | null): string[] {
+  const l = limparFiltros(f)
+  const out: string[] = []
+  if (l.atalho) out.push(`Atalho: ${ATALHOS.find((a) => a.id === l.atalho)?.rotulo ?? l.atalho}`)
+  for (const k of Object.keys(ROTULO_LISTA) as (keyof NomesFiltro)[]) {
+    const ids = l[k] as string[] | undefined
+    if (!ids?.length) continue
+    const [um, varios] = ROTULO_LISTA[k]
+    const ns = ids.map((id) => nomes[k]?.[id] ?? 'item não encontrado')
+    out.push(`${ids.length === 1 ? um : varios}: ${ns.join(', ')}`)
+  }
+  if (l.situacao_cliente?.length) out.push(`Situação do cliente: ${l.situacao_cliente.join(', ')}`)
+  if (l.titulo) out.push(`Título contém "${l.titulo}"`)
+  if (l.codigo) out.push(`Código ${l.codigo}`)
+  if (l.aguardando) out.push('Só os que aguardam alguém')
+  if (l.aguardando_de?.length) out.push(`Aguardando: ${l.aguardando_de.join(', ')}`)
+  if (l.data_de || l.data_ate) {
+    out.push(`${ROTULO_DATA[l.data_tipo ?? 'prazo']}${l.data_de ? ` de ${dataBR(l.data_de)}` : ''}${l.data_ate ? ` até ${dataBR(l.data_ate)}` : ''}`)
+  }
+  if (l.lixeira) out.push('Lixeira')
+  if (abaRotulo) out.push(`Aba: ${abaRotulo}`)
+  return out
+}

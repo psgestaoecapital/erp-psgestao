@@ -12,3 +12,7 @@ export function sugestaoCronometro(novaSituacao: string, jobId: string, abertoJo
 
 export const textoSugestao = (s: Exclude<SugestaoCronometro, null>, situacao: string) =>
   s === 'iniciar' ? `O job foi para "${situacao}". Iniciar o cronômetro?` : `O job foi para "${situacao}". Parar o cronômetro e gravar as horas?`
+
+// PM-T (4c) · concluir job sem horas pede apontamento. Só avisa; a pessoa decide.
+export const exigeApontamentoAoConcluir = (novaSituacao: string, totalHoras: number) => novaSituacao === 'concluida' && !(totalHoras > 0)
+export const textoSemHoras = 'Este job foi concluído sem nenhuma hora apontada. Lançar as horas agora?'

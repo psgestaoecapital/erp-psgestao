@@ -12,8 +12,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: gates-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # CEO 12/10: nada de cancelar gates por concorrência. Grupo por PR + SHA do head: eventos duplicados do mesmo commit
+  # entram em fila (queue: max) e commits diferentes não se cancelam; o check do head vigente sempre completa.
+  group: gates-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -24,10 +27,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # RD-97: o gate check-migration-segura compara com origin/main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
       - run: npm ci
       - name: Gates (scripts/gates/, todos — o mesmo que rodava dentro do build da Vercel)
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run gates

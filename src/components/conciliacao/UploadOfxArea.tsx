@@ -10,6 +10,7 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { parseSync } from 'ofx-js'
+import { parseValorOFX } from '@/lib/ofx-parser'
 import { supabase } from '@/lib/supabase'
 
 type Estado = 'idle' | 'lendo' | 'parseando' | 'enviando' | 'sucesso' | 'erro'
@@ -64,7 +65,7 @@ function extrairMovimentos(parsed: { OFX: Record<string, unknown> }): {
   const trnsArr = Array.isArray(trns) ? trns : trns ? [trns] : []
 
   const movimentos: MovimentoOfx[] = trnsArr.map((t: Record<string, string>) => {
-    const valorRaw = parseFloat((t.TRNAMT ?? '0').replace(',', '.'))
+    const valorRaw = (parseValorOFX(t.TRNAMT ?? '0') ?? 0)
     return {
       data_transacao: parseDataOfx(t.DTPOSTED ?? ''),
       valor: Math.abs(valorRaw),

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { exigirLogin, exigirEmpresas, negar } from '@/lib/auth/guardaApi'
 import { createClient } from '@supabase/supabase-js'
+import { removerSalario, lerSalario, gravarSalario, salarioDoCorpo } from '@/lib/compliance/salario'
 
 function admin() {
   return createClient(
@@ -64,9 +65,15 @@ export const GET = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {
       .limit(200),
   ])
 
+  // LGPD: salário individual só para quem vê salário (função registra o acesso); os demais recebem a média da função
+  const salario = await lerSalario(u.token, id)
+  const funcionarioSeguro = removerSalario(funcionario as Record<string, unknown>) as Record<string, unknown>
+  if (salario?.pode_ver) funcionarioSeguro.salario_base = salario.salario_base
+
   return NextResponse.json({
     ok: true,
-    funcionario,
+    funcionario: funcionarioSeguro,
+    salario: salario ?? { pode_ver: false, cargo: null, pessoas_no_cargo: 0, media_funcao: null },
     matriz: matriz ?? [],
     documentos: documentos ?? [],
     historico: historico ?? [],
@@ -89,7 +96,7 @@ export const PATCH = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {
     'obra_nome', 'ativo', 'observacoes',
   ]
   const payload: Record<string, any> = { updated_at: new Date().toISOString() }
-  for (const k of CAMPOS) if (k in body) payload[k] = body[k]
+  for (const k of CAMPOS) if (k in body && k !== 'salario_base') payload[k] = body[k]
 
   const sb = admin()
   const { data, error } = await sb
@@ -100,7 +107,13 @@ export const PATCH = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {
     .maybeSingle()
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 })
   if (!data) return NextResponse.json({ ok: false, error: 'não encontrado' }, { status: 404 })
-  return NextResponse.json({ ok: true, funcionario: data })
+  // LGPD: salário só pela função protegida (JWT do usuário). Quem não vê salário não grava: o campo é ignorado e avisado.
+  let salarioIgnorado = false
+  if ('salario_base' in body) {
+    const sal = salarioDoCorpo(body.salario_base)
+    if (sal !== undefined) salarioIgnorado = !(await gravarSalario(u.token, id, sal))
+  }
+  return NextResponse.json({ ok: true, funcionario: removerSalario(data as Record<string, unknown>), ...(salarioIgnorado ? { salario_ignorado: true } : {}) })
 }) as any
 
 export const DELETE = exigirLogin(async (req: NextRequest, u, ctx?: unknown) => {

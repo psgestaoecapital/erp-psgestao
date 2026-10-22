@@ -119,8 +119,9 @@ export function parseOFX(texto: string): ResultadoParseOFX {
       }
 
       const dataISO = `${y}-${m}-${d}`;
-      const valorRaw = parseFloat(valorStr.replace(',', '.'));
-      if (isNaN(valorRaw)) continue;
+      const valorNum = parseValorOFX(valorStr);
+      if (valorNum === null) continue;
+      const valorRaw = valorNum;
 
       // Natureza pelo sinal do valor (credito > 0, debito < 0)
       // OFX TRNTYPE pode dizer CREDIT/DEBIT mas o sinal e a fonte primaria
@@ -230,10 +231,52 @@ export interface SaldoFechamentoOFX {
 export function parseValorOFX(raw: string | null): number | null {
   if (!raw) return null
   let s = raw.trim().replace(/\s/g, '')
-  if (s.includes('.') && s.includes(',')) s = s.replace(/\./g, '').replace(',', '.') // 1.234,56 → 1234.56
-  else if (s.includes(',')) s = s.replace(',', '.')                                   // 500,00 → 500.00
+  const ultVirg = s.lastIndexOf(',')
+  const ultPonto = s.lastIndexOf('.')
+  if (ultVirg >= 0 && ultPonto >= 0) {
+    // os dois separadores: o ÚLTIMO é o decimal (1.234,56 → 1234.56 · 1,234.56 → 1234.56)
+    s = ultVirg > ultPonto ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '')
+  } else if (ultVirg >= 0) {
+    // só vírgula: várias = milhar (1,234,567); uma = decimal (273,81 → 273.81)
+    s = (s.match(/,/g) || []).length > 1 ? s.replace(/,/g, '') : s.replace(',', '.')
+  } else if ((s.match(/\./g) || []).length > 1) {
+    s = s.replace(/\./g, '') // 1.234.567 → milhar
+  }
   const n = Number(s)
   return Number.isFinite(n) ? n : null
+}
+
+// Decodifica o arquivo OFX pelo cabeçalho (CHARSET/ENCODING): Sicredi/Sicoob/Itaú mandam Latin-1/CP1252.
+// Sem declaração: tenta UTF-8 estrito e cai para Windows-1252. Remove BOM.
+export function decodificarOFX(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  const cab = new TextDecoder('latin1').decode(bytes.slice(0, 1024))
+  const charset = (cab.match(/CHARSET:\s*(\w+)/i)?.[1] ?? '').toUpperCase()
+  const enc = (cab.match(/ENCODING:\s*([\w-]+)/i)?.[1] ?? '').toUpperCase()
+  let texto: string
+  if (charset === '1252' || enc === 'USASCII' || /8859|LATIN/.test(charset + enc)) {
+    texto = new TextDecoder('windows-1252').decode(bytes)
+  } else {
+    try {
+      texto = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    } catch {
+      texto = new TextDecoder('windows-1252').decode(bytes)
+    }
+  }
+  return texto.replace(/^\uFEFF/, '')
+}
+
+// Mensagem legível de qualquer erro (Error, PostgrestError {message,details,hint}, string) — nunca "[object Object]".
+export function mensagemErroOFX(e: unknown): string {
+  if (e instanceof Error) return e.message
+  if (typeof e === 'string') return e
+  if (e && typeof e === 'object') {
+    const o = e as Record<string, unknown>
+    const partes = [o.message, o.details, o.hint].filter((x): x is string => typeof x === 'string' && x.length > 0)
+    if (partes.length) return partes.join(' — ')
+    try { return JSON.stringify(e) } catch { /* ignora */ }
+  }
+  return String(e)
 }
 
 // DTASOF cru (YYYYMMDD[HHMMSS][.mmm][-3:BRT]) → ISO com offset quando o OFX traz o fuso.
@@ -242,6 +285,8 @@ export function parseDataOFX(raw: string | null): string | null {
   const m = raw.trim().match(/^(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?(?:\.\d+)?(?:\[\s*([+-]?\d+(?:\.\d+)?)\s*(?::[A-Za-z]+)?\s*\])?/)
   if (!m) return null
   const [, Y, Mo, D, h, mi, s, tz] = m
+  // datas zeradas (DTASOF 00000000 / DTSERVER 0000...) ou inválidas → sem data (não derruba o import)
+  if (Number(Y) < 1900 || Number(Mo) < 1 || Number(Mo) > 12 || Number(D) < 1 || Number(D) > 31) return null
   let offset = ''
   if (tz !== undefined && tz !== '') {
     const off = parseFloat(tz)

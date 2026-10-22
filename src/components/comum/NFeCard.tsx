@@ -32,6 +32,7 @@ interface NFeUltima {
   numero: string | null
   status: string
   danfe_url: string | null
+  xml_url: string | null
   motivo_rejeicao: string | null
   provider_reference: string | null
 }
@@ -72,7 +73,7 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
       supabase.rpc('fn_pedido_nfe_dados', { p_pedido_id: pedidoId }),
       supabase
         .from('erp_nfe_emitidas')
-        .select('id,numero,status,danfe_url,motivo_rejeicao,provider_reference')
+        .select('id,numero,status,danfe_url,xml_url,motivo_rejeicao,provider_reference')
         .eq('pedido_id', pedidoId)
         .order('criado_em', { ascending: false })
         .limit(1)
@@ -178,6 +179,22 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
     </button>
   )
 
+  const linkArq = (href: string, rotulo: string, tid: string) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid={tid}
+      style={{
+        padding: '8px 14px', borderRadius: 8,
+        border: `1px solid ${C.gold}`, background: C.goldBg, color: C.goldD,
+        fontSize: 12, fontWeight: 600, textDecoration: 'none',
+      }}
+    >
+      {rotulo}
+    </a>
+  )
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {eTeste ? (
@@ -210,21 +227,14 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
           <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>
             ✅ NF-e nº {ultima?.numero ?? '—'} autorizada
           </p>
-          {ultima?.danfe_url && (
-            <a
-              href={ultima.danfe_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-testid="nfe-pedido-ver-danfe"
-              style={{
-                alignSelf: 'flex-start',
-                padding: '8px 14px', borderRadius: 8,
-                border: `1px solid ${C.gold}`, background: C.goldBg, color: C.goldD,
-                fontSize: 12, fontWeight: 600, textDecoration: 'none',
-              }}
-            >
-              Ver DANFE
-            </a>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {ultima?.xml_url && linkArq(ultima.xml_url, 'Baixar XML', 'nfe-pedido-baixar-xml')}
+            {ultima?.danfe_url && linkArq(ultima.danfe_url, 'Baixar DANFE (PDF)', 'nfe-pedido-ver-danfe')}
+          </div>
+          {(!ultima?.xml_url || !ultima?.danfe_url) && (
+            <p data-testid="nfe-arquivo-gerando" style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>
+              {!ultima?.xml_url && !ultima?.danfe_url ? 'XML e DANFE' : !ultima?.xml_url ? 'XML' : 'DANFE'} ainda sendo gerado — toque em “Atualizar status”.
+            </p>
           )}
           {btnAtualizar}
         </div>
