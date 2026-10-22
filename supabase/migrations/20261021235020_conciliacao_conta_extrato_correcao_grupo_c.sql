@@ -37,7 +37,7 @@ ALTER TABLE public.erp_conciliacao_conta_bkp_3961 ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.erp_conciliacao_conta_bkp_3961 FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON SEQUENCE public.erp_conciliacao_conta_bkp_3961_id_seq FROM PUBLIC, anon, authenticated;
 
-CREATE TEMP TABLE _c3961 AS
+CREATE TEMP TABLE _c3961 AS  -- tabela de sessão: some sozinha ao fim da conexão
 WITH emp(cid) AS (VALUES ('36b69d77-b4ea-414b-8519-2ff6621c8de7'::uuid),   -- Pdois/Prigol
                          ('d577602d-b21a-4d97-ae59-401777383c23'::uuid),   -- Troian
                          ('a462e13f-0f51-4c54-abe8-4474b591633b'::uuid)),  -- Gean
@@ -132,4 +132,3 @@ UPDATE public.erp_receber r
    SET origem_baixa = 'conciliacao', updated_at = now()
  WHERE r.id = '754d58c6-bee2-43b4-955b-6f6aa416c625' AND r.origem_baixa = 'permuta';
 
-DROP TABLE _c3961;

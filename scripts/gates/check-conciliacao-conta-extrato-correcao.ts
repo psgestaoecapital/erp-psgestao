@@ -39,7 +39,7 @@ ok(/UPDATE public\.erp_pagar t\s+SET conta_bancaria = c\.nome_lote, updated_at =
 ok(!/SET[^;]*\b(valor|status|data_pagamento|valor_pago)\s*=/i.test(corpo), 'valor, status e datas do título não mudam')
 ok(/'CONTA_PELA_CONCILIACAO'/.test(corpo) && /chamado #3961/.test(corpo), 'cada título corrigido ganha a linha no histórico')
 ok(/754d58c6-bee2-43b4-955b-6f6aa416c625' AND r\.origem_baixa = 'permuta'/.test(corpo), 'origem "permuta" do título de 25 mil só muda se ainda for permuta')
-ok(!/\b(DELETE|TRUNCATE)\b/i.test(corpo) && !/DROP TABLE (?!_c3961)/i.test(corpo), 'sem DELETE/TRUNCATE/DROP de dado')
+ok(!/\b(DELETE|TRUNCATE|DROP)\b/i.test(corpo), 'sem DELETE/TRUNCATE/DROP')
 
 if (falhas) { console.error(`\n[check-conciliacao-conta-extrato-correcao] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-conciliacao-conta-extrato-correcao] correção do grupo C conferida.')
