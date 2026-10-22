@@ -11,7 +11,8 @@ import { dbSelect, dbInsert, dbPatch, registrarJornada, obterSessionPayload } fr
 const DEMO = 'b0700000-0000-4000-a000-000000000004'
 const RUN = Date.now().toString(36).toUpperCase()
 const CODIGO = `E2E-CFOP-${RUN}`
-const NCM = `98${RUN.replace(/\D/g, '').padEnd(6, '3').slice(0, 6)}`
+// NCM único por execução (milissegundos): os dígitos do RUN em base 36 repetiam o NCM entre execuções e entre specs
+const NCM = `98${(Date.now() % 1_000_000).toString().padStart(6, '0')}`
 const CLIENTE_DOC = '10000000000145'
 let produtoId = ''
 let token = ''

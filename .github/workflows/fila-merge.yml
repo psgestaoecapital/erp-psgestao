@@ -35,6 +35,10 @@ on:
 
 permissions:
   contents: read
+  # CEO 15/10 17:50: a fila lê os specs falhos do @pos pelas ANOTAÇÕES do check-run (check-runs/<id>/annotations),
+  # em vez de baixar o log do job (que dava 404). Leitura de checks + actions cobre esse caminho.
+  checks: read
+  actions: read
 
 jobs:
   fila:

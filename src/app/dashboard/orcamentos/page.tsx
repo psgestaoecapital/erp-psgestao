@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { APP_URL } from "@/lib/appUrl";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
@@ -76,6 +77,12 @@ const fmtR=(v:number)=>`R$ ${(v||0).toLocaleString("pt-BR",{minimumFractionDigit
 const fmtQ=(v:number)=>(v||0).toLocaleString("pt-BR",{maximumFractionDigits:3});
 const fmtD=(v:string)=>v?new Date(v+'T00:00:00').toLocaleDateString("pt-BR"):'—';
 const addDias=(d:number)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
+// Validade padrão por empresa (orcamento_config_empresa); sem configuração mantém os 15 dias de sempre.
+const VALIDADE_PADRAO_DIAS=15;
+const getValidadeDias=async(companyId:string)=>{
+  const{data}=await supabase.from('orcamento_config_empresa').select('validade_dias').eq('company_id',companyId).maybeSingle();
+  return data?.validade_dias||VALIDADE_PADRAO_DIAS;
+};
 
 // Modelo padrão da observação (demanda #3 Jordana): pré-preenche o campo em orçamento
 // novo; a vendedora edita os valores antes de enviar. Sai na proposta pública (PDF).
@@ -128,6 +135,24 @@ export default function OrcamentosPage(){
     if(sel && !sel.startsWith("group_") && sel!=="consolidado") return sel;
     return companyIds[0] || "";
   },[sel, companyIds]);
+
+  // Validade padrão da empresa (config opcional; vazio = 15 dias de sempre)
+  const [validadePadraoDias,setValidadePadraoDias]=useState<number|null>(null);
+  useEffect(()=>{
+    const cid=editing?.company_id||companyIdParaCadastro;
+    if(!showForm||!cid){return;}
+    supabase.from('orcamento_config_empresa').select('validade_dias').eq('company_id',cid).maybeSingle()
+      .then(({data})=>setValidadePadraoDias(data?.validade_dias??null));
+  },[showForm,editing?.company_id,companyIdParaCadastro]);
+  const salvarValidadePadrao=async(v:string)=>{
+    const cid=editing?.company_id||companyIdParaCadastro;
+    const n=parseInt(v,10);
+    if(!cid||!n||n<1||n>365||n===validadePadraoDias)return;
+    const{error}=await supabase.from('orcamento_config_empresa').upsert({company_id:cid,validade_dias:n,updated_at:new Date().toISOString()});
+    if(error){setMsg("Não foi possível salvar a validade padrão");return;}
+    setValidadePadraoDias(n);setMsg(`Validade padrão: ${n} dias para os próximos orçamentos`);
+  };
+
 
   useEffect(()=>{
     if(companyIds.length>0){loadOrcamentos();loadProdutos();}
@@ -245,8 +270,9 @@ export default function OrcamentosPage(){
     // Gera número automático
     const{data}=await supabase.rpc('next_orcamento_numero',{p_company_id:companyIdParaCadastro});
     const numero=data||`ORC-${new Date().getFullYear()}-0001`;
+    const validadeDias=await getValidadeDias(companyIdParaCadastro);
     setForm({
-      numero,data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(15),
+      numero,data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(validadeDias),
       status:'rascunho',versao:1,
       condicao_pagamento:'30 dias',prazo_entrega_dias:10,
       subtotal:0,desconto_percentual:0,desconto_valor:0,acrescimo_valor:0,frete_valor:0,total:0,
@@ -726,6 +752,10 @@ export default function OrcamentosPage(){
               <input type="date" value={form.data_emissao} onChange={e=>setForm({...form,data_emissao:e.target.value})} style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Validade</div>
               <input type="date" value={form.data_validade} onChange={e=>setForm({...form,data_validade:e.target.value})} style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Validade padrão (dias)</div>
+              <AjudaCampo chave="orcamentos.config.validade_dias" rota="/dashboard/orcamentos"/>
+              <input type="number" min={1} max={365} placeholder={String(VALIDADE_PADRAO_DIAS)} defaultValue={validadePadraoDias??''} key={`vp-${editing?.company_id||companyIdParaCadastro}-${validadePadraoDias??''}`}
+                onBlur={e=>salvarValidadePadrao(e.target.value)} style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}} title="Quando se espera faturar — alimenta a previsão de receita">Previsão de Faturamento</div>
               <input type="date" value={form.data_previsao_faturamento??''} onChange={e=>setForm({...form,data_previsao_faturamento:e.target.value||null})} style={inp}/></div>
           </div>
@@ -927,7 +957,7 @@ export default function OrcamentosPage(){
           {/* CRM ② (Wesley) · anexar o PDF do orçamento feito FORA do sistema + informar o valor.
               Só em orçamento já salvo (precisa do id para o caminho no storage). */}
           {editing?.id ? (
-            <OrcamentoPdfAnexo orcamentoId={editing.id} companyId={editing.company_id} onSaved={loadOrcamentos} />
+            <OrcamentoPdfAnexo orcamentoId={editing.id} companyId={editing.company_id} onSaved={(novoPath)=>{ setEditing(e=>e?{...e,pdf_anexo_path:novoPath}:e); loadOrcamentos(); }} />
           ) : (
             /* Tryo #264 · no orçamento novo o PDF já pode ser escolhido; sobe ao clicar em "Criar Orçamento" */
             <div style={{marginBottom:16,background:BG3,borderRadius:8,padding:14,border:`1px solid ${GO}40`}} data-testid="orc-pdf-novo">
@@ -1032,7 +1062,7 @@ export default function OrcamentosPage(){
 // CRM ② (Wesley/Tryo) — anexo do PDF do orçamento (feito FORA) + valor manual.
 // O arquivo vai no bucket crm-anexos (privado) sob {company_id}/orcamentos/{id}/... (RLS por empresa).
 // A gravação (path + valor) passa pela RPC fn_orcamento_anexar_pdf (com guarda de empresa).
-function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: string; companyId: string; onSaved: () => void }) {
+function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: string; companyId: string; onSaved: (pdfPath: string | null) => void }) {
   const [path, setPath] = useState<string | null>(null);
   const [em, setEm] = useState<string | null>(null);
   const [valor, setValor] = useState<string>("");
@@ -1072,7 +1102,7 @@ function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: s
       if (up.error) throw new Error(up.error.message);
       await gravar(novoPath);
       setPath(novoPath); setEm(new Date().toISOString());
-      onSaved();
+      onSaved(novoPath);
     } catch (e2) { setErr((e2 as Error).message); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
   }
@@ -1086,14 +1116,14 @@ function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: s
   async function remover() {
     if (!window.confirm("Remover o PDF anexado deste orçamento?")) return;
     setBusy(true); setErr(null);
-    try { await gravar(null); setPath(null); setEm(null); onSaved(); }
+    try { await gravar(null); setPath(null); setEm(null); onSaved(null); }
     catch (e2) { setErr((e2 as Error).message); }
     finally { setBusy(false); }
   }
 
   async function salvarValor() {
     setBusy(true); setErr(null);
-    try { await gravar(path); onSaved(); }
+    try { await gravar(path); onSaved(path); }
     catch (e2) { setErr((e2 as Error).message); }
     finally { setBusy(false); }
   }

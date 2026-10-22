@@ -21,12 +21,17 @@ for (const f of readdirSync(DIR).filter((n) => /\.ya?ml$/.test(n))) {
     if (!/playwright test|jornadas:revenda/.test(bloco)) continue
     comDemo++
     const c = bloco.match(/^    concurrency:\s*\n((?:      .*\n?)+)/m)?.[1] ?? ''
-    // CEO 07/10: job que roda SÓ no banco de testes (segredos TEST_*, nenhum segredo da produção) usa a fila do banco
-    // de testes (group aceitacao-testes) — é outra demo, então não disputa com a demo-e2e da produção.
+    // CEO 07/10 (CEO 18/10: a main usa a vaga 1 → aceitacao-testes-1): job que roda SÓ no banco de testes (segredos
+    // TEST_*, nenhum segredo da produção) usa a fila do banco de testes (group aceitacao-testes[-<vaga>]) — é outra
+    // demo, então não disputa com a demo-e2e da produção.
     const soTestes = /secrets\.TEST_SUPABASE_URL/.test(bloco) && !/secrets\.(SUPABASE_URL|SUPABASE_SERVICE_ROLE_KEY|NEXT_PUBLIC_SUPABASE_ANON_KEY)\b/.test(bloco)
-    const grupo = soTestes ? /^      group: aceitacao-testes\s*$/m.test(c) : /^      group: (demo-e2e|\$\{\{.*'demo-e2e'\s*\}\})\s*$/m.test(c)
+    // job só-testes: aceita o grupo literal (aceitacao-testes[-N]) OU a expressão por vaga que resolve para ele
+    // (a aceitação de PR roda só em banco de testes — CEO 18/10; o `|| 'demo-e2e'` da expressão é fallback morto).
+    const grupo = soTestes
+      ? /^      group: (aceitacao-testes(-\d+)?|\$\{\{[^\n]*aceitacao-testes[^\n]*\}\})\s*$/m.test(c)
+      : /^      group: (demo-e2e|\$\{\{.*'demo-e2e'\s*\}\})\s*$/m.test(c)
     ok(grupo && /^      queue: max\s*$/m.test(c) && !/cancel-in-progress: true/.test(c),
-      `${f} › ${nome}: na fila da demo (group ${soTestes ? 'aceitacao-testes' : 'demo-e2e'}, queue: max, sem cancelar)`)
+      `${f} › ${nome}: na fila da demo (group ${soTestes ? 'aceitacao-testes[-<vaga>]' : 'demo-e2e'}, queue: max, sem cancelar)`)
   }
 }
 ok(comDemo >= 4, `os workflows de e2e da demo foram encontrados (${comDemo}: aceitação preview, pós-migration, jornadas e juiz)`)
