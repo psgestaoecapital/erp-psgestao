@@ -650,6 +650,12 @@ estado_checks() {
   # preview (build real da Vercel). 'gates' segue rodando e aparecendo — informativo, não segura o merge; a
   # verificação pesada é pós-merge (aceitação da main + reverter-automatico). Gate: check-vercel-build.ts.
   linhas=$(awk -F'\t' '$1 != "gates"' <<< "$linhas")
+  # META-CHECKS DA PRÓPRIA ESTEIRA (CEO 22/10, sessão ao vivo): a própria 'fila' posta um check-run que a concorrência
+  # CANCELA (checks cancelados são normais quando uma rodada substitui a anterior); 'acionar'/'etiquetar'/'varredura'/
+  # 'liberar-reserva' e o comentário da Vercel são automações, não portões de qualidade. Nenhum deles pode segurar o
+  # merge — senão a fila trava na PRÓPRIA marca cancelada (era o que segurava TODAS as PRs). Saem do cálculo de
+  # pendentes/vermelhos/cancelados. Continuam bloqueando: preview (build real), check_fn_guards/menu/migrations, aceitação.
+  linhas=$(awk -F'\t' '$1 !~ /^(fila|acionar|etiquetar|varredura|liberar-reserva|Vercel Preview Comments)$/' <<< "$linhas")
   # via rápida SEMPRE, e via revisada DENTRO DA JANELA (CEO 15/10): tira a aceitação do cálculo de pendentes/vermelhos/cancelados
   if [ "$via" = rapida ] || aceitacao_dispensada || [ "$acc_quar" = 1 ]; then linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas"); fi
   pend=$(awk -F'\t' '$2 != "completed" {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
