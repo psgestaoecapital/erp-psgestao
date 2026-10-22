@@ -233,7 +233,12 @@ done < <("$PSQL" "$TEST_DATABASE_URL" -tAc "select tbl from _vaga_snapshot.cattb
 # 4) LEDGER: remove as versions da PR (tudo que não estava na foto).
 echo "delete from supabase_migrations.schema_migrations where version not in (select version from _vaga_snapshot.led);" >> "$txn"
 # 5) VERIFY-BEFORE-COMMIT: a assinatura viva tem de voltar a ser IGUAL à da foto e o ledger idem; senão RAISE → ROLLBACK.
+# A foto foi tirada com o search_path PADRÃO da sessão; pg_get_*def e information_schema.columns.column_default
+# escrevem os nomes conforme o search_path (ex.: nextval('x_seq') × nextval('public.x_seq')). Com o search_path do
+# restore (public, extensions, pg_catalog — #2885) a conferência dava 1166 "diferenças" só em col (20/10) e TODA
+# restauração de PR com migration falhava → vaga SUJA. Volta ao padrão da sessão antes de comparar.
 {
+  echo "set local search_path to default;"
   echo "create temp table _agora on commit drop as $SIG;"
   echo "do \$v\$ declare d bigint; begin"
   echo "  select count(*) into d from ((select sig from _vaga_snapshot.sig except select sig from _agora) union all (select sig from _agora except select sig from _vaga_snapshot.sig)) z;"
