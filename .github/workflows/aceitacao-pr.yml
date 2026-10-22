@@ -349,6 +349,10 @@ jobs:
               || echo "::warning::não consegui disparar o Montar automaticamente — rode-o à mão na vaga ${ACEITACAO_VAGA:-0}"
             exit 1
           fi
+          if [ "$rc" = 3 ]; then
+            echo "### Vaga ${ACEITACAO_VAGA:-0}: referência (vaga 1) fora da main — rode o Montar da vaga 1 e comente /re-rodar (não é regressão da PR)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           [ "$rc" = 0 ] || { echo "::error::reconciliação com a referência falhou (trava/erro de uso) — aceitação abortada"; exit 1; }
       # CEO 14/10 — a aceitação SUJAVA a vaga: aplicava as migrations da PR e nada as desfazia. Agora: (1) sincroniza SÓ a
       # main (ledger-alvo de origin/main, nunca a PR); (2) tira a FOTO da vaga nesse estado (schema _vaga_snapshot); (3) só
