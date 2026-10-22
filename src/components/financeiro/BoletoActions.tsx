@@ -22,6 +22,7 @@ import { useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { baixarBlob } from '@/lib/download/baixarArquivo'
 import { nomeDoContentDisposition } from '@/lib/download/nomeArquivo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export type ClienteContato = {
   cpfCnpj: string | null
@@ -55,6 +56,8 @@ type Props = {
   cliente: ClienteContato | null
   empresaCnpj: string | null
   boleto: BoletoEstado
+  /** false quando o título já foi pago/encerrado: o cancelamento do boleto não é oferecido. */
+  tituloAberto?: boolean
   onSucesso?: () => void
 }
 
@@ -97,7 +100,7 @@ function validaPreEmissao(cliente: ClienteContato | null, empresaCnpj: string | 
   return null
 }
 
-export default function BoletoActions({ provider, receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, onSucesso }: Props) {
+export default function BoletoActions({ provider, receberId, valor, vencimentoISO, cliente, empresaCnpj, boleto, tituloAberto = true, onSucesso }: Props) {
   const [busy, setBusy] = useState(false)
   const [imprimindo, setImprimindo] = useState(false)
   const [copiou, setCopiou] = useState<'linha' | 'pix' | 'barras' | null>(null)
@@ -111,6 +114,34 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
   const [erro, setErro] = useState<string | null>(null)
 
   const label = LABEL[provider]
+  const ROTA_AJUDA = '/dashboard/financeiro/receber'
+
+  // Cancelar boleto: baixa SÓ o boleto no banco; o título continua ativo. Confirmação antes (irreversível no banco).
+  const [confirmaCancelar, setConfirmaCancelar] = useState(false)
+  const [cancelando, setCancelando] = useState(false)
+  const [erroCancelar, setErroCancelar] = useState<string | null>(null)
+  const cancelarBoleto = async () => {
+    if (cancelando) return
+    setCancelando(true)
+    setErroCancelar(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const r = await fetch('/api/banco/cancelar-boleto', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+        body: JSON.stringify({ receber_id: receberId }),
+      })
+      const j = await r.json()
+      if (!j.ok) { setErroCancelar(j.erro || 'Nao foi possivel cancelar o boleto.'); return }
+      setConfirmaCancelar(false)
+      onSucesso?.()
+    } catch (e) {
+      setErroCancelar(`Nao foi possivel cancelar o boleto: ${(e as Error).message || 'erro de rede'}`)
+    } finally {
+      setCancelando(false)
+    }
+  }
 
   const motivoDesabilitado = useMemo(
     () => validaPreEmissao(cliente, empresaCnpj),
@@ -367,7 +398,44 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
         style={boleto.qrCode ? btnSec : btnDisabled}>
         {copiou === 'pix' ? 'Copiado!' : 'Copiar Pix'}
       </button>
+      {tituloAberto && (
+        <>
+          <button type="button" onClick={() => { setErroCancelar(null); setConfirmaCancelar(true) }}
+            data-testid="boleto-cancelar"
+            title={`Cancelar o boleto no ${label}. O título continua ativo.`}
+            style={{ ...btnSec, color: '#991B1B', borderColor: 'rgba(153,27,27,0.35)' }}>
+            Cancelar boleto
+          </button>
+          <AjudaCampo chave="receber.boleto.cancelar" rota={ROTA_AJUDA} />
+        </>
+      )}
     </div>
+
+    {confirmaCancelar && (
+      <div role="dialog" aria-modal="true" onClick={() => !cancelando && setConfirmaCancelar(false)}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1200 }}>
+        <div onClick={(e) => e.stopPropagation()}
+          style={{ background: '#FFFDF9', borderRadius: 12, maxWidth: 440, width: '100%', padding: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314' }}>Cancelar o boleto no {label}?</div>
+          <div style={{ fontSize: 12.5, lineHeight: 1.5, color: '#3D2314' }}>
+            O boleto{boleto.nossoNumero ? ` ${boleto.nossoNumero}` : ''} será baixado no banco e <b>não poderá mais ser pago</b>. Isso não tem volta no banco.
+            O título continua ativo aqui; depois você pode gerar um novo boleto ou dar baixa pelo pagamento recebido.
+          </div>
+          {erroCancelar && (
+            <div role="alert" style={{ fontSize: 11.5, lineHeight: 1.4, color: '#991B1B', background: '#FEF2F2', border: '0.5px solid rgba(153,27,27,0.25)', borderRadius: 6, padding: '8px 10px' }}>
+              {erroCancelar}
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button type="button" onClick={() => setConfirmaCancelar(false)} disabled={cancelando} style={btnSec}>Voltar</button>
+            <button type="button" onClick={cancelarBoleto} disabled={cancelando} data-testid="boleto-cancelar-confirmar"
+              style={{ background: '#991B1B', color: '#fff', border: 'none', padding: '4px 14px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: cancelando ? 'wait' : 'pointer', opacity: cancelando ? 0.6 : 1 }}>
+              {cancelando ? 'Cancelando...' : 'Cancelar boleto'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* Fallback sem papel: quando o PDF não abre, o operador ainda cobra pela linha digitável
         ou pelo código de barras. Modal em vez de alert (que some após alguns diálogos). */}
