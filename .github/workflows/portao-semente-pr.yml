@@ -1,0 +1,43 @@
+name: Portão de semente (PR)
+
+# INFRA-TESTES Slice 1 (erp_contexto_projeto f076af2d): numa vaga LIMPA (Postgres local descartável, nunca produção nem
+# banco de testes), aplica TODAS as migrations do zero e roda o smoke (scripts/banco-testes/smoke.sh). PR que
+# dessincroniza migration/semente é barrada ANTES do merge, em vez de quebrar a aceitação da main depois.
+# Aditivo: não altera montar-banco-testes nem a aceitação; só PR que toca migrations/semente/este portão.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/banco-testes/**'
+      - '.github/workflows/portao-semente-pr.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: portao-semente-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  portao-semente:
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Sobe o Postgres local e aplica TODAS as migrations do zero
+        run: |
+          # só o banco (sem Studio/Storage/etc.); as migrations rodam no start, na ordem do repo
+          supabase start -x studio,imgproxy,storage-api,edge-runtime,logflare,vector,mailpit,realtime,postgres-meta,supavisor
+      - name: Smoke (ledger == repo, funções-chave, fn_demo_reset nas DEMOs presentes)
+        env:
+          SMOKE_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: scripts/banco-testes/smoke.sh
+      - name: Para o Postgres local
+        if: always()
+        run: supabase stop --no-backup || true
