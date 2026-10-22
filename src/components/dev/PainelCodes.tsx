@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import GraficosCodes from './GraficosCodes'
 import SaudeEsteira from './SaudeEsteira'
 import DiagnosticoEsteira from './DiagnosticoEsteira'
+import CronogramaHub from './CronogramaHub'
 import SaudeCodes from './SaudeCodes'
 import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
 import MeuCode from '@/components/dev/MeuCode'
@@ -145,6 +146,7 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
+      <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
       <BlocoSeguro nome="Saúde da esteira"><SaudeEsteira /></BlocoSeguro>
       <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
       <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
