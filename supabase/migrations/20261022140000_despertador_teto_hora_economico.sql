@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS public.erp_despertador_pulso (
 );
 CREATE INDEX IF NOT EXISTS ix_despertador_pulso_em ON public.erp_despertador_pulso (em);
 ALTER TABLE public.erp_despertador_pulso ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.erp_despertador_pulso FROM anon;
+REVOKE ALL ON public.erp_despertador_pulso FROM anon, authenticated;
 -- sem policy para anon/authenticated: só o canal de serviço (SECURITY DEFINER) grava e lê.
 
 -- Adicionar o 5º parâmetro muda a assinatura: um CREATE OR REPLACE sozinho criaria um OVERLOAD
@@ -138,3 +138,9 @@ BEGIN
   );
 END;
 $function$;
+
+-- Grants: o DROP+CREATE faz a função nova nascer com EXECUTE para PUBLIC (padrão). A guarda
+-- fn__agente_assert_servico() já barra, mas restauramos a ACL restrita da assinatura antiga
+-- ({postgres, service_role}) para não perder a defesa em profundidade (revisão do gilberto-revisor).
+REVOKE ALL ON FUNCTION public.fn_agente_despertador(interval, integer, uuid, boolean, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_agente_despertador(interval, integer, uuid, boolean, integer) TO service_role;
