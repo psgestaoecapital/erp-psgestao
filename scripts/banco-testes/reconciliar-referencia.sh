@@ -23,8 +23,8 @@
 #
 # Revisão do Eng. Chefe (18/10) — QUATRO proteções obrigatórias (a mudança APAGA objetos no banco):
 #   P1 REFERÊNCIA ATRASADA: só reconcilia se o ledger da referência contém TODAS as migrations da main (e a versão máxima
-#      da referência == a última migration da main). Referência atrás (ou à frente) da main → PULA (exit 0), comportamento
-#      atual segue. NUNCA remove da vaga objeto/versão que pertença a uma migration presente na main.
+#      da referência == a última migration da main). Referência atrás (ou à frente) da main → FALHA explícito (exit 3, 22/10;
+#      antes pulava em silêncio), sem remover nada. NUNCA remove da vaga objeto/versão que pertença a uma migration presente na main.
 #   P2 LEITURA CONSISTENTE: lê o ledger da referência ANTES e DEPOIS de coletar o catálogo; se mudou (a aceitação da main
 #      rodou no meio), descarta a comparação e PULA (exit 0).
 #   P3 EXTENSÕES: exclui da comparação E de qualquer DROP todo objeto que dependa de extensão (pg_depend deptype='e') e os
@@ -33,7 +33,7 @@
 #
 # VERIFY-BEFORE-COMMIT na transação + verificação final no dado (RD-38): nunca termina 0 se, no dado, a vaga ≠ referência.
 #
-# exit 0 = vaga reconciliada e VERIFICADA igual à referência (ou pulada/nada a fazer) · exit 2 = precisa de Montar · exit 1 = erro/guarda.
+# exit 0 = vaga reconciliada e VERIFICADA igual à referência (ou pulada/nada a fazer) · exit 2 = precisa de Montar · exit 3 = referência fora da main · exit 1 = erro/guarda.
 # Uso: VAGA=0|2  TEST_DATABASE_URL=<vaga alvo, pooler, ESCRITA>  REF_DATABASE_URL=<vaga 1, pooler, SÓ LEITURA>
 #      MAIN_MIGR_DIR=<dir origin/main>  [PSQL=psql]  [WITNESS=fn_ge_listagem_v2]  reconciliar-referencia.sh
 set -uo pipefail
@@ -49,6 +49,9 @@ export LC_ALL=C
 erro()    { echo "::error::$*"; exit 1; }
 montar()  { echo "::error::vaga ${VAGA} precisa de Montar: $*"; exit 2; }
 pular()   { echo "::notice::vaga ${VAGA}: $* — reconciliação com a referência pulada (segue o comportamento atual)."; exit 0; }
+# 22/10 (gilberto-desenv, INFRA-TESTES): referência fora da main NÃO é mais "pular" em silêncio — pulava a limpeza da vaga e
+# deixava specs flaky (financeiro-conciliacao, nfse-avulsa…) sem causa visível. Agora falha EXPLÍCITO (exit 3), sem tocar em nada.
+ref_fora() { echo "::error title=Referência fora da main::vaga ${VAGA}: $* — a referência (vaga 1) precisa estar na última migration da main. Rode o Montar da vaga 1 (workflow montar-banco-testes, vaga=1) e comente /re-rodar na PR."; exit 3; }
 resumo()  { [ -n "${GITHUB_STEP_SUMMARY:-}" ] && printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY" || true; echo "$*"; }
 
 # ── TRAVAS OBRIGATÓRIAS (segurança — o script APAGA objetos no banco) ────────────────────────────────────────────────
@@ -143,10 +146,10 @@ ref_max=$(tail -1 "$dir/ref.led")
 faltando=$(comm -23 "$dir/main.led" "$dir/ref.led" | grep -c . || true)   # migrations da main AUSENTES no ledger da referência
 if [ "$faltando" -ne 0 ]; then
   echo "::warning::referência (vaga 1) com ${faltando} migration(ões) da main ausente(s) no ledger (ref_max=${ref_max}, main_max=${main_max})"
-  pular "referência atrás da main (${faltando} migration(ões) da main ausente(s) no ledger da referência)"
+  ref_fora "referência atrás da main (${faltando} migration(ões) da main ausente(s) no ledger da referência)"
 fi
 if [ "$ref_max" != "$main_max" ]; then
-  pular "a versão máxima da referência ($ref_max) não é a última migration da main ($main_max)"
+  ref_fora "a versão máxima da referência ($ref_max) não é a última migration da main ($main_max)"
 fi
 
 # ── Ledgers/chaves da comparação ─────────────────────────────────────────────────────────────────────────────────────

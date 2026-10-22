@@ -172,6 +172,7 @@ jobs:
           DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
         run: |
           set -u
+          ref_falhou=0
           for v in 1 2; do
             eval "u=\$DBURL$v"
             if [ -z "$u" ]; then echo "::notice::vaga $v não provisionada — pulada"; continue; fi
@@ -180,11 +181,27 @@ jobs:
             case "$u" in *horsymhsinqcimflrtjo*) echo "::error::vaga $v aponta para a PRODUÇÃO — abortado"; exit 1;; esac
             case "$u" in *pooler.supabase.com*) ;; *) echo "::error::vaga $v: precisa ser Session pooler"; exit 1;; esac
             echo "== vaga $v =="
-            if ! supabase db push --include-all --db-url "$u"; then
+            # 22/10: a vaga 1 é a REFERÊNCIA da reconciliação das PRs — lag dela pulava a limpeza das vagas e gerava specs flaky.
+            # Tenta 3x (aceitação da main pode estar segurando a vaga) e, se ainda atrás da main, falha EXPLÍCITO no fim do passo.
+            for t in 1 2 3; do
+              ok_push=1
+              if ! supabase db push --include-all --db-url "$u"; then
+                ok_push=0
+                if [ "$v" = 1 ] && [ "$t" -lt 3 ]; then echo "tentativa $t falhou na referência (vaga 1) — nova tentativa em 60s"; sleep 60; continue; fi
+              fi
+              break
+            done
+            [ "$v" = 1 ] && [ "$ok_push" = 0 ] && ref_falhou=1
+            if [ "$ok_push" = 0 ]; then
               echo "::warning title=Vaga $v::db push falhou (vaga em uso por uma aceitação ou com sobra de PR) — a vaga $v se sincroniza com a main sob a própria trava na próxima aceitação; o Montar da vaga 0 segue"
               echo "### Vaga $v: db push falhou aqui (vaga em uso) — sincroniza na próxima aceitação dela" >> "$GITHUB_STEP_SUMMARY"
             fi
           done
+          if [ "${ref_falhou:-0}" = 1 ]; then
+            echo "::error title=Referência atrás da main::a vaga 1 (referência da reconciliação) não recebeu as migrations da main após 3 tentativas — as aceitações de PR vão falhar explícito até ela ser sincronizada (re-rode o Montar da vaga 1)"
+            echo "### Referência (vaga 1) atrás da main após 3 tentativas — re-rodar o Montar da vaga 1" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
       # 13/10 (CEO): o dump --schema public NÃO traz as extensões. Uma vaga NOVA (ex.: a vaga 1) pode não ter o
       # `unaccent`, que o f_unaccent e o índice de erp_gov_nfse_municipios usam como public.unaccent — sem ele a carga
       # dos catálogos morre ("function public.unaccent(unknown, text) does not exist", COPY erp_gov_nfse_municipios).
