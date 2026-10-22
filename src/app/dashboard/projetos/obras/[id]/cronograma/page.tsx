@@ -167,9 +167,9 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
             ) : (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-                  <Mini label="Tarefas" valor={String(tarefas.length)} />
-                  <Mini label="Avanço geral" valor={`${avancoGeral.toFixed(0)}%`} cor={VERDE} />
-                  <Mini label="Fora da linha de base" valor={temBase ? String(atrasadas) : '—'} cor={atrasadas > 0 ? VERM : ESP} />
+                  <Mini label="Tarefas" valor={String(tarefas.length)} ajuda="projetos.cronograma.ind_tarefas" />
+                  <Mini label="Avanço geral" valor={`${avancoGeral.toFixed(0)}%`} cor={VERDE} ajuda="projetos.cronograma.ind_avanco" />
+                  <Mini label="Fora da linha de base" valor={temBase ? String(atrasadas) : '—'} cor={atrasadas > 0 ? VERM : ESP} ajuda="projetos.cronograma.ind_fora_base" />
                 </div>
 
                 <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, overflowX: 'auto' }}>
@@ -180,6 +180,8 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                     {tarefas.map((t) => {
                       const p = predDe(t.id)
                       const atras = !!t.fim_base && t.fim > t.fim_base
+                      const pt = p ? tarefas.find((x) => x.id === p.predecessora_id) : undefined
+                      const conflito = !!pt && t.inicio < pt.fim
                       return (
                         <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
                           <div style={{ width: 152, flexShrink: 0 }}>
@@ -190,13 +192,19 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                             {t.inicio_base && t.fim_base && (
                               <div title="Linha de base" style={{ position: 'absolute', top: 15, height: 4, left: `${pos(t.inicio_base)}%`, width: `${larg(t.inicio_base, t.fim_base)}%`, background: LINE, borderRadius: 2 }} />
                             )}
+                            {pt && (
+                              <div title={conflito ? `Começa antes de "${pt.nome}" terminar` : `Depende de "${pt.nome}"`}
+                                style={{ position: 'absolute', top: 8, height: 0, left: `${Math.min(pos(pt.fim), pos(t.inicio))}%`, width: `${Math.abs(pos(t.inicio) - pos(pt.fim))}%`, borderTop: `2px dashed ${conflito ? VERM : MUT}` }} />
+                            )}
                             <div style={{ position: 'absolute', top: 2, height: 12, left: `${pos(t.inicio)}%`, width: `${larg(t.inicio, t.fim)}%`, background: '#FBF4E4', border: `1px solid ${atras ? VERM : GOLD}`, borderRadius: 4, overflow: 'hidden' }}>
                               <div style={{ width: `${Number(t.percentual)}%`, height: '100%', background: atras ? VERM : GOLD }} />
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                             <button onClick={() => editar(t)} style={btnMini}>Editar</button>
+                            <AjudaCampo chave="projetos.cronograma.acao_editar" rota={ROTA_AJUDA} />
                             <button onClick={() => void excluir(t)} style={{ ...btnMini, color: VERM }}>Excluir</button>
+                            <AjudaCampo chave="projetos.cronograma.acao_excluir" rota={ROTA_AJUDA} />
                           </div>
                         </div>
                       )
@@ -217,11 +225,11 @@ const inp: React.CSSProperties = { padding: '9px 10px', border: `1px solid ${LIN
 const btn = (principal: boolean): React.CSSProperties => ({ padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: `1px solid ${GOLD}`, background: principal ? GOLD : '#fff', color: principal ? '#fff' : '#A57A15' })
 const btnMini: React.CSSProperties = { padding: '5px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#fff', color: ESP }
 
-function Mini({ label, valor, cor = ESP }: { label: string; valor: string; cor?: string }) {
+function Mini({ label, valor, cor = ESP, ajuda }: { label: string; valor: string; cor?: string; ajuda: string }) {
   return (
     <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px' }}>
       <div style={{ fontSize: 16, fontWeight: 700, color: cor }}>{valor}</div>
-      <div style={{ fontSize: 10, color: MUT, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 10, color: MUT, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label} <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} /></div>
     </div>
   )
 }
