@@ -25,6 +25,7 @@ const API_HOST: Record<SicoobAmbiente, string> = {
 // conforme a operacao. Cada token (e cada entrada de cache) e por scope.
 export const SICOOB_SCOPE_INCLUIR_BOLETO = 'boletos_inclusao'
 export const SICOOB_SCOPE_CONSULTAR_BOLETO = 'boletos_consulta'
+export const SICOOB_SCOPE_BAIXAR_BOLETO = 'boletos_baixa'
 
 export type Credencial = {
   client_id: string
@@ -329,4 +330,37 @@ export async function consultarBoleto(
   const valorPago = typeof valorPagoRaw === 'number' ? valorPagoRaw
     : typeof valorPagoRaw === 'string' ? Number(valorPagoRaw) : null
   return { status: res.status, situacao, dataLiquidacao, valorPago, raw: res.body }
+}
+
+export type BaixaBoletoResult = {
+  status: number
+  ok: boolean
+  raw: unknown
+}
+
+// POST baixa (cancelamento) do boleto no Sicoob — o boleto deixa de poder ser pago. NAO mexe no titulo
+// do ERP (quem chama decide). Token com scope proprio 'boletos_baixa' (um scope por requisicao, ver acima).
+export async function baixarBoleto(
+  c: Credencial,
+  nossoNumero: string | number,
+  codigoModalidade = 1,
+): Promise<BaixaBoletoResult> {
+  const token = await obterToken(c, SICOOB_SCOPE_BAIXAR_BOLETO)
+  const body = JSON.stringify({
+    numeroCliente: Number(c.codigo_beneficiario),
+    codigoModalidade,
+  })
+  const res = await request<unknown>({
+    host: API_HOST[c.ambiente],
+    path: `/cobranca-bancaria/v3/boletos/${encodeURIComponent(String(nossoNumero))}/baixar`,
+    method: 'POST',
+    headers: {
+      'authorization': `Bearer ${token}`,
+      'client_id': c.client_id,
+      'content-type': 'application/json',
+      'content-length': String(Buffer.byteLength(body)),
+    },
+    body, pfx: c.pfx, passphrase: c.passphrase,
+  })
+  return { status: res.status, ok: res.status >= 200 && res.status < 300, raw: res.body }
 }
