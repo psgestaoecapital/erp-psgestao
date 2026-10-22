@@ -224,11 +224,14 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
   Precisa do segredo `FILA_MERGE_TOKEN` (PAT): merge com o `GITHUB_TOKEN` não dispara o `deploy-migrations`.
   Com a fila, o Code não roda `gh pr merge` à mão para PR que está nela.
-  **Janela temporária da aceitação (CEO 15/10, com o CEO presente):** a aceitação **VERMELHA** da **via revisada** NÃO
-  bloqueia até **2026-10-17 11:00 America/Sao_Paulo** (`JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'` em
-  `fila-merge.sh`); depois do limite a fila volta a bloquear **sozinha**, sem ninguém mexer. Continuam bloqueando dentro
-  da janela: gates/checks estáticos vermelhos, preview (Vercel) com falha, conflito e falta do `MERGE AUTORIZADO` do
-  revisor para o patch-id atual. **Ritmo:** no máximo `RITMO_MAX_HORA` (padrão **4**) publicações por hora.
+  **Janela temporária da aceitação (CEO 15/10; REABERTA CEO 22/10, com o CEO presente):** a aceitação **VERMELHA** da
+  **via revisada** NÃO bloqueia até **2026-10-23 17:00 America/Sao_Paulo** (`JANELA_ACEITACAO_REVISADA_FIM='2026-10-23T20:00:00Z'`
+  em `fila-merge.sh`); depois do limite a fila volta a bloquear **sozinha**, sem ninguém mexer. Reaberta porque a infra do
+  banco de testes (referência da vaga 1 defasando da main) estava derrubando toda aceitação de PR sem ser regressão; a
+  **aceitação da main** (verde) é a rede pós-merge ("corrigir em 1 h ou reverter") enquanto o `desenv` reconcilia a
+  referência. Continuam bloqueando dentro da janela: gates/checks estáticos vermelhos, preview (Vercel) com falha,
+  conflito e falta do `MERGE AUTORIZADO` do revisor para o patch-id atual. **Ritmo:** no máximo `RITMO_MAX_HORA`
+  (padrão **6**) publicações por hora.
   **Prioridade** (`FILA_PRIORIDADE`): Hub (`#2569 #2508 #2298`) e FC/FCR (`#2100`) na frente; o resto segue a ordem de
   entrada. Gate: `scripts/gates/check-fila-janela-aceitacao.ts` (prova os dois lados da data, o ritmo e a prioridade).
   **Janela temporária do @pos-migration por linha-de-base (CEO 15/10, com o CEO presente):** até a MESMA data-limite
