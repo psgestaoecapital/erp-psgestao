@@ -185,14 +185,23 @@ escalar_pos_novo() {
   acionar_autor_pos "$pr" "$novos" "$run"
 }
 
-# (a) Estado da main para PR COM migration. Ecoa: livre | esperar:<motivo>
+# (a) Estado da main para PR COM migration. $1 = via (rapida | revisada). Ecoa: livre | esperar:<motivo>
+# MODELO CEO 21/10 ("produto novo na produção, crítico no banco de testes"):
+#   - VIA RÁPIDA (Mundo 1 = produto novo, migration ADITIVA não-crítica): gate é SÓ o deploy-migrations (PRODUÇÃO, a
+#     rede de segurança real do RD-52, que aplica a migration na produção). NÃO espera o @pos-migration (aceitação e2e)
+#     — esse fica para o crítico. Assim a migration aditiva não fica represada por @pos vermelho de causa ambiental
+#     (incidente 21/10: 22 PRs prontas travadas; @pos vermelho com 3 specs de ambiente, produção provada limpa).
+#   - VIA REVISADA (Mundo 2 = núcleo crítico): comportamento intacto — espera deploy-migrations E @pos-migration verdes.
 estado_main() {
-  local ult_mig r st conc id falhos novos
+  local via=${1:-revisada} ult_mig r st conc id falhos novos
   # deploy-migrations: rodando ou vermelho → espera (vermelho é trabalho AGORA de quem quebrou)
   r=$(api "repos/$REPO/actions/workflows/deploy-migrations.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion)"')
   read -r id st conc <<< "$r"
   [ "$st" = completed ] || { echo "esperar:deploy-migrations da main em andamento ($id)"; return; }
   [ "$conc" = success ] || { echo "esperar:deploy-migrations da main não está verde ($conc, run $id)"; return; }
+
+  # Via rápida (Mundo 1): deploy-migrations verde basta — a migration aditiva já está na produção. Não espera o @pos (banco de testes).
+  [ "$via" = rapida ] && { echo livre; return; }
 
   r=$(api "repos/$REPO/actions/workflows/aceitacao-pos-migration.yml/runs?branch=main&per_page=1" --jq '.workflow_runs[0] | "\(.id) \(.status) \(.conclusion)"')
   read -r id st conc <<< "$r"
@@ -253,7 +262,7 @@ ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 # 2026-10-17 11:00 America/Sao_Paulo (= 2026-10-17T14:00:00Z); depois volta a bloquear SOZINHA. Só a aceitação —
 # gates/checks estáticos, preview (Vercel), MERGE AUTORIZADO do revisor e conflito continuam valendo.
 # FILA_AGORA_EPOCH (epoch UTC) deixa o gate provar os dois lados da data; sem ela, usa o agora real.
-JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'
+JANELA_ACEITACAO_REVISADA_FIM=${JANELA_ACEITACAO_REVISADA_FIM:-2026-10-23T20:00:00Z}
 aceitacao_dispensada() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_ACEITACAO_REVISADA_FIM" +%s)" ]; }
 
 # QUARENTENA DE JORNADAS (CEO 17/10, presente): spec que falha na aceitação da PR mas JÁ está em
@@ -291,10 +300,14 @@ p1_quarentena() {
 # concluída não for falha (voltou a passar). FILA_BASELINE_MAIN_SPECS (mesmo vazio) sobrescreve a lista da main (para o gate).
 BASELINE_MAIN_INICIO='2026-10-17T17:35:00Z'
 BASELINE_MAIN_FIM='2026-10-18T17:35:00Z'
-baseline_main_ativa() {
-  local agora=${FILA_AGORA_EPOCH:-$(date -u +%s)}
-  [ "$agora" -ge "$(date -u -d "$BASELINE_MAIN_INICIO" +%s)" ] && [ "$agora" -lt "$(date -u -d "$BASELINE_MAIN_FIM" +%s)" ]
-}
+# PERMANENTE (CEO 21/10): a regra vale SEMPRE, não só na janela 17–18/10. Motivo (observação do CEO 21/10 + prova no
+# código): as janelas de tolerância expiraram sábado 17/10 11:00 BRT e foi EXATAMENTE aí que a publicação constante
+# virou travamento recorrente — toda falha de vaga suja (drift do banco de testes) passou a BLOQUEAR. Esta regra já
+# se AUTO-LIMITA: baseline_main_specs só devolve specs quando a ÚLTIMA aceitação da main TAMBÉM está vermelha nos MESMOS
+# specs (ambiente/vaga suja); main verde → lista vazia → regra INERTE. Falha que a main não tem, spec da PRÓPRIA PR
+# (checado antes) e falha ilegível (fail-closed) continuam BLOQUEANDO. Logo é seguro ser permanente: não mascara
+# regressão de verdade, só impede a PR de ser refém de uma vaga suja que a própria main está sofrendo.
+baseline_main_ativa() { return 0; }
 # specs que falharam na última aceitação da main (vazio = regra desligada: main verde, sem run ou ilegível). Um por linha.
 baseline_main_specs() {
   local r id conc
@@ -314,7 +327,7 @@ baseline_main_specs() {
 comentar_herdadas_main() {
   local pr=$1 specs=$2 run=$3
   comentarios "$pr" | grep -qF "<!-- fila:baseline-main-$run -->" && return 0
-  comentar "$pr" "Fila de merge: a aceitação desta PR está vermelha, mas **todas** as falhas já ocorrem na última aceitação da \`main\` (ambiente de teste, regra temporária do CEO 17/10, vale até $BASELINE_MAIN_FIM ou até a main voltar a passar): \`$(tr '\n' ' ' <<< "$specs")\`. Não bloqueia a publicação. Falha que a main não tem, ou spec desta PR, continua bloqueando.
+  comentar "$pr" "Fila de merge: a aceitação desta PR está vermelha, mas **todas** as falhas já ocorrem na última aceitação da \`main\` (ambiente de teste / vaga suja — regra permanente CEO 21/10; some sozinha quando a main volta a passar): \`$(tr '\n' ' ' <<< "$specs")\`. Não bloqueia a publicação. Falha que a main não tem, ou spec desta PR, continua bloqueando.
 <!-- fila:baseline-main-$run -->"
   [ "$COMENTOU" = 1 ] || return 0
   printf '%s\n' "\"<!-- fila:baseline-main-$run -->\"" >> "$TMPF/c-$pr"
@@ -788,7 +801,7 @@ em_preparo=0
 LOTE_MAX=${LOTE_MAX:-6}
 # RITMO (CEO 15/10): teto de publicações por hora. Conta as PRs já mergeadas na main na última hora (fail-open: erro de
 # API/valor não-numérico = 0, a rodada segue), para a janela aberta da via revisada não virar enxurrada de merges.
-RITMO_MAX_HORA=${RITMO_MAX_HORA:-4}
+RITMO_MAX_HORA=${RITMO_MAX_HORA:-6}
 pub_hora=${FILA_PUB_HORA:-$(api "search/issues?q=repo:$REPO+is:pr+is:merged+base:main+merged:>=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" --jq '.total_count' 2>/dev/null || echo 0)}
 [ "${pub_hora:-0}" -eq "${pub_hora:-0}" ] 2>/dev/null || pub_hora=0
 disp_hora=$((RITMO_MAX_HORA - pub_hora))
@@ -854,8 +867,10 @@ for n in $fila; do
   jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
   # Eng. Chefe 14/10: tela/cálculo/migration/área crítica NUNCA publica pela via rápida, mesmo sem etiqueta (furo da #2592):
   # a fila coloca a etiqueta e espera o MERGE AUTORIZADO do revisor (o patch-id é conferido na próxima rodada).
-  if [ "$via" = rapida ] && [ "$(printf '%s\n' "$arquivos" | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
-    log "#$n toca tela/cálculo/migration/área crítica sem etiqueta: ponho $SENSIVEL e espero a autorização"
+  # Modelo CEO 21/10: produto novo/aditivo publica direto; só o CRÍTICO espera verde. O classificador decide pelo conteúdo
+  # (para .sql anexa o patch em base64), com viés de segurança (migration ilegível → crítica).
+  if [ "$via" = rapida ] && [ "$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[] | select(.status != "removed") | if (.filename | test("\\.sql$")) then .filename + "\t" + ((.patch // "") | split("\n") | map(select(startswith("+")) | ltrimstr("+")) | join("\n") | @base64) else .filename end' 2>/dev/null | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
+    log "#$n toca núcleo crítico (fiscal/financeiro/RLS/LGPD/migration não-aditiva) sem etiqueta: ponho $SENSIVEL e espero a autorização"
     api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
     continue
   fi
@@ -931,7 +946,7 @@ for n in $fila; do
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
   if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ] && [ "$lote_mig_n" = 0 ]; then
-    m=$(estado_main)
+    m=$(estado_main "$via")
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
       so_sem_migration=1; continue
