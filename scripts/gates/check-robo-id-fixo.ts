@@ -21,8 +21,11 @@ const varre = (dir: string, out: string[] = []): string[] => {
   }
   return out
 }
+// Exceção: smoke.sh do portão de semente (PR) insere o robô só em banco EFÊMERO local (recusa destino não-local).
+const SO_LOCAL = 'scripts/banco-testes/smoke.sh'
 const indevidos = [...varre('scripts/banco-testes'), ...varre('e2e')].filter((f) => {
   const s = readFileSync(f, 'utf8')
+  if (f === SO_LOCAL) return !/\*@127\.0\.0\.1:\*\|\*@localhost:\*\).*exit 1/.test(s)
   return s.includes(ROBO) && /insert\s+into\s+auth\.users/i.test(s)
 })
 ok(indevidos.length === 0, `id fixo do robô não é inserido em auth.users fora do Montar${indevidos.length ? ': ' + indevidos.join(', ') : ''}`)
