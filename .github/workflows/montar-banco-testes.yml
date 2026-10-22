@@ -21,6 +21,10 @@ on:
         type: choice
         options: ['0', '1', '2']
         default: '0'
+      do_zero:
+        description: 'Causa 2 — montar DETERMINÍSTICO: aplica as migrations do zero (schema+ledger batem com a main), em vez do dump da produção. Opt-in, paralelo.'
+        type: boolean
+        default: false
   workflow_run:
     workflows: ['Deploy Migrations (Production)']
     types: [completed]
@@ -113,7 +117,7 @@ jobs:
         with:
           version: 2.118.0
       - name: Montagem completa (dump da estrutura → restore → ledger → semente)
-        if: github.event_name == 'workflow_dispatch' && inputs.recriar
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar && !inputs.do_zero
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -133,15 +137,25 @@ jobs:
           echo "erros no restore: $(grep -c 'ERROR' restore-erros.log || true)"
           grep 'ERROR' restore-erros.log | sort | uniq -c | sort -rn | head -40 || true
           echo "### Montagem do banco de testes: $(( $(date +%s) - t0 )) s · erros no restore: $(grep -c 'ERROR' restore-erros.log || true)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Montagem do ZERO — determinística (migrations · Causa 2)
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar && inputs.do_zero
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: scripts/banco-testes/montar-do-zero.sh
       - name: Ledger (migrations do repo marcadas como aplicadas)
-        if: github.event_name == 'workflow_dispatch' && inputs.recriar
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar && !inputs.do_zero
         run: scripts/banco-testes/ledger.sh
       # 13/10: sem "recriar", o disparo manual também aplica as migrations pendentes na vaga escolhida (compara com o ledger).
       - name: Migrations novas (aplica só as pendentes no banco da vaga)
         if: github.event_name == 'workflow_run' || !inputs.recriar
         env:
           SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
-        run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+        run: |
+          # 20/10: ~50% dos Montar (todos em workflow_run) morriam em segundos aqui por órfão apply-time no ledger da vaga
+          # ("Remote migration versions not found", 20261019122120). Poda só o ledger do banco de TESTES antes do push.
+          scripts/banco-testes/podar-orfas-ledger.sh
+          supabase db push --include-all --db-url "$TEST_DATABASE_URL"
       # 13/10: após o deploy de migration, as vagas extras provisionadas (1/2) recebem as mesmas migrations; vaga sem
       # segredos é pulada com aviso (nunca falha). Vale só no workflow_run; no disparo manual a vaga é a escolhida.
       # 19/10 (gilberto-desenv): este passo roda sob a trava da vaga 0 (aceitacao-testes), NÃO sob a das vagas 1/2. Com uma
@@ -187,6 +201,8 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          # Causa 2: no montar do_zero (schema das migrations), carrega os catálogos por interseção de colunas (tolera drift da prod)
+          SEED_INTERSECAO: ${{ (github.event_name == 'workflow_dispatch' && inputs.do_zero) && '1' || '' }}
         run: |
           set -euo pipefail
           # produção é Postgres 17 e o pg_dump precisa ser >= servidor (o runner traz o 16)

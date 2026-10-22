@@ -39,6 +39,12 @@ function basicValidate(p: Partial<ProdutoPayload>): string | null {
   return null
 }
 
+// #3255: código repetido (índice único company_id+codigo) vira mensagem clara, não o texto do Postgres.
+function mensagemErro(error: { code?: string; message: string }, codigo?: string): string {
+  if (error.code === '23505') return `Já existe um produto com o código ${String(codigo ?? '').trim()} nesta empresa. Use outro código.`
+  return error.message
+}
+
 export const POST = exigirLogin(async (req: NextRequest, u) => {
   try {
     const body = (await req.json()) as ProdutoPayload
@@ -56,7 +62,7 @@ export const POST = exigirLogin(async (req: NextRequest, u) => {
       .select('id')
       .single()
 
-    if (error) return NextResponse.json({ ok: false, mensagem: error.message }, { status: 500 })
+    if (error) return NextResponse.json({ ok: false, mensagem: mensagemErro(error, body.codigo) }, { status: error.code === '23505' ? 409 : 500 })
     return NextResponse.json({ ok: true, id: data.id })
   } catch (err) {
     return NextResponse.json(
@@ -86,7 +92,7 @@ export const PATCH = exigirLogin(async (req: NextRequest, u) => {
       .eq('id', id)
       .eq('company_id', company_id)
 
-    if (error) return NextResponse.json({ ok: false, mensagem: error.message }, { status: 500 })
+    if (error) return NextResponse.json({ ok: false, mensagem: mensagemErro(error, body.codigo) }, { status: error.code === '23505' ? 409 : 500 })
     return NextResponse.json({ ok: true, id })
   } catch (err) {
     return NextResponse.json(
