@@ -258,12 +258,13 @@ corrige_deploy_vermelho() {
 # checks da aceitação: na VIA RÁPIDA são só informativos (não contam e não são exigidos)
 ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 
-# Janela temporária (CEO 15/10, contexto e89e0d62): a aceitação VERMELHA da via REVISADA NÃO bloqueia até
-# 2026-10-17 11:00 America/Sao_Paulo (= 2026-10-17T14:00:00Z); depois volta a bloquear SOZINHA. Só a aceitação —
-# gates/checks estáticos, preview (Vercel), MERGE AUTORIZADO do revisor e conflito continuam valendo.
-# FILA_AGORA_EPOCH (epoch UTC) deixa o gate provar os dois lados da data; sem ela, usa o agora real.
-JANELA_ACEITACAO_REVISADA_FIM=${JANELA_ACEITACAO_REVISADA_FIM:-2026-10-23T20:00:00Z}
-aceitacao_dispensada() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_ACEITACAO_REVISADA_FIM" +%s)" ]; }
+# ESTEIRA CONTÍNUA (CEO 22/10): a aceitação e2e NÃO é mais porteiro do merge. O banco de testes (frágil, serial) saiu
+# do caminho do merge — ele parava a fila toda a cada instabilidade de infra. A aceitação virou verificação PÓS-MERGE
+# (smoke nas empresas DEMO de produção, com revert no vermelho). No caminho do merge ela é SEMPRE informativa.
+# Continuam valendo (sem banco no caminho): gates/checks estáticos, guarda de funções/RLS, réguas, preview (Vercel),
+# e, se sensível, o MERGE AUTORIZADO do revisor. FILA_ACEITACAO_BLOQUEIA=1 força o bloqueio — usado SÓ nos testes dos
+# gates para exercer o caminho antigo; em produção a variável fica vazia e a aceitação nunca segura a fila.
+aceitacao_dispensada() { [ "${FILA_ACEITACAO_BLOQUEIA:-0}" != 1 ]; }
 
 # QUARENTENA DE JORNADAS (CEO 17/10, presente): spec que falha na aceitação da PR mas JÁ está em
 # scripts/merge/quarentena-jornadas.txt (falha também na main, sem relação com a PR) NÃO bloqueia PR alheia — vira P1 ao
