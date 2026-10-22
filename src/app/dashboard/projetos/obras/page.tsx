@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import CepEndereco from '@/components/comum/CepEndereco'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', AMBAR = '#B45309', VERM = '#B91C1C'
 
@@ -342,10 +343,10 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
 
           {addAberto && (
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.7fr 0.9fr 1fr auto', gap: 8, alignItems: 'center', marginBottom: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
-              <input style={inp} placeholder="Descrição do item *" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
-              <input style={inp} placeholder="un" value={form.unidade} onChange={(e) => setForm({ ...form, unidade: e.target.value })} />
-              <input style={{ ...inp, textAlign: 'right' }} inputMode="decimal" placeholder="qtd" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} />
-              <input style={{ ...inp, textAlign: 'right' }} inputMode="decimal" placeholder="R$/un" value={form.preco_unit} onChange={(e) => setForm({ ...form, preco_unit: e.target.value })} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}><input style={inp} placeholder="Descrição do item *" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /><AjudaCampo chave="projetos.obras.item_descricao" /></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}><input style={inp} placeholder="un" value={form.unidade} onChange={(e) => setForm({ ...form, unidade: e.target.value })} /><AjudaCampo chave="projetos.obras.item_unidade" /></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}><input style={{ ...inp, textAlign: 'right' }} inputMode="decimal" placeholder="qtd" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} /><AjudaCampo chave="projetos.obras.item_quantidade" /></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}><input style={{ ...inp, textAlign: 'right' }} inputMode="decimal" placeholder="R$/un" value={form.preco_unit} onChange={(e) => setForm({ ...form, preco_unit: e.target.value })} /><AjudaCampo chave="projetos.obras.item_preco" /></div>
               <button onClick={() => void adicionar()} disabled={busy || !form.descricao.trim()} style={{ fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', border: 'none', color: '#fff', background: GOLD, opacity: (busy || !form.descricao.trim()) ? 0.5 : 1 }}>{busy ? '…' : 'Adicionar'}</button>
             </div>
           )}
@@ -426,8 +427,8 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
   }
   const inp: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESP, background: '#fff', width: '100%', boxSizing: 'border-box' }
   const lbl: React.CSSProperties = { fontSize: 10.5, color: MUT, fontWeight: 600, display: 'block', marginBottom: 3 }
-  const campo = (label: string, k: keyof typeof f, ph = '') => (
-    <label style={{ display: 'block' }}><span style={lbl}>{label}</span>
+  const campo = (label: string, k: keyof typeof f, ph = '', ajuda = '') => (
+    <label style={{ display: 'block' }}><span style={lbl}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
       <input style={inp} value={f[k]} placeholder={ph} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
   )
   return (
@@ -445,9 +446,9 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
             <>
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 8 }}>Identificação da obra</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginBottom: 14 }}>
-                {campo('CNO (Cadastro Nacional de Obras)', 'cno', 'ex.: 12.345.67890/12')}
-                {campo('Código de obra municipal (se o município usar)', 'codigo_obra_municipal')}
-                {campo('ART / RRT (opcional)', 'art')}
+                {campo('CNO (Cadastro Nacional de Obras)', 'cno', 'ex.: 12.345.67890/12', 'projetos.obras.fiscal_cno')}
+                {campo('Código de obra municipal (se o município usar)', 'codigo_obra_municipal', '', 'projetos.obras.fiscal_codigo_municipal')}
+                {campo('ART / RRT (opcional)', 'art', '', 'projetos.obras.fiscal_art')}
               </div>
               {!temId && <div style={{ fontSize: 11.5, color: '#B45309', marginBottom: 12 }}>⚠️ Falta o CNO ou o código municipal — sem um dos dois a nota de construção não sai.</div>}
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 8 }}>Endereço da obra</div>
