@@ -4,13 +4,14 @@
 // Incluir e excluir (exclusão lógica, com confirmação); o custo entra sozinho no Resultado por obra.
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
+// Moeda com centavos (padrão das telas irmãs de obra: Obras lista e Resultado) — R$ 100,00
+const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 type Funcao = { id: string; nome: string; custo_hora_manual: number | null }
 type Apont = { id: string; data: string; funcao_id: string | null; descricao: string | null; horas: number; custo_hora: number; valor: number }
@@ -110,11 +111,11 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
                 {itens.map(a => (
                   <tr key={a.id} style={{ borderBottom: `1px solid ${LINE}` }}>
                     <td style={{ padding: 8 }}>{a.data}</td><td style={{ padding: 8 }}>{nomeFn(a.funcao_id)}</td><td style={{ padding: 8 }}>{a.descricao ?? ''}</td>
-                    <td style={{ padding: 8, textAlign: 'right' }}>{a.horas}</td><td style={{ padding: 8, textAlign: 'right' }}>{fmtR(Number(a.custo_hora))}</td>
-                    <td style={{ padding: 8, textAlign: 'right' }}>{fmtR(Number(a.valor))}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>{a.horas}</td><td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(a.custo_hora))}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(a.valor))}</td>
                     <td style={{ padding: 8 }}><button onClick={() => excluir(a)} data-testid="horas-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir</button></td>
                   </tr>))}
-                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{fmtR(total)}</td><td /></tr>
+                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{brl(total)}</td><td /></tr>
               </tbody>
             </table>
           </div>)}
