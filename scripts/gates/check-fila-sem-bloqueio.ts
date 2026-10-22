@@ -31,7 +31,7 @@ ok(/MAIN0=\$\(git rev-parse origin\/main\)/.test(sh) && /compare\/\$MAIN0\.\.\.\
 // Só a PR com migration que espera a MAIN (estado_main) segura as outras com migration; esperar os próprios checks ou
 // ser atualizada não segura ninguém.
 ok(!/\[ "\$com_migration" = 1 \] && so_sem_migration=1/.test(laco) && (laco.match(/so_sem_migration=1/g) ?? []).length === 1
-  && /m=\$\(estado_main\)[\s\S]*?so_sem_migration=1; continue/.test(laco),
+  && /m=\$\(estado_main( "\$via")?\)[\s\S]*?so_sem_migration=1; continue/.test(laco),
   'só a PR com migration que espera a MAIN (estado_main) segura as outras com migration')
 
 // ── Parte 2: cenários de verdade contra um gh simulado (scripts/merge/fila-simulada.ts) ───────────────────────────
