@@ -3,6 +3,7 @@
 import React from 'react'
 import { PSGC_COLORS, PSGC_SPACING, PSGC_TYPO } from '@/lib/psgc-tokens'
 import { CORES_FEEDBACK } from './contratoSalvar'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // RASCUNHO (RD-26) · Wrapper de campo com estado de erro. Extraído do helper
@@ -13,6 +14,8 @@ import { CORES_FEEDBACK } from './contratoSalvar'
 // do contrato (o input é `children`, então o wrapper não o estiliza direto —
 // mantém desacoplado; ver README). Aqui vão: label vermelho, asterisco e a
 // mensagem "Faltou preencher X" abaixo do campo.
+// `ajuda` (RD-95): chave de erp_ajuda_campo → "?" ao lado do rótulo. `ajudaRota` quando o formulário abre em
+// várias telas (modal) e os textos ficam numa rota própria.
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function Campo({
@@ -21,12 +24,16 @@ export function Campo({
   obrigatorio = false,
   fullWidth = false,
   erro = null,
+  ajuda,
+  ajudaRota,
 }: {
   label: string
   children: React.ReactNode
   obrigatorio?: boolean
   fullWidth?: boolean
   erro?: string | null // mensagem do campo; quando truthy → label/asterisco/mensagem em vermelho
+  ajuda?: string
+  ajudaRota?: string
 }) {
   return (
     <div
@@ -47,6 +54,7 @@ export function Campo({
         {obrigatorio && (
           <span style={{ color: CORES_FEEDBACK.erroTexto, marginLeft: PSGC_SPACING.xs }}>*</span>
         )}
+        {ajuda && <AjudaCampo chave={ajuda} rota={ajudaRota} />}
       </label>
 
       {children}
