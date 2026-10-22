@@ -21,7 +21,7 @@ ok(/^  gates:\s*$/m.test(gates) && /run: npm run gates\s*$/m.test(gates), 'gates
 ok(!/secrets\./.test(gates), 'gates.yml: não depende de segredo (gates são estáticos)')
 
 const fila = ler('scripts/merge/fila-merge.sh')
-ok(/\$1 == "gates"/.test(fila) && /esperar:gates ainda não rodaram/.test(fila), 'fila de merge: exige o check "gates" verde')
+ok(/\$1 != "gates"/.test(fila) && !/esperar:gates ainda não rodaram/.test(fila), 'fila de merge: suíte "gates" é informativa (fora do bloqueio) — guardas focados + preview bloqueiam (novo modelo CEO 22/10)')
 ok(/so_docs=1/.test(fila), 'fila de merge: PR só de docs não espera preview')
 
 const pronta = ler('.github/workflows/preview-pronta.yml')
