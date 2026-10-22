@@ -30,6 +30,7 @@ export type PrSimulada = {
   aceitacaoSemLog?: boolean    // log do job da aceitação ilegível/ausente (a lista completa vem do LOG, P3 18/10) → fila bloqueia
   sqlMigration?: string        // SQL da migration da PR (lote de migrations independentes, CEO 16/10); padrão: select 1;
   autorCode?: string           // Code autor em erp_dev_entrega (para o acionamento automático do @pos, Parte 2)
+  mergeavel?: boolean          // pulls/<n>.mergeable (CEO 22/10, vazão): atrás-mas-limpa (true) mergeia sem update; false/null = update-first
 }
 // Estado do @pos-migration da main (janela da linha-de-base, CEO 15/10). Com conclusion='failure', a fila lê o log do
 // job falho e compara os specs com a linha-de-base (FILA_POS_BASELINE).
@@ -100,7 +101,7 @@ esac
         const coments = [...(p.comentarios ?? [])]
         if (p.autorizada) coments.push(`MERGE AUTORIZADO #${p.n} — gilberto-revisor · patch-id ${pid[p.n]}`)
         put(`${R}/issues/${p.n}/comments`, coments.map((body) => ({ body })))
-        put(`${R}/pulls/${p.n}`, { number: p.n, title: `PR ${p.n}`, draft: !!p.draft, mergeable: true, base: { ref: 'main' },
+        put(`${R}/pulls/${p.n}`, { number: p.n, title: `PR ${p.n}`, draft: !!p.draft, mergeable: p.mergeavel ?? true, base: { ref: 'main' },
           head: { sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: labels.map((name) => ({ name })) })
         const arq = p.migration ? `${(p.migrationBaixa ? 20261001000000 : 20261009000000) + p.n}_m.sql` : ''
         const files: unknown[] = [{ status: p.migrationCorrige ? 'modified' : 'added', filename: p.migration ? `supabase/migrations/${arq}` : `src/${p.n}.ts` }]
