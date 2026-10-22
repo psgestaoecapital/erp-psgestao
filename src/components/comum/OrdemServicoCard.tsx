@@ -19,6 +19,7 @@ import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import FotosOS from '@/components/oficina/FotosOS'   // #135 item 6 · fotos da OS em lote
 import { Package, PencilLine, Search, Wrench } from 'lucide-react'
 
 interface OS {
@@ -1036,6 +1037,12 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           })()}
         </div>
       )}
+
+      {/* #135 item 6 · fotos da OS: várias de uma vez, com progresso, miniaturas, legenda opcional e exclusão */}
+      <div style={{ marginTop: 4, padding: '12px 0 0', borderTop: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 1 }}>Fotos</div>
+        <FotosOS companyId={os.company_id} osId={os.id} etapa="servico" chaveEnviar="oficina.os.fotos_enviar" chaveLegenda="oficina.os.foto_legenda" rotaAjuda="/dashboard/os" />
+      </div>
 
       {/* #108 · Desconto na OS (ponto único, antes de faturar) + consulta valor real × cobrado */}
       {os.total != null && (() => {
