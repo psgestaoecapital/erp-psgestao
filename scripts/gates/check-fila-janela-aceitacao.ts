@@ -32,10 +32,12 @@ ok(/pub_hora=\$\{FILA_PUB_HORA:-/.test(sh) && /\|\| echo 0\)\}/.test(sh),
 // prioridade
 ok(/FILA_PRIORIDADE=\$\{FILA_PRIORIDADE:-'2569 2508 2298 2100'\}/.test(sh),
   'prioridade padrão: Hub (#2569 #2508 #2298) e FC/FCR (#2100) na frente')
-// o que NUNCA deixa de bloquear (dentro ou fora da janela): gates, Vercel, autorização
-ok(/echo "vermelho:gates não estão verdes"/.test(sh) && /echo "vermelho:Vercel/.test(sh)
-  && /sem a autorização do revisor para o conteúdo atual/.test(sh),
-  'dentro da janela, gates/Vercel/MERGE AUTORIZADO continuam bloqueando (só a aceitação é dispensada)')
+// o que NUNCA deixa de bloquear (dentro ou fora da janela): Vercel (preview), guardas focados, autorização.
+// A suíte 'gates' passou a ser INFORMATIVA (novo modelo CEO 22/10): sai do bloqueio nas duas vias.
+ok(/echo "vermelho:Vercel/.test(sh)
+  && /sem a autorização do revisor para o conteúdo atual/.test(sh)
+  && /\$1 != "gates"/.test(sh),
+  'dentro da janela, Vercel/MERGE AUTORIZADO continuam bloqueando e a suíte "gates" é informativa (novo modelo CEO 22/10)')
 
 const ag = readFileSync('AGENTS.md', 'utf8')
 ok(/Janela temporária da aceitação \(CEO 15\/10/.test(ag) && /2026-10-23 17:00 America\/Sao_Paulo/.test(ag),
