@@ -389,16 +389,16 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
       </div>
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '7px 11px', borderRadius: 7, fontSize: 12.5, marginBottom: 8 }}>{erro}</div>}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div style={{ flex: '1 1 150px' }}>
-          <label style={lab}>Tempo medido (segundos)<Aj k="prod.tarefa.crono_tempo" /></label>
+        <div data-ajuda="prod.tarefa.crono_tempo" style={{ flex: '1 1 150px' }}>
+          <label data-ajuda="prod.tarefa.crono_tempo" style={lab}>Tempo medido (segundos)<Aj k="prod.tarefa.crono_tempo" /></label>
           <input data-testid={`crono-tempo-${tarefa.id}`} value={tempo} onChange={(e) => setTempo(e.target.value)} inputMode="decimal" placeholder="ex.: 130" style={inp} />
         </div>
-        <div style={{ flex: '1 1 110px' }}>
-          <label style={lab}>Nº de peças<Aj k="prod.tarefa.crono_pecas" /></label>
+        <div data-ajuda="prod.tarefa.crono_pecas" style={{ flex: '1 1 110px' }}>
+          <label data-ajuda="prod.tarefa.crono_pecas" style={lab}>Nº de peças<Aj k="prod.tarefa.crono_pecas" /></label>
           <input data-testid={`crono-pecas-${tarefa.id}`} value={pecas} onChange={(e) => setPecas(e.target.value)} inputMode="decimal" placeholder="ex.: 3" style={inp} />
         </div>
-        <div style={{ flex: '2 1 180px' }}>
-          <label style={lab}>Observação (opcional)<Aj k="prod.tarefa.crono_obs" /></label>
+        <div data-ajuda="prod.tarefa.crono_obs" style={{ flex: '2 1 180px' }}>
+          <label data-ajuda="prod.tarefa.crono_obs" style={lab}>Observação (opcional)<Aj k="prod.tarefa.crono_obs" /></label>
           <input data-testid={`crono-obs-${tarefa.id}`} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="ex.: ritmo normal" style={inp} />
         </div>
         <button type="button" data-testid={`crono-gravar-${tarefa.id}`} onClick={() => void gravar()} disabled={salvando} style={btn(!salvando)}>
