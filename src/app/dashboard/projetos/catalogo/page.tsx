@@ -475,9 +475,10 @@ export default function CatalogoServicosPage() {
       ) : (
         <>
           <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-[#3D2314]/8 bg-white p-4 shadow-sm md:grid-cols-5">
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+            <div data-ajuda="projetos.catalogo.busca" className="md:col-span-2">
+              <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                 Buscar
+                <AjudaCampo chave="projetos.catalogo.busca" rota={ROTA} />
               </label>
               <div className="relative">
                 <Search
@@ -493,9 +494,10 @@ export default function CatalogoServicosPage() {
                 />
               </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+            <div data-ajuda="projetos.catalogo.filtro_categoria">
+              <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                 Categoria
+                <AjudaCampo chave="projetos.catalogo.filtro_categoria" rota={ROTA} />
               </label>
               <select
                 value={filtroCat}
@@ -510,9 +512,10 @@ export default function CatalogoServicosPage() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+            <div data-ajuda="projetos.catalogo.filtro_origem">
+              <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                 Origem
+                <AjudaCampo chave="projetos.catalogo.filtro_origem" rota={ROTA} />
               </label>
               <select
                 value={filtroOrigem}
@@ -524,9 +527,10 @@ export default function CatalogoServicosPage() {
                 <option value="fork">Biblioteca</option>
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+            <div data-ajuda="projetos.catalogo.filtro_status">
+              <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                 Status
+                <AjudaCampo chave="projetos.catalogo.filtro_status" rota={ROTA} />
               </label>
               <select
                 value={filtroStatus}
@@ -549,6 +553,7 @@ export default function CatalogoServicosPage() {
                 className="h-4 w-4 rounded accent-[#C8941A]"
               />
               Apenas com BOM completo
+              <AjudaCampo chave="projetos.catalogo.apenas_bom" rota={ROTA} />
             </label>
             <p className="text-xs text-[#3D2314]/60">
               {filtrados.length} de {servicos.length} serviço{servicos.length !== 1 ? "s" : ""}
@@ -588,7 +593,7 @@ export default function CatalogoServicosPage() {
             </p>
 
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2">
+              <div data-ajuda="projetos.catalogo.novo.nome" className="sm:col-span-2">
                 <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Nome do serviço
                   <AjudaCampo chave="projetos.catalogo.novo.nome" rota={ROTA} />
@@ -603,7 +608,7 @@ export default function CatalogoServicosPage() {
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
-              <div>
+              <div data-ajuda="projetos.catalogo.novo.codigo">
                 <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Código
                   <AjudaCampo chave="projetos.catalogo.novo.codigo" rota={ROTA} />
@@ -616,7 +621,7 @@ export default function CatalogoServicosPage() {
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
-              <div>
+              <div data-ajuda="projetos.catalogo.novo.unidade">
                 <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Unidade
                   <AjudaCampo chave="projetos.catalogo.novo.unidade" rota={ROTA} />
@@ -629,7 +634,7 @@ export default function CatalogoServicosPage() {
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
-              <div className="sm:col-span-2">
+              <div data-ajuda="projetos.catalogo.novo.categoria" className="sm:col-span-2">
                 <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Categoria
                   <AjudaCampo chave="projetos.catalogo.novo.categoria" rota={ROTA} />

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import { linkTelefone } from '@/lib/crm/oportunidadeCliente'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 type Fechada = {
@@ -466,7 +467,7 @@ export default function OportunidadesKanban({
                         )}
                       </div>
                       {/* Fallback touch: select de etapa */}
-                      <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }} onClick={(e) => e.stopPropagation()}>
                         <select
                           value={et.v}
                           onChange={(e) => moverPara(c.id, e.target.value, et.v)}
@@ -480,6 +481,7 @@ export default function OportunidadesKanban({
                             </option>
                           ))}
                         </select>
+                        <AjudaCampo chave="projetos.oportunidades.kanban.mover_etapa" />
                       </div>
                       {/* Ações herdadas da lista: Editar · Orçamento/ficha · Excluir */}
                       <div style={cardActions} onClick={(e) => e.stopPropagation()}>
@@ -511,8 +513,11 @@ export default function OportunidadesKanban({
                 <button key={m} onClick={() => setPerdaMotivo(m)} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize', border: `1px solid ${perdaMotivo === m ? '#7A1F1F' : BORDA}`, background: perdaMotivo === m ? '#F4D6D6' : '#fff', color: perdaMotivo === m ? '#7A1F1F' : TEXTM }}>{m}</button>
               ))}
             </div>
-            <textarea value={perdaObs} onChange={(e) => setPerdaObs(e.target.value)} placeholder="Observação (opcional)" rows={2}
-              style={{ width: '100%', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESPRESSO, boxSizing: 'border-box', resize: 'vertical' }} />
+            <label style={{ display: 'block', fontSize: 12, color: TEXTM }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Observação (opcional) <AjudaCampo chave="projetos.oportunidades.perda.observacao" /></span>
+              <textarea value={perdaObs} onChange={(e) => setPerdaObs(e.target.value)} placeholder="Ex.: fechou com outro fornecedor 12% mais barato" rows={2}
+                style={{ width: '100%', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESPRESSO, boxSizing: 'border-box', resize: 'vertical' }} />
+            </label>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
               <button onClick={() => setPerda(null)} style={{ ...cardActBtn, padding: '7px 14px' }}>Cancelar</button>
               <button onClick={() => { void confirmarPerda() }} disabled={!perdaMotivo}
