@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import GraficosCodes from './GraficosCodes'
 import SaudeEsteira from './SaudeEsteira'
 import DiagnosticoEsteira from './DiagnosticoEsteira'
+import BarrasQualidadeVertical from './BarrasQualidadeVertical'
 import CronogramaHub from './CronogramaHub'
 import SaudeCodes from './SaudeCodes'
 import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
@@ -149,6 +150,7 @@ export default function PainelCodes() {
       <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
       <BlocoSeguro nome="Saúde da esteira"><SaudeEsteira /></BlocoSeguro>
       <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
+      <BlocoSeguro nome="Qualidade por vertical"><BarrasQualidadeVertical /></BlocoSeguro>
       <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
       <BlocoSeguro nome="Gráficos"><GraficosCodes /></BlocoSeguro>
       {est && f && <BlocoSeguro nome="Faixa da esteira"><FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} /></BlocoSeguro>}
