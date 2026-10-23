@@ -746,13 +746,15 @@ fila=$(while read -r linha; do
     echo "${t:-$(jq -r .created_at <<< "$linha")} $n"
   done < "$TMPF/lista" | sort | awk '{print $2}')
 [ -n "$fila" ] || { log "fila vazia"; exit 0; }
-# Prioridade (CEO 23/10, cliente FC Pisos/Diego — Hub prometido pra terça): os Hub de agora na frente, FC Pisos (#2156,
-# papéis) primeiro; depois os feats do Hub (#2563 #2891 #2892 #2896 #2901 #2968) e FC/FCR (#2100). Os antigos (#2569
-# #2508 #2298) já saíram. O resto segue a ordem de entrada. Atualize esta lista quando os Hub da vez mudarem.
-FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2156 2563 2891 2892 2896 2901 2968 2100'}
-_prio=''; for p in $FILA_PRIORIDADE; do grep -qw "$p" <<< "$fila" && _prio="$_prio $p"; done
-_resto=''; for q in $fila; do grep -qw "$q" <<< "$FILA_PRIORIDADE" || _resto="$_resto $q"; done
-fila=$(echo $_prio $_resto)
+# Prioridade (CEO 23/10, cliente FC Pisos/Diego — Hub pra terça): a VIA EXPRESSA DO HUB vai na frente de TUDO — toda PR
+# com a label 'hub' (não só as de hoje; vale para as próximas ondas conforme ficarem prontas). Depois a FILA_PRIORIDADE
+# fixa (FC/FCR #2100) e o resto por ordem de entrada. A label 'hub' também dá via rápida e lote aditivo mais abaixo
+# (CEO: "sem trava nenhuma; reauditamos depois") — só as travas ESTRUTURAIS ficam (gates/build/deploy).
+_hub=''; for hn in $fila; do jq -e --argjson hn "$hn" 'select(.number==$hn)|.labels|map(.name)|index("hub")' "$TMPF/lista" >/dev/null 2>&1 && _hub="$_hub $hn"; done
+FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2100'}
+_prio=''; for p in $FILA_PRIORIDADE; do grep -qw "$p" <<< "$fila" && ! grep -qw "$p" <<< "$_hub" && _prio="$_prio $p"; done
+_resto=''; for q in $fila; do grep -qw "$q" <<< "$_hub" || grep -qw "$q" <<< "$FILA_PRIORIDADE" || _resto="$_resto $q"; done
+fila=$(echo $_hub $_prio $_resto)
 log "fila: $(echo $fila | sed 's/\([0-9]*\)/#\1/g')"
 
 # próxima versão de migration > $1 (piso), com os 2 últimos dígitos $2 (faixa do agente); timestamp do momento (UTC)
@@ -862,6 +864,9 @@ for n in $fila; do
   # conflito: a lista não traz o mergeable; aparece no update-branch (PR atrás da main) ou na recusa do merge
 
   com_migration=0; so_docs=0; n_critica=0
+  # VIA EXPRESSA DO HUB (CEO 23/10): label 'hub' = via rápida + lote aditivo, sem revisor nem serialização de crítica
+  # ("sem trava nenhuma; reauditamos depois"). Só as travas estruturais ficam (deploy_travado, gates, build, independência).
+  n_hub=0; jq -e '.labels | map(.name) | index("hub")' <<< "$pj" > /dev/null 2>&1 && n_hub=1
   arquivos=$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[].filename')
   grep -q '^supabase/migrations/' <<< "$arquivos" && com_migration=1
   # mesma regra do scripts/vercel-ignore.mjs: sem preview para PR só de .md/docs/.github
@@ -877,7 +882,8 @@ for n in $fila; do
   if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then
     # Crítica = tem a etiqueta SENSIVEL (o classificador de conteúdo, mais abaixo, é o backstop: migration crítica SEM
     # etiqueta é rotulada + pulada antes de mergear). Só o crítico é segurado pelo @pos de outra crítica; aditivo segue.
-    jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null 2>&1 && n_critica=1
+    # hub = tratado como ADITIVO (batela até LOTE_MIG_MAX, não conta no teto de crítica); o resto, SENSIVEL = crítica.
+    [ "$n_hub" = 0 ] && jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null 2>&1 && n_critica=1
     if [ "$deploy_travado" = 1 ]; then log "#$n tem migration: deploy-migrations da main não está verde — espera (todas as migrations)"; continue; fi
     if [ "$critica_na_main" = 1 ] && [ "$n_critica" = 1 ]; then log "#$n tem migration CRÍTICA: espera o @pos da crítica anterior (aditivas seguem)"; continue; fi
     # cautela no crítico (CEO 23/10): no MESMO lote, no máximo LOTE_MIG_CRIT_MAX migration(s) crítica(s). O aditivo bate até
@@ -892,14 +898,15 @@ for n in $fila; do
     fi
   fi
 
-  # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
+  # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa).
+  # hub (via expressa): SEMPRE via rápida, mesmo com revisao-eng-chefe — sem revisor (reauditamos depois).
   via=rapida
-  jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
+  [ "$n_hub" = 0 ] && jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
   # Eng. Chefe 14/10: tela/cálculo/migration/área crítica NUNCA publica pela via rápida, mesmo sem etiqueta (furo da #2592):
   # a fila coloca a etiqueta e espera o MERGE AUTORIZADO do revisor (o patch-id é conferido na próxima rodada).
   # Modelo CEO 21/10: produto novo/aditivo publica direto; só o CRÍTICO espera verde. O classificador decide pelo conteúdo
   # (para .sql anexa o patch em base64), com viés de segurança (migration ilegível → crítica).
-  if [ "$via" = rapida ] && [ "$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[] | select(.status != "removed") | if (.filename | test("\\.sql$")) then .filename + "\t" + ((.patch // "") | split("\n") | map(select(startswith("+")) | ltrimstr("+")) | join("\n") | @base64) else .filename end' 2>/dev/null | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
+  if [ "$via" = rapida ] && [ "$n_hub" = 0 ] && [ "$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[] | select(.status != "removed") | if (.filename | test("\\.sql$")) then .filename + "\t" + ((.patch // "") | split("\n") | map(select(startswith("+")) | ltrimstr("+")) | join("\n") | @base64) else .filename end' 2>/dev/null | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
     log "#$n toca núcleo crítico (fiscal/financeiro/RLS/LGPD/migration não-aditiva) sem etiqueta: ponho $SENSIVEL e espero a autorização"
     api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
     continue
