@@ -1,10 +1,10 @@
 'use client'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import SeletorUsuario from '@/components/crm/SeletorUsuario'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
 import { telefoneDoCliente, tituloOportunidade, erroOportunidade } from '@/lib/crm/oportunidadeCliente'
-import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // FIX 2 · caixa alta nos campos de texto (título/endereço/cidade/bairro). Não toca e-mail/CEP/números/responsável.
 const up = (s: string | null): string | null => { const t = (s ?? '').trim(); return t ? t.toUpperCase() : null }
@@ -324,8 +324,8 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         </div>
 
         {/* Cliente autocomplete · #262: o cliente vem primeiro e identifica o card no kanban */}
-        <div data-ajuda="projetos.oportunidade.form.cliente">
-          <div style={{ ...lblTxt, display: 'flex', alignItems: 'center', gap: 4 }}>Nome do cliente <AjudaCampo chave="projetos.oportunidade.form.cliente" rota="/dashboard/projetos/oportunidades" /></div>
+        <div>
+          <div style={lblTxt}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Nome do cliente <AjudaCampo chave="projetos.oportunidade.form.cliente" rota="/dashboard/projetos/oportunidades" /></span></div>
           {cliSel ? (
             <div style={selectedRow}>
               <span style={{ fontSize: 13, color: '#3D2314' }}>
@@ -335,14 +335,17 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
             </div>
           ) : (
             <>
-              <input
-                value={buscaCli}
-                onChange={(e) => { setBuscaCli(e.target.value); setShowOpts(true) }}
-                onFocus={() => setShowOpts(true)}
-                placeholder="Digite o nome do cliente…"
-                data-testid="oport-cliente"
-                style={inp}
-              />
+              <label style={{ ...lbl, marginTop: 6 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Buscar cliente <AjudaCampo chave="projetos.oportunidade.form.busca_cliente" rota="/dashboard/projetos/oportunidades" /></span>
+                <input
+                  value={buscaCli}
+                  onChange={(e) => { setBuscaCli(e.target.value); setShowOpts(true) }}
+                  onFocus={() => setShowOpts(true)}
+                  placeholder="Digite o nome do cliente…"
+                  data-testid="oport-cliente"
+                  style={inp}
+                />
+              </label>
               {showOpts && cliOpts.length > 0 && (
                 <div style={dropdown}>
                   {cliOpts.map((c) => (
@@ -357,8 +360,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
                 {novoCliOpen ? '− Cancelar' : '+ Novo cliente rápido'}
               </button>
               {novoCliOpen && (
-                <div style={quickAddBox} data-ajuda="projetos.oportunidade.form.novo_cliente">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#6b5444', marginBottom: 6 }}>Novo cliente rápido <AjudaCampo chave="projetos.oportunidade.form.novo_cliente" rota="/dashboard/projetos/oportunidades" /></div>
+                <div style={quickAddBox}>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                     {(['PJ', 'PF'] as const).map((t) => (
                       <button key={t} type="button" onClick={() => setNovoCliTipo(t)}
@@ -367,24 +369,33 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
                       </button>
                     ))}
                   </div>
-                  <input
-                    value={novoCliNome}
-                    onChange={(e) => setNovoCliNome(e.target.value)}
-                    placeholder={novoCliTipo === 'PF' ? 'Nome completo *' : 'Nome / razão social *'}
-                    style={inp}
-                  />
-                  <input
-                    value={novoCliDoc}
-                    onChange={(e) => setNovoCliDoc(e.target.value)}
-                    placeholder={novoCliTipo === 'PF' ? 'CPF (opcional)' : 'CNPJ (opcional)'}
-                    style={{ ...inp, marginTop: 6 }}
-                  />
-                  <input
-                    value={novoCliTel}
-                    onChange={(e) => setNovoCliTel(e.target.value)}
-                    placeholder="Telefone (opcional)"
-                    style={{ ...inp, marginTop: 6 }}
-                  />
+                  <label style={{ ...lbl, marginTop: 6 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Nome do novo cliente <AjudaCampo chave="projetos.oportunidade.form.novo_nome" rota="/dashboard/projetos/oportunidades" /></span>
+                    <input
+                      value={novoCliNome}
+                      onChange={(e) => setNovoCliNome(e.target.value)}
+                      placeholder={novoCliTipo === 'PF' ? 'Nome completo *' : 'Nome / razão social *'}
+                      style={inp}
+                    />
+                  </label>
+                  <label style={{ ...lbl, marginTop: 6 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>CPF / CNPJ do novo cliente <AjudaCampo chave="projetos.oportunidade.form.novo_doc" rota="/dashboard/projetos/oportunidades" /></span>
+                    <input
+                      value={novoCliDoc}
+                      onChange={(e) => setNovoCliDoc(e.target.value)}
+                      placeholder={novoCliTipo === 'PF' ? 'CPF (opcional)' : 'CNPJ (opcional)'}
+                      style={{ ...inp, marginTop: 6 }}
+                    />
+                  </label>
+                  <label style={{ ...lbl, marginTop: 6 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Telefone do novo cliente <AjudaCampo chave="projetos.oportunidade.form.novo_tel" rota="/dashboard/projetos/oportunidades" /></span>
+                    <input
+                      value={novoCliTel}
+                      onChange={(e) => setNovoCliTel(e.target.value)}
+                      placeholder="Telefone (opcional)"
+                      style={{ ...inp, marginTop: 6 }}
+                    />
+                  </label>
                   <button
                     onClick={criarClienteRapido}
                     disabled={novoCliSaving || !novoCliNome.trim()}
