@@ -1,6 +1,6 @@
 // Hub — Painel do Hub (PDCA 23/10): indicadores reais, funil e obras por situação, cada um com o "?" (RD-95).
 // Só leitura na Demonstração Comércio (GE): nada é gravado. O número de obras em andamento tem de bater com o banco.
-// O texto do "?" vem da migration 20261023233000 → @pos-migration.
+// O texto do "?" vem da migration 20261023233500 → @pos-migration.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { dbSelect } from '../../support/api'
