@@ -10,6 +10,8 @@ import { supabase } from '@/lib/supabase'
 import GraficosCodes from './GraficosCodes'
 import SaudeEsteira from './SaudeEsteira'
 import DiagnosticoEsteira from './DiagnosticoEsteira'
+import BarrasQualidadeVertical from './BarrasQualidadeVertical'
+import ProximasPublicacoes from './ProximasPublicacoes'
 import CronogramaHub from './CronogramaHub'
 import SaudeCodes from './SaudeCodes'
 import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
@@ -146,14 +148,19 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
-      <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
+      {/* TOPO (CEO 23/10): o que o CEO acompanha ao vivo — a fila viva, o que já publicou, os Codes e os gráficos. */}
+      <BlocoSeguro nome="Próximas publicações"><ProximasPublicacoes /></BlocoSeguro>
+      {dados && <BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro>}
+      {resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}
+      <BlocoSeguro nome="Gráficos"><GraficosCodes /></BlocoSeguro>
+      <BlocoSeguro nome="Qualidade por vertical"><BarrasQualidadeVertical /></BlocoSeguro>
+
+      {/* Diagnóstico e detalhe (abaixo) */}
+      {est && f && <BlocoSeguro nome="Faixa da esteira"><FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} /></BlocoSeguro>}
       <BlocoSeguro nome="Saúde da esteira"><SaudeEsteira /></BlocoSeguro>
       <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
+      <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
       <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
-      <BlocoSeguro nome="Gráficos"><GraficosCodes /></BlocoSeguro>
-      {est && f && <BlocoSeguro nome="Faixa da esteira"><FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} /></BlocoSeguro>}
-      {resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}
-      {dados && <BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro>}
 
       {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
       <BlocoSeguro nome="Meu Code"><MeuCode /></BlocoSeguro>
@@ -185,7 +192,8 @@ const COR_STATUS: Record<StatusCode, { bg: string; fg: string; ico: string; nome
   travado: { bg: VERM_BG, fg: VERM, ico: '■', nome: 'Travado', ajuda: 'Tem tarefa NOVA sem leitura há mais de 15 min e nenhuma sessão nos últimos 30 min (ou o acionamento está falhando).' },
   na_fila: { bg: '#FEF3C7', fg: '#92400E', ico: '◔', nome: 'Na fila', ajuda: 'Tem tarefa NOVA esperando há menos de 15 min (ou há sessão recente que vai lê-la).' },
   esperando: { bg: '#FEF3C7', fg: '#92400E', ico: '◐', nome: 'Esperando', ajuda: 'Sem sessão, mas tem PR em teste ou aguardando autorização.' },
-  dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão, mas sem tarefa nova sem leitura (a última sessão foi recente ou não há nada esperando); acorda ao receber mensagem (ou na próxima hora cheia, para quem tem agenda).' },
+  agendado: { bg: '#E0ECFF', fg: '#1E40AF', ico: '◇', nome: 'Agendado', ajuda: 'Tarefa agendada LIGADA: roda sozinho a cada hora (plantão) e acorda ao receber mensagem. Sem sessão ativa neste instante — não é "dormindo".' },
+  dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão e sem rotina agendada: só acorda ao receber mensagem.' },
 }
 
 function FaixaEsteira({ e, alerta, agora }: { e: ReturnType<typeof esteira>; alerta: string | null; agora: Date }) {
@@ -233,7 +241,9 @@ function ResumoPorCode({ itens, agora }: { itens: ReturnType<typeof resumoCode>[
               </div>
               <div title={r.fazendo} style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fazendo}</div>
               <div style={{ fontSize: 11, color: TXM, marginTop: 4 }}>
-                última sessão {r.status === 'trabalhando' ? 'agora' : r.ultimaSessaoMin === null ? '—' : `há ${duracao(r.ultimaSessaoMin * 60_000)}`} · não lidas: {r.naoLidas}
+                {r.status === 'agendado' && r.ultimaSessaoMin === null
+                  ? 'roda sozinho a cada hora'
+                  : `última sessão ${r.status === 'trabalhando' ? 'agora' : r.ultimaSessaoMin === null ? '—' : `há ${duracao(r.ultimaSessaoMin * 60_000)}`}`} · não lidas: {r.naoLidas}
               </div>
               <div style={{ fontSize: 11, color: TXM }}>
                 fila {r.fila}{r.filaAntiga > 0 ? ` (+${r.filaAntiga} fila antiga)` : ''} · em teste {r.emTeste} · hoje {r.entreguesHoje}

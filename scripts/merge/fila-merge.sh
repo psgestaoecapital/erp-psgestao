@@ -258,12 +258,13 @@ corrige_deploy_vermelho() {
 # checks da aceitação: na VIA RÁPIDA são só informativos (não contam e não são exigidos)
 ACEITACAO_INFORMATIVA='^(aceitacao|triagem|@pos-migration [(]informativo[)])$'
 
-# Janela temporária (CEO 15/10, contexto e89e0d62): a aceitação VERMELHA da via REVISADA NÃO bloqueia até
-# 2026-10-17 11:00 America/Sao_Paulo (= 2026-10-17T14:00:00Z); depois volta a bloquear SOZINHA. Só a aceitação —
-# gates/checks estáticos, preview (Vercel), MERGE AUTORIZADO do revisor e conflito continuam valendo.
-# FILA_AGORA_EPOCH (epoch UTC) deixa o gate provar os dois lados da data; sem ela, usa o agora real.
-JANELA_ACEITACAO_REVISADA_FIM=${JANELA_ACEITACAO_REVISADA_FIM:-2026-10-23T20:00:00Z}
-aceitacao_dispensada() { [ "${FILA_AGORA_EPOCH:-$(date -u +%s)}" -lt "$(date -u -d "$JANELA_ACEITACAO_REVISADA_FIM" +%s)" ]; }
+# ESTEIRA CONTÍNUA (CEO 22/10): a aceitação e2e NÃO é mais porteiro do merge. O banco de testes (frágil, serial) saiu
+# do caminho do merge — ele parava a fila toda a cada instabilidade de infra. A aceitação virou verificação PÓS-MERGE
+# (smoke nas empresas DEMO de produção, com revert no vermelho). No caminho do merge ela é SEMPRE informativa.
+# Continuam valendo (sem banco no caminho): gates/checks estáticos, guarda de funções/RLS, réguas, preview (Vercel),
+# e, se sensível, o MERGE AUTORIZADO do revisor. FILA_ACEITACAO_BLOQUEIA=1 força o bloqueio — usado SÓ nos testes dos
+# gates para exercer o caminho antigo; em produção a variável fica vazia e a aceitação nunca segura a fila.
+aceitacao_dispensada() { [ "${FILA_ACEITACAO_BLOQUEIA:-0}" != 1 ]; }
 
 # QUARENTENA DE JORNADAS (CEO 17/10, presente): spec que falha na aceitação da PR mas JÁ está em
 # scripts/merge/quarentena-jornadas.txt (falha também na main, sem relação com a PR) NÃO bloqueia PR alheia — vira P1 ao
@@ -644,6 +645,18 @@ estado_checks() {
       fi
     fi
   fi
+  # ESTEIRA CONTÍNUA / NOVO MODELO (CEO 22/10, sessão ao vivo): a suíte 'gates' (100+ checagens estáticas de
+  # scripts/gates/, que "sempre trava em lugar diferente") SAI do caminho de bloqueio nas DUAS vias. Continuam
+  # bloqueando os guardas críticos FOCADOS e confiáveis (check_fn_guards/RLS, check_menu, check_migrations) e o
+  # preview (build real da Vercel). 'gates' segue rodando e aparecendo — informativo, não segura o merge; a
+  # verificação pesada é pós-merge (aceitação da main + reverter-automatico). Gate: check-vercel-build.ts.
+  linhas=$(awk -F'\t' '$1 != "gates"' <<< "$linhas")
+  # META-CHECKS DA PRÓPRIA ESTEIRA (CEO 22/10, sessão ao vivo): a própria 'fila' posta um check-run que a concorrência
+  # CANCELA (checks cancelados são normais quando uma rodada substitui a anterior); 'acionar'/'etiquetar'/'varredura'/
+  # 'liberar-reserva' e o comentário da Vercel são automações, não portões de qualidade. Nenhum deles pode segurar o
+  # merge — senão a fila trava na PRÓPRIA marca cancelada (era o que segurava TODAS as PRs). Saem do cálculo de
+  # pendentes/vermelhos/cancelados. Continuam bloqueando: preview (build real), check_fn_guards/menu/migrations, aceitação.
+  linhas=$(awk -F'\t' '$1 !~ /^(fila|acionar|etiquetar|varredura|liberar-reserva|Vercel Preview Comments)$/' <<< "$linhas")
   # via rápida SEMPRE, e via revisada DENTRO DA JANELA (CEO 15/10): tira a aceitação do cálculo de pendentes/vermelhos/cancelados
   if [ "$via" = rapida ] || aceitacao_dispensada || [ "$acc_quar" = 1 ]; then linhas=$(awk -F'\t' -v re="$ACEITACAO_INFORMATIVA" '$1 !~ re' <<< "$linhas"); fi
   pend=$(awk -F'\t' '$2 != "completed" {print $1}' <<< "$linhas" | sort -u | paste -sd, -)
@@ -658,11 +671,9 @@ estado_checks() {
     [ "$esgotou" = 1 ] && { echo "vermelho:check cancelado 3 vezes seguidas (use /re-rodar ou empurre um commit)"; return; }
     echo "esperar:check cancelado re-disparado"; return
   fi
-  # gates (scripts/gates/): saíram do build da Vercel para o workflow gates.yml (CEO 07/10) — têm de existir e estar
-  # verdes nas DUAS vias
-  case "$(awk -F'\t' '$1 == "gates" {print $3}' <<< "$linhas" | tail -1)" in
-    success) ;; '') echo "esperar:gates ainda não rodaram"; return;; *) echo "vermelho:gates não estão verdes"; return;;
-  esac
+  # gates (scripts/gates/): INFORMATIVO desde o novo modelo (CEO 22/10) — já retirado de 'linhas' acima, não bloqueia
+  # nenhuma via. Os guardas críticos focados (check_fn_guards, check_menu, check_migrations) seguem no cálculo de
+  # pend/verm acima, e o preview (Vercel) logo abaixo; a suíte completa é julgada pós-merge na aceitação da main.
   # PR só de .md/docs/.github não tem preview nem aceitação (Ignored Build Step): basta checks + gates
   [ "$so_docs" = 1 ] && { echo ok; return; }
   # aceitação (preview): na via REVISADA tem de existir e estar verde (ou dispensada pela triagem) — salvo DENTRO da janela (CEO 15/10)
@@ -790,7 +801,12 @@ Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via r
   return 0
 }
 
-so_sem_migration=0
+# Serialização de migration em 2 níveis (CEO 23/10 — escala no aditivo, cautela total no crítico):
+#  - deploy_travado: o deploy-migrations da main NÃO está verde → segura TODAS as migrations (não dá para aplicar nada).
+#  - critica_na_main: o @pos-migration de uma migration CRÍTICA (via revisada) está em andamento/vermelho → segura só as
+#    OUTRAS migrations CRÍTICAS; a migration ADITIVA (via rápida) NÃO espera esse @pos (ela já é validada só pelo deploy +
+#    auditor PDCA pós-publicação). Assim o aditivo ganha escala sem nunca afrouxar o crítico.
+deploy_travado=0; critica_na_main=0
 # Teto de PRs "da vez" em PREPARO ao mesmo tempo (CEO 09/10): atualizar com a main dispara preview/aceitação (~3 min/PR).
 # Sem teto, a fila atualizava TODA PR verde atrás da main a cada push → dezenas de builds por publicação. Agora prepara só
 # as próximas N da ordem; as demais esperam a vez (sem build) até uma da frente mergear.
@@ -801,7 +817,7 @@ em_preparo=0
 LOTE_MAX=${LOTE_MAX:-6}
 # RITMO (CEO 15/10): teto de publicações por hora. Conta as PRs já mergeadas na main na última hora (fail-open: erro de
 # API/valor não-numérico = 0, a rodada segue), para a janela aberta da via revisada não virar enxurrada de merges.
-RITMO_MAX_HORA=${RITMO_MAX_HORA:-6}
+RITMO_MAX_HORA=${RITMO_MAX_HORA:-10}
 pub_hora=${FILA_PUB_HORA:-$(api "search/issues?q=repo:$REPO+is:pr+is:merged+base:main+merged:>=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" --jq '.total_count' 2>/dev/null || echo 0)}
 [ "${pub_hora:-0}" -eq "${pub_hora:-0}" ] 2>/dev/null || pub_hora=0
 disp_hora=$((RITMO_MAX_HORA - pub_hora))
@@ -844,7 +860,7 @@ for n in $fila; do
   grep -q '^supabase/migrations/' <<< "$arquivos" && com_migration=1
   # mesma regra do scripts/vercel-ignore.mjs: sem preview para PR só de .md/docs/.github
   grep -qvE '(\.md$|^docs/|^\.github/)' <<< "$arquivos" || so_docs=1
-  # PR COM migration não vai nesta rodada se outra migration já espera a main (so_sem_migration) OU já houve merge no lote
+  # PR COM migration: deploy não-verde segura todas; @pos de crítica segura só críticas (aditiva segue); merge no lote
   # (merges>0: a main acabou de mudar — a migration vai na próxima rodada, contra a main já assentada/verde).
   # conserto do deploy vermelho da main (corrige_deploy_vermelho): não espera a main nem as outras migrations
   corrige_deploy=0
@@ -853,7 +869,12 @@ for n in $fila; do
   # lote de migrations já aberto nesta rodada: só entram outras migrations, e só se INDEPENDENTES das do lote
   if [ "$lote_mig_n" -gt 0 ] && [ "$com_migration" = 0 ]; then log "#$n (sem migration): espera a próxima rodada — há lote de migrations nesta"; continue; fi
   if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then
-    if [ "$so_sem_migration" = 1 ] || { [ "$merges" -gt 0 ] && [ "$lote_mig_n" = 0 ]; }; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
+    # Crítica = tem a etiqueta SENSIVEL (o classificador de conteúdo, mais abaixo, é o backstop: migration crítica SEM
+    # etiqueta é rotulada + pulada antes de mergear). Só o crítico é segurado pelo @pos de outra crítica; aditivo segue.
+    n_critica=0; jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null 2>&1 && n_critica=1
+    if [ "$deploy_travado" = 1 ]; then log "#$n tem migration: deploy-migrations da main não está verde — espera (todas as migrations)"; continue; fi
+    if [ "$critica_na_main" = 1 ] && [ "$n_critica" = 1 ]; then log "#$n tem migration CRÍTICA: espera o @pos da crítica anterior (aditivas seguem)"; continue; fi
+    if [ "$merges" -gt 0 ] && [ "$lote_mig_n" = 0 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
     if [ "$lote_mig_n" -gt 0 ]; then
       baixar_sql_migrations "$n" "$sha" || true
       ind=$(npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/migrations-independentes.ts" "$TMPF/mig/$n.sql" "${lote_mig_sqls[@]}" 2> /dev/null || echo "duvida:checagem falhou")
@@ -928,20 +949,31 @@ for n in $fila; do
 
   # atrás da main → atualiza (merge da main no ramo, sem reescrever histórico), MAS só as próximas ATUALIZA_NA_VEZ da
   # ordem; as demais esperam a vez (sem disparar preview/aceitação agora). Cada publicação gera ~N builds, não um por PR.
+  # VAZÃO / LOTE SEM MOER (CEO 22/10, com o CEO presente): se a PR está atrás MAS o GitHub garante merge limpo
+  # (mergeable=true — não há "require up to date": proteção sem strict, sem ruleset, sem merge queue), NÃO atualiza antes:
+  # segue direto para o merge 3-way. Assim o lote (até LOTE_MIG_MAX migrations / LOTE_MAX comuns) sai numa rodada só, sem o
+  # "moedor" em que cada publicação deixava as de trás atrás e forçava re-update (era o que limitava migration a ~1 por @pos).
+  # Só atualiza antes quando NÃO está comprovadamente limpa (conflito, ou o GitHub ainda calculando o mergeable): aí vale o
+  # caminho seguro de sempre (update-first, teto ATUALIZA_NA_VEZ). Conflito real cai na recusa do merge mais abaixo.
   atras=$(api "repos/$REPO/compare/$MAIN0...$sha" --jq '.behind_by')
   if [ "$atras" -gt 0 ]; then
-    if [ "$em_preparo" -ge "$ATUALIZA_NA_VEZ" ]; then
-      log "#$n está $atras atrás da main, mas já há $em_preparo PR(s) da vez em preparo (teto $ATUALIZA_NA_VEZ): espera a vez — sem build agora"; continue
-    fi
-    # Só gasta vaga se o update-branch FUNCIONOU: PR com conflito não prepara build e não pode ocupar o teto (16/10: 4 PRs
-    # em conflito queimavam as 4 vagas e travavam 7 PRs prontas por horas).
-    if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
-      em_preparo=$((em_preparo + 1))
-      log "#$n estava $atras commit(s) atrás da main: atualizada (vaga $em_preparo/$ATUALIZA_NA_VEZ); aguardando os checks do novo commit — segue para a próxima"
+    mergeavel=$(api "repos/$REPO/pulls/$n" --jq '.mergeable' 2> /dev/null)
+    if [ "$mergeavel" = true ]; then
+      log "#$n está $atras atrás da main mas mergeable=true: segue para o merge 3-way sem atualizar antes (vazão — CEO 22/10)"
     else
-      tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"; continue
+      if [ "$em_preparo" -ge "$ATUALIZA_NA_VEZ" ]; then
+        log "#$n está $atras atrás da main (mergeable=$mergeavel), mas já há $em_preparo PR(s) da vez em preparo (teto $ATUALIZA_NA_VEZ): espera a vez — sem build agora"; continue
+      fi
+      # Só gasta vaga se o update-branch FUNCIONOU: PR com conflito não prepara build e não pode ocupar o teto (16/10: 4 PRs
+      # em conflito queimavam as 4 vagas e travavam 7 PRs prontas por horas).
+      if api -X PUT "repos/$REPO/pulls/$n/update-branch" -f expected_head_sha="$sha" > /dev/null 2>&1; then
+        em_preparo=$((em_preparo + 1))
+        log "#$n estava $atras commit(s) atrás da main (mergeable=$mergeavel): atualizada (vaga $em_preparo/$ATUALIZA_NA_VEZ); aguardando os checks do novo commit — segue para a próxima"
+      else
+        tirar_da_fila "$n" "não consegui atualizar com a main (conflito?)" "$sha"
+      fi
+      continue
     fi
-    continue
   fi
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
@@ -949,7 +981,12 @@ for n in $fila; do
     m=$(estado_main "$via")
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
-      so_sem_migration=1; continue
+      # deploy-migrations não-verde segura TODAS as migrations; @pos (só a via revisada chega nele) segura só as CRÍTICAS.
+      case "$m" in
+        *deploy-migrations*) deploy_travado=1 ;;
+        *) critica_na_main=1 ;;
+      esac
+      continue
     fi
     # Régua de versão NA HORA do merge (incidente 08/10: #2239 entrou com 20261008140005 abaixo da 150005 já aplicada e o
     # `db push` recusou — deploy vermelho por horas). Recalcula a última migration da main agora (não usa o check antigo

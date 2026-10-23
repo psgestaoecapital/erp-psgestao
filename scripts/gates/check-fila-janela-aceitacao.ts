@@ -1,90 +1,83 @@
-// Gate (CEO 15/10, contexto e89e0d62, com o CEO presente) — janela temporária da aceitação na via REVISADA.
-// Em scripts/merge/fila-merge.sh a aceitação VERMELHA da via revisada NÃO bloqueia até 2026-10-17 11:00 America/Sao_Paulo
-// (REABERTA CEO 22/10: = 2026-10-23T20:00:00Z) e VOLTA A BLOQUEAR sozinha depois. Continuam bloqueando dentro da janela: gates/checks
-// estáticos vermelhos, preview (Vercel) com falha, conflito e falta do MERGE AUTORIZADO do revisor para o patch-id.
-// Ritmo máximo de 6 publicações/hora (CEO 22/10: meta acima de 4/h); prioridade Hub (#2569 #2508 #2298) e FC/FCR (#2100).
+// Gate — ESTEIRA CONTÍNUA (CEO 22/10): a aceitação e2e NÃO é mais porteiro do merge. Em scripts/merge/fila-merge.sh a
+// aceitação é SEMPRE informativa no caminho do merge (o banco de testes saiu da frente; virou verificação pós-merge nas
+// demos de produção, com revert). Continuam bloqueando: gates/checks estáticos, preview (Vercel), conflito e, se
+// sensível, o MERGE AUTORIZADO do revisor. FILA_ACEITACAO_BLOQUEIA=1 força o caminho antigo (bloqueio) só nos testes.
 //
-// Parte 1: leitura do script (a data-limite está carimbada e ligada nos dois pontos; ritmo e prioridade existem).
-// Parte 2 (com jq e git): roda o scripts/merge/fila-merge.sh de verdade contra o `gh` simulado, provando os dois lados
-// da data, o teto de ritmo e a ordem de prioridade.
+// Parte 1: a mecânica está no script (flag, e ligada nos dois pontos). Parte 2 (jq+git): roda o fila-merge.sh de verdade
+// contra o `gh` simulado, provando que a aceitação vermelha PUBLICA (informativa), que com a flag ela bloqueia, e que
+// gates/autorização/ritmo/prioridade continuam valendo.
 import { readFileSync } from 'node:fs'
 import { SCRIPT_FILA, comFilaSimulada, comentariosEm, merges, temFerramentas } from '../merge/fila-simulada'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-// ── Parte 1: a data-limite e a mecânica estão no script ──
+// ── Parte 1: a mecânica está no script ──
 const sh = readFileSync(SCRIPT_FILA, 'utf8')
-ok(/JANELA_ACEITACAO_REVISADA_FIM=\$\{JANELA_ACEITACAO_REVISADA_FIM:-2026-10-23T20:00:00Z\}/.test(sh),
-  'data-limite carimbada: 2026-10-23T20:00:00Z (= 2026-10-23 17:00 America/Sao_Paulo), sobrescrevível por env nos testes')
-ok(/aceitacao_dispensada\(\) \{ \[ "\$\{FILA_AGORA_EPOCH:-\$\(date -u \+%s\)\}" -lt "\$\(date -u -d "\$JANELA_ACEITACAO_REVISADA_FIM" \+%s\)" \]; \}/.test(sh),
-  'aceitacao_dispensada compara o agora (FILA_AGORA_EPOCH ou real) com o fim da janela')
+ok(/aceitacao_dispensada\(\) \{ \[ "\$\{FILA_ACEITACAO_BLOQUEIA:-0\}" != 1 \]; \}/.test(sh),
+  'aceitação informativa por padrão (FILA_ACEITACAO_BLOQUEIA=1 força o bloqueio só nos testes)')
 // ligada nos DOIS pontos: na remoção da aceitação do cálculo e no "revisada exige aceitação verde"
 ok(/if \[ "\$via" = rapida \] \|\| aceitacao_dispensada \|\| \[ "\$acc_quar" = 1 \]; then linhas=\$\(awk/.test(sh),
-  'dentro da janela a aceitação sai do cálculo de pendentes/vermelhos (como na via rápida)')
+  'aceitação informativa sai do cálculo de pendentes/vermelhos (como na via rápida)')
 ok(/if \[ "\$via" = revisada \] && ! aceitacao_dispensada && \[ "\$acc_quar" != 1 \]; then/.test(sh),
-  'a exigência "revisada: aceitação verde" só vale FORA da janela')
+  'a exigência "revisada: aceitação verde" só vale quando o bloqueio é forçado')
 // ritmo
-ok(/RITMO_MAX_HORA=\$\{RITMO_MAX_HORA:-6\}/.test(sh) && /rodada adiada/.test(sh) && /disp_hora=\$\(\(RITMO_MAX_HORA - pub_hora\)\)/.test(sh),
-  'ritmo: teto de 6 publicações/hora (RITMO_MAX_HORA), rodada adiada ao estourar')
+ok(/RITMO_MAX_HORA=\$\{RITMO_MAX_HORA:-10\}/.test(sh) && /rodada adiada/.test(sh) && /disp_hora=\$\(\(RITMO_MAX_HORA - pub_hora\)\)/.test(sh),
+  'ritmo: teto de 10 publicações/hora (RITMO_MAX_HORA), rodada adiada ao estourar')
 ok(/pub_hora=\$\{FILA_PUB_HORA:-/.test(sh) && /\|\| echo 0\)\}/.test(sh),
   'ritmo: conta merges da última hora (fail-open: erro de API = 0)')
 // prioridade
 ok(/FILA_PRIORIDADE=\$\{FILA_PRIORIDADE:-'2569 2508 2298 2100'\}/.test(sh),
   'prioridade padrão: Hub (#2569 #2508 #2298) e FC/FCR (#2100) na frente')
-// o que NUNCA deixa de bloquear (dentro ou fora da janela): gates, Vercel, autorização
-ok(/echo "vermelho:gates não estão verdes"/.test(sh) && /echo "vermelho:Vercel/.test(sh)
-  && /sem a autorização do revisor para o conteúdo atual/.test(sh),
-  'dentro da janela, gates/Vercel/MERGE AUTORIZADO continuam bloqueando (só a aceitação é dispensada)')
+// o que NUNCA deixa de bloquear (dentro ou fora da janela): Vercel (preview), guardas focados, autorização.
+// A suíte 'gates' passou a ser INFORMATIVA (novo modelo CEO 22/10): sai do bloqueio nas duas vias.
+ok(/echo "vermelho:Vercel/.test(sh)
+  && /sem a autorização do revisor para o conteúdo atual/.test(sh)
+  && /\$1 != "gates"/.test(sh),
+  'dentro da janela, Vercel/MERGE AUTORIZADO continuam bloqueando e a suíte "gates" é informativa (novo modelo CEO 22/10)')
 
 const ag = readFileSync('AGENTS.md', 'utf8')
-ok(/Janela temporária da aceitação \(CEO 15\/10/.test(ag) && /2026-10-23 17:00 America\/Sao_Paulo/.test(ag),
-  'AGENTS.md: janela documentada')
+ok(/Esteira cont[ií]nua \(CEO 22\/10/.test(ag) && /aceita[çc][ãa]o[\s\S]{0,400}informativa/i.test(ag),
+  'AGENTS.md: esteira contínua documentada (aceitação informativa)')
 
-// ── Parte 2: os dois lados da data, o ritmo e a prioridade ──
-const ANTES = String(Math.floor(Date.UTC(2026, 9, 22) / 1000))   // 2026-10-22T00:00:00Z: DENTRO da janela (reaberta até 23/10 17:00)
-const DEPOIS = String(Math.floor(Date.UTC(2026, 9, 24) / 1000))  // 2026-10-24T00:00:00Z: FORA da janela
-
+// ── Parte 2: o comportamento real ──
 if (!temFerramentas()) {
   console.log('… cenários pulados: jq ou git ausente neste ambiente (a parte 1 continua valendo)')
 } else {
   comFilaSimulada((rodar) => {
     const revVermelha = { n: 1, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'failure' as const }
 
-    // 1) DENTRO da janela: revisada autorizada com aceitação VERMELHA → publica (a aceitação não bloqueia)
-    let x = rodar([revVermelha], false, 5000, { FILA_AGORA_EPOCH: ANTES })
-    ok(merges(x.escritas).join() === '1', '1) dentro da janela: revisada autorizada + aceitação vermelha → PUBLICA')
+    // 1) PADRÃO (produção): revisada autorizada com aceitação VERMELHA → publica (a aceitação é informativa)
+    let x = rodar([revVermelha], false, 5000, {})
+    ok(merges(x.escritas).join() === '1', '1) aceitação vermelha + autorizada → PUBLICA (informativa, padrão de produção)')
 
-    // 2) FORA da janela: a MESMA PR não publica (a aceitação vermelha volta a bloquear) e a fila comenta o motivo
-    x = rodar([revVermelha], false, 5000, { FILA_AGORA_EPOCH: DEPOIS })
+    // 2) BLOQUEIO FORÇADO (caminho antigo, só nos testes): a MESMA PR não publica e a fila comenta o motivo
+    x = rodar([revVermelha], false, 5000, { FILA_ACEITACAO_BLOQUEIA: '1' })
     ok(merges(x.escritas).length === 0 && comentariosEm(x.escritas, 1).length === 1,
-      '2) fora da janela: a mesma PR NÃO publica (aceitação vermelha bloqueia de novo)')
+      '2) com FILA_ACEITACAO_BLOQUEIA=1 a aceitação vermelha volta a bloquear')
 
-    // 3) DENTRO da janela, mas gate estático vermelho continua bloqueando mesmo com autorização
-    //    (checksRodando deixa o check obrigatório pendente → esperar, nunca publica)
-    x = rodar([{ n: 1, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'failure', checksRodando: true }],
-      false, 5000, { FILA_AGORA_EPOCH: ANTES })
-    ok(merges(x.escritas).length === 0, '3) dentro da janela: check obrigatório não-verde continua segurando a PR')
+    // 3) gate estático vermelho continua bloqueando mesmo com autorização e aceitação informativa
+    x = rodar([{ n: 1, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'failure', checksRodando: true }], false, 5000, {})
+    ok(merges(x.escritas).length === 0, '3) check obrigatório não-verde continua segurando a PR')
 
-    // 4) DENTRO da janela: falta de MERGE AUTORIZADO continua bloqueando (autorizada=false)
-    x = rodar([{ n: 1, labels: ['revisao-eng-chefe'], aceitacao: 'failure' }], false, 5000, { FILA_AGORA_EPOCH: ANTES })
+    // 4) falta de MERGE AUTORIZADO continua bloqueando (autorizada=false), mesmo com aceitação informativa
+    x = rodar([{ n: 1, labels: ['revisao-eng-chefe'], aceitacao: 'failure' }], false, 5000, {})
     ok(merges(x.escritas).length === 0 && comentariosEm(x.escritas, 1).some((l) => /sem a autorização do revisor/.test(l)),
-      '4) dentro da janela: sem MERGE AUTORIZADO do revisor não publica')
+      '4) sem MERGE AUTORIZADO do revisor não publica')
 
-    // 5) RITMO: 6 publicações na última hora → rodada adiada, nada publica
-    x = rodar([{ n: 1, labels: [] }], false, 5000, { FILA_PUB_HORA: '6' })
-    ok(merges(x.escritas).length === 0 && /rodada adiada/.test(x.log), '5) ritmo: 6 publicações/h atingido → rodada adiada')
+    // 5) RITMO: 10 publicações na última hora → rodada adiada
+    x = rodar([{ n: 1, labels: [] }], false, 5000, { FILA_PUB_HORA: '10' })
+    ok(merges(x.escritas).length === 0 && /rodada adiada/.test(x.log), '5) ritmo: 10 publicações/h atingido → rodada adiada')
 
-    // 6) RITMO: 5 na última hora → sobra 1 vaga; das duas comuns prontas, publica só 1 nesta rodada
-    x = rodar([{ n: 1, labels: [] }, { n: 2, labels: [] }], false, 5000, { FILA_PUB_HORA: '5' })
-    ok(merges(x.escritas).length === 1, '6) ritmo: 5/6 na hora → só 1 vaga nesta rodada (lote cortado pelo ritmo)')
+    // 6) RITMO: 9 na última hora → sobra 1 vaga; das duas comuns prontas, publica só 1 nesta rodada
+    x = rodar([{ n: 1, labels: [] }, { n: 2, labels: [] }], false, 5000, { FILA_PUB_HORA: '9' })
+    ok(merges(x.escritas).length === 1, '6) ritmo: 9/10 na hora → só 1 vaga nesta rodada (lote cortado pelo ritmo)')
 
-    // 7) PRIORIDADE: FILA_PRIORIDADE reordena a fila (os prioritários primeiro, resto na ordem de entrada)
-    x = rodar([{ n: 1, labels: [] }, { n: 2, labels: [] }, { n: 3, labels: [] }, { n: 4, labels: [] }],
-      false, 5000, { FILA_PRIORIDADE: '3 1' })
+    // 7) PRIORIDADE: FILA_PRIORIDADE reordena a fila
+    x = rodar([{ n: 1, labels: [] }, { n: 2, labels: [] }, { n: 3, labels: [] }, { n: 4, labels: [] }], false, 5000, { FILA_PRIORIDADE: '3 1' })
     ok(merges(x.escritas).join() === '3,1,2,4', '7) prioridade: FILA_PRIORIDADE="3 1" → publica 3, 1, depois 2, 4')
   })
 }
 
-if (falhas) { console.error(`\ncheck-fila-janela-aceitacao: ${falhas} falha(s)`); process.exit(1) }
-console.log('\nFila — janela da aceitação: ok')
+if (falhas) { console.error(`\ncheck-fila-aceitacao-informativa: ${falhas} falha(s)`); process.exit(1) }
+console.log('\nFila — aceitação informativa (esteira contínua): ok')
