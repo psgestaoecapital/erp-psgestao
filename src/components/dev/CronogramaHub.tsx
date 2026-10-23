@@ -93,20 +93,26 @@ export default function CronogramaHub() {
         <AjudaCampo chave="dev.codes.hub_status" rota={ROTA} />
       </div>
 
-      {/* Lista das telas por status (falta e em produção primeiro: é o que falta fazer) */}
-      {(['falta', 'em_producao', 'feito'] as Status[]).map((s) => g.por[s].length === 0 ? null : (
-        <div key={s} style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: META[s].fg, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{META[s].nome}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {g.por[s].map((t) => (
-              <div key={t.rota} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: BRANCO, border: `1px solid ${BD}`, borderRadius: 8, padding: '6px 10px' }}>
-                <span style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.titulo || t.rota}</span>
-                <span style={{ fontSize: 11, color: TXM, flexShrink: 0, marginLeft: 8 }}>{t.rota.replace('/dashboard/projetos', '…')}</span>
+      {/* Lista das telas por status — COLAPSADA por padrão (CEO 23/10: não poluir a tela; o resumo + as barras
+          por vertical bastam). O detalhe tela-a-tela fica a um clique. */}
+      <details style={{ marginBottom: 6 }}>
+        <summary style={{ fontSize: 12, color: TXM, cursor: 'pointer', userSelect: 'none' }}>Ver as {g.total} telas, uma a uma</summary>
+        <div style={{ marginTop: 8 }}>
+          {(['falta', 'em_producao', 'feito'] as Status[]).map((s) => g.por[s].length === 0 ? null : (
+            <div key={s} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: META[s].fg, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{META[s].nome}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {g.por[s].map((t) => (
+                  <div key={t.rota} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: BRANCO, border: `1px solid ${BD}`, borderRadius: 8, padding: '6px 10px' }}>
+                    <span style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.titulo || t.rota}</span>
+                    <span style={{ fontSize: 11, color: TXM, flexShrink: 0, marginLeft: 8 }}>{t.rota.replace('/dashboard/projetos', '…')}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
-      ))}
+      </details>
 
       {/* Passos finais: 100% → auditor → validação → manual */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8, paddingTop: 10, borderTop: `1px solid ${BD}` }}>
