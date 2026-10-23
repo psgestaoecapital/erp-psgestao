@@ -91,6 +91,9 @@ esac
     const rodar = (prs: PrSimulada[], mainOcupada = false, cota = 5000, envExtra: Record<string, string> = {}, posMain: PosMain = {}): Rodada => {
       rmSync(fx, { recursive: true, force: true }); execFileSync('mkdir', ['-p', fx])
       const put = (p: string, v: unknown) => writeFileSync(join(fx, `${p.replace(/[^A-Za-z0-9]/g, '_')}.json`), JSON.stringify(v))
+      // aceitação da main sem run (mesmo efeito de antes, quando faltava a fixture): sem ela o `api` repetia 3x com
+      // sleep 2+4 s em cada leitura e os gates da fila com FILA_ACEITACAO_BLOQUEIA=1 estouravam os 180 s (23/10).
+      put(`${R}/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10`, { workflow_runs: [] })
       put(`${R}/pulls?state=open&base=main&per_page=100`, prs.map((p, i) => ({
         number: p.n, title: `PR ${p.n}`, draft: !!p.draft, created_at: `2026-10-07T09:0${i}:00Z`, base: { ref: 'main' },
         head: { ref: `pr${p.n}`, sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: (p.labels ?? ['fila-merge']).map((name) => ({ name })) })))
