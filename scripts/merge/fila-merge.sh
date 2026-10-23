@@ -814,14 +814,15 @@ deploy_travado=0; critica_na_main=0
 # Teto de PRs "da vez" em PREPARO ao mesmo tempo (CEO 09/10): atualizar com a main dispara preview/aceitação (~3 min/PR).
 # Sem teto, a fila atualizava TODA PR verde atrás da main a cada push → dezenas de builds por publicação. Agora prepara só
 # as próximas N da ordem; as demais esperam a vez (sem build) até uma da frente mergear.
-ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-4}
+ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-6}
 em_preparo=0
 # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada (corta runs/builds de publicação). PR COM migration
 # é UMA por rodada e encerra a rodada. merges = quantas já saíram no lote; LOTE_MAX = teto por rodada (teto de risco).
 LOTE_MAX=${LOTE_MAX:-6}
-# RITMO (CEO 15/10): teto de publicações por hora. Conta as PRs já mergeadas na main na última hora (fail-open: erro de
-# API/valor não-numérico = 0, a rodada segue), para a janela aberta da via revisada não virar enxurrada de merges.
-RITMO_MAX_HORA=${RITMO_MAX_HORA:-10}
+# RITMO (CEO 15/10; teto subido para 30 em 23/10 — "produção máxima"): teto de publicações por hora. Conta as PRs já
+# mergeadas na main na última hora (fail-open: erro de API/valor não-numérico = 0, a rodada segue). O teto protege contra
+# enxurrada; com a via expressa do Hub + o backlog a drenar, 30/h acelera sem virar descontrole.
+RITMO_MAX_HORA=${RITMO_MAX_HORA:-30}
 pub_hora=${FILA_PUB_HORA:-$(api "search/issues?q=repo:$REPO+is:pr+is:merged+base:main+merged:>=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" --jq '.total_count' 2>/dev/null || echo 0)}
 [ "${pub_hora:-0}" -eq "${pub_hora:-0}" ] 2>/dev/null || pub_hora=0
 disp_hora=$((RITMO_MAX_HORA - pub_hora))
