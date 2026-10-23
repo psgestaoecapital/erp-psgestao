@@ -11,7 +11,7 @@ import ts from 'typescript'
 
 // Telas do Hub ainda sem ajuda de campo (H0). Só pode DIMINUIR: tela que ganhou ajuda sai da lista (o gate avisa);
 // tela nova não entra aqui — já nasce com o "?".
-const PENDENTES = [
+const PENDENTES: string[] = [
 ]
 const MAX_PENDENTES = 21   // tamanho da lista no dia da regra (01/10) — não pode crescer
 
