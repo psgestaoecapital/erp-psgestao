@@ -8,6 +8,10 @@ import { useState } from "react";
 import { Plus, Trash2, Package, HardHat, Wrench, Loader2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { SeletorItemModal, type ItemEscolhido, type TipoItem } from "./SeletorItemModal";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+// a ajuda (RD-95) da composição vive numa rota fixa: a tela do serviço tem o id na URL
+const ROTA_AJUDA_COMPOSICAO = "/dashboard/projetos/catalogo/[id]";
 
 export interface BomLinha {
   id: string;
@@ -179,9 +183,9 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
             <tr>
               <th className="px-3 py-2 text-left">Tipo</th>
               <th className="px-3 py-2 text-left">Item</th>
-              <th className="px-3 py-2 text-right">Qtd</th>
+              <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-1">Qtd <AjudaCampo chave="projetos.catalogo.bom.quantidade" rota={ROTA_AJUDA_COMPOSICAO} /></span></th>
               <th className="px-3 py-2 text-left">Un</th>
-              <th className="px-3 py-2 text-right">Perda %</th>
+              <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-1">Perda % <AjudaCampo chave="projetos.catalogo.bom.perda_pct" rota={ROTA_AJUDA_COMPOSICAO} /></span></th>
               <th className="px-3 py-2 text-right">Custo unit.</th>
               <th className="px-3 py-2 text-right">Custo total</th>
               <th className="px-3 py-2"></th>

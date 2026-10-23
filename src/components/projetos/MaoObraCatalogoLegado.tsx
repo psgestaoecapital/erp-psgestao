@@ -10,6 +10,7 @@ import { supabaseBrowser } from "@/lib/authFetch";
 import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/CatalogoTable";
 import { CatalogoForm, type FormField } from "@/components/projetos/CatalogoForm";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 interface MaoObra {
   id: string;
@@ -244,15 +245,17 @@ export default function MaoObraCatalogoLegado() {
 
   // Schema do form
   const formFields: FormField[] = [
-    { key: "codigo", label: "Código", type: "text", required: false, placeholder: "MO-1" },
+    { key: "codigo", ajuda: "projetos.mao_obra.lista.form_codigo", label: "Código", type: "text", required: false, placeholder: "MO-1" },
     {
       key: "tipo_contratacao",
+      ajuda: "projetos.mao_obra.lista.form_tipo",
       label: "Tipo",
       type: "radio",
       options: TIPOS_CONTRATACAO,
     },
     {
       key: "funcao",
+      ajuda: "projetos.mao_obra.lista.form_funcao",
       label: "Função",
       type: "text",
       required: true,
@@ -261,6 +264,7 @@ export default function MaoObraCatalogoLegado() {
     },
     {
       key: "descricao",
+      ajuda: "projetos.mao_obra.lista.form_descricao",
       label: "Descrição",
       type: "textarea",
       fullWidth: true,
@@ -268,6 +272,7 @@ export default function MaoObraCatalogoLegado() {
     },
     {
       key: "custo_hora",
+      ajuda: "projetos.mao_obra.lista.form_custo_hora",
       label: "Custo / hora (R$)",
       type: "number",
       step: "0.01",
@@ -276,6 +281,7 @@ export default function MaoObraCatalogoLegado() {
     },
     {
       key: "custo_mes",
+      ajuda: "projetos.mao_obra.lista.form_custo_mes",
       label: "Custo / mês (R$)",
       type: "number",
       step: "0.01",
@@ -284,6 +290,7 @@ export default function MaoObraCatalogoLegado() {
     },
     {
       key: "encargos_pct",
+      ajuda: "projetos.mao_obra.lista.form_encargos",
       label: "Encargos (%)",
       type: "number",
       step: "0.1",
@@ -293,6 +300,7 @@ export default function MaoObraCatalogoLegado() {
     },
     {
       key: "ativo",
+      ajuda: "projetos.mao_obra.lista.form_status",
       label: "Status",
       type: "radio",
       options: [
@@ -302,6 +310,7 @@ export default function MaoObraCatalogoLegado() {
     },
     {
       key: "observacoes",
+      ajuda: "projetos.mao_obra.lista.form_observacoes",
       label: "Observações",
       type: "textarea",
       fullWidth: true,
@@ -464,9 +473,10 @@ export default function MaoObraCatalogoLegado() {
       ) : (
         <>
           <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-[#3D2314]/8 bg-white p-4 shadow-sm md:grid-cols-4">
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+            <div className="md:col-span-2" data-ajuda="projetos.mao_obra.lista.busca">
+              <label className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
                 Buscar
+                <AjudaCampo chave="projetos.mao_obra.lista.busca" />
               </label>
               <div className="relative">
                 <Search
@@ -482,9 +492,10 @@ export default function MaoObraCatalogoLegado() {
                 />
               </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+            <div data-ajuda="projetos.mao_obra.lista.filtro_tipo">
+              <label className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
                 Tipo
+                <AjudaCampo chave="projetos.mao_obra.lista.filtro_tipo" />
               </label>
               <select
                 value={filtroTipo}
@@ -500,9 +511,10 @@ export default function MaoObraCatalogoLegado() {
               </select>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+              <div data-ajuda="projetos.mao_obra.lista.filtro_status">
+                <label className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Status
+                  <AjudaCampo chave="projetos.mao_obra.lista.filtro_status" />
                 </label>
                 <select
                   value={filtroStatus}
@@ -514,9 +526,10 @@ export default function MaoObraCatalogoLegado() {
                   <option value="todos">Todos</option>
                 </select>
               </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+              <div data-ajuda="projetos.mao_obra.lista.filtro_origem">
+                <label className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Origem
+                  <AjudaCampo chave="projetos.mao_obra.lista.filtro_origem" />
                 </label>
                 <select
                   value={filtroOrigem}

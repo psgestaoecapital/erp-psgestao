@@ -5,12 +5,15 @@
 
 import { ReactNode, useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 export type FieldType = "text" | "textarea" | "number" | "select" | "radio";
 
 export interface FormField {
   key: string;
   label: string;
+  /** chave do "?" (RD-95) em erp_ajuda_campo, na rota da tela que abre o formulário */
+  ajuda: string;
   type: FieldType;
   required?: boolean;
   placeholder?: string;
@@ -129,10 +132,13 @@ export function CatalogoForm<T extends Record<string, any>>({
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {fields.map((f) => (
-              <div key={f.key} className={f.fullWidth ? "md:col-span-2" : ""}>
-                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-[#3D2314]/60">
-                  {f.label}
-                  {f.required && <span className="text-red-600"> *</span>}
+              <div key={f.key} data-ajuda={f.ajuda} className={f.fullWidth ? "md:col-span-2" : ""}>
+                <label className="mb-1 flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-[#3D2314]/60">
+                  <span>
+                    {f.label}
+                    {f.required && <span className="text-red-600"> *</span>}
+                  </span>
+                  <AjudaCampo chave={f.ajuda} />
                 </label>
 
                 {f.type === "text" && (
@@ -193,6 +199,7 @@ export function CatalogoForm<T extends Record<string, any>>({
                     {f.options.map((o) => (
                       <label
                         key={o.value}
+                        data-ajuda={f.ajuda}
                         className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition ${
                           values[f.key] === o.value
                             ? "border-[#C8941A] bg-[#C8941A]/10 text-[#3D2314]"

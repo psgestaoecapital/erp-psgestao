@@ -8,6 +8,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Gauge, Loader2, CheckCircle2, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+// a ajuda (RD-95) do painel vive na rota da tela de Configurações, onde ele é usado
+const ROTA_AJUDA = "/dashboard/projetos/configuracoes";
 
 type Linha = { id: string; nome: string };
 type Produto = {
@@ -18,6 +22,7 @@ type Produto = {
 type RowEdit = { nome?: string; business_line_id?: string; produtividade?: string; equipe?: string };
 
 const brl = (v: number | null) => (v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+const rot = "mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/60";
 const inp = "rounded-lg border border-[#3D2314]/12 bg-white px-2 py-1 text-sm text-[#3D2314] focus:border-[#C8941A] focus:outline-none";
 
 export default function ProdutividadePanel({ companyId }: { companyId: string }) {
@@ -146,14 +151,20 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
               <CheckCircle2 size={12} /> {toast}
             </span>
           )}
-          <select value={fLinha} onChange={(e) => setFLinha(e.target.value)} className={inp}>
-            <option value="">Todas as linhas</option>
-            {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
-          </select>
-          <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} className={inp}>
-            <option value="">Todas as categorias</option>
-            {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <label className="flex items-center gap-1">
+            <select value={fLinha} onChange={(e) => setFLinha(e.target.value)} aria-label="Filtrar por linha de negócio" className={inp}>
+              <option value="">Todas as linhas</option>
+              {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+            <AjudaCampo chave="projetos.config.produtos.filtro_linha" rota={ROTA_AJUDA} />
+          </label>
+          <label className="flex items-center gap-1">
+            <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} aria-label="Filtrar por categoria" className={inp}>
+              <option value="">Todas as categorias</option>
+              {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <AjudaCampo chave="projetos.config.produtos.filtro_categoria" rota={ROTA_AJUDA} />
+          </label>
           <button onClick={() => setNovoAberto((v) => !v)} className="inline-flex items-center gap-1 rounded-lg bg-[#3D2314] px-3 py-1.5 text-sm font-medium text-[#FAF7F2]">
             <Plus size={14} /> Novo produto
           </button>
@@ -164,17 +175,35 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
 
       {novoAberto && (
         <div className="mb-4 grid grid-cols-1 gap-2 rounded-xl border border-[#C8941A]/30 bg-[#FBF4E4] p-3 sm:grid-cols-3 lg:grid-cols-7">
-          <input placeholder="Nome *" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} className={`${inp} lg:col-span-2`} />
-          <input placeholder="Unidade" value={novo.unidade} onChange={(e) => setNovo({ ...novo, unidade: e.target.value })} className={inp} />
-          <input placeholder="Categoria" value={novo.categoria} onChange={(e) => setNovo({ ...novo, categoria: e.target.value })} className={inp} />
-          <select value={novo.business_line_id} onChange={(e) => setNovo({ ...novo, business_line_id: e.target.value })} className={inp}>
-            <option value="">Linha…</option>
-            {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
-          </select>
-          <input placeholder="Produt./dia" inputMode="decimal" value={novo.produtividade} onChange={(e) => setNovo({ ...novo, produtividade: e.target.value.replace(/[^\d.,]/g, "") })} className={inp} />
-          <div className="flex gap-2">
-            <input placeholder="Equipe" value={novo.equipe} onChange={(e) => setNovo({ ...novo, equipe: e.target.value })} className={`${inp} flex-1`} />
-            <button onClick={() => void criar()} disabled={criando} className="rounded-lg bg-[#C8941A] px-3 py-1 text-sm font-semibold text-[#3D2314] disabled:opacity-50">{criando ? "…" : "Criar"}</button>
+          <label className="block lg:col-span-2">
+            <span className={rot}>Nome * <AjudaCampo chave="projetos.config.produtos.novo_nome" rota={ROTA_AJUDA} /></span>
+            <input placeholder="Ex.: Forro de gesso liso" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} className={`${inp} w-full`} />
+          </label>
+          <label className="block">
+            <span className={rot}>Unidade <AjudaCampo chave="projetos.config.produtos.novo_unidade" rota={ROTA_AJUDA} /></span>
+            <input placeholder="m²" value={novo.unidade} onChange={(e) => setNovo({ ...novo, unidade: e.target.value })} className={`${inp} w-full`} />
+          </label>
+          <label className="block">
+            <span className={rot}>Categoria <AjudaCampo chave="projetos.config.produtos.novo_categoria" rota={ROTA_AJUDA} /></span>
+            <input placeholder="Forros" value={novo.categoria} onChange={(e) => setNovo({ ...novo, categoria: e.target.value })} className={`${inp} w-full`} />
+          </label>
+          <label className="block">
+            <span className={rot}>Linha <AjudaCampo chave="projetos.config.produtos.novo_linha" rota={ROTA_AJUDA} /></span>
+            <select value={novo.business_line_id} onChange={(e) => setNovo({ ...novo, business_line_id: e.target.value })} className={`${inp} w-full`}>
+              <option value="">Linha…</option>
+              {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className={rot}>Produt./dia <AjudaCampo chave="projetos.config.produtos.novo_produtividade" rota={ROTA_AJUDA} /></span>
+            <input placeholder="40" inputMode="decimal" value={novo.produtividade} onChange={(e) => setNovo({ ...novo, produtividade: e.target.value.replace(/[^\d.,]/g, "") })} className={`${inp} w-full`} />
+          </label>
+          <div className="flex items-end gap-2">
+            <label className="block flex-1">
+              <span className={rot}>Equipe <AjudaCampo chave="projetos.config.produtos.novo_equipe" rota={ROTA_AJUDA} /></span>
+              <input placeholder="2 gesseiros" value={novo.equipe} onChange={(e) => setNovo({ ...novo, equipe: e.target.value })} className={`${inp} w-full`} />
+            </label>
+            <button onClick={() => void criar()} disabled={criando} className="rounded-lg bg-[#C8941A] px-3 py-1.5 text-sm font-semibold text-[#3D2314] disabled:opacity-50">{criando ? "…" : "Criar"}</button>
           </div>
         </div>
       )}
@@ -188,10 +217,10 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#3D2314]/10 text-left text-[11px] uppercase tracking-wider text-[#3D2314]/50">
-                <th className="py-2 pr-3">Produto</th>
-                <th className="py-2 px-3">Linha de negócio</th>
-                <th className="py-2 px-3">Produtividade</th>
-                <th className="py-2 px-3">Equipe</th>
+                <th className="py-2 pr-3"><span className="inline-flex items-center gap-1">Produto <AjudaCampo chave="projetos.config.produtos.nome" rota={ROTA_AJUDA} /></span></th>
+                <th className="py-2 px-3"><span className="inline-flex items-center gap-1">Linha de negócio <AjudaCampo chave="projetos.config.produtos.linha" rota={ROTA_AJUDA} /></span></th>
+                <th className="py-2 px-3"><span className="inline-flex items-center gap-1">Produtividade <AjudaCampo chave="projetos.config.produtos.produtividade" rota={ROTA_AJUDA} /></span></th>
+                <th className="py-2 px-3"><span className="inline-flex items-center gap-1">Equipe <AjudaCampo chave="projetos.config.produtos.equipe" rota={ROTA_AJUDA} /></span></th>
                 <th className="py-2 px-3 text-right">MO (R$/m²)</th>
                 <th className="py-2 pl-3 text-right">Ações</th>
               </tr>

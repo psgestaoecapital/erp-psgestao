@@ -23,6 +23,7 @@ import { comPrazo } from "@/lib/comPrazo";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
 import PrecificacaoConfigPanel from "@/components/projetos/PrecificacaoConfigPanel";
 import ProdutividadePanel from "@/components/projetos/ProdutividadePanel";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import {
   BdiPreview,
   type BdiComponentes,
@@ -463,14 +464,14 @@ export default function ConfiguracoesPage() {
           <div className="space-y-2.5">
             <BdiSlider
               label="Administração Central (AC)"
-              hint="Custos da estrutura administrativa rateados sobre a obra (escritório, gestão, RH)."
+              chave="projetos.config.bdi.administracao_central"
               valor={config.bdi_administracao_central_pct}
               onChange={(v) => setField("bdi_administracao_central_pct", v)}
               cor="gray"
             />
             <BdiSlider
               label="Seguros (SG)"
-              hint="Seguro garantia, seguro de obras civis e responsabilidade civil."
+              chave="projetos.config.bdi.seguros"
               valor={config.bdi_seguros_pct}
               onChange={(v) => setField("bdi_seguros_pct", v)}
               cor="gray"
@@ -478,7 +479,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Riscos (RI)"
-              hint="Provisão para imprevistos, retrabalhos, variação cambial."
+              chave="projetos.config.bdi.riscos"
               valor={config.bdi_riscos_pct}
               onChange={(v) => setField("bdi_riscos_pct", v)}
               cor="gray"
@@ -486,7 +487,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Garantias (GA)"
-              hint="Garantia técnica de obra (NBR 15575), retenção contratual."
+              chave="projetos.config.bdi.garantias"
               valor={config.bdi_garantia_pct}
               onChange={(v) => setField("bdi_garantia_pct", v)}
               cor="gray"
@@ -494,7 +495,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Despesas Financeiras (DF)"
-              hint="Custo do capital de giro durante a execução da obra."
+              chave="projetos.config.bdi.despesas_financeiras"
               valor={config.bdi_despesas_financeiras_pct}
               onChange={(v) => setField("bdi_despesas_financeiras_pct", v)}
               cor="gray"
@@ -502,7 +503,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Lucro (LU)"
-              hint="Margem de lucro líquido sobre o custo direto + benefícios indiretos."
+              chave="projetos.config.bdi.lucro"
               valor={config.bdi_lucro_pct}
               onChange={(v) => setField("bdi_lucro_pct", v)}
               cor="gold"
@@ -510,7 +511,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Impostos (IM)"
-              hint="ISS + PIS + COFINS sobre faturamento. Varia conforme regime tributário."
+              chave="projetos.config.bdi.impostos"
               valor={config.bdi_impostos_pct}
               onChange={(v) => setField("bdi_impostos_pct", v)}
               cor="brown"
@@ -542,12 +543,14 @@ export default function ConfiguracoesPage() {
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <CampoNumero
+            chave="projetos.config.margem_alvo"
             label="Margem alvo (%)"
             hint="Meta de margem aparente que serviços devem atingir"
             valor={config.margem_alvo_pct}
             onChange={(v) => setField("margem_alvo_pct", v)}
           />
           <CampoNumero
+            chave="projetos.config.margem_minima"
             label="Margem mínima (%)"
             hint="Abaixo deste valor, o serviço é destacado em vermelho e bloqueia propostas"
             valor={config.margem_minima_pct}
@@ -574,6 +577,7 @@ export default function ConfiguracoesPage() {
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <CampoNumero
+            chave="projetos.config.validade_proposta"
             label="Validade da proposta (dias)"
             hint="Prazo padrão antes da proposta expirar"
             valor={config.validade_proposta_dias}
@@ -581,6 +585,7 @@ export default function ConfiguracoesPage() {
             inteiro
           />
           <CampoNumero
+            chave="projetos.config.prazo_pagamento"
             label="Prazo de pagamento padrão (dias)"
             hint="Prazo entre emissão da fatura e vencimento"
             valor={config.prazo_pagamento_padrao_dias}
@@ -591,18 +596,21 @@ export default function ConfiguracoesPage() {
 
         <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
           <CampoTexto
+            chave="projetos.config.prefixo_orcamento"
             label="Prefixo de orçamento"
             valor={config.prefixo_orcamento}
             onChange={(v) => setField("prefixo_orcamento", v)}
             placeholder="ORC"
           />
           <CampoTexto
+            chave="projetos.config.prefixo_obra"
             label="Prefixo de obra"
             valor={config.prefixo_obra}
             onChange={(v) => setField("prefixo_obra", v)}
             placeholder="OBR"
           />
           <CampoTexto
+            chave="projetos.config.prefixo_proposta"
             label="Prefixo de proposta"
             valor={config.prefixo_proposta}
             onChange={(v) => setField("prefixo_proposta", v)}
@@ -623,18 +631,21 @@ export default function ConfiguracoesPage() {
           </div>
           <div className="space-y-2">
             <Toggle
+              chave="projetos.config.vendedor_altera_preco"
               label="Vendedor pode alterar preço final"
               hint="Permite ajustar preço final fora do CPU"
               valor={!!config.vendedor_pode_alterar_preco}
               onChange={(v) => setField("vendedor_pode_alterar_preco", v)}
             />
             <Toggle
+              chave="projetos.config.vendedor_aprova_proposta"
               label="Vendedor pode aprovar proposta"
               hint="Sem precisar de revisão de supervisor"
               valor={!!config.vendedor_pode_aprovar_proposta}
               onChange={(v) => setField("vendedor_pode_aprovar_proposta", v)}
             />
             <Toggle
+              chave="projetos.config.aprovacao_engenheiro"
               label="Exige aprovação do engenheiro"
               badge="Em breve"
               hint="Ainda não ativo — o fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto."
@@ -655,12 +666,14 @@ export default function ConfiguracoesPage() {
           </div>
           <div className="space-y-2">
             <Toggle
+              chave="projetos.config.omie_estoque"
               label="Sincronizar estoque com Omie"
               hint="Movimenta estoque no Omie a cada saída de material"
               valor={!!config.sincroniza_omie_estoque}
               onChange={(v) => setField("sincroniza_omie_estoque", v)}
             />
             <Toggle
+              chave="projetos.config.omie_pagar"
               label="Sincronizar contas a pagar com Omie"
               hint="Cria títulos a pagar no Omie ao confirmar fornecedor"
               valor={!!config.sincroniza_omie_pagar}
@@ -768,12 +781,14 @@ function SaveIndicator({
 }
 
 function CampoNumero({
+  chave,
   label,
   hint,
   valor,
   onChange,
   inteiro = false,
 }: {
+  chave: string;
   label: string;
   hint?: string;
   valor: number | null;
@@ -782,8 +797,9 @@ function CampoNumero({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+      <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
         {label}
+        <AjudaCampo chave={chave} />
       </span>
       <input
         type="number"
@@ -803,11 +819,13 @@ function CampoNumero({
 }
 
 function CampoTexto({
+  chave,
   label,
   valor,
   onChange,
   placeholder,
 }: {
+  chave: string;
   label: string;
   valor: string | null;
   onChange: (v: string) => void;
@@ -815,8 +833,9 @@ function CampoTexto({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+      <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
         {label}
+        <AjudaCampo chave={chave} />
       </span>
       <input
         type="text"
@@ -831,6 +850,7 @@ function CampoTexto({
 }
 
 function Toggle({
+  chave,
   label,
   hint,
   valor,
@@ -838,6 +858,7 @@ function Toggle({
   disabled = false,
   badge,
 }: {
+  chave: string;
   label: string;
   hint: string;
   valor: boolean;
@@ -848,8 +869,9 @@ function Toggle({
   return (
     <label className={`flex items-start justify-between gap-3 rounded-xl border border-[#3D2314]/8 bg-white p-3 ${disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer hover:bg-[#FAF7F2]"}`}>
       <div className="flex-1">
-        <div className="text-sm font-medium text-[#3D2314]">
+        <div className="flex flex-wrap items-center gap-1 text-sm font-medium text-[#3D2314]">
           {label}
+          <AjudaCampo chave={chave} />
           {badge && (
             <span className="ml-2 rounded-full bg-[#3D2314]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#3D2314]/60">{badge}</span>
           )}
