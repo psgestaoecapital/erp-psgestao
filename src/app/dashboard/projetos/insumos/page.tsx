@@ -303,9 +303,10 @@ export default function InsumosPage() {
 
   // Schema do form
   const formFields: FormField[] = [
-    { key: "erp_code", label: "Código", type: "text", required: true, placeholder: "INS-1" },
+    { key: "erp_code", ajuda: "projetos.insumos.form.codigo", label: "Código", type: "text", required: true, placeholder: "INS-1" },
     {
       key: "unit",
+      ajuda: "projetos.insumos.form.unidade",
       label: "Unidade",
       type: "select",
       required: true,
@@ -313,6 +314,7 @@ export default function InsumosPage() {
     },
     {
       key: "name",
+      ajuda: "projetos.insumos.form.nome",
       label: "Nome",
       type: "text",
       required: true,
@@ -321,33 +323,38 @@ export default function InsumosPage() {
     },
     {
       key: "category",
+      ajuda: "projetos.insumos.form.categoria",
       label: "Categoria",
       type: "select",
       options: categorias.map((c) => ({ value: c.codigo, label: c.nome })),
     },
     {
       key: "current_cost",
+      ajuda: "projetos.insumos.form.custo",
       label: "Custo atual (R$)",
       type: "number",
       step: "0.01",
       min: 0,
     },
-    { key: "supplier", label: "Fornecedor", type: "text", placeholder: "Nome do fornecedor" },
-    { key: "ncm", label: "NCM", type: "text", placeholder: "00000000" },
+    { key: "supplier", ajuda: "projetos.insumos.form.fornecedor", label: "Fornecedor", type: "text", placeholder: "Nome do fornecedor" },
+    { key: "ncm", ajuda: "projetos.insumos.form.ncm", label: "NCM", type: "text", placeholder: "00000000" },
     {
       key: "especificacao_tecnica",
+      ajuda: "projetos.insumos.form.especificacao",
       label: "Especificação técnica",
       type: "textarea",
       fullWidth: true,
     },
     {
       key: "observacoes",
+      ajuda: "projetos.insumos.form.observacoes",
       label: "Observações",
       type: "textarea",
       fullWidth: true,
     },
     {
       key: "ativo",
+      ajuda: "projetos.insumos.form.status",
       label: "Status",
       type: "radio",
       options: [
