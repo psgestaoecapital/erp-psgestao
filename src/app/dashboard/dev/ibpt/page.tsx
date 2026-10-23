@@ -323,7 +323,7 @@ export default function IbptImportPage() {
   return (
     <div style={{ fontFamily:"system-ui,-apple-system,'Segoe UI',Roboto,sans-serif", background:C.bg, color:C.tx, minHeight:'100vh' }}>
       <div style={{ background:C.card, padding:'12px 20px', borderBottom:`2px solid ${C.s}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <span style={{ color:C.s, fontWeight:700, fontSize:16 }}>Importar tabela IBPT (Lei 12.741)</span>
+        <h1 style={{ margin:0, color:C.s, fontWeight:700, fontSize:16 }}>Importar tabela IBPT (Lei 12.741)</h1>
         <a href="/dashboard/dev?dev=ferramentas" style={{ color:C.s, fontSize:12, textDecoration:'none' }}>← Central de Dev</a>
       </div>
       <div style={{ padding:20, maxWidth:720 }}>
