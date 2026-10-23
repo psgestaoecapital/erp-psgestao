@@ -11,6 +11,7 @@ import GraficosCodes from './GraficosCodes'
 import SaudeEsteira from './SaudeEsteira'
 import DiagnosticoEsteira from './DiagnosticoEsteira'
 import BarrasQualidadeVertical from './BarrasQualidadeVertical'
+import ProximasPublicacoes from './ProximasPublicacoes'
 import CronogramaHub from './CronogramaHub'
 import SaudeCodes from './SaudeCodes'
 import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
@@ -147,15 +148,19 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
-      <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
-      <BlocoSeguro nome="Saúde da esteira"><SaudeEsteira /></BlocoSeguro>
-      <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
-      <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
+      {/* TOPO (CEO 23/10): o que o CEO acompanha ao vivo — a fila viva, o que já publicou, os Codes e os gráficos. */}
+      <BlocoSeguro nome="Próximas publicações"><ProximasPublicacoes /></BlocoSeguro>
+      {dados && <BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro>}
+      {resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}
       <BlocoSeguro nome="Gráficos"><GraficosCodes /></BlocoSeguro>
       <BlocoSeguro nome="Qualidade por vertical"><BarrasQualidadeVertical /></BlocoSeguro>
+
+      {/* Diagnóstico e detalhe (abaixo) */}
       {est && f && <BlocoSeguro nome="Faixa da esteira"><FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} /></BlocoSeguro>}
-      {resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}
-      {dados && <BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro>}
+      <BlocoSeguro nome="Saúde da esteira"><SaudeEsteira /></BlocoSeguro>
+      <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
+      <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
+      <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
 
       {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
       <BlocoSeguro nome="Meu Code"><MeuCode /></BlocoSeguro>
