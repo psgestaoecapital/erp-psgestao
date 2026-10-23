@@ -1,5 +1,5 @@
 -- HB0 item 7 (RD-95): "?" das telas do Hub que estavam em PENDENTES — Clientes, Desempenho, Simulador, filtros de
--- Oportunidades e o editor de composição (BOM) do serviço. Aditiva: só linhas de ajuda (ON CONFLICT DO NOTHING).
+-- Oportunidades. Aditiva: só linhas de ajuda (ON CONFLICT DO NOTHING).
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
 VALUES
 -- Clientes
@@ -62,15 +62,5 @@ VALUES
  'Mostra no quadro só as oportunidades daquela pessoa — bom para a reunião de vendas.', 'Maria (comercial)', 'Filtrar por responsável e não ver oportunidades ainda sem dono.', 20, '/dashboard/projetos/oportunidades', 'projetos', 'publicado'),
 ('projetos.oportunidades.busca', 'Oportunidades', 'Buscar oportunidade',
  'Parte do título da oportunidade ou do nome do cliente.',
- 'Filtra o quadro na hora para achar uma negociação específica.', 'Residencial Atlântico', 'Buscar pelo número do orçamento (a busca é por título e cliente).', 30, '/dashboard/projetos/oportunidades', 'projetos', 'publicado'),
--- Composição (BOM) do serviço — editor e seletor de item
-('projetos.servico_bom.quantidade', 'Composição do serviço', 'Quantidade por unidade',
- 'Quanto deste item é consumido para fazer UMA unidade do serviço (ex.: por 1 m²).',
- 'Multiplicada pelo custo unitário e pela perda dá o custo do item; somando todos sai o custo do serviço.', '1,05 (chapas por m²)', 'Informar a quantidade da obra inteira em vez da quantidade por unidade.', 10, '/dashboard/projetos/catalogo/servico', 'projetos', 'publicado'),
-('projetos.servico_bom.perda', 'Composição do serviço', 'Perda (%)',
- 'Percentual de perda/desperdício esperado do item (recortes, quebras, sobras).',
- 'Aumenta a quantidade considerada no custo: quantidade × (1 + perda%).', '10', 'Somar a perda na quantidade E no percentual — conta duas vezes.', 20, '/dashboard/projetos/catalogo/servico', 'projetos', 'publicado'),
-('projetos.servico_bom.busca_item', 'Composição do serviço', 'Buscar item',
- 'Parte do nome do material, função de mão de obra ou equipamento.',
- 'Encontra o item do cadastro para incluir na composição do serviço.', 'parafuso', 'Procurar na aba errada (material × mão de obra × equipamento).', 30, '/dashboard/projetos/catalogo/servico', 'projetos', 'publicado')
+ 'Filtra o quadro na hora para achar uma negociação específica.', 'Residencial Atlântico', 'Buscar pelo número do orçamento (a busca é por título e cliente).', 30, '/dashboard/projetos/oportunidades', 'projetos', 'publicado')
 ON CONFLICT (chave) DO NOTHING;
