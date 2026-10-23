@@ -8,7 +8,7 @@ import { join } from 'node:path'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
 
-const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20261019180005_pedido_vincular_obra.sql'), 'utf8')
+const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20261023141805_pedido_vincular_obra.sql'), 'utf8')
 ok(/fn_pedido_vincular_obra\(p_pedido_id uuid, p_obra_id uuid\)/.test(sql), 'função fn_pedido_vincular_obra(pedido, obra)')
 ok(/SECURITY DEFINER SET search_path/.test(sql), 'SECURITY DEFINER com search_path fixo')
 ok(/v_ped\.company_id NOT IN \(SELECT public\.get_user_company_ids\(\)\)/.test(sql), 'guarda de acesso ao pedido')
