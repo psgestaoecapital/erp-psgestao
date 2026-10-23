@@ -118,7 +118,12 @@ export default function InsumosPage() {
         // categorias é nice-to-have; sem ela ainda funciona
         console.warn("Categorias:", catR.error);
       }
-      setInsumos((insR.data as Insumo[]) || []);
+      // A view expõe `status` ('ativo'/'inativo') e `forked_from`; a tela usa `ativo` e `fork_from_publico_id`.
+      setInsumos(((insR.data as any[]) || []).map((r) => ({
+        ...r,
+        ativo: r.status !== "inativo",
+        fork_from_publico_id: r.forked_from ?? null,
+      })) as Insumo[]);
       setCategorias((catR.data as Categoria[]) || []);
     } catch (e: any) {
       setErro(e.message || "Falha ao carregar insumos");
@@ -192,7 +197,8 @@ export default function InsumosPage() {
         ncm: values.ncm || null,
         especificacao_tecnica: values.especificacao_tecnica || null,
         observacoes: values.observacoes || null,
-        ativo: values.ativo !== false,
+        // m16_insumos não tem coluna `ativo`: o estado vive em `status`.
+        status: values.ativo !== false ? "ativo" : "inativo",
       };
 
       if (drawerInicial?.id) {
