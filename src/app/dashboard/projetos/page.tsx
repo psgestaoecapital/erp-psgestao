@@ -1,6 +1,8 @@
 // src/app/dashboard/projetos/page.tsx
 // Painel inicial premium do Hub Projetos
-// Estrutura: Hero centralizado + Indicadores + Próximos passos
+// Estrutura: Hero centralizado + Novidades + Indicadores + Funil + Obras por situação + Próximos passos
+// Fontes (PDCA 23/10 — "dado não bate com banco"): obras e margem prevista de v_obra_resultado (security_invoker),
+// valor das obras de fn_obras_kpis, funil de erp_crm_oportunidade (RLS), propostas de erp_orcamentos. Todo indicador tem "?" (RD-95).
 
 "use client";
 
@@ -9,15 +11,28 @@ import Link from "next/link";
 import { Hammer, ArrowRight } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 interface ResumoEmpresa {
   obras_ativas: number;
   propostas_pendentes: number;
   valor_orcamento_ativo: number;
-  margem_media_pct: number;
+  margem_prevista_pct: number | null;
   pagar_aberto: number;
   receber_aberto: number;
+  obras_por_status: Record<string, number>;
+  funil_abertas: number;
+  funil_valor_aberto: number;
+  funil_ganhas: number;
+  funil_perdidas: number;
 }
+
+const SITUACOES = [
+  { s: "em_andamento", l: "Em andamento" },
+  { s: "pausada", l: "Pausadas" },
+  { s: "concluida", l: "Concluídas" },
+  { s: "cancelada", l: "Canceladas" },
+];
 
 const PASSOS = [
   { href: "/dashboard/projetos/oportunidades", titulo: "1. Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
@@ -27,6 +42,10 @@ const PASSOS = [
 
 function fmtBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function fmtPct(v: number) {
+  return `${v.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
 export default function PainelProjetos() {
@@ -48,20 +67,40 @@ export default function PainelProjetos() {
     (async () => {
       try {
         const supabase = supabaseBrowser();
-        const [{ data: v }, { data: k }, { count: propostas }] = await Promise.all([
+        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
+          supabase.from("v_obra_resultado").select("status,receita_prevista,custo_previsto").eq("company_id", companyId),
+          supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado,valor_proposta").eq("company_id", companyId).is("deleted_at", null),
         ]);
+        if (ek || ep || eo || eop) throw new Error("indicadores");
         const kp = (k as any) || {};
+        const porStatus: Record<string, number> = {};
+        let receita = 0, custo = 0;
+        for (const o of (obras as any[]) || []) {
+          porStatus[o.status] = (porStatus[o.status] ?? 0) + 1;
+          if (o.status === "em_andamento") { receita += Number(o.receita_prevista ?? 0); custo += Number(o.custo_previsto ?? 0); }
+        }
+        let abertas = 0, valorAberto = 0, ganhas = 0, perdidas = 0;
+        for (const o of (opps as any[]) || []) {
+          if (o.etapa === "ganho") ganhas++;
+          else if (o.etapa === "perdido") perdidas++;
+          else { abertas++; valorAberto += Number(o.valor_proposta ?? o.valor_estimado ?? 0); }
+        }
         if (!cancel) {
           setResumo({
-            obras_ativas: Number(kp.em_andamento ?? 0),
+            obras_ativas: porStatus.em_andamento ?? Number(kp.em_andamento ?? 0),
             propostas_pendentes: propostas ?? 0,
             valor_orcamento_ativo: Number(kp.valor_em_andamento ?? 0),
-            margem_media_pct: 0,
+            margem_prevista_pct: receita > 0 ? ((receita - custo) / receita) * 100 : null,
             pagar_aberto: Number((v as any)?.contas_pagar_abertas ?? 0),
             receber_aberto: Number((v as any)?.contas_receber_abertas ?? 0),
+            obras_por_status: porStatus,
+            funil_abertas: abertas,
+            funil_valor_aberto: valorAberto,
+            funil_ganhas: ganhas,
+            funil_perdidas: perdidas,
           });
         }
       } catch {
@@ -115,12 +154,14 @@ export default function PainelProjetos() {
             Configurar BDI da empresa
             <ArrowRight size={14} />
           </Link>
+          <AjudaCampo chave="projetos.painel.acao.configurar_bdi" />
           <Link
             href="/dashboard/projetos/oportunidades"
             className="text-sm text-[#3D2314]/60 hover:text-[#3D2314]"
           >
             Abrir o funil de oportunidades
           </Link>
+          <AjudaCampo chave="projetos.painel.acao.abrir_funil" />
         </div>
       </section>
 
@@ -132,37 +173,77 @@ export default function PainelProjetos() {
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
             <div className="text-base font-medium text-[#3D2314]">Resultado por obra</div>
             <div className="mt-1 text-sm text-[#3D2314]/60">Receita, custo e margem de cada obra, previsto × realizado, com o consolidado.</div>
+            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
           </Link>
           <Link href="/dashboard/projetos/cockpit?area=hub" data-testid="novidade-cockpit" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
             <div className="text-base font-medium text-[#3D2314]">Cockpit da obra</div>
             <div className="mt-1 text-sm text-[#3D2314]/60">Avanço, custo, margem e pendências de uma obra numa tela só.</div>
+            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
           </Link>
         </div>
       </section>
 
       {/* INDICADORES */}
-      <section className="mt-16">
+      <section className="mt-16" data-testid="painel-indicadores">
         <SectionLabel>Indicadores</SectionLabel>
 
-        <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-3">
-          <KpiPrincipal label="Obras ativas" valor={String(resumo?.obras_ativas ?? 0)} />
-          <KpiPrincipal label="Propostas pendentes" valor={String(resumo?.propostas_pendentes ?? 0)} />
+        <div className="mb-3 mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <KpiPrincipal label="Obras em andamento" chave="projetos.painel.kpi.obras_ativas" testid="kpi-obras-ativas" valor={resumo ? String(resumo.obras_ativas) : "…"} />
           <KpiPrincipal
             label="Valor das obras em andamento"
-            valor={fmtBRL(resumo?.valor_orcamento_ativo ?? 0)}
+            chave="projetos.painel.kpi.valor_obras"
+            valor={resumo ? fmtBRL(resumo.valor_orcamento_ativo) : "…"}
           />
+          <KpiPrincipal
+            label="Margem prevista das obras"
+            chave="projetos.painel.kpi.margem_prevista"
+            testid="kpi-margem-prevista"
+            valor={!resumo ? "…" : resumo.margem_prevista_pct === null ? "—" : `${fmtPct(resumo.margem_prevista_pct)}`}
+          />
+          <KpiPrincipal label="Propostas pendentes" chave="projetos.painel.kpi.propostas_pendentes" valor={resumo ? String(resumo.propostas_pendentes) : "…"} />
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <KpiSecundario
             label="Contas a pagar abertas"
-            valor={fmtBRL(resumo?.pagar_aberto ?? 0)}
+            chave="projetos.painel.kpi.pagar_aberto"
+            valor={resumo ? fmtBRL(resumo.pagar_aberto) : "…"}
           />
           <KpiSecundario
             label="Contas a receber abertas"
-            valor={fmtBRL(resumo?.receber_aberto ?? 0)}
+            chave="projetos.painel.kpi.receber_aberto"
+            valor={resumo ? fmtBRL(resumo.receber_aberto) : "…"}
           />
+        </div>
+      </section>
+
+      {/* FUNIL — contador honesto, cada número leva para o funil */}
+      <section className="mt-12" data-testid="painel-funil">
+        <div className="flex items-center gap-1">
+          <SectionLabel>Funil de oportunidades</SectionLabel>
+          <AjudaCampo chave="projetos.painel.funil" />
+        </div>
+        <Link href="/dashboard/projetos/oportunidades" className="mt-3 grid grid-cols-2 gap-3 rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A] md:grid-cols-4">
+          <Numero label="Em aberto" valor={resumo ? String(resumo.funil_abertas) : "…"} testid="funil-abertas" />
+          <Numero label="Valor em aberto" valor={resumo ? fmtBRL(resumo.funil_valor_aberto) : "…"} />
+          <Numero label="Ganhas" valor={resumo ? String(resumo.funil_ganhas) : "…"} />
+          <Numero label="Perdidas" valor={resumo ? String(resumo.funil_perdidas) : "…"} />
+        </Link>
+      </section>
+
+      {/* OBRAS POR SITUAÇÃO */}
+      <section className="mt-12" data-testid="painel-obras-situacao">
+        <div className="flex items-center gap-1">
+          <SectionLabel>Obras por situação</SectionLabel>
+          <AjudaCampo chave="projetos.painel.obras_situacao" />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {SITUACOES.map((x) => (
+            <Link key={x.s} href="/dashboard/projetos/obras" data-testid={`situacao-${x.s}`} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
+              <Numero label={x.l} valor={resumo ? String(resumo.obras_por_status[x.s] ?? 0) : "…"} />
+            </Link>
+          ))}
         </div>
       </section>
 
@@ -204,11 +285,23 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function KpiPrincipal({ label, valor }: { label: string; valor: string }) {
+function Numero({ label, valor, testid }: { label: string; valor: string; testid?: string }) {
+  return (
+    <div>
+      <div className="mb-1 text-xs text-[#3D2314]/50">{label}</div>
+      <div data-testid={testid} className="text-lg font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}>
+        {valor}
+      </div>
+    </div>
+  );
+}
+
+function KpiPrincipal({ label, valor, chave, testid }: { label: string; valor: string; chave: string; testid?: string }) {
   return (
     <div className="rounded-xl border border-[#3D2314]/12 bg-white p-5 shadow-sm">
-      <div className="mb-2 text-xs text-[#3D2314]/50">{label}</div>
+      <div className="mb-2 flex items-center gap-1 text-xs text-[#3D2314]/50">{label}<AjudaCampo chave={chave} /></div>
       <div
+        data-testid={testid}
         className="text-2xl font-medium text-[#3D2314]"
         style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
       >
@@ -218,12 +311,12 @@ function KpiPrincipal({ label, valor }: { label: string; valor: string }) {
   );
 }
 
-function KpiSecundario({ label, valor }: { label: string; valor: string }) {
+function KpiSecundario({ label, valor, chave }: { label: string; valor: string; chave: string }) {
   // Sem cor semântica vermelho/verde quando dado é normal/zero.
   // Reservado para futuras condições de alerta real (vencidos > 30d etc).
   return (
     <div className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm">
-      <div className="mb-1 text-xs text-[#3D2314]/50">{label}</div>
+      <div className="mb-1 flex items-center gap-1 text-xs text-[#3D2314]/50">{label}<AjudaCampo chave={chave} /></div>
       <div
         className="text-lg font-medium text-[#3D2314]"
         style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
