@@ -746,8 +746,10 @@ fila=$(while read -r linha; do
     echo "${t:-$(jq -r .created_at <<< "$linha")} $n"
   done < "$TMPF/lista" | sort | awk '{print $2}')
 [ -n "$fila" ] || { log "fila vazia"; exit 0; }
-# Prioridade (CEO 15/10): Hub (#2569 #2508 #2298) e FC/FCR (#2100) na frente; o resto segue a ordem de entrada.
-FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2569 2508 2298 2100'}
+# Prioridade (CEO 23/10, cliente FC Pisos/Diego — Hub prometido pra terça): os Hub de agora na frente, FC Pisos (#2156,
+# papéis) primeiro; depois os feats do Hub (#2563 #2891 #2892 #2896 #2901 #2968) e FC/FCR (#2100). Os antigos (#2569
+# #2508 #2298) já saíram. O resto segue a ordem de entrada. Atualize esta lista quando os Hub da vez mudarem.
+FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2156 2563 2891 2892 2896 2901 2968 2100'}
 _prio=''; for p in $FILA_PRIORIDADE; do grep -qw "$p" <<< "$fila" && _prio="$_prio $p"; done
 _resto=''; for q in $fila; do grep -qw "$q" <<< "$FILA_PRIORIDADE" || _resto="$_resto $q"; done
 fila=$(echo $_prio $_resto)
