@@ -206,7 +206,14 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido).
   **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6);
   **PR COM migration continua UMA por rodada** e encerra a rodada (a próxima migration espera o deploy + `@pos-migration`
-  da `main`). O "atrás da main" é medido contra a `main` do **início da rodada**, para a PR já em dia no começo não virar
+  da `main`).
+  **ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10):** a serialização de migration é em 2 níveis.
+  `deploy-migrations` da `main` não-verde segura **TODAS** as migrations (não dá para aplicar nada). O `@pos-migration` de
+  uma migration **CRÍTICA** (via revisada) em andamento/vermelho segura só as **OUTRAS CRÍTICAS** — a migration **ADITIVA**
+  (via rápida) NÃO espera esse `@pos` (ela é validada pelo `deploy-migrations` + o auditor PDCA pós-publicação, que clica
+  tela/botão e fotografa até 100%). O crítico NUNCA afrouxa: migration crítica (etiqueta `revisao-eng-chefe`, ou
+  crítica-por-conteúdo que o classificador `exige-via-revisada` rotula e pula) só publica com o gate verde. No script:
+  `deploy_travado` × `critica_na_main`. Gate: `scripts/gates/check-fila-aditiva-escala.ts` (prova os dois lados). O "atrás da main" é medido contra a `main` do **início da rodada**, para a PR já em dia no começo não virar
   "atrás" sozinha quando a fila mergeia outras à frente dela no mesmo lote. Conflito, check vermelho ou autorização
   inválida → comenta o motivo **uma vez por commit** (e tira a label `fila-merge`, se houver); a PR volta a ser avaliada
   sozinha no próximo commit.

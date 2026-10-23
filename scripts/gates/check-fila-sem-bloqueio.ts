@@ -31,9 +31,10 @@ ok(/MAIN0=\$\(git rev-parse origin\/main\)/.test(sh) && /compare\/\$MAIN0\.\.\.\
 // incidente 07/10: a #2118 (migration, via revisada esperando a aceitação) travou a #2133 e todas as PRs com migration.
 // Só a PR com migration que espera a MAIN (estado_main) segura as outras com migration; esperar os próprios checks ou
 // ser atualizada não segura ninguém.
-ok(!/\[ "\$com_migration" = 1 \] && so_sem_migration=1/.test(laco) && (laco.match(/so_sem_migration=1/g) ?? []).length === 1
-  && /m=\$\(estado_main( "\$via")?\)[\s\S]*?so_sem_migration=1; continue/.test(laco),
-  'só a PR com migration que espera a MAIN (estado_main) segura as outras com migration')
+// CEO 23/10: os flags de hold (deploy_travado / critica_na_main) são setados SÓ depois do estado_main.
+ok((laco.match(/deploy_travado=1/g) ?? []).length >= 1 && (laco.match(/critica_na_main=1/g) ?? []).length >= 1
+  && /m=\$\(estado_main( "\$via")?\)[\s\S]*?case "\$m" in[\s\S]*?deploy_travado=1/.test(laco),
+  'só a PR com migration que espera a MAIN (estado_main) segura as outras — deploy_travado (todas) / critica_na_main (só críticas)')
 
 // ── Parte 2: cenários de verdade contra um gh simulado (scripts/merge/fila-simulada.ts) ───────────────────────────
 if (!temFerramentas()) {
@@ -65,7 +66,7 @@ if (!temFerramentas()) {
     x = rodar([{ n: 1, checksRodando: true, migration: true }, { n: 2, migration: true }])
     ok(merges(x.escritas).join() === '2', 'cenário #2118/#2133: migration esperando os próprios checks → a outra COM migration é mergeada')
     x = rodar([{ n: 1, migration: true }, { n: 2, migration: true }, { n: 3 }], true)
-    ok(merges(x.escritas).join() === '3' && /#2 tem migration: espera a main/.test(x.log),
+    ok(merges(x.escritas).join() === '3' && /#2 tem migration: deploy-migrations da main não está verde/.test(x.log),
       'cenário: main ocupada (deploy-migrations rodando) → PRs com migration esperam; a SEM migration é mergeada')
     x = rodar([{ n: 1, migration: true }, { n: 2, migration: true, migrationCorrige: true }])
     ok(merges(x.escritas).join() === '2' && /não espera a main/.test(x.log),
