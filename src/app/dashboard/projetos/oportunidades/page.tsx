@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { Target } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -157,7 +158,7 @@ export default function OportunidadesPage() {
     return (
       <div className="p-4 max-w-3xl mx-auto" style={{ color: ESPRESSO }}>
         <header className="mb-4">
-          <h1 className="text-xl font-bold">🎯 Oportunidades · Funil</h1>
+          <h1 className="text-xl font-bold"><Target className="inline-block align-[-3px] mr-1.5" size={20} aria-hidden /> Oportunidades · Funil</h1>
         </header>
         <div className="rounded-xl p-6 text-center" style={{ background: OFFWHITE }}>
           <p className="font-medium">Selecione uma empresa específica</p>
@@ -180,7 +181,7 @@ export default function OportunidadesPage() {
     <div className="px-4 py-4 w-full" style={{ color: ESPRESSO }}>
       <header className="mb-4 flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold">🎯 Oportunidades · Funil</h1>
+          <h1 className="text-xl font-bold"><Target className="inline-block align-[-3px] mr-1.5" size={20} aria-hidden /> Oportunidades · Funil</h1>
           <p className="text-sm opacity-70">CRM de obra: leads, propostas e negociação.</p>
           {/* Contador honesto: nada some — as terminais (ganhas/perdidas) contam junto com o funil ativo. */}
           <p className="text-sm font-medium mt-1">
