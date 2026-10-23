@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Plus, Trash2, Package, HardHat, Wrench, Loader2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { SeletorItemModal, type ItemEscolhido, type TipoItem } from "./SeletorItemModal";
 
 export interface BomLinha {
@@ -179,9 +180,9 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
             <tr>
               <th className="px-3 py-2 text-left">Tipo</th>
               <th className="px-3 py-2 text-left">Item</th>
-              <th className="px-3 py-2 text-right">Qtd</th>
+              <th className="px-3 py-2 text-right">Qtd <AjudaCampo chave="projetos.servico_bom.quantidade" rota="/dashboard/projetos/catalogo/servico" /></th>
               <th className="px-3 py-2 text-left">Un</th>
-              <th className="px-3 py-2 text-right">Perda %</th>
+              <th className="px-3 py-2 text-right">Perda % <AjudaCampo chave="projetos.servico_bom.perda" rota="/dashboard/projetos/catalogo/servico" /></th>
               <th className="px-3 py-2 text-right">Custo unit.</th>
               <th className="px-3 py-2 text-right">Custo total</th>
               <th className="px-3 py-2"></th>

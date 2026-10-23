@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, X, Package, HardHat, Wrench } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 export type TipoItem = "insumo" | "mao_obra" | "equipamento";
 
@@ -192,7 +193,7 @@ export function SeletorItemModal({
 
         {/* Search */}
         <div className="border-b border-[#3D2314]/8 p-4">
-          <div className="relative">
+          <div className="relative flex items-center gap-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#3D2314]/40" />
             <input
               type="text"
@@ -200,8 +201,9 @@ export function SeletorItemModal({
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por nome…"
               autoFocus
-              className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white py-2 pl-9 pr-3 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+              className="min-w-0 flex-1 rounded-lg !border !border-[#3D2314]/12 !bg-white py-2 pl-9 pr-3 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
             />
+            <AjudaCampo chave="projetos.servico_bom.busca_item" rota="/dashboard/projetos/catalogo/servico" />
           </div>
         </div>
 
