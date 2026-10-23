@@ -210,6 +210,14 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 1)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`). Ou seja: as **ADITIVAS**
   escalam (até 6/rodada), a **CRÍTICA** fica em **1 por rodada** (cada uma com seu veredito de `@pos`, sem se misturar). O
   `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo, 1 migration/rodada).
+  **VIA EXPRESSA DO HUB (CEO 23/10 — "Hub inteiro no dev, sem parar; publicação direta e prioritária, sem trava nenhuma;
+  reauditamos depois"):** PR com a label **`hub`** é tratada pela fila como **via rápida** (SEM revisor, mesmo com
+  `revisao-eng-chefe`) e como **ADITIVA** (batela até `LOTE_MIG_MAX`, NÃO entra no teto `LOTE_MIG_CRIT_MAX`), e vai na
+  **frente de toda a fila** (prioridade por label, antes da `FILA_PRIORIDADE`). Ficam **só as travas ESTRUTURAIS** (que
+  nenhuma reauditoria conserta): `deploy-migrations` não-verde segura o hub também, e `gates`/build/Vercel/independência de
+  migration continuam valendo. O classificador de conteúdo não re-rotula hub como revisada. A qualidade de tela (RD-95 "?"
+  é gate) segue cobrada; o que o hub dispensa é o **revisor** (RD-96/no-copy, julgamento humano) e a **serialização de
+  crítica** — reauditados pelo PDCA depois. No script: `n_hub`. Gate: `scripts/gates/check-fila-hub-expressa.ts`.
   **ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10):** a serialização de migration é em 2 níveis.
   `deploy-migrations` da `main` não-verde segura **TODAS** as migrations (não dá para aplicar nada). O `@pos-migration` de
   uma migration **CRÍTICA** (via revisada) em andamento/vermelho segura só as **OUTRAS CRÍTICAS** — a migration **ADITIVA**

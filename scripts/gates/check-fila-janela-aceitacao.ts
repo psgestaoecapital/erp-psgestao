@@ -27,8 +27,8 @@ ok(/RITMO_MAX_HORA=\$\{RITMO_MAX_HORA:-10\}/.test(sh) && /rodada adiada/.test(sh
 ok(/pub_hora=\$\{FILA_PUB_HORA:-/.test(sh) && /\|\| echo 0\)\}/.test(sh),
   'ritmo: conta merges da última hora (fail-open: erro de API = 0)')
 // prioridade
-ok(/FILA_PRIORIDADE=\$\{FILA_PRIORIDADE:-'2569 2508 2298 2100'\}/.test(sh),
-  'prioridade padrão: Hub (#2569 #2508 #2298) e FC/FCR (#2100) na frente')
+ok(/FILA_PRIORIDADE=\$\{FILA_PRIORIDADE:-'2100'\}/.test(sh) && /_hub=''; for hn in \$fila; do jq -e[\s\S]*?index\("hub"\)/.test(sh),
+  'prioridade: label hub na frente de tudo; FILA_PRIORIDADE fixa = FC/FCR (#2100)')
 // o que NUNCA deixa de bloquear (dentro ou fora da janela): Vercel (preview), guardas focados, autorização.
 // A suíte 'gates' passou a ser INFORMATIVA (novo modelo CEO 22/10): sai do bloqueio nas duas vias.
 ok(/echo "vermelho:Vercel/.test(sh)
