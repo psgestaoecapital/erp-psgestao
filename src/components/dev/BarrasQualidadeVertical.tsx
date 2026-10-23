@@ -1,50 +1,32 @@
 'use client'
-// Aba Codes · "Qualidade por vertical" (CEO 23/10): por vertical, quanto está CONSTRUÍDO e quanto está
-// AUDITADO · VALIDADO (qualidade das telas/funções). Leitura única da RPC fn_dev_central_barras (mesma
-// fonte das três barras da Central), que já calcula tudo no banco. Recarrega a cada 60 s. Só performance.
+// Aba Codes · "Qualidade por vertical" (CEO 23/10): um gráfico de barras COMPACTO — duas colunas por
+// vertical (Construído · Auditado/validado). Fonte única: RPC fn_dev_central_barras (já calcula no banco;
+// authenticated executa). Só leitura, recarrega a cada 60 s. Substitui listas tela-a-tela que poluíam a tela.
 import { useCallback, useEffect, useState } from 'react'
+import { Bar, CartesianGrid, ComposedChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
-const ESP = '#3D2314', BRANCO = '#FFFFFF', BD = '#E7DED3', TXM = '#6B5D4F', TRK = '#EDE7DF'
+const ESP = '#3D2314', BRANCO = '#FFFFFF', BD = '#E7DED3', TXM = '#6B5D4F'
 const OURO = '#B98900', VERDE = '#166534', ROTA = '/dashboard/dev/codes'
 
 type Barra = {
   area_slug: string
-  status_comercial: string
   telas: number
   construido_pct: number | string | null
   construido_sem_dado: boolean
-  telas_auditadas: number
   auditado_pct: number | string | null
   auditado_sem_dado: boolean
-  em_uso_empresas: number | null
-  em_uso_sem_dado: boolean
 }
-
-// Nome amigável por vertical (o resto cai no próprio slug, capitalizado).
+// Nome curto por vertical para caber no eixo X.
 const NOME: Record<string, string> = {
-  hub: 'Hub · Construção', pm: 'P&M · Agência', oficina: 'Oficina', revenda_veiculos: 'Revenda de veículos',
-  industrial: 'Indústria', compliance: 'Compliance · NR-36', bpo: 'BPO Financeiro', gestao_empresarial: 'Gestão Empresarial',
-  wealth: 'Wealth', odonto: 'Odonto', agro: 'Agro', ecommerce: 'E-commerce', medica: 'Médica',
-  custeio_a: 'Custeio A', custeio_b: 'Custeio B',
+  hub: 'Hub', pm: 'P&M', oficina: 'Oficina', revenda_veiculos: 'Revenda', industrial: 'Indústria',
+  compliance: 'Compliance', bpo: 'BPO', gestao_empresarial: 'Gestão', wealth: 'Wealth', odonto: 'Odonto',
+  agro: 'Agro', ecommerce: 'E-commerce', medica: 'Médica',
 }
-const nomeVertical = (slug: string) => NOME[slug] ?? slug.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+const nomeVertical = (s: string) => NOME[s] ?? s.replace(/_/g, ' ')
 const pct = (v: number | string | null): number | null => (v === null || v === '' ? null : Number(v))
-
-function BarraMedidor({ rotulo, valor, semDado, cor, detalhe }: { rotulo: string; valor: number | null; semDado: boolean; cor: string; detalhe?: string }) {
-  return (
-    <div style={{ display: 'grid', gap: 2 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: TXM }}>
-        <span>{rotulo}</span>
-        <span style={{ fontWeight: 700, color: ESP }}>{semDado || valor === null ? 'sem dado' : `${valor}%`}{detalhe ? <span style={{ fontWeight: 400, color: TXM }}> · {detalhe}</span> : null}</span>
-      </div>
-      <div style={{ height: 8, background: TRK, borderRadius: 999, overflow: 'hidden' }}>
-        {!semDado && valor !== null && <div style={{ width: `${Math.max(0, Math.min(100, valor))}%`, height: '100%', background: cor, borderRadius: 999 }} />}
-      </div>
-    </div>
-  )
-}
+const eixo = { fill: TXM, fontSize: 11 }
 
 export default function BarrasQualidadeVertical() {
   const [linhas, setLinhas] = useState<Barra[] | null>(null)
@@ -60,35 +42,36 @@ export default function BarrasQualidadeVertical() {
     return () => clearInterval(i)
   }, [carregar])
 
-  // Só verticais com tela mapeada; as maiores construídas primeiro.
-  const comDado = (linhas ?? [])
+  // Só verticais com tela mapeada; as mais construídas primeiro.
+  const dados = (linhas ?? [])
     .filter((l) => l.telas > 0)
-    .slice()
-    .sort((a, b) => (pct(b.construido_pct) ?? -1) - (pct(a.construido_pct) ?? -1))
+    .map((l) => ({ rotulo: nomeVertical(l.area_slug), construido: pct(l.construido_pct) ?? 0, auditado: pct(l.auditado_pct) ?? 0 }))
+    .sort((a, b) => b.construido - a.construido)
 
   return (
     <section data-testid="codes-qualidade-vertical" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, marginBottom: 12, color: ESP }}>
       <h3 style={{ margin: '0 0 2px', fontSize: 14, fontWeight: 700 }}>
         Qualidade por vertical <AjudaCampo chave="dev.codes.qualidade_vertical" rota={ROTA} />
       </h3>
-      <div style={{ fontSize: 12, color: TXM, marginBottom: 10 }}>% construído e % auditado · validado das telas e funções de cada vertical · ao vivo</div>
+      <div style={{ fontSize: 12, color: TXM, marginBottom: 10 }}>% construído e % auditado · validado das telas e funções, por vertical · ao vivo</div>
       {erro && <div role="alert" style={{ fontSize: 12 }}>Não consegui ler a qualidade por vertical: {erro}</div>}
       {!linhas && !erro && <div style={{ fontSize: 12, color: TXM }}>Carregando…</div>}
-      {linhas && comDado.length === 0 && !erro && <div style={{ fontSize: 12, color: TXM }}>Nenhuma vertical com telas mapeadas ainda.</div>}
-      <div style={{ display: 'grid', gap: 12 }}>
-        {comDado.map((l) => (
-          <div key={l.area_slug} data-testid={`qualidade-${l.area_slug}`} style={{ border: `1px solid ${BD}`, borderRadius: 10, padding: '10px 12px' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>{nomeVertical(l.area_slug)}</span>
-              <span style={{ fontSize: 11, color: TXM }}>{l.telas} tela{l.telas === 1 ? '' : 's'} · {l.status_comercial.replace(/_/g, ' ')}{l.em_uso_sem_dado ? '' : ` · ${l.em_uso_empresas ?? 0} em uso`}</span>
-            </div>
-            <div style={{ display: 'grid', gap: 8 }}>
-              <BarraMedidor rotulo="Construído" valor={pct(l.construido_pct)} semDado={l.construido_sem_dado} cor={OURO} />
-              <BarraMedidor rotulo="Auditado · validado" valor={pct(l.auditado_pct)} semDado={l.auditado_sem_dado} cor={VERDE} detalhe={l.auditado_sem_dado ? undefined : `${l.telas_auditadas}/${l.telas} telas`} />
-            </div>
-          </div>
-        ))}
-      </div>
+      {linhas && dados.length === 0 && !erro && <div style={{ fontSize: 12, color: TXM }}>Nenhuma vertical com telas mapeadas ainda.</div>}
+      {dados.length > 0 && (
+        <div style={{ height: 280 }}>
+          <ResponsiveContainer>
+            <ComposedChart data={dados} margin={{ top: 8, right: 8, left: -12, bottom: 48 }} barGap={2} barCategoryGap="18%">
+              <CartesianGrid stroke={BD} vertical={false} />
+              <XAxis dataKey="rotulo" tick={eixo} interval={0} angle={-35} textAnchor="end" height={56} />
+              <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={(v) => `${v}%`} tick={eixo} width={44} />
+              <Tooltip formatter={(v) => `${v}%`} contentStyle={{ fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="construido" name="Construído" fill={OURO} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="auditado" name="Auditado · validado" fill={VERDE} radius={[3, 3, 0, 0]} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </section>
   )
 }

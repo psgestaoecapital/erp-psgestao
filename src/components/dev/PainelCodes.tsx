@@ -150,9 +150,9 @@ export default function PainelCodes() {
       <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
       <BlocoSeguro nome="Saúde da esteira"><SaudeEsteira /></BlocoSeguro>
       <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
-      <BlocoSeguro nome="Qualidade por vertical"><BarrasQualidadeVertical /></BlocoSeguro>
       <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
       <BlocoSeguro nome="Gráficos"><GraficosCodes /></BlocoSeguro>
+      <BlocoSeguro nome="Qualidade por vertical"><BarrasQualidadeVertical /></BlocoSeguro>
       {est && f && <BlocoSeguro nome="Faixa da esteira"><FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} /></BlocoSeguro>}
       {resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}
       {dados && <BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro>}
