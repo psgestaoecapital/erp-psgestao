@@ -598,7 +598,7 @@ export default function TakeoffPage() {
             else setOrcId(v)
           }}>
             <option value="">— selecione —</option>
-            <option value="__novo__">➕ Criar novo orçamento a partir deste take-off</option>
+            <option value="__novo__">+ Criar novo orçamento a partir deste take-off</option>
             {orcamentos.map((o) => (
               <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>
             ))}
