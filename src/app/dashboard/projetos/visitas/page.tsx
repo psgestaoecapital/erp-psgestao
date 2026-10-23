@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
+import { MapPin } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { labelUsuario } from '@/lib/usuarioLabel'
@@ -110,7 +111,7 @@ export default function VisitasPage() {
     return (
       <div className="p-4 max-w-3xl mx-auto" style={{ color: ESPRESSO }}>
         <header className="mb-4">
-          <h1 className="text-xl font-bold">📍 Visitas técnicas</h1>
+          <h1 className="text-xl font-bold"><MapPin className="inline-block align-[-3px] mr-1.5" size={20} aria-hidden /> Visitas técnicas</h1>
         </header>
         <div className="rounded-xl p-6 text-center" style={{ background: OFFWHITE }}>
           <p className="font-medium">Selecione uma empresa específica</p>
@@ -124,7 +125,7 @@ export default function VisitasPage() {
     <div className="p-4 max-w-5xl mx-auto" style={{ color: ESPRESSO }}>
       <header className="mb-4 flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold">📍 Visitas técnicas</h1>
+          <h1 className="text-xl font-bold"><MapPin className="inline-block align-[-3px] mr-1.5" size={20} aria-hidden /> Visitas técnicas</h1>
           <p className="text-sm opacity-70">Vendedor em campo: agenda, registra e fotografa.</p>
         </div>
         <button onClick={() => setEditing(null)} style={btnNovo}>+ Nova visita</button>

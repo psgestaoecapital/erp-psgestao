@@ -5,6 +5,7 @@
 // (ensina) / dados. Linguagem da casa (CONCLUIU obra) · identidade Espresso · mobile-first.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { HardHat, Receipt } from 'lucide-react'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
@@ -114,7 +115,7 @@ export default function ObrasPage() {
         ) : obras.length === 0 ? (
           /* ESTADO: vazio (ensina) */
           <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>
-            <div style={{ fontSize: 34 }}>🏗️</div>
+            <div style={{ color: GOLD }}><HardHat size={34} aria-hidden style={{ margin: '0 auto' }} /></div>
             <div style={{ fontSize: 15, fontWeight: 700, color: ESP, marginTop: 6 }}>Nenhuma obra ainda</div>
             <div style={{ fontSize: 13, color: MUT, maxWidth: 440, margin: '8px auto 0', lineHeight: 1.5 }}>
               Uma obra nasce automaticamente quando um orçamento é <b>aprovado</b>. Aprove um orçamento em Propostas para ver a obra aqui.
@@ -203,7 +204,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
           Linha do tempo
         </Link>
         <button onClick={() => onFiscal(o)} title="CNO e endereço para a NFS-e de construção (E0370)" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#fff', color: ESP }}>
-          🧾 Dados fiscais
+          <Receipt size={12} aria-hidden style={{ display: 'inline', verticalAlign: -2, marginRight: 4 }} />Dados fiscais
         </button>
         {(PROXIMOS[o.status] ?? []).map((p) => (
           <button key={p.s} onClick={() => onStatus(o, p.s)} disabled={busy}
