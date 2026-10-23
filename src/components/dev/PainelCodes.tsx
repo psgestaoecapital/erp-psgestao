@@ -148,12 +148,14 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
-      {/* TOPO (CEO 23/10): o que o CEO acompanha ao vivo — a fila viva, o que já publicou, os Codes e os gráficos. */}
-      <BlocoSeguro nome="Próximas publicações"><ProximasPublicacoes /></BlocoSeguro>
-      {dados && <BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro>}
+      {/* TOPO lado a lado (CEO 23/10): fila viva · publicações do dia · qualidade por vertical, em 3 colunas (empilha no celular). */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start" data-testid="codes-topo-3col">
+        <div style={{ minWidth: 0, maxHeight: '78vh', overflowY: 'auto' }}><BlocoSeguro nome="Próximas publicações"><ProximasPublicacoes /></BlocoSeguro></div>
+        {dados && <div style={{ minWidth: 0, maxHeight: '78vh', overflowY: 'auto' }}><BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro></div>}
+        <div style={{ minWidth: 0 }}><BlocoSeguro nome="Qualidade por vertical"><BarrasQualidadeVertical /></BlocoSeguro></div>
+      </div>
       {resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}
       <BlocoSeguro nome="Gráficos"><GraficosCodes /></BlocoSeguro>
-      <BlocoSeguro nome="Qualidade por vertical"><BarrasQualidadeVertical /></BlocoSeguro>
 
       {/* Diagnóstico e detalhe (abaixo) */}
       {est && f && <BlocoSeguro nome="Faixa da esteira"><FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} /></BlocoSeguro>}
