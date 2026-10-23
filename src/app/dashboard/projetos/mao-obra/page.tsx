@@ -89,11 +89,11 @@ export default function MaoObraPage() {
         </div>
         {pode && (
           <div className="flex flex-wrap gap-2">
-            <button className={btnSec} onClick={() => void baixarModelo()} data-testid="mao-obra-baixar-modelo"><Download size={14} /> Baixar modelo</button>
-            <button className={btnSec} onClick={() => setModal({ tipo: "importar" })} data-testid="mao-obra-importar"><FileUp size={14} /> Importar planilha</button>
-            <button className={btnSec} onClick={() => setModal({ tipo: "funcao" })} data-testid="mao-obra-nova-funcao"><Plus size={14} /> Nova função</button>
-            <button className={btnSec} onClick={() => setModal({ tipo: "ficha", modo: "perfil" })} data-testid="mao-obra-novo-perfil"><Users size={14} /> Novo perfil padrão</button>
-            <button className={btnPri} onClick={() => setModal({ tipo: "ficha", modo: "pessoa" })} data-testid="mao-obra-novo-funcionario"><UserPlus size={14} /> Novo funcionário</button>
+            <button className={btnSec} onClick={() => void baixarModelo()} data-testid="mao-obra-baixar-modelo"><Download size={14} /> Baixar modelo</button><AjudaCampo chave="projetos.mao_obra.acao.baixar_modelo" />
+            <button className={btnSec} onClick={() => setModal({ tipo: "importar" })} data-testid="mao-obra-importar"><FileUp size={14} /> Importar planilha</button><AjudaCampo chave="projetos.mao_obra.acao.importar" />
+            <button className={btnSec} onClick={() => setModal({ tipo: "funcao" })} data-testid="mao-obra-nova-funcao"><Plus size={14} /> Nova função</button><AjudaCampo chave="projetos.mao_obra.acao.nova_funcao" />
+            <button className={btnSec} onClick={() => setModal({ tipo: "ficha", modo: "perfil" })} data-testid="mao-obra-novo-perfil"><Users size={14} /> Novo perfil padrão</button><AjudaCampo chave="projetos.mao_obra.acao.novo_perfil" />
+            <button className={btnPri} onClick={() => setModal({ tipo: "ficha", modo: "pessoa" })} data-testid="mao-obra-novo-funcionario"><UserPlus size={14} /> Novo funcionário</button><AjudaCampo chave="projetos.mao_obra.acao.novo_funcionario" />
           </div>
         )}
       </header>
@@ -106,7 +106,7 @@ export default function MaoObraPage() {
             {enc.desoneracao ? ` · desoneração: ${pct(Number(enc.desoneracao_fator_folha) * 100)} do INSS patronal na folha${enc.cprb_pct ? `, CPRB ${pct(enc.cprb_pct)} sobre a receita` : ""}` : ""}
             {" "}· 13º {pct(enc.prov_13_pct)} · férias {pct(enc.prov_ferias_pct)} · rescisão {pct(enc.prov_rescisao_pct)}
           </span>
-          {pode && <button className={btnSec} onClick={() => setModal({ tipo: "encargos" })} data-testid="mao-obra-encargos-editar">Configurar padrões</button>}
+          {pode && <button className={btnSec} onClick={() => setModal({ tipo: "encargos" })} data-testid="mao-obra-encargos-editar">Configurar padrões</button>}{pode && <AjudaCampo chave="projetos.mao_obra.acao.configurar_padroes" />}
         </div>
       )}
       {!pode && dados && (
@@ -127,6 +127,7 @@ export default function MaoObraPage() {
           <button key={k} onClick={() => setAba(k)} data-testid={`mao-obra-aba-${k}`}
             className={`px-3 py-2 text-[13px] -mb-px border-b-2 ${aba === k ? "border-[#C8941A] font-medium" : "border-transparent text-[#3D2314]/60"}`}>{l}</button>
         ))}
+        <span className="self-center"><AjudaCampo chave="projetos.mao_obra.abas" /></span>
       </nav>
 
       {aba === "equipe" && dados && (
@@ -155,10 +156,10 @@ export default function MaoObraPage() {
                   <td className="text-right whitespace-nowrap">
                     {pode && (
                       <>
-                        {!i.conferido && <button className="text-[12px] underline mr-2" data-testid="mao-obra-conferir" onClick={() => void rpc("fn_mao_obra_ficha_conferir", { p_ficha_id: i.id, p_conferido: true }, `${i.nome}: conferido — entra no custo da função.`)}>Conferir</button>}
-                        <button className="text-[12px] underline mr-2" data-testid="mao-obra-editar" onClick={() => setModal({ tipo: "ficha", modo: "editar", item: i })}>Editar / reajuste</button>
-                        <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "historico", item: i })}><History size={12} className="inline" /> Histórico</button>
-                        <button className="text-[12px] underline text-[#791F1F]" data-testid="mao-obra-encerrar" onClick={() => setModal({ tipo: "encerrar", item: i })}>{i.tipo === "pessoa" ? "Desligar" : "Inativar"}</button>
+                        {!i.conferido && <button className="text-[12px] underline mr-2" data-testid="mao-obra-conferir" onClick={() => void rpc("fn_mao_obra_ficha_conferir", { p_ficha_id: i.id, p_conferido: true }, `${i.nome}: conferido — entra no custo da função.`)}>Conferir</button>}{!i.conferido && <AjudaCampo chave="projetos.mao_obra.acao.conferir" />}
+                        <button className="text-[12px] underline mr-2" data-testid="mao-obra-editar" onClick={() => setModal({ tipo: "ficha", modo: "editar", item: i })}>Editar / reajuste</button><AjudaCampo chave="projetos.mao_obra.acao.reajuste" />
+                        <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "historico", item: i })}><History size={12} className="inline" /> Histórico</button><AjudaCampo chave="projetos.mao_obra.acao.historico" />
+                        <button className="text-[12px] underline text-[#791F1F]" data-testid="mao-obra-encerrar" onClick={() => setModal({ tipo: "encerrar", item: i })}>{i.tipo === "pessoa" ? "Desligar" : "Inativar"}</button><AjudaCampo chave="projetos.mao_obra.acao.encerrar" />
                       </>
                     )}
                   </td>
@@ -195,8 +196,8 @@ export default function MaoObraPage() {
                   <td className="pr-2 text-right tabular-nums">{f.custo?.nao_conferidas ?? 0}</td>
                   <td className="text-right whitespace-nowrap">
                     {pode && <>
-                      <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "funcao", f })}>Editar</button>
-                      <button className="text-[12px] underline" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button>
+                      <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "funcao", f })}>Editar</button><AjudaCampo chave="projetos.mao_obra.acao.editar_funcao" />
+                      <button className="text-[12px] underline" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button><AjudaCampo chave="projetos.mao_obra.acao.unir_funcao" />
                     </>}
                   </td>
                 </tr>
