@@ -20,4 +20,15 @@ test.describe('HB2 — Propostas no Hub', () => {
     await expect(page).toHaveURL(/\/dashboard\/projetos\/propostas/)
     await expect(tela.getByRole('link', { name: /Nova proposta/ })).toBeVisible()
   })
+
+  test('"Abrir" leva o id da proposta ao editor (HB0 item 4)', async ({ page }) => {
+    await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO)
+    await page.goto('/dashboard/projetos/propostas')
+    await aguardarConteudo(page)
+    const tela = page.getByTestId('hub-propostas')
+    await expect(tela.getByRole('heading', { name: 'Propostas' })).toBeVisible({ timeout: 30000 })
+    const abrir = tela.getByTestId('hub-proposta-abrir')
+    test.skip((await abrir.count()) === 0, 'empresa DEMO sem proposta: nada para abrir')
+    await expect(abrir.first()).toHaveAttribute('href', /\/dashboard\/orcamentos\?id=[0-9a-f-]{36}$/)
+  })
 })

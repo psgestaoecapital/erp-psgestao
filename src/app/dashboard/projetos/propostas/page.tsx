@@ -2,7 +2,7 @@
 
 // HB2 · Propostas dentro do Hub (RD-52: mesma fonte erp_orcamentos, sem 2ª lista). Antes redirecionava para
 // /dashboard/orcamentos e o usuário "saía" do Hub. Agora a lista, o funil e a busca vivem aqui; criar/editar
-// continua no editor completo (1 toque). Só leitura. 3 estados: erro / vazio (ensina) / dados.
+// continua no editor completo (1 toque; "Abrir" leva o ?id= e o editor abre a proposta escolhida). Só leitura. 3 estados: erro / vazio (ensina) / dados.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { fmtR } from '@/lib/psgc-tokens'
@@ -113,7 +113,7 @@ export default function PropostasHubPage() {
                       <td style={{ padding: '8px 12px' }}><span style={{ color: st.cor, fontWeight: 600 }}>{st.label}</span></td>
                       <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmtR(Number(l.total ?? 0))}</td>
                       <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                        <Link href="/dashboard/orcamentos" style={{ color: GOLD, fontWeight: 600, fontSize: 12 }}>Abrir</Link>
+                        <Link href={`/dashboard/orcamentos?id=${l.id}`} data-testid="hub-proposta-abrir" style={{ color: GOLD, fontWeight: 600, fontSize: 12 }}>Abrir</Link>
                       </td>
                     </tr>
                   )
