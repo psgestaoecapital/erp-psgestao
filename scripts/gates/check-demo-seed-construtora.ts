@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const mig = readFileSync('supabase/migrations/20261023223000_demo_seed_construtora.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261023233000_demo_seed_construtora.sql', 'utf8')
 const fn = mig.slice(mig.indexOf('CREATE OR REPLACE FUNCTION public.fn_demo_seed_construtora'), mig.indexOf('REVOKE ALL ON FUNCTION public.fn_demo_seed_construtora'))
 
 ok(/c constant uuid := 'b0700000-0000-4000-a000-000000000006'/.test(fn), 'seed fixo na empresa demo do Hub')
