@@ -185,7 +185,8 @@ const COR_STATUS: Record<StatusCode, { bg: string; fg: string; ico: string; nome
   travado: { bg: VERM_BG, fg: VERM, ico: '■', nome: 'Travado', ajuda: 'Tem tarefa NOVA sem leitura há mais de 15 min e nenhuma sessão nos últimos 30 min (ou o acionamento está falhando).' },
   na_fila: { bg: '#FEF3C7', fg: '#92400E', ico: '◔', nome: 'Na fila', ajuda: 'Tem tarefa NOVA esperando há menos de 15 min (ou há sessão recente que vai lê-la).' },
   esperando: { bg: '#FEF3C7', fg: '#92400E', ico: '◐', nome: 'Esperando', ajuda: 'Sem sessão, mas tem PR em teste ou aguardando autorização.' },
-  dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão, mas sem tarefa nova sem leitura (a última sessão foi recente ou não há nada esperando); acorda ao receber mensagem (ou na próxima hora cheia, para quem tem agenda).' },
+  agendado: { bg: '#E0ECFF', fg: '#1E40AF', ico: '◇', nome: 'Agendado', ajuda: 'Tarefa agendada LIGADA: roda sozinho a cada hora (plantão) e acorda ao receber mensagem. Sem sessão ativa neste instante — não é "dormindo".' },
+  dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão e sem rotina agendada: só acorda ao receber mensagem.' },
 }
 
 function FaixaEsteira({ e, alerta, agora }: { e: ReturnType<typeof esteira>; alerta: string | null; agora: Date }) {
@@ -233,7 +234,9 @@ function ResumoPorCode({ itens, agora }: { itens: ReturnType<typeof resumoCode>[
               </div>
               <div title={r.fazendo} style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fazendo}</div>
               <div style={{ fontSize: 11, color: TXM, marginTop: 4 }}>
-                última sessão {r.status === 'trabalhando' ? 'agora' : r.ultimaSessaoMin === null ? '—' : `há ${duracao(r.ultimaSessaoMin * 60_000)}`} · não lidas: {r.naoLidas}
+                {r.status === 'agendado' && r.ultimaSessaoMin === null
+                  ? 'roda sozinho a cada hora'
+                  : `última sessão ${r.status === 'trabalhando' ? 'agora' : r.ultimaSessaoMin === null ? '—' : `há ${duracao(r.ultimaSessaoMin * 60_000)}`}`} · não lidas: {r.naoLidas}
               </div>
               <div style={{ fontSize: 11, color: TXM }}>
                 fila {r.fila}{r.filaAntiga > 0 ? ` (+${r.filaAntiga} fila antiga)` : ''} · em teste {r.emTeste} · hoje {r.entreguesHoje}
