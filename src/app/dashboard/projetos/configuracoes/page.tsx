@@ -18,6 +18,7 @@ import {
   Gauge,
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
@@ -543,12 +544,14 @@ export default function ConfiguracoesPage() {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <CampoNumero
             label="Margem alvo (%)"
+            ajuda="projetos.config.margem_alvo"
             hint="Meta de margem aparente que serviços devem atingir"
             valor={config.margem_alvo_pct}
             onChange={(v) => setField("margem_alvo_pct", v)}
           />
           <CampoNumero
             label="Margem mínima (%)"
+            ajuda="projetos.config.margem_minima"
             hint="Abaixo deste valor, o serviço é destacado em vermelho e bloqueia propostas"
             valor={config.margem_minima_pct}
             onChange={(v) => setField("margem_minima_pct", v)}
@@ -575,6 +578,7 @@ export default function ConfiguracoesPage() {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <CampoNumero
             label="Validade da proposta (dias)"
+            ajuda="projetos.config.validade_proposta"
             hint="Prazo padrão antes da proposta expirar"
             valor={config.validade_proposta_dias}
             onChange={(v) => setField("validade_proposta_dias", v)}
@@ -582,6 +586,7 @@ export default function ConfiguracoesPage() {
           />
           <CampoNumero
             label="Prazo de pagamento padrão (dias)"
+            ajuda="projetos.config.prazo_pagamento"
             hint="Prazo entre emissão da fatura e vencimento"
             valor={config.prazo_pagamento_padrao_dias}
             onChange={(v) => setField("prazo_pagamento_padrao_dias", v)}
@@ -592,18 +597,21 @@ export default function ConfiguracoesPage() {
         <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
           <CampoTexto
             label="Prefixo de orçamento"
+            ajuda="projetos.config.prefixo_orcamento"
             valor={config.prefixo_orcamento}
             onChange={(v) => setField("prefixo_orcamento", v)}
             placeholder="ORC"
           />
           <CampoTexto
             label="Prefixo de obra"
+            ajuda="projetos.config.prefixo_obra"
             valor={config.prefixo_obra}
             onChange={(v) => setField("prefixo_obra", v)}
             placeholder="OBR"
           />
           <CampoTexto
             label="Prefixo de proposta"
+            ajuda="projetos.config.prefixo_proposta"
             valor={config.prefixo_proposta}
             onChange={(v) => setField("prefixo_proposta", v)}
             placeholder="PROP"
@@ -624,18 +632,21 @@ export default function ConfiguracoesPage() {
           <div className="space-y-2">
             <Toggle
               label="Vendedor pode alterar preço final"
+            ajuda="projetos.config.vendedor_altera_preco"
               hint="Permite ajustar preço final fora do CPU"
               valor={!!config.vendedor_pode_alterar_preco}
               onChange={(v) => setField("vendedor_pode_alterar_preco", v)}
             />
             <Toggle
               label="Vendedor pode aprovar proposta"
+            ajuda="projetos.config.vendedor_aprova_proposta"
               hint="Sem precisar de revisão de supervisor"
               valor={!!config.vendedor_pode_aprovar_proposta}
               onChange={(v) => setField("vendedor_pode_aprovar_proposta", v)}
             />
             <Toggle
               label="Exige aprovação do engenheiro"
+            ajuda="projetos.config.exige_engenheiro"
               badge="Em breve"
               hint="Ainda não ativo — o fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto."
               valor={!!config.exige_aprovacao_engenheiro}
@@ -656,12 +667,14 @@ export default function ConfiguracoesPage() {
           <div className="space-y-2">
             <Toggle
               label="Sincronizar estoque com Omie"
+            ajuda="projetos.config.omie_estoque"
               hint="Movimenta estoque no Omie a cada saída de material"
               valor={!!config.sincroniza_omie_estoque}
               onChange={(v) => setField("sincroniza_omie_estoque", v)}
             />
             <Toggle
               label="Sincronizar contas a pagar com Omie"
+            ajuda="projetos.config.omie_pagar"
               hint="Cria títulos a pagar no Omie ao confirmar fornecedor"
               valor={!!config.sincroniza_omie_pagar}
               onChange={(v) => setField("sincroniza_omie_pagar", v)}
@@ -770,20 +783,22 @@ function SaveIndicator({
 function CampoNumero({
   label,
   hint,
+  ajuda,
   valor,
   onChange,
   inteiro = false,
 }: {
   label: string;
   hint?: string;
+  ajuda?: string;
   valor: number | null;
   onChange: (v: number | null) => void;
   inteiro?: boolean;
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-        {label}
+      <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+        {label} {ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/projetos/configuracoes" />}
       </span>
       <input
         type="number"
@@ -804,19 +819,21 @@ function CampoNumero({
 
 function CampoTexto({
   label,
+  ajuda,
   valor,
   onChange,
   placeholder,
 }: {
   label: string;
+  ajuda?: string;
   valor: string | null;
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-        {label}
+      <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+        {label} {ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/projetos/configuracoes" />}
       </span>
       <input
         type="text"
@@ -832,6 +849,7 @@ function CampoTexto({
 
 function Toggle({
   label,
+  ajuda,
   hint,
   valor,
   onChange,
@@ -839,6 +857,7 @@ function Toggle({
   badge,
 }: {
   label: string;
+  ajuda?: string;
   hint: string;
   valor: boolean;
   onChange: (v: boolean) => void;
@@ -850,6 +869,11 @@ function Toggle({
       <div className="flex-1">
         <div className="text-sm font-medium text-[#3D2314]">
           {label}
+          {ajuda && (
+            <span className="ml-1 inline-flex align-middle" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+              <AjudaCampo chave={ajuda} rota="/dashboard/projetos/configuracoes" />
+            </span>
+          )}
           {badge && (
             <span className="ml-2 rounded-full bg-[#3D2314]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#3D2314]/60">{badge}</span>
           )}
