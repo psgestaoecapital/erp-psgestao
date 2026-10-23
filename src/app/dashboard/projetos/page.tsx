@@ -75,15 +75,16 @@ export default function PainelProjetos() {
           supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado,valor_proposta").eq("company_id", companyId).is("deleted_at", null),
         ]);
         if (ek || ep || eo || eop) throw new Error("indicadores");
-        const kp = (k as any) || {};
+        const kp = (k as { em_andamento?: number; valor_em_andamento?: number } | null) ?? {};
+        const fin = v as { contas_pagar_abertas: number | null; contas_receber_abertas: number | null } | null;
         const porStatus: Record<string, number> = {};
         let receita = 0, custo = 0;
-        for (const o of (obras as any[]) || []) {
+        for (const o of (obras as { status: string; receita_prevista: number | null; custo_previsto: number | null }[] | null) ?? []) {
           porStatus[o.status] = (porStatus[o.status] ?? 0) + 1;
           if (o.status === "em_andamento") { receita += Number(o.receita_prevista ?? 0); custo += Number(o.custo_previsto ?? 0); }
         }
         let abertas = 0, valorAberto = 0, ganhas = 0, perdidas = 0;
-        for (const o of (opps as any[]) || []) {
+        for (const o of (opps as { etapa: string; valor_estimado: number | null; valor_proposta: number | null }[] | null) ?? []) {
           if (o.etapa === "ganho") ganhas++;
           else if (o.etapa === "perdido") perdidas++;
           else { abertas++; valorAberto += Number(o.valor_proposta ?? o.valor_estimado ?? 0); }
@@ -94,8 +95,8 @@ export default function PainelProjetos() {
             propostas_pendentes: propostas ?? 0,
             valor_orcamento_ativo: Number(kp.valor_em_andamento ?? 0),
             margem_prevista_pct: receita > 0 ? ((receita - custo) / receita) * 100 : null,
-            pagar_aberto: Number((v as any)?.contas_pagar_abertas ?? 0),
-            receber_aberto: Number((v as any)?.contas_receber_abertas ?? 0),
+            pagar_aberto: Number(fin?.contas_pagar_abertas ?? 0),
+            receber_aberto: Number(fin?.contas_receber_abertas ?? 0),
             obras_por_status: porStatus,
             funil_abertas: abertas,
             funil_valor_aberto: valorAberto,
