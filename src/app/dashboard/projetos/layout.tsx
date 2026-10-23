@@ -17,7 +17,6 @@ import {
   Package,
   HardHat,
   Construction,
-  TrendingUp,
   Settings,
   Smartphone,
   Tag,
@@ -53,8 +52,7 @@ const TECNICO: Tab[] = [
 
 const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras",          label: "Obras",          icon: Construction, key: "9" },
-  { href: "/dashboard/projetos/acompanhamento", label: "Acompanhamento", icon: TrendingUp,   key: "0" },
-  { href: "/dashboard/projetos/obras/resultado", label: "Resultado",      icon: BarChart3,    key: "" },
+  { href: "/dashboard/projetos/obras/resultado", label: "Resultado",      icon: BarChart3,    key: "0" },
   { href: "/dashboard/projetos/cockpit",         label: "Cockpit",        icon: Gauge,        key: "" },
 ];
 
