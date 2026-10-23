@@ -279,6 +279,13 @@ jobs:
               reset_falhou=1
             fi
           done
+          # 23/10 (gilberto-desenv): Construtora Modelo - DEMO (Hub) irrigada pelo fn_demo_seed_construtora. Entra como
+          # AVISO (::warning, anotação com o erro real) nas primeiras montagens — não derruba a montagem das outras DEMOs
+          # por um ramo novo; promover a erro (reset_falhou=1) depois de montagens verdes.
+          emp=b0700000-0000-4000-a000-000000000006
+          if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('$emp')" 2> "demo-reset-$emp.log"; then
+            echo "::warning title=fn_demo_reset falhou ($emp · Construtora DEMO)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+          fi
           # trava-demo liberada ao final da montagem (lease de run que falhou/cancelou não pode travar a próxima)
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "delete from public.e2e_trava" || true
           # Ação 3 (CEO 11/10): o job NÃO pode ficar verde com a DEMO incompleta (foi a causa do apagão). epi_catalogo
