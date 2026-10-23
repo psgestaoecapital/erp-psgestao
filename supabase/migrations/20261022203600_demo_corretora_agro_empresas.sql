@@ -3,12 +3,13 @@
 -- 20261008180010). O seed reparável (fn_gold_*_seed_reparar) vem na próxima fatia, depois de mapear as tabelas de cada vertical.
 --   b0700000-…-0008 "Corretora Modelo - DEMO"  → áreas 'corretora', 'corretora_seguros'
 --   b0700000-…-0009 "Fazenda Modelo - DEMO"    → áreas 'agro', 'agronegocio'
+-- CNPJ da Corretora = ...0385: o ...0304 já é da Loja Modelo - DEMO (companies_cnpj_key; deploy-migrations vermelho em 22/10).
 -- Aditiva e idempotente: nada é apagado; empresa real nenhuma muda; R$ 0, fora do MRR (demo).
 
 INSERT INTO public.companies (id, org_id, razao_social, nome_fantasia, is_demo, ambiente_tenant, cnpj, restrita_ps_admin, uf_fiscal)
 VALUES
   ('b0700000-0000-4000-a000-000000000008', 'c830f980-9be9-40c1-bb46-584cdc92dd65',
-   'Corretora Modelo Demonstração LTDA', 'Corretora Modelo - DEMO', true, 'auditoria', '55500000000304', false, 'SC'),
+   'Corretora Modelo Demonstração LTDA', 'Corretora Modelo - DEMO', true, 'auditoria', '55500000000385', false, 'SC'),
   ('b0700000-0000-4000-a000-000000000009', 'c830f980-9be9-40c1-bb46-584cdc92dd65',
    'Fazenda Modelo Demonstração LTDA', 'Fazenda Modelo - DEMO', true, 'auditoria', '55500000000495', false, 'PR')
 ON CONFLICT (id) DO UPDATE SET
