@@ -8,7 +8,7 @@
 INSERT INTO public.companies (id, org_id, razao_social, nome_fantasia, is_demo, ambiente_tenant, cnpj, restrita_ps_admin, uf_fiscal)
 VALUES
   ('b0700000-0000-4000-a000-000000000008', 'c830f980-9be9-40c1-bb46-584cdc92dd65',
-   'Corretora Modelo Demonstração LTDA', 'Corretora Modelo - DEMO', true, 'auditoria', '55500000000304', false, 'SC'),
+   'Corretora Modelo Demonstração LTDA', 'Corretora Modelo - DEMO', true, 'auditoria', '55500000000308', false, 'SC'),
   ('b0700000-0000-4000-a000-000000000009', 'c830f980-9be9-40c1-bb46-584cdc92dd65',
    'Fazenda Modelo Demonstração LTDA', 'Fazenda Modelo - DEMO', true, 'auditoria', '55500000000495', false, 'PR')
 ON CONFLICT (id) DO UPDATE SET
