@@ -247,7 +247,7 @@ export default function CalculadoraObraPage() {
           )}
           {companyId && custo.semCusto > 0 && (
             <button onClick={() => void sugerirEVincular()} data-testid="calc-sugerir-vinculos" className="mb-2 rounded-full bg-[#C8941A]/15 px-4 py-2 text-sm text-[#3D2314]">
-              Sugerir produtos do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" />
+              Sugerir produtos do estoque<AjudaCampo chave="projetos.calculadora.sugerir_produtos" rota="/dashboard/projetos/calculadora" />
             </button>
           )}
           {erroVinculo && <p className="mb-2 text-sm text-red-700">{erroVinculo}</p>}
@@ -271,7 +271,7 @@ export default function CalculadoraObraPage() {
                 {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
                 {custoPorChave[i.chave]?.total != null && <p className="mt-0.5 text-xs text-[#3D2314]/60">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade} = <b>{fmtBRL(custoPorChave[i.chave].total!)}</b></p>}
                 <details className="mt-1 text-xs text-[#3D2314]/60">
-                  <summary className="cursor-pointer">ver a conta</summary>
+                  <summary className="cursor-pointer">ver a conta<AjudaCampo chave="projetos.calculadora.ver_conta" rota="/dashboard/projetos/calculadora" /></summary>
                   {i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}
                 </details>
               </li>
