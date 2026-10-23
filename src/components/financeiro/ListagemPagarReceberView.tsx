@@ -554,6 +554,22 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const pageStart = (pageSafe - 1) * pageSize
   const pageItems = resultadosFiltrados.slice(pageStart, pageStart + pageSize)
 
+  // #1939 · a lista/filtro mostravam só o código da categoria (ex.: 2.04): resolve o nome no plano de contas.
+  const [nomeCategoria, setNomeCategoria] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!companyId) return
+    let alive = true
+    supabase.rpc('fn_plano_contas_arvore', { p_company_id: companyId, p_aplicacao: tipo }).then(({ data }) => {
+      if (!alive) return
+      const m: Record<string, string> = {}
+      ;((data ?? []) as { codigo: string; descricao: string }[]).forEach((c) => { m[c.codigo] = c.descricao })
+      setNomeCategoria(m)
+    })
+    return () => { alive = false }
+  }, [companyId, tipo])
+  const rotuloCategoria = (cod: string | null) =>
+    !cod ? '' : nomeCategoria[cod] ? `${cod} · ${nomeCategoria[cod]}` : cod
+
   const categoriasDistinct = useMemo(() => {
     const set = new Set<string>()
     ;(data?.resultados ?? []).forEach((r) => {
