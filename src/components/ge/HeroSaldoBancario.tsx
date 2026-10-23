@@ -212,11 +212,14 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
 // USA hoje — se divergir da data da conta, a própria tela mostra o bug (fix per-conta vem depois).
 type CompConta = { conta_id?: string; saldo_extrato?: number | null; nome: string; saldo_inicial: number; data_saldo_inicial: string | null; data_diverge_do_calculo: boolean; tem_assinatura?: boolean; janela_subtraida?: number; recebido: number; pago: number; transf_entrada?: number; transf_saida?: number; saldo: number }
 type CompTransf = { id: string; data: string; valor: number; origem: string; destino: string; conta_na_saida: boolean; conta_na_entrada: boolean }
-type Composicao = { ok?: boolean; data_efetiva_calculo_atual: string | null; contas: CompConta[]; sem_conta: { recebido: number; pago: number }; total_saldo_inicial: number; total_recebido: number; total_pago: number; total_transferencias_entrada?: number; total_transferencias_saida?: number; transferencias?: CompTransf[]; saldo_composto: number; total_janela_subtraida?: number; saldo_gerencial_atual: number }
+type Composicao = { ok?: boolean; data_efetiva_calculo_atual: string | null; contas: CompConta[]; sem_conta: { recebido: number; pago: number; n_titulos?: number }; total_saldo_inicial: number; total_recebido: number; total_pago: number; total_transferencias_entrada?: number; total_transferencias_saida?: number; transferencias?: CompTransf[]; saldo_composto: number; total_janela_subtraida?: number; saldo_gerencial_atual: number }
 const dBR = (s: string | null) => s ? String(s).slice(0, 10).split('-').reverse().join('/') : '—'
 // #2751 etapa 3 (Jordana/Gean): por conta, o saldo do sistema ao lado do saldo lido no último extrato importado
 type LeituraExtrato = { saldo_extrato_em: string | null; saldo_extrato_origem: string | null }
 const ROTA_AJUDA_SALDO = '/dashboard/gestao-empresarial'
+// #3866: lista dos liquidados sem conta desde o início do controle (filtros lidos no mount da listagem)
+const linkSemConta = (tipo: 'pagar' | 'receber', desde: string | null) =>
+  `/dashboard/financeiro/${tipo}?status=pagos&sem_conta=1${desde ? `&desde=${String(desde).slice(0, 10)}` : ''}`
 
 function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClose: () => void }) {
   const [c, setC] = useState<Composicao | null>(null)
@@ -290,9 +293,27 @@ function SaldoComposicaoModal({ companyId, onClose }: { companyId: string; onClo
                   </div>
                 ))}
                 {(c.sem_conta.recebido > 0 || c.sem_conta.pago > 0) && (
-                  <div style={{ border: `1px dashed ${COLORS.linha}`, borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: COLORS.cinza }}>
-                    <b>Sem conta atribuída</b> · + {fmt(c.sem_conta.recebido)} recebido · − {fmt(c.sem_conta.pago)} pago
-                    <div style={{ fontSize: 11, marginTop: 2 }}>Títulos liquidados sem conta bancária definida — não dá pra atribuir a uma conta.</div>
+                  <div data-testid="saldo-composicao-sem-conta" style={{ border: `1px dashed ${COLORS.linha}`, borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: COLORS.cinza }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>
+                        <b>Sem conta atribuída</b>
+                        {!!c.sem_conta.n_titulos && <> · {c.sem_conta.n_titulos} título{c.sem_conta.n_titulos === 1 ? '' : 's'}</>}
+                        {' '}· + {fmt(c.sem_conta.recebido)} recebido · − {fmt(c.sem_conta.pago)} pago
+                      </span>
+                      <AjudaCampo chave="ge.saldo.sem_conta" rota={ROTA_AJUDA_SALDO} />
+                    </div>
+                    {/* #3866: só o liquidado a partir do início do controle; o histórico anterior não é pendência */}
+                    <div style={{ fontSize: 11, marginTop: 2 }}>
+                      Liquidados sem conta bancária{c.data_efetiva_calculo_atual ? ` desde ${dBR(c.data_efetiva_calculo_atual)} (início do controle)` : ''} — informe a conta na baixa para entrarem no saldo. O histórico anterior fica nos relatórios.
+                    </div>
+                    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 6, fontSize: 12 }}>
+                      {c.sem_conta.recebido > 0 && (
+                        <a href={linkSemConta('receber', c.data_efetiva_calculo_atual)} style={{ color: COLORS.espresso, fontWeight: 600 }}>Ver recebidas sem conta →</a>
+                      )}
+                      {c.sem_conta.pago > 0 && (
+                        <a href={linkSemConta('pagar', c.data_efetiva_calculo_atual)} style={{ color: COLORS.espresso, fontWeight: 600 }}>Ver pagas sem conta →</a>
+                      )}
+                    </div>
                   </div>
                 )}
                 {!!c.transferencias?.length && (
