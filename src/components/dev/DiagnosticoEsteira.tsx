@@ -9,17 +9,11 @@ import { formatarMin } from '@/lib/dev/saudeEsteira'
 import { classificarLeak, classificarVaga, classificarVazao, META_PUB_HORA, nomeVaga, type Diagnostico } from '@/lib/dev/diagnosticoEsteira'
 
 const ESP = '#3D2314', BRANCO = '#FFFFFF', BD = '#E7DED3', TXM = '#6B5D4F', ROTA = '/dashboard/dev/codes'
-const REPO_URL = 'https://github.com/psgestaoecapital/erp-psgestao'
 const COR: Record<Semaforo, { bg: string; fg: string }> = {
   verde: { bg: '#DCFCE7', fg: '#166534' }, amarelo: { bg: '#FEF3C7', fg: '#92400E' }, vermelho: { bg: '#FEE2E2', fg: '#B91C1C' },
 }
-
-// Fila PR a PR (CEO 23/10): cada PR que espera ou ficou fora da rodada, com o motivo exato e o link —
-// vem direto de erp_esteira_pr_estado (a fila escreve a cada rodada; RLS de leitura da equipe PS).
-type PrFila = { pr_numero: number; via: string | null; estado: string; motivo: string | null; tem_migration: boolean; run_url: string | null; atualizado_em: string }
-// "fora-da-rodada" = barrou nesta rodada (precisa de ação); "esperando" = na vez, aguardando a main/checks.
-const ORDEM_ESTADO: Record<string, number> = { 'fora-da-rodada': 0, esperando: 1 }
-function corEstado(estado: string): Semaforo { return estado === 'fora-da-rodada' ? 'vermelho' : 'amarelo' }
+// A lista PR a PR saiu daqui (CEO 23/10): virou o bloco "Próximas publicações" no TOPO, com barra de progresso.
+// Este card mostra só o agregado da fila.
 
 function Card({ id, titulo, ajuda, sem, children }: { id: string; titulo: string; ajuda: string; sem?: Semaforo; children: ReactNode }) {
   const c = sem ? COR[sem] : { bg: BRANCO, fg: ESP }
@@ -33,21 +27,11 @@ function Card({ id, titulo, ajuda, sem, children }: { id: string; titulo: string
 
 export default function DiagnosticoEsteira() {
   const [d, setD] = useState<Diagnostico | null>(null)
-  const [fila, setFila] = useState<PrFila[]>([])
   const [erro, setErro] = useState<string | null>(null)
   const carregar = useCallback(async () => {
     const { data, error } = await supabase.rpc('fn_esteira_diagnostico')
     if (error) { setErro(error.message); return }
     setErro(null); setD(data as Diagnostico)
-    const { data: prs } = await supabase
-      .from('erp_esteira_pr_estado')
-      .select('pr_numero,via,estado,motivo,tem_migration,run_url,atualizado_em')
-      .in('estado', ['esperando', 'fora-da-rodada'])
-      .order('atualizado_em', { ascending: false })
-      .limit(80)
-    const lista = ((prs ?? []) as PrFila[]).slice().sort((a, b) =>
-      (ORDEM_ESTADO[a.estado] ?? 9) - (ORDEM_ESTADO[b.estado] ?? 9) || a.pr_numero - b.pr_numero)
-    setFila(lista)
   }, [])
   useEffect(() => {
     void carregar()
@@ -92,24 +76,7 @@ export default function DiagnosticoEsteira() {
           <Card id="fila" titulo="Fila" ajuda="diag.fila">
             <div style={{ fontSize: 20, fontWeight: 700 }}>{d.fila.esperando} esperando · {d.fila.fora_da_rodada} fora da rodada · {d.fila.fora} fora</div>
             {d.motivos.map((m) => <div key={m.motivo} style={{ fontSize: 12 }}>{m.n}× {m.motivo}</div>)}
-            {fila.length > 0 && (
-              <div data-testid="fila-por-pr" style={{ marginTop: 10, borderTop: `1px solid ${BD}`, paddingTop: 8, display: 'grid', gap: 6 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: TXM }}>PR a PR · ao vivo</div>
-                {fila.map((p) => {
-                  const cor = COR[corEstado(p.estado)]
-                  return (
-                    <div key={p.pr_numero} data-testid={`fila-pr-${p.pr_numero}`} style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
-                      <a href={`${REPO_URL}/pull/${p.pr_numero}`} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: ESP, whiteSpace: 'nowrap' }}>#{p.pr_numero}</a>
-                      <span style={{ fontSize: 10, fontWeight: 700, background: cor.bg, color: cor.fg, border: `1px solid ${cor.fg}`, borderRadius: 999, padding: '0 6px', whiteSpace: 'nowrap' }}>{p.estado === 'fora-da-rodada' ? 'fora da rodada' : 'esperando'}</span>
-                      {p.tem_migration && <span style={{ fontSize: 10, fontWeight: 700, background: '#EDE7DF', color: ESP, borderRadius: 999, padding: '0 6px', whiteSpace: 'nowrap' }}>migration</span>}
-                      {p.via && <span style={{ fontSize: 10, color: TXM, whiteSpace: 'nowrap' }}>via {p.via}</span>}
-                      <span style={{ color: TXM, flex: 1, minWidth: 180 }}>{p.motivo ?? 'sem motivo registrado'}</span>
-                      {p.run_url && <a href={p.run_url} target="_blank" rel="noreferrer" style={{ color: TXM, whiteSpace: 'nowrap' }}>run ↗</a>}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+            <div style={{ fontSize: 11, color: TXM, marginTop: 6 }}>PR a PR, ao vivo, no bloco “Próximas publicações” no topo.</div>
           </Card>
         </div>
       )}
