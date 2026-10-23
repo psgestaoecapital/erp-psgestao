@@ -204,9 +204,19 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
 - **(d) Fila de merge** (`.github/workflows/fila-merge.yml` + `scripts/merge/fila-merge.sh`, sem polling): a fila pega
   **toda PR Ready** (não-draft) na `main` em ordem de entrada: atualiza com a `main` (merge, sem reescrever histórico),
   espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido).
-  **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6);
-  **PR COM migration continua UMA por rodada** e encerra a rodada (a próxima migration espera o deploy + `@pos-migration`
-  da `main`). O "atrás da main" é medido contra a `main` do **início da rodada**, para a PR já em dia no começo não virar
+  **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6).
+  **LOTE DE MIGRATIONS (CEO 16/10, tetos revistos 23/10):** numa rodada a fila publica migrations **INDEPENDENTES** entre si
+  (`scripts/merge/migrations-independentes.ts`; qualquer dúvida → 1), com DOIS tetos — **`LOTE_MIG_MAX` (padrão 6)** para o
+  conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 1)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`). Ou seja: as **ADITIVAS**
+  escalam (até 6/rodada), a **CRÍTICA** fica em **1 por rodada** (cada uma com seu veredito de `@pos`, sem se misturar). O
+  `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo, 1 migration/rodada).
+  **ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10):** a serialização de migration é em 2 níveis.
+  `deploy-migrations` da `main` não-verde segura **TODAS** as migrations (não dá para aplicar nada). O `@pos-migration` de
+  uma migration **CRÍTICA** (via revisada) em andamento/vermelho segura só as **OUTRAS CRÍTICAS** — a migration **ADITIVA**
+  (via rápida) NÃO espera esse `@pos` (ela é validada pelo `deploy-migrations` + o auditor PDCA pós-publicação, que clica
+  tela/botão e fotografa até 100%). O crítico NUNCA afrouxa: migration crítica (etiqueta `revisao-eng-chefe`, ou
+  crítica-por-conteúdo que o classificador `exige-via-revisada` rotula e pula) só publica com o gate verde. No script:
+  `deploy_travado` × `critica_na_main`. Gate: `scripts/gates/check-fila-aditiva-escala.ts` (prova os dois lados). O "atrás da main" é medido contra a `main` do **início da rodada**, para a PR já em dia no começo não virar
   "atrás" sozinha quando a fila mergeia outras à frente dela no mesmo lote. Conflito, check vermelho ou autorização
   inválida → comenta o motivo **uma vez por commit** (e tira a label `fila-merge`, se houver); a PR volta a ser avaliada
   sozinha no próximo commit.
@@ -259,7 +269,8 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
   **executando** há mais de 45 min; job esperando a vez na fila nunca é cancelado.
 - Gate: `scripts/gates/check-esteira-merge.ts`.
-- **Revisor por evento (CEO 07/10):** `.github/workflows/acionar-revisor.yml` (`pull_request_target` labeled/synchronize/ready_for_review, só PR Ready do repo com `revisao-eng-chefe`) acorda a rotina do `gilberto-revisor` em minutos (espera 120 s; rajada = 1 acionamento por PR; não aciona se a PR já tem `MERGE AUTORIZADO` com o patch-id atual). Sem checkout da PR. Segredos `REVISOR_ROTINA_URL`/`REVISOR_ROTINA_TOKEN`; ausentes = `::warning`, nunca falha a PR. **Varredura a cada 5 min (CEO 12/10):** o mesmo workflow tem `schedule: */5` (job `varredura`, grupo de concorrência próprio, não se auto-cancela): se houver PR Ready com `revisao-eng-chefe`, aciona a rotina para revisar TODAS as da alçada num run; sem pendência, sai rápido. As sensíveis do CEO seguem esperando o CEO. Gate: `scripts/gates/check-acionar-revisor.ts`.
+- **Revisor por evento (CEO 07/10):** `.github/workflows/acionar-revisor.yml` (`pull_request_target` labeled/synchronize/ready_for_review, só PR Ready do repo com `revisao-eng-chefe`) acorda a rotina do `gilberto-revisor` em minutos (espera 120 s; rajada = 1 acionamento por PR; não aciona se a PR já tem `MERGE AUTORIZADO` com o patch-id atual). Sem checkout da PR. Segredos `REVISOR_ROTINA_URL`/`REVISOR_ROTINA_TOKEN`; ausentes = `::warning`, nunca falha a PR. **Varredura a cada 15 min (CEO 23/10, era 5 min):** o mesmo workflow tem `schedule: */15` (job `varredura`, grupo de concorrência próprio, não se auto-cancela): acorda a rotina para revisar TODAS as PRs Ready com `revisao-eng-chefe` da alçada num run só, e para até ser acordada de novo; sem pendência, sai rápido. As sensíveis do CEO seguem esperando o CEO. Gate: `scripts/gates/check-acionar-revisor.ts`.
+- **Esteira acompanha as PRs (CEO 23/10):** `.github/workflows/acionar-esteira.yml` é o ESPELHO da varredura do revisor para a rotina do `gilberto-esteira`. A `fila-merge.yml` publica o que está PRONTO; quem CONSERTA uma PR presa (conflito com a main, aceitação vermelha de re-rodar, versão de migration abaixo da main, rascunho autorizado por marcar Ready) é o Code esteira — e ele só era acordado pelo despertador (com tarefa na caixa) ou pelo guardião (@pos/deploy vermelho). Agora, a cada **15 min** (`schedule: */15`, grupo próprio sem auto-cancelamento), se houver PR Ready aberta na main sem `nao-publicar`, a rotina do esteira é acordada para varrer o backlog e destravar — e para até ser acordada de novo. NÃO publica por si (só leitura): o Code segue as regras de merge de sempre. Segredos `ESTEIRA_ROTINA_URL`/`ESTEIRA_ROTINA_TOKEN`; ausentes = `::warning` com o passo a passo, nunca falha. Gate: `scripts/gates/check-acionar-esteira.ts`.
 - **Etiqueta automática por conteúdo (Eng. Chefe 14/10):** `.github/workflows/etiquetar-revisao.yml` (`pull_request_target`, sem checkout da PR) coloca `revisao-eng-chefe` em PR que toca tela, cálculo, migration/SQL, edge function ou área crítica (`scripts/merge/exige-via-revisada.ts`, mesmo sinal de área crítica do `escopo-aceitacao.ts`); nunca tira. A fila também confere o conteúdo: PR dessas condições sem etiqueta ganha a etiqueta e espera o `MERGE AUTORIZADO` — nunca publica pela via rápida. Gate: `scripts/gates/check-etiqueta-automatica.ts`.
 - **O que conta como autorização do `gilberto-revisor` (Eng. Chefe 08/10):** autorização própria = comentário cuja
   PRIMEIRA linha é exatamente `MERGE AUTORIZADO #<n> — gilberto-revisor · patch-id <40 hex>`. Comentário com a marca

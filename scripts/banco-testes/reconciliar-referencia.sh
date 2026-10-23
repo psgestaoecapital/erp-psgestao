@@ -143,10 +143,12 @@ ref_max=$(tail -1 "$dir/ref.led")
 faltando=$(comm -23 "$dir/main.led" "$dir/ref.led" | grep -c . || true)   # migrations da main AUSENTES no ledger da referência
 if [ "$faltando" -ne 0 ]; then
   echo "::warning::referência (vaga 1) com ${faltando} migration(ões) da main ausente(s) no ledger (ref_max=${ref_max}, main_max=${main_max})"
-  pular "referência atrás da main (${faltando} migration(ões) da main ausente(s) no ledger da referência)"
+  # 22/10 (gilberto-desenv): ANTES era "pular" em silêncio → vaga sem reconciliar → aceitação FLAKY por sobra de PR. Agora o
+  # workflow sincroniza a referência com a main antes; se ainda assim não bate, FALHA explícito (nunca testa em banco sem checar).
+  erro "referência (vaga 1) atrás da main (${faltando} migration(ões) ausente(s)) mesmo após a sincronização — aceitação abortada; rode o Montar da vaga 1"
 fi
 if [ "$ref_max" != "$main_max" ]; then
-  pular "a versão máxima da referência ($ref_max) não é a última migration da main ($main_max)"
+  erro "a versão máxima da referência ($ref_max) não é a última migration da main ($main_max) — aceitação abortada; rode o Montar da vaga 1"
 fi
 
 # ── Ledgers/chaves da comparação ─────────────────────────────────────────────────────────────────────────────────────
