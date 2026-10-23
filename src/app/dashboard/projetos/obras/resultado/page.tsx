@@ -62,6 +62,7 @@ export default function ResultadoObrasPage() {
   }
 
   const th: React.CSSProperties = { textAlign: 'right', padding: '8px 10px', fontSize: 12, color: MUT, fontWeight: 600, whiteSpace: 'nowrap' }
+  const fixa: React.CSSProperties = { position: 'sticky', left: 0, background: '#fff', zIndex: 1 }
   const td: React.CSSProperties = { textAlign: 'right', padding: '8px 10px', fontSize: 13, whiteSpace: 'nowrap' }
   const cor = (v: number) => (v < 0 ? VERM : VERDE)
 
@@ -86,15 +87,15 @@ export default function ResultadoObrasPage() {
             </div>
             <style>{'@media print{.no-print{display:none!important}body{background:#fff}}'}</style>
             <div style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-              <table data-testid="resultado-tabela" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse' }}>
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
-                  <th style={{ ...th, textAlign: 'left' }}>Obra</th><th style={th}>Receita</th><th style={th}>Custo</th>
+                  <th style={{ ...th, ...fixa, textAlign: 'left' }}>Obra</th><th style={th}>Receita</th><th style={th}>Custo</th>
                   <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Margem</th><th style={th}>Receita prevista</th><th style={th}>Custo previsto</th>
                 </tr></thead>
                 <tbody>
                   {linhas.map(l => (
                     <tr key={l.obra_id} style={{ borderBottom: `1px solid ${LINE}` }}>
-                      <td style={{ ...td, textAlign: 'left' }}>{l.numero} · {l.nome}</td>
+                      <td style={{ ...td, ...fixa, textAlign: 'left' }}>{l.numero} · {l.nome}</td>
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
                       <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
                       <td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
@@ -102,7 +103,7 @@ export default function ResultadoObrasPage() {
                     </tr>
                   ))}
                   <tr data-testid="resultado-consolidado" style={{ fontWeight: 700 }}>
-                    <td style={{ ...td, textAlign: 'left' }}>Consolidado</td>
+                    <td style={{ ...td, ...fixa, textAlign: 'left' }}>Consolidado</td>
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
                     <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>

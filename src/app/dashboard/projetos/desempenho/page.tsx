@@ -112,16 +112,16 @@ export default function DesempenhoComercialPage() {
             {data.gestor && data.ranking && (
               <Secao titulo="Ranking de vendedores">
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                  <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 12.5 }}>
                     <thead><tr style={{ color: MUT, textAlign: 'right' }}>
-                      <th style={{ textAlign: 'left', padding: '6px 8px' }}>Vendedor</th>
+                      <th style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 1, textAlign: 'left', padding: '6px 8px' }}>Vendedor</th>
                       <th style={thR}>Oport.</th><th style={thR}>Propostas</th><th style={thR}>Ganhas</th><th style={thR}>Valor ganho</th><th style={thR}>Conversão</th><th style={thR}>Ticket</th><th style={thR}>Comissão</th>
                     </tr></thead>
                     <tbody>
                       {data.ranking.length === 0 ? <tr><td colSpan={8} style={{ padding: 12, color: MUT, textAlign: 'center' }}>Sem dados no período.</td></tr> :
                         data.ranking.map((v, i) => (
                           <tr key={v.responsavel_id ?? i} style={{ borderTop: `0.5px solid ${LINE}` }}>
-                            <td style={{ padding: '7px 8px', color: ESP, fontWeight: 600 }}>{v.responsavel_nome}</td>
+                            <td style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 1, padding: '7px 8px', color: ESP, fontWeight: 600, whiteSpace: 'nowrap' }}>{v.responsavel_nome}</td>
                             <td style={tdR}>{v.oportunidades}</td><td style={tdR}>{v.propostas}</td><td style={tdR}>{v.ganhas}</td>
                             <td style={tdR}>{brl(v.ganhas_valor)}</td>
                             <td style={{ ...tdR, color: corConversao(v.conversao_pct), fontWeight: 700 }}>{pct(v.conversao_pct)} {v.conversao_pct != null && (v.conversao_pct >= 40 ? '🟢' : v.conversao_pct >= 20 ? '🟡' : '🔴')}</td>
