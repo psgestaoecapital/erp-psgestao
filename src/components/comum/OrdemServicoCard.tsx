@@ -687,7 +687,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
       {/* #121 · placa editável (erro de digitação ao abrir a OS). Mesma RPC do pátio (fn_oficina_os_set_placa):
           normaliza (maiúsculas, sem traço) e exige ≥ 5 caracteres. Salva na hora, separado do "Salvar" da ficha. */}
       {mostraPlaca && <div style={{ display: 'block' }}>
-        <span style={lbl}>Placa</span>
+        <span style={lbl}>Placa <AjudaCampo chave="os.ficha.placa" rota="/dashboard/os" /></span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
             value={placaEdit}
