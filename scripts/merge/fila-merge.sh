@@ -746,8 +746,10 @@ fila=$(while read -r linha; do
     echo "${t:-$(jq -r .created_at <<< "$linha")} $n"
   done < "$TMPF/lista" | sort | awk '{print $2}')
 [ -n "$fila" ] || { log "fila vazia"; exit 0; }
-# Prioridade (CEO 15/10): Hub (#2569 #2508 #2298) e FC/FCR (#2100) na frente; o resto segue a ordem de entrada.
-FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2569 2508 2298 2100'}
+# Prioridade (CEO 23/10, cliente FC Pisos/Diego — Hub prometido pra terça): os Hub de agora na frente, FC Pisos (#2156,
+# papéis) primeiro; depois os feats do Hub (#2563 #2891 #2892 #2896 #2901 #2968) e FC/FCR (#2100). Os antigos (#2569
+# #2508 #2298) já saíram. O resto segue a ordem de entrada. Atualize esta lista quando os Hub da vez mudarem.
+FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2156 2563 2891 2892 2896 2901 2968 2100'}
 _prio=''; for p in $FILA_PRIORIDADE; do grep -qw "$p" <<< "$fila" && _prio="$_prio $p"; done
 _resto=''; for q in $fila; do grep -qw "$q" <<< "$FILA_PRIORIDADE" || _resto="$_resto $q"; done
 fila=$(echo $_prio $_resto)
@@ -827,8 +829,12 @@ merges=0
 # LOTE DE MIGRATIONS INDEPENDENTES (CEO 16/10): numa rodada publica até LOTE_MIG_MAX PRs COM migration, desde que
 # INDEPENDENTES entre si (scripts/merge/migrations-independentes.ts; qualquer dúvida → 1 por rodada, como antes).
 # O @pos-migration da main roda uma vez para o lote. LOTE_MIG_MAX=1 desliga (comportamento antigo).
-LOTE_MIG_MAX=${LOTE_MIG_MAX:-3}
-lote_mig_n=0; lote_mig_sqls=()
+# ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10): o teto geral do lote (LOTE_MIG_MAX) sobe para drenar o backlog de
+# migrations ADITIVAS mais rápido; mas a migration CRÍTICA (via revisada) tem um teto PRÓPRIO e baixo (LOTE_MIG_CRIT_MAX),
+# para nunca batelar muitas críticas num mesmo @pos. Assim o aditivo ganha vazão sem afrouxar a cautela no crítico.
+LOTE_MIG_MAX=${LOTE_MIG_MAX:-6}
+LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-1}
+lote_mig_n=0; lote_mig_crit_n=0; lote_mig_sqls=()
 mkdir -p "$TMPF/mig"
 # SQL das migrations da PR no SHA conferido → $TMPF/mig/<n>.sql (vazio/falha = dúvida na checagem de independência)
 baixar_sql_migrations() {
@@ -855,7 +861,7 @@ for n in $fila; do
   fi
   # conflito: a lista não traz o mergeable; aparece no update-branch (PR atrás da main) ou na recusa do merge
 
-  com_migration=0; so_docs=0
+  com_migration=0; so_docs=0; n_critica=0
   arquivos=$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[].filename')
   grep -q '^supabase/migrations/' <<< "$arquivos" && com_migration=1
   # mesma regra do scripts/vercel-ignore.mjs: sem preview para PR só de .md/docs/.github
@@ -871,9 +877,12 @@ for n in $fila; do
   if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then
     # Crítica = tem a etiqueta SENSIVEL (o classificador de conteúdo, mais abaixo, é o backstop: migration crítica SEM
     # etiqueta é rotulada + pulada antes de mergear). Só o crítico é segurado pelo @pos de outra crítica; aditivo segue.
-    n_critica=0; jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null 2>&1 && n_critica=1
+    jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null 2>&1 && n_critica=1
     if [ "$deploy_travado" = 1 ]; then log "#$n tem migration: deploy-migrations da main não está verde — espera (todas as migrations)"; continue; fi
     if [ "$critica_na_main" = 1 ] && [ "$n_critica" = 1 ]; then log "#$n tem migration CRÍTICA: espera o @pos da crítica anterior (aditivas seguem)"; continue; fi
+    # cautela no crítico (CEO 23/10): no MESMO lote, no máximo LOTE_MIG_CRIT_MAX migration(s) crítica(s). O aditivo bate até
+    # LOTE_MIG_MAX; a crítica excedente espera a próxima rodada (cada crítica tem o veredito do @pos sem se misturar com as outras).
+    if [ "$n_critica" = 1 ] && [ "$lote_mig_crit_n" -ge "$LOTE_MIG_CRIT_MAX" ]; then log "#$n tem migration CRÍTICA: já há $lote_mig_crit_n no lote (teto LOTE_MIG_CRIT_MAX=$LOTE_MIG_CRIT_MAX) — cautela no crítico, espera a próxima rodada"; continue; fi
     if [ "$merges" -gt 0 ] && [ "$lote_mig_n" = 0 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
     if [ "$lote_mig_n" -gt 0 ]; then
       baixar_sql_migrations "$n" "$sha" || true
@@ -1009,6 +1018,7 @@ for n in $fila; do
       # migration: publica e abre/segue o LOTE de migrations independentes (até LOTE_MIG_MAX); fechado o lote, ENCERRA a rodada
       # (a próxima migration espera o deploy + @pos-migration do lote)
       lote_mig_n=$((lote_mig_n + 1)); merges=$((merges + 1))
+      [ "$n_critica" = 1 ] && lote_mig_crit_n=$((lote_mig_crit_n + 1))   # cautela no crítico: conta as críticas do lote (teto LOTE_MIG_CRIT_MAX)
       [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
       lote_mig_sqls+=("$TMPF/mig/$n.sql")
       log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: lote de migrations $lote_mig_n/$LOTE_MIG_MAX"
