@@ -10,7 +10,7 @@ const iso = (t: number) => new Date(t).toISOString().slice(0, 10)
 const dur = (a: string, b: string) => Math.round((ms(b) - ms(a)) / DIA) + 1
 
 /** Fração (0..1) da tarefa que deveria estar pronta no fim do dia `d`, distribuída linearmente entre início e fim. */
-function fracao(ini: string, fim: string, d: string): number {
+export function fracaoPlanejada(ini: string, fim: string, d: string): number {
   const f = (ms(d) - ms(ini) + DIA) / (dur(ini, fim) * DIA)
   return Math.min(1, Math.max(0, f))
 }
@@ -21,7 +21,7 @@ export function planejadoEm(tarefas: TarefaCurva[], d: string): number {
   for (const t of tarefas) {
     const ini = t.inicio_base ?? t.inicio, fim = t.fim_base ?? t.fim
     const p = dur(ini, fim)
-    peso += p; feito += p * fracao(ini, fim, d)
+    peso += p; feito += p * fracaoPlanejada(ini, fim, d)
   }
   return peso > 0 ? (feito / peso) * 100 : 0
 }
