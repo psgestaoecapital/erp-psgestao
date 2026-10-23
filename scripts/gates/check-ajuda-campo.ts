@@ -16,16 +16,10 @@ const PENDENTES = [
   'src/app/dashboard/projetos/catalogo/page.tsx',
   'src/app/dashboard/projetos/configuracoes/page.tsx',
   'src/app/dashboard/projetos/engenharia/page.tsx',
-  'src/app/dashboard/projetos/insumos/page.tsx',
   'src/app/dashboard/projetos/oportunidades/OportunidadeFormModal.tsx',
   'src/app/dashboard/projetos/oportunidades/OportunidadesKanban.tsx',
   'src/app/dashboard/projetos/oportunidades/[id]/page.tsx',
   'src/app/dashboard/projetos/takeoff/page.tsx',
-  'src/components/projetos/BdiSlider.tsx',
-  'src/components/projetos/CatalogoForm.tsx',
-  'src/components/projetos/MaoObraCatalogoLegado.tsx',
-  'src/components/projetos/PrecificacaoConfigPanel.tsx',
-  'src/components/projetos/ProdutividadePanel.tsx',
 ]
 const MAX_PENDENTES = 21   // tamanho da lista no dia da regra (01/10) — não pode crescer
 

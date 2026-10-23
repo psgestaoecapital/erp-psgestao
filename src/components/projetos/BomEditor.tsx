@@ -7,8 +7,11 @@
 import { useState } from "react";
 import { Plus, Trash2, Package, HardHat, Wrench, Loader2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
-import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { SeletorItemModal, type ItemEscolhido, type TipoItem } from "./SeletorItemModal";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+// RD-95: o "?" lê os textos da ficha do serviço (rota dinâmica → rota fixa em erp_ajuda_campo)
+const ROTA_AJUDA_SERVICO = "/dashboard/projetos/catalogo/[id]";
 
 export interface BomLinha {
   id: string;
@@ -180,9 +183,13 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
             <tr>
               <th className="px-3 py-2 text-left">Tipo</th>
               <th className="px-3 py-2 text-left">Item</th>
-              <th className="px-3 py-2 text-right">Qtd <AjudaCampo chave="projetos.servico_bom.quantidade" rota="/dashboard/projetos/catalogo/servico" /></th>
+              <th className="px-3 py-2 text-right">
+                <span className="inline-flex items-center gap-1">Qtd <AjudaCampo chave="projetos.catalogo.bom.quantidade" rota={ROTA_AJUDA_SERVICO} /></span>
+              </th>
               <th className="px-3 py-2 text-left">Un</th>
-              <th className="px-3 py-2 text-right">Perda % <AjudaCampo chave="projetos.servico_bom.perda" rota="/dashboard/projetos/catalogo/servico" /></th>
+              <th className="px-3 py-2 text-right">
+                <span className="inline-flex items-center gap-1">Perda % <AjudaCampo chave="projetos.catalogo.bom.perda" rota={ROTA_AJUDA_SERVICO} /></span>
+              </th>
               <th className="px-3 py-2 text-right">Custo unit.</th>
               <th className="px-3 py-2 text-right">Custo total</th>
               <th className="px-3 py-2"></th>
@@ -221,6 +228,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
                       type="text"
                       inputMode="decimal"
                       value={editQtd !== undefined ? editQtd : (linha.quantidade ?? "").toString()}
+                      aria-label={`Quantidade de ${linha.item_nome ?? "item"}`}
                       onChange={(e) => setEdit(linha.id, "qtd", e.target.value)}
                       onBlur={() => commitEdit(linha, "qtd")}
                       onKeyDown={(e) => {
@@ -236,6 +244,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
                       type="text"
                       inputMode="decimal"
                       value={editPerda !== undefined ? editPerda : (linha.perda_pct ?? "").toString()}
+                      aria-label={`Perda % de ${linha.item_nome ?? "item"}`}
                       onChange={(e) => setEdit(linha.id, "perda", e.target.value)}
                       onBlur={() => commitEdit(linha, "perda")}
                       onKeyDown={(e) => {

@@ -11,6 +11,7 @@ import { comPrazo } from "@/lib/comPrazo";
 import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/CatalogoTable";
 import { CatalogoForm, type FormField } from "@/components/projetos/CatalogoForm";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 interface Insumo {
   id: string;
@@ -303,9 +304,10 @@ export default function InsumosPage() {
 
   // Schema do form
   const formFields: FormField[] = [
-    { key: "erp_code", label: "Código", type: "text", required: true, placeholder: "INS-1" },
+    { key: "erp_code", ajuda: "projetos.insumos.form.codigo", label: "Código", type: "text", required: true, placeholder: "INS-1" },
     {
       key: "unit",
+      ajuda: "projetos.insumos.form.unidade",
       label: "Unidade",
       type: "select",
       required: true,
@@ -313,6 +315,7 @@ export default function InsumosPage() {
     },
     {
       key: "name",
+      ajuda: "projetos.insumos.form.nome",
       label: "Nome",
       type: "text",
       required: true,
@@ -321,33 +324,38 @@ export default function InsumosPage() {
     },
     {
       key: "category",
+      ajuda: "projetos.insumos.form.categoria",
       label: "Categoria",
       type: "select",
       options: categorias.map((c) => ({ value: c.codigo, label: c.nome })),
     },
     {
       key: "current_cost",
+      ajuda: "projetos.insumos.form.custo",
       label: "Custo atual (R$)",
       type: "number",
       step: "0.01",
       min: 0,
     },
-    { key: "supplier", label: "Fornecedor", type: "text", placeholder: "Nome do fornecedor" },
-    { key: "ncm", label: "NCM", type: "text", placeholder: "00000000" },
+    { key: "supplier", ajuda: "projetos.insumos.form.fornecedor", label: "Fornecedor", type: "text", placeholder: "Nome do fornecedor" },
+    { key: "ncm", ajuda: "projetos.insumos.form.ncm", label: "NCM", type: "text", placeholder: "00000000" },
     {
       key: "especificacao_tecnica",
+      ajuda: "projetos.insumos.form.especificacao",
       label: "Especificação técnica",
       type: "textarea",
       fullWidth: true,
     },
     {
       key: "observacoes",
+      ajuda: "projetos.insumos.form.observacoes",
       label: "Observações",
       type: "textarea",
       fullWidth: true,
     },
     {
       key: "ativo",
+      ajuda: "projetos.insumos.form.status",
       label: "Status",
       type: "radio",
       options: [
@@ -480,7 +488,7 @@ export default function InsumosPage() {
   const empresaNome = empresa?.nome_fantasia || empresa?.razao_social || "—";
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8">
+    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       {/* Header */}
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -503,6 +511,7 @@ export default function InsumosPage() {
             <Upload size={14} />
             {importando ? "Importando…" : "Importar biblioteca"}
           </button>
+          <AjudaCampo chave="projetos.insumos.importar" />
           <button
             onClick={abrirNovo}
             className="inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-4 py-2 text-sm font-medium text-[#FAF7F2] hover:bg-[#3D2314]/90"
@@ -510,6 +519,7 @@ export default function InsumosPage() {
             <Plus size={14} />
             Novo insumo
           </button>
+          <AjudaCampo chave="projetos.insumos.novo" />
         </div>
       </header>
 
@@ -533,11 +543,11 @@ export default function InsumosPage() {
         <>
           {/* Toolbar */}
           <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-[#3D2314]/8 bg-white p-4 shadow-sm md:grid-cols-4">
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-                Buscar
-              </label>
-              <div className="relative">
+            <label className="block md:col-span-2">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Buscar <AjudaCampo chave="projetos.insumos.busca" />
+              </span>
+              <span className="relative block">
                 <Search
                   size={14}
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-[#3D2314]/40"
@@ -549,12 +559,12 @@ export default function InsumosPage() {
                   placeholder="Nome, código ou fornecedor…"
                   className="w-full rounded-lg border border-[#3D2314]/12 bg-white py-2 pl-9 pr-3 text-sm focus:border-[#C8941A] focus:outline-none"
                 />
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-                Categoria
-              </label>
+              </span>
+            </label>
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Categoria <AjudaCampo chave="projetos.insumos.filtro_categoria" />
+              </span>
               <select
                 value={filtroCat}
                 onChange={(e) => setFiltroCat(e.target.value)}
@@ -567,12 +577,12 @@ export default function InsumosPage() {
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
             <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-                  Status
-                </label>
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Status <AjudaCampo chave="projetos.insumos.filtro_status" />
+                </span>
                 <select
                   value={filtroStatus}
                   onChange={(e) => setFiltroStatus(e.target.value as any)}
@@ -582,11 +592,11 @@ export default function InsumosPage() {
                   <option value="inativo">Inativos</option>
                   <option value="todos">Todos</option>
                 </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-                  Origem
-                </label>
+              </label>
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Origem <AjudaCampo chave="projetos.insumos.filtro_origem" />
+                </span>
                 <select
                   value={filtroOrigem}
                   onChange={(e) => setFiltroOrigem(e.target.value as any)}
@@ -596,7 +606,7 @@ export default function InsumosPage() {
                   <option value="manual">Manual</option>
                   <option value="fork">Biblioteca</option>
                 </select>
-              </div>
+              </label>
             </div>
           </div>
 
@@ -662,27 +672,31 @@ export default function InsumosPage() {
               {modalPreco.name} · atual {fmtBRL(modalPreco.current_cost)}
             </p>
 
-            <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-              Novo preço (R$)
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Novo preço (R$) <AjudaCampo chave="projetos.insumos.preco_novo" />
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                min={0}
+                value={novoPreco}
+                onChange={(e) => setNovoPreco(e.target.value)}
+                className="mb-3 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+              />
             </label>
-            <input
-              type="number"
-              step="0.01"
-              min={0}
-              value={novoPreco}
-              onChange={(e) => setNovoPreco(e.target.value)}
-              className="mb-3 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
-            />
 
-            <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-              Data da compra
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Data da compra <AjudaCampo chave="projetos.insumos.preco_data" />
+              </span>
+              <input
+                type="date"
+                value={dataCompra}
+                onChange={(e) => setDataCompra(e.target.value)}
+                className="mb-4 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+              />
             </label>
-            <input
-              type="date"
-              value={dataCompra}
-              onChange={(e) => setDataCompra(e.target.value)}
-              className="mb-4 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
-            />
 
             <p className="mb-4 rounded-lg bg-[#C8941A]/10 p-3 text-xs text-[#3D2314]/70">
               Atualizar este preço dispara recálculo automático dos serviços que usam este insumo.
