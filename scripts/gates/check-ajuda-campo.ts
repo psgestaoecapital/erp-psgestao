@@ -15,7 +15,6 @@ const PENDENTES = [
   'src/app/dashboard/projetos/configuracoes/page.tsx',
   'src/app/dashboard/projetos/engenharia/page.tsx',
   'src/app/dashboard/projetos/oportunidades/OportunidadeFormModal.tsx',
-  'src/app/dashboard/projetos/takeoff/page.tsx',
 ]
 const MAX_PENDENTES = 21   // tamanho da lista no dia da regra (01/10) — não pode crescer
 
