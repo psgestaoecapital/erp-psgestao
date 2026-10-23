@@ -4,7 +4,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Package, Pencil, Trash2, TrendingUp, Upload, Plus, Search } from "lucide-react";
+import { Package, Pencil, Trash2, TrendingUp, Upload, Plus, Search, Link2 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
@@ -31,6 +31,27 @@ interface Insumo {
   ncm?: string | null;
   especificacao_tecnica?: string | null;
   observacoes?: string | null;
+}
+
+// Vínculo do insumo com o produto do estoque do GE integrado (RD-35): o custo vem do estoque.
+interface VinculoGE {
+  insumo_id: string;
+  produto_id: string;
+  usar_maior_custo: boolean;
+  produto_codigo: string | null;
+  produto_nome: string | null;
+  saldo: number | null;
+  custo_estoque: number | null;
+}
+
+interface ProdutoGE {
+  id: string;
+  codigo: string | null;
+  nome: string;
+  unidade: string | null;
+  estoque_atual: number | null;
+  custo_medio: number | null;
+  ultimo_custo: number | null;
 }
 
 interface Categoria {
@@ -90,6 +111,15 @@ export default function InsumosPage() {
   // Importar
   const [importando, setImportando] = useState(false);
 
+  // Estoque GE
+  const [vinculos, setVinculos] = useState<Record<string, VinculoGE>>({});
+  const [modalGE, setModalGE] = useState<Insumo | null>(null);
+  const [buscaGE, setBuscaGE] = useState("");
+  const [produtosGE, setProdutosGE] = useState<ProdutoGE[]>([]);
+  const [buscandoGE, setBuscandoGE] = useState(false);
+  const [maiorCusto, setMaiorCusto] = useState(false);
+  const [ligando, setLigando] = useState(false);
+
   const carregar = useCallback(async () => {
     if (!companyId) {
       setLoading(false);
@@ -125,6 +155,11 @@ export default function InsumosPage() {
         fork_from_publico_id: r.forked_from ?? null,
       })) as Insumo[]);
       setCategorias((catR.data as Categoria[]) || []);
+      // Vínculos com o estoque do GE: complemento — se falhar, a lista segue sem a coluna preenchida.
+      const vinR = await supabase.rpc("fn_hub_insumo_vinculos", { p_company_id: companyId });
+      const mapa: Record<string, VinculoGE> = {};
+      for (const v of ((vinR.data as any)?.vinculos as VinculoGE[]) || []) mapa[v.insumo_id] = v;
+      setVinculos(mapa);
     } catch (e: any) {
       setErro(e.message || "Falha ao carregar insumos");
     } finally {
@@ -264,6 +299,92 @@ export default function InsumosPage() {
       setErro(e.message);
     } finally {
       setSalvandoPreco(false);
+    }
+  }
+
+  // Busca (com atraso) de produtos do estoque para ligar ao insumo.
+  useEffect(() => {
+    if (!modalGE) return;
+    const q = buscaGE.trim();
+    if (q.length < 2) {
+      setProdutosGE([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setBuscandoGE(true);
+      try {
+        const { data, error } = await supabaseBrowser().rpc("fn_hub_insumo_buscar_produtos", {
+          p_insumo_id: modalGE.id,
+          p_busca: q,
+          p_limite: 20,
+        });
+        if (error) throw error;
+        setProdutosGE(((data as any)?.produtos as ProdutoGE[]) || []);
+      } catch (e: any) {
+        setErro(e.message);
+      } finally {
+        setBuscandoGE(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [buscaGE, modalGE]);
+
+  function abrirEstoque(i: Insumo) {
+    setModalGE(i);
+    setBuscaGE("");
+    setProdutosGE([]);
+    setMaiorCusto(vinculos[i.id]?.usar_maior_custo ?? false);
+  }
+
+  // Liga o insumo ao produto e traz o custo real do estoque para o catálogo (recalcula os serviços que o usam).
+  async function ligarProduto(p: ProdutoGE) {
+    if (!modalGE) return;
+    setLigando(true);
+    try {
+      const supabase = supabaseBrowser();
+      const vin = await supabase.rpc("fn_hub_insumo_vincular", {
+        p_insumo_id: modalGE.id,
+        p_produto_id: p.id,
+        p_usar_maior_custo: maiorCusto,
+      });
+      if (vin.error) throw vin.error;
+      if ((vin.data as any)?.ok === false) throw new Error((vin.data as any).erro || "Não foi possível ligar");
+      const cus = await supabase.rpc("fn_hub_insumo_custo", { p_insumo_id: modalGE.id });
+      if (cus.error) throw cus.error;
+      const custo = Number((cus.data as any)?.custo);
+      if (Number.isFinite(custo) && custo > 0 && custo !== Number(modalGE.current_cost ?? 0)) {
+        const up = await supabase.rpc("fn_projetos_atualizar_preco_insumo", {
+          p_insumo_id: modalGE.id,
+          p_novo_preco: custo,
+          p_data_compra: new Date().toISOString().slice(0, 10),
+        });
+        if (up.error) throw up.error;
+      }
+      setAviso(`"${modalGE.name}" ligado ao estoque: ${p.nome}`);
+      setTimeout(() => setAviso(null), 5000);
+      setModalGE(null);
+      await carregar();
+    } catch (e: any) {
+      setErro(e.message);
+    } finally {
+      setLigando(false);
+    }
+  }
+
+  async function desligarProduto() {
+    if (!modalGE) return;
+    setLigando(true);
+    try {
+      const { error } = await supabaseBrowser().rpc("fn_hub_insumo_desvincular", { p_insumo_id: modalGE.id });
+      if (error) throw error;
+      setAviso(`"${modalGE.name}" desligado do estoque (mantém o último custo)`);
+      setTimeout(() => setAviso(null), 5000);
+      setModalGE(null);
+      await carregar();
+    } catch (e: any) {
+      setErro(e.message);
+    } finally {
+      setLigando(false);
     }
   }
 
@@ -443,6 +564,21 @@ export default function InsumosPage() {
       },
     },
     {
+      key: "estoque",
+      label: "Estoque (GE)",
+      hiddenOnMobile: true,
+      render: (i) => {
+        const v = vinculos[i.id];
+        if (!v) return <span className="text-xs text-[#3D2314]/40">sem ligação</span>;
+        return (
+          <div className="text-xs">
+            <div className="font-medium text-[#3D2314]">{v.produto_codigo ? `${v.produto_codigo} · ` : ""}{v.produto_nome}</div>
+            <div className="text-[#3D2314]/60">saldo {v.saldo ?? 0} · custo {fmtBRL(v.custo_estoque)}</div>
+          </div>
+        );
+      },
+    },
+    {
       key: "uso",
       label: "Em uso",
       align: "center",
@@ -462,6 +598,14 @@ export default function InsumosPage() {
 
   const acoes = (i: Insumo) => (
     <div className="flex items-center justify-end gap-1">
+      <button
+        onClick={() => abrirEstoque(i)}
+        className={`rounded-lg p-1.5 hover:bg-[#3D2314]/5 hover:text-[#3D2314] ${vinculos[i.id] ? "text-emerald-700" : "text-[#3D2314]/60"}`}
+        title={vinculos[i.id] ? "Trocar produto do estoque" : "Ligar ao estoque"}
+      >
+        <Link2 size={14} />
+      </button>
+      <AjudaCampo chave="projetos.insumos.estoque" />
       <button
         onClick={() => {
           setModalPreco(i);
@@ -659,6 +803,80 @@ export default function InsumosPage() {
             ) : null
           }
         />
+      )}
+
+      {/* Modal estoque GE */}
+      {modalGE && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-[#3D2314]/60 p-0 sm:items-center sm:p-4"
+          onClick={() => setModalGE(null)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-1 text-lg font-semibold text-[#3D2314]">Ligar ao estoque</h3>
+            <p className="mb-4 text-sm text-[#3D2314]/60">
+              {modalGE.name}
+              {vinculos[modalGE.id] ? ` · hoje: ${vinculos[modalGE.id].produto_nome}` : " · sem ligação"}
+            </p>
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Buscar produto do estoque <AjudaCampo chave="projetos.insumos.estoque_busca" />
+              </span>
+              <input
+                type="text"
+                autoFocus
+                value={buscaGE}
+                onChange={(e) => setBuscaGE(e.target.value)}
+                placeholder="Nome ou código do produto…"
+                className="mb-3 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+              />
+            </label>
+            <label className="mb-3 flex items-center gap-2 text-sm text-[#3D2314]">
+              <input type="checkbox" checked={maiorCusto} onChange={(e) => setMaiorCusto(e.target.checked)} />
+              Usar o maior custo (médio × última compra)
+              <AjudaCampo chave="projetos.insumos.estoque_maior" />
+            </label>
+            <ul className="mb-4 divide-y divide-[#3D2314]/8 rounded-lg border border-[#3D2314]/8">
+              {buscandoGE && <li className="p-3 text-sm text-[#3D2314]/60">Buscando…</li>}
+              {!buscandoGE && buscaGE.trim().length >= 2 && produtosGE.length === 0 && (
+                <li className="p-3 text-sm text-[#3D2314]/60">Nenhum produto encontrado no estoque.</li>
+              )}
+              {produtosGE.map((p) => (
+                <li key={p.id}>
+                  <button
+                    disabled={ligando}
+                    onClick={() => ligarProduto(p)}
+                    className="flex w-full items-center justify-between gap-3 p-3 text-left hover:bg-[#FAF7F2] disabled:opacity-50"
+                  >
+                    <span>
+                      <span className="block text-sm font-medium text-[#3D2314]">{p.nome}</span>
+                      <span className="block text-xs text-[#3D2314]/60">
+                        {p.codigo || "sem código"} · saldo {p.estoque_atual ?? 0} {p.unidade || ""}
+                      </span>
+                    </span>
+                    <span className="font-mono text-sm text-[#3D2314]">{fmtBRL(p.custo_medio)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2">
+              <button onClick={() => setModalGE(null)} className="flex-1 rounded-lg bg-[#FAF7F2] py-2 text-sm text-[#3D2314]">
+                Fechar
+              </button>
+              {vinculos[modalGE.id] && (
+                <button
+                  onClick={desligarProduto}
+                  disabled={ligando}
+                  className="flex-1 rounded-lg border border-red-200 py-2 text-sm text-red-700 disabled:opacity-50"
+                >
+                  Desligar
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal preço */}
