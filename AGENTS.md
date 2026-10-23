@@ -204,9 +204,12 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
 - **(d) Fila de merge** (`.github/workflows/fila-merge.yml` + `scripts/merge/fila-merge.sh`, sem polling): a fila pega
   **toda PR Ready** (não-draft) na `main` em ordem de entrada: atualiza com a `main` (merge, sem reescrever histórico),
   espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido).
-  **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6);
-  **PR COM migration continua UMA por rodada** e encerra a rodada (a próxima migration espera o deploy + `@pos-migration`
-  da `main`).
+  **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6).
+  **LOTE DE MIGRATIONS (CEO 16/10, tetos revistos 23/10):** numa rodada a fila publica migrations **INDEPENDENTES** entre si
+  (`scripts/merge/migrations-independentes.ts`; qualquer dúvida → 1), com DOIS tetos — **`LOTE_MIG_MAX` (padrão 6)** para o
+  conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 1)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`). Ou seja: as **ADITIVAS**
+  escalam (até 6/rodada), a **CRÍTICA** fica em **1 por rodada** (cada uma com seu veredito de `@pos`, sem se misturar). O
+  `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo, 1 migration/rodada).
   **ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10):** a serialização de migration é em 2 níveis.
   `deploy-migrations` da `main` não-verde segura **TODAS** as migrations (não dá para aplicar nada). O `@pos-migration` de
   uma migration **CRÍTICA** (via revisada) em andamento/vermelho segura só as **OUTRAS CRÍTICAS** — a migration **ADITIVA**
