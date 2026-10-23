@@ -9,6 +9,7 @@ import OportunidadeFormModal, { type OportunidadeRow } from '../OportunidadeForm
 import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
 import AnexosCard from '@/components/crm/AnexosCard'
 import { telefoneDoCliente, linkTelefone } from '@/lib/crm/oportunidadeCliente'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Oport = {
   id: string
@@ -364,6 +365,7 @@ export default function OportunidadeFichaPage() {
           >
             {ETAPAS.map((e) => <option key={e.v} value={e.v}>Mover para: {e.l}</option>)}
           </select>
+          <AjudaCampo chave="projetos.oportunidade.ficha.etapa" rota="/dashboard/projetos/oportunidades/[id]" />
           {respNome && <span className="text-sm ml-auto" style={{ color: TEXTM }}>resp: {respNome}</span>}
         </div>
         {op.motivo_perda && (
@@ -378,6 +380,7 @@ export default function OportunidadeFichaPage() {
                 <option key={e.v} value={e.v}>{e.l}</option>
               ))}
             </select>
+            <AjudaCampo chave="projetos.oportunidade.ficha.retornar_funil" rota="/dashboard/projetos/oportunidades/[id]" />
             <button onClick={retornarFunil} style={btnSec}>Retornar</button>
             <span className="text-xs" style={{ color: TEXTM }}>o valor é preservado; só reabre a negociação.</span>
           </div>
@@ -674,13 +677,13 @@ function NovaInteracaoModal({
           <button onClick={onClose} style={closeBtn} aria-label="Fechar">✕</button>
         </div>
         <label style={lbl}>
-          Tipo
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Tipo <AjudaCampo chave="projetos.oportunidade.interacao.tipo" rota="/dashboard/projetos/oportunidades/[id]" /></span>
           <select value={tipo} onChange={(e) => setTipo(e.target.value as typeof TIPOS_INT[number])} style={inp}>
             {TIPOS_INT.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </label>
         <label style={{ ...lbl, marginTop: 10 }}>
-          Descrição *
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Descrição * <AjudaCampo chave="projetos.oportunidade.interacao.descricao" rota="/dashboard/projetos/oportunidades/[id]" /></span>
           <textarea
             rows={4}
             value={descricao}
