@@ -15,6 +15,7 @@ import OSNotasFiscaisSelo from '@/components/comum/OSNotasFiscaisSelo'   // cham
 import OSNFForaDaOS from '@/components/comum/OSNFForaDaOS'   // chamado #2167 · marcação "NF fora da OS"
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
+import { useOficinaRamo } from '@/lib/oficina/ramo'   // HB0 item 6 · campos de oficina só no ramo automotivo
 import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
@@ -187,6 +188,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const podeAjustarEntregue = isMaster || isBpo             // BUG #16b: Master OU BPO ajustam pós-entrega
   const bloqueadoEntrega = Boolean(entregue && !podeAjustarEntregue)
   const roEntrega = bloqueadoEntrega                         // readOnly nos campos quando bloqueado
+  const { config: ramoCfg, carregado: ramoCarregado } = useOficinaRamo(os?.company_id ?? null)
+  const mostraPlaca = !ramoCarregado || ramoCfg.automotivo   // desconhecido/carregando = automotiva (regressão zero)
   const oficina = useOficinaModelo(os?.company_id ?? null)   // #135 · modelo de atendimento da empresa da OS
   const tipEntrega = 'OS entregue — ajustes só por Master ou BPO.'
 
@@ -683,7 +686,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
 
       {/* #121 · placa editável (erro de digitação ao abrir a OS). Mesma RPC do pátio (fn_oficina_os_set_placa):
           normaliza (maiúsculas, sem traço) e exige ≥ 5 caracteres. Salva na hora, separado do "Salvar" da ficha. */}
-      <div style={{ display: 'block' }}>
+      {mostraPlaca && <div style={{ display: 'block' }}>
         <span style={lbl}>Placa</span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
@@ -717,7 +720,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           )}
         </div>
         {msgPlaca && <div data-testid="os-placa-msg" style={{ fontSize: 12, marginTop: 4, color: msgPlaca.startsWith('Placa SALVA') ? C.green : C.red }}>{msgPlaca}</div>}
-      </div>
+      </div>}
 
       {/* FIX 1 · cliente editável em qualquer status + re-vínculo a outro cadastro */}
       <div style={{ display: 'block' }}>
