@@ -18,6 +18,7 @@ import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-t
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 import { empresaDoPedidoRobo } from '@/lib/gold/empresaDoPedidoRobo';
+import { watcherSecretValido } from '@/lib/watcherSecret'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -245,8 +246,7 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
 }
 
 export async function POST(req: Request) {
-  const expected = process.env.WATCHER_SECRET;
-  if (!expected || req.headers.get('x-watcher-secret') !== expected) {
+  if (!watcherSecretValido(req.headers.get('x-watcher-secret'))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
