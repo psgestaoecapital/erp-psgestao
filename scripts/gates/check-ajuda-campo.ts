@@ -14,7 +14,6 @@ import ts from 'typescript'
 const PENDENTES = [
   'src/app/dashboard/projetos/configuracoes/page.tsx',
   'src/app/dashboard/projetos/engenharia/page.tsx',
-  'src/app/dashboard/projetos/oportunidades/OportunidadeFormModal.tsx',
 ]
 const MAX_PENDENTES = 21   // tamanho da lista no dia da regra (01/10) — não pode crescer
 
