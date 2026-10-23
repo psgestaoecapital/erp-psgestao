@@ -311,7 +311,7 @@ BASELINE_MAIN_FIM='2026-10-18T17:35:00Z'
 baseline_main_ativa() { return 0; }
 # specs que falharam na última aceitação da main (vazio = regra desligada: main verde, sem run ou ilegível). Um por linha.
 baseline_main_specs() {
-  local r id conc
+  local r id= conc=
   if [ "${FILA_BASELINE_MAIN_SPECS+x}" = x ]; then printf '%s\n' "$FILA_BASELINE_MAIN_SPECS" | sed '/^$/d' | sort -u; return 0; fi
   baseline_main_ativa || return 0
   # só conta run em que a suíte RODOU (job aceitacao-main success/failure): run só com o "decide" e a suíte pulada
