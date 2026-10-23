@@ -5,7 +5,7 @@
 // (ensina) / dados. Linguagem da casa (CONCLUIU obra) · identidade Espresso · mobile-first.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { HardHat, Receipt } from 'lucide-react'
+import { AlertTriangle, HardHat, Receipt, X } from 'lucide-react'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
@@ -94,17 +94,25 @@ export default function ObrasPage() {
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>Hub · Construção</div>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 6px' }}>Obras</h1>
-        <Link href="/dashboard/projetos/obras/nova?area=hub" data-testid="link-nova-obra" style={{ display: 'inline-block', margin: '0 14px 14px 0', fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>+ Nova obra</Link>
-        <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="link-resultado-obra" style={{ display: 'inline-block', margin: '0 0 14px', fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>Ver resultado por obra</Link>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <Link href="/dashboard/projetos/obras/nova?area=hub" data-testid="link-nova-obra" style={{ fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>+ Nova obra</Link>
+            <AjudaCampo chave="projetos.obras.nova_obra" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="link-resultado-obra" style={{ fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>Ver resultado por obra</Link>
+            <AjudaCampo chave="projetos.obras.link_resultado" />
+          </span>
+        </div>
 
         {msg && <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 12, background: msg.startsWith('Erro') ? '#FBEAEA' : '#EAF5EE', color: msg.startsWith('Erro') ? VERM : VERDE, border: `0.5px solid ${LINE}` }}>{msg}</div>}
 
         {/* KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginBottom: 16 }}>
-          <PSGCMetric label="Em andamento" valor={kpis?.em_andamento ?? 0} icon="🏗️" cor={GOLD} corBg="#FFF" />
-          <PSGCMetric label="Concluídas" valor={kpis?.concluidas ?? 0} icon="✅" cor={VERDE} corBg="#FFF" />
-          <PSGCMetric label="Valor em andamento" valor={fmtR(kpis?.valor_em_andamento ?? 0)} icon="💰" cor={ESP} corBg="#FFF" />
-          <PSGCMetric label="Valor concluído" valor={fmtR(kpis?.valor_concluido ?? 0)} icon="🏁" cor={VERDE} corBg="#FFF" />
+          <Kpi chave="projetos.obras.kpi_em_andamento"><PSGCMetric label="Em andamento" valor={kpis?.em_andamento ?? 0} cor={GOLD} corBg="#FFF" /></Kpi>
+          <Kpi chave="projetos.obras.kpi_concluidas"><PSGCMetric label="Concluídas" valor={kpis?.concluidas ?? 0} cor={VERDE} corBg="#FFF" /></Kpi>
+          <Kpi chave="projetos.obras.kpi_valor_andamento"><PSGCMetric label="Valor em andamento" valor={fmtR(kpis?.valor_em_andamento ?? 0)} cor={ESP} corBg="#FFF" /></Kpi>
+          <Kpi chave="projetos.obras.kpi_valor_concluido"><PSGCMetric label="Valor concluído" valor={fmtR(kpis?.valor_concluido ?? 0)} cor={VERDE} corBg="#FFF" /></Kpi>
         </div>
 
         {/* ESTADO: erro */}
@@ -125,11 +133,12 @@ export default function ObrasPage() {
         ) : (
           /* ESTADO: dados */
           <>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Tab ativo={aba === 'principais'} onClick={() => setAba('principais')}>Em andamento · Concluídas</Tab>
               {(grupos.pausada.length + grupos.cancelada.length > 0) && (
                 <Tab ativo={aba === 'outras'} onClick={() => setAba('outras')}>Pausadas · Canceladas ({grupos.pausada.length + grupos.cancelada.length})</Tab>
               )}
+              <AjudaCampo chave="projetos.obras.abas" />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, alignItems: 'start' }}>
               {aba === 'principais' ? (
@@ -195,7 +204,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
 
       <ResultadoObra r={receita} />
 
-      <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
         <button onClick={() => onAbrir(o)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${GOLD}`, background: '#FBF4E4', color: '#A57A15' }}>
           Ver escopo
         </button>
@@ -212,6 +221,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
             {p.l}
           </button>
         ))}
+        <AjudaCampo chave="projetos.obras.acoes_card" />
       </div>
     </div>
   )
@@ -229,7 +239,7 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
   )
   return (
     <div data-testid="obra-resultado" style={{ marginTop: 10, background: BG, border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px' }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: ESP, marginBottom: 4 }}>Resultado da obra</div>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: ESP, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 2 }}>Resultado da obra<AjudaCampo chave="projetos.obras.resultado_card" /></div>
       {r === undefined ? (
         <div style={{ fontSize: 11.5, color: MUT }}>Não deu para carregar o faturado agora.</div>
       ) : (
@@ -246,6 +256,16 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+// Indicador do topo com o "?" (RD-95) no canto, sem mexer no PSGCMetric compartilhado
+function Kpi({ chave, children }: { chave: string; children: React.ReactNode }) {
+  return (
+    <div style={{ position: 'relative' }}>
+      {children}
+      <span style={{ position: 'absolute', top: 8, right: 8 }}><AjudaCampo chave={chave} /></span>
     </div>
   )
 }
@@ -321,7 +341,7 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
       <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 900 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '14px 14px 0 0', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>{obra.numero} · Escopo da obra</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 18 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'inline-flex' }} aria-label="Fechar"><X size={18} aria-hidden /></button>
         </div>
         <div style={{ padding: 16 }}>
           {/* Cabeçalho: contratado · medido (%) · a medir · centro de custo */}
@@ -437,7 +457,7 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
       <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 640 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '14px 14px 0 0' }}>
           <div style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>{obra.numero} · Dados fiscais da obra</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 18 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'inline-flex' }} aria-label="Fechar"><X size={18} aria-hidden /></button>
         </div>
         <div style={{ padding: 16 }}>
           <div style={{ fontSize: 12, color: MUT, marginBottom: 12, lineHeight: 1.5 }}>
@@ -451,7 +471,7 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
                 {campo('Código de obra municipal (se o município usar)', 'codigo_obra_municipal', '', 'projetos.obras.fiscal_codigo_municipal')}
                 {campo('ART / RRT (opcional)', 'art', '', 'projetos.obras.fiscal_art')}
               </div>
-              {!temId && <div style={{ fontSize: 11.5, color: '#B45309', marginBottom: 12 }}>⚠️ Falta o CNO ou o código municipal — sem um dos dois a nota de construção não sai.</div>}
+              {!temId && <div style={{ fontSize: 11.5, color: '#B45309', marginBottom: 12, display: 'flex', gap: 6, alignItems: 'flex-start' }}><AlertTriangle size={14} aria-hidden style={{ flexShrink: 0, marginTop: 1 }} /><span>Falta o CNO ou o código municipal — sem um dos dois a nota de construção não sai.</span></div>}
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 8 }}>Endereço da obra</div>
               {/* #82/CEP · o IBGE nasce do CEP (nunca digitado) — fecha o erro que mandava ISS pro estado errado */}
               <CepEndereco
