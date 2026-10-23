@@ -9,6 +9,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { Building2, User } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -180,6 +182,7 @@ export default function ClientesPage() {
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
         <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome, documento, cidade, contato…" style={{ ...inp, flex: 1, minWidth: 200 }} />
+        <AjudaCampo chave="projetos.clientes.busca" />
         <button onClick={() => setForm({ ...VAZIO })} style={btnGold}>+ Novo cliente</button>
       </div>
 
@@ -248,30 +251,31 @@ export default function ClientesPage() {
             <div style={{ fontSize: 16, fontWeight: 700, color: ESP, marginBottom: 2 }}>{form.id ? 'Editar cliente' : 'Novo cliente'}</div>
             <div style={{ fontSize: 11, color: MUT, marginBottom: 14 }}>Cadastro de cliente de obra (PF ou PJ).</div>
 
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center' }}>
               {(['PJ', 'PF'] as const).map((t) => (
                 <button key={t} onClick={() => setForm({ ...form, tipo_pessoa: t })} style={{ flex: 1, padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: `1px solid ${form.tipo_pessoa === t ? GOLD : LINE}`, background: form.tipo_pessoa === t ? 'rgba(200,148,26,0.10)' : '#FFF', color: form.tipo_pessoa === t ? GOLD_D : MUT }}>
-                  {t === 'PJ' ? '🏢 Pessoa Jurídica' : '👤 Pessoa Física'}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{t === 'PJ' ? <><Building2 size={14} />Pessoa Jurídica</> : <><User size={14} />Pessoa Física</>}</span>
                 </button>
               ))}
+              <AjudaCampo chave="projetos.clientes.tipo_pessoa" />
             </div>
 
-            <Campo label={form.tipo_pessoa === 'PF' ? 'Nome completo *' : 'Nome fantasia *'} v={form.nome_fantasia ?? ''} on={(v) => setForm({ ...form, nome_fantasia: v })} />
-            {form.tipo_pessoa === 'PJ' && <Campo label="Razão social" v={form.razao_social ?? ''} on={(v) => setForm({ ...form, razao_social: v })} />}
-            <Campo label={docLabel(form.tipo_pessoa ?? 'PJ')} v={form.cpf_cnpj ?? ''} on={(v) => setForm({ ...form, cpf_cnpj: v })} />
+            <Campo label={form.tipo_pessoa === 'PF' ? 'Nome completo *' : 'Nome fantasia *'} ajuda="projetos.clientes.nome" v={form.nome_fantasia ?? ''} on={(v) => setForm({ ...form, nome_fantasia: v })} />
+            {form.tipo_pessoa === 'PJ' && <Campo label="Razão social" ajuda="projetos.clientes.razao_social" v={form.razao_social ?? ''} on={(v) => setForm({ ...form, razao_social: v })} />}
+            <Campo label={docLabel(form.tipo_pessoa ?? 'PJ')} ajuda="projetos.clientes.documento" v={form.cpf_cnpj ?? ''} on={(v) => setForm({ ...form, cpf_cnpj: v })} />
             <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ flex: 1 }}><Campo label="Telefone" v={form.telefone ?? ''} on={(v) => setForm({ ...form, telefone: v })} /></div>
-              <div style={{ flex: 1 }}><Campo label="E-mail" v={form.email ?? ''} on={(v) => setForm({ ...form, email: v })} /></div>
+              <div style={{ flex: 1 }}><Campo label="Telefone" ajuda="projetos.clientes.telefone" v={form.telefone ?? ''} on={(v) => setForm({ ...form, telefone: v })} /></div>
+              <div style={{ flex: 1 }}><Campo label="E-mail" ajuda="projetos.clientes.email" v={form.email ?? ''} on={(v) => setForm({ ...form, email: v })} /></div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ flex: 1 }}><Campo label="CEP" v={form.cep ?? ''} on={(v) => setForm({ ...form, cep: v })} /></div>
-              <div style={{ flex: 2 }}><Campo label="Logradouro" v={form.logradouro ?? ''} on={(v) => setForm({ ...form, logradouro: v })} /></div>
-              <div style={{ width: 80 }}><Campo label="Nº" v={form.numero ?? ''} on={(v) => setForm({ ...form, numero: v })} /></div>
+              <div style={{ flex: 1 }}><Campo label="CEP" ajuda="projetos.clientes.cep" v={form.cep ?? ''} on={(v) => setForm({ ...form, cep: v })} /></div>
+              <div style={{ flex: 2 }}><Campo label="Logradouro" ajuda="projetos.clientes.logradouro" v={form.logradouro ?? ''} on={(v) => setForm({ ...form, logradouro: v })} /></div>
+              <div style={{ width: 80 }}><Campo label="Nº" ajuda="projetos.clientes.numero" v={form.numero ?? ''} on={(v) => setForm({ ...form, numero: v })} /></div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ flex: 1 }}><Campo label="Bairro" v={form.bairro ?? ''} on={(v) => setForm({ ...form, bairro: v })} /></div>
-              <div style={{ flex: 1 }}><Campo label="Cidade" v={form.cidade ?? ''} on={(v) => setForm({ ...form, cidade: v })} /></div>
-              <div style={{ width: 64 }}><Campo label="UF" v={form.uf ?? ''} on={(v) => setForm({ ...form, uf: v })} /></div>
+              <div style={{ flex: 1 }}><Campo label="Bairro" ajuda="projetos.clientes.bairro" v={form.bairro ?? ''} on={(v) => setForm({ ...form, bairro: v })} /></div>
+              <div style={{ flex: 1 }}><Campo label="Cidade" ajuda="projetos.clientes.cidade" v={form.cidade ?? ''} on={(v) => setForm({ ...form, cidade: v })} /></div>
+              <div style={{ width: 64 }}><Campo label="UF" ajuda="projetos.clientes.uf" v={form.uf ?? ''} on={(v) => setForm({ ...form, uf: v })} /></div>
             </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
@@ -301,10 +305,10 @@ function Casca({ children }: { children: React.ReactNode }) {
 function Box({ children }: { children: React.ReactNode }) {
   return <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>{children}</div>
 }
-function Campo({ label, v, on }: { label: string; v: string; on: (v: string) => void }) {
+function Campo({ label, ajuda, v, on }: { label: string; ajuda: string; v: string; on: (v: string) => void }) {
   return (
     <label style={{ display: 'block', marginBottom: 10 }}>
-      <span style={{ display: 'block', fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{label}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{label}<AjudaCampo chave={ajuda} /></span>
       <input value={v} onChange={(e) => on(e.target.value)} style={{ ...inp, width: '100%' }} />
     </label>
   )

@@ -7,6 +7,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
 import OportunidadesKanban from './OportunidadesKanban'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Row = {
   id: string
@@ -200,20 +201,29 @@ export default function OportunidadesPage() {
 
       {/* Filtros herdados da antiga Lista — agora sempre visíveis (Kanban é a única visão) */}
       <div className="flex flex-wrap gap-2 mb-3 items-center">
-        <select value={filtroEtapa} onChange={(e) => setFiltroEtapa(e.target.value)} style={selSt}>
-          <option value="todas">Todas as etapas</option>
-          {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
-        </select>
-        <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={selSt}>
-          <option value="todos">Todos os responsáveis</option>
-          {responsaveis.map((u) => <option key={u.id} value={u.id}>{labelUsuario(u, responsaveis)}</option>)}
-        </select>
-        <input
-          placeholder="Buscar por título ou cliente…"
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          style={{ ...selSt, minWidth: 200, flex: 1 }}
-        />
+        <span className="inline-flex items-center gap-1">
+          <select aria-label="Filtrar por etapa" value={filtroEtapa} onChange={(e) => setFiltroEtapa(e.target.value)} style={selSt}>
+            <option value="todas">Todas as etapas</option>
+            {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
+          </select>
+          <AjudaCampo chave="projetos.oportunidades.filtro_etapa" />
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <select aria-label="Filtrar por responsável" value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={selSt}>
+            <option value="todos">Todos os responsáveis</option>
+            {responsaveis.map((u) => <option key={u.id} value={u.id}>{labelUsuario(u, responsaveis)}</option>)}
+          </select>
+          <AjudaCampo chave="projetos.oportunidades.filtro_responsavel" />
+        </span>
+        <span className="flex flex-1 items-center gap-1" style={{ minWidth: 200 }}>
+          <input
+            placeholder="Buscar por título ou cliente…"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            style={{ ...selSt, minWidth: 0, flex: 1 }}
+          />
+          <AjudaCampo chave="projetos.oportunidades.busca" />
+        </span>
         {loading && <span className="text-xs opacity-60">Carregando…</span>}
         <span className="text-xs opacity-60 ml-auto">{countKanban} oportunidade(s)</span>
       </div>

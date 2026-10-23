@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Calculator, Loader2, AlertTriangle } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 type Linha = { id: string; nome: string };
 type Produto = { servico_id: string; nome: string; unidade: string | null; categoria: string | null; business_line_id: string | null };
@@ -99,21 +100,21 @@ export default function SimuladorPage() {
       {/* Entrada */}
       <section className="mb-6 grid grid-cols-1 gap-3 rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm sm:grid-cols-4">
         <label className="block sm:col-span-1">
-          <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">Linha de negócio</span>
+          <span className="mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/55">Linha de negócio<AjudaCampo chave="projetos.simulador.linha" /></span>
           <select value={fLinha} onChange={(e) => { setFLinha(e.target.value); setMontagemId(""); }} className={selCls}>
             <option value="">Todas</option>
             {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
           </select>
         </label>
         <label className="block sm:col-span-2">
-          <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">Montagem</span>
+          <span className="mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/55">Montagem<AjudaCampo chave="projetos.simulador.montagem" /></span>
           <select value={montagemId} onChange={(e) => setMontagemId(e.target.value)} className={selCls} disabled={loadingCat}>
             <option value="">{loadingCat ? "Carregando…" : "Escolha a montagem…"}</option>
             {montagens.map((m) => <option key={m.servico_id} value={m.servico_id}>{m.nome}{m.categoria ? ` · ${m.categoria}` : ""}</option>)}
           </select>
         </label>
         <label className="block sm:col-span-1">
-          <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">Metragem ({montagemSel?.unidade || "m²"})</span>
+          <span className="mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/55">Metragem ({montagemSel?.unidade || "m²"})<AjudaCampo chave="projetos.simulador.metragem" /></span>
           <input inputMode="decimal" value={area} onChange={(e) => setArea(e.target.value.replace(/[^\d.,]/g, ""))} placeholder="100" className={`${selCls} text-right font-mono`} />
         </label>
       </section>
