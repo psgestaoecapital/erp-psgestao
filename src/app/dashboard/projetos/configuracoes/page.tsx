@@ -463,14 +463,14 @@ export default function ConfiguracoesPage() {
           <div className="space-y-2.5">
             <BdiSlider
               label="Administração Central (AC)"
-              hint="Custos da estrutura administrativa rateados sobre a obra (escritório, gestão, RH)."
+              ajuda="projetos.bdi.administracao_central"
               valor={config.bdi_administracao_central_pct}
               onChange={(v) => setField("bdi_administracao_central_pct", v)}
               cor="gray"
             />
             <BdiSlider
               label="Seguros (SG)"
-              hint="Seguro garantia, seguro de obras civis e responsabilidade civil."
+              ajuda="projetos.bdi.seguros"
               valor={config.bdi_seguros_pct}
               onChange={(v) => setField("bdi_seguros_pct", v)}
               cor="gray"
@@ -478,7 +478,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Riscos (RI)"
-              hint="Provisão para imprevistos, retrabalhos, variação cambial."
+              ajuda="projetos.bdi.riscos"
               valor={config.bdi_riscos_pct}
               onChange={(v) => setField("bdi_riscos_pct", v)}
               cor="gray"
@@ -486,7 +486,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Garantias (GA)"
-              hint="Garantia técnica de obra (NBR 15575), retenção contratual."
+              ajuda="projetos.bdi.garantia"
               valor={config.bdi_garantia_pct}
               onChange={(v) => setField("bdi_garantia_pct", v)}
               cor="gray"
@@ -494,7 +494,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Despesas Financeiras (DF)"
-              hint="Custo do capital de giro durante a execução da obra."
+              ajuda="projetos.bdi.despesas_financeiras"
               valor={config.bdi_despesas_financeiras_pct}
               onChange={(v) => setField("bdi_despesas_financeiras_pct", v)}
               cor="gray"
@@ -502,7 +502,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Lucro (LU)"
-              hint="Margem de lucro líquido sobre o custo direto + benefícios indiretos."
+              ajuda="projetos.bdi.lucro"
               valor={config.bdi_lucro_pct}
               onChange={(v) => setField("bdi_lucro_pct", v)}
               cor="gold"
@@ -510,7 +510,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Impostos (IM)"
-              hint="ISS + PIS + COFINS sobre faturamento. Varia conforme regime tributário."
+              ajuda="projetos.bdi.impostos"
               valor={config.bdi_impostos_pct}
               onChange={(v) => setField("bdi_impostos_pct", v)}
               cor="brown"
