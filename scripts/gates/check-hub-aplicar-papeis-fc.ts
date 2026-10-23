@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 
 const falhas: string[] = []
 const ok = (c: boolean, m: string) => { if (!c) falhas.push(m) }
-const sql = readFileSync('supabase/migrations/20261007160005_hub_aplicar_papeis_fc_pisos.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261023141505_hub_aplicar_papeis_fc_pisos.sql', 'utf8')
 const cod = sql.replace(/--.*$/gm, '')
 ok(cod.includes("'b202b50f-37cb-462e-accf-126869de49f0'"), 'escopo: id da FC Pisos')
 ok(!cod.includes('3ddcaac8-7a54-4845-8d1b-835dfc11bd68'), 'FCR não é tocada')
