@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import SeletorUsuario from '@/components/crm/SeletorUsuario'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
 import { telefoneDoCliente, tituloOportunidade, erroOportunidade } from '@/lib/crm/oportunidadeCliente'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // FIX 2 · caixa alta nos campos de texto (título/endereço/cidade/bairro). Não toca e-mail/CEP/números/responsável.
 const up = (s: string | null): string | null => { const t = (s ?? '').trim(); return t ? t.toUpperCase() : null }
@@ -323,8 +324,8 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         </div>
 
         {/* Cliente autocomplete · #262: o cliente vem primeiro e identifica o card no kanban */}
-        <div>
-          <div style={lblTxt}>Nome do cliente</div>
+        <div data-ajuda="projetos.oportunidade.form.cliente">
+          <div style={{ ...lblTxt, display: 'flex', alignItems: 'center', gap: 4 }}>Nome do cliente <AjudaCampo chave="projetos.oportunidade.form.cliente" rota="/dashboard/projetos/oportunidades" /></div>
           {cliSel ? (
             <div style={selectedRow}>
               <span style={{ fontSize: 13, color: '#3D2314' }}>
@@ -356,7 +357,8 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
                 {novoCliOpen ? '− Cancelar' : '+ Novo cliente rápido'}
               </button>
               {novoCliOpen && (
-                <div style={quickAddBox}>
+                <div style={quickAddBox} data-ajuda="projetos.oportunidade.form.novo_cliente">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#6b5444', marginBottom: 6 }}>Novo cliente rápido <AjudaCampo chave="projetos.oportunidade.form.novo_cliente" rota="/dashboard/projetos/oportunidades" /></div>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
                     {(['PJ', 'PF'] as const).map((t) => (
                       <button key={t} type="button" onClick={() => setNovoCliTipo(t)}
@@ -400,7 +402,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         {/* #110 · telefone do cliente — grava no cadastro do cliente e aparece no card do kanban */}
         {(cliSel || buscaCli.trim()) && (
           <label style={{ ...lbl, marginTop: 12 }}>
-            Telefone do cliente
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Telefone do cliente <AjudaCampo chave="projetos.oportunidade.form.telefone" rota="/dashboard/projetos/oportunidades" /></span>
             <input
               value={telCli}
               onChange={(e) => setTelCli(e.target.value)}
@@ -414,7 +416,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
 
         {/* #262 · descrição do serviço/produto (coluna titulo). Vazia = o card leva o nome do cliente */}
         <label style={{ ...lbl, marginTop: 12 }}>
-          Descrição do serviço / produto
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Descrição do serviço / produto <AjudaCampo chave="projetos.oportunidade.form.descricao" rota="/dashboard/projetos/oportunidades" /></span>
           <input
             value={form.titulo}
             onChange={(e) => setF('titulo', e.target.value)}
@@ -427,13 +429,13 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         {/* Grid: etapa | valor | origem | data_prevista | probabilidade | responsavel */}
         <div style={grid}>
           <label style={lbl}>
-            Etapa
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Etapa <AjudaCampo chave="projetos.oportunidade.form.etapa" rota="/dashboard/projetos/oportunidades" /></span>
             <select value={form.etapa} onChange={(e) => setF('etapa', e.target.value)} style={inp} data-testid="oport-etapa">
               {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
             </select>
           </label>
           <label style={lbl}>
-            Valor estimado (R$)
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Valor estimado (R$) <AjudaCampo chave="projetos.oportunidade.form.valor" rota="/dashboard/projetos/oportunidades" /></span>
             <input
               inputMode="decimal"
               value={valorStr}
@@ -449,7 +451,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
             />
           </label>
           <label style={lbl}>
-            Origem
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Origem <AjudaCampo chave="projetos.oportunidade.form.origem" rota="/dashboard/projetos/oportunidades" /></span>
             <input
               list="origens-list"
               value={form.origem ?? ''}
@@ -462,7 +464,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
             </datalist>
           </label>
           <label style={lbl}>
-            Data prevista de fechamento
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Data prevista de fechamento <AjudaCampo chave="projetos.oportunidade.form.data_prevista" rota="/dashboard/projetos/oportunidades" /></span>
             <input
               type="date"
               value={form.data_prevista_fechamento ?? ''}
@@ -471,7 +473,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
             />
           </label>
           <label style={lbl}>
-            Probabilidade (%)
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Probabilidade (%) <AjudaCampo chave="projetos.oportunidade.form.probabilidade" rota="/dashboard/projetos/oportunidades" /></span>
             <input
               type="number" min={0} max={100}
               value={form.probabilidade ?? ''}
@@ -480,7 +482,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
             />
           </label>
           <label style={lbl}>
-            Responsável
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Responsável <AjudaCampo chave="projetos.oportunidade.form.responsavel" rota="/dashboard/projetos/oportunidades" /></span>
             {/* FIX 3 · seletor de usuários do tenant (fn_usuarios_da_empresa). Grava responsavel_id +
                 responsavel_nome (full_name). Sem mais prefixo de e-mail / responsavel_id nulo. */}
             <SeletorUsuario
@@ -498,7 +500,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
               O usuário pode digitar tudo à mão também (os campos abaixo continuam livres). */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 4 }}>
             <label style={{ ...lbl, flex: '0 0 160px' }}>
-              CEP
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>CEP <AjudaCampo chave="projetos.oportunidade.form.cep" rota="/dashboard/projetos/oportunidades" /></span>
               <input
                 value={cep}
                 onChange={(e) => setCep(e.target.value)}
@@ -514,7 +516,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
           </div>
           <div style={grid}>
             <label style={lbl}>
-              Endereço
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Endereço <AjudaCampo chave="projetos.oportunidade.form.endereco" rota="/dashboard/projetos/oportunidades" /></span>
               <input
                 value={form.obra_endereco ?? ''}
                 onChange={(e) => setF('obra_endereco', e.target.value || null)}
@@ -522,7 +524,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
               />
             </label>
             <label style={lbl}>
-              Cidade
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Cidade <AjudaCampo chave="projetos.oportunidade.form.cidade" rota="/dashboard/projetos/oportunidades" /></span>
               <input
                 value={form.obra_cidade ?? ''}
                 onChange={(e) => setF('obra_cidade', e.target.value || null)}
@@ -530,7 +532,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
               />
             </label>
             <label style={lbl}>
-              Bairro
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Bairro <AjudaCampo chave="projetos.oportunidade.form.bairro" rota="/dashboard/projetos/oportunidades" /></span>
               <input
                 value={form.obra_bairro ?? ''}
                 onChange={(e) => setF('obra_bairro', e.target.value || null)}
@@ -541,7 +543,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         </div>
 
         <label style={{ ...lbl, marginTop: 12 }}>
-          Observações
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Observações <AjudaCampo chave="projetos.oportunidade.form.observacoes" rota="/dashboard/projetos/oportunidades" /></span>
           <textarea
             rows={3}
             value={form.observacoes ?? ''}

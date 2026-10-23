@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { UploadCloud, Sparkles, Check, AlertTriangle, Archive } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // padrao ps_empresa_sel com polling (mesmo das outras telas verticais)
 function useEmpresaSelecionada(): { companyId: string | null } {
@@ -589,25 +590,31 @@ export default function TakeoffPage() {
             🔗 Este take-off veio de uma oportunidade — o orçamento criado será vinculado a ela.
           </div>
         )}
-        <label className="block text-xs font-medium" style={{ color: ESP }}>Orçamento de destino</label>
-        <select className={inp} value={orcId} onChange={(e) => {
-          const v = e.target.value
-          if (v === '__novo__') { void criarOrcamentoDoTakeoff() } // não seta orcId no sentinela
-          else setOrcId(v)
-        }}>
-          <option value="">— selecione —</option>
-          <option value="__novo__">➕ Criar novo orçamento a partir deste take-off</option>
-          {orcamentos.map((o) => (
-            <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>
-          ))}
-        </select>
+        <div className="space-y-1" data-ajuda="projetos.takeoff.orcamento">
+          <label className="flex items-center gap-1 text-xs font-medium" style={{ color: ESP }}>Orçamento de destino <AjudaCampo chave="projetos.takeoff.orcamento" rota="/dashboard/projetos/takeoff" /></label>
+          <select className={inp} value={orcId} onChange={(e) => {
+            const v = e.target.value
+            if (v === '__novo__') { void criarOrcamentoDoTakeoff() } // não seta orcId no sentinela
+            else setOrcId(v)
+          }}>
+            <option value="">— selecione —</option>
+            <option value="__novo__">➕ Criar novo orçamento a partir deste take-off</option>
+            {orcamentos.map((o) => (
+              <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>
+            ))}
+          </select>
+        </div>
         <p className="text-[11px]" style={{ color: ESP60 }}>Confirme os ambientes com serviço e escolha <b>“Criar novo orçamento”</b> — não precisa ter orçamento antes.</p>
 
         <div className="grid grid-cols-2 gap-2 pt-1">
-          <input className={inp} placeholder="Escala (ex.: 1:50) — opcional" value={escala} onChange={(e) => setEscala(e.target.value)} />
+          <div className="flex items-center gap-1" data-ajuda="projetos.takeoff.escala">
+            <input className={inp} placeholder="Escala (ex.: 1:50) — opcional" value={escala} onChange={(e) => setEscala(e.target.value)} aria-label="Escala da planta" />
+            <AjudaCampo chave="projetos.takeoff.escala" rota="/dashboard/projetos/takeoff" />
+          </div>
           <label className="rounded-xl border border-dashed border-[#E7DECF] bg-[#FAF7F2] p-2 text-sm text-center cursor-pointer text-[#3D2314] flex items-center justify-center gap-2">
             <UploadCloud size={15} />
             <span>{planta?.nome ?? 'Enviar planta (DWG/PNG/JPG/PDF)'}</span>
+            <AjudaCampo chave="projetos.takeoff.planta" rota="/dashboard/projetos/takeoff" />
             <input type="file" accept=".dwg,.png,.jpg,.jpeg,.pdf" className="hidden" onChange={(e) => e.target.files && enviarPlanta(e.target.files[0])} />
           </label>
         </div>
@@ -688,14 +695,14 @@ export default function TakeoffPage() {
             <table className="w-full text-sm">
               <thead className="text-xs" style={{ color: ESP60, background: BG }}>
                 <tr>
-                  <th className="text-left p-2">Nome</th>
-                  <th className="text-right p-2">m²</th>
-                  <th className="text-right p-2">ml</th>
-                  <th className="text-right p-2">pé-dir.</th>
-                  <th className="p-2">Confiança</th>
-                  <th className="p-2">Serviço</th>
-                  <th className="p-2">Base</th>
-                  <th className="p-2">OK</th>
+                  <th className="text-left p-2">Nome <AjudaCampo chave="projetos.takeoff.amb.nome" rota="/dashboard/projetos/takeoff" /></th>
+                  <th className="text-right p-2">m² <AjudaCampo chave="projetos.takeoff.amb.area" rota="/dashboard/projetos/takeoff" /></th>
+                  <th className="text-right p-2">ml <AjudaCampo chave="projetos.takeoff.amb.perimetro" rota="/dashboard/projetos/takeoff" /></th>
+                  <th className="text-right p-2">pé-dir. <AjudaCampo chave="projetos.takeoff.amb.pe_direito" rota="/dashboard/projetos/takeoff" /></th>
+                  <th className="p-2">Confiança <AjudaCampo chave="projetos.takeoff.amb.confianca" rota="/dashboard/projetos/takeoff" /></th>
+                  <th className="p-2">Serviço <AjudaCampo chave="projetos.takeoff.amb.servico" rota="/dashboard/projetos/takeoff" /></th>
+                  <th className="p-2">Base <AjudaCampo chave="projetos.takeoff.amb.base" rota="/dashboard/projetos/takeoff" /></th>
+                  <th className="p-2">OK <AjudaCampo chave="projetos.takeoff.amb.confirmado" rota="/dashboard/projetos/takeoff" /></th>
                 </tr>
               </thead>
               <tbody>
@@ -783,30 +790,30 @@ function AmbienteManualModal({
           Informe a área direto, ou largura × comprimento que a gente calcula.
         </p>
 
-        <div className="mb-3">
-          <label className={lbl} style={{ color: ESP60 }}>Nome do ambiente *</label>
+        <div className="mb-3" data-ajuda="projetos.takeoff.amb.nome">
+          <label className={lbl} style={{ color: ESP60 }}>Nome do ambiente * <AjudaCampo chave="projetos.takeoff.amb.nome" rota="/dashboard/projetos/takeoff" /></label>
           <input autoFocus className={inp} value={nome} onChange={(e) => setNome(e.target.value)} placeholder='ex: "Sala 01", "Banheiro"' />
         </div>
 
         <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label className={lbl} style={{ color: ESP60 }}>Área (m²)</label>
+          <div data-ajuda="projetos.takeoff.amb.area">
+            <label className={lbl} style={{ color: ESP60 }}>Área (m²) <AjudaCampo chave="projetos.takeoff.amb.area" rota="/dashboard/projetos/takeoff" /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={areaM2} onChange={(e) => setAreaM2(e.target.value)} placeholder={areaCalc != null ? areaCalc.toFixed(2) : '0,00'} />
           </div>
-          <div>
-            <label className={lbl} style={{ color: ESP60 }}>Pé-direito (m)</label>
+          <div data-ajuda="projetos.takeoff.amb.pe_direito">
+            <label className={lbl} style={{ color: ESP60 }}>Pé-direito (m) <AjudaCampo chave="projetos.takeoff.amb.pe_direito" rota="/dashboard/projetos/takeoff" /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={peDireito} onChange={(e) => setPeDireito(e.target.value)} placeholder="2,80" />
           </div>
-          <div>
-            <label className={lbl} style={{ color: ESP60 }}>Largura (m)</label>
+          <div data-ajuda="projetos.takeoff.amb.largura">
+            <label className={lbl} style={{ color: ESP60 }}>Largura (m) <AjudaCampo chave="projetos.takeoff.amb.largura" rota="/dashboard/projetos/takeoff" /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={largura} onChange={(e) => setLargura(e.target.value)} />
           </div>
-          <div>
-            <label className={lbl} style={{ color: ESP60 }}>Comprimento (m)</label>
+          <div data-ajuda="projetos.takeoff.amb.comprimento">
+            <label className={lbl} style={{ color: ESP60 }}>Comprimento (m) <AjudaCampo chave="projetos.takeoff.amb.comprimento" rota="/dashboard/projetos/takeoff" /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={comprimento} onChange={(e) => setComprimento(e.target.value)} />
           </div>
-          <div className="col-span-2">
-            <label className={lbl} style={{ color: ESP60 }}>Perímetro (ml)</label>
+          <div className="col-span-2" data-ajuda="projetos.takeoff.amb.perimetro">
+            <label className={lbl} style={{ color: ESP60 }}>Perímetro (ml) <AjudaCampo chave="projetos.takeoff.amb.perimetro" rota="/dashboard/projetos/takeoff" /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={perimetro} onChange={(e) => setPerimetro(e.target.value)} placeholder={perimCalc != null ? perimCalc.toFixed(2) : '0,00'} />
           </div>
         </div>
