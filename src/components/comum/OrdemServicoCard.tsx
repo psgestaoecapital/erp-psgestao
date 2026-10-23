@@ -20,6 +20,7 @@ import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import OsObraVinculo from '@/components/projetos/OsObraVinculo'   // HB0 item 6 · OS de obra (some sem obra em andamento)
 import { Package, PencilLine, Search, Wrench } from 'lucide-react'
 
 interface OS {
@@ -721,6 +722,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         </div>
         {msgPlaca && <div data-testid="os-placa-msg" style={{ fontSize: 12, marginTop: 4, color: msgPlaca.startsWith('Placa SALVA') ? C.green : C.red }}>{msgPlaca}</div>}
       </div>}
+
+      <OsObraVinculo osId={os.id} readOnly={roEntrega} />
 
       {/* FIX 1 · cliente editável em qualquer status + re-vínculo a outro cadastro */}
       <div style={{ display: 'block' }}>
