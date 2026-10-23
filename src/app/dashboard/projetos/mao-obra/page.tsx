@@ -130,6 +130,10 @@ export default function MaoObraPage() {
         <span className="self-center"><AjudaCampo chave="projetos.mao_obra.abas" /></span>
       </nav>
 
+      {!dados && !erro && (
+        <div className="py-8 text-center text-[13px] text-[#3D2314]/60" role="status" data-testid="mao-obra-carregando">Carregando a equipe e as funções desta empresa…</div>
+      )}
+
       {aba === "equipe" && dados && (
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-equipe">
