@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', AMBAR = '#B45309', VERM = '#B91C1C', ROXO = '#8B5CF6'
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -70,10 +71,11 @@ export default function DesempenhoComercialPage() {
             <button key={v} onClick={() => setPreset(v)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${periodo === v ? GOLD : LINE}`, background: periodo === v ? '#FBF4E4' : '#FFF', color: periodo === v ? '#A57A15' : MUT }}>{l}</button>
           ))}
           {periodo === 'custom' && (
-            <>
+            <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <input type="date" value={range.de} onChange={(e) => setRange((x) => ({ ...x, de: e.target.value }))} style={inp} />
               <input type="date" value={range.ate} onChange={(e) => setRange((x) => ({ ...x, ate: e.target.value }))} style={inp} />
-            </>
+              <AjudaCampo chave="projetos.desempenho.periodo" />
+            </span>
           )}
         </div>
 
