@@ -6,6 +6,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, X, Package, HardHat, Wrench } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+// RD-95: abre dentro da ficha do serviço (rota dinâmica) → textos do "?" na rota fixa dela
+const ROTA_AJUDA_SERVICO = "/dashboard/projetos/catalogo/[id]";
 
 export type TipoItem = "insumo" | "mao_obra" | "equipamento";
 
@@ -192,17 +196,21 @@ export function SeletorItemModal({
 
         {/* Search */}
         <div className="border-b border-[#3D2314]/8 p-4">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#3D2314]/40" />
-            <input
-              type="text"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por nome…"
-              autoFocus
-              className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white py-2 pl-9 pr-3 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
-            />
-          </div>
+          <label className="flex items-center gap-2">
+            <span className="sr-only">Buscar item</span>
+            <span className="relative block flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#3D2314]/40" />
+              <input
+                type="text"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar por nome…"
+                autoFocus
+                className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white py-2 pl-9 pr-3 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
+              />
+            </span>
+            <AjudaCampo chave="projetos.catalogo.seletor.busca" rota={ROTA_AJUDA_SERVICO} />
+          </label>
         </div>
 
         {/* Lista */}
