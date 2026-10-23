@@ -86,6 +86,9 @@ export default function TabelasPrecoPage() {
   const preco = precoUnitario(faixas, q, cond)
   const codigo = cods.find(x => x.servico_ref === servico && x.condicao === condSel)?.codigo_externo
   const custoN = Number(custo.replace(',', '.')) || 0
+  // De-para PS ↔ cliente: serviço da tabela sem nenhum código, e código que aponta para serviço que não está na tabela.
+  const semCodigo = useMemo(() => servicos.filter(s => !cods.some(k => k.servico_ref === s.servico_ref)), [servicos, cods])
+  const codigoOrfao = useMemo(() => [...new Set(cods.filter(k => !servicos.some(s => s.servico_ref === k.servico_ref)).map(k => k.servico_ref))], [servicos, cods])
   const margem = preco != null && custoN > 0 ? margemContraCusto(preco, custoN) : null
 
   const campo: React.CSSProperties = { display: 'block', width: '100%', padding: 10, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP }
@@ -124,6 +127,13 @@ export default function TabelasPrecoPage() {
               </select></label>
             <label><span style={rot}>Custo da CPU por unidade (opcional) <AjudaCampo chave="hub.tabela_preco.custo" /></span>
               <input data-testid="tp-custo" inputMode="decimal" style={campo} value={custo} onChange={e => setCusto(e.target.value)} placeholder="para ver a margem" /></label>
+            {(semCodigo.length > 0 || codigoOrfao.length > 0) && (
+              <div role="status" data-testid="tp-depara-aviso" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12, fontSize: 13 }}>
+                <b>Conferir o de-para com o cliente <AjudaCampo chave="hub.tabela_preco.depara" /></b>
+                {semCodigo.length > 0 && <div>Serviço sem código no cliente: {semCodigo.map(s => s.servico_nome).join(', ')}.</div>}
+                {codigoOrfao.length > 0 && <div>Código sem serviço na tabela: {codigoOrfao.join(', ')}.</div>}
+              </div>
+            )}
             <div data-testid="tp-resultado" style={{ background: BG, borderRadius: 10, padding: 14, border: `1px solid ${LINE}` }}>
               {preco == null ? <b>Sem faixa para essa quantidade.</b> : (<>
                 <div style={{ fontSize: 26, fontWeight: 700 }} data-testid="tp-preco">{fmtR(preco)} <span style={{ fontSize: 14, fontWeight: 400 }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
