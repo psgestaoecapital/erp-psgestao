@@ -83,7 +83,8 @@ BEGIN
     FOR k IN 0..7 LOOP
       EXIT WHEN v_obra.ini + k * 7 > v_obra.ate;
       INSERT INTO projetos_obra_mao_obra_apontamento (company_id, obra_id, data, funcao_id, descricao, horas, custo_hora)
-      SELECT c, v_obra.id, v_obra.ini + k * 7, m.id,
+      SELECT c, v_obra.id, v_obra.ini + k * 7,
+             (SELECT f.id FROM erp_funcao_mao_obra f WHERE f.projetos_mao_obra_id = m.id AND f.company_id = c LIMIT 1), -- FK é erp_funcao_mao_obra (não projetos_mao_obra); NULL se a demo não tem função cadastrada
              m.funcao || ' — ' || (ARRAY['mobilização e marcação','estrutura e perfis','fechamento','acabamento'])[(k % 4) + 1],
              CASE WHEN k % 2 = 0 THEN 16 ELSE 8 END,
              round(m.custo_hora * (1 + COALESCE(m.encargos_pct, 0) / 100.0), 2)
