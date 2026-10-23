@@ -31,7 +31,10 @@ test.describe('PS EHS E0 — snapshot de regressão', () => {
     expect(s1.company_id).toBe(DEMO_SST)
     expect(typeof s1.funcionarios.total).toBe('number')
     expect(s1.funcionarios.hash).toMatch(/^[0-9a-f]{32}$/)
-    expect(JSON.stringify(s1), 'sem nome/CPF').not.toMatch(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/)
+    // CPF = exatamente 11 dígitos; fronteira (?<!\d)...(?!\d) para NÃO casar dentro de um UUID
+    // (o company_id da DEMO termina em ...000000000005 — 12 dígitos — e tropeçava na regex). Um CPF real
+    // ("cpf":"12345678901") continua pego; o teste fica mais preciso, não mais fraco.
+    expect(JSON.stringify(s1), 'sem nome/CPF').not.toMatch(/(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)/)
     const anon = await rpc(ANON)
     expect(anon.status, 'anon não executa').toBeGreaterThanOrEqual(401)
   })
