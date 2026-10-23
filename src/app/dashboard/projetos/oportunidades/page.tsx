@@ -4,6 +4,7 @@ import { Target } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
 import OportunidadesKanban from './OportunidadesKanban'
@@ -228,16 +229,19 @@ export default function OportunidadesPage() {
           <option value="todas">Todas as etapas</option>
           {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
         </select>
+        <AjudaCampo chave="projetos.oportunidades.filtro_etapa" />
         <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={selSt}>
           <option value="todos">Todos os responsáveis</option>
           {responsaveis.map((u) => <option key={u.id} value={u.id}>{labelUsuario(u, responsaveis)}</option>)}
         </select>
+        <AjudaCampo chave="projetos.oportunidades.filtro_responsavel" />
         <input
           placeholder="Buscar por título ou cliente…"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           style={{ ...selSt, minWidth: 200, flex: 1 }}
         />
+        <AjudaCampo chave="projetos.oportunidades.busca" />
         {loading && <span className="text-xs opacity-60">Carregando…</span>}
         <span className="text-xs opacity-60 ml-auto">{countKanban} oportunidade(s)</span>
       </div>
