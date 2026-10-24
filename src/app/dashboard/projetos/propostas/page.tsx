@@ -12,6 +12,8 @@
 // HB0 (auditor F15 · proposta → obra): coluna "Obra" com número, nome e situação da obra que nasceu da proposta
 // (obra_id ou projetos_obras.orcamento_id, regra única em obraPorProposta); ganha sem obra fica em destaque; indicador
 // "Ganhas com obra".
+// HB0 (auditor F15 · BDI visível): coluna "BDI" com o BDI aplicado (médio ponderado pelo custo dos itens) contra o BDI
+// padrão da empresa (projetos_modulo_config); abaixo do padrão em vermelho; indicador "BDI no padrão". Regra em situacaoBdi.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { fmtR } from '@/lib/psgc-tokens'
@@ -20,7 +22,7 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { composicaoPorProposta, diasParaVencer, ganhasComObra, obraPorProposta, origemPorProposta, resumoFunil, temOrigem, ABERTAS, type Composicao, type ObraVinculo, type SituacaoObra, type ItemProposta, type OportunidadeVinculo, type Origem, type PlantaVinculo, type VisitaVinculo } from '@/lib/hub/propostas'
+import { composicaoPorProposta, diasParaVencer, ganhasComObra, situacaoBdi, obraPorProposta, origemPorProposta, resumoFunil, temOrigem, ABERTAS, type Composicao, type ObraVinculo, type SituacaoObra, type ItemProposta, type OportunidadeVinculo, type Origem, type PlantaVinculo, type VisitaVinculo } from '@/lib/hub/propostas'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
@@ -31,7 +33,7 @@ const STATUS: Record<string, { cor: string; label: string }> = {
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
 
-type Proposta = { id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null }
+type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null }
 
 const OBRA_STATUS: Record<string, string> = { em_andamento: 'em andamento', pausada: 'pausada', concluida: 'concluída', cancelada: 'cancelada' }
 
@@ -52,6 +54,7 @@ export default function PropostasHubPage() {
   const [origErro, setOrigErro] = useState(false)
   const [obras, setObras] = useState<Record<string, SituacaoObra>>({})
   const [obraErro, setObraErro] = useState(false)
+  const [bdiPadrao, setBdiPadrao] = useState<Record<string, number | null>>({})
 
   // Origem: oportunidades e plantas ligadas às propostas; depois as visitas (diretas ou da oportunidade). Falha → coluna avisa.
   const carregarOrigem = useCallback(async (ids: string[]) => {
@@ -75,7 +78,7 @@ export default function PropostasHubPage() {
     setLoading(true); setErro('')
     try {
       const { data, error } = await comPrazo(
-        async () => await supabase.from('erp_orcamentos').select('id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra')
+        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra')
           .in('company_id', companyIds).order('data_emissao', { ascending: false }).limit(100),
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
@@ -86,12 +89,20 @@ export default function PropostasHubPage() {
       setCompErro(false); setComp({})
       if (ls.length) {
         const it = await comPrazo(
-          async () => await supabase.from('erp_orcamentos_itens').select('orcamento_id,quantidade,preco_custo,subtotal,servico_id,produto_id')
+          async () => await supabase.from('erp_orcamentos_itens').select('orcamento_id,quantidade,preco_custo,subtotal,servico_id,produto_id,bdi_percentual')
             .in('orcamento_id', ls.map(l => l.id)),
           { ms: 8000, tentativas: 1, label: 'propostas_hub_itens' },
         ).catch(() => ({ data: null, error: true }))
         if (it.error) setCompErro(true)
         else setComp(composicaoPorProposta((it.data ?? []) as ItemProposta[]))
+        // BDI padrão da empresa (o mesmo que o editor aplica ao incluir item). Falha → só não compara (sem acusar).
+        const cfg = await comPrazo(
+          async () => await supabase.from('projetos_modulo_config').select('company_id,bdi_total_pct').in('company_id', companyIds),
+          { ms: 8000, tentativas: 1, label: 'propostas_hub_bdi' },
+        ).catch(() => ({ data: null, error: true }))
+        const mapa: Record<string, number | null> = {}
+        if (!cfg.error) for (const c of (cfg.data ?? []) as { company_id: string; bdi_total_pct: number | null }[]) mapa[c.company_id] = c.bdi_total_pct == null ? null : Number(c.bdi_total_pct)
+        setBdiPadrao(mapa)
       }
       // Obra: pelos dois lados do vínculo (obra_id da proposta ou orcamento_id da obra). Falha → coluna avisa.
       setObraErro(false); setObras({})
@@ -119,6 +130,14 @@ export default function PropostasHubPage() {
   const r = useMemo(() => resumoFunil(linhas), [linhas])
   const comOrigem = useMemo(() => linhas.filter(l => temOrigem(orig[l.id])).length, [linhas, orig])
   const gObra = useMemo(() => ganhasComObra(obras, linhas), [obras, linhas])
+  const bdiConta = useMemo(() => {
+    let comparaveis = 0, noPadrao = 0
+    for (const l of linhas) {
+      const sit = situacaoBdi(comp[l.id]?.bdiPct ?? null, bdiPadrao[l.company_id])
+      if (sit) { comparaveis++; if (sit !== 'abaixo') noPadrao++ }
+    }
+    return { comparaveis, noPadrao }
+  }, [linhas, comp, bdiPadrao])
   const comCatalogo = useMemo(() => linhas.filter(l => { const c = comp[l.id]; return c && c.itens > 0 && c.doCatalogo === c.itens }).length, [linhas, comp])
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '12px 16px', flex: '1 1 160px' }
@@ -178,6 +197,11 @@ export default function PropostasHubPage() {
               <div data-testid="hub-propostas-ganhas-com-obra" style={{ fontSize: 18, fontWeight: 700 }}>{obraErro ? '—' : `${gObra.comObra} de ${gObra.ganhas}`}</div>
               <div style={{ fontSize: 12, color: MUT }}>{obraErro ? 'obras indisponíveis agora' : gObra.comObra < gObra.ganhas ? `${gObra.ganhas - gObra.comObra} aprovada(s) ainda sem obra` : 'toda proposta ganha já é obra'}</div>
             </div>
+            <div style={{ ...card, borderColor: !compErro && bdiConta.noPadrao < bdiConta.comparaveis ? '#F59E0B' : LINE }}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>BDI no padrão <AjudaCampo chave="projetos.propostas.bdi_no_padrao" /></div>
+              <div data-testid="hub-propostas-bdi-no-padrao" style={{ fontSize: 18, fontWeight: 700 }}>{compErro || !bdiConta.comparaveis ? '—' : `${bdiConta.noPadrao} de ${bdiConta.comparaveis}`}</div>
+              <div style={{ fontSize: 12, color: MUT }}>{compErro ? 'itens indisponíveis agora' : !bdiConta.comparaveis ? 'configure o BDI padrão em Configurações' : bdiConta.noPadrao < bdiConta.comparaveis ? `${bdiConta.comparaveis - bdiConta.noPadrao} abaixo do BDI padrão` : 'nenhuma abaixo do BDI padrão'}</div>
+            </div>
           </div>
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -210,7 +234,7 @@ export default function PropostasHubPage() {
             </div>
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-            <table style={{ width: '100%', minWidth: 1040, borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 1120, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left', fontSize: 12, color: MUT }}>
                 <th style={{ padding: '8px 12px' }}>Número</th><th style={{ padding: '8px 12px' }}>Cliente</th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Origem <AjudaCampo chave="projetos.propostas.origem" /></span></th>
@@ -218,6 +242,7 @@ export default function PropostasHubPage() {
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Validade <AjudaCampo chave="projetos.propostas.validade" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens <AjudaCampo chave="projetos.propostas.composicao" /></span></th>
                 <th style={{ padding: '8px 12px', textAlign: 'right' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Margem <AjudaCampo chave="projetos.propostas.margem" /></span></th>
+                <th style={{ padding: '8px 12px', textAlign: 'right' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>BDI <AjudaCampo chave="projetos.propostas.bdi" /></span></th>
                 <th style={{ padding: '8px 12px', textAlign: 'right' }}>Total</th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Obra <AjudaCampo chave="projetos.propostas.obra" /></span></th>
                 <th style={{ padding: '8px 12px' }} />
@@ -256,6 +281,19 @@ export default function PropostasHubPage() {
                         {compErro || !c ? '—' : c.margemPct === null ? <span style={{ color: '#B45309' }}>sem custo</span>
                           : <span title={`Custo ${fmtR(c.custo)} de ${fmtR(c.preco)}`} style={{ color: c.margemPct < 0 ? '#B91C1C' : ESP, fontWeight: 600 }}>{pct(c.margemPct)}</span>}
                       </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 12, whiteSpace: 'nowrap' }} data-testid="hub-proposta-bdi">
+                        {compErro || !c ? '—' : c.bdiPct === null ? <span style={{ color: '#B45309' }}>sem BDI</span> : (() => {
+                          const padrao = bdiPadrao[l.company_id], sit = situacaoBdi(c.bdiPct, padrao)
+                          return (
+                            <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                              <span style={{ fontWeight: 600, color: sit === 'abaixo' ? '#B91C1C' : ESP }}>{pct(c.bdiPct)}</span>
+                              {sit === 'abaixo' && <span data-testid="hub-proposta-bdi-abaixo" style={{ color: '#B91C1C', fontSize: 11 }}>abaixo do padrão {pct(Number(padrao))}</span>}
+                              {sit === 'acima' && <span style={{ color: MUT, fontSize: 11 }}>padrão {pct(Number(padrao))}</span>}
+                              {c.semBdi > 0 && <span style={{ color: '#B45309', fontSize: 11 }}>{c.semBdi} item(ns) sem BDI</span>}
+                            </span>
+                          )
+                        })()}
+                      </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmtR(Number(l.total ?? 0))}</td>
                       <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 200 }} data-testid="hub-proposta-obra-situacao">
                         {obraErro || !so ? '—' : so.tipo === 'obra' ? (
@@ -273,7 +311,7 @@ export default function PropostasHubPage() {
                     </tr>
                   )
                 })}
-                {vis.length === 0 && <tr><td colSpan={11} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
+                {vis.length === 0 && <tr><td colSpan={12} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
               </tbody>
             </table>
           </div>
