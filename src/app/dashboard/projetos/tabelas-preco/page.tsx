@@ -15,7 +15,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { MedicaoContrato } from './_componentes/MedicaoContrato'
 import { VinculoCatalogo, type VinculoCpu } from './_componentes/VinculoCatalogo'
 import { lerPlanilhaFaixas } from '@/lib/hub/tabelaPrecoImportar'
-import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
+import { escolherFaixa, escolherFontePreco, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
 
 // Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
 const fmtPreco = (v: number) => (Number.isInteger(v) ? fmtR(v) : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
@@ -231,6 +231,9 @@ export default function TabelasPrecoPage() {
                 <div style={{ fontSize: 13, color: MUT, marginTop: 4 }}>
                   Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} · preço base {fmtPreco(faixa!.preco_base)}
                   {cond?.preco_fixo != null ? ' · preço fixo da condição' : cond?.percentual ? ` · adicional +${cond.percentual}%` : ''}
+                </div>
+                <div style={{ fontSize: 13, color: MUT, marginTop: 4 }} data-testid="tp-precedencia">
+                  {escolherFontePreco([{ origem: 'contrato', preco }])?.motivo} <AjudaCampo chave="hub.tabela_preco.precedencia" />
                 </div>
                 <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-total">{q > 0 ? <>Total: <b>{fmtR(preco * q)}</b></> : <>Informe a quantidade para ver o total</>}{codigo ? <> · código no cliente: <b>{codigo}</b></> : null}</div>
                 {margem != null && <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-margem">Margem sobre o custo: <b>{(margem * 100).toFixed(1)}%</b></div>}
