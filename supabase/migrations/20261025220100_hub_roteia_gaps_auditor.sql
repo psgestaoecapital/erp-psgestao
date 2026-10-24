@@ -38,6 +38,7 @@ GRANT ALL ON TABLE public.hub_gap_roteado TO service_role;
 COMMENT ON TABLE public.hub_gap_roteado IS 'Hub: último conjunto de gaps roteado por tela (evita tarefa repetida). Só service_role.';
 
 -- 3) O roteador. Roda como cron/serviço (auth.uid() nulo); usuário logado é recusado.
+-- ci-sem-guarda: fn_hub_rotear_gaps — só cron/serviço (recusa auth.uid() não nulo, EXECUTE só service_role) e grava só fila interna de agentes (hub_gap_roteado, erp_agente_mensagem), nenhum registro de empresa de cliente.
 CREATE OR REPLACE FUNCTION public.fn_hub_rotear_gaps(p_limite integer DEFAULT 4)
 RETURNS jsonb
 LANGUAGE plpgsql
