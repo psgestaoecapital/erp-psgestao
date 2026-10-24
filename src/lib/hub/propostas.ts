@@ -75,3 +75,32 @@ export function composicaoPorProposta(itens: ItemProposta[]): Record<string, Com
   for (const [id, ls] of Object.entries(grupos)) out[id] = composicaoProposta(ls)
   return out
 }
+
+// HB0 (auditor F15 · "Oportunidade → Proposta, Visita → Proposta, Take-off → Proposta") — de onde veio cada proposta,
+// pelos vínculos que já existem no banco: erp_crm_oportunidade.orcamento_id, erp_crm_visita.gerou_orcamento_id (ou a
+// visita da oportunidade da proposta) e erp_obra_planta.orcamento_id. Sem vínculo = sem origem (a tela diz "avulsa").
+export type OportunidadeVinculo = { id: string; titulo: string | null; orcamento_id: string | null }
+export type VisitaVinculo = { id: string; oportunidade_id: string | null; gerou_orcamento_id: string | null }
+export type PlantaVinculo = { id: string; nome: string | null; orcamento_id: string | null }
+export type Origem = { oportunidade: { id: string; titulo: string } | null; visitas: number; plantas: { id: string; nome: string }[] }
+
+export function origemPorProposta(ops: OportunidadeVinculo[], visitas: VisitaVinculo[], plantas: PlantaVinculo[]): Record<string, Origem> {
+  const out: Record<string, Origem> = {}
+  const de = (id: string) => (out[id] ??= { oportunidade: null, visitas: 0, plantas: [] })
+  const propostaDaOp: Record<string, string> = {}
+  for (const o of ops) {
+    if (!o.orcamento_id) continue
+    propostaDaOp[o.id] = o.orcamento_id
+    const d = de(o.orcamento_id)
+    if (!d.oportunidade) d.oportunidade = { id: o.id, titulo: o.titulo?.trim() || 'Oportunidade' }
+  }
+  for (const v of visitas) {
+    // A visita conta uma vez: vale o vínculo direto; senão, a proposta da oportunidade visitada.
+    const alvo = v.gerou_orcamento_id ?? (v.oportunidade_id ? propostaDaOp[v.oportunidade_id] : undefined)
+    if (alvo) de(alvo).visitas++
+  }
+  for (const p of plantas) if (p.orcamento_id) de(p.orcamento_id).plantas.push({ id: p.id, nome: p.nome?.trim() || 'Planta' })
+  return out
+}
+
+export const temOrigem = (o: Origem | undefined) => !!o && (!!o.oportunidade || o.visitas > 0 || o.plantas.length > 0)
