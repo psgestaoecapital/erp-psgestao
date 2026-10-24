@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { SaldoContratado } from './SaldoContratado'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 const fmtR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -21,6 +22,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
   const [ini, setIni] = useState('')
   const [fim, setFim] = useState('')
   const [msg, setMsg] = useState('')
+  const [versaoSaldo, setVersaoSaldo] = useState(0)
   const [salvas, setSalvas] = useState<{ id: string; descricao: string; periodo_inicio: string | null; periodo_fim: string | null; total: number }[]>([])
   const carregarSalvas = useCallback(async () => {
     const { data } = await supabase.from('erp_medicao_cliente').select('id,descricao,periodo_inicio,periodo_fim,total').eq('tabela_id', tabelaId).order('criado_em', { ascending: false }).limit(20)
@@ -35,7 +37,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
     if (!v.length) { setErro('Informe a quantidade medida de pelo menos um serviço.'); return }
     const { data, error } = await supabase.rpc('fn_medicao_cliente_salvar', { p_tabela: tabelaId, p_dados: { descricao: desc, periodo_inicio: ini, periodo_fim: fim, linhas: v } })
     if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar a medição.')); return }
-    setMsg(`Medição salva: ${fmtR(Number((data as { total: number }).total))}.`); setDesc(''); carregarSalvas()
+    setMsg(`Medição salva: ${fmtR(Number((data as { total: number }).total))}.`); setDesc(''); carregarSalvas(); setVersaoSaldo(v => v + 1)
   }
   // Detalhe da medição salva (linhas) e conferência: recalcula pelo contrato de hoje e compara com o total salvo.
   type ItemSalvo = { servico_ref: string; quantidade: number; condicao: string; preco_unitario: number; total: number; codigo_externo: string | null }
@@ -54,11 +56,16 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
     const dif = Math.round((novo - m.total) * 100) / 100
     setAberta({ ...aberta, confere: dif === 0 ? `Bate com o contrato: ${fmtR(novo)}.` : `O contrato hoje dá ${fmtR(novo)} (diferença de ${fmtR(dif)} em relação à medição salva).` })
   }
+  const exportar = async (m: { descricao: string; total: number }, formato: 'xlsx' | 'pdf') => {
+    if (!aberta) return
+    const { exportarMedicao } = await import('./exportarMedicao')
+    exportarMedicao(formato, m.descricao, m.total, aberta.itens.map(i => ({ servico: nome(i.servico_ref), quantidade: i.quantidade, condicao: i.condicao, codigo: i.codigo_externo ?? 'sem código', unitario: i.preco_unitario, total: i.total })))
+  }
   const excluir = async (id: string) => {
     if (!window.confirm('Excluir esta medição salva?')) return
     const { error } = await supabase.rpc('fn_medicao_cliente_excluir', { p_id: id })
     if (error) { setErro(erroAmigavel(error, 'Não foi possível excluir a medição.')); return }
-    carregarSalvas()
+    carregarSalvas(); setVersaoSaldo(v => v + 1)
   }
   const campo: React.CSSProperties = { padding: 8, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP, width: '100%', minWidth: 0 }
   const nome = (r?: string) => servicos.find(s => s.ref === r)?.nome ?? r ?? ''
@@ -125,6 +132,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
           <div style={{ textAlign: 'right', fontSize: 18, marginTop: 8 }} data-testid="med-total">Total da medição: <b>{fmtR(res.total)}</b></div>
         </div>
       )}
+      <SaldoContratado tabelaId={tabelaId} servicos={servicos} podeGravar={podeGravar} versao={versaoSaldo} />
       {salvas.length > 0 && (
         <div data-testid="med-salvas" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 10 }}>
           <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>Medições salvas <AjudaCampo chave="hub.tabela_preco.medicao_salvas" /></div>
@@ -147,6 +155,11 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
                   <button type="button" data-testid="med-conferir" onClick={() => conferir(m)} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 600 }}>Conferir com o contrato</button>
                   <AjudaCampo chave="hub.tabela_preco.medicao_conferir" />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <button type="button" data-testid="med-pdf" onClick={() => exportar(m, 'pdf')} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 600 }}>Baixar PDF</button>
+                  <button type="button" data-testid="med-xls" onClick={() => exportar(m, 'xlsx')} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 600 }}>Baixar Excel</button>
+                  <AjudaCampo chave="hub.tabela_preco.medicao_exportar" />
                 </div>
                 {aberta.confere && <p role="status" data-testid="med-confere" style={{ margin: '6px 0 0', color: GOLD, fontWeight: 600 }}>{aberta.confere}</p>}
               </div>
