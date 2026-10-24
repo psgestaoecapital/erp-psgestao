@@ -21,6 +21,12 @@ DECLARE
     'analuisa@fcpisos.com','hub_gerente_obras', 'raquel@fcpisos.com','hub_engenheiro');
 BEGIN
   SET LOCAL lock_timeout = '5s';
+  -- 24/10: no banco de testes (vaga) a FC não existe — sai sem gravar (antes: FK de org_unidade parava o db push).
+  -- Na produção a versão já está no ledger (aplicada 23/10, 8 papéis hub_* na FC); este arquivo não roda de novo lá.
+  IF NOT EXISTS (SELECT 1 FROM companies WHERE id = v_fc) THEN
+    RAISE NOTICE 'FC Pisos (%) não existe neste banco: papéis do Hub não aplicados.', v_fc;
+    RETURN;
+  END IF;
   SELECT count(*) INTO v_n FROM rbac_papel WHERE vertical = 'hub'
     AND slug IN ('hub_socio','hub_gerente_obras','hub_engenheiro','hub_compras','hub_financeiro');
   IF v_n < 5 THEN
