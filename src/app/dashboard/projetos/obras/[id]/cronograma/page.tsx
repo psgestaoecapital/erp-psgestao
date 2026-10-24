@@ -11,6 +11,7 @@ import { fisicoFinanceiro } from '@/lib/hub/fisicoFinanceiro'
 const ROTA_AJUDA = '/dashboard/projetos/obras/[id]/cronograma'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 const DIA = 86400000
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type Tarefa = { id: string; nome: string; inicio: string; fim: string; percentual: number; inicio_base: string | null; fim_base: string | null; ordem: number; custo_previsto: number | null }
 type Dep = { id: string; tarefa_id: string; predecessora_id: string; defasagem_dias: number }
@@ -31,19 +32,21 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const [aviso, setAviso] = useState<string | null>(null)
   const [form, setForm] = useState<Form | null>(null)
   const [salvando, setSalvando] = useState(false)
+  const [falhaCarga, setFalhaCarga] = useState<string | null>(null) // carga falhou: não mostra o estado vazio junto
 
   const carregar = useCallback(async () => {
-    setLoading(true); setErro(null)
+    setLoading(true); setErro(null); setFalhaCarga(null)
+    if (!UUID.test(id)) { setLoading(false); setFalhaCarga('Obra não encontrada. Abra o cronograma pela lista de obras.'); return }
     const t = await supabase.from('projetos_obra_tarefa').select('id,nome,inicio,fim,percentual,inicio_base,fim_base,ordem,custo_previsto')
       .eq('obra_id', id).is('excluido_em', null).order('ordem').order('inicio')
-    if (t.error) { setLoading(false); setErro(t.error.message); return }
+    if (t.error) { setLoading(false); setFalhaCarga('Não foi possível carregar o cronograma desta obra. Atualize a página; se continuar, abra pela lista de obras.'); return }
     const lista = (t.data ?? []) as Tarefa[]
     const ids = lista.map((x) => x.id)
     let d: Dep[] = []
     if (ids.length > 0) {
       const r = await supabase.from('projetos_obra_tarefa_dependencia').select('id,tarefa_id,predecessora_id,defasagem_dias')
         .in('tarefa_id', ids).is('excluido_em', null)
-      if (r.error) { setLoading(false); setErro(r.error.message); return }
+      if (r.error) { setLoading(false); setFalhaCarga('Não foi possível carregar as dependências do cronograma. Atualize a página para tentar de novo.'); return }
       d = (r.data ?? []) as Dep[]
     }
     setTarefas(lista); setDeps(d); setLoading(false)
@@ -83,9 +86,9 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     if (form.fim < form.inicio) { setErro('O fim não pode ser antes do início.'); return }
     const pct = Number(form.percentual)
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) { setErro('O avanço deve ficar entre 0 e 100.'); return }
-    setSalvando(true); setErro(null); setAviso(null)
     const custo = form.custo.trim() === '' ? null : Number(form.custo.replace(',', '.'))
     if (custo !== null && (!Number.isFinite(custo) || custo < 0)) { setErro('O custo previsto deve ser um valor maior ou igual a zero.'); return }
+    setSalvando(true); setErro(null); setAviso(null)
     const dados: Record<string, unknown> = { nome: form.nome.trim(), inicio: form.inicio, fim: form.fim, percentual: pct }
     if (form.id) dados.id = form.id; else dados.ordem = tarefas.length
     const r = await supabase.rpc('fn_obra_tarefa_salvar', { p_obra_id: id, p_dados: dados })
@@ -130,13 +133,18 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
         {aviso && <div role="status" style={{ background: '#E8F6EC', color: VERDE, borderRadius: 10, padding: 12, fontSize: 13, marginBottom: 12 }}>{aviso}</div>}
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-          <button onClick={() => { setForm(vazio()); setErro(null); setAviso(null) }} style={btn(true)}>Nova tarefa</button>
+          <button onClick={() => { setForm(vazio()); setErro(null); setAviso(null) }} disabled={!!falhaCarga} style={btn(true)}>Nova tarefa</button>
           <AjudaCampo chave="projetos.cronograma.nova_tarefa" rota={ROTA_AJUDA} />
-          <button onClick={() => void fixarBase()} disabled={tarefas.length === 0} style={btn(false)}>Fixar linha de base</button>
+          <button onClick={() => void fixarBase()} disabled={tarefas.length === 0 || !!falhaCarga} style={btn(false)}>Fixar linha de base</button>
           <AjudaCampo chave="projetos.cronograma.linha_base" rota={ROTA_AJUDA} />
         </div>
 
-        {loading ? <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div> : (
+        {loading ? <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div> : falhaCarga ? (
+          <div role="alert" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 24, textAlign: 'center' }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: VERM }}>{falhaCarga}</div>
+            <Link href="/dashboard/projetos/obras" style={{ display: 'inline-block', marginTop: 10, fontSize: 12.5, color: GOLD, fontWeight: 600, textDecoration: 'none' }}>Ir para a lista de obras →</Link>
+          </div>
+        ) : (
           <>
             {form && (
               <form onSubmit={(e) => void salvar(e)} style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14, display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' }}>
