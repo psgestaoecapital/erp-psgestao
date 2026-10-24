@@ -365,7 +365,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
                     {(['PJ', 'PF'] as const).map((t) => (
                       <button key={t} type="button" onClick={() => setNovoCliTipo(t)}
                         style={{ flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', border: `1px solid ${novoCliTipo === t ? '#C8941A' : '#E7DED3'}`, background: novoCliTipo === t ? 'rgba(200,148,26,0.10)' : '#fff', color: novoCliTipo === t ? '#A57A15' : '#6b5444' }}>
-                        {t === 'PJ' ? '🏢 PJ' : '👤 PF'}
+                        {t === 'PJ' ? 'Empresa (PJ)' : 'Pessoa (PF)'}
                       </button>
                     ))}
                   </div>
@@ -522,7 +522,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
               />
             </label>
             <button type="button" onClick={buscarCep} disabled={cepLoading} style={{ ...btnGhost, minHeight: 40 }}>
-              {cepLoading ? 'Buscando…' : '🔍 Buscar CEP'}
+              {cepLoading ? 'Buscando…' : 'Buscar CEP'}
             </button>
           </div>
           <div style={grid}>
