@@ -7,7 +7,6 @@
 // no cliente; tocar numa célula leva serviço, faixa e condição para a calculadora. Erro do banco nunca aparece cru.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -19,6 +18,9 @@ import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type It
 const fmtPreco = (v: number) => (Number.isInteger(v) ? fmtR(v) : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
+
+// Preço de tabela tem centavos (15 × 1,5 = R$ 22,50): o fmtR do painel arredonda para reais inteiros e mostrava "R$ 23".
+const fmtR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 type Tabela = { id: string; nome: string; vigencia_inicio: string; vigencia_fim: string | null }
 type Item = ItemFaixa & { servico_ref: string; servico_nome: string; unidade: string; adicional: boolean }
