@@ -9,6 +9,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { curvaS } from '@/lib/hub/curvaS'
 import { fisicoFinanceiro } from '@/lib/hub/fisicoFinanceiro'
 import { caminhoCritico } from '@/lib/hub/caminhoCritico'
+import { lookahead, type Situacao } from '@/lib/hub/lookahead'
 
 const ROTA_AJUDA = '/dashboard/projetos/obras/[id]/cronograma'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
@@ -35,6 +36,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const [form, setForm] = useState<Form | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [soCriticas, setSoCriticas] = useState(false)
+  const [semanas, setSemanas] = useState(2)
   const [falhaCarga, setFalhaCarga] = useState<string | null>(null) // carga falhou: não mostra o estado vazio junto
 
   const carregar = useCallback(async () => {
@@ -75,6 +77,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const ff = useMemo(() => fisicoFinanceiro(tarefas, hoje()), [tarefas])
   const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const cpm = useMemo(() => caminhoCritico(tarefas, deps), [tarefas, deps])
+  const prox = useMemo(() => lookahead(tarefas, hoje(), semanas * 7), [tarefas, semanas])
   const visiveis = soCriticas ? tarefas.filter((t) => cpm.criticas.has(t.id)) : tarefas
   const temBase = tarefas.some((t) => t.fim_base)
   const atrasadas = tarefas.filter((t) => t.fim_base && t.fim > t.fim_base).length
@@ -211,6 +214,27 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                   </div>
                 )}
 
+                <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Próximas semanas — até {fmt(prox.ate)} <AjudaCampo chave="projetos.cronograma.lookahead" rota={ROTA_AJUDA} /></div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: ESP }}>
+                      Período <AjudaCampo chave="projetos.cronograma.lookahead_periodo" rota={ROTA_AJUDA} />
+                      <select value={semanas} onChange={(e) => setSemanas(Number(e.target.value))} style={{ ...inp, padding: '6px 8px', fontSize: 13 }}>
+                        <option value={1}>1 semana</option><option value={2}>2 semanas</option><option value={4}>4 semanas</option>
+                      </select>
+                    </label>
+                  </div>
+                  {prox.itens.length === 0 ? (
+                    <div style={{ fontSize: 12.5, color: MUT }}>Nenhuma tarefa pendente neste período.</div>
+                  ) : prox.itens.map(({ tarefa: t, situacao, diasAtraso }) => (
+                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: `0.5px solid ${LINE}`, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, borderRadius: 6, padding: '2px 6px', background: situacao === 'atrasada' ? '#FBEAEA' : '#FBF4E4', color: situacao === 'atrasada' ? VERM : '#A57A15', flexShrink: 0 }}>{rotuloSituacao(situacao, diasAtraso)}</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: ESP, flex: 1, minWidth: 120 }}>{t.nome}{cpm.criticas.has(t.id) && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: VERM, textTransform: 'uppercase' }}>crítica</span>}</span>
+                      <span style={{ fontSize: 11, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%</span>
+                    </div>
+                  ))}
+                </div>
+
                 {curva && (
                   <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 6 }}>Curva S — planejado × realizado <AjudaCampo chave="projetos.cronograma.curva_s" rota={ROTA_AJUDA} /></div>
@@ -271,6 +295,8 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     </div>
   )
 }
+
+const rotuloSituacao = (s: Situacao, atraso: number) => s === 'atrasada' ? `atrasada ${atraso} d` : s === 'comeca' ? 'começa' : s === 'termina' ? 'termina' : 'em andamento'
 
 const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: ESP }
 const inp: React.CSSProperties = { padding: '9px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 14, color: ESP, background: '#fff', fontWeight: 400 }
