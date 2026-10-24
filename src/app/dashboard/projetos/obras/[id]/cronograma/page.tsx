@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { curvaS } from '@/lib/hub/curvaS'
 import { fisicoFinanceiro } from '@/lib/hub/fisicoFinanceiro'
+import { caminhoCritico } from '@/lib/hub/caminhoCritico'
 
 const ROTA_AJUDA = '/dashboard/projetos/obras/[id]/cronograma'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
@@ -31,6 +32,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const [aviso, setAviso] = useState<string | null>(null)
   const [form, setForm] = useState<Form | null>(null)
   const [salvando, setSalvando] = useState(false)
+  const [soCriticas, setSoCriticas] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro(null)
@@ -68,6 +70,8 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const curva = useMemo(() => curvaS(tarefas, hoje()), [tarefas])
   const ff = useMemo(() => fisicoFinanceiro(tarefas, hoje()), [tarefas])
   const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const cpm = useMemo(() => caminhoCritico(tarefas, deps), [tarefas, deps])
+  const visiveis = soCriticas ? tarefas.filter((t) => cpm.criticas.has(t.id)) : tarefas
   const temBase = tarefas.some((t) => t.fim_base)
   const atrasadas = tarefas.filter((t) => t.fim_base && t.fim > t.fim_base).length
 
@@ -184,6 +188,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                   <Mini label="Planejado hoje" valor={curva ? `${curva.planejadoHoje.toFixed(0)}%` : '—'} ajuda="projetos.cronograma.ind_planejado" />
                   <Mini label="Desvio" valor={curva ? `${curva.desvio > 0 ? '+' : ''}${curva.desvio.toFixed(0)} p.p.` : '—'} cor={curva && curva.desvio < -0.5 ? VERM : VERDE} ajuda="projetos.cronograma.ind_desvio" />
                   <Mini label="Fora da linha de base" valor={temBase ? String(atrasadas) : '—'} cor={atrasadas > 0 ? VERM : ESP} ajuda="projetos.cronograma.ind_fora_base" />
+                  <Mini label="Caminho crítico" valor={`${cpm.criticas.size} de ${tarefas.length}`} cor={VERM} ajuda="projetos.cronograma.ind_caminho_critico" />
                 </div>
 
                 {ff && (
@@ -203,20 +208,25 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                 )}
 
                 <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, overflowX: 'auto' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: ESP, marginBottom: 8 }}>
+                    <input type="checkbox" checked={soCriticas} onChange={(e) => setSoCriticas(e.target.checked)} style={{ width: 18, height: 18 }} />
+                    Só caminho crítico <AjudaCampo chave="projetos.cronograma.so_criticas" rota={ROTA_AJUDA} />
+                  </label>
                   <div style={{ minWidth: 560 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUT, marginLeft: 160, marginBottom: 6 }}>
                       <span>{janela && fmt(janela.ini)}</span><span>{janela && fmt(janela.fim)}</span>
                     </div>
-                    {tarefas.map((t) => {
+                    {visiveis.map((t) => {
                       const p = predDe(t.id)
                       const atras = !!t.fim_base && t.fim > t.fim_base
                       const pt = p ? tarefas.find((x) => x.id === p.predecessora_id) : undefined
                       const conflito = !!pt && t.inicio < pt.fim
+                      const critica = cpm.criticas.has(t.id), folga = cpm.folga.get(t.id) ?? 0
                       return (
                         <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
                           <div style={{ width: 152, flexShrink: 0 }}>
-                            <div style={{ fontSize: 12.5, fontWeight: 600, color: ESP }}>{t.nome}</div>
-                            <div style={{ fontSize: 10.5, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%{p ? ` · após ${nomePorId.get(p.predecessora_id) ?? '—'}` : ''}</div>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, color: ESP }}>{t.nome}{critica && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: VERM, textTransform: 'uppercase', letterSpacing: 0.4 }}>crítica</span>}</div>
+                            <div style={{ fontSize: 10.5, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%{p ? ` · após ${nomePorId.get(p.predecessora_id) ?? '—'}` : ''}{!critica ? ` · folga ${folga} d` : ''}</div>
                           </div>
                           <div style={{ position: 'relative', flex: 1, height: 22 }}>
                             {t.inicio_base && t.fim_base && (
@@ -226,7 +236,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                               <div title={conflito ? `Começa antes de "${pt.nome}" terminar` : `Depende de "${pt.nome}"`}
                                 style={{ position: 'absolute', top: 8, height: 0, left: `${Math.min(pos(pt.fim), pos(t.inicio))}%`, width: `${Math.abs(pos(t.inicio) - pos(pt.fim))}%`, borderTop: `2px dashed ${conflito ? VERM : MUT}` }} />
                             )}
-                            <div style={{ position: 'absolute', top: 2, height: 12, left: `${pos(t.inicio)}%`, width: `${larg(t.inicio, t.fim)}%`, background: '#FBF4E4', border: `1px solid ${atras ? VERM : GOLD}`, borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ position: 'absolute', top: 2, height: 12, left: `${pos(t.inicio)}%`, width: `${larg(t.inicio, t.fim)}%`, background: '#FBF4E4', border: `${critica ? 2 : 1}px solid ${atras || critica ? VERM : GOLD}`, borderRadius: 4, overflow: 'hidden' }}>
                               <div style={{ width: `${Number(t.percentual)}%`, height: '100%', background: atras ? VERM : GOLD }} />
                             </div>
                           </div>
