@@ -33,10 +33,10 @@ import {
 interface Config {
   company_id: string;
   // BDI componentes (em %)
-  bdi_administracao_central_pct: number;
+  bdi_admin_central_pct: number;
   bdi_seguros_pct: number;
   bdi_riscos_pct: number;
-  bdi_garantia_pct: number;
+  bdi_garantias_pct: number;
   bdi_despesas_financeiras_pct: number;
   bdi_lucro_pct: number;
   bdi_impostos_pct: number;
@@ -86,10 +86,10 @@ function n(v: unknown, fallback = 0): number {
 
 function cargaInicial(): Partial<Config> {
   return {
-    bdi_administracao_central_pct: 5,
+    bdi_admin_central_pct: 5,
     bdi_seguros_pct: 1,
     bdi_riscos_pct: 1.5,
-    bdi_garantia_pct: 1,
+    bdi_garantias_pct: 1,
     bdi_despesas_financeiras_pct: 2,
     bdi_lucro_pct: 12,
     bdi_impostos_pct: 9.25,
@@ -173,10 +173,10 @@ export default function ConfiguracoesPage() {
       ignoreNextEffectRef.current = true;
       setConfig({
         company_id: companyId,
-        bdi_administracao_central_pct: n(dados.bdi_administracao_central_pct, 5),
+        bdi_admin_central_pct: n(dados.bdi_admin_central_pct, 5),
         bdi_seguros_pct: n(dados.bdi_seguros_pct, 1),
         bdi_riscos_pct: n(dados.bdi_riscos_pct, 1.5),
-        bdi_garantia_pct: n(dados.bdi_garantia_pct, 1),
+        bdi_garantias_pct: n(dados.bdi_garantias_pct, 1),
         bdi_despesas_financeiras_pct: n(dados.bdi_despesas_financeiras_pct, 2),
         bdi_lucro_pct: n(dados.bdi_lucro_pct, 12),
         bdi_impostos_pct: n(dados.bdi_impostos_pct, 9.25),
@@ -229,10 +229,10 @@ export default function ConfiguracoesPage() {
       try {
         const supabase = supabaseBrowser();
         const payload = {
-          bdi_administracao_central_pct: atual.bdi_administracao_central_pct,
+          bdi_admin_central_pct: atual.bdi_admin_central_pct,
           bdi_seguros_pct: atual.bdi_seguros_pct,
           bdi_riscos_pct: atual.bdi_riscos_pct,
-          bdi_garantia_pct: atual.bdi_garantia_pct,
+          bdi_garantias_pct: atual.bdi_garantias_pct,
           bdi_despesas_financeiras_pct: atual.bdi_despesas_financeiras_pct,
           bdi_lucro_pct: atual.bdi_lucro_pct,
           bdi_impostos_pct: atual.bdi_impostos_pct,
@@ -245,16 +245,13 @@ export default function ConfiguracoesPage() {
           prefixo_proposta: atual.prefixo_proposta,
           vendedor_pode_alterar_preco: !!atual.vendedor_pode_alterar_preco,
           vendedor_pode_aprovar_proposta: !!atual.vendedor_pode_aprovar_proposta,
-          exige_aprovacao_engenheiro: !!atual.exige_aprovacao_engenheiro,
-          sincroniza_omie_estoque: !!atual.sincroniza_omie_estoque,
-          sincroniza_omie_pagar: !!atual.sincroniza_omie_pagar,
         };
-        const { data, error } = await supabase
-          .from("projetos_modulo_config")
-          .update(payload)
-          .eq("company_id", companyId)
-          .select("bdi_total_pct")
-          .single();
+        // A tabela só tem policy de leitura: grava pela RPC guardada (empresa do usuário). Integrações Omie e
+        // aprovação do engenheiro ainda não têm consumidor e não são gravadas (aparecem como "Em breve").
+        const { data, error } = await supabase.rpc("fn_projetos_config_salvar", {
+          p_company_id: companyId,
+          p_dados: payload,
+        });
         if (error) throw error;
         setSavingState("saved");
         setSavedAt(new Date());
@@ -291,10 +288,10 @@ export default function ConfiguracoesPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    config?.bdi_administracao_central_pct,
+    config?.bdi_admin_central_pct,
     config?.bdi_seguros_pct,
     config?.bdi_riscos_pct,
-    config?.bdi_garantia_pct,
+    config?.bdi_garantias_pct,
     config?.bdi_despesas_financeiras_pct,
     config?.bdi_lucro_pct,
     config?.bdi_impostos_pct,
@@ -307,9 +304,6 @@ export default function ConfiguracoesPage() {
     config?.prefixo_proposta,
     config?.vendedor_pode_alterar_preco,
     config?.vendedor_pode_aprovar_proposta,
-    config?.exige_aprovacao_engenheiro,
-    config?.sincroniza_omie_estoque,
-    config?.sincroniza_omie_pagar,
   ]);
 
   function setField<K extends keyof Config>(k: K, v: Config[K]) {
@@ -344,10 +338,10 @@ export default function ConfiguracoesPage() {
 
   const componentes: BdiComponentes = useMemo(
     () => ({
-      ac: n(config?.bdi_administracao_central_pct),
+      ac: n(config?.bdi_admin_central_pct),
       sg: n(config?.bdi_seguros_pct),
       ri: n(config?.bdi_riscos_pct),
-      ga: n(config?.bdi_garantia_pct),
+      ga: n(config?.bdi_garantias_pct),
       df: n(config?.bdi_despesas_financeiras_pct),
       lu: n(config?.bdi_lucro_pct),
       im: n(config?.bdi_impostos_pct),
@@ -465,8 +459,8 @@ export default function ConfiguracoesPage() {
             <BdiSlider
               label="Administração Central (AC)"
               ajuda="projetos.bdi.administracao_central"
-              valor={config.bdi_administracao_central_pct}
-              onChange={(v) => setField("bdi_administracao_central_pct", v)}
+              valor={config.bdi_admin_central_pct}
+              onChange={(v) => setField("bdi_admin_central_pct", v)}
               cor="gray"
             />
             <BdiSlider
@@ -488,8 +482,8 @@ export default function ConfiguracoesPage() {
             <BdiSlider
               label="Garantias (GA)"
               ajuda="projetos.bdi.garantia"
-              valor={config.bdi_garantia_pct}
-              onChange={(v) => setField("bdi_garantia_pct", v)}
+              valor={config.bdi_garantias_pct}
+              onChange={(v) => setField("bdi_garantias_pct", v)}
               cor="gray"
               max={10}
             />
@@ -668,16 +662,20 @@ export default function ConfiguracoesPage() {
             <Toggle
               label="Sincronizar estoque com Omie"
             ajuda="projetos.config.omie_estoque"
-              hint="Movimenta estoque no Omie a cada saída de material"
+              badge="Em breve"
+              hint="Ainda não ativo — a saída de material da obra movimenta o estoque do PS; o envio ao Omie virá com a integração."
               valor={!!config.sincroniza_omie_estoque}
               onChange={(v) => setField("sincroniza_omie_estoque", v)}
+              disabled
             />
             <Toggle
               label="Sincronizar contas a pagar com Omie"
             ajuda="projetos.config.omie_pagar"
-              hint="Cria títulos a pagar no Omie ao confirmar fornecedor"
+              badge="Em breve"
+              hint="Ainda não ativo — os títulos a pagar da obra ficam no financeiro do PS; o envio ao Omie virá com a integração."
               valor={!!config.sincroniza_omie_pagar}
               onChange={(v) => setField("sincroniza_omie_pagar", v)}
+              disabled
             />
           </div>
         </div>
@@ -802,6 +800,7 @@ function CampoNumero({
       </span>
       <input
         type="number"
+        data-testid={ajuda ? `campo-${ajuda}` : undefined}
         step={inteiro ? 1 : 0.01}
         value={valor ?? ""}
         onChange={(e) => {
