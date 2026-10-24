@@ -4,6 +4,7 @@
 // do custo previsto com alerta acima do limite; por rota — o histórico das viagens fechadas para orçar a próxima
 // mobilização. Só lê a fn_viagem_indicadores (mesma fonte do Resultado da obra); esta tela não calcula nada.
 import { useEffect, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -60,7 +61,7 @@ export function IndicadoresViagem({ empresa }: { empresa: string }) {
                 <td className="p-2 text-right">{brl(o.custo_m2)}</td>
                 <td className="p-2 text-right">{brl(o.custo_km)}</td>
                 <td className="p-2 text-right">{brl(o.custo_dia)}</td>
-                <td className="p-2 text-right font-medium" style={{ color: o.alerta ? '#B42318' : ESP }}>{o.pct_orcado == null ? '—' : `${num(o.pct_orcado, 2)}%`}{o.alerta ? ' ⚠' : ''}</td>
+                <td className="p-2 text-right font-medium" style={{ color: o.alerta ? '#B42318' : ESP }}>{o.alerta && <AlertTriangle aria-label="Acima do limite" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />}{o.pct_orcado == null ? '—' : `${num(o.pct_orcado, 2)}%`}</td>
               </tr>))}</tbody>
           </table>
           <p className="px-2 pb-2 text-xs opacity-70">{ind.confere ? 'Confere com o Resultado da obra' : 'Não confere com o Resultado da obra — avise o suporte'}<AjudaCampo chave="projetos.viagem.rel_confere" /></p>
