@@ -226,16 +226,16 @@ export default function TabelasPrecoPage() {
                 {tabelaId && (<>
                   <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
                     <span style={rot}>Faixa de quantidade <AjudaCampo chave="hub.tabela_preco.faixa_servico" /></span>
-                    <input data-testid="tp-f-ref" style={campo} value={fm.ref} onChange={e => setF('ref', e.target.value)} placeholder="código do serviço (uretano-6mm)" aria-label="Código do serviço" />
-                    <input data-testid="tp-f-nome" style={campo} value={fm.nome} onChange={e => setF('nome', e.target.value)} placeholder="nome do serviço" aria-label="Nome do serviço" />
-                    <input data-testid="tp-f-un" style={campo} value={fm.un} onChange={e => setF('un', e.target.value)} placeholder="unidade" aria-label="Unidade" />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-ref" style={campo} value={fm.ref} onChange={e => setF('ref', e.target.value)} placeholder="código do serviço (uretano-6mm)" aria-label="Código do serviço" /> <AjudaCampo chave="hub.tabela_preco.f_codigo_servico" /></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-nome" style={campo} value={fm.nome} onChange={e => setF('nome', e.target.value)} placeholder="nome do serviço" aria-label="Nome do serviço" /> <AjudaCampo chave="hub.tabela_preco.f_nome_servico" /></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-un" style={campo} value={fm.un} onChange={e => setF('un', e.target.value)} placeholder="unidade" aria-label="Unidade" /> <AjudaCampo chave="hub.tabela_preco.f_unidade" /></div>
                     <span style={rot}>De / até <AjudaCampo chave="hub.tabela_preco.faixa_de_ate" /></span>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <input data-testid="tp-f-de" inputMode="decimal" style={campo} value={fm.de} onChange={e => setF('de', e.target.value)} placeholder="de (0)" aria-label="Faixa de" />
-                      <input data-testid="tp-f-ate" inputMode="decimal" style={campo} value={fm.ate} onChange={e => setF('ate', e.target.value)} placeholder="até (vazio = em diante)" aria-label="Faixa até" />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-de" inputMode="decimal" style={campo} value={fm.de} onChange={e => setF('de', e.target.value)} placeholder="de (0)" aria-label="Faixa de" /> <AjudaCampo chave="hub.tabela_preco.f_faixa_de" /></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-ate" inputMode="decimal" style={campo} value={fm.ate} onChange={e => setF('ate', e.target.value)} placeholder="até (vazio = em diante)" aria-label="Faixa até" /> <AjudaCampo chave="hub.tabela_preco.f_faixa_ate" /></div>
                     </div>
                     <span style={rot}>Preço base <AjudaCampo chave="hub.tabela_preco.faixa_preco" /></span>
-                    <input data-testid="tp-f-preco" inputMode="decimal" style={campo} value={fm.preco} onChange={e => setF('preco', e.target.value)} placeholder="R$ por unidade" aria-label="Preço base" />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-preco" inputMode="decimal" style={campo} value={fm.preco} onChange={e => setF('preco', e.target.value)} placeholder="R$ por unidade" aria-label="Preço base" /> <AjudaCampo chave="hub.tabela_preco.f_preco_base" /></div>
                     <button type="button" data-testid="tp-f-faixa" onClick={salvarFaixa} disabled={!fm.ref.trim() || !fm.nome.trim() || num(fm.preco) == null} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Salvar faixa</button>
                     {faixas.length > 0 && (
                       <div data-testid="tp-faixas-servico" style={{ fontSize: 13 }}>
@@ -254,18 +254,20 @@ export default function TabelasPrecoPage() {
                   <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
                     <span style={rot}>Condição e adicional (%) <AjudaCampo chave="hub.tabela_preco.cond_cadastro" /></span>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <input data-testid="tp-f-cond" style={campo} value={fm.cond} onChange={e => setF('cond', e.target.value)} placeholder="sabado" aria-label="Condição" />
-                      <input data-testid="tp-f-pct" inputMode="decimal" style={campo} value={fm.pct} onChange={e => setF('pct', e.target.value)} placeholder="50" aria-label="Adicional em porcentagem" />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-cond" style={campo} value={fm.cond} onChange={e => setF('cond', e.target.value)} placeholder="sabado" aria-label="Condição" /> <AjudaCampo chave="hub.tabela_preco.f_condicao" /></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-pct" inputMode="decimal" style={campo} value={fm.pct} onChange={e => setF('pct', e.target.value)} placeholder="50" aria-label="Adicional em porcentagem" /> <AjudaCampo chave="hub.tabela_preco.f_adicional_pct" /></div>
                     </div>
                     <button type="button" data-testid="tp-f-salvar-cond" onClick={salvarCond} disabled={!fm.cond.trim() || num(fm.pct) == null} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Salvar condição</button>
                   </div>
                   <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
                     <span style={rot}>Código no cliente (serviço escolhido acima) <AjudaCampo chave="hub.tabela_preco.codigo_cadastro" /></span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <select data-testid="tp-f-ccond" style={campo} value={fm.cCond} onChange={e => setF('cCond', e.target.value)} aria-label="Condição do código">
                       {colunas.map(c => <option key={c} value={c}>{c === 'normal' ? 'Normal' : c}</option>)}
                     </select>
-                    <input data-testid="tp-f-cod" style={campo} value={fm.cod} onChange={e => setF('cod', e.target.value)} placeholder="código do item no cliente (vazio remove)" aria-label="Código no cliente" />
-                    <input data-testid="tp-f-fixo" inputMode="decimal" style={campo} value={fm.fixo} onChange={e => setF('fixo', e.target.value)} placeholder="preço fixo da condição (opcional)" aria-label="Preço fixo" />
+                    <AjudaCampo chave="hub.tabela_preco.f_cod_condicao" /></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-cod" style={campo} value={fm.cod} onChange={e => setF('cod', e.target.value)} placeholder="código do item no cliente (vazio remove)" aria-label="Código no cliente" /> <AjudaCampo chave="hub.tabela_preco.f_codigo_cliente" /></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-fixo" inputMode="decimal" style={campo} value={fm.fixo} onChange={e => setF('fixo', e.target.value)} placeholder="preço fixo da condição (opcional)" aria-label="Preço fixo" /> <AjudaCampo chave="hub.tabela_preco.f_preco_fixo" /></div>
                     <button type="button" data-testid="tp-f-salvar-cod" onClick={salvarCodigo} disabled={!servico} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Salvar código</button>
                   </div>
                 </>)}
