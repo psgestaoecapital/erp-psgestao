@@ -6,6 +6,11 @@ export type SaudeCode = {
   tarefas_recentes: number
   mais_antiga_recente_min: number | null
   backlog_antigo: number
+  ultima_sessao_em?: string | null
+  encerrou_normalmente?: boolean
+  trabalho_pendente?: boolean
+  prs_paradas?: number
+  plantao_min?: number | null
 }
 export type SemaforoCode = 'verde' | 'amarelo' | 'vermelho'
 
@@ -31,3 +36,13 @@ export type DonoEsteira = {
   ultima_anotacao: { em: string; texto: string } | null
 }
 export const CODE_DONO_ESTEIRA = 'gilberto-esteira'
+
+// Regra de status de fn_codes_saude() (espelho em TS, para o gate provar os três casos):
+// trabalhando = sessão renovada há < 12 min · encerrou normalmente = renovada_em < iniciada_em (a vez é liberada de propósito)
+// TRAVADO só com trabalho pendente (tarefa aberta ou PR parada) E plantão sem atualização há mais de 30 min.
+export function statusSaude(f: { renovada_min: number | null; encerrou_normalmente: boolean; trabalho_pendente: boolean; plantao_min: number | null }): string {
+  if (f.renovada_min != null && f.renovada_min < 12 && !f.encerrou_normalmente) return 'trabalhando'
+  if (!f.trabalho_pendente) return 'ocioso'
+  if (f.plantao_min == null || f.plantao_min > 30) return 'TRAVADO'
+  return 'na fila'
+}
