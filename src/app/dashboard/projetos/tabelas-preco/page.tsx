@@ -12,6 +12,7 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { MedicaoContrato } from './_componentes/MedicaoContrato'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
 
 // Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
@@ -59,6 +60,10 @@ export default function TabelasPrecoPage() {
     if (!empresa) { setMsg('Selecione uma empresa para cadastrar a tabela.'); return }
     const r = await salvar('fn_tabela_preco_salvar', { p_company_id: empresa, p_dados: { nome: fm.nomeTab } }, 'Tabela criada.')
     if (r?.id) { setFm(f => ({ ...f, nomeTab: '' })); await carregarTabelas(); setTabelaId(r.id) }
+  }
+  const arquivar = async () => {
+    if (!tabelaId || !window.confirm('Arquivar este contrato? Ele sai da lista, o histórico fica guardado.')) return
+    if (await salvar('fn_tabela_preco_arquivar', { p_tabela: tabelaId }, 'Contrato arquivado.')) { setTabelaId(''); carregarTabelas() }
   }
   const salvarFaixa = () => salvar('fn_tabela_preco_faixa_salvar', { p_tabela_id: tabelaId, p_dados: { servico_ref: fm.ref, servico_nome: fm.nome, unidade: fm.un, faixa_de: num(fm.de) ?? 0, faixa_ate: num(fm.ate), preco_base: num(fm.preco) } }, 'Faixa salva.')
   const salvarCond = () => salvar('fn_tabela_preco_condicao_salvar', { p_tabela_id: tabelaId, p_condicao: fm.cond, p_percentual: num(fm.pct) }, 'Condição salva.')
@@ -122,6 +127,9 @@ export default function TabelasPrecoPage() {
   const preco = precoUnitario(faixas, q, cond)
   const codigo = cods.find(x => x.servico_ref === servico && x.condicao === condSel)?.codigo_externo
   const custoN = Number(custo.replace(',', '.')) || 0
+  // De-para PS ↔ cliente: serviço da tabela sem nenhum código, e código que aponta para serviço que não está na tabela.
+  const semCodigo = useMemo(() => servicos.filter(s => !cods.some(k => k.servico_ref === s.servico_ref)), [servicos, cods])
+  const codigoOrfao = useMemo(() => [...new Set(cods.filter(k => !servicos.some(s => s.servico_ref === k.servico_ref)).map(k => k.servico_ref))], [servicos, cods])
   const margem = preco != null && custoN > 0 ? margemContraCusto(preco, custoN) : null
   const tabelaSel = tabelas.find(t => t.id === tabelaId)
   const condCol = (sref: string, c: string): Condicao | null => {
@@ -157,6 +165,12 @@ export default function TabelasPrecoPage() {
                 {tabelas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
               </select></label>
             {tabelaSel && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button type="button" data-testid="tp-arquivar" onClick={arquivar} style={{ minHeight: 44, padding: '0 16px' }}>Arquivar contrato</button>
+                <AjudaCampo chave="hub.tabela_preco.arquivar" />
+              </div>
+            )}
+            {tabelaSel && (
               <div data-testid="tp-vigencia" style={{ fontSize: 13, color: MUT, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 Vigência {fmtData(tabelaSel.vigencia_inicio)} a {fmtData(tabelaSel.vigencia_fim)} · {servicos.length} serviço(s) · {conds.length} adicional(is)
                 <AjudaCampo chave="hub.tabela_preco.vigencia" />
@@ -175,6 +189,13 @@ export default function TabelasPrecoPage() {
               </select></label>
             <label><span style={rot}>Custo da CPU por unidade (opcional) <AjudaCampo chave="hub.tabela_preco.custo" /></span>
               <input data-testid="tp-custo" inputMode="decimal" style={campo} value={custo} onChange={e => setCusto(e.target.value)} placeholder="para ver a margem" /></label>
+            {(semCodigo.length > 0 || codigoOrfao.length > 0) && (
+              <div role="status" data-testid="tp-depara-aviso" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12, fontSize: 13 }}>
+                <b>Conferir o de-para com o cliente <AjudaCampo chave="hub.tabela_preco.depara" /></b>
+                {semCodigo.length > 0 && <div>Serviço sem código no cliente: {semCodigo.map(s => s.servico_nome).join(', ')}.</div>}
+                {codigoOrfao.length > 0 && <div>Código sem serviço na tabela: {codigoOrfao.join(', ')}.</div>}
+              </div>
+            )}
             <div data-testid="tp-resultado" style={{ background: BG, borderRadius: 10, padding: 14, border: `1px solid ${LINE}` }}>
               {preco == null ? <b>Sem faixa para essa quantidade.</b> : (<>
                 <div style={{ fontSize: 26, fontWeight: 700 }} data-testid="tp-preco">{fmtPreco(preco)} <span style={{ fontSize: 14, fontWeight: 400 }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
@@ -304,6 +325,9 @@ export default function TabelasPrecoPage() {
               )
             })}
           </section>
+        )}
+        {!loading && !erro && tabelaId && servicos.length > 0 && (
+          <MedicaoContrato key={tabelaId} tabelaId={tabelaId} servicos={servicos.map(x => ({ ref: x.servico_ref, nome: x.servico_nome, unidade: x.unidade }))} regimes={conds.map(c => c.condicao)} />
         )}
       </div>
     </div>
