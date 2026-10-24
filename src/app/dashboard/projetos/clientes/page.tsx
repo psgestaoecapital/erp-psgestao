@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import Link from 'next/link'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { iniciais, obrasPorCliente, temContato, tipoPessoaNormal, type TipoPF } from './clientes-regras'
+import { brlCurto, comercialPorCliente, ETAPAS_FECHADAS, iniciais, obrasPorCliente, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type OpLinha, type TipoPF } from './clientes-regras'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -43,6 +43,13 @@ type Cliente = {
   uf: string | null
   ativo: boolean | null
 }
+type Oportunidade = OpLinha & { titulo: string | null }
+type PropostaCli = { id: string; cliente_id: string | null; numero: string | null; status: string | null; total: number | null }
+const ETAPA_ROTULO: Record<string, string> = {
+  prospeccao: 'Prospecção', visita_agendada: 'Visita agendada', visita_feita: 'Visita feita', orcando: 'Orçando',
+  proposta_enviada: 'Proposta enviada', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido',
+}
+const SEM_COMERCIAL: Comercial = { abertas: 0, valorAberto: 0, ganhas: 0, propostas: 0, visitas: 0 }
 type Obra = { id: string; nome: string | null; projeto_nome: string | null; status: string | null; obra_cidade: string | null; obra_uf: string | null; created_at: string | null }
 
 const VAZIO: Partial<Cliente> = { tipo_pessoa: 'PJ', nome_fantasia: '', razao_social: '', cpf_cnpj: '', telefone: '', email: '', cep: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '', ativo: true }
@@ -62,6 +69,9 @@ export default function ClientesPage() {
   const [fTipo, setFTipo] = useState<'' | TipoPF>('')
   const [fCidade, setFCidade] = useState('')
   const [nObras, setNObras] = useState<Record<string, number>>({})
+  const [ops, setOps] = useState<Oportunidade[]>([])
+  const [props, setProps] = useState<PropostaCli[]>([])
+  const [comercial, setComercial] = useState<Record<string, Comercial>>({})
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
@@ -85,6 +95,16 @@ export default function ClientesPage() {
     // Quantas obras cada cliente tem: uma consulta só, contada na tela.
     const { data: ob } = await supabase.from('erp_obra_planta').select('cliente_id').eq('company_id', empresaUnica).limit(5000)
     setNObras(obrasPorCliente((ob ?? []) as { cliente_id: string | null }[]))
+    // Elo comercial (cliente → oportunidade → visita → proposta): 3 consultas da empresa, contadas na tela.
+    const [rOp, rOrc, rVis] = await Promise.all([
+      supabase.from('erp_crm_oportunidade').select('id, cliente_id, titulo, etapa, valor_estimado, valor_proposta').eq('company_id', empresaUnica).is('deleted_at', null).limit(5000),
+      supabase.from('erp_orcamentos').select('id, cliente_id, numero, status, total').eq('company_id', empresaUnica).not('cliente_id', 'is', null).limit(5000),
+      supabase.from('erp_crm_visita').select('oportunidade_id').eq('company_id', empresaUnica).limit(5000),
+    ])
+    const opsL = (rOp.data ?? []) as Oportunidade[]
+    const orcL = (rOrc.data ?? []) as PropostaCli[]
+    setOps(opsL); setProps(orcL)
+    setComercial(comercialPorCliente(opsL, orcL, (rVis.data ?? []) as { oportunidade_id: string | null }[]))
     setLoading(false)
   }, [empresaUnica])
 
@@ -109,7 +129,8 @@ export default function ClientesPage() {
     total: lista.length,
     comObra: lista.filter((c) => (nObras[c.id] ?? 0) > 0).length,
     incompletos: lista.filter((c) => !temContato(c) || docOf(c) === '—').length,
-  }), [lista, nObras])
+    emAberto: lista.reduce((t, c) => t + (comercial[c.id]?.valorAberto ?? 0), 0),
+  }), [lista, nObras, comercial])
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -203,6 +224,7 @@ export default function ClientesPage() {
         <Indicador rotulo="Clientes ativos" valor={loading ? '…' : String(resumo.total)} ajuda="projetos.clientes.kpi.total" />
         <Indicador rotulo="Com obra" valor={loading ? '…' : String(resumo.comObra)} ajuda="projetos.clientes.kpi.com_obra" />
         <Indicador rotulo="Cadastro incompleto" valor={loading ? '…' : String(resumo.incompletos)} ajuda="projetos.clientes.kpi.incompletos" alerta={!loading && resumo.incompletos > 0} />
+        <Indicador rotulo="Em negociação" valor={loading ? '…' : brlCurto(resumo.emAberto)} ajuda="projetos.clientes.kpi.em_aberto" />
       </div>
 
       {/* Toolbar */}
@@ -237,6 +259,7 @@ export default function ClientesPage() {
           {filtrados.map((c) => {
             const tipo = tipoOf(c)
             const n = nObras[c.id] ?? 0
+            const cm = comercial[c.id] ?? SEM_COMERCIAL
             const contato = [c.telefone || c.celular, c.email].filter(Boolean).join(' · ')
             return (
             <div key={c.id} style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, overflow: 'hidden' }}>
@@ -250,7 +273,14 @@ export default function ClientesPage() {
                   <div style={{ fontSize: 11, color: MUT }}>{docLabel(tipo)}: {docOf(c) === '—' ? <i>não informado</i> : docOf(c)}{c.cidade ? ` · ${c.cidade}${c.uf ? '/' + c.uf : ''}` : ''}</div>
                   <div style={{ fontSize: 11, color: contato ? MUT : RED }}>{contato || 'Sem telefone nem e-mail — complete em Editar'}</div>
                 </div>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: n > 0 ? GREEN_BG : CREAM, color: n > 0 ? GREEN : MUT, whiteSpace: 'nowrap' }}>{n === 1 ? '1 obra' : `${n} obras`}</span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} data-testid="hub-cliente-comercial">
+                  {cm.abertas > 0 && <span title="Oportunidades em aberto e o valor delas" style={pilula(true)}>{cm.abertas === 1 ? '1 em aberto' : `${cm.abertas} em aberto`} · {brlCurto(cm.valorAberto)}</span>}
+                  {cm.ganhas > 0 && <span title="Oportunidades ganhas" style={pilula(true)}>{cm.ganhas === 1 ? '1 ganha' : `${cm.ganhas} ganhas`}</span>}
+                  <span title="Propostas (orçamentos) do cliente" style={pilula(cm.propostas > 0)}>{cm.propostas === 1 ? '1 proposta' : `${cm.propostas} propostas`}</span>
+                  {cm.visitas > 0 && <span title="Visitas técnicas do cliente" style={pilula(true)}>{cm.visitas === 1 ? '1 visita' : `${cm.visitas} visitas`}</span>}
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: n > 0 ? GREEN_BG : CREAM, color: n > 0 ? GREEN : MUT, whiteSpace: 'nowrap' }}>{n === 1 ? '1 obra' : `${n} obras`}</span>
+                  <AjudaCampo chave="projetos.clientes.comercial" />
+                </div>
                 <span style={{ color: GOLD, fontSize: 12 }}>{sel2?.id === c.id ? '▲' : '▼'}</span>
               </div>
 
@@ -263,6 +293,8 @@ export default function ClientesPage() {
                     <AjudaCampo chave="projetos.clientes.acao.nova_obra" />
                     <Link href="/dashboard/projetos/oportunidades" style={{ ...btnOutline, textDecoration: 'none' }}>Nova oportunidade</Link>
                     <AjudaCampo chave="projetos.clientes.acao.oportunidade" />
+                    <Link href="/dashboard/orcamentos" style={{ ...btnOutline, textDecoration: 'none' }}>Nova proposta</Link>
+                    <AjudaCampo chave="projetos.clientes.acao.proposta" />
                     <button onClick={() => excluir(c)} style={btnDanger}>Excluir</button>
                     <AjudaCampo chave="projetos.clientes.acao.excluir" />
                   </div>
@@ -271,6 +303,7 @@ export default function ClientesPage() {
                       Endereço: {[c.logradouro, c.numero].filter(Boolean).join(', ')}{c.bairro ? ` · ${c.bairro}` : ''}{c.cep ? ` · CEP ${c.cep}` : ''}
                     </div>
                   )}
+                  <BlocoComercial ops={ops.filter((o) => o.cliente_id === c.id)} props={props.filter((x) => x.cliente_id === c.id)} />
                   <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>Obras deste cliente <AjudaCampo chave="projetos.clientes.obras" /></div>
                   {obrasLoad ? (
                     <div style={{ fontSize: 12, color: MUT }}>Carregando obras…</div>
@@ -340,6 +373,44 @@ export default function ClientesPage() {
 }
 
 // ── Peças ────────────────────────────────────────────────────────────
+const brl = (v: number | null) => (v === null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
+function BlocoComercial({ ops, props }: { ops: Oportunidade[]; props: PropostaCli[] }) {
+  const titulo = (t: string, k: string) => (
+    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>{t} <AjudaCampo chave={k} /></div>
+  )
+  const linha: React.CSSProperties = { background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', textDecoration: 'none' }
+  return (
+    <div style={{ display: 'grid', gap: 12, marginBottom: 12 }}>
+      <div>
+        {titulo('Oportunidades deste cliente', 'projetos.clientes.oportunidades')}
+        {ops.length === 0 ? <div style={{ fontSize: 12, color: MUT, fontStyle: 'italic' }}>Nenhuma oportunidade ainda. Use “Nova oportunidade”.</div> : (
+          <div style={{ display: 'grid', gap: 6 }}>
+            {ops.map((o) => (
+              <Link key={o.id} href={`/dashboard/projetos/oportunidades/${o.id}`} style={linha}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: ESP }}>{o.titulo || '(sem título)'}</span>
+                <span style={{ fontSize: 11, color: ETAPAS_FECHADAS.has(o.etapa ?? '') ? MUT : GOLD_D, fontWeight: 600 }}>{ETAPA_ROTULO[o.etapa ?? ''] ?? o.etapa ?? '—'} · {brl(valorOportunidade(o))} · abrir ›</span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+      <div>
+        {titulo('Propostas deste cliente', 'projetos.clientes.propostas')}
+        {props.length === 0 ? <div style={{ fontSize: 12, color: MUT, fontStyle: 'italic' }}>Nenhuma proposta ainda. Use “Nova proposta”.</div> : (
+          <div style={{ display: 'grid', gap: 6 }}>
+            {props.map((x) => (
+              <Link key={x.id} href={`/dashboard/orcamentos?id=${x.id}`} style={linha}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: ESP }}>{x.numero ? `Proposta ${x.numero}` : 'Proposta sem número'}</span>
+                <span style={{ fontSize: 11, color: MUT }}>{x.status || 'rascunho'} · {brl(x.total)} · abrir ›</span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+const pilula = (on: boolean): React.CSSProperties => ({ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: on ? 'rgba(200,148,26,0.12)' : CREAM, color: on ? GOLD_D : MUT, whiteSpace: 'nowrap' })
 function Casca({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 16px' }}>
