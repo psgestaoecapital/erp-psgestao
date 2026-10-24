@@ -24,7 +24,8 @@ ok(/INSERT INTO public\.projetos_obra_mao_obra_apontamento\s*\(company_id, obra_
 ok(!/\bvalor\b\s*,/.test(corpo.split('INSERT INTO public.projetos_obra_mao_obra_apontamento')[1]?.split('RETURNING')[0] ?? ''), 'valor não é gravado à mão (coluna gerada horas × custo)')
 
 // RD-95: cada "?" da tela tem chave na migration (ou na da OS de obra)
-const base = readFileSync('supabase/migrations/20261023180535_hub_os_obra.sql', 'utf8')
+const base = ['20261023180535_hub_os_obra.sql', '20261024190000_hb0_os_obra_rdo.sql']
+  .map(f => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 const chaves = [...tela.matchAll(/AjudaCampo chave="([^"]+)"/g)].map(m => m[1])
 const novas = ['apontar', 'horas_apontadas', 'apontar_data', 'apontar_funcao', 'apontar_horas', 'apontar_custo_hora', 'apontar_lancar'].map(c => `projetos.os_obra.${c}`)
 for (const c of novas) ok(chaves.includes(c) && corpo.includes(`'${c}'`), `"?" ${c} na tela e no banco`)
