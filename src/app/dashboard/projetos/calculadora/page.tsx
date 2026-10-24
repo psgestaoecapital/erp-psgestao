@@ -128,8 +128,17 @@ export default function CalculadoraObraPage() {
   async function copiarLista() {
     if (!res.ok) return;
     const texto = listaDeCompra(custo.linhas, sistema === "parede" ? "Lista de compra — parede simples" : sistema === "separativa" ? "Lista de compra — parede separativa" : sistema === "cortafogo" ? "Lista de compra — parede corta-fogo" : sistema === "estruturado" ? "Lista de compra — revestimento estruturado" : sistema === "revestimento" ? "Lista de compra — revestimento colado" : sistema === "aramado" ? "Lista de compra — forro aramado" : "Lista de compra — forro F530");
-    try { await navigator.clipboard.writeText(texto); setMsgSaida({ ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." }); }
-    catch { setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." }); }
+    const ok = () => setMsgSaida({ ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." });
+    try { await navigator.clipboard.writeText(texto); ok(); return; } catch { /* sem permissão da área de transferência: tenta o caminho antigo */ }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = texto; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      const copiou = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (copiou) { ok(); return; }
+    } catch { /* cai na mensagem manual */ }
+    setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." });
   }
 
   function tituloLista() {
