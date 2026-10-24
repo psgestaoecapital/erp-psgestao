@@ -6,6 +6,7 @@
 // título nasce no GE — esta tela nunca lança financeiro.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { ConsumoVeiculo } from './ConsumoVeiculo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -20,7 +21,7 @@ type Cat = { codigo: string; descricao: string }
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dt = (s: string) => s.split('-').reverse().join('/')
 const campo = 'w-full rounded-lg border px-2 py-1.5 text-sm'
-const vazio = (obra: string, ini: string): LancamentoForm => ({ tipo: 'despesa', data: ini, fornecedor_nome: '', categoria: '', forma_pagamento: 'dinheiro', valor: '', obra_id: obra, pago_colaborador: true, litros: '', hodometro: '' })
+const vazio = (obra: string, ini: string): LancamentoForm => ({ tipo: 'despesa', data: ini, fornecedor_nome: '', categoria: '', forma_pagamento: 'dinheiro', valor: '', obra_id: obra, pago_colaborador: true, litros: '', hodometro: '', tanque_cheio: true })
 
 export default function ViagensPage() {
   const { companyIds } = useCompanyIds()
@@ -142,6 +143,7 @@ export default function ViagensPage() {
               <span>{dt(l.data)} · {l.fornecedor_nome} <span className="text-xs opacity-60">· {l.categoria} · {obraNome(l.obra_id)}{l.tipo === 'abastecimento' ? ` · ${l.litros} L` : ''}</span></span>
               <span>{brl(l.valor)} {aberta.status === 'aberta' && podeGravar && <><button aria-label="Excluir lançamento" className="ml-2 text-xs underline" onClick={() => excluir(l.id)}>excluir</button><AjudaCampo chave="projetos.viagem.excluir_lancamento" /></>}</span></li>))}
             {lancs.length === 0 && <li className="text-sm opacity-60">Sem lançamentos.</li>}</ul>
+          {aberta.placa && <ConsumoVeiculo key={lancs.length} empresa={empresa} placa={aberta.placa} />}
           {aberta.status === 'aberta' && podeGravar && (lf ? (
             <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }}>
               <Campo rotulo="Tipo do lançamento" ajuda="projetos.viagem.lanc_tipo"><select className={campo} value={lf.tipo} onChange={(e) => setLf({ ...lf, tipo: e.target.value as LancamentoForm['tipo'] })}><option value="despesa">Despesa</option><option value="abastecimento">Abastecimento</option></select></Campo>
@@ -152,7 +154,8 @@ export default function ViagensPage() {
               <Campo rotulo="Forma de pagamento" ajuda="projetos.viagem.lanc_forma"><select className={campo} value={lf.forma_pagamento} onChange={(e) => setLf({ ...lf, forma_pagamento: e.target.value })}>{FORMAS_PAGAMENTO_VIAGEM.map((f) => <option key={f.codigo} value={f.codigo}>{f.rotulo}</option>)}</select></Campo>
               <Campo rotulo="Obra deste cupom" ajuda="projetos.viagem.lanc_obra"><select className={campo} value={lf.obra_id} onChange={(e) => setLf({ ...lf, obra_id: e.target.value })}>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
               <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={lf.pago_colaborador} onChange={(e) => setLf({ ...lf, pago_colaborador: e.target.checked })} />Pago pelo colaborador<AjudaCampo chave="projetos.viagem.lanc_pago_colaborador" /></label>
-              {lf.tipo === 'abastecimento' && <><Campo rotulo="Litros" ajuda="projetos.viagem.lanc_litros"><input inputMode="decimal" className={campo} placeholder="Litros" value={lf.litros} onChange={(e) => setLf({ ...lf, litros: e.target.value.replace(',', '.') })} /></Campo><Campo rotulo="Hodômetro" ajuda="projetos.viagem.lanc_hodometro"><input inputMode="decimal" className={campo} placeholder="Hodômetro" value={lf.hodometro} onChange={(e) => setLf({ ...lf, hodometro: e.target.value.replace(',', '.') })} /></Campo></>}
+              {lf.tipo === 'abastecimento' && <><Campo rotulo="Litros" ajuda="projetos.viagem.lanc_litros"><input inputMode="decimal" className={campo} placeholder="Litros" value={lf.litros} onChange={(e) => setLf({ ...lf, litros: e.target.value.replace(',', '.') })} /></Campo><Campo rotulo="Hodômetro" ajuda="projetos.viagem.lanc_hodometro"><input inputMode="decimal" className={campo} placeholder="Hodômetro" value={lf.hodometro} onChange={(e) => setLf({ ...lf, hodometro: e.target.value.replace(',', '.') })} /></Campo>
+                <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={lf.tanque_cheio} onChange={(e) => setLf({ ...lf, tanque_cheio: e.target.checked })} />Tanque cheio<AjudaCampo chave="projetos.viagem.cons_tanque_cheio" /></label></>}
               <div className="flex gap-2 sm:col-span-4"><button disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-white" style={{ background: ESP }} onClick={lancar}>Lançar e novo</button><button className="text-sm underline" onClick={() => setLf(null)}>Fechar formulário</button></div>
             </div>
           ) : (

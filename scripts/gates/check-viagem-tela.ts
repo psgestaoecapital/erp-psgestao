@@ -4,7 +4,7 @@ import { resumoTexto, validarLancamento, type LancamentoForm } from '../../src/l
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
-const base: LancamentoForm = { tipo: 'despesa', data: '2026-11-03', fornecedor_nome: 'Posto X', categoria: '2.05', forma_pagamento: 'dinheiro', valor: '50', obra_id: 'o', pago_colaborador: true, litros: '', hodometro: '' }
+const base: LancamentoForm = { tipo: 'despesa', data: '2026-11-03', fornecedor_nome: 'Posto X', categoria: '2.05', forma_pagamento: 'dinheiro', valor: '50', obra_id: 'o', pago_colaborador: true, litros: '', hodometro: '', tanque_cheio: false }
 ok(validarLancamento(base, '2026-11-01', '2026-11-05').length === 0, 'despesa válida passa')
 ok(validarLancamento({ ...base, data: '2026-11-09' }, '2026-11-01', '2026-11-05').length === 1, 'data fora do período recusada')
 ok(validarLancamento({ ...base, valor: '0', fornecedor_nome: ' ' }, '2026-11-01', '2026-11-05').length === 2, 'valor zero e fornecedor vazio recusados')
