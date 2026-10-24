@@ -661,7 +661,7 @@ export default function InsumosPage() {
             <Upload size={14} />
             {importando ? "Importando…" : "Importar biblioteca"}
           </button>
-          <AjudaCampo chave="projetos.insumos.importar" />
+          <AjudaCampo chave="projetos.insumos.importar" alinhar="fim" />
           <button
             onClick={abrirNovo}
             className="inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-4 py-2 text-sm font-medium text-[#FAF7F2] hover:bg-[#3D2314]/90"
@@ -669,7 +669,7 @@ export default function InsumosPage() {
             <Plus size={14} />
             Novo insumo
           </button>
-          <AjudaCampo chave="projetos.insumos.novo" />
+          <AjudaCampo chave="projetos.insumos.novo" alinhar="fim" />
         </div>
       </header>
 
