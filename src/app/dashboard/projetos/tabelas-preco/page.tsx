@@ -13,6 +13,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { MedicaoContrato } from './_componentes/MedicaoContrato'
+import { ImportarArquivoIA } from './_componentes/ImportarArquivoIA'
 import { VinculoCatalogo, type VinculoCpu } from './_componentes/VinculoCatalogo'
 import { lerPlanilhaFaixas } from '@/lib/hub/tabelaPrecoImportar'
 import { precedenciaPreco } from '@/lib/hub/precedenciaPreco'
@@ -298,6 +299,7 @@ export default function TabelasPrecoPage() {
                   </div>
                   <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
                     <span style={rot}>Importar planilha do cliente <AjudaCampo chave="hub.tabela_preco.importar" /></span>
+                    <ImportarArquivoIA onTexto={setPlanilha} estilo={campo} />
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                       <textarea data-testid="tp-imp-texto" rows={5} style={campo} value={planilha} onChange={e => setPlanilha(e.target.value)} aria-label="Linhas da planilha" placeholder={'código;nome;unidade;de;até;preço\nuretano-6mm;Piso de uretano 6 mm;m²;0;300;98,00'} />
                       <AjudaCampo chave="hub.tabela_preco.importar_texto" />
