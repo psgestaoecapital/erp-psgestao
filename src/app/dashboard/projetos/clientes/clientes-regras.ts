@@ -65,3 +65,19 @@ export function comercialPorCliente(ops: OpLinha[], orcs: OrcLinha[], visitas: V
 export const brlCurto = (v: number) =>
   v >= 1_000_000 ? `R$ ${(v / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`
   : v >= 1000 ? `R$ ${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil` : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+// PDCA 24/10 06:03 (auditor: "só contador de obra na linha" e "ganhar não abre obra"): a linha mostra a obra
+// mais recente (nome · cidade/UF) e avisa quando o cliente tem mais vendas ganhas do que obras abertas.
+export type ObraLinha = { cliente_id: string | null; nome: string | null; projeto_nome: string | null; obra_cidade: string | null; obra_uf: string | null; created_at: string | null }
+export const rotuloObra = (o: Pick<ObraLinha, 'nome' | 'projeto_nome' | 'obra_cidade' | 'obra_uf'>) =>
+  [o.nome || o.projeto_nome || '(obra sem nome)', o.obra_cidade ? `${o.obra_cidade}${o.obra_uf ? '/' + o.obra_uf : ''}` : ''].filter(Boolean).join(' · ')
+export function obraRecentePorCliente(linhas: ObraLinha[]): Record<string, string> {
+  const m: Record<string, ObraLinha> = {}
+  for (const l of linhas) {
+    if (!l.cliente_id) continue
+    const atual = m[l.cliente_id]
+    if (!atual || (l.created_at ?? '') > (atual.created_at ?? '')) m[l.cliente_id] = l
+  }
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, rotuloObra(v)]))
+}
+export const ganhasSemObra = (ganhas: number, obras: number) => Math.max(0, ganhas - obras)
