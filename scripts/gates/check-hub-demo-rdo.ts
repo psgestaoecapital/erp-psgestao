@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const mig = readFileSync('supabase/migrations/20261025050000_hb0_demo_rdo_semente.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261025120000_hb0_demo_rdo_semente.sql', 'utf8')
 const corpo = mig.split('\n').filter(l => !l.trimStart().startsWith('--')).join('\n')
 const tabela = readFileSync('supabase/migrations/20261024190000_hb0_os_obra_rdo.sql', 'utf8')
 const os = readFileSync('supabase/migrations/20261024170000_hb0_demo_os_obra.sql', 'utf8')
