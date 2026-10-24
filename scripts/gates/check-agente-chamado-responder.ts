@@ -1,7 +1,8 @@
 /**
  * Gate de build (CEO 04/10 · opção A): o agente responde chamado por UMA função oficial, e o e-mail do chamado tem template.
  *   1) fn_agente_chamado_responder: só conexão de serviço (guarda do canal), só com OK do CEO na caixa, texto com hash,
- *      autor = CEO (PS_ADMIN/PS_ADMIN_CVM), rastro aditivo, notificação do caminho normal (tipo 'resposta' → e-mail), revogada
+ *      autor = dono do agente (erp_agente_dono) quando houver, senão a conta PS padrão — sempre PS_ADMIN/PS_ADMIN_CVM de
+ *      verdade (delegação CEO 14/10); rastro aditivo, notificação do caminho normal (tipo 'resposta' → e-mail), revogada
  *      de PUBLIC/anon/authenticated, e NUNCA forja claims de JWT;
  *   2) o AGENTS.md proíbe forjar identidade e manda responder chamado só por essa função;
  *   3) a ÚLTIMA definição de fn_email_render no repo tem TODOS os templates que algum fn_enviar_email usa (cada migration que
@@ -28,8 +29,9 @@ const corpo = sql.slice(ini, sql.indexOf('$function$;', sql.indexOf('$function$'
 ok(corpo.includes('fn__agente_assert_servico()'), 'passa pela guarda do canal (só conexão de serviço)')
 ok(/requer_ok_ceo OR m\.ok_ceo_em IS NULL/.test(corpo) && corpo.includes("'sem_ok_do_ceo'"), 'só posta com OK do CEO registrado na caixa')
 ok(corpo.includes('sha256(') && corpo.includes('texto_hash'), 'registra o hash do texto aprovado')
-ok(/system_role IN \('PS_ADMIN','PS_ADMIN_CVM'\)/.test(corpo) && corpo.includes("'ceo_nao_identificado'"), 'autor é o CEO (usuário PS_ADMIN de verdade)')
-ok(!/p_ceo_user/.test(sql) && corpo.includes('erp_agente_config'), 'autor vem da configuração única, não de parâmetro do chamador')
+ok(/system_role IN \('PS_ADMIN','PS_ADMIN_CVM'\)/.test(corpo) && corpo.includes("'autor_nao_identificado'"), 'autor é conta PS de verdade (PS_ADMIN/PS_ADMIN_CVM)')
+ok(/FROM erp_agente_dono d JOIN users u ON u\.id = d\.user_id\s+WHERE d\.agente = m\.para AND d\.ativo/.test(corpo), 'autor = dono do agente (erp_agente_dono) quando houver — delegação aos sócios')
+ok(!/p_ceo_user|p_autor/.test(sql) && corpo.includes('erp_agente_config'), 'autor vem do dono/configuração, nunca de parâmetro do chamador')
 ok(/ok_ceo_origem/.test(corpo) && /ok_registrado_por/.test(corpo), 'rastro registra ok_ceo_origem e ok_registrado_por')
 ok(corpo.includes("'texto_diferente_do_aprovado'"), 'texto postado tem de bater com o hash aprovado')
 ok(/redigido_por/.test(corpo) && /aprovado_por/.test(corpo) && /mensagem_agente_id/.test(corpo) && /ok_ceo_em/.test(corpo), 'rastro: redigido_por, aprovado_por, ok_ceo_em, mensagem_agente_id')
