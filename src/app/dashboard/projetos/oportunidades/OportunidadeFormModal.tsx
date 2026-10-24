@@ -46,7 +46,7 @@ const ETAPAS: { v: string; l: string }[] = [
 
 const ORIGENS = ['indicacao', 'instagram', 'site', 'obra_vizinha', 'outro']
 
-const empty = (): OportunidadeRow => ({
+export const empty = (): OportunidadeRow => ({
   cliente_id: null, titulo: '', etapa: 'prospeccao',
   valor_estimado: null, origem: null,
   obra_endereco: null, obra_cidade: null, obra_bairro: null,
