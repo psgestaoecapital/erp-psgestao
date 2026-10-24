@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { SaldoContrato } from './SaldoContrato'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 const fmtR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -21,6 +22,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
   const [ini, setIni] = useState('')
   const [fim, setFim] = useState('')
   const [msg, setMsg] = useState('')
+  const [versao, setVersao] = useState(0)
   const [salvas, setSalvas] = useState<{ id: string; descricao: string; periodo_inicio: string | null; periodo_fim: string | null; total: number }[]>([])
   const carregarSalvas = useCallback(async () => {
     const { data } = await supabase.from('erp_medicao_cliente').select('id,descricao,periodo_inicio,periodo_fim,total').eq('tabela_id', tabelaId).order('criado_em', { ascending: false }).limit(20)
@@ -35,7 +37,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
     if (!v.length) { setErro('Informe a quantidade medida de pelo menos um serviço.'); return }
     const { data, error } = await supabase.rpc('fn_medicao_cliente_salvar', { p_tabela: tabelaId, p_dados: { descricao: desc, periodo_inicio: ini, periodo_fim: fim, linhas: v } })
     if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar a medição.')); return }
-    setMsg(`Medição salva: ${fmtR(Number((data as { total: number }).total))}.`); setDesc(''); carregarSalvas()
+    setMsg(`Medição salva: ${fmtR(Number((data as { total: number }).total))}.`); setDesc(''); carregarSalvas(); setVersao(v => v + 1)
   }
   // Detalhe da medição salva (linhas) e conferência: recalcula pelo contrato de hoje e compara com o total salvo.
   type ItemSalvo = { servico_ref: string; quantidade: number; condicao: string; preco_unitario: number; total: number; codigo_externo: string | null }
@@ -58,8 +60,38 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
     if (!window.confirm('Excluir esta medição salva?')) return
     const { error } = await supabase.rpc('fn_medicao_cliente_excluir', { p_id: id })
     if (error) { setErro(erroAmigavel(error, 'Não foi possível excluir a medição.')); return }
-    carregarSalvas()
+    carregarSalvas(); setVersao(v => v + 1)
   }
+
+  // Exportação do extrato (XLS e PDF). PDF = janela de impressão do navegador ("Salvar como PDF"), sem biblioteca extra.
+  type LinhaExp = { servico: string; qtd: number; regime: string; codigo: string; unitario: number; total: number }
+  const exportar = async (formato: 'xls' | 'pdf', titulo: string, itens: LinhaExp[]) => {
+    const total = itens.reduce((a, i) => a + i.total, 0)
+    if (formato === 'xls') {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Medição')
+      ws.addRow([titulo]); ws.addRow([])
+      ws.addRow(['Serviço', 'Quantidade', 'Regime', 'Código do cliente', 'Unitário (R$)', 'Total (R$)'])
+      itens.forEach(i => ws.addRow([i.servico, i.qtd, i.regime, i.codigo, i.unitario, i.total]))
+      ws.addRow(['Total da medição', '', '', '', '', Math.round(total * 100) / 100])
+      const buf = await wb.xlsx.writeBuffer()
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      a.download = `${titulo.replace(/[^\w-]+/g, '_')}.xlsx`; a.click(); URL.revokeObjectURL(a.href)
+      return
+    }
+    const esc = (t: string) => t.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string)
+    const w = window.open('', '_blank')
+    if (!w) { setErro('O navegador bloqueou a janela do PDF. Libere pop-ups e tente de novo.'); return }
+    w.document.write(`<html><head><title>${esc(titulo)}</title><style>body{font-family:sans-serif;color:#3D2314;padding:24px}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #E7DECF;padding:6px;text-align:left}th:nth-child(n+5),td:nth-child(n+5){text-align:right}</style></head><body><h2>${esc(titulo)}</h2><table><tr><th>Serviço</th><th>Qtd</th><th>Regime</th><th>Código</th><th>Unitário</th><th>Total</th></tr>${itens.map(i => `<tr><td>${esc(i.servico)}</td><td>${i.qtd}</td><td>${esc(i.regime)}</td><td>${esc(i.codigo)}</td><td>${fmtR(i.unitario)}</td><td>${fmtR(i.total)}</td></tr>`).join('')}</table><h3 style="text-align:right">Total da medição: ${fmtR(total)}</h3></body></html>`)
+    w.document.close(); w.focus(); w.print()
+  }
+  const BotoesExportar = ({ titulo, itens, id }: { titulo: string; itens: LinhaExp[]; id: string }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <button type="button" data-testid={`${id}-xls`} onClick={() => exportar('xls', titulo, itens)} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 600 }}>Exportar XLS</button>
+      <button type="button" data-testid={`${id}-pdf`} onClick={() => exportar('pdf', titulo, itens)} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 600 }}>Exportar PDF</button>
+      <AjudaCampo chave="hub.tabela_preco.medicao_exportar" />
+    </div>
+  )
   const campo: React.CSSProperties = { padding: 8, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP, width: '100%', minWidth: 0 }
   const nome = (r?: string) => servicos.find(s => s.ref === r)?.nome ?? r ?? ''
   const setL = (i: number, p: Partial<Linha>) => setLinhas(ls => ls.map((l, k) => (k === i ? { ...l, ...p } : l)))
@@ -74,6 +106,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
   }
 
   return (
+    <>
     <section data-testid="tp-medicao" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16, display: 'grid', gap: 12 }}>
       <h2 style={{ fontSize: 17, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>Medição ao cliente <AjudaCampo chave="hub.tabela_preco.medicao" /></h2>
       <p style={{ fontSize: 13, color: MUT, margin: 0 }}>Informe o que foi medido no período: o preço sai pela faixa e pelo regime do contrato, com o código do cliente.</p>
@@ -123,6 +156,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
               </tr>))}</tbody>
           </table>
           <div style={{ textAlign: 'right', fontSize: 18, marginTop: 8 }} data-testid="med-total">Total da medição: <b>{fmtR(res.total)}</b></div>
+          <BotoesExportar id="med-calc" titulo={desc.trim() || 'Medição ao cliente'} itens={res.linhas.filter(r => r.ok).map(r => ({ servico: nome(r.servico_ref), qtd: r.quantidade, regime: r.condicao ?? '', codigo: r.codigo_externo ?? 'sem código', unitario: r.preco_unitario!, total: r.total! }))} />
         </div>
       )}
       {salvas.length > 0 && (
@@ -148,6 +182,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
                   <button type="button" data-testid="med-conferir" onClick={() => conferir(m)} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 600 }}>Conferir com o contrato</button>
                   <AjudaCampo chave="hub.tabela_preco.medicao_conferir" />
                 </div>
+                <BotoesExportar id="med-salva" titulo={m.descricao} itens={aberta.itens.map(i => ({ servico: nome(i.servico_ref), qtd: i.quantidade, regime: i.condicao, codigo: i.codigo_externo ?? 'sem código', unitario: i.preco_unitario, total: i.total }))} />
                 {aberta.confere && <p role="status" data-testid="med-confere" style={{ margin: '6px 0 0', color: GOLD, fontWeight: 600 }}>{aberta.confere}</p>}
               </div>
             )}
@@ -156,5 +191,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
         </div>
       )}
     </section>
+    <SaldoContrato tabelaId={tabelaId} servicos={servicos} podeGravar={podeGravar} recarregar={versao} />
+    </>
   )
 }
