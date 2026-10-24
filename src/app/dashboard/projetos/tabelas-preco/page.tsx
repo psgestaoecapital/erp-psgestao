@@ -23,7 +23,7 @@ const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT =
 const fmtR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 type Tabela = { id: string; nome: string; vigencia_inicio: string; vigencia_fim: string | null }
-type Item = ItemFaixa & { servico_ref: string; servico_nome: string; unidade: string; adicional: boolean }
+type Item = ItemFaixa & { id: string; servico_ref: string; servico_nome: string; unidade: string; adicional: boolean }
 type Cond = { condicao: string; percentual: number | null }
 type Cod = { servico_ref: string; condicao: string; codigo_externo: string; preco_fixo: number | null }
 
@@ -40,6 +40,30 @@ export default function TabelasPrecoPage() {
   const [qtd, setQtd] = useState('1')
   const [condSel, setCondSel] = useState('normal')
   const [custo, setCusto] = useState('')
+  // Edição do contrato (HB2): rev força recarregar a tabela aberta depois de salvar; msg mostra o resultado sem expor erro cru.
+  const [rev, setRev] = useState(0)
+  const [editar, setEditar] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [fm, setFm] = useState({ nomeTab: '', ref: '', nome: '', un: 'm²', de: '', ate: '', preco: '', cond: '', pct: '', cCond: 'normal', cod: '', fixo: '' })
+  const setF = (k: keyof typeof fm, v: string) => setFm(f => ({ ...f, [k]: v }))
+  const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')))
+  const salvar = async (fn: string, args: Record<string, unknown>, ok: string) => {
+    setMsg('')
+    const { data, error } = await supabase.rpc(fn, args)
+    if (error || (data && (data as { ok?: boolean }).ok === false)) { setMsg(erroAmigavel(error, 'Não foi possível salvar. Confira os campos e tente de novo.')); return null }
+    setMsg(ok); setRev(r => r + 1)
+    return data as { id?: string }
+  }
+  const criarTabela = async () => {
+    const empresa = companyIds?.[0]
+    if (!empresa) { setMsg('Selecione uma empresa para cadastrar a tabela.'); return }
+    const r = await salvar('fn_tabela_preco_salvar', { p_company_id: empresa, p_dados: { nome: fm.nomeTab } }, 'Tabela criada.')
+    if (r?.id) { setFm(f => ({ ...f, nomeTab: '' })); await carregarTabelas(); setTabelaId(r.id) }
+  }
+  const salvarFaixa = () => salvar('fn_tabela_preco_faixa_salvar', { p_tabela_id: tabelaId, p_dados: { servico_ref: fm.ref, servico_nome: fm.nome, unidade: fm.un, faixa_de: num(fm.de) ?? 0, faixa_ate: num(fm.ate), preco_base: num(fm.preco) } }, 'Faixa salva.')
+  const salvarCond = () => salvar('fn_tabela_preco_condicao_salvar', { p_tabela_id: tabelaId, p_condicao: fm.cond, p_percentual: num(fm.pct) }, 'Condição salva.')
+  const salvarCodigo = () => salvar('fn_tabela_preco_codigo_salvar', { p_tabela_id: tabelaId, p_servico_ref: servico, p_condicao: fm.cCond, p_codigo: fm.cod, p_preco_fixo: num(fm.fixo) }, 'Código salvo.')
+  const excluirFaixa = async (id: string) => { if (window.confirm('Excluir esta faixa?')) await salvar('fn_tabela_preco_faixa_excluir', { p_id: id }, 'Faixa excluída.') }
 
   const carregarTabelas = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -62,7 +86,7 @@ export default function TabelasPrecoPage() {
     let vivo = true
     ;(async () => {
       const [i, c, k] = await Promise.all([
-        supabase.from('erp_tabela_preco_item').select('servico_ref,servico_nome,unidade,faixa_de,faixa_ate,preco_base,adicional').eq('tabela_id', tabelaId).order('servico_nome').order('faixa_de'),
+        supabase.from('erp_tabela_preco_item').select('id,servico_ref,servico_nome,unidade,faixa_de,faixa_ate,preco_base,adicional').eq('tabela_id', tabelaId).order('servico_nome').order('faixa_de'),
         supabase.from('erp_tabela_preco_condicao').select('condicao,percentual').eq('tabela_id', tabelaId).order('condicao'),
         supabase.from('erp_tabela_preco_codigo').select('servico_ref,condicao,codigo_externo,preco_fixo').eq('tabela_id', tabelaId),
       ])
@@ -75,11 +99,11 @@ export default function TabelasPrecoPage() {
       // "normal" é a coluna base (sem adicional) e já tem opção própria: não repete na lista de condições.
       setConds(((c.data ?? []) as Cond[]).filter(x => x.condicao !== 'normal').map(x => ({ ...x, percentual: x.percentual == null ? null : Number(x.percentual) })))
       setCods(((k.data ?? []) as Cod[]).map(x => ({ ...x, preco_fixo: x.preco_fixo == null ? null : Number(x.preco_fixo) })))
-      setServico(its[0]?.servico_ref ?? '')
-      setCondSel('normal')
+      setServico(prev => (its.some(x => x.servico_ref === prev) ? prev : its[0]?.servico_ref ?? ''))
+      setCondSel(prev => (prev === 'normal' || (c.data ?? []).some(x => x.condicao === prev) ? prev : 'normal'))
     })()
     return () => { vivo = false }
-  }, [tabelaId])
+  }, [tabelaId, rev])
 
   const servicos = useMemo(() => {
     const m = new Map<string, Item>()
@@ -163,6 +187,70 @@ export default function TabelasPrecoPage() {
               </>)}
             </div>
           </div>
+        )}
+        {!loading && !erro && (
+          <section data-testid="tp-editar" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
+            <button type="button" data-testid="tp-editar-abrir" onClick={() => setEditar(v => !v)}
+              style={{ background: 'none', border: 'none', padding: 0, fontSize: 17, fontWeight: 700, color: ESP, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {editar ? '▾' : '▸'} Editar contrato <AjudaCampo chave="hub.tabela_preco.editar" />
+            </button>
+            {editar && (
+              <div style={{ display: 'grid', gap: 14, marginTop: 12 }}>
+                {msg && <p role="status" data-testid="tp-msg" style={{ margin: 0, fontSize: 14, color: GOLD, fontWeight: 600 }}>{msg}</p>}
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <label><span style={rot}>Nova tabela — nome <AjudaCampo chave="hub.tabela_preco.nova_tabela" /></span>
+                    <input data-testid="tp-f-nometab" style={campo} value={fm.nomeTab} onChange={e => setF('nomeTab', e.target.value)} placeholder="BRF — Contrato 2026" /></label>
+                  <button type="button" data-testid="tp-f-criar" onClick={criarTabela} disabled={!fm.nomeTab.trim()} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Criar tabela</button>
+                </div>
+                {tabelaId && (<>
+                  <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
+                    <span style={rot}>Faixa de quantidade <AjudaCampo chave="hub.tabela_preco.faixa_servico" /></span>
+                    <input data-testid="tp-f-ref" style={campo} value={fm.ref} onChange={e => setF('ref', e.target.value)} placeholder="código do serviço (uretano-6mm)" aria-label="Código do serviço" />
+                    <input data-testid="tp-f-nome" style={campo} value={fm.nome} onChange={e => setF('nome', e.target.value)} placeholder="nome do serviço" aria-label="Nome do serviço" />
+                    <input data-testid="tp-f-un" style={campo} value={fm.un} onChange={e => setF('un', e.target.value)} placeholder="unidade" aria-label="Unidade" />
+                    <span style={rot}>De / até <AjudaCampo chave="hub.tabela_preco.faixa_de_ate" /></span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input data-testid="tp-f-de" inputMode="decimal" style={campo} value={fm.de} onChange={e => setF('de', e.target.value)} placeholder="de (0)" aria-label="Faixa de" />
+                      <input data-testid="tp-f-ate" inputMode="decimal" style={campo} value={fm.ate} onChange={e => setF('ate', e.target.value)} placeholder="até (vazio = em diante)" aria-label="Faixa até" />
+                    </div>
+                    <span style={rot}>Preço base <AjudaCampo chave="hub.tabela_preco.faixa_preco" /></span>
+                    <input data-testid="tp-f-preco" inputMode="decimal" style={campo} value={fm.preco} onChange={e => setF('preco', e.target.value)} placeholder="R$ por unidade" aria-label="Preço base" />
+                    <button type="button" data-testid="tp-f-faixa" onClick={salvarFaixa} disabled={!fm.ref.trim() || !fm.nome.trim() || num(fm.preco) == null} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Salvar faixa</button>
+                    {faixas.length > 0 && (
+                      <div data-testid="tp-faixas-servico" style={{ fontSize: 13 }}>
+                        {faixas.map(f => (
+                          <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${LINE}` }}>
+                            <span>{f.servico_nome}: {f.faixa_de}–{f.faixa_ate ?? 'em diante'} · {fmtPreco(f.preco_base)}</span>
+                            <span style={{ display: 'flex', gap: 10 }}>
+                              <button type="button" onClick={() => setFm(x => ({ ...x, ref: f.servico_ref, nome: f.servico_nome, un: f.unidade, de: String(f.faixa_de), ate: f.faixa_ate == null ? '' : String(f.faixa_ate), preco: String(f.preco_base).replace('.', ',') }))} style={{ color: GOLD, background: 'none', border: 'none', cursor: 'pointer' }}>Copiar</button>
+                              <button type="button" onClick={() => excluirFaixa(f.id)} style={{ color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer' }}>Excluir</button>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
+                    <span style={rot}>Condição e adicional (%) <AjudaCampo chave="hub.tabela_preco.cond_cadastro" /></span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input data-testid="tp-f-cond" style={campo} value={fm.cond} onChange={e => setF('cond', e.target.value)} placeholder="sabado" aria-label="Condição" />
+                      <input data-testid="tp-f-pct" inputMode="decimal" style={campo} value={fm.pct} onChange={e => setF('pct', e.target.value)} placeholder="50" aria-label="Adicional em porcentagem" />
+                    </div>
+                    <button type="button" data-testid="tp-f-salvar-cond" onClick={salvarCond} disabled={!fm.cond.trim() || num(fm.pct) == null} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Salvar condição</button>
+                  </div>
+                  <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
+                    <span style={rot}>Código no cliente (serviço escolhido acima) <AjudaCampo chave="hub.tabela_preco.codigo_cadastro" /></span>
+                    <select data-testid="tp-f-ccond" style={campo} value={fm.cCond} onChange={e => setF('cCond', e.target.value)} aria-label="Condição do código">
+                      {colunas.map(c => <option key={c} value={c}>{c === 'normal' ? 'Normal' : c}</option>)}
+                    </select>
+                    <input data-testid="tp-f-cod" style={campo} value={fm.cod} onChange={e => setF('cod', e.target.value)} placeholder="código do item no cliente (vazio remove)" aria-label="Código no cliente" />
+                    <input data-testid="tp-f-fixo" inputMode="decimal" style={campo} value={fm.fixo} onChange={e => setF('fixo', e.target.value)} placeholder="preço fixo da condição (opcional)" aria-label="Preço fixo" />
+                    <button type="button" data-testid="tp-f-salvar-cod" onClick={salvarCodigo} disabled={!servico} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Salvar código</button>
+                  </div>
+                </>)}
+              </div>
+            )}
+          </section>
         )}
         {!loading && !erro && servicos.length > 0 && (
           <section data-testid="tp-contrato" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
