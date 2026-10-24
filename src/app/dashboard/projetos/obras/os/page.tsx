@@ -3,6 +3,7 @@
 // HB0 item 6 · Ordens de serviço de OBRA (Hub). A OS do Hub é por obra, etapa, serviço e equipe — não leva placa,
 // veículo nem mecânico (essa é a OS da oficina, /dashboard/os, que não muda). Grava só pelas funções com guarda de
 // empresa (fn_obra_os_salvar / _status / _excluir); lista por fn_obra_os_listar. Celular primeiro: a lista é de cartões.
+// HBF-0.5: horas da equipe apontadas na própria OS (fn_obra_os_apontar_horas) — viram custo de mão de obra da obra.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -15,6 +16,8 @@ const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT =
 type Obra = { id: string; numero: string | null; nome: string }
 type Etapa = { id: string; nome: string }
 type Servico = { id: string; descricao: string | null }
+type Funcao = { id: string; nome: string; custo_hora_manual: number | null }
+type Horas = { horas: number; valor: number }
 type OS = {
   id: string; numero: string; obra_id: string; obra_numero: string | null; obra_nome: string
   tarefa_id: string | null; etapa: string | null; obra_item_id: string | null; servico: string | null
@@ -32,6 +35,9 @@ const PRIORIDADES = [['baixa', 'Baixa'], ['normal', 'Normal'], ['alta', 'Alta'],
 const VAZIO = { obra_id: '', tarefa_id: '', obra_item_id: '', descricao: '', equipe: '', responsavel: '', data_prevista: '', prioridade: 'normal' }
 const hoje = () => new Date().toISOString().slice(0, 10)
 const dataBR = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
+const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const num = (v: string) => Number(v.replace(',', '.'))
+const VAZIO_H = { data: '', funcao_id: '', horas: '', custo_hora: '' }
 const nomeObra = (o: { obra_numero?: string | null; numero?: string | null; obra_nome?: string; nome?: string }) =>
   [o.obra_numero ?? o.numero, o.obra_nome ?? o.nome].filter(Boolean).join(' · ')
 
@@ -50,20 +56,35 @@ export default function OSObraPage() {
   const [salvando, setSalvando] = useState(false)
   const [ocupado, setOcupado] = useState<string | null>(null)
   const [editando, setEditando] = useState<string | null>(null)
+  const [funcoes, setFuncoes] = useState<Funcao[]>([])
+  const [horasOS, setHorasOS] = useState<Record<string, Horas>>({})
+  const [apontando, setApontando] = useState<string | null>(null)
+  const [fh, setFh] = useState({ ...VAZIO_H })
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
     try {
-      const [a, b] = await Promise.all([
+      const [a, b, h, fn] = await Promise.all([
         comPrazo(async () => await supabase.rpc('fn_obra_os_listar', { p_company_ids: companyIds, p_obra_id: null }),
           { ms: 8000, tentativas: 1, label: 'os_obra' }),
         comPrazo(async () => await supabase.from('projetos_obras').select('id,numero,nome').in('company_id', companyIds)
           .not('status', 'in', '("concluida","cancelada")').order('created_at', { ascending: false }).limit(300),
           { ms: 8000, tentativas: 1, label: 'obras' }),
+        comPrazo(async () => await supabase.from('projetos_obra_mao_obra_apontamento').select('os_id,horas,valor')
+          .in('company_id', companyIds).not('os_id', 'is', null).is('excluido_em', null),
+          { ms: 8000, tentativas: 1, label: 'horas_os' }),
+        comPrazo(async () => await supabase.from('erp_funcao_mao_obra').select('id,nome,custo_hora_manual').in('company_id', companyIds).eq('ativo', true).order('nome'),
+          { ms: 8000, tentativas: 1, label: 'funcoes' }),
       ])
       if (a.error) { setErro(a.error.message); return }
-      setLista((a.data ?? []) as OS[]); setObras((b.data ?? []) as Obra[])
+      setLista((a.data ?? []) as OS[]); setObras((b.data ?? []) as Obra[]); setFuncoes((fn.data ?? []) as Funcao[])
+      const soma: Record<string, Horas> = {}
+      for (const r of (h.data ?? []) as { os_id: string; horas: number; valor: number }[]) {
+        const t = soma[r.os_id] ?? { horas: 0, valor: 0 }
+        soma[r.os_id] = { horas: t.horas + Number(r.horas), valor: t.valor + Number(r.valor) }
+      }
+      setHorasOS(soma)
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
@@ -122,6 +143,23 @@ export default function OSObraPage() {
     setOcupado(null)
     if (error) { setErro(error.message); return }
     carregar()
+  }
+
+  const abrirHoras = (o: OS) => { setFh({ ...VAZIO_H, data: hoje() }); setErro(''); setApontando(apontando === o.id ? null : o.id) }
+  const escolherFuncao = (fid: string) => {
+    const x = funcoes.find(q => q.id === fid)
+    setFh(p => ({ ...p, funcao_id: fid, custo_hora: x?.custo_hora_manual != null && !p.custo_hora ? String(x.custo_hora_manual).replace('.', ',') : p.custo_hora }))
+  }
+  const lancarHoras = async (e: React.FormEvent, o: OS) => {
+    e.preventDefault(); setErro('')
+    const horas = num(fh.horas), custo = num(fh.custo_hora)
+    if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
+    if (fh.custo_hora === '' || !(custo >= 0)) { setErro('Informe o custo da hora.'); return }
+    setOcupado(o.id)
+    const { error } = await supabase.rpc('fn_obra_os_apontar_horas', { p_os_id: o.id, p_dados: { data: fh.data, funcao_id: fh.funcao_id, horas, custo_hora: custo } })
+    setOcupado(null)
+    if (error) { setErro(error.message); return }
+    setApontando(null); setFh({ ...VAZIO_H }); carregar()
   }
 
   const inp: React.CSSProperties = { padding: '10px 12px', border: `1px solid ${LINE}`, borderRadius: 10, background: '#fff', fontSize: 15, width: '100%', boxSizing: 'border-box', color: ESP }
@@ -247,10 +285,32 @@ export default function OSObraPage() {
                       {o.responsavel && <><dt style={{ color: MUT }}>Responsável</dt><dd style={{ margin: 0 }}>{o.responsavel}</dd></>}
                       {o.data_prevista && <><dt style={{ color: MUT }}>Para</dt><dd style={{ margin: 0, color: atrasada ? VERM : ESP, fontWeight: atrasada ? 700 : 400 }}>{dataBR(o.data_prevista)}{atrasada ? ' · atrasada' : ''}</dd></>}
                       {o.prioridade !== 'normal' && <><dt style={{ color: MUT }}>Prioridade</dt><dd style={{ margin: 0, color: o.prioridade === 'urgente' ? VERM : ESP }}>{PRIORIDADES.find(p => p[0] === o.prioridade)?.[1]}</dd></>}
+                      {horasOS[o.id] && <><dt style={{ ...rot, color: MUT }}>Horas <AjudaCampo chave="projetos.os_obra.horas_apontadas" /></dt>
+                        <dd style={{ margin: 0, fontWeight: 600 }} data-testid="os-obra-horas-total">{horasOS[o.id].horas.toLocaleString('pt-BR')} h · {brl(horasOS[o.id].valor)}</dd></>}
                     </dl>
+                    {apontando === o.id && (
+                      <form onSubmit={e => lancarHoras(e, o)} data-testid="os-obra-horas-form" style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr', background: BG, borderRadius: 10, padding: 10 }}>
+                        <label style={lab}><span style={rot}>Dia <AjudaCampo chave="projetos.os_obra.apontar_data" /></span>
+                          <input type="date" value={fh.data} onChange={e => setFh({ ...fh, data: e.target.value })} style={inp} data-testid="os-obra-horas-data" /></label>
+                        <label style={lab}><span style={rot}>Função <AjudaCampo chave="projetos.os_obra.apontar_funcao" /></span>
+                          <select value={fh.funcao_id} onChange={e => escolherFuncao(e.target.value)} style={inp} data-testid="os-obra-horas-funcao">
+                            <option value="">Sem função</option>{funcoes.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></label>
+                        <label style={lab}><span style={rot}>Horas <AjudaCampo chave="projetos.os_obra.apontar_horas" /></span>
+                          <input inputMode="decimal" value={fh.horas} onChange={e => setFh({ ...fh, horas: e.target.value })} placeholder="Ex.: 16" style={inp} data-testid="os-obra-horas-horas" /></label>
+                        <label style={lab}><span style={rot}>R$/hora <AjudaCampo chave="projetos.os_obra.apontar_custo_hora" /></span>
+                          <input inputMode="decimal" value={fh.custo_hora} onChange={e => setFh({ ...fh, custo_hora: e.target.value })} placeholder="Ex.: 45,00" style={inp} data-testid="os-obra-horas-custo" /></label>
+                        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <button type="submit" disabled={!!ocupado} style={btn(ESP, '#fff')} data-testid="os-obra-horas-lancar">
+                            Lançar{num(fh.horas) > 0 && num(fh.custo_hora) >= 0 && fh.custo_hora !== '' ? ` ${brl(Math.round(num(fh.horas) * num(fh.custo_hora) * 100) / 100)}` : ''}</button>
+                          <AjudaCampo chave="projetos.os_obra.apontar_lancar" />
+                          <button type="button" onClick={() => setApontando(null)} style={btn('#fff', ESP)}>Fechar</button>
+                        </div>
+                      </form>
+                    )}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
                       {o.status === 'aberta' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'em_execucao')} style={btn(GOLD, ESP)} data-testid="os-obra-iniciar">Iniciar</button>}
                       {o.status === 'em_execucao' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'concluida')} style={btn(VERDE, '#fff')} data-testid="os-obra-concluir">Concluir</button>}
+                      {(o.status === 'aberta' || o.status === 'em_execucao') && <span style={rot}><button type="button" disabled={!!ocupado} onClick={() => abrirHoras(o)} style={btn('#fff', ESP)} data-testid="os-obra-apontar">Apontar horas</button><AjudaCampo chave="projetos.os_obra.apontar" /></span>}
                       {(o.status === 'aberta' || o.status === 'em_execucao') && <button type="button" disabled={!!ocupado} onClick={() => editar(o)} style={btn('#fff', ESP)}>Editar</button>}
                       {(o.status === 'aberta' || o.status === 'em_execucao') && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'cancelada')} style={btn('#fff', VERM)}>Cancelar</button>}
                       {o.status === 'cancelada' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'aberta')} style={btn('#fff', ESP)}>Reabrir</button>}
