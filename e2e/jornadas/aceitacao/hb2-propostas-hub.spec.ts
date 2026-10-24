@@ -65,4 +65,17 @@ test.describe('HB2 — Propostas no Hub', () => {
     await expect(linha.getByTestId('hub-proposta-margem')).toHaveText('25,9%')
     await expect(tela.getByTestId('hub-propostas-do-catalogo')).toContainText(/\d+ de \d+/)
   })
+
+  // HBF-0.3: a semente grava BDI 35 (= preço custo × 1,35), não mais 20 contra o padrão 31,86% (migration 20261024160000)
+  test('propostas da semente DEMO saem com BDI no padrão da empresa (HBF-0.3)', { tag: '@pos-migration' }, async ({ page }) => {
+    await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, CONSTRUTORA)
+    await page.goto('/dashboard/projetos/propostas')
+    await aguardarConteudo(page)
+    const tela = page.getByTestId('hub-propostas')
+    await expect(tela.getByRole('heading', { name: 'Propostas' })).toBeVisible({ timeout: 30000 })
+    const linhas = tela.locator('tr', { hasText: /DEMO-ORC-00[1-5]/ })
+    test.skip((await linhas.count()) === 0, 'Construtora DEMO sem as propostas da semente')
+    await expect(linhas.first().getByTestId('hub-proposta-bdi')).toContainText('35,0%', { timeout: 20000 })
+    await expect(linhas.getByTestId('hub-proposta-bdi-abaixo')).toHaveCount(0)
+  })
 })
