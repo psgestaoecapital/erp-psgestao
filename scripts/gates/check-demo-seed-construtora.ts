@@ -34,7 +34,7 @@ ok(/pg_get_functiondef\('public\.fn_demo_reset\(uuid\)'::regprocedure\)/.test(mi
   && /IF v_new = v_def THEN RAISE EXCEPTION/.test(mig), 'ligada no fn_demo_reset por âncora (aborta se a âncora sumir)')
 
 // 24/10 (caixa 61297941): planta de takeoff em TODAS as obras demo, por patch de âncora sobre o corpo vivo
-const plantas = readFileSync('supabase/migrations/20261024000700_demo_seed_construtora_plantas_todas_obras.sql', 'utf8')
+const plantas = readFileSync('supabase/migrations/20261024011200_demo_seed_construtora_plantas_todas_obras.sql', 'utf8')
 ok(/IF v_obra\.n <= 2 THEN/.test(plantas) && /IF v_obra\.n >= 1 THEN/.test(plantas) && /IF v_new = v_def THEN\s+RAISE EXCEPTION/.test(plantas),
   'planta de takeoff em todas as obras demo (aborta se a âncora sumir)')
 ok(/REVOKE ALL ON FUNCTION public\.fn_demo_seed_construtora\(uuid\) FROM PUBLIC, anon, authenticated/.test(plantas)
