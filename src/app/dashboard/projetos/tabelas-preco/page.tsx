@@ -2,7 +2,7 @@
 
 // HB2 · Tabela de preço por cliente (fatia 2) — lista as tabelas da empresa e calcula o preço de um serviço:
 // o usuário escolhe tabela, serviço, quantidade e condição; o sistema acha a faixa, aplica o adicional e mostra a margem
-// contra o custo informado. Só leitura (a importação vem na próxima fatia). Regra única em src/lib/hub/tabelaPreco.ts.
+// contra o custo informado. Cadastro/edição por RPC e medição ao cliente (fatia 3). Regra única em src/lib/hub/tabelaPreco.ts.
 // HB0 (auditor F10): o contrato inteiro aparece na tela — faixas × condições com o preço de cada célula e o código do item
 // no cliente; tocar numa célula leva serviço, faixa e condição para a calculadora. Erro do banco nunca aparece cru.
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -12,6 +12,8 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { ContratoEditor, contratoVazio, type ContratoE } from './_componentes/ContratoEditor'
+import { MedicaoContrato } from './_componentes/MedicaoContrato'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
 
 // Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
@@ -40,6 +42,7 @@ export default function TabelasPrecoPage() {
   const [qtd, setQtd] = useState('1')
   const [condSel, setCondSel] = useState('normal')
   const [custo, setCusto] = useState('')
+  const [editando, setEditando] = useState<ContratoE | null>(null)
 
   const carregarTabelas = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -112,6 +115,28 @@ export default function TabelasPrecoPage() {
   const fmtData = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('pt-BR') : 'sem fim')
   const usarCelula = (sref: string, de: number, c: string) => { setServico(sref); setQtd(String(de)); setCondSel(c) }
 
+  const empresa = companyIds?.[0] ?? ''
+  const abrirEdicao = () => {
+    const t = tabelaSel; if (!t) return
+    const ordem = new Map<string, number>(); servicos.forEach((s, i) => ordem.set(s.servico_ref, i))
+    setEditando({
+      id: t.id, nome: t.nome, ini: t.vigencia_inicio, fim: t.vigencia_fim ?? '',
+      regimes: conds.map(c => ({ nome: c.condicao, pct: String(c.percentual ?? 0) })),
+      servicos: servicos.map(s => ({
+        ref: s.servico_ref, nome: s.servico_nome, unidade: s.unidade,
+        faixas: itens.filter(i => i.servico_ref === s.servico_ref).sort((a, b) => a.faixa_de - b.faixa_de).map(f => ({ de: String(f.faixa_de), ate: f.faixa_ate == null ? '' : String(f.faixa_ate), preco: String(f.preco_base).replace('.', ',') })),
+        codigos: Object.fromEntries(cods.filter(k => k.servico_ref === s.servico_ref).map(k => [k.condicao, k.codigo_externo])),
+      })),
+    })
+  }
+  const arquivar = async () => {
+    if (!tabelaId || !window.confirm('Arquivar este contrato? Ele sai da lista, o histórico fica guardado.')) return
+    const { error } = await supabase.rpc('fn_tabela_preco_arquivar', { p_tabela: tabelaId })
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível arquivar o contrato.')); return }
+    setTabelaId(''); carregarTabelas()
+  }
+  const aoSalvar = (id: string) => { setEditando(null); setTabelaId(id); carregarTabelas() }
+
   const campo: React.CSSProperties = { display: 'block', width: '100%', padding: 10, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP }
   const rot: React.CSSProperties = { fontSize: 13, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
 
@@ -121,15 +146,24 @@ export default function TabelasPrecoPage() {
         <Link href="/dashboard/projetos/propostas" style={{ color: GOLD, fontSize: 13 }}>← Propostas</Link>
         <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>Tabela de preço por cliente <AjudaCampo chave="hub.tabela_preco.tela" /></h1>
         <p style={{ fontSize: 13, color: MUT, margin: '0 0 16px' }}>Escolha o serviço, a quantidade e o turno: o preço sai pela faixa certa, já com o adicional.</p>
-        {loading && <p data-testid="tabelas-carregando">Carregando…</p>}
-        {!loading && erro && <p role="alert" style={{ color: '#B91C1C' }}>{erro} <button onClick={carregarTabelas}>Tentar de novo</button></p>}
-        {!loading && !erro && tabelas.length === 0 && (
-          <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 20 }} data-testid="tabelas-vazio">
-            <b>Nenhuma tabela de preço cadastrada.</b>
-            <p style={{ fontSize: 14, color: MUT }}>A tabela do cliente (faixas de quantidade e adicionais por turno) entra pela importação de planilha, na próxima entrega. Enquanto isso, o Eng. Chefe carrega a primeira tabela.</p>
+        {empresa && !editando && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+            <button type="button" data-testid="tp-novo" onClick={() => setEditando(contratoVazio())} style={{ background: GOLD, color: '#fff', border: 0, borderRadius: 8, padding: '12px 18px', fontWeight: 700, minHeight: 44 }}>+ Novo contrato</button>
+            <AjudaCampo chave="hub.tabela_preco.novo" />
+            {tabelaSel && <button type="button" data-testid="tp-editar" onClick={abrirEdicao} style={{ minHeight: 44 }}>Editar contrato</button>}
+            {tabelaSel && <><button type="button" data-testid="tp-arquivar" onClick={arquivar} style={{ minHeight: 44 }}>Arquivar</button><AjudaCampo chave="hub.tabela_preco.arquivar" /></>}
           </div>
         )}
-        {!loading && !erro && tabelas.length > 0 && (
+        {editando && empresa && <ContratoEditor companyId={empresa} inicial={editando} onSalvo={aoSalvar} onCancelar={() => setEditando(null)} />}
+        {loading && <p data-testid="tabelas-carregando">Carregando…</p>}
+        {!loading && erro && <p role="alert" style={{ color: '#B91C1C' }}>{erro} <button onClick={carregarTabelas}>Tentar de novo</button></p>}
+        {!editando && !loading && !erro && tabelas.length === 0 && (
+          <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 20 }} data-testid="tabelas-vazio">
+            <b>Nenhuma tabela de preço cadastrada.</b>
+            <p style={{ fontSize: 14, color: MUT }}>Use “Novo contrato” para cadastrar faixas de quantidade, regimes (noturno, sábado, domingo/feriado) e os códigos do cliente.</p>
+          </div>
+        )}
+        {!editando && !loading && !erro && tabelas.length > 0 && (
           <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
             <label><span style={rot}>Tabela do cliente <AjudaCampo chave="hub.tabela_preco.tabela" /></span>
               <select data-testid="tp-tabela" style={campo} value={tabelaId} onChange={e => setTabelaId(e.target.value)}>
@@ -174,7 +208,7 @@ export default function TabelasPrecoPage() {
             </div>
           </div>
         )}
-        {!loading && !erro && servicos.length > 0 && (
+        {!editando && !loading && !erro && servicos.length > 0 && (
           <section data-testid="tp-contrato" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
             <h2 style={{ fontSize: 17, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>Contrato completo <AjudaCampo chave="hub.tabela_preco.contrato" /></h2>
             <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Preço por unidade em cada faixa e condição. Toque num preço para levá-lo à calculadora.</p>
@@ -226,6 +260,9 @@ export default function TabelasPrecoPage() {
               )
             })}
           </section>
+        )}
+        {!editando && !loading && !erro && tabelaId && servicos.length > 0 && (
+          <MedicaoContrato key={tabelaId} tabelaId={tabelaId} servicos={servicos.map(x => ({ ref: x.servico_ref, nome: x.servico_nome, unidade: x.unidade }))} regimes={conds.map(c => c.condicao)} />
         )}
       </div>
     </div>
