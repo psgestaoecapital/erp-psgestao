@@ -11,6 +11,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { IndicadoresViagem } from './IndicadoresViagem'
+import { PreviaFechamento } from './PreviaFechamento'
 import { precoLitro, resumoTexto, validarKm, validarLancamento, type LancamentoForm } from '@/lib/viagem/tela'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
@@ -39,6 +40,9 @@ export default function ViagensPage() {
   const [km, setKm] = useState({ ini: '', fim: '' })
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  // fechar passa pela prévia; excluir lançamento pode ser desfeito por 15 min (fn_viagem_lancamento_restaurar)
+  const [previa, setPrevia] = useState(false)
+  const [desfazer, setDesfazer] = useState<string | null>(null)
   // perfil consulta (viewer) só lê: o banco barra a gravação (gatilho trg_viagem_trava_viewer); a tela esconde as ações
   const [podeGravar, setPodeGravar] = useState(false)
 
@@ -66,7 +70,7 @@ export default function ViagensPage() {
   }, [podeGravar, obras])
 
   const abrir = useCallback(async (v: Viagem) => {
-    setAberta(v); setLf(null); setKm({ ini: v.km_inicial?.toString() ?? '', fim: v.km_final?.toString() ?? '' })
+    setAberta(v); setLf(null); setPrevia(false); setKm({ ini: v.km_inicial?.toString() ?? '', fim: v.km_final?.toString() ?? '' })
     const [l, r] = await Promise.all([
       supabase.from('erp_viagem_lancamento').select('id,tipo,data,fornecedor_nome,categoria,forma_pagamento,valor,obra_id,pago_colaborador,litros,hodometro').eq('viagem_id', v.id).is('excluido_em', null).order('data'),
       supabase.rpc('fn_viagem_resumo', { p_viagem_id: v.id }),
@@ -113,12 +117,16 @@ export default function ViagensPage() {
     }
   }
   async function excluir(id: string) {
-    if (!aberta || !confirm('Excluir este lançamento?')) return
-    if (await rpc('fn_viagem_lancamento_excluir', { p_id: id })) await abrir(aberta)
+    if (!aberta) return
+    if (await rpc('fn_viagem_lancamento_excluir', { p_id: id })) { await abrir(aberta); setDesfazer(id) }
+  }
+  async function restaurar() {
+    if (!aberta || !desfazer) return
+    if (await rpc('fn_viagem_lancamento_restaurar', { p_id: desfazer })) { setDesfazer(null); await abrir(aberta) }
   }
   async function fechar() {
-    if (!aberta || !confirm('Fechar a viagem? Depois de fechada ela não se altera e o GE recebe o acerto.')) return
-    if (await rpc('fn_viagem_fechar', { p_viagem_id: aberta.id })) { await carregar(); setAberta(null) }
+    if (!aberta) return
+    if (await rpc('fn_viagem_fechar', { p_viagem_id: aberta.id })) { setPrevia(false); setDesfazer(null); await carregar(); setAberta(null) }
   }
 
   if (!empresa) return <div className="p-6 text-sm" style={{ color: ESP }}>Escolha uma empresa.</div>
@@ -127,7 +135,7 @@ export default function ViagensPage() {
       <div className="mb-3 flex items-center justify-between">
         <div><h1 className="text-xl font-semibold">Viagens</h1><p className="text-xs opacity-60">Fechamento administrativo · {totalViagens} aberta(s)<AjudaCampo chave="projetos.viagem.contador_abertas" /> · só viagens novas{!podeGravar && ' · perfil de consulta'}</p></div>
         {!aberta && podeGravar && <span className="flex items-center gap-1"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => { setNova(true); setMsg('') }}>Nova viagem</button><AjudaCampo chave="projetos.viagem.nova" /></span>}
-        {aberta && <button className="text-sm underline" onClick={() => { setAberta(null); setMsg('') }}>← Voltar à lista</button>}
+        {aberta && <button className="text-sm underline" onClick={() => { setAberta(null); setMsg(''); setDesfazer(null) }}>← Voltar à lista</button>}
       </div>
       {msg && <div role="alert" className="mb-3 rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{msg}</div>}
 
@@ -177,8 +185,10 @@ export default function ViagensPage() {
               <span>{dt(l.data)} · {l.fornecedor_nome} <span className="text-xs opacity-60">· {l.categoria} · {obraNome(l.obra_id)}{l.tipo === 'abastecimento' ? ` · ${l.litros} L` : ''}</span>{l.tipo === 'abastecimento' && precoLitro(l.valor, l.litros) != null && <span className="text-xs opacity-60"> · {brl(precoLitro(l.valor, l.litros))}/L<AjudaCampo chave="projetos.viagem.lanc_preco_litro" /></span>}</span>
               <span>{brl(l.valor)} {aberta.status === 'aberta' && podeGravar && <><button aria-label="Excluir lançamento" className="ml-2 text-xs underline" onClick={() => excluir(l.id)}>excluir</button><AjudaCampo chave="projetos.viagem.excluir_lancamento" /></>}</span></li>))}
             {lancs.length === 0 && <li className="text-sm opacity-60">Sem lançamentos.</li>}</ul>
+          {desfazer && aberta.status === 'aberta' && <div role="status" className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm" style={{ borderColor: GOLD }}>Lançamento excluído.<button disabled={busy} className="font-medium underline" onClick={restaurar}>Desfazer</button><AjudaCampo chave="projetos.viagem.desfazer_exclusao" /></div>}
+          {previa && aberta.status === 'aberta' && podeGravar && resumo && <PreviaFechamento viagemId={aberta.id} total={resumo.total} saldoTexto={resumo.saldo ? `${resumoTexto(resumo.saldo)}: ${brl(Math.abs(resumo.saldo))}` : resumoTexto(resumo.saldo)} obraNome={obraNome} busy={busy} onConfirmar={fechar} onCancelar={() => setPrevia(false)} />}
           {aberta.placa && <ConsumoVeiculo key={lancs.length} empresa={empresa} placa={aberta.placa} />}
-          {aberta.status === 'aberta' && podeGravar && (lf ? (
+          {aberta.status === 'aberta' && podeGravar && !previa && (lf ? (
             <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }}>
               <Campo rotulo="Tipo do lançamento" ajuda="projetos.viagem.lanc_tipo"><select className={campo} value={lf.tipo} onChange={(e) => setLf({ ...lf, tipo: e.target.value as LancamentoForm['tipo'] })}><option value="despesa">Despesa</option><option value="abastecimento">Abastecimento</option></select></Campo>
               <Campo rotulo="Data do cupom" ajuda="projetos.viagem.lanc_data"><input type="date" className={campo} value={lf.data} onChange={(e) => setLf({ ...lf, data: e.target.value })} /></Campo>
@@ -194,7 +204,7 @@ export default function ViagensPage() {
             </div>
           ) : (
             <div className="flex items-center gap-2"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => setLf(vazio(aberta.obra_id, aberta.periodo_inicio))}>Novo lançamento</button><AjudaCampo chave="projetos.viagem.novo_lancamento" />
-              <button disabled={busy || lancs.length === 0} className="rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-40" style={{ borderColor: ESP }} onClick={fechar}>Fechar viagem</button><AjudaCampo chave="projetos.viagem.fechar" /></div>
+              <button disabled={busy || lancs.length === 0} className="rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-40" style={{ borderColor: ESP }} onClick={() => { setPrevia(true); setLf(null); setMsg('') }}>Fechar viagem</button><AjudaCampo chave="projetos.viagem.fechar" /></div>
           ))}
         </div>
       )}

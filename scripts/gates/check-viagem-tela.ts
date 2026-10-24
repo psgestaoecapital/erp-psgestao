@@ -20,7 +20,7 @@ ok(/ENABLE ROW LEVEL SECURITY/.test(mig) && /REVOKE ALL ON public\.erp_viagem_ev
 ok(!/DELETE\s+FROM/i.test(mig) && !/UPDATE\s+public\.(?!erp_viagem\s+SET)/i.test(mig), 'migration aditiva: sem DELETE e sem UPDATE em outra tabela')
 // perfil consulta (viewer) só lê — auditor 24/10: a tela esconde as ações e o banco barra a gravação nas 4 tabelas
 const trava = readFileSync('supabase/migrations/20261025140052_viagem_viewer_somente_leitura.sql', 'utf8')
-ok(/fn_viagem_pode_gravar/.test(tela) && /podeGravar && <span/.test(tela) && /aberta\.status === 'aberta' && podeGravar && \(lf/.test(tela), 'tela: Nova viagem, lançamento e fechar só para quem pode gravar')
+ok(/fn_viagem_pode_gravar/.test(tela) && /podeGravar && <span/.test(tela) && /aberta\.status === 'aberta' && podeGravar && (!previa && )?\(lf/.test(tela), 'tela: Nova viagem, lançamento e fechar só para quem pode gravar')
 ok(['erp_viagem', 'erp_viagem_lancamento', 'erp_viagem_obra', 'erp_viagem_config'].every((t) => new RegExp(`BEFORE INSERT OR UPDATE OR DELETE ON public\\.${t}\\s`).test(trava)), 'banco: gatilho de consulta nas 4 tabelas da viagem')
 ok(/NOT IN \('viewer', 'visualizador'\)/.test(trava) && /REVOKE ALL ON FUNCTION public\.fn_viagem_pode_gravar\(uuid\) FROM PUBLIC, anon/.test(trava) && !/CREATE OR REPLACE (VIEW|FUNCTION public\.fn_viagem_(salvar|fechar|lancamento))/.test(trava), 'banco: viewer barrado, REVOKE anon, nenhuma fn_viagem_* existente reescrita')
 if (falhas) process.exit(1)
