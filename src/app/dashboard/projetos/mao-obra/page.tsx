@@ -864,10 +864,13 @@ function ModalHistorico({ item, onClose }: { item: ItemEquipe; onClose: () => vo
   return (
     <Janela titulo={`Histórico · ${item.nome}`} onClose={onClose} testid="mao-obra-modal-historico">
       {erro && <div className="text-[#791F1F] text-[12.5px]">{erro}</div>}
-      <table className="w-full text-[12.5px]"><thead><tr className="text-left text-[#3D2314]/60"><th>Vigência</th><th className="text-right">Salário/valor</th><th className="text-right">Custo mensal</th><th className="text-right">Hora</th><th>Motivo</th></tr></thead>
+      {/* 5 colunas não cabem em 390px: a tabela rola dentro do modal em vez de alargar a tela (HB0 · celular) */}
+      <div className="overflow-x-auto" data-testid="mao-obra-historico-rolagem">
+      <table className="w-full min-w-[520px] text-[12.5px]"><thead><tr className="text-left text-[#3D2314]/60"><th>Vigência</th><th className="text-right">Salário/valor</th><th className="text-right">Custo mensal</th><th className="text-right">Hora</th><th>Motivo</th></tr></thead>
         <tbody>{(linhas ?? []).map((l, i) => (
           <tr key={i} className="border-t border-[#3D2314]/5"><td>{l.vigencia_inicio}{l.vigencia_fim ? ` → ${l.vigencia_fim}` : " → hoje"}</td><td className="text-right">{brl(l.salario)}</td><td className="text-right">{brl(l.custo?.custo_mensal)}</td><td className="text-right">{brl(l.custo?.custo_hora)}</td><td>{l.motivo}{l.conferido ? " · conferido" : ""}</td></tr>
         ))}</tbody></table>
+      </div>
     </Janela>
   );
 }
