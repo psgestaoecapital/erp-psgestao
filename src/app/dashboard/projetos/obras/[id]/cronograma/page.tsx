@@ -3,6 +3,7 @@
 // Lê projetos_obra_tarefa / projetos_obra_tarefa_dependencia (RLS por empresa) e grava só pelas funções com guarda (fatia 1).
 // Fatia 10: itens do contrato executados em cada tarefa (projetos_obra_tarefa_item) e quadro "Compras do período"
 // (fn_obra_necessidades_periodo: o que falta executar × composição do serviço, no período do quadro de próximas semanas).
+// Fatia 11: histograma de mão de obra (horas apontadas por semana) e pluviometria (dias de chuva e parados do diário/RDO).
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -12,6 +13,7 @@ import { curvaS } from '@/lib/hub/curvaS'
 import { fisicoFinanceiro } from '@/lib/hub/fisicoFinanceiro'
 import { caminhoCritico } from '@/lib/hub/caminhoCritico'
 import { lookahead, type Situacao } from '@/lib/hub/lookahead'
+import { histogramaObra, type ApontamentoHist, type RdoHist } from '@/lib/hub/histogramaObra'
 
 const ROTA_AJUDA = '/dashboard/projetos/obras/[id]/cronograma'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
@@ -39,6 +41,9 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const [itensObra, setItensObra] = useState<ItemObra[]>([])
   const [vinculos, setVinculos] = useState<Vinculo[]>([])
   const [compras, setCompras] = useState<Compras | null>(null)
+  const [apont, setApont] = useState<ApontamentoHist[]>([])
+  const [rdos, setRdos] = useState<RdoHist[]>([])
+  const [histFalhou, setHistFalhou] = useState(false)
   const [comprasErro, setComprasErro] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -72,6 +77,12 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
         .in('tarefa_id', ids).is('excluido_em', null)
       if (!rv.error) v = (rv.data ?? []) as Vinculo[]
     }
+    // histograma: falha aqui não derruba o cronograma, só avisa no quadro
+    const [ap, rd] = await Promise.all([
+      supabase.from('projetos_obra_mao_obra_apontamento').select('data,horas').eq('obra_id', id).is('excluido_em', null),
+      supabase.from('projetos_obra_rdo').select('data,clima,praticavel').eq('obra_id', id).is('excluido_em', null),
+    ])
+    setApont(ap.error ? [] : (ap.data ?? []) as ApontamentoHist[]); setRdos(rd.error ? [] : (rd.data ?? []) as RdoHist[]); setHistFalhou(!!(ap.error || rd.error))
     setTarefas(lista); setDeps(d); setItensObra(it.error ? [] : (it.data ?? []) as ItemObra[]); setVinculos(v); setLoading(false)
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
@@ -96,6 +107,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const cpm = useMemo(() => caminhoCritico(tarefas, deps), [tarefas, deps])
   const prox = useMemo(() => lookahead(tarefas, hoje(), semanas * 7), [tarefas, semanas])
+  const hist = useMemo(() => histogramaObra(apont, rdos, janela), [apont, rdos, janela])
 
   // compras do período: mesmo recorte do quadro "Próximas semanas" (hoje até prox.ate)
   useEffect(() => {
@@ -344,6 +356,25 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                   </div>
                 )}
 
+                <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 8 }}>Mão de obra e clima por semana <AjudaCampo chave="projetos.cronograma.histograma" rota={ROTA_AJUDA} /></div>
+                  {histFalhou && <div role="alert" style={{ fontSize: 12, color: VERM, marginBottom: 6 }}>Não foi possível ler os apontamentos ou o diário desta obra. Atualize a página.</div>}
+                  {!hist ? (
+                    <div style={{ fontSize: 12.5, color: MUT }}>Nenhuma hora apontada nem diário (RDO) nesta obra ainda. Aponte as horas da equipe na OS de obra ou na tela de horas.</div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10, marginBottom: 10 }}>
+                        <Mini label="Horas apontadas" valor={`${hist.totalHoras.toLocaleString('pt-BR')} h`} ajuda="projetos.cronograma.ind_horas" />
+                        <Mini label="Pico semanal" valor={`${hist.picoHoras.toLocaleString('pt-BR')} h`} ajuda="projetos.cronograma.ind_pico" />
+                        <Mini label="Dias de chuva" valor={hist.diasRdo > 0 ? String(hist.diasChuva) : '—'} cor={hist.diasChuva > 0 ? '#2563EB' : ESP} ajuda="projetos.cronograma.ind_chuva" />
+                        <Mini label="Dias parados" valor={hist.diasRdo > 0 ? String(hist.diasParados) : '—'} cor={hist.diasParados > 0 ? VERM : ESP} ajuda="projetos.cronograma.ind_parados" />
+                      </div>
+                      <Histograma hist={hist} />
+                      <div style={{ fontSize: 11, color: MUT, marginTop: 4 }}>Barra: horas apontadas na semana (equipe média = horas ÷ 40). Número azul (ch): dias de chuva no diário; traço vermelho: dias em que não deu para trabalhar.{hist.diasRdo === 0 ? ' Sem diário (RDO) nesta obra: o clima aparece quando a equipe registrar o dia na OS de obra.' : ''}</div>
+                    </>
+                  )}
+                </div>
+
                 <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, overflowX: 'auto' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: ESP, marginBottom: 8 }}>
                     <input type="checkbox" checked={soCriticas} onChange={(e) => setSoCriticas(e.target.checked)} style={{ width: 18, height: 18 }} />
@@ -409,6 +440,28 @@ function Mini({ label, valor, cor = ESP, ajuda }: { label: string; valor: string
     <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px' }}>
       <div style={{ fontSize: 16, fontWeight: 700, color: cor }}>{valor}</div>
       <div style={{ fontSize: 10, color: MUT, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label} <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} /></div>
+    </div>
+  )
+}
+
+function Histograma({ hist }: { hist: NonNullable<ReturnType<typeof histogramaObra>> }) {
+  const H = 110, max = Math.max(1, hist.picoHoras)
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div role="img" aria-label="Histograma de horas apontadas por semana" style={{ display: 'flex', alignItems: 'flex-end', gap: 4, minWidth: hist.semanas.length * 30, paddingTop: 16 }}>
+        {hist.semanas.map((s) => (
+          <div key={s.semana} title={`Semana de ${fmt(s.semana)}: ${s.horas.toLocaleString('pt-BR')} h (equipe média ${s.equipe.toLocaleString('pt-BR')})${s.diasRdo ? ` · ${s.diasChuva} dia(s) de chuva · ${s.diasParados} parado(s)` : ''}`}
+            style={{ flex: 1, minWidth: 26, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            <span style={{ fontSize: 9.5, color: MUT, fontVariantNumeric: 'tabular-nums' }}>{s.horas > 0 ? s.horas.toLocaleString('pt-BR') : ''}</span>
+            <div style={{ width: '100%', height: H, display: 'flex', alignItems: 'flex-end' }}>
+              <div style={{ width: '100%', height: `${(s.horas / max) * 100}%`, minHeight: s.horas > 0 ? 2 : 0, background: GOLD, borderRadius: '3px 3px 0 0' }} />
+            </div>
+            <span style={{ fontSize: 9.5, color: '#2563EB', minHeight: 12 }}>{s.diasChuva > 0 ? `${s.diasChuva} ch` : ''}</span>
+            <div style={{ width: '100%', height: 3, background: s.diasParados > 0 ? VERM : 'transparent', borderRadius: 2 }} />
+            <span style={{ fontSize: 9, color: MUT, whiteSpace: 'nowrap' }}>{fmt(s.semana).slice(0, 5)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
