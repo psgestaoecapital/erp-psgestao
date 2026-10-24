@@ -167,7 +167,7 @@ export default function ServicoEditorPage({
         const raw = Array.isArray(rpcData) ? rpcData[0] : rpcData;
         if (!raw || !raw.servico) throw { code: "P0001", message: "Serviço não encontrado ou sem acesso." };
         setData(raw as ServicoCompleto);
-      } catch (e: any) {
+      } catch (e) {
         setErro(erroAmigavel(e, "Não foi possível carregar o serviço. Tente de novo."));
       } finally {
         setLoading(false);
