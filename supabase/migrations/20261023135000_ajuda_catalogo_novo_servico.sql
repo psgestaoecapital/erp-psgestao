@@ -1,6 +1,6 @@
 -- HB0 item 5 (CEO 23/10): modal "Novo serviço" do Catálogo do Hub (só grava ao confirmar). RD-95: "?" em cada campo do
--- modal, com o texto no banco. Catálogo: /dashboard/projetos/catalogo. Corrigido (esteira 23/10: INSERT tinha coluna ordem sem valor; usa o default 0). Idempotente (ON CONFLICT (chave) DO NOTHING).
-INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, vertical, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum)
+-- modal, com o texto no banco. Catálogo: /dashboard/projetos/catalogo. Corrigido 2x (24/10: a 1ª correção tirou a coluna ordem e deixou o valor — 10 valores p/ 9 colunas; o banco de testes parava aqui. Coluna ordem de volta). Idempotente (ON CONFLICT (chave) DO NOTHING).
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, vertical, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem)
 VALUES
   ('projetos.catalogo.novo.nome', '/dashboard/projetos/catalogo', 'Novo serviço', 'hub_projetos',
    'Nome do serviço',
