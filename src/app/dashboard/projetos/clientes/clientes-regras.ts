@@ -110,3 +110,14 @@ export function aplicarCEP<T extends EnderecoForm>(form: T, d: { logradouro: str
   }
 }
 export const cepCompleto = (cep: string | null | undefined) => (cep ?? '').replace(/\D/g, '').length === 8
+
+// PDCA 24/10 · "Nova oportunidade" a partir do cliente já leva o cliente: a tela de oportunidades lê ?cliente=<uuid>
+// e abre o formulário com ele escolhido. Só aceita UUID (parâmetro de URL é entrada livre).
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export function linkNovaOportunidade(clienteId: string): string {
+  return `/dashboard/projetos/oportunidades?cliente=${encodeURIComponent(clienteId)}`
+}
+export function clienteDaUrl(search: string | null | undefined): string | null {
+  const v = new URLSearchParams(search ?? '').get('cliente')?.trim() ?? ''
+  return UUID.test(v) ? v.toLowerCase() : null
+}

@@ -6,7 +6,8 @@ import { comPrazo } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { labelUsuario } from '@/lib/usuarioLabel'
-import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
+import OportunidadeFormModal, { empty as oportunidadeVazia, type OportunidadeRow } from './OportunidadeFormModal'
+import { clienteDaUrl } from '../clientes/clientes-regras'
 import OportunidadesKanban from './OportunidadesKanban'
 
 type Row = {
@@ -100,6 +101,18 @@ export default function OportunidadesPage() {
     const t = setTimeout(() => setToast(null), 3500)
     return () => clearTimeout(t)
   }, [toast])
+
+  // Vindo de Clientes de obra ("Nova oportunidade" no cliente): abre o formulário com o cliente escolhido
+  // e limpa o ?cliente= da URL para não reabrir ao recarregar.
+  useEffect(() => {
+    if (!empresaUnica) return
+    const clienteId = clienteDaUrl(window.location.search)
+    if (!clienteId) return
+    setEditing({ ...oportunidadeVazia(), cliente_id: clienteId })
+    const url = new URL(window.location.href)
+    url.searchParams.delete('cliente')
+    window.history.replaceState(null, '', url.pathname + url.search)
+  }, [empresaUnica])
 
   function rowParaForm(r: Row): OportunidadeRow {
     return {
