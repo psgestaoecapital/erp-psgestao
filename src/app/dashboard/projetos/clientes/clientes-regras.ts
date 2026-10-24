@@ -30,3 +30,38 @@ export function obrasPorCliente(linhas: { cliente_id: string | null }[]): Record
 
 export const temContato = (c: { telefone?: string | null; celular?: string | null; email?: string | null }) =>
   !!((c.telefone ?? '').trim() || (c.celular ?? '').trim() || (c.email ?? '').trim())
+
+// PDCA 24/10 (auditor: "funil/oportunidade, visita e orçamento ligados ao cliente"): resumo comercial por cliente,
+// montado na tela a partir de 3 consultas (oportunidades, propostas, visitas) — sem uma consulta por cliente.
+export const ETAPAS_FECHADAS = new Set(['ganho', 'perdido'])
+export type OpLinha = { id: string; cliente_id: string | null; etapa: string | null; valor_estimado: number | null; valor_proposta: number | null }
+export type OrcLinha = { cliente_id: string | null }
+export type VisitaLinha = { oportunidade_id: string | null }
+export type Comercial = { abertas: number; valorAberto: number; ganhas: number; propostas: number; visitas: number }
+
+// Valor de uma oportunidade: o da proposta, quando já existe; senão o estimado.
+export const valorOportunidade = (o: Pick<OpLinha, 'valor_estimado' | 'valor_proposta'>) =>
+  Number(o.valor_proposta ?? o.valor_estimado ?? 0) || 0
+
+export function comercialPorCliente(ops: OpLinha[], orcs: OrcLinha[], visitas: VisitaLinha[]): Record<string, Comercial> {
+  const m: Record<string, Comercial> = {}
+  const de = (id: string) => (m[id] ??= { abertas: 0, valorAberto: 0, ganhas: 0, propostas: 0, visitas: 0 })
+  const clienteDaOp = new Map<string, string>()
+  for (const o of ops) {
+    if (!o.cliente_id) continue
+    clienteDaOp.set(o.id, o.cliente_id)
+    const c = de(o.cliente_id)
+    if (o.etapa === 'ganho') c.ganhas++
+    else if (!ETAPAS_FECHADAS.has(o.etapa ?? '')) { c.abertas++; c.valorAberto += valorOportunidade(o) }
+  }
+  for (const x of orcs) if (x.cliente_id) de(x.cliente_id).propostas++
+  for (const v of visitas) {
+    const cli = v.oportunidade_id ? clienteDaOp.get(v.oportunidade_id) : undefined
+    if (cli) de(cli).visitas++
+  }
+  return m
+}
+
+export const brlCurto = (v: number) =>
+  v >= 1_000_000 ? `R$ ${(v / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`
+  : v >= 1000 ? `R$ ${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil` : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
