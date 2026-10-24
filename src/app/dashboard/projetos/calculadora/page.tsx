@@ -32,6 +32,19 @@ function Campo({ rotulo, chave, valor, set, testid }: { rotulo: string; chave: s
   );
 }
 
+// Área de transferência: API moderna; se o navegador negar (sem permissão/HTTP), cai no execCommand.
+async function copiarTexto(texto: string): Promise<boolean> {
+  try { await navigator.clipboard.writeText(texto); return true; } catch { /* tenta o plano B */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = texto; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch { return false; }
+}
+
 export default function CalculadoraObraPage() {
   const [sistema, setSistema] = useState<Sistema>("parede");
   const [comp, setComp] = useState("12,5");
@@ -128,8 +141,10 @@ export default function CalculadoraObraPage() {
   async function copiarLista() {
     if (!res.ok) return;
     const texto = listaDeCompra(custo.linhas, sistema === "parede" ? "Lista de compra — parede simples" : sistema === "separativa" ? "Lista de compra — parede separativa" : sistema === "cortafogo" ? "Lista de compra — parede corta-fogo" : sistema === "estruturado" ? "Lista de compra — revestimento estruturado" : sistema === "revestimento" ? "Lista de compra — revestimento colado" : sistema === "aramado" ? "Lista de compra — forro aramado" : "Lista de compra — forro F530");
-    try { await navigator.clipboard.writeText(texto); setMsgSaida({ ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." }); }
-    catch { setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." }); }
+    const ok = await copiarTexto(texto);
+    setMsgSaida(ok
+      ? { ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." }
+      : { ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." });
   }
 
   function tituloLista() {
