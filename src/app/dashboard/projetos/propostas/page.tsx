@@ -5,6 +5,8 @@
 // continua no editor completo (1 toque; "Abrir" leva o ?id= e o editor abre a proposta escolhida). Só leitura. 3 estados: erro / vazio (ensina) / dados.
 // HB0 (auditor F15): funil honesto por situação (toque filtra), taxa de aprovação, propostas que vencem em 7 dias,
 // emissão/validade/obra na lista; no celular a lista rola dentro do cartão; erro do banco nunca vai cru (erroAmigavel).
+// HB0 (auditor F15 · itens reais): cada proposta mostra a composição — itens, quantos do catálogo, custo e margem dos
+// itens (sem custo informado = "sem custo", nunca 100%). Regra única em composicaoProposta.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { fmtR } from '@/lib/psgc-tokens'
@@ -13,7 +15,7 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { diasParaVencer, resumoFunil, ABERTAS } from '@/lib/hub/propostas'
+import { composicaoPorProposta, diasParaVencer, resumoFunil, ABERTAS, type Composicao, type ItemProposta } from '@/lib/hub/propostas'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
@@ -26,6 +28,8 @@ const STATUS: Record<string, { cor: string; label: string }> = {
 
 type Proposta = { id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null }
 
+const pct = (v: number) => `${v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
+
 const dataBR = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '—')
 
 export default function PropostasHubPage() {
@@ -35,6 +39,8 @@ export default function PropostasHubPage() {
   const [erro, setErro] = useState('')
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState('todos')
+  const [comp, setComp] = useState<Record<string, Composicao>>({})
+  const [compErro, setCompErro] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -46,7 +52,19 @@ export default function PropostasHubPage() {
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
       if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as propostas.')); return }
-      setLinhas((data ?? []) as Proposta[])
+      const ls = (data ?? []) as Proposta[]
+      setLinhas(ls)
+      // Composição: uma consulta só para os itens da lista. Se falhar, a lista segue e a coluna avisa (sem inventar número).
+      setCompErro(false); setComp({})
+      if (ls.length) {
+        const it = await comPrazo(
+          async () => await supabase.from('erp_orcamentos_itens').select('orcamento_id,quantidade,preco_custo,subtotal,servico_id,produto_id')
+            .in('orcamento_id', ls.map(l => l.id)),
+          { ms: 8000, tentativas: 1, label: 'propostas_hub_itens' },
+        ).catch(() => ({ data: null, error: true }))
+        if (it.error) setCompErro(true)
+        else setComp(composicaoPorProposta((it.data ?? []) as ItemProposta[]))
+      }
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
@@ -57,6 +75,7 @@ export default function PropostasHubPage() {
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b)))
   }, [linhas, busca, filtro])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
+  const comCatalogo = useMemo(() => linhas.filter(l => { const c = comp[l.id]; return c && c.itens > 0 && c.doCatalogo === c.itens }).length, [linhas, comp])
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '12px 16px', flex: '1 1 160px' }
   return (
@@ -100,6 +119,11 @@ export default function PropostasHubPage() {
               <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Vencem em 7 dias <AjudaCampo chave="projetos.propostas.a_vencer" /></div>
               <div data-testid="hub-propostas-a-vencer" style={{ fontSize: 18, fontWeight: 700 }}>{r.aVencer}</div><div style={{ fontSize: 12, color: MUT }}>{fmtR(r.valorAVencer)}</div>
             </div>
+            <div style={card}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Itens do catálogo <AjudaCampo chave="projetos.propostas.do_catalogo" /></div>
+              <div data-testid="hub-propostas-do-catalogo" style={{ fontSize: 18, fontWeight: 700 }}>{compErro ? '—' : `${comCatalogo} de ${r.total}`}</div>
+              <div style={{ fontSize: 12, color: MUT }}>{compErro ? 'itens indisponíveis agora' : 'propostas com todos os itens cadastrados'}</div>
+            </div>
           </div>
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -132,11 +156,13 @@ export default function PropostasHubPage() {
             </div>
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-            <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left', fontSize: 12, color: MUT }}>
                 <th style={{ padding: '8px 12px' }}>Número</th><th style={{ padding: '8px 12px' }}>Cliente</th>
                 <th style={{ padding: '8px 12px' }}>Status</th><th style={{ padding: '8px 12px' }}>Emissão</th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Validade <AjudaCampo chave="projetos.propostas.validade" /></span></th>
+                <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens <AjudaCampo chave="projetos.propostas.composicao" /></span></th>
+                <th style={{ padding: '8px 12px', textAlign: 'right' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Margem <AjudaCampo chave="projetos.propostas.margem" /></span></th>
                 <th style={{ padding: '8px 12px', textAlign: 'right' }}>Total</th><th style={{ padding: '8px 12px' }} />
               </tr></thead>
               <tbody>
@@ -144,6 +170,7 @@ export default function PropostasHubPage() {
                   const st = STATUS[l.status] ?? { cor: MUT, label: l.status }
                   const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
+                  const c = comp[l.id]
                   return (
                     <tr key={l.id} style={{ borderTop: `1px solid ${LINE}`, fontSize: 13 }}>
                       <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600 }}>{l.numero ?? '—'}</td>
@@ -153,6 +180,14 @@ export default function PropostasHubPage() {
                       <td style={{ padding: '8px 12px', color: corVal }} data-testid="hub-proposta-validade">
                         {dataBR(l.data_validade)}{dias !== null && dias < 0 ? ' · vencida' : dias !== null && dias <= 7 ? ` · ${dias === 0 ? 'vence hoje' : `${dias} dia(s)`}` : ''}
                       </td>
+                      <td style={{ padding: '8px 12px', fontSize: 12 }} data-testid="hub-proposta-itens">
+                        {compErro ? '—' : !c ? <span style={{ color: '#B45309' }}>sem itens</span>
+                          : <>{c.itens} item(ns){c.doCatalogo < c.itens ? <span style={{ color: '#B45309' }}> · {c.itens - c.doCatalogo} fora do catálogo</span> : ' · do catálogo'}</>}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontSize: 12 }} data-testid="hub-proposta-margem">
+                        {compErro || !c ? '—' : c.margemPct === null ? <span style={{ color: '#B45309' }}>sem custo</span>
+                          : <span title={`Custo ${fmtR(c.custo)} de ${fmtR(c.preco)}`} style={{ color: c.margemPct < 0 ? '#B91C1C' : ESP, fontWeight: 600 }}>{pct(c.margemPct)}</span>}
+                      </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmtR(Number(l.total ?? 0))}</td>
                       <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {l.obra_id && <Link href={`/dashboard/projetos/obras/${l.obra_id}`} data-testid="hub-proposta-obra" style={{ color: ESP, fontSize: 12, marginRight: 12 }}>Obra</Link>}
@@ -161,7 +196,7 @@ export default function PropostasHubPage() {
                     </tr>
                   )
                 })}
-                {vis.length === 0 && <tr><td colSpan={7} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
+                {vis.length === 0 && <tr><td colSpan={9} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
               </tbody>
             </table>
           </div>

@@ -40,3 +40,38 @@ export function resumoFunil(ls: PropostaFunil[], hoje: Date = new Date()) {
     porStatus,
   }
 }
+
+// HB0 (auditor F15 · "orçamento com itens reais") — composição de cada proposta a partir dos itens dela
+// (erp_orcamentos_itens): quantos itens, quantos vieram do catálogo (serviço ou produto cadastrado), custo e margem.
+// A margem é sobre o preço dos itens: (preço − custo) ÷ preço. Item sem custo informado deixa a margem sem valor
+// (null, a tela mostra "sem custo") — margem de 100% por custo zerado seria mentira na frente do cliente.
+export type ItemProposta = {
+  orcamento_id: string; quantidade: number | null; preco_custo: number | null; subtotal: number | null
+  servico_id: string | null; produto_id: string | null
+}
+
+export type Composicao = { itens: number; doCatalogo: number; semCusto: number; preco: number; custo: number; margemPct: number | null }
+
+const centavos = (v: number) => Math.round(v * 100) / 100
+
+export function composicaoProposta(itens: ItemProposta[]): Composicao {
+  let preco = 0, custo = 0, semCusto = 0, doCatalogo = 0
+  for (const i of itens) {
+    const q = Number(i.quantidade ?? 0), c = Number(i.preco_custo ?? 0)
+    preco += Number(i.subtotal ?? 0)
+    if (c > 0) custo += q * c; else semCusto++
+    if (i.servico_id || i.produto_id) doCatalogo++
+  }
+  preco = centavos(preco); custo = centavos(custo)
+  const margemPct = itens.length && !semCusto && preco > 0 ? Math.round(((preco - custo) / preco) * 1000) / 10 : null
+  return { itens: itens.length, doCatalogo, semCusto, preco, custo, margemPct }
+}
+
+// Agrupa os itens por proposta (uma consulta só para a lista inteira).
+export function composicaoPorProposta(itens: ItemProposta[]): Record<string, Composicao> {
+  const grupos: Record<string, ItemProposta[]> = {}
+  for (const i of itens) (grupos[i.orcamento_id] ??= []).push(i)
+  const out: Record<string, Composicao> = {}
+  for (const [id, ls] of Object.entries(grupos)) out[id] = composicaoProposta(ls)
+  return out
+}

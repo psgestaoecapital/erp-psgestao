@@ -5,6 +5,8 @@ import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { registrarJornada } from '../../support/api'
 
 const DEMO = 'b0700000-0000-4000-a000-000000000004'
+// Construtora DEMO: semente durável com DEMO-ORC-001 (2 serviços do catálogo, preço 39.716,00, custo 29.419,55 → 25,9%).
+const CONSTRUTORA = 'b0700000-0000-4000-a000-000000000006'
 
 test.describe('HB2 — Propostas no Hub', () => {
   test.afterEach(async ({}, testInfo) => {
@@ -49,5 +51,18 @@ test.describe('HB2 — Propostas no Hub', () => {
     await expect(tela.getByTestId('hub-proposta-abrir')).toHaveCount(n)
     await primeira.click()
     await expect(primeira).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  test('cada proposta mostra itens do catálogo e margem dos itens (HB0 F15)', async ({ page }) => {
+    await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, CONSTRUTORA)
+    await page.goto('/dashboard/projetos/propostas')
+    await aguardarConteudo(page)
+    const tela = page.getByTestId('hub-propostas')
+    await expect(tela.getByRole('heading', { name: 'Propostas' })).toBeVisible({ timeout: 30000 })
+    const linha = tela.locator('tr', { hasText: 'DEMO-ORC-001' })
+    test.skip((await linha.count()) === 0, 'Construtora DEMO sem a proposta da semente')
+    await expect(linha.getByTestId('hub-proposta-itens')).toContainText('2 item(ns) · do catálogo')
+    await expect(linha.getByTestId('hub-proposta-margem')).toHaveText('25,9%')
+    await expect(tela.getByTestId('hub-propostas-do-catalogo')).toContainText(/\d+ de \d+/)
   })
 })
