@@ -21,6 +21,7 @@ import { supabaseBrowser } from "@/lib/authFetch";
 import { BomEditor, type BomLinha } from "@/components/projetos/BomEditor";
 import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { ehUuid, erroAmigavel, MSG_ENDERECO_INVALIDO } from "@/lib/erroAmigavel";
 
 const ROTA_AJUDA = "/dashboard/projetos/catalogo/[id]";
 
@@ -144,6 +145,12 @@ export default function ServicoEditorPage({
   const carregar = useCallback(
     async (opts?: { soft?: boolean }) => {
       if (!id) return;
+      // id que não é uuid (ex.: o literal "[id]") nem vai ao banco: mensagem do usuário, não erro de Postgres.
+      if (!ehUuid(id)) {
+        setErro(MSG_ENDERECO_INVALIDO);
+        setLoading(false);
+        return;
+      }
       if (opts?.soft) setRecalculando(true);
       else setLoading(true);
       setErro(null);
@@ -154,14 +161,14 @@ export default function ServicoEditorPage({
           { p_servico_id: id }
         );
         if (error) throw error;
-        if (!rpcData) throw new Error("Serviço não encontrado");
+        if (!rpcData) throw { code: "P0001", message: "Serviço não encontrado ou sem acesso." };
 
         // RPC pode devolver objeto único ou array
         const raw = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-        if (!raw || !raw.servico) throw new Error("Resposta inválida do servidor");
+        if (!raw || !raw.servico) throw { code: "P0001", message: "Serviço não encontrado ou sem acesso." };
         setData(raw as ServicoCompleto);
-      } catch (e: any) {
-        setErro(e.message || "Falha ao carregar serviço");
+      } catch (e) {
+        setErro(erroAmigavel(e, "Não foi possível carregar o serviço. Tente de novo."));
       } finally {
         setLoading(false);
         setRecalculando(false);

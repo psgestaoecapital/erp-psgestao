@@ -4,6 +4,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { curvaS } from '@/lib/hub/curvaS'
 import { fisicoFinanceiro } from '@/lib/hub/fisicoFinanceiro'
@@ -96,13 +97,16 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     const dados: Record<string, unknown> = { nome: form.nome.trim(), inicio: form.inicio, fim: form.fim, percentual: pct }
     if (form.id) dados.id = form.id; else dados.ordem = tarefas.length
     const r = await supabase.rpc('fn_obra_tarefa_salvar', { p_obra_id: id, p_dados: dados })
-    if (r.error) { setSalvando(false); setErro(r.error.message); return }
+    if (r.error) { setSalvando(false); setErro(erroAmigavel(r.error)); return }
     const tid = (r.data as { id: string }).id
     const cr = await supabase.rpc('fn_obra_tarefa_custo_salvar', { p_id: tid, p_custo: custo })
-    if (cr.error) { setSalvando(false); setErro(cr.error.message); await carregar(); return }
+    if (cr.error) { setSalvando(false); setErro(erroAmigavel(cr.error)); await carregar(); return }
     if (form.predecessora) {
       const dr = await supabase.rpc('fn_obra_tarefa_dependencia_salvar', { p_tarefa_id: tid, p_predecessora_id: form.predecessora, p_defasagem: Number(form.defasagem) || 0 })
-      if (dr.error) { setSalvando(false); setErro(dr.error.message === 'Dependência circular' ? 'Essa dependência cria um ciclo: a predecessora já depende desta tarefa.' : dr.error.message); await carregar(); return }
+      if (dr.error) {
+        const ciclo = dr.error.message === 'Dependência circular'
+        setSalvando(false); setErro(ciclo ? 'Essa dependência cria um ciclo: a predecessora já depende desta tarefa.' : erroAmigavel(dr.error)); await carregar(); return
+      }
     }
     setSalvando(false); setForm(null); setAviso('Tarefa salva.'); await carregar()
   }
@@ -111,7 +115,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     if (!window.confirm(`Excluir a tarefa "${t.nome}"? As dependências dela também saem.`)) return
     setErro(null); setAviso(null)
     const r = await supabase.rpc('fn_obra_tarefa_excluir', { p_id: t.id })
-    if (r.error) { setErro(r.error.message); return }
+    if (r.error) { setErro(erroAmigavel(r.error)); return }
     setAviso('Tarefa excluída.'); await carregar()
   }
 
@@ -119,7 +123,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     if (!window.confirm('Fixar o cronograma atual como linha de base? Ela passa a ser a referência para medir atrasos.')) return
     setErro(null); setAviso(null)
     const r = await supabase.rpc('fn_obra_cronograma_linha_base', { p_obra_id: id })
-    if (r.error) { setErro(r.error.message); return }
+    if (r.error) { setErro(erroAmigavel(r.error)); return }
     setAviso('Linha de base fixada.'); await carregar()
   }
 
