@@ -59,6 +59,9 @@ BEGIN
 END;
 $function$;
 
+-- Guarda de funções (check_fn_guards): função SECURITY DEFINER recriada fecha o acesso do anon, como as migrations anteriores dela.
+REVOKE ALL ON FUNCTION public.fn__agente_mensagem_remetente_chat() FROM PUBLIC, anon;
+
 INSERT INTO public.erp_agente_rotina (agente, aciona, observacao) VALUES
   ('desenvolvedor_4_g', true, 'Hub Projetos — Viagens + cálculo/rateio GE (Opus 5.5), ativado 24/10'),
   ('desenvolvedor_5_g', true, 'Hub Projetos — comercial: visitas/clientes/oportunidades/propostas/simulador, ativado 24/10'),
