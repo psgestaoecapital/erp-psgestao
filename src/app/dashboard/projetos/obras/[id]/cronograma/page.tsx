@@ -6,6 +6,8 @@
 // Fatia 11: histograma de mão de obra (horas apontadas por semana) e pluviometria (dias de chuva e parados do diário/RDO).
 // Fatia 12: Gantt logo abaixo dos indicadores (legenda e marca de hoje), curva S com a linha de base × planejado atual
 // e linha realizada (projetos_obra_tarefa_avanco: o % de cada tarefa gravado a cada dia).
+// Fatia 13: reprogramar pelas dependências — sucessoras ainda não iniciadas que começam antes da predecessora terminar
+// (atraso ou mudança de escopo) andam para frente mantendo a duração; grava por fn_obra_tarefa_salvar, com confirmação.
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -16,6 +18,7 @@ import { fisicoFinanceiro } from '@/lib/hub/fisicoFinanceiro'
 import { caminhoCritico } from '@/lib/hub/caminhoCritico'
 import { lookahead, type Situacao } from '@/lib/hub/lookahead'
 import { histogramaObra, type ApontamentoHist, type RdoHist } from '@/lib/hub/histogramaObra'
+import { reprogramar } from '@/lib/hub/reprogramar'
 
 const ROTA_AJUDA = '/dashboard/projetos/obras/[id]/cronograma'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
@@ -112,6 +115,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const ff = useMemo(() => fisicoFinanceiro(tarefas, hoje()), [tarefas])
   const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const cpm = useMemo(() => caminhoCritico(tarefas, deps), [tarefas, deps])
+  const reprog = useMemo(() => reprogramar(tarefas, deps), [tarefas, deps])
   const prox = useMemo(() => lookahead(tarefas, hoje(), semanas * 7), [tarefas, semanas])
   const hist = useMemo(() => histogramaObra(apont, rdos, janela), [apont, rdos, janela])
 
@@ -182,6 +186,19 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     const r = await supabase.rpc('fn_obra_tarefa_excluir', { p_id: t.id })
     if (r.error) { setErro(erroAmigavel(r.error)); return }
     setAviso('Tarefa excluída.'); await carregar()
+  }
+
+  async function aplicarReprogramacao() {
+    if (reprog.length === 0) return
+    if (!window.confirm(`Reprogramar ${reprog.length} tarefa(s) pelas dependências? Cada uma passa a começar depois da predecessora, com a mesma duração. A linha de base não muda.`)) return
+    setSalvando(true); setErro(null); setAviso(null)
+    for (const m of reprog) {
+      const t = tarefas.find((x) => x.id === m.id)
+      if (!t) continue
+      const r = await supabase.rpc('fn_obra_tarefa_salvar', { p_obra_id: id, p_dados: { id: m.id, nome: t.nome, inicio: m.para.inicio, fim: m.para.fim, percentual: t.percentual } })
+      if (r.error) { setSalvando(false); setErro(`Parou em "${m.nome}": ${erroAmigavel(r.error)}`); await carregar(); return }
+    }
+    setSalvando(false); setAviso(`${reprog.length} tarefa(s) reprogramada(s) pelas dependências.`); await carregar()
   }
 
   async function fixarBase() {
@@ -298,6 +315,24 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                   <Mini label="Fora da linha de base" valor={temBase ? String(atrasadas) : '—'} cor={atrasadas > 0 ? VERM : ESP} ajuda="projetos.cronograma.ind_fora_base" />
                   <Mini label="Caminho crítico" valor={`${cpm.criticas.size} de ${tarefas.length}`} cor={VERM} ajuda="projetos.cronograma.ind_caminho_critico" />
                 </div>
+
+                {reprog.length > 0 && (
+                  <div style={{ background: '#FFF8EC', border: `1px solid ${GOLD}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Reprogramar pelas dependências <AjudaCampo chave="projetos.cronograma.reprogramar" rota={ROTA_AJUDA} /></div>
+                      <button onClick={() => void aplicarReprogramacao()} disabled={salvando} style={btn(true)}>{salvando ? 'Reprogramando…' : `Reprogramar ${reprog.length} tarefa(s)`}</button>
+                    </div>
+                    <div style={{ fontSize: 12, color: MUT, margin: '6px 0 4px' }}>Estas tarefas ainda não começaram e estão marcadas para antes de a predecessora terminar. Ao reprogramar, cada uma anda para frente com a mesma duração:</div>
+                    {reprog.map((m) => (
+                      <div key={m.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, fontSize: 12.5, color: ESP, padding: '5px 0', borderTop: `0.5px solid ${LINE}` }}>
+                        <span style={{ fontWeight: 600, flex: 1, minWidth: 140 }}>{m.nome}</span>
+                        <span style={{ color: MUT }}>{fmt(m.de.inicio)} a {fmt(m.de.fim)}</span>
+                        <span>→ {fmt(m.para.inicio)} a {fmt(m.para.fim)}</span>
+                        <span style={{ color: VERM, fontWeight: 700 }}>+{m.dias} d</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14, overflowX: 'auto' }}>
                   <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
