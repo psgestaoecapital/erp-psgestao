@@ -9,7 +9,7 @@ const tela = readFileSync('src/app/dashboard/projetos/obras/[id]/cronograma/page
 const lerMig = (ns: string[]) => ns.map((n) => readFileSync(`supabase/migrations/${n}.sql`, 'utf8')).join('\n')
 const migTexto = ['20261021180030_hb3_cronograma_tela_ajuda_menu', '20261022100030_hb3_cronograma_fatia3_ajuda', '20261022130030_hb3_cronograma_fatia6_curva_s_ajuda', '20261024040000_hb3_cronograma_fatia8_caminho_critico_ajuda', '20261024200000_hb3_cronograma_fatia9_lookahead_ajuda', '20261024220000_hb3_cronograma_fatia11_histograma_ajuda']
 const mig = lerMig(migTexto)
-const migTodas = lerMig([...migTexto, '20261023141730_hb3_cronograma_fatia7_fisico_financeiro', '20261024210000_hb3_cronograma_necessidades_periodo'])
+const migTodas = lerMig([...migTexto, '20261023141730_hb3_cronograma_fatia7_fisico_financeiro', '20261024210000_hb3_cronograma_necessidades_periodo', '20261025000000_hb3_cronograma_fatia12_avanco_historico', '20261025010000_hb3_cronograma_fatia12_gantt_ajuda'])
 
 ok(!/\.(insert|update|delete|upsert)\(/.test(tela), 'a tela não grava direto nas tabelas')
 for (const fn of ['fn_obra_tarefa_itens_salvar', 'fn_obra_necessidades_periodo', 'fn_obra_tarefa_custo_salvar', 'fn_obra_tarefa_salvar', 'fn_obra_tarefa_excluir', 'fn_obra_tarefa_dependencia_salvar', 'fn_obra_cronograma_linha_base'])

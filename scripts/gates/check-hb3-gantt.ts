@@ -19,7 +19,7 @@ const semBase = curvaS([{ inicio: '2026-01-01', fim: '2026-01-10', percentual: 0
 ok(!semBase.temBase && semBase.pontos.every((p) => perto(p.planejado, p.atual)), 'sem base: as duas contas coincidem')
 
 const tela = readFileSync('src/app/dashboard/projetos/obras/[id]/cronograma/page.tsx', 'utf8')
-const mig = readFileSync('supabase/migrations/20261024235000_hb3_cronograma_fatia12_gantt_ajuda.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261025010000_hb3_cronograma_fatia12_gantt_ajuda.sql', 'utf8')
 const iGantt = tela.indexOf('>Tarefas no tempo (Gantt)')
 ok(iGantt > 0, 'a tela tem o quadro do Gantt')
 for (const q of ['>Próximas semanas', '>Compras do período', '>Curva S — planejado', '>Mão de obra e clima']) ok(iGantt < tela.indexOf(q), `Gantt aparece antes de "${q}"`)
