@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
+import AnexosCard from '@/components/crm/AnexosCard'
 import { gerarOrcamentoDaVisita } from '@/lib/crm/orcamentoDaVisita'
 
 type Row = {
@@ -92,6 +93,19 @@ export default function VisitasPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [gerandoOrc, setGerandoOrc] = useState<string | null>(null)
+  // Registro de campo no próprio card: anexos (fotos com observação) por visita, o card aberto e o GPS em captura
+  const [anexosPorVisita, setAnexosPorVisita] = useState<Record<string, number>>({})
+  const [anexosAberto, setAnexosAberto] = useState<string | null>(null)
+  const [capturandoGps, setCapturandoGps] = useState<string | null>(null)
+
+  // Quantos anexos (erp_crm_anexo, vínculo visita) cada visita tem. Falha aqui não esconde a lista: só não mostra o número.
+  const contarAnexos = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) { setAnexosPorVisita({}); return }
+    const { data } = await supabase.from('erp_crm_anexo').select('visita_id').in('visita_id', ids).is('deleted_at', null)
+    const n: Record<string, number> = {}
+    for (const a of (data ?? []) as { visita_id: string | null }[]) if (a.visita_id) n[a.visita_id] = (n[a.visita_id] ?? 0) + 1
+    setAnexosPorVisita(n)
+  }, [])
 
   const reload = useCallback(async () => {
     if (!empresaUnica) { setRows([]); setLoading(false); return }
@@ -104,9 +118,11 @@ export default function VisitasPage() {
       .order('data_visita', { ascending: false, nullsFirst: false })
     if (error) setErro('Não foi possível carregar as visitas agora. Atualize a página; se persistir, avise o suporte.')
     setAgora(Date.now())
-    setRows((data ?? []) as unknown as Row[])
+    const lista = (data ?? []) as unknown as Row[]
+    setRows(lista)
     setLoading(false)
-  }, [empresaUnica])
+    contarAnexos(lista.map((r) => r.id))
+  }, [empresaUnica, contarAnexos])
 
   useEffect(() => { reload() }, [reload])
 
@@ -169,6 +185,37 @@ export default function VisitasPage() {
     if (!res.ok) { setToast(res.erro); return }
     setToast(res.criado ? `Orçamento ${res.numero ?? ''} CRIADO a partir da visita.` : 'Visita VINCULADA ao orçamento da oportunidade.')
     reload()
+  }
+
+  // Registra o local da visita pelo GPS do aparelho, sem abrir o formulário. Grava pela mesma RPC do formulário,
+  // repetindo os dados atuais da visita e trocando só a posição.
+  function registrarLocal(r: Row) {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) { setToast('Este aparelho não informa a localização. Use o celular na obra.'); return }
+    setCapturandoGps(r.id)
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { data, error } = await supabase.rpc('fn_crm_visita_salvar', {
+          p_id: r.id,
+          p_oportunidade_id: r.oportunidade_id,
+          p_data_visita: r.data_visita,
+          p_responsavel_id: r.responsavel_id,
+          p_responsavel_nome: r.responsavel_id ? null : r.responsavel_nome,
+          p_status: r.status,
+          p_endereco: r.endereco,
+          p_anotacoes: r.anotacoes,
+          p_gps_lat: pos.coords.latitude,
+          p_gps_lng: pos.coords.longitude,
+          p_fotos: r.fotos ?? [],
+        })
+        setCapturandoGps(null)
+        const res = data as { ok?: boolean } | null
+        if (error || !res?.ok) { setToast('Não foi possível gravar o local agora. Tente de novo em instantes.'); return }
+        setToast('Local da visita REGISTRADO.')
+        reload()
+      },
+      () => { setCapturandoGps(null); setToast('Localização negada ou indisponível. Libere o acesso à localização e tente de novo.') },
+      { enableHighAccuracy: true, timeout: 10000 },
+    )
   }
 
   function abrirEdicao(r: Row) {
@@ -297,6 +344,8 @@ export default function VisitasPage() {
           const op = r.erp_crm_oportunidade
           const cliNome = op?.erp_clientes?.nome_fantasia ?? op?.erp_clientes?.razao_social ?? null
           const nFotos = (r.fotos ?? []).length
+          const nArquivos = nFotos + (anexosPorVisita[r.id] ?? 0)
+          const temGps = r.gps_lat != null && r.gps_lng != null
           return (
             <div
               key={r.id}
@@ -323,20 +372,54 @@ export default function VisitasPage() {
               </div>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: TEXTM }}>
                 <span data-testid="visita-responsavel">Responsável: {resp ?? 'sem responsável'}</span>
-                {nFotos > 0 && <span>{nFotos} foto(s)</span>}
                 {r.audio_briefing_url && <span>áudio do briefing</span>}
-                {r.gps_lat != null && r.gps_lng != null && (
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 items-center text-xs" style={{ color: TEXTM }} data-testid="visita-registro-campo">
+                <span className="font-medium" style={{ color: ESPRESSO }}>Registro de campo:</span>
+                {temGps ? (
                   <a
                     href={`https://www.google.com/maps?q=${Number(r.gps_lat)},${Number(r.gps_lng)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: DOURADO, textDecoration: 'underline' }}
+                    data-testid="visita-ver-mapa"
                   >
                     <MapPin className="inline-block align-[-2px] mr-0.5" size={12} aria-hidden />
-                    ver no mapa ({Number(r.gps_lat).toFixed(4)}, {Number(r.gps_lng).toFixed(4)})
+                    local registrado · ver no mapa ({Number(r.gps_lat).toFixed(4)}, {Number(r.gps_lng).toFixed(4)})
                   </a>
+                ) : r.status !== 'cancelada' ? (
+                  <button
+                    onClick={() => registrarLocal(r)}
+                    disabled={capturandoGps === r.id}
+                    style={btnSec}
+                    data-testid="visita-registrar-local"
+                  >
+                    {capturandoGps === r.id ? 'Localizando…' : '📍 Registrar local agora'}
+                  </button>
+                ) : (
+                  <span>sem local</span>
                 )}
+                <AjudaCampo chave="projetos.visitas.registro_local" />
+                <button
+                  onClick={() => { if (anexosAberto) contarAnexos(rows.map((x) => x.id)); setAnexosAberto(anexosAberto === r.id ? null : r.id) }}
+                  style={{ ...btnSec, ...(anexosAberto === r.id ? { borderColor: DOURADO } : {}) }}
+                  aria-expanded={anexosAberto === r.id}
+                  data-testid="visita-fotos-arquivos"
+                >
+                  📷 Fotos e arquivos ({nArquivos})
+                </button>
+                <AjudaCampo chave="projetos.visitas.fotos_arquivos" />
               </div>
+              {anexosAberto === r.id && (
+                <div className="mt-2" data-testid="visita-anexos">
+                  {nFotos > 0 && (
+                    <p className="text-xs mb-1" style={{ color: TEXTM }}>
+                      {nFotos} foto(s) tirada(s) no formulário da visita: veja em Editar.
+                    </p>
+                  )}
+                  <AnexosCard companyId={r.company_id} vinculoTipo="visita" vinculoId={r.id} />
+                </div>
+              )}
               {r.anotacoes && <p className="mt-2 text-sm line-clamp-2" style={{ color: ESPRESSO }}>{r.anotacoes}</p>}
               {passo && (
                 <div className="mt-2 flex items-center gap-1 text-xs font-medium" style={{ color: passo.fg }} data-testid="visita-proximo-passo">
