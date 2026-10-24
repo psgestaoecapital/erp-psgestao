@@ -47,24 +47,35 @@ export function resumoFunil(ls: PropostaFunil[], hoje: Date = new Date()) {
 // (null, a tela mostra "sem custo") — margem de 100% por custo zerado seria mentira na frente do cliente.
 export type ItemProposta = {
   orcamento_id: string; quantidade: number | null; preco_custo: number | null; subtotal: number | null
-  servico_id: string | null; produto_id: string | null
+  servico_id: string | null; produto_id: string | null; bdi_percentual?: number | null
 }
 
-export type Composicao = { itens: number; doCatalogo: number; semCusto: number; preco: number; custo: number; margemPct: number | null }
+// bdiPct: BDI aplicado na proposta, médio ponderado pelo custo dos itens (o BDI incide sobre o custo); sem custo em
+// nenhum item, média simples. Item sem BDI gravado conta em semBdi; nenhum item com BDI → null ("sem BDI").
+export type Composicao = {
+  itens: number; doCatalogo: number; semCusto: number; preco: number; custo: number; margemPct: number | null
+  bdiPct: number | null; semBdi: number
+}
 
 const centavos = (v: number) => Math.round(v * 100) / 100
 
 export function composicaoProposta(itens: ItemProposta[]): Composicao {
-  let preco = 0, custo = 0, semCusto = 0, doCatalogo = 0
+  let preco = 0, custo = 0, semCusto = 0, doCatalogo = 0, semBdi = 0
+  let bdiPeso = 0, bdiPond = 0, bdiN = 0, bdiSoma = 0
   for (const i of itens) {
     const q = Number(i.quantidade ?? 0), c = Number(i.preco_custo ?? 0)
     preco += Number(i.subtotal ?? 0)
     if (c > 0) custo += q * c; else semCusto++
     if (i.servico_id || i.produto_id) doCatalogo++
+    if (i.bdi_percentual == null || !Number.isFinite(Number(i.bdi_percentual))) { semBdi++; continue }
+    const b = Number(i.bdi_percentual), peso = q * c
+    bdiN++; bdiSoma += b
+    if (peso > 0) { bdiPeso += peso; bdiPond += peso * b }
   }
   preco = centavos(preco); custo = centavos(custo)
   const margemPct = itens.length && !semCusto && preco > 0 ? Math.round(((preco - custo) / preco) * 1000) / 10 : null
-  return { itens: itens.length, doCatalogo, semCusto, preco, custo, margemPct }
+  const bdiPct = !bdiN ? null : Math.round((bdiPeso > 0 ? bdiPond / bdiPeso : bdiSoma / bdiN) * 100) / 100
+  return { itens: itens.length, doCatalogo, semCusto, preco, custo, margemPct, bdiPct, semBdi }
 }
 
 // Agrupa os itens por proposta (uma consulta só para a lista inteira).
@@ -132,4 +143,14 @@ export function obraPorProposta(propostas: PropostaObra[], obras: ObraVinculo[])
 export function ganhasComObra(sit: Record<string, SituacaoObra>, propostas: PropostaObra[]) {
   const ganhas = propostas.filter(p => em(GANHAS, p.status) && sit[p.id]?.tipo !== 'nao_e_obra')
   return { comObra: ganhas.filter(p => sit[p.id]?.tipo === 'obra').length, ganhas: ganhas.length }
+}
+
+// HB0 (auditor F15 · "BDI visível na proposta") — o BDI aplicado na proposta comparado com o BDI padrão da empresa
+// (projetos_modulo_config.bdi_total_pct, o mesmo que o editor usa ao incluir item). Tolerância de 0,05 ponto para
+// arredondamento. Sem BDI na proposta ou sem padrão configurado → null (a tela não acusa o que não sabe).
+export type BdiSituacao = 'no_padrao' | 'abaixo' | 'acima'
+export function situacaoBdi(bdiPct: number | null, padrao: number | null | undefined): BdiSituacao | null {
+  if (bdiPct === null || padrao == null || !Number.isFinite(Number(padrao)) || Number(padrao) <= 0) return null
+  const d = bdiPct - Number(padrao)
+  return d < -0.05 ? 'abaixo' : d > 0.05 ? 'acima' : 'no_padrao'
 }
