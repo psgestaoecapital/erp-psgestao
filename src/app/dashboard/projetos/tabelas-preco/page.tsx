@@ -15,6 +15,9 @@ import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
 
+// Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
+const fmtPreco = (v: number) => (Number.isInteger(v) ? fmtR(v) : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
 type Tabela = { id: string; nome: string; vigencia_inicio: string; vigencia_fim: string | null }
@@ -148,9 +151,9 @@ export default function TabelasPrecoPage() {
               <input data-testid="tp-custo" inputMode="decimal" style={campo} value={custo} onChange={e => setCusto(e.target.value)} placeholder="para ver a margem" /></label>
             <div data-testid="tp-resultado" style={{ background: BG, borderRadius: 10, padding: 14, border: `1px solid ${LINE}` }}>
               {preco == null ? <b>Sem faixa para essa quantidade.</b> : (<>
-                <div style={{ fontSize: 26, fontWeight: 700 }} data-testid="tp-preco">{fmtR(preco)} <span style={{ fontSize: 14, fontWeight: 400 }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
+                <div style={{ fontSize: 26, fontWeight: 700 }} data-testid="tp-preco">{fmtPreco(preco)} <span style={{ fontSize: 14, fontWeight: 400 }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
                 <div style={{ fontSize: 13, color: MUT, marginTop: 4 }}>
-                  Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} · preço base {fmtR(faixa!.preco_base)}
+                  Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} · preço base {fmtPreco(faixa!.preco_base)}
                   {cond?.preco_fixo != null ? ' · preço fixo da condição' : cond?.percentual ? ` · adicional +${cond.percentual}%` : ''}
                 </div>
                 <div style={{ fontSize: 14, marginTop: 6 }}>Total: <b>{fmtR(preco * q)}</b>{codigo ? <> · código no cliente: <b>{codigo}</b></> : null}</div>
@@ -197,7 +200,7 @@ export default function TabelasPrecoPage() {
                                   <button type="button" onClick={() => usarCelula(s.servico_ref, f.faixa_de, c)} data-testid="tp-celula"
                                     style={{ width: '100%', textAlign: 'right', padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 14, color: ESP,
                                       border: `1px solid ${ativo ? GOLD : 'transparent'}`, background: ativo ? '#FBF3E2' : 'transparent', fontWeight: ativo ? 700 : 400 }}>
-                                    {v == null ? '—' : fmtR(v)}
+                                    {v == null ? '—' : fmtPreco(v)}
                                   </button>
                                 </td>
                               )
