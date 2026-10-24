@@ -18,10 +18,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type Tarefa = { id: string; nome: string; inicio: string; fim: string; percentual: number; inicio_base: string | null; fim_base: string | null; ordem: number; custo_previsto: number | null }
 type Dep = { id: string; tarefa_id: string; predecessora_id: string; defasagem_dias: number }
-type Form = { id: string | null; nome: string; inicio: string; fim: string; percentual: string; predecessora: string; defasagem: string; custo: string }
+type ObraItem = { id: string; descricao: string; unidade: string | null; quantidade_contratada: number | null }
+type Vinculo = { id: string; tarefa_id: string; obra_item_id: string; percentual: number }
+type Necessidade = { insumo_id: string; insumo: string; unidade: string | null; quantidade: number; custo_estimado: number | null; a_partir_de: string; tarefas: string[] }
+type Necessidades = { insumos: Necessidade[]; custo_total: number; tarefas_sem_item: number; itens_sem_composicao: number }
+// itens: obra_item_id -> parte do item (%) nesta tarefa, só os marcados
+type Form = { id: string | null; nome: string; inicio: string; fim: string; percentual: string; predecessora: string; defasagem: string; custo: string; itens: Record<string, string> }
 
 const hoje = () => new Date().toISOString().slice(0, 10)
-const vazio = (): Form => ({ id: null, nome: '', inicio: hoje(), fim: hoje(), percentual: '0', predecessora: '', defasagem: '0', custo: '' })
+const vazio = (): Form => ({ id: null, nome: '', inicio: hoje(), fim: hoje(), percentual: '0', predecessora: '', defasagem: '0', custo: '', itens: {} })
 const ms = (d: string) => new Date(d + 'T00:00:00').getTime()
 const fmt = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 const dias = (a: string, b: string) => Math.round((ms(b) - ms(a)) / DIA) + 1
@@ -38,6 +43,10 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const [soCriticas, setSoCriticas] = useState(false)
   const [semanas, setSemanas] = useState(2)
   const [falhaCarga, setFalhaCarga] = useState<string | null>(null) // carga falhou: não mostra o estado vazio junto
+  const [itensObra, setItensObra] = useState<ObraItem[]>([])
+  const [vinculos, setVinculos] = useState<Vinculo[]>([])
+  const [necess, setNecess] = useState<Necessidades | null>(null)
+  const [falhaNecess, setFalhaNecess] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro(null); setFalhaCarga(null)
@@ -54,6 +63,16 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
       if (r.error) { setLoading(false); setFalhaCarga('Não foi possível carregar as dependências do cronograma. Atualize a página para tentar de novo.'); return }
       d = (r.data ?? []) as Dep[]
     }
+    // itens contratados da obra e o vínculo tarefa -> item (base do "O que comprar"); falha aqui não derruba o cronograma
+    const it = await supabase.from('projetos_obra_item').select('id,descricao,unidade,quantidade_contratada')
+      .eq('obra_id', id).is('excluido_em', null).order('ordem')
+    let v: Vinculo[] = []
+    if (ids.length > 0) {
+      const rv = await supabase.from('projetos_obra_tarefa_item').select('id,tarefa_id,obra_item_id,percentual')
+        .in('tarefa_id', ids).is('excluido_em', null)
+      if (!rv.error) v = (rv.data ?? []) as Vinculo[]
+    }
+    setItensObra(it.error ? [] : ((it.data ?? []) as ObraItem[])); setVinculos(v)
     setTarefas(lista); setDeps(d); setLoading(false)
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
@@ -78,13 +97,23 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const cpm = useMemo(() => caminhoCritico(tarefas, deps), [tarefas, deps])
   const prox = useMemo(() => lookahead(tarefas, hoje(), semanas * 7), [tarefas, semanas])
+  useEffect(() => {
+    if (!UUID.test(id) || tarefas.length === 0) { setNecess(null); return } // eslint-disable-line react-hooks/set-state-in-effect
+    let vivo = true
+    void supabase.rpc('fn_obra_necessidades_periodo', { p_obra_id: id, p_de: hoje(), p_ate: prox.ate }).then((r) => {
+      if (!vivo) return
+      if (r.error) { setFalhaNecess(true); setNecess(null) } else { setFalhaNecess(false); setNecess(r.data as Necessidades) }
+    })
+    return () => { vivo = false }
+  }, [id, prox.ate, tarefas, vinculos])
   const visiveis = soCriticas ? tarefas.filter((t) => cpm.criticas.has(t.id)) : tarefas
   const temBase = tarefas.some((t) => t.fim_base)
   const atrasadas = tarefas.filter((t) => t.fim_base && t.fim > t.fim_base).length
 
   function editar(t: Tarefa) {
     const p = predDe(t.id)
-    setForm({ id: t.id, nome: t.nome, inicio: t.inicio, fim: t.fim, percentual: String(t.percentual), predecessora: p?.predecessora_id ?? '', defasagem: String(p?.defasagem_dias ?? 0), custo: t.custo_previsto == null ? '' : String(t.custo_previsto) })
+    setForm({ id: t.id, nome: t.nome, inicio: t.inicio, fim: t.fim, percentual: String(t.percentual), predecessora: p?.predecessora_id ?? '', defasagem: String(p?.defasagem_dias ?? 0), custo: t.custo_previsto == null ? '' : String(t.custo_previsto),
+      itens: Object.fromEntries(vinculos.filter((v) => v.tarefa_id === t.id).map((v) => [v.obra_item_id, String(v.percentual)])) })
   }
 
   async function salvar(e: React.FormEvent) {
@@ -96,6 +125,10 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) { setErro('O avanço deve ficar entre 0 e 100.'); return }
     const custo = form.custo.trim() === '' ? null : Number(form.custo.replace(',', '.'))
     if (custo !== null && (!Number.isFinite(custo) || custo < 0)) { setErro('O custo previsto deve ser um valor maior ou igual a zero.'); return }
+    for (const parte of Object.values(form.itens)) {
+      const n = Number(parte)
+      if (!Number.isFinite(n) || n <= 0 || n > 100) { setErro('A parte de cada item ligado deve ficar entre 1 e 100%.'); return }
+    }
     setSalvando(true); setErro(null); setAviso(null)
     const dados: Record<string, unknown> = { nome: form.nome.trim(), inicio: form.inicio, fim: form.fim, percentual: pct }
     if (form.id) dados.id = form.id; else dados.ordem = tarefas.length
@@ -110,6 +143,18 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
         const ciclo = dr.error.message === 'Dependência circular'
         setSalvando(false); setErro(ciclo ? 'Essa dependência cria um ciclo: a predecessora já depende desta tarefa.' : erroAmigavel(dr.error)); await carregar(); return
       }
+    }
+    // itens da obra nesta tarefa: liga/ajusta os marcados e desliga os desmarcados
+    const atuais = vinculos.filter((v) => v.tarefa_id === tid)
+    for (const [itemId, parte] of Object.entries(form.itens)) {
+      const ja = atuais.find((v) => v.obra_item_id === itemId)
+      if (ja && Number(ja.percentual) === Number(parte)) continue
+      const vr = await supabase.rpc('fn_obra_tarefa_item_salvar', { p_tarefa_id: tid, p_obra_item_id: itemId, p_percentual: Number(parte) })
+      if (vr.error) { setSalvando(false); setErro(erroAmigavel(vr.error)); await carregar(); return }
+    }
+    for (const v of atuais.filter((x) => !(x.obra_item_id in form.itens))) {
+      const xr = await supabase.rpc('fn_obra_tarefa_item_excluir', { p_id: v.id })
+      if (xr.error) { setSalvando(false); setErro(erroAmigavel(xr.error)); await carregar(); return }
     }
     setSalvando(false); setForm(null); setAviso('Tarefa salva.'); await carregar()
   }
@@ -183,6 +228,31 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                 <label style={lbl}>Defasagem (dias) <AjudaCampo chave="projetos.cronograma.defasagem" rota={ROTA_AJUDA} />
                   <input type="number" step={1} value={form.defasagem} onChange={(e) => setForm({ ...form, defasagem: e.target.value })} style={inp} />
                 </label>
+                {itensObra.length > 0 && (
+                  <fieldset style={{ gridColumn: '1 / -1', border: `1px solid ${LINE}`, borderRadius: 10, padding: '8px 10px', margin: 0 }}>
+                    <legend style={{ fontSize: 12, fontWeight: 600, color: ESP, padding: '0 4px' }}>Itens da obra nesta tarefa <AjudaCampo chave="projetos.cronograma.itens_tarefa" rota={ROTA_AJUDA} /></legend>
+                    {itensObra.map((it) => {
+                      const marcado = it.id in form.itens
+                      return (
+                        <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', flexWrap: 'wrap' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: ESP, flex: 1, minWidth: 180 }}>
+                            <input type="checkbox" checked={marcado} style={{ width: 18, height: 18 }}
+                              onChange={(e) => { const itens = { ...form.itens }; if (e.target.checked) itens[it.id] = '100'; else delete itens[it.id]; setForm({ ...form, itens }) }} />
+                            {it.descricao}{it.quantidade_contratada != null ? ` · ${Number(it.quantidade_contratada).toLocaleString('pt-BR')} ${it.unidade ?? ''}` : ''}
+                            <AjudaCampo chave="projetos.cronograma.itens_tarefa" rota={ROTA_AJUDA} />
+                          </label>
+                          {marcado && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: MUT }}>
+                              Parte <AjudaCampo chave="projetos.cronograma.itens_tarefa_parte" rota={ROTA_AJUDA} />
+                              <input type="number" min={1} max={100} step={1} value={form.itens[it.id]} aria-label={`Parte do item ${it.descricao} (%)`}
+                                onChange={(e) => setForm({ ...form, itens: { ...form.itens, [it.id]: e.target.value } })} style={{ ...inp, width: 70, padding: '6px 8px', fontSize: 13 }} />%
+                            </label>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </fieldset>
+                )}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                   <button type="submit" disabled={salvando} style={btn(true)}>{salvando ? 'Salvando…' : 'Salvar tarefa'}</button>
                   <button type="button" onClick={() => setForm(null)} style={btn(false)}>Cancelar</button>
@@ -233,6 +303,38 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                       <span style={{ fontSize: 11, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%</span>
                     </div>
                   ))}
+                </div>
+
+                <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>O que comprar — até {fmt(prox.ate)} <AjudaCampo chave="projetos.cronograma.necessidades" rota={ROTA_AJUDA} /></div>
+                    {necess && necess.custo_total > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{brl(Number(necess.custo_total))}</div>}
+                  </div>
+                  {falhaNecess ? (
+                    <div style={{ fontSize: 12.5, color: MUT }}>Não foi possível calcular o material do período agora. Atualize a página para tentar de novo.</div>
+                  ) : !necess ? (
+                    <div style={{ fontSize: 12.5, color: MUT }}>Calculando…</div>
+                  ) : (
+                    <>
+                      {necess.insumos.length === 0 ? (
+                        <div style={{ fontSize: 12.5, color: MUT }}>Nenhum material a comprar para as tarefas deste período.</div>
+                      ) : necess.insumos.map((n) => (
+                        <div key={n.insumo_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: `0.5px solid ${LINE}`, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: ESP, flex: 1, minWidth: 140 }}>{n.insumo}
+                            <span style={{ display: 'block', fontSize: 10.5, fontWeight: 400, color: MUT }}>para {n.tarefas.join(', ')}</span></span>
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: ESP }}>{Number(n.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {n.unidade ?? ''}</span>
+                          <span style={{ fontSize: 11, color: MUT, minWidth: 92 }}>a partir de {fmt(n.a_partir_de)}</span>
+                          <span style={{ fontSize: 11.5, color: ESP, minWidth: 84, textAlign: 'right' }}>{n.custo_estimado == null ? 'sem custo' : brl(Number(n.custo_estimado))}</span>
+                        </div>
+                      ))}
+                      {(necess.tarefas_sem_item > 0 || necess.itens_sem_composicao > 0) && (
+                        <div style={{ fontSize: 11.5, color: '#A57A15', marginTop: 8 }}>
+                          {necess.tarefas_sem_item > 0 && `${necess.tarefas_sem_item} tarefa(s) do período sem item da obra ligado (toque em Editar e marque os itens). `}
+                          {necess.itens_sem_composicao > 0 && `${necess.itens_sem_composicao} item(ns) ligado(s) sem composição de insumos no serviço.`}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
 
                 {curva && (

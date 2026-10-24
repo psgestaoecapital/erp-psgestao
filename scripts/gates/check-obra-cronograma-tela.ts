@@ -9,12 +9,12 @@ const tela = readFileSync('src/app/dashboard/projetos/obras/[id]/cronograma/page
 const lerMig = (ns: string[]) => ns.map((n) => readFileSync(`supabase/migrations/${n}.sql`, 'utf8')).join('\n')
 const migTexto = ['20261021180030_hb3_cronograma_tela_ajuda_menu', '20261022100030_hb3_cronograma_fatia3_ajuda', '20261022130030_hb3_cronograma_fatia6_curva_s_ajuda', '20261024040000_hb3_cronograma_fatia8_caminho_critico_ajuda', '20261024200000_hb3_cronograma_fatia9_lookahead_ajuda']
 const mig = lerMig(migTexto)
-const migTodas = lerMig([...migTexto, '20261023141730_hb3_cronograma_fatia7_fisico_financeiro'])
+const migTodas = lerMig([...migTexto, '20261023141730_hb3_cronograma_fatia7_fisico_financeiro', '20261024220000_hb3_cronograma_fatia10_necessidades_periodo'])
 
 ok(!/\.(insert|update|delete|upsert)\(/.test(tela), 'a tela não grava direto nas tabelas')
-for (const fn of ['fn_obra_tarefa_custo_salvar', 'fn_obra_tarefa_salvar', 'fn_obra_tarefa_excluir', 'fn_obra_tarefa_dependencia_salvar', 'fn_obra_cronograma_linha_base'])
+for (const fn of ['fn_obra_tarefa_custo_salvar', 'fn_obra_tarefa_salvar', 'fn_obra_tarefa_excluir', 'fn_obra_tarefa_dependencia_salvar', 'fn_obra_cronograma_linha_base', 'fn_obra_tarefa_item_salvar', 'fn_obra_tarefa_item_excluir', 'fn_obra_necessidades_periodo'])
   ok(tela.includes(fn), `a tela chama ${fn}`)
-ok((tela.match(/is\('excluido_em', null\)/g) ?? []).length === 2, 'leituras ignoram o excluído')
+ok((tela.match(/is\('excluido_em', null\)/g) ?? []).length === 4, 'leituras ignoram o excluído (tarefas, dependências, itens, vínculos)')
 const chaves = [...new Set([...tela.matchAll(/(?:chave|ajuda)="([^"]+)"/g)].map((m) => m[1]))]
 ok(chaves.length >= 8, `a tela usa ${chaves.length} chaves de ajuda`)
 for (const c of chaves) ok(migTodas.includes(`'${c}'`), `chave ${c} semeada na migration`)
