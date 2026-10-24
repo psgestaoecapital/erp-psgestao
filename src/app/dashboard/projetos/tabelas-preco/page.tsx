@@ -13,6 +13,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { MedicaoContrato } from './_componentes/MedicaoContrato'
+import { lerPlanilhaFaixas } from '@/lib/hub/tabelaPrecoImportar'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
 
 // Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
@@ -68,6 +69,19 @@ export default function TabelasPrecoPage() {
   const salvarFaixa = () => salvar('fn_tabela_preco_faixa_salvar', { p_tabela_id: tabelaId, p_dados: { servico_ref: fm.ref, servico_nome: fm.nome, unidade: fm.un, faixa_de: num(fm.de) ?? 0, faixa_ate: num(fm.ate), preco_base: num(fm.preco) } }, 'Faixa salva.')
   const salvarCond = () => salvar('fn_tabela_preco_condicao_salvar', { p_tabela_id: tabelaId, p_condicao: fm.cond, p_percentual: num(fm.pct) }, 'Condição salva.')
   const salvarCodigo = () => salvar('fn_tabela_preco_codigo_salvar', { p_tabela_id: tabelaId, p_servico_ref: servico, p_condicao: fm.cCond, p_codigo: fm.cod, p_preco_fixo: num(fm.fixo) }, 'Código salvo.')
+  // Importar planilha colada: lê, mostra a prévia e grava cada faixa pela mesma RPC do cadastro manual.
+  const [planilha, setPlanilha] = useState('')
+  const previa = useMemo(() => lerPlanilhaFaixas(planilha), [planilha])
+  const importar = async () => {
+    setMsg('')
+    let gravadas = 0
+    for (const f of previa.faixas) {
+      const { data, error } = await supabase.rpc('fn_tabela_preco_faixa_salvar', { p_tabela_id: tabelaId, p_dados: f })
+      if (error || (data && (data as { ok?: boolean }).ok === false)) { setMsg(`${gravadas} faixa(s) importada(s); parou em "${f.servico_nome}" ${f.faixa_de}. ${erroAmigavel(error, 'Confira a linha e tente de novo.')}`); setRev(r => r + 1); return }
+      gravadas++
+    }
+    setMsg(`${gravadas} faixa(s) importada(s).`); setPlanilha(''); setRev(r => r + 1)
+  }
   const excluirFaixa = async (id: string) => { if (window.confirm('Excluir esta faixa?')) await salvar('fn_tabela_preco_faixa_excluir', { p_id: id }, 'Faixa excluída.') }
 
   const carregarTabelas = useCallback(async () => {
@@ -138,6 +152,8 @@ export default function TabelasPrecoPage() {
     return { condicao: c, percentual: conds.find(x => x.condicao === c)?.percentual ?? 0, preco_fixo: fixo }
   }
   const colunas = ['normal', ...conds.map(c => c.condicao)]
+  const hoje = new Date().toISOString().slice(0, 10)
+  const selo = !tabelaSel ? null : tabelaSel.vigencia_inicio > hoje ? 'Começa em breve' : tabelaSel.vigencia_fim && tabelaSel.vigencia_fim < hoje ? 'Vencido' : tabelaSel.vigencia_fim && tabelaSel.vigencia_fim <= new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) ? 'Vence em até 30 dias' : 'Vigente'
   const fmtData = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('pt-BR') : 'sem fim')
   const usarCelula = (sref: string, de: number, c: string) => { setServico(sref); setQtd(String(de)); setCondSel(c) }
 
@@ -174,6 +190,8 @@ export default function TabelasPrecoPage() {
               <div data-testid="tp-vigencia" style={{ fontSize: 13, color: MUT, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 Vigência {fmtData(tabelaSel.vigencia_inicio)} a {fmtData(tabelaSel.vigencia_fim)} · {servicos.length} serviço(s) · {conds.length} adicional(is)
                 <AjudaCampo chave="hub.tabela_preco.vigencia" />
+                <b data-testid="tp-selo-vigencia" style={{ color: selo === 'Vencido' ? '#B91C1C' : GOLD }}>{selo}</b>
+                <AjudaCampo chave="hub.tabela_preco.selo_vigencia" />
               </div>
             )}
             <label><span style={rot}>Serviço <AjudaCampo chave="hub.tabela_preco.servico" /></span>
@@ -250,6 +268,18 @@ export default function TabelasPrecoPage() {
                         ))}
                       </div>
                     )}
+                  </div>
+                  <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
+                    <span style={rot}>Importar planilha do cliente <AjudaCampo chave="hub.tabela_preco.importar" /></span>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                      <textarea data-testid="tp-imp-texto" rows={5} style={campo} value={planilha} onChange={e => setPlanilha(e.target.value)} aria-label="Linhas da planilha" placeholder={'código;nome;unidade;de;até;preço\nuretano-6mm;Piso de uretano 6 mm;m²;0;300;98,00'} />
+                      <AjudaCampo chave="hub.tabela_preco.importar_texto" />
+                    </div>
+                    {planilha.trim() && <div data-testid="tp-imp-previa" style={{ fontSize: 13 }}>{previa.faixas.length} faixa(s) prontas{previa.erros.map(e => <div key={e} style={{ color: '#B91C1C' }}>{e}</div>)}</div>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button type="button" data-testid="tp-imp-aplicar" onClick={importar} disabled={!previa.faixas.length || previa.erros.length > 0} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Importar faixas</button>
+                      <AjudaCampo chave="hub.tabela_preco.importar_aplicar" />
+                    </div>
                   </div>
                   <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
                     <span style={rot}>Condição e adicional (%) <AjudaCampo chave="hub.tabela_preco.cond_cadastro" /></span>
