@@ -39,7 +39,7 @@ export function SaldoContrato({ tabelaId, servicos, podeGravar, recarregar }: { 
       <p style={{ fontSize: 13, color: MUT, margin: 0 }}>Quanto do contrato já foi medido (medições salvas) e quanto ainda resta, por serviço.</p>
       {podeGravar && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <label style={{ fontSize: 12, color: MUT }}>Serviço
+          <label style={{ fontSize: 12, color: MUT }}>Serviço <AjudaCampo chave="hub.tabela_preco.saldo" />
             <select aria-label="Serviço do saldo" style={{ ...campo, display: 'block' }} value={ref} onChange={e => setRef(e.target.value)}>
               {servicos.map(s => <option key={s.ref} value={s.ref}>{s.nome} ({s.unidade})</option>)}
             </select></label>
