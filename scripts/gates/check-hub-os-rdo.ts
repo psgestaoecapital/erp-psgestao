@@ -1,7 +1,7 @@
 // Gate (HB0 · HBF-0.5) — a OS de obra tem diário do dia (RDO): clima, se deu para trabalhar, efetivo, o que foi feito,
 // ocorrências e fotos. Um RDO por OS e por dia; grava só pela função com guarda; fotos só na pasta da empresa da OS no
 // bucket projetos-plantas (policy já isola por empresa — esta PR não mexe em storage). Sem rede: lê a migration e a tela.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
@@ -29,7 +29,9 @@ ok(corpo.includes('cardinality(v_fotos) > 10') && corpo.includes('cardinality(fo
 ok(/SELECT id INTO v_id FROM public\.projetos_obra_rdo WHERE os_id = p_os_id AND data = v_data AND excluido_em IS NULL/.test(corpo), 'dia que já tem diário é atualizado, não duplica')
 
 // RD-95: cada "?" da tela tem chave em migration
-const base = ['20261023180535_hub_os_obra.sql', '20261024180000_hb0_os_obra_apontar_horas.sql']
+const base = ['20261023180535_hub_os_obra.sql', '20261024180000_hb0_os_obra_apontar_horas.sql',
+  // HB4 (quantidade do diário) lida pelo sufixo: a fila pode renumerar a versão
+  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_hb4_rdo_quantidade_avanco.sql'))]
   .map(f => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 const chaves = [...tela.matchAll(/AjudaCampo chave="([^"]+)"/g)].map(m => m[1])
 const novas = ['rdo', 'rdo_registrados', 'rdo_data', 'rdo_clima', 'rdo_praticavel', 'rdo_efetivo', 'rdo_atividades', 'rdo_ocorrencias', 'rdo_fotos', 'rdo_salvar']

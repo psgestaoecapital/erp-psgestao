@@ -8,6 +8,8 @@
 // e linha realizada (projetos_obra_tarefa_avanco: o % de cada tarefa gravado a cada dia).
 // Fatia 13: reprogramar pelas dependências — sucessoras ainda não iniciadas que começam antes da predecessora terminar
 // (atraso ou mudança de escopo) andam para frente mantendo a duração; grava por fn_obra_tarefa_salvar, com confirmação.
+// HB4: avanço pelo diário — a quantidade executada lançada no diário (RDO) de cada OS vira o % físico da tarefa
+// (src/lib/hub/avancoDiario); a tela mostra o % do diário ao lado do % do cronograma e só grava ao tocar em "Usar".
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -19,6 +21,7 @@ import { caminhoCritico } from '@/lib/hub/caminhoCritico'
 import { lookahead, type Situacao } from '@/lib/hub/lookahead'
 import { histogramaObra, type ApontamentoHist, type RdoHist } from '@/lib/hub/histogramaObra'
 import { reprogramar } from '@/lib/hub/reprogramar'
+import { avancoPeloDiario, type OsAD, type RdoQtdAD } from '@/lib/hub/avancoDiario'
 
 const ROTA_AJUDA = '/dashboard/projetos/obras/[id]/cronograma'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
@@ -27,7 +30,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type Tarefa = { id: string; nome: string; inicio: string; fim: string; percentual: number; inicio_base: string | null; fim_base: string | null; ordem: number; custo_previsto: number | null }
 type Dep = { id: string; tarefa_id: string; predecessora_id: string; defasagem_dias: number }
-type ItemObra = { id: string; descricao: string; unidade: string | null; quantidade_contratada: number }
+type ItemObra = { id: string; descricao: string; unidade: string | null; quantidade_contratada: number; valor_contratado: number | null }
 type Vinculo = { tarefa_id: string; obra_item_id: string; participacao_pct: number }
 type Compra = { insumo_id: string; nome: string; unidade: string | null; quantidade: number; custo_estimado: number; tarefas: string[] }
 type Compras = { insumos: Compra[]; total_estimado: number; vinculos: number; vinculos_sem_composicao: number }
@@ -49,6 +52,8 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const [apont, setApont] = useState<ApontamentoHist[]>([])
   const [rdos, setRdos] = useState<RdoHist[]>([])
   const [avancos, setAvancos] = useState<AvancoHist[]>([])
+  const [osObra, setOsObra] = useState<OsAD[]>([])
+  const [rdoQtd, setRdoQtd] = useState<RdoQtdAD[]>([])
   const [histFalhou, setHistFalhou] = useState(false)
   const [comprasErro, setComprasErro] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -75,7 +80,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
       if (r.error) { setLoading(false); setFalhaCarga('Não foi possível carregar as dependências do cronograma. Atualize a página para tentar de novo.'); return }
       d = (r.data ?? []) as Dep[]
     }
-    const it = await supabase.from('projetos_obra_item').select('id,descricao,unidade,quantidade_contratada')
+    const it = await supabase.from('projetos_obra_item').select('id,descricao,unidade,quantidade_contratada,valor_contratado')
       .eq('obra_id', id).is('excluido_em', null).order('ordem')
     let v: Vinculo[] = []
     if (!it.error && ids.length > 0) {
@@ -84,11 +89,15 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
       if (!rv.error) v = (rv.data ?? []) as Vinculo[]
     }
     // histograma: falha aqui não derruba o cronograma, só avisa no quadro
-    const [ap, rd, av] = await Promise.all([
+    const [ap, rd, av, os, rq] = await Promise.all([
       supabase.from('projetos_obra_mao_obra_apontamento').select('data,horas').eq('obra_id', id).is('excluido_em', null),
       supabase.from('projetos_obra_rdo').select('data,clima,praticavel').eq('obra_id', id).is('excluido_em', null),
       supabase.from('projetos_obra_tarefa_avanco').select('tarefa_id,data,percentual').eq('obra_id', id).order('data'),
+      supabase.from('projetos_obra_os').select('id,tarefa_id,obra_item_id').eq('obra_id', id).is('excluido_em', null).neq('status', 'cancelada'),
+      // consulta à parte: sem a coluna (banco antes da migration) o quadro só não aparece, o histograma segue
+      supabase.from('projetos_obra_rdo').select('os_id,quantidade_executada').eq('obra_id', id).is('excluido_em', null).not('quantidade_executada', 'is', null),
     ])
+    setOsObra(os.error ? [] : (os.data ?? []) as OsAD[]); setRdoQtd(os.error || rq.error ? [] : (rq.data ?? []) as RdoQtdAD[])
     setAvancos(av.error ? [] : (av.data ?? []) as AvancoHist[]) // sem histórico: a curva volta a mostrar só o ponto de hoje
     setApont(ap.error ? [] : (ap.data ?? []) as ApontamentoHist[]); setRdos(rd.error ? [] : (rd.data ?? []) as RdoHist[]); setHistFalhou(!!(ap.error || rd.error))
     setTarefas(lista); setDeps(d); setItensObra(it.error ? [] : (it.data ?? []) as ItemObra[]); setVinculos(v); setLoading(false)
@@ -118,6 +127,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const reprog = useMemo(() => reprogramar(tarefas, deps), [tarefas, deps])
   const prox = useMemo(() => lookahead(tarefas, hoje(), semanas * 7), [tarefas, semanas])
   const hist = useMemo(() => histogramaObra(apont, rdos, janela), [apont, rdos, janela])
+  const peloDiario = useMemo(() => avancoPeloDiario(tarefas, itensObra, vinculos, osObra, rdoQtd), [tarefas, itensObra, vinculos, osObra, rdoQtd])
 
   // compras do período: mesmo recorte do quadro "Próximas semanas" (hoje até prox.ate)
   useEffect(() => {
@@ -199,6 +209,17 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
       if (r.error) { setSalvando(false); setErro(`Parou em "${m.nome}": ${erroAmigavel(r.error)}`); await carregar(); return }
     }
     setSalvando(false); setAviso(`${reprog.length} tarefa(s) reprogramada(s) pelas dependências.`); await carregar()
+  }
+
+  async function usarAvancoDiario(tid: string, pct: number) {
+    const t = tarefas.find((x) => x.id === tid)
+    if (!t) return
+    if (!window.confirm(`Passar o avanço de "${t.nome}" de ${Number(t.percentual)}% para ${pct}%, como mostra o diário de obra?`)) return
+    setSalvando(true); setErro(null); setAviso(null)
+    const r = await supabase.rpc('fn_obra_tarefa_salvar', { p_obra_id: id, p_dados: { id: t.id, nome: t.nome, inicio: t.inicio, fim: t.fim, percentual: pct } })
+    setSalvando(false)
+    if (r.error) { setErro(erroAmigavel(r.error)); return }
+    setAviso(`Avanço de "${t.nome}" atualizado para ${pct}% pelo diário.`); await carregar()
   }
 
   async function fixarBase() {
@@ -331,6 +352,30 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                         <span style={{ color: VERM, fontWeight: 700 }}>+{m.dias} d</span>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {peloDiario.length > 0 && (
+                  <div data-testid="cronograma-avanco-diario" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Avanço pelo diário de obra <AjudaCampo chave="projetos.cronograma.avanco_diario" rota={ROTA_AJUDA} /></div>
+                    <div style={{ fontSize: 12, color: MUT, margin: '6px 0 4px' }}>Quanto a equipe lançou como executado no diário (RDO) das OS de cada tarefa, comparado ao avanço do cronograma:</div>
+                    {peloDiario.map((a) => {
+                      const igual = Math.round(a.atual) === a.pct
+                      return (
+                        <div key={a.tarefa_id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 12.5, color: ESP, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
+                          <span style={{ fontWeight: 600, flex: 1, minWidth: 140 }}>{nomePorId.get(a.tarefa_id) ?? '—'}</span>
+                          <span style={{ color: MUT }}>cronograma {Number(a.atual).toFixed(0)}%</span>
+                          <span style={{ fontWeight: 700, color: igual ? VERDE : a.pct < a.atual ? VERM : GOLD }}>diário {a.pct}%</span>
+                          <span style={{ fontSize: 11, color: MUT }}>{a.diarios} {a.diarios === 1 ? 'dia' : 'dias'}</span>
+                          {igual ? <span style={{ fontSize: 11, color: VERDE, fontWeight: 600 }}>em dia</span> : (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <button onClick={() => void usarAvancoDiario(a.tarefa_id, a.pct)} disabled={salvando} style={btnMini}>Usar {a.pct}%</button>
+                              <AjudaCampo chave="projetos.cronograma.avanco_diario_usar" rota={ROTA_AJUDA} />
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
 

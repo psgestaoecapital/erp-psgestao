@@ -5,6 +5,7 @@
 // empresa (fn_obra_os_salvar / _status / _excluir); lista por fn_obra_os_listar. Celular primeiro: a lista é de cartões.
 // HBF-0.5: horas da equipe apontadas na própria OS (fn_obra_os_apontar_horas) — viram custo de mão de obra da obra.
 // HBF-0.5: diário de obra (RDO) do dia na OS (fn_obra_rdo_salvar); fotos no bucket projetos-plantas, pasta da empresa.
+// HB4: quantidade executada no dia (na unidade do serviço da OS) — alimenta o "Avanço pelo diário" do cronograma.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -19,7 +20,7 @@ type Etapa = { id: string; nome: string }
 type Servico = { id: string; descricao: string | null }
 type Funcao = { id: string; nome: string; custo_hora_manual: number | null }
 type Horas = { horas: number; valor: number }
-type Rdo = { os_id: string; data: string; clima: Clima; praticavel: boolean; efetivo: number; atividades: string | null; ocorrencias: string | null; fotos: string[] }
+type Rdo = { os_id: string; data: string; clima: Clima; praticavel: boolean; efetivo: number; atividades: string | null; ocorrencias: string | null; fotos: string[]; quantidade_executada?: number | null }
 type Clima = 'sol' | 'nublado' | 'chuva' | 'chuva_forte'
 type OS = {
   id: string; company_id: string; numero: string; obra_id: string; obra_numero: string | null; obra_nome: string
@@ -42,7 +43,7 @@ const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 const num = (v: string) => Number(v.replace(',', '.'))
 const VAZIO_H = { data: '', funcao_id: '', horas: '', custo_hora: '' }
 const CLIMAS: [Clima, string][] = [['sol', 'Sol'], ['nublado', 'Nublado'], ['chuva', 'Chuva'], ['chuva_forte', 'Chuva forte']]
-const VAZIO_R = { data: '', clima: 'sol' as Clima, praticavel: true, efetivo: '', atividades: '', ocorrencias: '', fotos: [] as string[] }
+const VAZIO_R = { data: '', clima: 'sol' as Clima, praticavel: true, efetivo: '', quantidade: '', atividades: '', ocorrencias: '', fotos: [] as string[] }
 const BUCKET = 'projetos-plantas'
 const nomeObra = (o: { obra_numero?: string | null; numero?: string | null; obra_nome?: string; nome?: string }) =>
   [o.obra_numero ?? o.numero, o.obra_nome ?? o.nome].filter(Boolean).join(' · ')
@@ -75,7 +76,7 @@ export default function OSObraPage() {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
     try {
-      const [a, b, h, fn, rd] = await Promise.all([
+      const [a, b, h, fn, rd, rq] = await Promise.all([
         comPrazo(async () => await supabase.rpc('fn_obra_os_listar', { p_company_ids: companyIds, p_obra_id: null }),
           { ms: 8000, tentativas: 1, label: 'os_obra' }),
         comPrazo(async () => await supabase.from('projetos_obras').select('id,numero,nome').in('company_id', companyIds)
@@ -89,6 +90,10 @@ export default function OSObraPage() {
         comPrazo(async () => await supabase.from('projetos_obra_rdo').select('os_id,data,clima,praticavel,efetivo,atividades,ocorrencias,fotos')
           .in('company_id', companyIds).is('excluido_em', null).order('data', { ascending: false }).limit(2000),
           { ms: 8000, tentativas: 1, label: 'rdo_os' }),
+        // à parte: sem a coluna (banco antes da migration) o diário segue funcionando, só sem a quantidade
+        comPrazo(async () => await supabase.from('projetos_obra_rdo').select('os_id,data,quantidade_executada')
+          .in('company_id', companyIds).is('excluido_em', null).not('quantidade_executada', 'is', null).limit(2000),
+          { ms: 8000, tentativas: 1, label: 'rdo_qtd' }),
       ])
       if (a.error) { setErro(a.error.message); return }
       setLista((a.data ?? []) as OS[]); setObras((b.data ?? []) as Obra[]); setFuncoes((fn.data ?? []) as Funcao[])
@@ -97,7 +102,8 @@ export default function OSObraPage() {
         const t = soma[r.os_id] ?? { horas: 0, valor: 0 }
         soma[r.os_id] = { horas: t.horas + Number(r.horas), valor: t.valor + Number(r.valor) }
       }
-      setHorasOS(soma); setRdos((rd.data ?? []) as Rdo[])
+      const qtd = new Map(((rq.error ? [] : rq.data) ?? []).map((r: { os_id: string; data: string; quantidade_executada: number }) => [`${r.os_id}|${r.data}`, r.quantidade_executada]))
+      setHorasOS(soma); setRdos(((rd.data ?? []) as Rdo[]).map(r => ({ ...r, quantidade_executada: qtd.get(`${r.os_id}|${r.data}`) ?? null })))
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
@@ -179,7 +185,7 @@ export default function OSObraPage() {
   const rdoDoDia = (osId: string, data: string) => rdos.find(r => r.os_id === osId && r.data === data)
   const preencherDiario = (osId: string, data: string) => {
     const r = rdoDoDia(osId, data)
-    setFr(r ? { data, clima: r.clima, praticavel: r.praticavel, efetivo: String(r.efetivo), atividades: r.atividades ?? '', ocorrencias: r.ocorrencias ?? '', fotos: r.fotos }
+    setFr(r ? { data, clima: r.clima, praticavel: r.praticavel, efetivo: String(r.efetivo), quantidade: r.quantidade_executada == null ? '' : String(r.quantidade_executada).replace('.', ','), atividades: r.atividades ?? '', ocorrencias: r.ocorrencias ?? '', fotos: r.fotos }
       : { ...VAZIO_R, data })
     setNovasFotos([])
   }
@@ -194,6 +200,8 @@ export default function OSObraPage() {
     if (!fr.atividades.trim() && !fr.ocorrencias.trim()) { setErro('Conte o que foi feito ou o que aconteceu no dia.'); return }
     if (fr.data > hoje()) { setErro('O diário é do dia que já aconteceu — a data não pode ser futura.'); return }
     if (fr.fotos.length + novasFotos.length > 10) { setErro('No máximo 10 fotos por dia.'); return }
+    const qtd = fr.quantidade.trim() === '' ? null : Number(fr.quantidade.replace(/\./g, '').replace(',', '.'))
+    if (qtd !== null && (!Number.isFinite(qtd) || qtd < 0)) { setErro('A quantidade executada deve ser um número maior ou igual a zero.'); return }
     setOcupado(o.id)
     const enviadas: string[] = []
     for (const file of novasFotos) {
@@ -204,7 +212,7 @@ export default function OSObraPage() {
       enviadas.push(path)
     }
     const { error } = await supabase.rpc('fn_obra_rdo_salvar', { p_os_id: o.id, p_dados: {
-      data: fr.data, clima: fr.clima, praticavel: fr.praticavel, efetivo: fr.efetivo === '' ? 0 : Number(fr.efetivo),
+      data: fr.data, clima: fr.clima, praticavel: fr.praticavel, efetivo: fr.efetivo === '' ? 0 : Number(fr.efetivo), quantidade_executada: qtd,
       atividades: fr.atividades, ocorrencias: fr.ocorrencias, fotos: [...fr.fotos, ...enviadas] } })
     setOcupado(null)
     if (error) { setErro(error.message); return }
@@ -371,6 +379,8 @@ export default function OSObraPage() {
                         <label style={{ ...lab, alignContent: 'end' }}><span style={{ ...rot, color: ESP, minHeight: 40 }}>
                           <input type="checkbox" checked={fr.praticavel} onChange={e => setFr({ ...fr, praticavel: e.target.checked })} style={{ width: 20, height: 20 }} data-testid="os-obra-rdo-praticavel" />
                           Deu para trabalhar <AjudaCampo chave="projetos.os_obra.rdo_praticavel" /></span></label>
+                        <label style={{ ...lab, gridColumn: '1 / -1' }}><span style={rot}>Quantidade executada no dia{o.servico ? ` (${o.servico})` : ''} <AjudaCampo chave="projetos.os_obra.rdo_quantidade" /></span>
+                          <input inputMode="decimal" value={fr.quantidade} onChange={e => setFr({ ...fr, quantidade: e.target.value.replace(/[^\d.,]/g, '') })} placeholder="Ex.: 34 (na unidade do serviço, como m²)" style={inp} data-testid="os-obra-rdo-quantidade" /></label>
                         <label style={{ ...lab, gridColumn: '1 / -1' }}><span style={rot}>O que foi feito <AjudaCampo chave="projetos.os_obra.rdo_atividades" /></span>
                           <textarea value={fr.atividades} onChange={e => setFr({ ...fr, atividades: e.target.value })} rows={2} placeholder="Ex.: forro fechado nas salas 201 e 202 (34 m²)" style={{ ...inp, resize: 'vertical' }} data-testid="os-obra-rdo-atividades" /></label>
                         <label style={{ ...lab, gridColumn: '1 / -1' }}><span style={rot}>Ocorrências <AjudaCampo chave="projetos.os_obra.rdo_ocorrencias" /></span>
