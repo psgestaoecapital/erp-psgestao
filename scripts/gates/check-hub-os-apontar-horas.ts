@@ -1,7 +1,7 @@
 // Gate (HB0 · HBF-0.5) — a OS de obra aponta horas da equipe. O auditor PDCA (24/10) deu funcional 20 em
 // /dashboard/projetos/obras/os por faltar "apontamento de mão de obra na OS". As horas entram na MESMA tabela de custo
 // de MO da obra (fonte única do Resultado por obra), ligadas à OS por os_id. Sem rede: lê a migration e a tela.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
@@ -24,7 +24,9 @@ ok(/INSERT INTO public\.projetos_obra_mao_obra_apontamento\s*\(company_id, obra_
 ok(!/\bvalor\b\s*,/.test(corpo.split('INSERT INTO public.projetos_obra_mao_obra_apontamento')[1]?.split('RETURNING')[0] ?? ''), 'valor não é gravado à mão (coluna gerada horas × custo)')
 
 // RD-95: cada "?" da tela tem chave na migration (ou na da OS de obra)
-const base = ['20261023180535_hub_os_obra.sql', '20261024190000_hb0_os_obra_rdo.sql']
+const base = ['20261023180535_hub_os_obra.sql', '20261024190000_hb0_os_obra_rdo.sql',
+  // HB4 (quantidade do diário) lida pelo sufixo: a fila pode renumerar a versão
+  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_hb4_rdo_quantidade_avanco.sql'))]
   .map(f => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 const chaves = [...tela.matchAll(/AjudaCampo chave="([^"]+)"/g)].map(m => m[1])
 const novas = ['apontar', 'horas_apontadas', 'apontar_data', 'apontar_funcao', 'apontar_horas', 'apontar_custo_hora', 'apontar_lancar'].map(c => `projetos.os_obra.${c}`)
