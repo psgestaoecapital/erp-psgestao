@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import { mensagemErroLogin } from "@/lib/auth/erroLogin";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -34,8 +35,12 @@ export default function LoginPage() {
     }
 
     if (mode === "login") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) { setError("E-mail ou senha incorretos"); setLoading(false); return; }
+      let falha: unknown = null;
+      try {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        falha = error;
+      } catch (e) { falha = e; }
+      if (falha) { setError(mensagemErroLogin(falha)); setLoading(false); return; }
     } else {
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) { setError(error.message); setLoading(false); return; }
