@@ -1,8 +1,10 @@
 // HB3 (fatia 6) · Curva S do cronograma da obra: avanço físico planejado acumulado × avanço realizado hoje.
 // Peso de cada tarefa = duração em dias. Planejado usa a linha de base quando a tarefa tem; senão, as datas atuais.
+// Fatia 12: com linha de base fixada, cada ponto traz também o planejado pelas datas ATUAIS (reprogramado), para a tela
+// desenhar as duas curvas e mostrar quanto o cronograma escorregou da base.
 export type TarefaCurva = { inicio: string; fim: string; percentual: number; inicio_base?: string | null; fim_base?: string | null }
-export type PontoCurva = { data: string; planejado: number }
-export type CurvaS = { pontos: PontoCurva[]; planejadoHoje: number; realizado: number; desvio: number; inicio: string; fim: string }
+export type PontoCurva = { data: string; planejado: number; atual: number }
+export type CurvaS = { pontos: PontoCurva[]; planejadoHoje: number; realizado: number; desvio: number; inicio: string; fim: string; temBase: boolean }
 
 const DIA = 86400000
 const ms = (d: string) => new Date(d + 'T00:00:00Z').getTime()
@@ -26,6 +28,11 @@ export function planejadoEm(tarefas: TarefaCurva[], d: string): number {
   return peso > 0 ? (feito / peso) * 100 : 0
 }
 
+/** Planejado acumulado (0..100) no dia `d` pelas datas atuais, ignorando a linha de base (cronograma reprogramado). */
+export function planejadoAtualEm(tarefas: TarefaCurva[], d: string): number {
+  return planejadoEm(tarefas.map((t) => ({ inicio: t.inicio, fim: t.fim, percentual: t.percentual })), d)
+}
+
 /** Realizado (0..100): avanço de cada tarefa ponderado pela duração (a mesma conta do "Avanço geral" da tela). */
 export function realizadoGeral(tarefas: TarefaCurva[]): number {
   let peso = 0, feito = 0
@@ -39,9 +46,11 @@ export function curvaS(tarefas: TarefaCurva[], hoje: string): CurvaS | null {
   const datas = tarefas.flatMap((t) => [t.inicio_base ?? t.inicio, t.fim_base ?? t.fim, t.inicio, t.fim])
   const inicio = datas.reduce((a, b) => (a < b ? a : b)), fim = datas.reduce((a, b) => (a > b ? a : b))
   const pontos: PontoCurva[] = []
-  for (let t = ms(inicio); t < ms(fim); t += 7 * DIA) pontos.push({ data: iso(t), planejado: planejadoEm(tarefas, iso(t)) })
-  pontos.push({ data: fim, planejado: planejadoEm(tarefas, fim) })
+  const ponto = (d: string): PontoCurva => ({ data: d, planejado: planejadoEm(tarefas, d), atual: planejadoAtualEm(tarefas, d) })
+  for (let t = ms(inicio); t < ms(fim); t += 7 * DIA) pontos.push(ponto(iso(t)))
+  pontos.push(ponto(fim))
   const planejadoHoje = planejadoEm(tarefas, hoje < inicio ? inicio : hoje > fim ? fim : hoje)
   const realizado = realizadoGeral(tarefas)
-  return { pontos, planejadoHoje, realizado, desvio: realizado - planejadoHoje, inicio, fim }
+  const temBase = tarefas.some((t) => !!t.inicio_base && !!t.fim_base)
+  return { pontos, planejadoHoje, realizado, desvio: realizado - planejadoHoje, inicio, fim, temBase }
 }
