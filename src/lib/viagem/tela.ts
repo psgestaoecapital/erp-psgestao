@@ -2,6 +2,8 @@
 export type LancamentoForm = {
   tipo: 'despesa' | 'abastecimento'; data: string; fornecedor_nome: string; categoria: string; forma_pagamento: string
   valor: string; obra_id: string; pago_colaborador: boolean; litros: string; hodometro: string
+  // abastecimento: completou até travar a bomba — é o ponto da conta de consumo (km/l) da fn_viagem_consumo
+  tanque_cheio: boolean
 }
 
 export function validarLancamento(f: LancamentoForm, ini: string, fim: string): string[] {
