@@ -818,7 +818,7 @@ ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-6}
 em_preparo=0
 # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada (corta runs/builds de publicação). PR COM migration
 # é UMA por rodada e encerra a rodada. merges = quantas já saíram no lote; LOTE_MAX = teto por rodada (teto de risco).
-LOTE_MAX=${LOTE_MAX:-6}
+LOTE_MAX=${LOTE_MAX:-10}
 # RITMO (CEO 15/10; teto subido para 30 em 23/10 — "produção máxima"): teto de publicações por hora. Conta as PRs já
 # mergeadas na main na última hora (fail-open: erro de API/valor não-numérico = 0, a rodada segue). O teto protege contra
 # enxurrada; com a via expressa do Hub + o backlog a drenar, 30/h acelera sem virar descontrole.
