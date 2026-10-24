@@ -12,7 +12,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import Link from 'next/link'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { buscarCEP } from '@/lib/cadastros/buscarCEP'
-import { aplicarCEP, brlCurto, cepCompleto, comercialPorCliente, etapaPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, obraRecentePorCliente, obrasPorCliente, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type OpLinha, type TipoPF } from './clientes-regras'
+import { aplicarCEP, brlCurto, cepCompleto, comercialPorCliente, etapaPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, linkNovaOportunidade, obraRecentePorCliente, obrasPorCliente, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type OpLinha, type TipoPF } from './clientes-regras'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -319,7 +319,7 @@ export default function ClientesPage() {
                     <AjudaCampo chave="projetos.clientes.acao.editar" />
                     <button onClick={() => novaObra(c)} style={btnGold}>+ Nova obra</button>
                     <AjudaCampo chave="projetos.clientes.acao.nova_obra" />
-                    <Link href="/dashboard/projetos/oportunidades" style={{ ...btnOutline, textDecoration: 'none' }}>Nova oportunidade</Link>
+                    <Link href={linkNovaOportunidade(c.id)} data-testid="hub-cliente-nova-oportunidade" style={{ ...btnOutline, textDecoration: 'none' }}>Nova oportunidade</Link>
                     <AjudaCampo chave="projetos.clientes.acao.oportunidade" />
                     <Link href="/dashboard/orcamentos" style={{ ...btnOutline, textDecoration: 'none' }}>Nova proposta</Link>
                     <AjudaCampo chave="projetos.clientes.acao.proposta" />
