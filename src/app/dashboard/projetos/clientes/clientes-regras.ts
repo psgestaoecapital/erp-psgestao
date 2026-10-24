@@ -21,7 +21,9 @@ export function iniciais(nome: string | null | undefined): string {
   return (letras || '?').toUpperCase()
 }
 
-// Conta obras por cliente a partir das linhas de erp_obra_planta (uma consulta por tela).
+// Conta obras por cliente a partir das linhas de projetos_obras (uma consulta por tela).
+// PDCA 24/10 tarde: a tela lia erp_obra_planta (planta de takeoff), mostrava "Obra: Planta baixa – …" e abria o
+// cockpit com o id da planta (link quebrado). A obra do Hub é projetos_obras — é ela que o cockpit abre.
 export function obrasPorCliente(linhas: { cliente_id: string | null }[]): Record<string, number> {
   const m: Record<string, number> = {}
   for (const l of linhas) if (l.cliente_id) m[l.cliente_id] = (m[l.cliente_id] ?? 0) + 1
@@ -68,7 +70,7 @@ export const brlCurto = (v: number) =>
 
 // PDCA 24/10 06:03 (auditor: "só contador de obra na linha" e "ganhar não abre obra"): a linha mostra a obra
 // mais recente (nome · cidade/UF) e avisa quando o cliente tem mais vendas ganhas do que obras abertas.
-export type ObraLinha = { cliente_id: string | null; nome: string | null; projeto_nome: string | null; obra_cidade: string | null; obra_uf: string | null; created_at: string | null }
+export type ObraLinha = { cliente_id: string | null; nome: string | null; projeto_nome?: string | null; obra_cidade: string | null; obra_uf: string | null; created_at: string | null }
 export const rotuloObra = (o: Pick<ObraLinha, 'nome' | 'projeto_nome' | 'obra_cidade' | 'obra_uf'>) =>
   [o.nome || o.projeto_nome || '(obra sem nome)', o.obra_cidade ? `${o.obra_cidade}${o.obra_uf ? '/' + o.obra_uf : ''}` : ''].filter(Boolean).join(' · ')
 export function obraRecentePorCliente(linhas: ObraLinha[]): Record<string, string> {
@@ -81,6 +83,12 @@ export function obraRecentePorCliente(linhas: ObraLinha[]): Record<string, strin
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, rotuloObra(v)]))
 }
 export const ganhasSemObra = (ganhas: number, obras: number) => Math.max(0, ganhas - obras)
+// Vendas que já viraram obra (projetos_obras.oportunidade_id): "Abrir obra desta venda" some nelas, para não duplicar.
+export function oportunidadesComObra(linhas: { oportunidade_id?: string | null }[]): Set<string> {
+  return new Set(linhas.map((l) => l.oportunidade_id).filter((x): x is string => !!x))
+}
+const STATUS_OBRA: Record<string, string> = { rascunho: 'Rascunho', planejada: 'Planejada', em_andamento: 'Em andamento', pausada: 'Pausada', concluida: 'Concluída', cancelada: 'Cancelada' }
+export const rotuloStatusObra = (s: string | null | undefined) => (s ? STATUS_OBRA[s] ?? s : 'Rascunho')
 
 // PDCA 24/10 06:03 (auditor: "funil/CRM mostrando etapa real da oportunidade por cliente"): a linha mostra a etapa
 // mais avançada entre as oportunidades ABERTAS do cliente (ganha/perdida não contam — já têm pílula própria).
