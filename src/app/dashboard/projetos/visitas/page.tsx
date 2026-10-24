@@ -394,7 +394,7 @@ export default function VisitasPage() {
                     style={btnSec}
                     data-testid="visita-registrar-local"
                   >
-                    {capturandoGps === r.id ? 'Localizando…' : '📍 Registrar local agora'}
+                    {capturandoGps === r.id ? 'Localizando…' : 'Registrar local agora'}
                   </button>
                 ) : (
                   <span>sem local</span>
@@ -406,7 +406,7 @@ export default function VisitasPage() {
                   aria-expanded={anexosAberto === r.id}
                   data-testid="visita-fotos-arquivos"
                 >
-                  📷 Fotos e arquivos ({nArquivos})
+                  Fotos e arquivos ({nArquivos})
                 </button>
                 <AjudaCampo chave="projetos.visitas.fotos_arquivos" />
               </div>

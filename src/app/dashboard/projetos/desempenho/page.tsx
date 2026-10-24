@@ -86,7 +86,7 @@ export default function DesempenhoComercialPage() {
           <>
             {/* Bloco A · cartões */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 16 }}>
-              <Card titulo="Conversão" valor={pct(r!.conversao_pct)} cor={corConversao(r!.conversao_pct)} sub={`🎯 ${rotConversao(r!.conversao_pct)}`} />
+              <Card titulo="Conversão" valor={pct(r!.conversao_pct)} cor={corConversao(r!.conversao_pct)} sub={rotConversao(r!.conversao_pct)} />
               <Card titulo="Ganhas" valor={String(r!.ganhas_qtd)} cor={VERDE} sub={brl(r!.ganhas_valor)} />
               <Card titulo="Perdidas" valor={String(r!.perdidas_qtd)} cor={VERM} sub={brl(r!.perdidas_valor)} />
               <Card titulo="Ticket médio" valor={brl(r!.ticket_medio)} cor={ESP} />
