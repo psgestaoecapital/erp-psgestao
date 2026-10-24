@@ -7,6 +7,8 @@
 // emissão/validade/obra na lista; no celular a lista rola dentro do cartão; erro do banco nunca vai cru (erroAmigavel).
 // HB0 (auditor F15 · itens reais): cada proposta mostra a composição — itens, quantos do catálogo, custo e margem dos
 // itens (sem custo informado = "sem custo", nunca 100%). Regra única em composicaoProposta.
+// HB0 (auditor F15 · origem): coluna "Origem" — oportunidade, visitas e plantas do take-off que levaram à proposta, pelos
+// vínculos que já existem no banco (regra única em origemPorProposta); indicador "Origem rastreada". Sem vínculo = "avulsa".
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { fmtR } from '@/lib/psgc-tokens'
@@ -15,7 +17,7 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { composicaoPorProposta, diasParaVencer, resumoFunil, ABERTAS, type Composicao, type ItemProposta } from '@/lib/hub/propostas'
+import { composicaoPorProposta, diasParaVencer, origemPorProposta, resumoFunil, temOrigem, ABERTAS, type Composicao, type ItemProposta, type OportunidadeVinculo, type Origem, type PlantaVinculo, type VisitaVinculo } from '@/lib/hub/propostas'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
@@ -41,6 +43,25 @@ export default function PropostasHubPage() {
   const [filtro, setFiltro] = useState('todos')
   const [comp, setComp] = useState<Record<string, Composicao>>({})
   const [compErro, setCompErro] = useState(false)
+  const [orig, setOrig] = useState<Record<string, Origem>>({})
+  const [origErro, setOrigErro] = useState(false)
+
+  // Origem: oportunidades e plantas ligadas às propostas; depois as visitas (diretas ou da oportunidade). Falha → coluna avisa.
+  const carregarOrigem = useCallback(async (ids: string[]) => {
+    const op = { ms: 8000, tentativas: 1 }
+    try {
+      const [o, p] = await Promise.all([
+        comPrazo(async () => await supabase.from('erp_crm_oportunidade').select('id,titulo,orcamento_id').in('orcamento_id', ids).is('deleted_at', null), { ...op, label: 'propostas_hub_oport' }),
+        comPrazo(async () => await supabase.from('erp_obra_planta').select('id,nome,orcamento_id').in('orcamento_id', ids), { ...op, label: 'propostas_hub_plantas' }),
+      ])
+      if (o.error || p.error) { setOrigErro(true); return }
+      const ops = (o.data ?? []) as OportunidadeVinculo[]
+      const filtroVis = [`gerou_orcamento_id.in.(${ids.join(',')})`, ...(ops.length ? [`oportunidade_id.in.(${ops.map(x => x.id).join(',')})`] : [])].join(',')
+      const v = await comPrazo(async () => await supabase.from('erp_crm_visita').select('id,oportunidade_id,gerou_orcamento_id').or(filtroVis), { ...op, label: 'propostas_hub_visitas' })
+      if (v.error) { setOrigErro(true); return }
+      setOrig(origemPorProposta(ops, (v.data ?? []) as VisitaVinculo[], (p.data ?? []) as PlantaVinculo[]))
+    } catch { setOrigErro(true) }
+  }, [])
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -65,8 +86,10 @@ export default function PropostasHubPage() {
         if (it.error) setCompErro(true)
         else setComp(composicaoPorProposta((it.data ?? []) as ItemProposta[]))
       }
+      setOrigErro(false); setOrig({})
+      if (ls.length) await carregarOrigem(ls.map(l => l.id))
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
-  }, [companyIds])
+  }, [companyIds, carregarOrigem])
   useEffect(() => { carregar() }, [carregar])
 
   const vis = useMemo(() => {
@@ -75,6 +98,7 @@ export default function PropostasHubPage() {
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b)))
   }, [linhas, busca, filtro])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
+  const comOrigem = useMemo(() => linhas.filter(l => temOrigem(orig[l.id])).length, [linhas, orig])
   const comCatalogo = useMemo(() => linhas.filter(l => { const c = comp[l.id]; return c && c.itens > 0 && c.doCatalogo === c.itens }).length, [linhas, comp])
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '12px 16px', flex: '1 1 160px' }
@@ -124,6 +148,11 @@ export default function PropostasHubPage() {
               <div data-testid="hub-propostas-do-catalogo" style={{ fontSize: 18, fontWeight: 700 }}>{compErro ? '—' : `${comCatalogo} de ${r.total}`}</div>
               <div style={{ fontSize: 12, color: MUT }}>{compErro ? 'itens indisponíveis agora' : 'propostas com todos os itens cadastrados'}</div>
             </div>
+            <div style={card}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Origem rastreada <AjudaCampo chave="projetos.propostas.com_origem" /></div>
+              <div data-testid="hub-propostas-com-origem" style={{ fontSize: 18, fontWeight: 700 }}>{origErro ? '—' : `${comOrigem} de ${r.total}`}</div>
+              <div style={{ fontSize: 12, color: MUT }}>{origErro ? 'origem indisponível agora' : 'vieram de oportunidade, visita ou take-off'}</div>
+            </div>
           </div>
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -156,9 +185,10 @@ export default function PropostasHubPage() {
             </div>
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-            <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left', fontSize: 12, color: MUT }}>
                 <th style={{ padding: '8px 12px' }}>Número</th><th style={{ padding: '8px 12px' }}>Cliente</th>
+                <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Origem <AjudaCampo chave="projetos.propostas.origem" /></span></th>
                 <th style={{ padding: '8px 12px' }}>Status</th><th style={{ padding: '8px 12px' }}>Emissão</th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Validade <AjudaCampo chave="projetos.propostas.validade" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens <AjudaCampo chave="projetos.propostas.composicao" /></span></th>
@@ -171,10 +201,20 @@ export default function PropostasHubPage() {
                   const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
                   const c = comp[l.id]
+                  const o = orig[l.id]
                   return (
                     <tr key={l.id} style={{ borderTop: `1px solid ${LINE}`, fontSize: 13 }}>
                       <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600 }}>{l.numero ?? '—'}</td>
                       <td style={{ padding: '8px 12px' }}>{l.cliente_nome ?? '—'}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 220 }} data-testid="hub-proposta-origem">
+                        {origErro ? '—' : !temOrigem(o) ? <span style={{ color: MUT }}>avulsa</span> : (
+                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {o!.oportunidade && <Link href={`/dashboard/projetos/oportunidades/${o!.oportunidade.id}`} data-testid="hub-proposta-origem-oportunidade" style={{ color: ESP }}>Oportunidade: {o!.oportunidade.titulo}</Link>}
+                            {o!.visitas > 0 && <Link href="/dashboard/projetos/visitas" data-testid="hub-proposta-origem-visita" style={{ color: ESP }}>{o!.visitas} visita(s) técnica(s)</Link>}
+                            {o!.plantas.map(pl => <Link key={pl.id} href={`/dashboard/projetos/takeoff?planta_id=${pl.id}`} data-testid="hub-proposta-origem-planta" style={{ color: ESP }}>Take-off: {pl.nome}</Link>)}
+                          </span>
+                        )}
+                      </td>
                       <td style={{ padding: '8px 12px' }}><span style={{ color: st.cor, fontWeight: 600 }}>{st.label}</span></td>
                       <td style={{ padding: '8px 12px' }}>{dataBR(l.data_emissao)}</td>
                       <td style={{ padding: '8px 12px', color: corVal }} data-testid="hub-proposta-validade">
@@ -196,7 +236,7 @@ export default function PropostasHubPage() {
                     </tr>
                   )
                 })}
-                {vis.length === 0 && <tr><td colSpan={9} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
+                {vis.length === 0 && <tr><td colSpan={10} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
               </tbody>
             </table>
           </div>

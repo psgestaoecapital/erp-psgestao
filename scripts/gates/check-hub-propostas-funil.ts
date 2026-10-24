@@ -38,7 +38,7 @@ ok(src.includes("from '@/lib/hub/propostas'") && src.includes('resumoFunil(linha
 for (const id of ['hub-propostas-indicadores', 'hub-propostas-funil', 'hub-propostas-funil-etapa', 'hub-propostas-taxa', 'hub-propostas-a-vencer', 'hub-proposta-validade']) {
   ok(src.includes(`data-testid="${id}"`), `tela tem ${id}`)
 }
-ok(/overflowX: 'auto'/.test(src) && /minWidth: 760/.test(src), 'lista rola dentro do cartão no celular (página não rola de lado)')
+ok(/overflowX: 'auto'/.test(src) && /minWidth: \d{3,4}\b/.test(src), 'lista rola dentro do cartão no celular (página não rola de lado)')
 ok(src.includes('@/lib/erroAmigavel') && !/setErro\([^)]*\.message\b/.test(src), 'erro do banco passa por erroAmigavel, nunca .message cru')
 
 // ── "?" das áreas novas existe na tela e em migration (RD-95) ──
