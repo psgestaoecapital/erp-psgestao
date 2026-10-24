@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
+import { gerarOrcamentoDaVisita } from '@/lib/crm/orcamentoDaVisita'
 
 type Row = {
   id: string
@@ -72,7 +73,7 @@ function proximoPasso(r: Row, agora: number): { l: string; fg: string } | null {
   if (r.status === 'cancelada') return null
   if (atrasada(r, agora)) return { l: 'Passou da data: marque como realizada ou reagende', fg: '#7A1F1F' }
   if (r.status === 'agendada') return { l: 'Ir à visita e registrar fotos e anotações', fg: '#7A5A0F' }
-  if (semOrcamento(r)) return { l: 'Gerar o orçamento na oportunidade', fg: '#7A5A0F' }
+  if (semOrcamento(r)) return { l: 'Gerar o orçamento desta visita', fg: '#7A5A0F' }
   return { l: 'Orçamento gerado: acompanhar na oportunidade', fg: '#1F5A1F' }
 }
 
@@ -90,6 +91,7 @@ export default function VisitasPage() {
   const [editing, setEditing] = useState<VisitaInicial | null | undefined>(undefined)
   const [toast, setToast] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [gerandoOrc, setGerandoOrc] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     if (!empresaUnica) { setRows([]); setLoading(false); return }
@@ -157,6 +159,17 @@ export default function VisitasPage() {
         .some((t) => (t ?? '').toLocaleLowerCase('pt-BR').includes(termo))
     })
   }, [rows, filtroStatus, busca, agora, nomeResp])
+
+  // Visita → Orçamento sem sair da lista (mesma regra da ficha da oportunidade). Confirma antes de criar.
+  async function gerarOrcamento(r: Row) {
+    if (!confirm('Isto vai CRIAR um orçamento vinculado à oportunidade desta visita. Continuar?')) return
+    setGerandoOrc(r.id)
+    const res = await gerarOrcamentoDaVisita(r.id, r.oportunidade_id)
+    setGerandoOrc(null)
+    if (!res.ok) { setToast(res.erro); return }
+    setToast(res.criado ? `Orçamento ${res.numero ?? ''} CRIADO a partir da visita.` : 'Visita VINCULADA ao orçamento da oportunidade.')
+    reload()
+  }
 
   function abrirEdicao(r: Row) {
     setEditing({
@@ -333,9 +346,19 @@ export default function VisitasPage() {
               )}
               <div className="mt-3 flex gap-2 flex-wrap items-center">
                 <button onClick={() => abrirEdicao(r)} style={btnSec}>Editar</button>
+                {semOrcamento(r) && (
+                  <button
+                    onClick={() => gerarOrcamento(r)}
+                    disabled={gerandoOrc === r.id}
+                    style={btnPrim}
+                    data-testid="visita-gerar-orcamento"
+                  >
+                    {gerandoOrc === r.id ? 'Gerando…' : '+ Gerar orçamento desta visita'}
+                  </button>
+                )}
                 {op && (
                   <Link href={`/dashboard/projetos/oportunidades/${op.id}`} style={btnSec as React.CSSProperties}>
-                    {semOrcamento(r) ? 'Gerar orçamento na oportunidade →' : 'Abrir oportunidade →'}
+                    Abrir oportunidade →
                   </Link>
                 )}
                 {orcId && (
@@ -391,6 +414,10 @@ const btnSec: CSSProperties = {
   border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO,
   borderRadius: 8, padding: '8px 12px', fontSize: 12, cursor: 'pointer',
   minHeight: 36, textDecoration: 'none', display: 'inline-block',
+}
+const btnPrim: CSSProperties = {
+  border: `1px solid ${DOURADO}`, background: DOURADO, color: '#fff',
+  borderRadius: 8, padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', minHeight: 36,
 }
 const chipsWrap: CSSProperties = {
   display: 'inline-flex', border: `1px solid ${BORDA}`, borderRadius: 999,
