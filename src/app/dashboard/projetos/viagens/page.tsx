@@ -58,6 +58,14 @@ export default function ViagensPage() {
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da empresa
   useEffect(() => { carregar() }, [carregar])
+  // viagem criada a partir da obra (cockpit → ?obra=<id>): abre o formulário já com a obra e a saída/volta = hoje
+  useEffect(() => {
+    const obra = new URLSearchParams(window.location.search).get('obra')
+    if (!obra || !podeGravar || !obras.some((o) => o.id === obra)) return
+    const hoje = new Date().toLocaleDateString('sv-SE')
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- pré-preenche uma vez quando a obra da URL carrega
+    setNova(true); setForm((f) => (f.obra_id ? f : { ...f, obra_id: obra, periodo_inicio: hoje, periodo_fim: hoje }))
+  }, [podeGravar, obras])
 
   const abrir = useCallback(async (v: Viagem) => {
     setAberta(v); setLf(null); setAnexo('')
@@ -114,9 +122,9 @@ export default function ViagensPage() {
         <div className="mb-4 grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
           <Campo rotulo="Colaborador" ajuda="projetos.viagem.colaborador"><input className={campo} placeholder="Colaborador" onChange={(e) => setForm({ ...form, colaborador_nome: e.target.value })} /></Campo>
           <Campo rotulo="Placa" ajuda="projetos.viagem.placa"><input className={campo} placeholder="Placa" onChange={(e) => setForm({ ...form, placa: e.target.value })} /></Campo>
-          <Campo rotulo="Obra principal" ajuda="projetos.viagem.obra_principal"><select className={campo} onChange={(e) => setForm({ ...form, obra_id: e.target.value })} defaultValue=""><option value="">Obra principal…</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
-          <Campo rotulo="Saída" ajuda="projetos.viagem.saida"><input type="date" className={campo} onChange={(e) => setForm({ ...form, periodo_inicio: e.target.value })} /></Campo>
-          <Campo rotulo="Volta" ajuda="projetos.viagem.volta"><input type="date" className={campo} onChange={(e) => setForm({ ...form, periodo_fim: e.target.value })} /></Campo>
+          <Campo rotulo="Obra principal" ajuda="projetos.viagem.obra_principal"><select className={campo} onChange={(e) => setForm({ ...form, obra_id: e.target.value })} value={form.obra_id ?? ''}><option value="">Obra principal…</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
+          <Campo rotulo="Saída" ajuda="projetos.viagem.saida"><input type="date" className={campo} value={form.periodo_inicio ?? ''} onChange={(e) => setForm({ ...form, periodo_inicio: e.target.value })} /></Campo>
+          <Campo rotulo="Volta" ajuda="projetos.viagem.volta"><input type="date" className={campo} value={form.periodo_fim ?? ''} onChange={(e) => setForm({ ...form, periodo_fim: e.target.value })} /></Campo>
           <Campo rotulo="Adiantamento (5.01)" ajuda="projetos.viagem.adiantamento"><input inputMode="decimal" className={campo} onChange={(e) => setForm({ ...form, adiantamento: e.target.value.replace(',', '.') })} /></Campo>
           <Campo rotulo="Origem" ajuda="projetos.viagem.origem"><input className={campo} placeholder="Origem" onChange={(e) => setForm({ ...form, origem: e.target.value })} /></Campo>
           <Campo rotulo="Destino" ajuda="projetos.viagem.destino"><input className={campo} placeholder="Destino" onChange={(e) => setForm({ ...form, destino: e.target.value })} /></Campo>
