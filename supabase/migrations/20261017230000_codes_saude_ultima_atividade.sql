@@ -57,3 +57,6 @@ SELECT jsonb_agg(x ORDER BY x->>'code') FROM (
   WHERE r.aciona = true
 ) s;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_codes_saude() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_codes_saude() TO authenticated, service_role;
