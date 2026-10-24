@@ -19,6 +19,7 @@ AS $function$
 DECLARE
   c constant uuid := 'b0700000-0000-4000-a000-000000000006';
   tp constant uuid := 'b0700000-0000-4000-a000-0000000e0002';
+  te constant uuid := 'b0700000-0000-4000-a000-0000000e0001';
   cat constant text := '2.04.06';
   v_hoje date := current_date;
   v_ini date := current_date - 21;
@@ -56,6 +57,9 @@ BEGIN
   END IF;
 
   IF p_etapa = 'limpar' THEN
+    -- medição demo da tabela …e0001 (HB2 #3122) aponta para ela; o 'limpar' do extras apaga a …e0001 e a FK barrava (deploy 2243)
+    DELETE FROM erp_medicao_cliente_item WHERE company_id = c AND medicao_id IN (SELECT id FROM erp_medicao_cliente WHERE company_id = c AND tabela_id = te);
+    DELETE FROM erp_medicao_cliente WHERE company_id = c AND tabela_id = te;
     DELETE FROM erp_tabela_preco_codigo WHERE tabela_id = tp AND company_id = c;
     DELETE FROM erp_tabela_preco_condicao WHERE tabela_id = tp AND company_id = c;
     DELETE FROM erp_tabela_preco_item WHERE tabela_id = tp AND company_id = c;
@@ -307,4 +311,26 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.companies WHERE id = 'b0700000-0000-4000-a000-000000000006' AND is_demo IS TRUE) THEN
     PERFORM public.fn_demo_seed_construtora('b0700000-0000-4000-a000-000000000006');
   END IF;
+END $$;
+
+-- refaz a medição demo de exemplo (HB2) que o 'limpar' acima removeu — mesmo bloco idempotente da 20261025060054
+DO $$
+DECLARE v_tab uuid := 'b0700000-0000-4000-a000-0000000e0001'; v_co uuid := 'b0700000-0000-4000-a000-000000000006';
+  v_med uuid := 'b0700000-0000-4000-a000-0000000e0f01'; v_tot numeric;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM erp_tabela_preco_cliente WHERE id = v_tab AND company_id = v_co) THEN RETURN; END IF;
+  IF EXISTS (SELECT 1 FROM erp_medicao_cliente WHERE id = v_med) THEN RETURN; END IF;
+  INSERT INTO erp_medicao_cliente (id, company_id, tabela_id, descricao, periodo_inicio, periodo_fim, total)
+  VALUES (v_med, v_co, v_tab, 'Medição setembro/2026 (exemplo)', '2026-09-01', '2026-09-30', 0);
+  INSERT INTO erp_medicao_cliente_item (company_id, medicao_id, servico_ref, unidade, quantidade, condicao, faixa_de, faixa_ate, preco_unitario, total, codigo_externo)
+  SELECT v_co, v_med, q.ref, i.unidade, q.qtd, q.cond, i.faixa_de, i.faixa_ate,
+         round(COALESCE(k.preco_fixo, i.preco_base * (1 + COALESCE(c.percentual, 0) / 100)), 2),
+         round(q.qtd * round(COALESCE(k.preco_fixo, i.preco_base * (1 + COALESCE(c.percentual, 0) / 100)), 2), 2),
+         k.codigo_externo
+    FROM (VALUES ('DEMO-S01', 250::numeric, 'normal'), ('DEMO-S02', 120::numeric, 'normal'), ('DEMO-S01', 80::numeric, 'sabado')) q(ref, qtd, cond)
+    JOIN erp_tabela_preco_item i ON i.tabela_id = v_tab AND i.servico_ref = q.ref AND q.qtd >= i.faixa_de AND (i.faixa_ate IS NULL OR q.qtd < i.faixa_ate)
+    LEFT JOIN erp_tabela_preco_condicao c ON c.tabela_id = v_tab AND c.condicao = q.cond AND q.cond <> 'normal'
+    LEFT JOIN erp_tabela_preco_codigo k ON k.tabela_id = v_tab AND k.servico_ref = q.ref AND k.condicao = q.cond;
+  SELECT COALESCE(sum(total), 0) INTO v_tot FROM erp_medicao_cliente_item WHERE medicao_id = v_med;
+  UPDATE erp_medicao_cliente SET total = v_tot WHERE id = v_med;
 END $$;
