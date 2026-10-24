@@ -56,6 +56,8 @@ BEGIN
   END IF;
 
   IF p_etapa = 'limpar' THEN
+    -- medições DEMO (itens em cascata) referenciam as tabelas de preço da semente (e0001 e e0002): saem antes delas
+    DELETE FROM erp_medicao_cliente WHERE company_id = c;
     DELETE FROM erp_tabela_preco_codigo WHERE tabela_id = tp AND company_id = c;
     DELETE FROM erp_tabela_preco_condicao WHERE tabela_id = tp AND company_id = c;
     DELETE FROM erp_tabela_preco_item WHERE tabela_id = tp AND company_id = c;
