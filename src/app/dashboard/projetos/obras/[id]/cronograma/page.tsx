@@ -4,12 +4,13 @@
 // Fatia 10: itens do contrato executados em cada tarefa (projetos_obra_tarefa_item) e quadro "Compras do período"
 // (fn_obra_necessidades_periodo: o que falta executar × composição do serviço, no período do quadro de próximas semanas).
 // Fatia 11: histograma de mão de obra (horas apontadas por semana) e pluviometria (dias de chuva e parados do diário/RDO).
+// Fatia 12: linha realizada da curva S (projetos_obra_tarefa_avanco: o % de cada tarefa gravado a cada dia).
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { curvaS } from '@/lib/hub/curvaS'
+import { curvaS, curvaRealizada, type AvancoHist, type PontoRealizado } from '@/lib/hub/curvaS'
 import { fisicoFinanceiro } from '@/lib/hub/fisicoFinanceiro'
 import { caminhoCritico } from '@/lib/hub/caminhoCritico'
 import { lookahead, type Situacao } from '@/lib/hub/lookahead'
@@ -43,6 +44,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
   const [compras, setCompras] = useState<Compras | null>(null)
   const [apont, setApont] = useState<ApontamentoHist[]>([])
   const [rdos, setRdos] = useState<RdoHist[]>([])
+  const [avancos, setAvancos] = useState<AvancoHist[]>([])
   const [histFalhou, setHistFalhou] = useState(false)
   const [comprasErro, setComprasErro] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -78,10 +80,12 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
       if (!rv.error) v = (rv.data ?? []) as Vinculo[]
     }
     // histograma: falha aqui não derruba o cronograma, só avisa no quadro
-    const [ap, rd] = await Promise.all([
+    const [ap, rd, av] = await Promise.all([
       supabase.from('projetos_obra_mao_obra_apontamento').select('data,horas').eq('obra_id', id).is('excluido_em', null),
       supabase.from('projetos_obra_rdo').select('data,clima,praticavel').eq('obra_id', id).is('excluido_em', null),
+      supabase.from('projetos_obra_tarefa_avanco').select('tarefa_id,data,percentual').eq('obra_id', id).order('data'),
     ])
+    setAvancos(av.error ? [] : (av.data ?? []) as AvancoHist[]) // sem histórico: a curva volta a mostrar só o ponto de hoje
     setApont(ap.error ? [] : (ap.data ?? []) as ApontamentoHist[]); setRdos(rd.error ? [] : (rd.data ?? []) as RdoHist[]); setHistFalhou(!!(ap.error || rd.error))
     setTarefas(lista); setDeps(d); setItensObra(it.error ? [] : (it.data ?? []) as ItemObra[]); setVinculos(v); setLoading(false)
   }, [id])
@@ -103,6 +107,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     return peso > 0 ? tarefas.reduce((s, t) => s + (dias(t.inicio, t.fim) * Number(t.percentual)) / 100, 0) / peso * 100 : 0
   }, [tarefas])
   const curva = useMemo(() => curvaS(tarefas, hoje()), [tarefas])
+  const realizada = useMemo(() => (curva ? curvaRealizada(tarefas, avancos, curva.pontos, hoje()) : []), [tarefas, avancos, curva])
   const ff = useMemo(() => fisicoFinanceiro(tarefas, hoje()), [tarefas])
   const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const cpm = useMemo(() => caminhoCritico(tarefas, deps), [tarefas, deps])
@@ -351,8 +356,11 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                 {curva && (
                   <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 6 }}>Curva S — planejado × realizado <AjudaCampo chave="projetos.cronograma.curva_s" rota={ROTA_AJUDA} /></div>
-                    <CurvaSvg curva={curva} />
-                    <div style={{ fontSize: 11, color: MUT, marginTop: 4 }}>Linha dourada: planejado acumulado{temBase ? ' (pela linha de base)' : ''}. Ponto: avanço realizado hoje.</div>
+                    <CurvaSvg curva={curva} realizada={realizada} />
+                    <div style={{ fontSize: 11, color: MUT, marginTop: 4, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
+                      <span>Linha dourada: planejado acumulado{temBase ? ' (pela linha de base)' : ''}. {realizada.length > 1 ? 'Linha verde: avanço realizado de cada semana até hoje.' : 'Ponto: avanço realizado hoje (a linha realizada aparece conforme o % das tarefas é atualizado).'}</span>
+                      <AjudaCampo chave="projetos.cronograma.curva_realizada" rota={ROTA_AJUDA} />
+                    </div>
                   </div>
                 )}
 
@@ -466,13 +474,15 @@ function Histograma({ hist }: { hist: NonNullable<ReturnType<typeof histogramaOb
   )
 }
 
-function CurvaSvg({ curva }: { curva: NonNullable<ReturnType<typeof curvaS>> }) {
+function CurvaSvg({ curva, realizada }: { curva: NonNullable<ReturnType<typeof curvaS>>; realizada: PontoRealizado[] }) {
   const W = 600, H = 180, PL = 34, PB = 20, PT = 8, PR = 8
   const t0 = new Date(curva.inicio + 'T00:00:00').getTime(), t1 = new Date(curva.fim + 'T00:00:00').getTime()
   const x = (d: string) => PL + ((new Date(d + 'T00:00:00').getTime() - t0) / Math.max(1, t1 - t0)) * (W - PL - PR)
   const y = (v: number) => PT + (1 - v / 100) * (H - PT - PB)
   const linha = curva.pontos.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.data).toFixed(1)},${y(p.planejado).toFixed(1)}`).join(' ')
-  const h = hoje(); const hx = x(h < curva.inicio ? curva.inicio : h > curva.fim ? curva.fim : h)
+  const lim = (d: string) => (d < curva.inicio ? curva.inicio : d > curva.fim ? curva.fim : d)
+  const h = hoje(); const hx = x(lim(h))
+  const linhaReal = realizada.length > 1 ? realizada.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(lim(p.data)).toFixed(1)},${y(p.realizado).toFixed(1)}`).join(' ') : null
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Curva S do cronograma" style={{ display: 'block' }}>
       {[0, 25, 50, 75, 100].map((v) => (
@@ -481,6 +491,7 @@ function CurvaSvg({ curva }: { curva: NonNullable<ReturnType<typeof curvaS>> }) 
       <text x={PL} y={H - 5} fontSize={9} fill={MUT}>{fmt(curva.inicio)}</text>
       <text x={W - PR} y={H - 5} fontSize={9} textAnchor="end" fill={MUT}>{fmt(curva.fim)}</text>
       <path d={linha} fill="none" stroke={GOLD} strokeWidth={2} />
+      {linhaReal && <path d={linhaReal} fill="none" stroke={VERDE} strokeWidth={2} />}
       <line x1={hx} x2={hx} y1={PT} y2={H - PB} stroke={MUT} strokeWidth={0.8} strokeDasharray="3 3" />
       <circle cx={hx} cy={y(curva.realizado)} r={5} fill={curva.desvio < -0.5 ? VERM : VERDE} stroke="#fff" strokeWidth={1.5} />
     </svg>
