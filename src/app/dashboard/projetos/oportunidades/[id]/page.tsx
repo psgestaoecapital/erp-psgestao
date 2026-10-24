@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { Phone } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -339,7 +340,7 @@ export default function OportunidadeFichaPage() {
             </p>
             {linkTelefone(telefoneDoCliente(op.erp_clientes)) && (
               <a href={linkTelefone(telefoneDoCliente(op.erp_clientes))} className="text-sm font-semibold" style={{ color: '#C8941A' }} data-testid="ficha-oport-telefone">
-                📞 {telefoneDoCliente(op.erp_clientes)}
+                <Phone size={14} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {telefoneDoCliente(op.erp_clientes)}
               </a>
             )}
           </div>
