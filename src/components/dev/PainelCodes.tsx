@@ -177,12 +177,14 @@ export default function PainelCodes() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {CODES_PRINCIPAIS.map((c) => <BlocoSeguro key={c} nome={c}><CartaoCode code={c} dados={dados} agora={agora} /></BlocoSeguro>)}
           </div>
-          <div style={{ fontSize: 12, color: TXM, fontWeight: 600, margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Outros Codes (apoio, chamados e produto) · Code-Auditor</div>
+          {CODES_LINHA_FINAL.length > 0 && <>
+          <div style={{ fontSize: 12, color: TXM, fontWeight: 600, margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Outros Codes</div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {CODES_LINHA_FINAL.map((c) => c === AUDITOR_CODE
               ? <BlocoSeguro key={c} nome={AUDITOR_NOME}><CartaoAuditor dados={dados} agora={agora} /></BlocoSeguro>
               : <BlocoSeguro key={c} nome={c}><CartaoCode code={c} dados={dados} agora={agora} compacto /></BlocoSeguro>)}
           </div>
+          </>}
           <BlocoSeguro nome="Conectar Claude"><ConectarClaude /></BlocoSeguro>
         </>
       )}

@@ -6,10 +6,10 @@
 //   • EM TESTE = PR com evento aberta/pronta e sem publicada/fechada.
 //   • faixa VERDE = houve publicação na última hora E nenhum Code parado com tarefa na fila; senão VERMELHA com a trava.
 
-// CEO 24/10: os cartões principais são os Codes que TÊM tarefa agendada ligada (Claude Code › Tarefas agendadas: desenvolvedores,
-// esteira, revisor, 2 auditores) mais os dos sócios (Rodrigo e Jordana). Chamados, Produto e o Code-Auditor ficam em "Outros Codes".
+// CEO 24/10: o painel mostra SÓ os Codes que existem (tarefa agendada ligada: desenvolvedores, esteira, revisor, auditor PDCA)
+// mais os dos sócios (Rodrigo e Jordana). gilberto-produto, gilberto-chamados, stephany-code, andre-code e eng-chefe-auto saíram.
 export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-esteira', 'code-desenvolvedor-3', 'desenvolvedor_4_g', 'desenvolvedor_5_g', 'desenvolvedor_6_g', 'gilberto-revisor', 'auditor_pdca_g', 'rodrigo-code', 'jordana-code'] as const
-export const CODES_LINHA_FINAL = ['gilberto-chamados', 'gilberto-produto', 'eng-chefe-auto'] as const
+export const CODES_LINHA_FINAL: readonly string[] = []
 export const CODES_PAINEL: readonly string[] = [...CODES_PRINCIPAIS, ...CODES_LINHA_FINAL]
 
 export const LEASE_MIN = 12
