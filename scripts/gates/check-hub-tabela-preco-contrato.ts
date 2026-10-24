@@ -31,6 +31,10 @@ ok(/overflowX: 'auto'/.test(src), 'grade rola dentro do cartão no celular (pág
 ok(src.includes('@/lib/erroAmigavel') && !/setErro\([^)]*\.message\b/.test(src), 'erro do banco passa por erroAmigavel, nunca .message cru')
 ok(/i\.error \?\? c\.error \?\? k\.error/.test(src), 'falha ao abrir itens/condições/códigos é mostrada, não engolida')
 
+// preço de tabela mostra centavos (o @pos #810 pegou "R$ 23" no lugar de R$ 22,50: o fmtR do painel arredonda)
+ok(!src.includes("from '@/lib/psgc-tokens'") && /style: 'currency', currency: 'BRL'/.test(src), 'preço com centavos (sem o fmtR que arredonda)')
+ok((15 * 1.5).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace(/\s/g, ' ') === 'R$ 22,50', '15 × 1,5 aparece como R$ 22,50')
+
 // ── "?" das áreas novas existe em migration (RD-95) ──
 const mig = readdirSync('supabase/migrations').filter(f => f.endsWith('.sql')).map(f => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 for (const chave of ['hub.tabela_preco.vigencia', 'hub.tabela_preco.contrato']) {
