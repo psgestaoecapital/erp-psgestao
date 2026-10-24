@@ -13,6 +13,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { MedicaoContrato } from './_componentes/MedicaoContrato'
+import { VinculoCatalogo, type VinculoCpu } from './_componentes/VinculoCatalogo'
 import { lerPlanilhaFaixas } from '@/lib/hub/tabelaPrecoImportar'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
 
@@ -42,6 +43,8 @@ export default function TabelasPrecoPage() {
   const [qtd, setQtd] = useState('1')
   const [condSel, setCondSel] = useState('normal')
   const [custo, setCusto] = useState('')
+  // CPU vinda do catálogo (vínculo do serviço): preenche o custo da calculadora quando o serviço tem vínculo
+  const [cpus, setCpus] = useState<VinculoCpu[]>([])
   // Edição do contrato (HB2): rev força recarregar a tabela aberta depois de salvar; msg mostra o resultado sem expor erro cru.
   const [rev, setRev] = useState(0)
   const [editar, setEditar] = useState(false)
@@ -147,7 +150,8 @@ export default function TabelasPrecoPage() {
   const faixa = escolherFaixa(faixas, q)
   const preco = precoUnitario(faixas, q, cond)
   const codigo = cods.find(x => x.servico_ref === servico && x.condicao === condSel)?.codigo_externo
-  const custoN = Number(custo.replace(',', '.')) || 0
+  const cpuCatalogo = cpus.find(x => x.servico_ref === servico)?.custo_unitario ?? null
+  const custoN = Number(custo.replace(',', '.')) || cpuCatalogo || 0
   // De-para PS ↔ cliente: serviço da tabela sem nenhum código, e código que aponta para serviço que não está na tabela.
   const semCodigo = useMemo(() => servicos.filter(s => !cods.some(k => k.servico_ref === s.servico_ref)), [servicos, cods])
   const codigoOrfao = useMemo(() => [...new Set(cods.filter(k => !servicos.some(s => s.servico_ref === k.servico_ref)).map(k => k.servico_ref))], [servicos, cods])
@@ -213,7 +217,7 @@ export default function TabelasPrecoPage() {
                 {conds.map(c => <option key={c.condicao} value={c.condicao}>{c.condicao}{c.percentual != null ? ` (+${c.percentual}%)` : ''}</option>)}
               </select></label>
             <label><span style={rot}>Custo da CPU por unidade (opcional) <AjudaCampo chave="hub.tabela_preco.custo" /></span>
-              <input data-testid="tp-custo" inputMode="decimal" style={campo} value={custo} onChange={e => setCusto(e.target.value)} placeholder="para ver a margem" /></label>
+              <input data-testid="tp-custo" inputMode="decimal" style={campo} value={custo} onChange={e => setCusto(e.target.value)} placeholder={cpuCatalogo != null ? `catálogo: ${fmtR(cpuCatalogo)}` : 'para ver a margem'} /></label>
             {(semCodigo.length > 0 || codigoOrfao.length > 0) && (
               <div role="status" data-testid="tp-depara-aviso" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12, fontSize: 13 }}>
                 <b>Conferir o de-para com o cliente <AjudaCampo chave="hub.tabela_preco.depara" /></b>
@@ -371,7 +375,10 @@ export default function TabelasPrecoPage() {
           </section>
         )}
         {!loading && !erro && tabelaId && servicos.length > 0 && (
+          <>
+          {companyIds?.[0] && <VinculoCatalogo key={`v-${tabelaId}`} tabelaId={tabelaId} companyId={companyIds[0]} podeGravar={podeGravar} onCpu={setCpus} servicos={servicos.map(x => ({ ref: x.servico_ref, nome: x.servico_nome, unidade: x.unidade }))} />}
           <MedicaoContrato key={tabelaId} tabelaId={tabelaId} podeGravar={podeGravar} servicos={servicos.map(x => ({ ref: x.servico_ref, nome: x.servico_nome, unidade: x.unidade }))} regimes={conds.map(c => c.condicao)} />
+          </>
         )}
       </div>
     </div>
