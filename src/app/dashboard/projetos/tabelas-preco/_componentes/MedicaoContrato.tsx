@@ -2,7 +2,7 @@
 
 // HB2 · Medição ao cliente (tela 273): quantidade medida × serviço × regime → faixa, adicional, preço, código do cliente
 // e total. Cada linha sai por fn_tabela_preco_medir, a MESMA regra do contrato (o número bate com a tabela).
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -17,6 +17,32 @@ export function MedicaoContrato({ tabelaId, servicos, regimes }: { tabelaId: str
   const [linhas, setLinhas] = useState<Linha[]>([{ servico_ref: servicos[0]?.ref ?? '', quantidade: '', condicao: 'normal' }])
   const [res, setRes] = useState<{ linhas: Res[]; total: number } | null>(null)
   const [erro, setErro] = useState('')
+  const [desc, setDesc] = useState('')
+  const [ini, setIni] = useState('')
+  const [fim, setFim] = useState('')
+  const [msg, setMsg] = useState('')
+  const [salvas, setSalvas] = useState<{ id: string; descricao: string; periodo_inicio: string | null; periodo_fim: string | null; total: number }[]>([])
+  const carregarSalvas = useCallback(async () => {
+    const { data } = await supabase.from('erp_medicao_cliente').select('id,descricao,periodo_inicio,periodo_fim,total').eq('tabela_id', tabelaId).order('criado_em', { ascending: false }).limit(20)
+    setSalvas(((data ?? []) as typeof salvas).map(x => ({ ...x, total: Number(x.total) })))
+  }, [tabelaId])
+  useEffect(() => { carregarSalvas() }, [carregarSalvas])
+  const linhasValidas = () => linhas.filter(l => l.servico_ref && Number(l.quantidade.replace(',', '.')) > 0).map(l => ({ servico_ref: l.servico_ref, quantidade: Number(l.quantidade.replace(',', '.')), condicao: l.condicao }))
+  const gravar = async () => {
+    setErro(''); setMsg('')
+    if (!desc.trim()) { setErro('Dê um nome à medição para salvar.'); return }
+    const v = linhasValidas()
+    if (!v.length) { setErro('Informe a quantidade medida de pelo menos um serviço.'); return }
+    const { data, error } = await supabase.rpc('fn_medicao_cliente_salvar', { p_tabela: tabelaId, p_dados: { descricao: desc, periodo_inicio: ini, periodo_fim: fim, linhas: v } })
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar a medição.')); return }
+    setMsg(`Medição salva: ${fmtR(Number((data as { total: number }).total))}.`); setDesc(''); carregarSalvas()
+  }
+  const excluir = async (id: string) => {
+    if (!window.confirm('Excluir esta medição salva?')) return
+    const { error } = await supabase.rpc('fn_medicao_cliente_excluir', { p_id: id })
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível excluir a medição.')); return }
+    carregarSalvas()
+  }
   const campo: React.CSSProperties = { padding: 8, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP, width: '100%', minWidth: 0 }
   const nome = (r?: string) => servicos.find(s => s.ref === r)?.nome ?? r ?? ''
   const setL = (i: number, p: Partial<Linha>) => setLinhas(ls => ls.map((l, k) => (k === i ? { ...l, ...p } : l)))
@@ -52,6 +78,20 @@ export function MedicaoContrato({ tabelaId, servicos, regimes }: { tabelaId: str
         <button type="button" style={{ minHeight: 44 }} onClick={() => setLinhas(ls => [...ls, { servico_ref: servicos[0]?.ref ?? '', quantidade: '', condicao: 'normal' }])}>+ Linha</button>
         <button type="button" data-testid="med-calcular" onClick={medir} style={{ background: GOLD, color: '#fff', border: 0, borderRadius: 8, padding: '12px 20px', fontWeight: 700, minHeight: 44 }}>Calcular medição</button>
       </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 8 }}>
+        <label style={{ fontSize: 12, color: MUT }}>Descrição <AjudaCampo chave="hub.tabela_preco.medicao_descricao" />
+          <input aria-label="Descrição da medição" data-testid="med-desc" style={campo} value={desc} onChange={e => setDesc(e.target.value)} placeholder="Medição outubro/2026" /></label>
+        <label style={{ fontSize: 12, color: MUT }}>Período <AjudaCampo chave="hub.tabela_preco.medicao_periodo" />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input type="date" aria-label="Início do período" style={campo} value={ini} onChange={e => setIni(e.target.value)} />
+            <input type="date" aria-label="Fim do período" style={campo} value={fim} onChange={e => setFim(e.target.value)} />
+          </div></label>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <button type="button" data-testid="med-salvar" onClick={gravar} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 700 }}>Salvar medição</button>
+        <AjudaCampo chave="hub.tabela_preco.medicao_salvar" />
+      </div>
+      {msg && <p role="status" data-testid="med-msg" style={{ margin: 0, color: GOLD, fontWeight: 600 }}>{msg}</p>}
       {erro && <p role="alert" style={{ color: '#B91C1C', margin: 0 }}>{erro}</p>}
       {res && (
         <div data-testid="med-extrato" style={{ overflowX: 'auto' }}>
@@ -66,6 +106,18 @@ export function MedicaoContrato({ tabelaId, servicos, regimes }: { tabelaId: str
               </tr>))}</tbody>
           </table>
           <div style={{ textAlign: 'right', fontSize: 18, marginTop: 8 }} data-testid="med-total">Total da medição: <b>{fmtR(res.total)}</b></div>
+        </div>
+      )}
+      {salvas.length > 0 && (
+        <div data-testid="med-salvas" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 10 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>Medições salvas <AjudaCampo chave="hub.tabela_preco.medicao_salvas" /></div>
+          {salvas.map(m => (
+            <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: `1px solid ${LINE}`, fontSize: 14 }}>
+              <span>{m.descricao}{m.periodo_inicio ? ` · ${new Date(`${m.periodo_inicio}T12:00:00`).toLocaleDateString('pt-BR')}` : ''}{m.periodo_fim ? ` a ${new Date(`${m.periodo_fim}T12:00:00`).toLocaleDateString('pt-BR')}` : ''}</span>
+              <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}><b>{fmtR(m.total)}</b>
+                <button type="button" onClick={() => excluir(m.id)} style={{ color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer', minHeight: 44 }}>Excluir</button></span>
+            </div>
+          ))}
         </div>
       )}
     </section>
