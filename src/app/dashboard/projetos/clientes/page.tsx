@@ -11,7 +11,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import Link from 'next/link'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { brlCurto, comercialPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, obraRecentePorCliente, obrasPorCliente, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type OpLinha, type TipoPF } from './clientes-regras'
+import { buscarCEP } from '@/lib/cadastros/buscarCEP'
+import { aplicarCEP, brlCurto, cepCompleto, comercialPorCliente, etapaPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, obraRecentePorCliente, obrasPorCliente, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type OpLinha, type TipoPF } from './clientes-regras'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -74,6 +75,8 @@ export default function ClientesPage() {
   const [ops, setOps] = useState<Oportunidade[]>([])
   const [props, setProps] = useState<PropostaCli[]>([])
   const [comercial, setComercial] = useState<Record<string, Comercial>>({})
+  const [etapa, setEtapa] = useState<Record<string, string>>({})
+  const [cepMsg, setCepMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
@@ -110,7 +113,7 @@ export default function ClientesPage() {
     ])
     const opsL = (rOp.data ?? []) as Oportunidade[]
     const orcL = (rOrc.data ?? []) as PropostaCli[]
-    setOps(opsL); setProps(orcL)
+    setOps(opsL); setProps(orcL); setEtapa(etapaPorCliente(opsL))
     setComercial(comercialPorCliente(opsL, orcL, (rVis.data ?? []) as { oportunidade_id: string | null }[]))
     setLoading(false)
   }, [empresaUnica])
@@ -198,6 +201,17 @@ export default function ClientesPage() {
     setTimeout(() => setOk(null), 4000)
   }
 
+  // CEP com 8 dígitos busca o endereço (BrasilAPI, mesmo helper do cadastro central) e completa o formulário.
+  async function mudarCep(v: string) {
+    setForm((f) => (f ? { ...f, cep: v } : f))
+    if (!cepCompleto(v)) { setCepMsg(null); return }
+    setCepMsg('Buscando endereço do CEP…')
+    const d = await buscarCEP(v)
+    if (!d) { setCepMsg('CEP não encontrado — preencha o endereço à mão.'); return }
+    setForm((f) => (f && (f.cep ?? '') === v ? aplicarCEP(f, d) : f))
+    setCepMsg(`Endereço do CEP: ${d.cidade}/${d.uf}`)
+  }
+
   // Sem oportunidade: obra avulsa do cliente. Com a oportunidade ganha: a obra nasce com o título e o endereço da venda.
   async function novaObra(c: Cliente, op?: Oportunidade) {
     const nome = window.prompt(`Nome da obra para ${nomeOf(c)}:`, op?.titulo || `Obra ${nomeOf(c)}`)
@@ -241,7 +255,7 @@ export default function ClientesPage() {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
         <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome, documento, cidade, contato…" style={{ ...inp, flex: 1, minWidth: 200 }} />
         <AjudaCampo chave="projetos.clientes.busca" />
-        <button onClick={() => setForm({ ...VAZIO })} style={btnGold}>+ Novo cliente</button>
+        <button onClick={() => { setCepMsg(null); setForm({ ...VAZIO }) }} style={btnGold}>+ Novo cliente</button>
         <AjudaCampo chave="projetos.clientes.acao.novo" />
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
@@ -286,6 +300,7 @@ export default function ClientesPage() {
                   {obraRecente[c.id] && <div data-testid="hub-cliente-obra" style={{ fontSize: 11, color: ESP }}>Obra: {obraRecente[c.id]}{n > 1 ? ` (+${n - 1})` : ''}</div>}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} data-testid="hub-cliente-comercial">
+                  {etapa[c.id] && <span data-testid="hub-cliente-etapa" title="Etapa mais avançada do funil entre as oportunidades em aberto" style={pilula(true)}>Funil: {ETAPA_ROTULO[etapa[c.id]] ?? etapa[c.id]}</span>}
                   {cm.abertas > 0 && <span title="Oportunidades em aberto e o valor delas" style={pilula(true)}>{cm.abertas === 1 ? '1 em aberto' : `${cm.abertas} em aberto`} · {brlCurto(cm.valorAberto)}</span>}
                   {cm.ganhas > 0 && <span title="Oportunidades ganhas" style={pilula(true)}>{cm.ganhas === 1 ? '1 ganha' : `${cm.ganhas} ganhas`}</span>}
                   <span title="Propostas (orçamentos) do cliente" style={pilula(cm.propostas > 0)}>{cm.propostas === 1 ? '1 proposta' : `${cm.propostas} propostas`}</span>
@@ -300,7 +315,7 @@ export default function ClientesPage() {
               {sel2?.id === c.id && (
                 <div style={{ borderTop: `0.5px solid ${LINE}`, padding: 14, background: BG }}>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-                    <button onClick={() => setForm({ ...c, tipo_pessoa: tipo, cpf_cnpj: c.cpf_cnpj || c.cnpj_cpf || '' })} style={btnOutline}>Editar</button>
+                    <button onClick={() => { setCepMsg(null); setForm({ ...c, tipo_pessoa: tipo, cpf_cnpj: c.cpf_cnpj || c.cnpj_cpf || '' }) }} style={btnOutline}>Editar</button>
                     <AjudaCampo chave="projetos.clientes.acao.editar" />
                     <button onClick={() => novaObra(c)} style={btnGold}>+ Nova obra</button>
                     <AjudaCampo chave="projetos.clientes.acao.nova_obra" />
@@ -364,10 +379,11 @@ export default function ClientesPage() {
               <div style={{ flex: 1, minWidth: 140 }}><Campo label="E-mail" ajuda="projetos.clientes.email" v={form.email ?? ''} on={(v) => setForm({ ...form, email: v })} /></div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 140 }}><Campo label="CEP" ajuda="projetos.clientes.cep" v={form.cep ?? ''} on={(v) => setForm({ ...form, cep: v })} /></div>
+              <div style={{ flex: 1, minWidth: 140 }}><Campo label="CEP" ajuda="projetos.clientes.cep" v={form.cep ?? ''} on={(v) => { void mudarCep(v) }} /></div>
               <div style={{ flex: 2, minWidth: 180 }}><Campo label="Logradouro" ajuda="projetos.clientes.logradouro" v={form.logradouro ?? ''} on={(v) => setForm({ ...form, logradouro: v })} /></div>
               <div style={{ width: 80 }}><Campo label="Nº" ajuda="projetos.clientes.numero" v={form.numero ?? ''} on={(v) => setForm({ ...form, numero: v })} /></div>
             </div>
+            {cepMsg && <div data-testid="hub-cliente-cep-msg" style={{ fontSize: 11, color: MUT, margin: '-4px 0 8px' }}>{cepMsg}</div>}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 140 }}><Campo label="Bairro" ajuda="projetos.clientes.bairro" v={form.bairro ?? ''} on={(v) => setForm({ ...form, bairro: v })} /></div>
               <div style={{ flex: 1, minWidth: 140 }}><Campo label="Cidade" ajuda="projetos.clientes.cidade" v={form.cidade ?? ''} on={(v) => setForm({ ...form, cidade: v })} /></div>
