@@ -10,6 +10,7 @@ import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/com
 import AnexosCard from '@/components/crm/AnexosCard'
 import { telefoneDoCliente, linkTelefone } from '@/lib/crm/oportunidadeCliente'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { ehUuid, erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 type Oport = {
   id: string
@@ -141,6 +142,8 @@ export default function OportunidadeFichaPage() {
 
   const reload = useCallback(async () => {
     if (!id) return
+    // id que não é uuid (ex.: o literal "[id]") nem vai ao banco: cai no "não encontrada" da tela.
+    if (!ehUuid(id)) { setOp(null); setLoading(false); return }
     setLoading(true)
     try {
       const [o, i, v, h] = await comPrazo(() => Promise.all([
@@ -194,9 +197,9 @@ export default function OportunidadeFichaPage() {
     const { data, error } = await supabase.rpc('fn_crm_mover_etapa', {
       p_id: op.id, p_etapa: nova, p_motivo_perda: motivo,
     })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     const r = data as { ok?: boolean; erro?: string } | null
-    if (r && r.ok === false) { setToast(r.erro === 'motivo_obrigatorio' ? 'Informe o motivo da perda.' : `Erro: ${r.erro ?? 'falha'}`); return }
+    if (r && r.ok === false) { setToast(r.erro === 'motivo_obrigatorio' ? 'Informe o motivo da perda.' : codigoAmigavel(r.erro)); return }
     setToast(`Etapa ALTERADA para ${etapaCfg(nova).l}.`)
     reload()
   }
@@ -209,9 +212,9 @@ export default function OportunidadeFichaPage() {
     const { data, error } = await supabase.rpc('fn_crm_oportunidade_excluir', {
       p_company_id: op.company_id, p_id: op.id, p_motivo: motivo || null,
     })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     const r = data as { ok?: boolean; erro?: string } | null
-    if (r && r.ok === false) { setToast(`Erro: ${r.erro ?? 'falha'}`); return }
+    if (r && r.ok === false) { setToast(codigoAmigavel(r.erro)); return }
     router.push('/dashboard/projetos/oportunidades')
   }
 
@@ -221,9 +224,9 @@ export default function OportunidadeFichaPage() {
     const { data, error } = await supabase.rpc('fn_crm_oportunidade_retornar_funil', {
       p_company_id: op.company_id, p_id: op.id, p_etapa_destino: retornoEtapa,
     })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     const r = data as { ok?: boolean; erro?: string } | null
-    if (r && r.ok === false) { setToast(`Erro: ${r.erro ?? 'falha'}`); return }
+    if (r && r.ok === false) { setToast(codigoAmigavel(r.erro)); return }
     setToast(`RETORNOU AO FUNIL na etapa ${etapaCfg(retornoEtapa).l}.`)
     reload()
   }
@@ -234,7 +237,7 @@ export default function OportunidadeFichaPage() {
     const cli = op.erp_clientes
     const nomeCli = cli?.nome_fantasia ?? cli?.razao_social ?? ''
     const { data: numero, error: numErr } = await supabase.rpc('next_orcamento_numero', { p_company_id: op.company_id })
-    if (numErr) { setToast(`Erro: ${numErr.message}`); return null }
+    if (numErr) { setToast(erroAmigavel(numErr)); return null }
     const hoje = new Date().toISOString().slice(0, 10)
     const valid = new Date(); valid.setDate(valid.getDate() + 15)
     const { data: orc, error: oErr } = await supabase
@@ -256,7 +259,7 @@ export default function OportunidadeFichaPage() {
       })
       .select('id, numero')
       .single()
-    if (oErr) { setToast(`Erro: ${oErr.message}`); return null }
+    if (oErr) { setToast(erroAmigavel(oErr)); return null }
     return orc as { id: string; numero: string }
   }
 
@@ -665,7 +668,7 @@ function NovaInteracaoModal({
       descricao: descricao.trim(),
     })
     setSaving(false)
-    if (error) { setErr(error.message); return }
+    if (error) { setErr(erroAmigavel(error, 'Não foi possível registrar a interação. Tente de novo.')); return }
     onSaved()
   }
 

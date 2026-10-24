@@ -4,6 +4,7 @@
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -27,15 +28,16 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
+    if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
     setLoading(true); setErro(null)
     let res: Awaited<ReturnType<typeof consulta>>
     try { res = await comPrazo(consulta, { ms: 8000, tentativas: 1, label: 'cockpit-obra' }) } catch { setLoading(false); setErro(MSG_CARREGAMENTO_FALHOU); return }
     const { data, error } = res
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar a obra. Tente de novo.')); return }
     if (!data) { setErro('Obra não encontrada ou sem acesso.'); return }
     setR(data as Resultado)
-  }, [consulta])
+  }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
   const receita = r ? Number(r.receita_servico) + Number(r.receita_material) : 0
