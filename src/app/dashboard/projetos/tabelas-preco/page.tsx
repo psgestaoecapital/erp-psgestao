@@ -166,7 +166,7 @@ export default function TabelasPrecoPage() {
   const hoje = new Date().toISOString().slice(0, 10)
   const selo = !tabelaSel ? null : tabelaSel.vigencia_inicio > hoje ? 'Começa em breve' : tabelaSel.vigencia_fim && tabelaSel.vigencia_fim < hoje ? 'Vencido' : tabelaSel.vigencia_fim && tabelaSel.vigencia_fim <= new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) ? 'Vence em até 30 dias' : 'Vigente'
   const fmtData = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('pt-BR') : 'sem fim')
-  const usarCelula = (sref: string, de: number, c: string) => { setServico(sref); setQtd(String(de)); setCondSel(c) }
+  const usarCelula = (sref: string, de: number, c: string) => { setServico(sref); setQtd(String(de > 0 ? de : 1)); setCondSel(c) }
 
   const campo: React.CSSProperties = { display: 'block', width: '100%', padding: 10, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP }
   const rot: React.CSSProperties = { fontSize: 13, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
@@ -232,7 +232,7 @@ export default function TabelasPrecoPage() {
                   Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} · preço base {fmtPreco(faixa!.preco_base)}
                   {cond?.preco_fixo != null ? ' · preço fixo da condição' : cond?.percentual ? ` · adicional +${cond.percentual}%` : ''}
                 </div>
-                <div style={{ fontSize: 14, marginTop: 6 }}>Total: <b>{fmtR(preco * q)}</b>{codigo ? <> · código no cliente: <b>{codigo}</b></> : null}</div>
+                <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-total">{q > 0 ? <>Total: <b>{fmtR(preco * q)}</b></> : <>Informe a quantidade para ver o total</>}{codigo ? <> · código no cliente: <b>{codigo}</b></> : null}</div>
                 {margem != null && <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-margem">Margem sobre o custo: <b>{(margem * 100).toFixed(1)}%</b></div>}
               </>)}
             </div>
