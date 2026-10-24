@@ -113,7 +113,23 @@ export default function DesempenhoComercialPage() {
             {/* Bloco C · ranking (só gestor) */}
             {data.gestor && data.ranking && (
               <Secao titulo="Ranking de vendedores">
-                <div style={{ overflowX: 'auto' }}>
+                {/* celular (< md): um cartão por vendedor, sem rolagem lateral (HB0 · correção 9) */}
+                <div className="md:hidden" data-testid="desempenho-ranking-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {data.ranking.length === 0 ? <div style={{ padding: 12, color: MUT, textAlign: 'center', fontSize: 12.5 }}>Sem dados no período.</div> :
+                    data.ranking.map((v, i) => (
+                      <div key={v.responsavel_id ?? i} style={{ border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                          <span style={{ color: ESP, fontWeight: 700, fontSize: 13.5, minWidth: 0, overflowWrap: 'anywhere' }}>{i + 1}. {v.responsavel_nome}</span>
+                          <span style={{ color: corConversao(v.conversao_pct), fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>{pct(v.conversao_pct)} · {rotConversao(v.conversao_pct)}</span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', marginTop: 8 }}>
+                          <Par rot="Valor ganho" val={brl(v.ganhas_valor)} /><Par rot="Comissão" val={brl(v.comissao)} />
+                          <Par rot="Ticket" val={brl(v.ticket)} /><Par rot="Oport. · Prop. · Ganhas" val={`${v.oportunidades} · ${v.propostas} · ${v.ganhas}`} />
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                <div className="hidden md:block" style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 12.5 }}>
                     <thead><tr style={{ color: MUT, textAlign: 'right' }}>
                       <th style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 1, textAlign: 'left', padding: '6px 8px' }}>Vendedor</th>
@@ -126,7 +142,7 @@ export default function DesempenhoComercialPage() {
                             <td style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 1, padding: '7px 8px', color: ESP, fontWeight: 600, whiteSpace: 'nowrap' }}>{v.responsavel_nome}</td>
                             <td style={tdR}>{v.oportunidades}</td><td style={tdR}>{v.propostas}</td><td style={tdR}>{v.ganhas}</td>
                             <td style={tdR}>{brl(v.ganhas_valor)}</td>
-                            <td style={{ ...tdR, color: corConversao(v.conversao_pct), fontWeight: 700 }}>{pct(v.conversao_pct)} {v.conversao_pct != null && (v.conversao_pct >= 40 ? '🟢' : v.conversao_pct >= 20 ? '🟡' : '🔴')}</td>
+                            <td style={{ ...tdR, color: corConversao(v.conversao_pct), fontWeight: 700 }}>{pct(v.conversao_pct)} {v.conversao_pct != null && <span style={{ fontWeight: 500, fontSize: 11 }}>{rotConversao(v.conversao_pct)}</span>}</td>
                             <td style={tdR}>{brl(v.ticket)}</td><td style={tdR}>{brl(v.comissao)}</td>
                           </tr>
                         ))}
@@ -161,6 +177,14 @@ function Card({ titulo, valor, cor, sub }: { titulo: string; valor: string; cor:
       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>{titulo}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color: cor, marginTop: 2 }}>{valor}</div>
       {sub && <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>{sub}</div>}
+    </div>
+  )
+}
+function Par({ rot, val }: { rot: string; val: string }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT }}>{rot}</div>
+      <div style={{ fontSize: 13, color: ESP, fontWeight: 600, overflowWrap: 'anywhere' }}>{val}</div>
     </div>
   )
 }

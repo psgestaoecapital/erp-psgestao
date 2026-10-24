@@ -86,7 +86,17 @@ export default function ResultadoObrasPage() {
               <AjudaCampo chave="projetos.resultado_obra.pdf" />
             </div>
             <style>{'@media print{.no-print{display:none!important}body{background:#fff}}'}</style>
-            <div style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
+            {/* celular (< md): um cartão por obra + o consolidado, sem rolagem lateral (HB0 · correção 9). A impressão usa a tabela. */}
+            <div className="md:hidden no-print" data-testid="resultado-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {linhas.map(l => (
+                <CartaoObra key={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} maoObra={n(l.custo_mao_obra)}
+                  margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} />
+              ))}
+              <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} maoObra={linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0)}
+                margem={total.margem} prevista={total.prevista} custoPrev={total.custoPrev} />
+            </div>
+            <style>{'@media print{.resultado-tabela-wrap{display:block!important}}'}</style>
+            <div className="hidden md:block resultado-tabela-wrap" style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
               <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse' }}>
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
                   <th style={{ ...th, ...fixa, textAlign: 'left' }}>Obra</th><th style={th}>Receita <AjudaCampo chave="projetos.resultado_obra.receita" /></th><th style={th}>Custo <AjudaCampo chave="projetos.resultado_obra.custo" /></th>
@@ -114,6 +124,33 @@ export default function ResultadoObrasPage() {
             </div>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+// Cartão da obra no celular: margem em destaque (verde/vermelho), realizado × previsto em pares. O "?" de cada
+// número fica no cartão Consolidado (mesmas chaves da tabela), para não repetir em cada obra.
+function CartaoObra({ titulo, receita, custo, maoObra, margem, prevista, custoPrev, destaque }: {
+  titulo: string; receita: number; custo: number; maoObra: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean
+}) {
+  const par = (rot: string, v: number, chave?: string) => (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>{rot}{destaque && chave && <AjudaCampo chave={chave} />}</div>
+      <div style={{ fontSize: 13.5, fontWeight: 600 }}>{fmtR(v)}</div>
+    </div>
+  )
+  return (
+    <div data-testid={destaque ? 'resultado-cartao-consolidado' : 'resultado-cartao'} style={{ background: '#fff', border: `1px solid ${destaque ? GOLD : LINE}`, borderRadius: 12, padding: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ fontWeight: 700, fontSize: 14, minWidth: 0, overflowWrap: 'anywhere' }}>{titulo}</span>
+        <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', color: margem < 0 ? VERM : VERDE }}>{fmtR(margem)}</span>
+      </div>
+      <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>margem{destaque && <AjudaCampo chave="projetos.resultado_obra.margem" />}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginTop: 10 }}>
+        {par('Receita', receita, 'projetos.resultado_obra.receita')}{par('Custo', custo, 'projetos.resultado_obra.custo')}
+        {par('Mão de obra', maoObra, 'projetos.resultado_obra.mao_obra')}{par('Receita prevista', prevista, 'projetos.resultado_obra.receita_prevista')}
+        {par('Custo previsto', custoPrev, 'projetos.resultado_obra.custo_previsto')}
       </div>
     </div>
   )
