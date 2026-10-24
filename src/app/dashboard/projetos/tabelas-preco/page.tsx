@@ -303,6 +303,23 @@ export default function TabelasPrecoPage() {
                       <AjudaCampo chave="hub.tabela_preco.importar_texto" />
                     </div>
                     {planilha.trim() && <div data-testid="tp-imp-previa" style={{ fontSize: 13 }}>{previa.faixas.length} faixa(s) prontas{previa.erros.map(e => <div key={e} style={{ color: '#B91C1C' }}>{e}</div>)}</div>}
+                    {planilha.trim() && previa.linhas.length > 0 && (
+                      <div data-testid="tp-imp-revisao" style={{ overflowX: 'auto' }}>
+                        <div style={{ ...rot, marginBottom: 4 }}>Revisão lado a lado <AjudaCampo chave="hub.tabela_preco.importar_revisao" /></div>
+                        <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                          <thead><tr style={{ textAlign: 'left', color: MUT }}><th>Linha</th><th>Como veio</th><th>Como será gravado</th></tr></thead>
+                          <tbody>
+                            {previa.linhas.map(l => (
+                              <tr key={l.n} data-testid="tp-imp-linha" style={{ borderTop: `1px solid ${LINE}`, background: l.erro ? '#FEF2F2' : undefined }}>
+                                <td style={{ padding: '4px 6px' }}>{l.n}</td>
+                                <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{l.original}</td>
+                                <td style={{ padding: '4px 6px' }}>{l.faixa ? `${l.faixa.servico_nome} (${l.faixa.servico_ref}) · ${l.faixa.faixa_de}${l.faixa.faixa_ate == null ? ' em diante' : `–${l.faixa.faixa_ate}`} ${l.faixa.unidade} · ${fmtPreco(l.faixa.preco_base)}` : <span style={{ color: '#B91C1C' }}>{l.erro}</span>}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <button type="button" data-testid="tp-imp-aplicar" onClick={importar} disabled={!previa.faixas.length || previa.erros.length > 0} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Importar faixas</button>
                       <AjudaCampo chave="hub.tabela_preco.importar_aplicar" />
