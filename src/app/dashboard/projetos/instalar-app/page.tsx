@@ -13,6 +13,14 @@ export default function InstalarAppHubPage() {
       titulo="Instalar o PS Gestão no celular"
       subtitulo="App de campo do vendedor: abra rápido e trabalhe o funil de qualquer lugar."
       offline={false}
+      ajuda={{
+        instalar: 'projetos.instalar_app.instalar_agora',
+        qr: 'projetos.instalar_app.qr',
+        whatsapp: 'projetos.instalar_app.whatsapp',
+        copiar: 'projetos.instalar_app.copiar_link',
+        link: 'projetos.instalar_app.link',
+        versao: 'projetos.instalar_app.versao',
+      }}
       nota="O QR e o link abrem direto o Funil de Oportunidades. Depois de instalado, o ícone abre a home do app — é só tocar em Oportunidades pra voltar ao funil."
     />
   )
