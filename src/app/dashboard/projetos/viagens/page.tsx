@@ -36,16 +36,20 @@ export default function ViagensPage() {
   const [lf, setLf] = useState<LancamentoForm | null>(null)
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  // perfil consulta (viewer) só lê: o banco barra a gravação (gatilho trg_viagem_trava_viewer); a tela esconde as ações
+  const [podeGravar, setPodeGravar] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!empresa) return
-    const [v, o, c] = await Promise.all([
+    const [v, o, c, g] = await Promise.all([
       supabase.from('erp_viagem').select('id,numero,colaborador_nome,obra_id,periodo_inicio,periodo_fim,adiantamento,status,km_inicial,km_final,placa,origem,destino').eq('company_id', empresa).is('excluido_em', null).order('periodo_inicio', { ascending: false }).limit(100),
       supabase.from('projetos_obras').select('id,numero,nome').eq('company_id', empresa).order('numero'),
       supabase.from('erp_plano_contas').select('codigo,descricao').eq('company_id', empresa).eq('ativo', true).order('codigo'),
+      supabase.rpc('fn_viagem_pode_gravar', { p_company_id: empresa }),
     ])
     if (v.error) setMsg(v.error.message)
     setViagens((v.data ?? []) as Viagem[]); setObras((o.data ?? []) as Obra[]); setCats((c.data ?? []) as Cat[])
+    setPodeGravar(g.data === true)
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da empresa
   useEffect(() => { carregar() }, [carregar])
@@ -95,13 +99,13 @@ export default function ViagensPage() {
   return (
     <div className="mx-auto max-w-5xl p-4" style={{ background: BG, color: ESP }}>
       <div className="mb-3 flex items-center justify-between">
-        <div><h1 className="text-xl font-semibold">Viagens</h1><p className="text-xs opacity-60">Fechamento administrativo · {totalViagens} aberta(s) · só viagens novas</p></div>
-        {!aberta && <button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => { setNova(true); setMsg('') }}>Nova viagem</button>}
+        <div><h1 className="text-xl font-semibold">Viagens</h1><p className="text-xs opacity-60">Fechamento administrativo · {totalViagens} aberta(s)<AjudaCampo chave="projetos.viagem.contador_abertas" /> · só viagens novas{!podeGravar && ' · perfil de consulta'}</p></div>
+        {!aberta && podeGravar && <span className="flex items-center gap-1"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => { setNova(true); setMsg('') }}>Nova viagem</button><AjudaCampo chave="projetos.viagem.nova" /></span>}
         {aberta && <button className="text-sm underline" onClick={() => { setAberta(null); setMsg('') }}>← Voltar à lista</button>}
       </div>
       {msg && <div role="alert" className="mb-3 rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{msg}</div>}
 
-      {nova && !aberta && (
+      {nova && !aberta && podeGravar && (
         <div className="mb-4 grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
           <Campo rotulo="Colaborador" ajuda="projetos.viagem.colaborador"><input className={campo} placeholder="Colaborador" onChange={(e) => setForm({ ...form, colaborador_nome: e.target.value })} /></Campo>
           <Campo rotulo="Placa" ajuda="projetos.viagem.placa"><input className={campo} placeholder="Placa" onChange={(e) => setForm({ ...form, placa: e.target.value })} /></Campo>
@@ -116,28 +120,29 @@ export default function ViagensPage() {
       )}
 
       {!aberta && (viagens.length === 0
-        ? <p className="rounded-xl border bg-white p-6 text-center text-sm" style={{ borderColor: LINE }}>Nenhuma viagem ainda. Clique em “Nova viagem” para abrir a primeira — o acerto é lançado aqui, cupom por cupom.</p>
-        : <ul className="space-y-2">{viagens.map((v) => (
+        ? <p className="rounded-xl border bg-white p-6 text-center text-sm" style={{ borderColor: LINE }}>Nenhuma viagem ainda.{podeGravar ? ' Clique em “Nova viagem” para abrir a primeira — o acerto é lançado aqui, cupom por cupom.' : ' Quando o administrativo abrir uma viagem, ela aparece aqui.'}</p>
+        : <><div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span>Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span>Situação<AjudaCampo chave="projetos.viagem.status" /></span></div>
+          <ul className="space-y-2">{viagens.map((v) => (
             <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-center justify-between rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
               <span><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span></span>
-              <span className="text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span></button></li>))}</ul>)}
+              <span className="text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span></button></li>))}</ul></>)}
 
       {aberta && (
         <div className="space-y-3">
           <div className="rounded-xl border bg-white p-3" style={{ borderColor: LINE }}>
-            <b>Viagem {aberta.numero} · {aberta.colaborador_nome}</b> <span className="text-xs opacity-60">({aberta.status})</span>
+            <b>Viagem {aberta.numero} · {aberta.colaborador_nome}</b> <span className="text-xs opacity-60">({aberta.status})<AjudaCampo chave="projetos.viagem.status" /></span>
             <div className="text-xs opacity-70">{dt(aberta.periodo_inicio)} a {dt(aberta.periodo_fim)} · {aberta.placa ?? 'sem placa'} · {aberta.origem ?? '—'} → {aberta.destino ?? '—'}</div>
             {resumo && <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-              <div>Total<br /><b>{brl(resumo.total)}</b></div><div>Adiantamento<br /><b>{brl(resumo.adiantamento)}</b></div>
-              <div>Pago pelo colaborador<br /><b>{brl(resumo.pago_colaborador)}</b></div><div>Saldo<br /><b>{brl(Math.abs(resumo.saldo))}</b></div>
+              <div>Total<AjudaCampo chave="projetos.viagem.resumo_total" /><br /><b>{brl(resumo.total)}</b></div><div>Adiantamento<AjudaCampo chave="projetos.viagem.resumo_adiantamento" /><br /><b>{brl(resumo.adiantamento)}</b></div>
+              <div>Pago pelo colaborador<AjudaCampo chave="projetos.viagem.resumo_pago_colaborador" /><br /><b>{brl(resumo.pago_colaborador)}</b></div><div>Saldo<AjudaCampo chave="projetos.viagem.resumo_saldo" /><br /><b>{brl(Math.abs(resumo.saldo))}</b></div>
               <div className="col-span-2 sm:col-span-4 text-xs opacity-80">{resumoTexto(resumo.saldo)}{resumo.km_rodado != null ? ` · ${resumo.km_rodado} km` : ''}{resumo.custo_km != null ? ` · ${brl(resumo.custo_km)}/km` : ''}</div></div>}
           </div>
           <ul className="space-y-1">{lancs.map((l) => (
             <li key={l.id} className="flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-sm" style={{ borderColor: LINE }}>
               <span>{dt(l.data)} · {l.fornecedor_nome} <span className="text-xs opacity-60">· {l.categoria} · {obraNome(l.obra_id)}{l.tipo === 'abastecimento' ? ` · ${l.litros} L` : ''}</span></span>
-              <span>{brl(l.valor)} {aberta.status === 'aberta' && <button aria-label="Excluir lançamento" className="ml-2 text-xs underline" onClick={() => excluir(l.id)}>excluir</button>}</span></li>))}
+              <span>{brl(l.valor)} {aberta.status === 'aberta' && podeGravar && <><button aria-label="Excluir lançamento" className="ml-2 text-xs underline" onClick={() => excluir(l.id)}>excluir</button><AjudaCampo chave="projetos.viagem.excluir_lancamento" /></>}</span></li>))}
             {lancs.length === 0 && <li className="text-sm opacity-60">Sem lançamentos.</li>}</ul>
-          {aberta.status === 'aberta' && (lf ? (
+          {aberta.status === 'aberta' && podeGravar && (lf ? (
             <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }}>
               <Campo rotulo="Tipo do lançamento" ajuda="projetos.viagem.lanc_tipo"><select className={campo} value={lf.tipo} onChange={(e) => setLf({ ...lf, tipo: e.target.value as LancamentoForm['tipo'] })}><option value="despesa">Despesa</option><option value="abastecimento">Abastecimento</option></select></Campo>
               <Campo rotulo="Data do cupom" ajuda="projetos.viagem.lanc_data"><input type="date" className={campo} value={lf.data} onChange={(e) => setLf({ ...lf, data: e.target.value })} /></Campo>
@@ -151,8 +156,8 @@ export default function ViagensPage() {
               <div className="flex gap-2 sm:col-span-4"><button disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-white" style={{ background: ESP }} onClick={lancar}>Lançar e novo</button><button className="text-sm underline" onClick={() => setLf(null)}>Fechar formulário</button></div>
             </div>
           ) : (
-            <div className="flex gap-2"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => setLf(vazio(aberta.obra_id, aberta.periodo_inicio))}>Novo lançamento</button>
-              <button disabled={busy || lancs.length === 0} className="rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-40" style={{ borderColor: ESP }} onClick={fechar}>Fechar viagem</button></div>
+            <div className="flex items-center gap-2"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => setLf(vazio(aberta.obra_id, aberta.periodo_inicio))}>Novo lançamento</button><AjudaCampo chave="projetos.viagem.novo_lancamento" />
+              <button disabled={busy || lancs.length === 0} className="rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-40" style={{ borderColor: ESP }} onClick={fechar}>Fechar viagem</button><AjudaCampo chave="projetos.viagem.fechar" /></div>
           ))}
         </div>
       )}
