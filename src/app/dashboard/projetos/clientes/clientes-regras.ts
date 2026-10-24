@@ -81,3 +81,32 @@ export function obraRecentePorCliente(linhas: ObraLinha[]): Record<string, strin
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, rotuloObra(v)]))
 }
 export const ganhasSemObra = (ganhas: number, obras: number) => Math.max(0, ganhas - obras)
+
+// PDCA 24/10 06:03 (auditor: "funil/CRM mostrando etapa real da oportunidade por cliente"): a linha mostra a etapa
+// mais avançada entre as oportunidades ABERTAS do cliente (ganha/perdida não contam — já têm pílula própria).
+export const ORDEM_FUNIL = ['prospeccao', 'visita_agendada', 'visita_feita', 'orcando', 'proposta_enviada', 'negociacao'] as const
+export function etapaPorCliente(ops: Pick<OpLinha, 'cliente_id' | 'etapa'>[]): Record<string, string> {
+  const m: Record<string, string> = {}
+  for (const o of ops) {
+    const i = ORDEM_FUNIL.indexOf((o.etapa ?? '') as (typeof ORDEM_FUNIL)[number])
+    if (!o.cliente_id || i < 0) continue
+    const atual = m[o.cliente_id]
+    if (atual === undefined || i > ORDEM_FUNIL.indexOf(atual as (typeof ORDEM_FUNIL)[number])) m[o.cliente_id] = ORDEM_FUNIL[i]
+  }
+  return m
+}
+
+// PDCA 24/10 06:03 (auditor: "nenhum CEP automático no cadastro"): o CEP achado preenche cidade/UF (o CEP manda) e
+// só completa logradouro/bairro vazios — não apaga o que a pessoa já digitou.
+export type EnderecoForm = { cep?: string | null; logradouro?: string | null; bairro?: string | null; cidade?: string | null; uf?: string | null }
+export function aplicarCEP<T extends EnderecoForm>(form: T, d: { logradouro: string | null; bairro: string | null; cidade: string; uf: string }): T {
+  const vazio = (v: string | null | undefined) => !(v ?? '').trim()
+  return {
+    ...form,
+    logradouro: vazio(form.logradouro) && d.logradouro ? d.logradouro : form.logradouro,
+    bairro: vazio(form.bairro) && d.bairro ? d.bairro : form.bairro,
+    cidade: d.cidade || form.cidade,
+    uf: (d.uf || form.uf || '').toUpperCase(),
+  }
+}
+export const cepCompleto = (cep: string | null | undefined) => (cep ?? '').replace(/\D/g, '').length === 8

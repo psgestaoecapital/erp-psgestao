@@ -1,7 +1,7 @@
 // Gate (PDCA Hub 23/10): Clientes de obra mostra o tipo PF/PJ certo (DEMO grava 'J'/'F'), iniciais reais,
 // obras por cliente, e todo "?" da tela tem linha de ajuda numa migration.
 import { readFileSync, readdirSync } from 'node:fs'
-import { brlCurto, comercialPorCliente, ganhasSemObra, iniciais, obraRecentePorCliente, obrasPorCliente, temContato, tipoPessoaNormal, valorOportunidade } from '../../src/app/dashboard/projetos/clientes/clientes-regras'
+import { aplicarCEP, brlCurto, cepCompleto, comercialPorCliente, etapaPorCliente, ganhasSemObra, iniciais, obraRecentePorCliente, obrasPorCliente, temContato, tipoPessoaNormal, valorOportunidade } from '../../src/app/dashboard/projetos/clientes/clientes-regras'
 let falhas = 0
 const ok = (c: boolean, m: string) => { console.log(`${c ? 'ok  ' : 'FALHA'} ${m}`); if (!c) falhas++ }
 
@@ -44,11 +44,21 @@ const rec = obraRecentePorCliente([
 ok(rec.v === 'Planta baixa – Forro · Chapecó/SC' && rec.h === 'Sala comercial' && Object.keys(rec).length === 2, 'linha mostra a obra mais recente com cidade/UF')
 ok(ganhasSemObra(1, 1) === 0 && ganhasSemObra(17, 0) === 17 && ganhasSemObra(0, 3) === 0, 'ganha sem obra = ganhas além das obras abertas')
 
+// PDCA 24/10 · etapa real do funil na linha (DEMO C04: negociação + prospecção + perdida → Negociação; C01 só ganha → nada).
+const et = etapaPorCliente(ops)
+ok(et.c4 === 'negociacao' && et.c3 === 'proposta_enviada' && et.c1 === undefined && Object.keys(et).length === 2, 'etapa mais avançada das abertas; ganha/perdida e sem cliente fora')
+ok(etapaPorCliente([{ cliente_id: 'x', etapa: 'orcando' }, { cliente_id: 'x', etapa: 'visita_feita' }, { cliente_id: 'x', etapa: 'lixo' }]).x === 'orcando', 'ordem do funil vence a ordem da lista; etapa desconhecida ignorada')
+
+// PDCA 24/10 · CEP automático: cidade/UF do CEP mandam; logradouro/bairro só completam o vazio.
+const end = aplicarCEP({ cep: '89201-000', logradouro: 'Rua já digitada', bairro: '', cidade: 'Errada', uf: 'pr', numero: '12' }, { logradouro: 'Rua do CEP', bairro: 'Centro', cidade: 'Joinville', uf: 'sc' })
+ok(end.logradouro === 'Rua já digitada' && end.bairro === 'Centro' && end.cidade === 'Joinville' && end.uf === 'SC' && end.numero === '12', 'CEP completa o vazio, não apaga o digitado, cidade/UF do CEP')
+ok(cepCompleto('89201-000') && !cepCompleto('8920') && !cepCompleto(null), 'só busca com 8 dígitos')
+
 const tela = readFileSync('src/app/dashboard/projetos/clientes/page.tsx', 'utf8')
 ok(!/\{c\.tipo_pessoa \|\| 'PJ'\}/.test(tela) && /tipoOf\(c\)/.test(tela), 'a tela usa o tipo normalizado')
 ok(/comercialPorCliente\(/.test(tela) && /oportunidades\/\$\{o\.id\}/.test(tela) && /orcamentos\?id=\$\{x\.id\}/.test(tela), 'a tela liga cliente a oportunidade e proposta')
 ok(/obrasPorCliente\(/.test(tela) && /iniciais\(nomeOf\(c\)\)/.test(tela), 'a tela mostra obras por cliente e iniciais')
-ok(/obraRecentePorCliente\(/.test(tela) && /ganhasSemObra\(/.test(tela) && /novaObra\(c, op\)/.test(tela) && /is_demo/.test(tela), 'a tela mostra a obra na linha, avisa ganha sem obra, abre a obra da venda e sinaliza empresa demo')
+ok(/obraRecentePorCliente\(/.test(tela) && /ganhasSemObra\(/.test(tela) && /novaObra\(c, op\)/.test(tela) && /is_demo/.test(tela) && /etapaPorCliente\(/.test(tela) && /buscarCEP\(/.test(tela), 'a tela mostra a etapa do funil, busca o CEP, a obra na linha, avisa ganha sem obra, abre a obra da venda e sinaliza empresa demo')
 const chaves = new Set([...tela.matchAll(/(?:chave|ajuda)="(projetos\.clientes\.[^"]+)"/g)].map((x) => x[1]))
 const sql = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).map((f) => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 const faltando = [...chaves].filter((k) => !sql.includes(`'${k}'`))
