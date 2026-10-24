@@ -12,6 +12,7 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { MedicaoContrato } from './_componentes/MedicaoContrato'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
 
 // Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
@@ -59,6 +60,10 @@ export default function TabelasPrecoPage() {
     if (!empresa) { setMsg('Selecione uma empresa para cadastrar a tabela.'); return }
     const r = await salvar('fn_tabela_preco_salvar', { p_company_id: empresa, p_dados: { nome: fm.nomeTab } }, 'Tabela criada.')
     if (r?.id) { setFm(f => ({ ...f, nomeTab: '' })); await carregarTabelas(); setTabelaId(r.id) }
+  }
+  const arquivar = async () => {
+    if (!tabelaId || !window.confirm('Arquivar este contrato? Ele sai da lista, o histórico fica guardado.')) return
+    if (await salvar('fn_tabela_preco_arquivar', { p_tabela: tabelaId }, 'Contrato arquivado.')) { setTabelaId(''); carregarTabelas() }
   }
   const salvarFaixa = () => salvar('fn_tabela_preco_faixa_salvar', { p_tabela_id: tabelaId, p_dados: { servico_ref: fm.ref, servico_nome: fm.nome, unidade: fm.un, faixa_de: num(fm.de) ?? 0, faixa_ate: num(fm.ate), preco_base: num(fm.preco) } }, 'Faixa salva.')
   const salvarCond = () => salvar('fn_tabela_preco_condicao_salvar', { p_tabela_id: tabelaId, p_condicao: fm.cond, p_percentual: num(fm.pct) }, 'Condição salva.')
@@ -159,6 +164,12 @@ export default function TabelasPrecoPage() {
               <select data-testid="tp-tabela" style={campo} value={tabelaId} onChange={e => setTabelaId(e.target.value)}>
                 {tabelas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
               </select></label>
+            {tabelaSel && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button type="button" data-testid="tp-arquivar" onClick={arquivar} style={{ minHeight: 44, padding: '0 16px' }}>Arquivar contrato</button>
+                <AjudaCampo chave="hub.tabela_preco.arquivar" />
+              </div>
+            )}
             {tabelaSel && (
               <div data-testid="tp-vigencia" style={{ fontSize: 13, color: MUT, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 Vigência {fmtData(tabelaSel.vigencia_inicio)} a {fmtData(tabelaSel.vigencia_fim)} · {servicos.length} serviço(s) · {conds.length} adicional(is)
@@ -314,6 +325,9 @@ export default function TabelasPrecoPage() {
               )
             })}
           </section>
+        )}
+        {!loading && !erro && tabelaId && servicos.length > 0 && (
+          <MedicaoContrato key={tabelaId} tabelaId={tabelaId} servicos={servicos.map(x => ({ ref: x.servico_ref, nome: x.servico_nome, unidade: x.unidade }))} regimes={conds.map(c => c.condicao)} />
         )}
       </div>
     </div>
