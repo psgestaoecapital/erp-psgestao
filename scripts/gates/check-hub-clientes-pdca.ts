@@ -1,7 +1,7 @@
 // Gate (PDCA Hub 23/10): Clientes de obra mostra o tipo PF/PJ certo (DEMO grava 'J'/'F'), iniciais reais,
 // obras por cliente, e todo "?" da tela tem linha de ajuda numa migration.
 import { readFileSync, readdirSync } from 'node:fs'
-import { aplicarCEP, brlCurto, cepCompleto, comercialPorCliente, etapaPorCliente, ganhasSemObra, iniciais, obraRecentePorCliente, obrasPorCliente, temContato, tipoPessoaNormal, valorOportunidade } from '../../src/app/dashboard/projetos/clientes/clientes-regras'
+import { aplicarCEP, brlCurto, cepCompleto, clienteDaUrl, comercialPorCliente, etapaPorCliente, ganhasSemObra, iniciais, linkNovaOportunidade, obraRecentePorCliente, obrasPorCliente, oportunidadesComObra, rotuloStatusObra, temContato, tipoPessoaNormal, valorOportunidade } from '../../src/app/dashboard/projetos/clientes/clientes-regras'
 let falhas = 0
 const ok = (c: boolean, m: string) => { console.log(`${c ? 'ok  ' : 'FALHA'} ${m}`); if (!c) falhas++ }
 
@@ -54,11 +54,25 @@ const end = aplicarCEP({ cep: '89201-000', logradouro: 'Rua já digitada', bairr
 ok(end.logradouro === 'Rua já digitada' && end.bairro === 'Centro' && end.cidade === 'Joinville' && end.uf === 'SC' && end.numero === '12', 'CEP completa o vazio, não apaga o digitado, cidade/UF do CEP')
 ok(cepCompleto('89201-000') && !cepCompleto('8920') && !cepCompleto(null), 'só busca com 8 dígitos')
 
+// PDCA 24/10 · "Nova oportunidade" no cliente já leva o cliente (elo Cliente → Oportunidade em 2 toques).
+const uid = '5F0C2A9E-1B2C-4D3E-8F90-0123456789AB'
+ok(clienteDaUrl(new URL('http://x' + linkNovaOportunidade(uid)).search) === uid.toLowerCase(), 'link do cliente ida e volta: o formulário recebe o mesmo cliente')
+ok(clienteDaUrl('?cliente=abc') === null && clienteDaUrl('?cliente=%27%3Bdrop') === null && clienteDaUrl('') === null && clienteDaUrl(null) === null, 'só aceita UUID na URL (lixo, vazio e nulo ignorados)')
+const telaOp = readFileSync('src/app/dashboard/projetos/oportunidades/page.tsx', 'utf8')
+ok(/clienteDaUrl\(window\.location\.search\)/.test(telaOp) && /cliente_id: clienteId/.test(telaOp) && /searchParams\.delete\('cliente'\)/.test(telaOp), 'oportunidades abre o formulário com o cliente da URL e limpa o parâmetro')
 const tela = readFileSync('src/app/dashboard/projetos/clientes/page.tsx', 'utf8')
 ok(!/\{c\.tipo_pessoa \|\| 'PJ'\}/.test(tela) && /tipoOf\(c\)/.test(tela), 'a tela usa o tipo normalizado')
 ok(/comercialPorCliente\(/.test(tela) && /oportunidades\/\$\{o\.id\}/.test(tela) && /orcamentos\?id=\$\{x\.id\}/.test(tela), 'a tela liga cliente a oportunidade e proposta')
 ok(/obrasPorCliente\(/.test(tela) && /iniciais\(nomeOf\(c\)\)/.test(tela), 'a tela mostra obras por cliente e iniciais')
-ok(/obraRecentePorCliente\(/.test(tela) && /ganhasSemObra\(/.test(tela) && /novaObra\(c, op\)/.test(tela) && /is_demo/.test(tela) && /etapaPorCliente\(/.test(tela) && /buscarCEP\(/.test(tela), 'a tela mostra a etapa do funil, busca o CEP, a obra na linha, avisa ganha sem obra, abre a obra da venda e sinaliza empresa demo')
+ok(/obraRecentePorCliente\(/.test(tela) && /ganhasSemObra\(/.test(tela) && /novaObra\(c, op\)/.test(tela) && /is_demo/.test(tela) && /etapaPorCliente\(/.test(tela) && /buscarCEP\(/.test(tela) && /linkNovaOportunidade\(c\.id\)/.test(tela), 'a tela mostra a etapa do funil, busca o CEP, a obra na linha, avisa ganha sem obra, abre a obra da venda e sinaliza empresa demo')
+// PDCA 24/10 tarde · a obra do cliente é a do Hub (projetos_obras), não a planta de takeoff (erp_obra_planta): DEMO 006 tem
+// 4 obras e 4 plantas "Planta baixa – …" com o mesmo cliente; a tela mostrava a planta e abria o cockpit com o id dela.
+ok(!/from\('erp_obra_planta'\)/.test(tela) && (tela.match(/from\('projetos_obras'\)/g) ?? []).length >= 2, 'obras do cliente vêm de projetos_obras (lista e detalhe), nunca da planta de takeoff')
+ok(/rpc\('fn_hub_criar_obra_rapida'/.test(tela) && /p_cliente_id: c\.id/.test(tela) && /oportunidade_id: op\.id/.test(tela), 'Nova obra usa a RPC do Hub com o cliente e liga a venda de origem')
+ok(/obras\/\$\{o\.id\}\/cockpit/.test(tela) && /!comObra\.has\(o\.id\)/.test(tela), 'cockpit abre com o id da obra; venda que já virou obra não oferece abrir outra')
+const comObra = oportunidadesComObra([{ oportunidade_id: 'op1' }, { oportunidade_id: null }, {}, { oportunidade_id: 'op1' }])
+ok(comObra.size === 1 && comObra.has('op1'), 'vendas com obra: só oportunidade_id preenchido, sem repetir')
+ok(rotuloStatusObra('em_andamento') === 'Em andamento' && rotuloStatusObra('concluida') === 'Concluída' && rotuloStatusObra(null) === 'Rascunho' && rotuloStatusObra('x') === 'x', 'status da obra em português (desconhecido aparece como veio)')
 const chaves = new Set([...tela.matchAll(/(?:chave|ajuda)="(projetos\.clientes\.[^"]+)"/g)].map((x) => x[1]))
 const sql = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).map((f) => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 const faltando = [...chaves].filter((k) => !sql.includes(`'${k}'`))

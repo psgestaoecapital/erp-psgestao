@@ -25,7 +25,7 @@ ok((src.match(/whitespace-nowrap/g) ?? []).length >= 1, 'rótulo da aba não que
 const abas = [...src.matchAll(/\{ href: "(\/dashboard\/projetos[^"]*)",\s+label: "([^"]+)"/g)].map(m => m[2])
 ok(abas.length === 15, `15 abas nos grupos (achou ${abas.length})`)
 ok(/label: "Configurações"/.test(src), 'aba Configurações presente')
-for (const l of ['Insumos', 'Mão de obra', 'Calculadora', 'Obras', 'Resultado', 'Cockpit', 'Viagens']) ok(abas.includes(l), `aba "${l}" presente`)
+for (const l of ['Insumos', 'Mão de obra', 'Calculadora', 'Obras', 'Viagens', 'Resultado', 'Cockpit']) ok(abas.includes(l), `aba "${l}" presente`)
 
 if (falhas) { console.error(`check-hub-subnav-sem-corte: ${falhas} falha(s)`); process.exit(1) }
 console.log('check-hub-subnav-sem-corte: OK')

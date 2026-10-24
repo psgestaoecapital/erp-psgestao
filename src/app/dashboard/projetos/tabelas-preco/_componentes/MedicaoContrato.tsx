@@ -37,6 +37,23 @@ export function MedicaoContrato({ tabelaId, servicos, regimes }: { tabelaId: str
     if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar a medição.')); return }
     setMsg(`Medição salva: ${fmtR(Number((data as { total: number }).total))}.`); setDesc(''); carregarSalvas()
   }
+  // Detalhe da medição salva (linhas) e conferência: recalcula pelo contrato de hoje e compara com o total salvo.
+  type ItemSalvo = { servico_ref: string; quantidade: number; condicao: string; preco_unitario: number; total: number; codigo_externo: string | null }
+  const [aberta, setAberta] = useState<{ id: string; itens: ItemSalvo[]; confere: string } | null>(null)
+  const ver = async (m: { id: string; total: number }) => {
+    if (aberta?.id === m.id) { setAberta(null); return }
+    const { data, error } = await supabase.from('erp_medicao_cliente_item').select('servico_ref,quantidade,condicao,preco_unitario,total,codigo_externo').eq('medicao_id', m.id).order('servico_ref')
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível abrir a medição.')); return }
+    setAberta({ id: m.id, itens: ((data ?? []) as ItemSalvo[]).map(x => ({ ...x, quantidade: Number(x.quantidade), preco_unitario: Number(x.preco_unitario), total: Number(x.total) })), confere: '' })
+  }
+  const conferir = async (m: { total: number }) => {
+    if (!aberta) return
+    const { data, error } = await supabase.rpc('fn_tabela_preco_medir', { p_tabela: tabelaId, p_linhas: aberta.itens.map(i => ({ servico_ref: i.servico_ref, quantidade: i.quantidade, condicao: i.condicao })) })
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível conferir com o contrato.')); return }
+    const novo = Number((data as { total: number }).total)
+    const dif = Math.round((novo - m.total) * 100) / 100
+    setAberta({ ...aberta, confere: dif === 0 ? `Bate com o contrato: ${fmtR(novo)}.` : `O contrato hoje dá ${fmtR(novo)} (diferença de ${fmtR(dif)} em relação à medição salva).` })
+  }
   const excluir = async (id: string) => {
     if (!window.confirm('Excluir esta medição salva?')) return
     const { error } = await supabase.rpc('fn_medicao_cliente_excluir', { p_id: id })
@@ -112,10 +129,28 @@ export function MedicaoContrato({ tabelaId, servicos, regimes }: { tabelaId: str
         <div data-testid="med-salvas" style={{ borderTop: `1px solid ${LINE}`, paddingTop: 10 }}>
           <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}>Medições salvas <AjudaCampo chave="hub.tabela_preco.medicao_salvas" /></div>
           {salvas.map(m => (
-            <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: `1px solid ${LINE}`, fontSize: 14 }}>
+            <div key={m.id}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: `1px solid ${LINE}`, fontSize: 14 }}>
               <span>{m.descricao}{m.periodo_inicio ? ` · ${new Date(`${m.periodo_inicio}T12:00:00`).toLocaleDateString('pt-BR')}` : ''}{m.periodo_fim ? ` a ${new Date(`${m.periodo_fim}T12:00:00`).toLocaleDateString('pt-BR')}` : ''}</span>
               <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}><b>{fmtR(m.total)}</b>
+                <button type="button" data-testid="med-ver" onClick={() => ver(m)} style={{ background: 'none', border: 'none', cursor: 'pointer', minHeight: 44, color: GOLD, fontWeight: 600 }}>{aberta?.id === m.id ? 'Fechar' : 'Ver itens'}</button>
+                <AjudaCampo chave="hub.tabela_preco.medicao_ver" />
                 <button type="button" onClick={() => excluir(m.id)} style={{ color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer', minHeight: 44 }}>Excluir</button></span>
+            </div>
+            {aberta?.id === m.id && (
+              <div data-testid="med-detalhe" style={{ padding: '8px 0', overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14, minWidth: 480 }}>
+                  <thead><tr style={{ color: MUT, textAlign: 'left' }}><th>Serviço</th><th>Qtd</th><th>Regime</th><th>Código</th><th style={{ textAlign: 'right' }}>Unitário</th><th style={{ textAlign: 'right' }}>Total</th></tr></thead>
+                  <tbody>{aberta.itens.map((i, k) => (
+                    <tr key={k} style={{ borderTop: `1px solid ${LINE}` }}><td>{nome(i.servico_ref)}</td><td>{i.quantidade}</td><td>{i.condicao}</td><td>{i.codigo_externo ?? 'sem código'}</td><td style={{ textAlign: 'right' }}>{fmtR(i.preco_unitario)}</td><td style={{ textAlign: 'right' }}>{fmtR(i.total)}</td></tr>))}</tbody>
+                </table>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  <button type="button" data-testid="med-conferir" onClick={() => conferir(m)} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 600 }}>Conferir com o contrato</button>
+                  <AjudaCampo chave="hub.tabela_preco.medicao_conferir" />
+                </div>
+                {aberta.confere && <p role="status" data-testid="med-confere" style={{ margin: '6px 0 0', color: GOLD, fontWeight: 600 }}>{aberta.confere}</p>}
+              </div>
+            )}
             </div>
           ))}
         </div>
