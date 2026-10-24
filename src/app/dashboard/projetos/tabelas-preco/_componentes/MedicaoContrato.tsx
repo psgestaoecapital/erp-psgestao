@@ -13,7 +13,7 @@ const fmtR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curre
 type Linha = { servico_ref: string; quantidade: string; condicao: string }
 type Res = { ok: boolean; erro?: string; servico_ref?: string; quantidade: number; faixa_de?: number; faixa_ate?: number | null; condicao?: string; preco_unitario?: number; total?: number; codigo_externo?: string | null; unidade?: string }
 
-export function MedicaoContrato({ tabelaId, servicos, regimes }: { tabelaId: string; servicos: { ref: string; nome: string; unidade: string }[]; regimes: string[] }) {
+export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { tabelaId: string; podeGravar: boolean; servicos: { ref: string; nome: string; unidade: string }[]; regimes: string[] }) {
   const [linhas, setLinhas] = useState<Linha[]>([{ servico_ref: servicos[0]?.ref ?? '', quantidade: '', condicao: 'normal' }])
   const [res, setRes] = useState<{ linhas: Res[]; total: number } | null>(null)
   const [erro, setErro] = useState('')
@@ -104,10 +104,10 @@ export function MedicaoContrato({ tabelaId, servicos, regimes }: { tabelaId: str
             <input type="date" aria-label="Fim do período" style={campo} value={fim} onChange={e => setFim(e.target.value)} />
           </div></label>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      {podeGravar && <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <button type="button" data-testid="med-salvar" onClick={gravar} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 700 }}>Salvar medição</button>
         <AjudaCampo chave="hub.tabela_preco.medicao_salvar" />
-      </div>
+      </div>}
       {msg && <p role="status" data-testid="med-msg" style={{ margin: 0, color: GOLD, fontWeight: 600 }}>{msg}</p>}
       {erro && <p role="alert" style={{ color: '#B91C1C', margin: 0 }}>{erro}</p>}
       {res && (
@@ -135,7 +135,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes }: { tabelaId: str
               <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}><b>{fmtR(m.total)}</b>
                 <button type="button" data-testid="med-ver" onClick={() => ver(m)} style={{ background: 'none', border: 'none', cursor: 'pointer', minHeight: 44, color: GOLD, fontWeight: 600 }}>{aberta?.id === m.id ? 'Fechar' : 'Ver itens'}</button>
                 <AjudaCampo chave="hub.tabela_preco.medicao_ver" />
-                <button type="button" onClick={() => excluir(m.id)} style={{ color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer', minHeight: 44 }}>Excluir</button></span>
+                {podeGravar && <button type="button" onClick={() => excluir(m.id)} style={{ color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer', minHeight: 44 }}>Excluir</button>}</span>
             </div>
             {aberta?.id === m.id && (
               <div data-testid="med-detalhe" style={{ padding: '8px 0', overflowX: 'auto' }}>

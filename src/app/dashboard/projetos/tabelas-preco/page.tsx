@@ -46,6 +46,13 @@ export default function TabelasPrecoPage() {
   const [rev, setRev] = useState(0)
   const [editar, setEditar] = useState(false)
   const [msg, setMsg] = useState('')
+  // perfil consulta (viewer) só lê: o banco barra a gravação (gatilho trg_tabela_preco_trava_viewer); a tela esconde as ações
+  const [podeGravar, setPodeGravar] = useState(false)
+  useEffect(() => {
+    const empresa = companyIds?.[0]
+    if (!empresa) return
+    supabase.rpc('fn_tabela_preco_pode_gravar', { p_company_id: empresa }).then(({ data }) => setPodeGravar(data === true))
+  }, [companyIds])
   const [fm, setFm] = useState({ nomeTab: '', ref: '', nome: '', un: 'm²', de: '', ate: '', preco: '', cond: '', pct: '', cCond: 'normal', cod: '', fixo: '' })
   const setF = (k: keyof typeof fm, v: string) => setFm(f => ({ ...f, [k]: v }))
   const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')))
@@ -180,7 +187,7 @@ export default function TabelasPrecoPage() {
               <select data-testid="tp-tabela" style={campo} value={tabelaId} onChange={e => setTabelaId(e.target.value)}>
                 {tabelas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
               </select></label>
-            {tabelaSel && (
+            {tabelaSel && podeGravar && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <button type="button" data-testid="tp-arquivar" onClick={arquivar} style={{ minHeight: 44, padding: '0 16px' }}>Arquivar contrato</button>
                 <AjudaCampo chave="hub.tabela_preco.arquivar" />
@@ -227,7 +234,10 @@ export default function TabelasPrecoPage() {
             </div>
           </div>
         )}
-        {!loading && !erro && (
+        {!loading && !erro && !podeGravar && (
+          <p role="status" data-testid="tp-consulta" style={{ fontSize: 13, color: MUT, margin: '16px 0 0', display: 'flex', alignItems: 'center', gap: 6 }}>Perfil de consulta: você vê o contrato e as medições; editar fica com o administrativo. <AjudaCampo chave="hub.tabela_preco.perfil_consulta" /></p>
+        )}
+        {!loading && !erro && podeGravar && (
           <section data-testid="tp-editar" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
             <button type="button" data-testid="tp-editar-abrir" onClick={() => setEditar(v => !v)}
               style={{ background: 'none', border: 'none', padding: 0, fontSize: 17, fontWeight: 700, color: ESP, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -308,6 +318,8 @@ export default function TabelasPrecoPage() {
         {!loading && !erro && servicos.length > 0 && (
           <section data-testid="tp-contrato" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
             <h2 style={{ fontSize: 17, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>Contrato completo <AjudaCampo chave="hub.tabela_preco.contrato" /></h2>
+            {/* celular (390px): grade compacta para as 5 colunas (até domingo_feriado) caberem sem cortar; a faixa fica fixa na rolagem */}
+            <style>{'@media (max-width:480px){.tp-grade{min-width:0!important;font-size:12px!important}.tp-grade th,.tp-grade td{padding:6px 2px!important}.tp-grade th{white-space:normal!important;font-size:11px!important}.tp-grade td button{padding:6px 2px!important;font-size:12px!important}}.tp-grade th:first-child,.tp-grade td:first-child{position:sticky;left:0;background:#fff}'}</style>
             <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Preço por unidade em cada faixa e condição. Toque num preço para levá-lo à calculadora.</p>
             {servicos.map(s => {
               const fs = itens.filter(i => i.servico_ref === s.servico_ref).sort((a, b) => a.faixa_de - b.faixa_de)
@@ -315,7 +327,7 @@ export default function TabelasPrecoPage() {
                 <div key={s.servico_ref} style={{ marginBottom: 16 }} data-testid={`tp-contrato-${s.servico_ref}`}>
                   <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>{s.servico_nome} <span style={{ fontWeight: 400, color: MUT }}>({s.unidade})</span></div>
                   <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                    <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14, minWidth: 120 + colunas.length * 110 }}>
+                    <table className="tp-grade" style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14, minWidth: 120 + colunas.length * 110 }}>
                       <thead>
                         <tr>
                           <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: `1px solid ${LINE}`, color: MUT, fontWeight: 600 }}>Faixa</th>
@@ -324,7 +336,7 @@ export default function TabelasPrecoPage() {
                             const pct = conds.find(x => x.condicao === c)?.percentual
                             return (
                               <th key={c} style={{ textAlign: 'right', padding: '8px 10px', borderBottom: `1px solid ${LINE}`, color: MUT, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                                {c === 'normal' ? 'Normal' : c}{c !== 'normal' && pct != null ? ` +${pct}%` : ''}
+                                {c === 'normal' ? 'Normal' : c.replace(/_/g, ' ')}{c !== 'normal' && pct != null ? ` +${pct}%` : ''}
                                 {cod && <div style={{ fontSize: 12, fontWeight: 400 }} data-testid="tp-codigo-externo">cód. {cod}</div>}
                               </th>
                             )
@@ -359,7 +371,7 @@ export default function TabelasPrecoPage() {
           </section>
         )}
         {!loading && !erro && tabelaId && servicos.length > 0 && (
-          <MedicaoContrato key={tabelaId} tabelaId={tabelaId} servicos={servicos.map(x => ({ ref: x.servico_ref, nome: x.servico_nome, unidade: x.unidade }))} regimes={conds.map(c => c.condicao)} />
+          <MedicaoContrato key={tabelaId} tabelaId={tabelaId} podeGravar={podeGravar} servicos={servicos.map(x => ({ ref: x.servico_ref, nome: x.servico_nome, unidade: x.unidade }))} regimes={conds.map(c => c.condicao)} />
         )}
       </div>
     </div>
