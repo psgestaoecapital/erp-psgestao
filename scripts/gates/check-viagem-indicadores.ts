@@ -1,12 +1,15 @@
 // Gate (auditor 24/10 · gap "Indicadores da viagem"): custo de viagem por m² executado, por km e por dia de equipe, %
 // do custo previsto com alerta e histórico por rota — tudo lido da MESMA fonte do Resultado da obra
 // (v_viagem_custo_obra / v_obra_resultado), numa função só de leitura e nova; a tela só chama a função. Sem rede.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const mig = readFileSync('supabase/migrations/20261025235052_viagem_indicadores.sql', 'utf8').replace(/--[^\n]*/g, '')
+// acha a migration pelo sufixo: a fila pode renumerar a versão sem quebrar o gate
+const arq = readdirSync('supabase/migrations').find(f => f.endsWith('_viagem_indicadores.sql'))
+if (!arq) throw new Error('migration *_viagem_indicadores.sql não encontrada')
+const mig = readFileSync(`supabase/migrations/${arq}`, 'utf8').replace(/--[^\n]*/g, '')
 const fn = mig.slice(mig.indexOf('CREATE OR REPLACE FUNCTION public.fn_viagem_indicadores('), mig.indexOf('$function$;'))
 
 ok(fn.length > 0 && /STABLE\s+SECURITY INVOKER\s+SET search_path TO 'public'/.test(fn), 'fn_viagem_indicadores: só leitura, com a RLS de quem lê e search_path fixo')
