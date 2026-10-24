@@ -104,3 +104,32 @@ export function origemPorProposta(ops: OportunidadeVinculo[], visitas: VisitaVin
 }
 
 export const temOrigem = (o: Origem | undefined) => !!o && (!!o.oportunidade || o.visitas > 0 || o.plantas.length > 0)
+
+// HB0 (auditor F15 · "Proposta → Obra visível") — a obra que nasceu de cada proposta. O banco cria a obra sozinho quando
+// a proposta é aprovada (tg_orcamento_gera_obra); o vínculo vale pelos dois lados: erp_orcamentos.obra_id ou
+// projetos_obras.orcamento_id. Proposta ganha sem obra é sinalizada (nunca escondida); eh_obra=false = não é obra.
+export type ObraVinculo = { id: string; numero: string | null; nome: string | null; status: string | null; orcamento_id: string | null }
+export type PropostaObra = { id: string; status: string; obra_id: string | null; eh_obra?: boolean | null }
+export type SituacaoObra =
+  | { tipo: 'obra'; obra: { id: string; numero: string; nome: string; status: string | null } }
+  | { tipo: 'sem_obra' } | { tipo: 'nao_e_obra' } | { tipo: 'aberta' }
+
+export function obraPorProposta(propostas: PropostaObra[], obras: ObraVinculo[]): Record<string, SituacaoObra> {
+  const porId: Record<string, ObraVinculo> = {}, porOrc: Record<string, ObraVinculo> = {}
+  for (const o of obras) { porId[o.id] = o; if (o.orcamento_id) porOrc[o.orcamento_id] ??= o }
+  const out: Record<string, SituacaoObra> = {}
+  for (const p of propostas) {
+    const o = (p.obra_id ? porId[p.obra_id] : undefined) ?? porOrc[p.id]
+    if (o) out[p.id] = { tipo: 'obra', obra: { id: o.id, numero: o.numero?.trim() || 'Obra', nome: o.nome?.trim() || '', status: o.status } }
+    else if (p.obra_id) out[p.id] = { tipo: 'obra', obra: { id: p.obra_id, numero: 'Obra', nome: '', status: null } }
+    else if (!em(GANHAS, p.status)) out[p.id] = { tipo: 'aberta' }
+    else out[p.id] = p.eh_obra === false ? { tipo: 'nao_e_obra' } : { tipo: 'sem_obra' }
+  }
+  return out
+}
+
+// Ganhas que viraram obra, sobre as ganhas que são obra (eh_obra=false fica fora da conta).
+export function ganhasComObra(sit: Record<string, SituacaoObra>, propostas: PropostaObra[]) {
+  const ganhas = propostas.filter(p => em(GANHAS, p.status) && sit[p.id]?.tipo !== 'nao_e_obra')
+  return { comObra: ganhas.filter(p => sit[p.id]?.tipo === 'obra').length, ganhas: ganhas.length }
+}
