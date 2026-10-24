@@ -4,11 +4,13 @@
 // Escolha a montagem → digite a metragem → quantitativo de materiais + orçamento das 5 camadas.
 // Reusa fn_simular_montagem (que reusa fn_precificar_montagem + BOM). Tudo por empresa/linha.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Calculator, Loader2, AlertTriangle } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
+type Cliente = { id: string; nome: string };
 type Linha = { id: string; nome: string };
 type Produto = { servico_id: string; nome: string; unidade: string | null; categoria: string | null; business_line_id: string | null };
 type QuantItem = { insumo: string; unidade: string | null; qtd_m2: number; qtd_total: number; custo_total: number };
@@ -24,6 +26,7 @@ const num = (v: number | null | undefined, d = 2) => (v == null ? "—" : v.toLo
 export default function SimuladorPage() {
   const { sel } = useCompanyIds();
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
+  const router = useRouter();
 
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -34,6 +37,23 @@ export default function SimuladorPage() {
   const [loadingCat, setLoadingCat] = useState(true);
   const [calculando, setCalculando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [clienteId, setClienteId] = useState("");
+  const [gerando, setGerando] = useState(false);
+
+  // clientes da empresa (opcional no orçamento)
+  useEffect(() => {
+    if (!companyId) return;
+    let alive = true;
+    (async () => {
+      const { data } = await supabaseBrowser().from("erp_clientes").select("id, nome_fantasia, razao_social")
+        .eq("company_id", companyId).order("nome_fantasia", { ascending: true }).limit(500);
+      if (!alive) return;
+      setClientes(((data ?? []) as { id: string; nome_fantasia: string | null; razao_social: string | null }[])
+        .map((c) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social || "Sem nome" })));
+    })();
+    return () => { alive = false; };
+  }, [companyId]);
 
   // catálogo de montagens (produtos + linhas)
   useEffect(() => {
@@ -80,6 +100,24 @@ export default function SimuladorPage() {
   // recalcula ao trocar montagem/metragem
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void simular(); }, [simular]);
+
+  const gerarOrcamento = async () => {
+    if (!companyId || !montagemId || gerando) return;
+    const areaNum = Number((area || "0").replace(",", ".")) || 0;
+    setGerando(true); setErro(null);
+    const { data, error } = await supabaseBrowser().rpc("fn_simulador_gerar_orcamento", {
+      p_servico_id: montagemId, p_company_id: companyId, p_business_line_id: montagemSel?.business_line_id ?? null,
+      p_area: areaNum, p_cliente_id: clienteId || null, p_oportunidade_id: null,
+    });
+    setGerando(false);
+    const j = data as { ok?: boolean; erro?: string } | null;
+    if (error || !j?.ok) {
+      const msgs: Record<string, string> = { sem_preco: "Esta montagem não tem preço calculado — complete a composição antes de gerar o orçamento.", metragem_invalida: "Informe uma metragem maior que zero." };
+      setErro(error?.message ?? msgs[j?.erro ?? ""] ?? j?.erro ?? "Falha ao gerar o orçamento");
+      return;
+    }
+    router.push("/dashboard/orcamentos");
+  };
 
   if (!companyId) {
     return <main className="mx-auto max-w-3xl px-6 py-20 text-center text-[#3D2314]/60">Selecione uma empresa específica para usar o Simulador.</main>;
@@ -166,7 +204,7 @@ export default function SimuladorPage() {
           {/* Orçamento (5 camadas) + total */}
           <section className="space-y-4">
             <div className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
-              <h2 className="mb-3 text-base font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)" }}>Orçamento por {sim.unidade || "m²"}</h2>
+              <h2 className="mb-3 text-base font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)" }}>Orçamento por {sim.unidade || "m²"} <AjudaCampo chave="projetos.simulador.orcamento_unidade" /></h2>
               <dl className="space-y-1.5 text-sm">
                 <Row l="Material" v={brl(preco?.venda_material)} />
                 <Row l="Mão de obra" v={brl(preco?.venda_mo)} />
@@ -179,12 +217,25 @@ export default function SimuladorPage() {
               </dl>
             </div>
             <div className="rounded-2xl border border-[#C8941A]/40 bg-[#FBF4E4] p-5 text-center shadow-sm">
-              <div className="text-[11px] uppercase tracking-wider text-[#3D2314]/55">Total da obra ({num(sim.area)} {sim.unidade || "m²"})</div>
+              <div className="text-[11px] uppercase tracking-wider text-[#3D2314]/55">Total da obra ({num(sim.area)} {sim.unidade || "m²"}) <AjudaCampo chave="projetos.simulador.total_obra" /></div>
               <div className="mt-1 font-mono text-3xl font-bold text-[#3D2314]">{brl(sim.total_obra)}</div>
             </div>
-            <div className="flex gap-2">
-              <button disabled title="Em breve (S4.1)" className="flex-1 cursor-not-allowed rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-sm font-medium text-[#3D2314]/40">Gerar orçamento · Em breve</button>
-              <button disabled title="Em breve (S4.1)" className="flex-1 cursor-not-allowed rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-sm font-medium text-[#3D2314]/40">+ Adicionar montagem · Em breve</button>
+            <div className="space-y-2">
+              <label className="block">
+                <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">Cliente (opcional) <AjudaCampo chave="projetos.simulador.cliente" /></span>
+                <select value={clienteId} onChange={(e) => setClienteId(e.target.value)} className={selCls}>
+                  <option value="">Sem cliente por enquanto</option>
+                  {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+              </label>
+              <div className="flex items-center gap-2">
+                <button onClick={() => void gerarOrcamento()} disabled={gerando || !(preco?.total_m2 && preco.total_m2 > 0)}
+                  className="flex-1 rounded-lg bg-[#3D2314] px-3 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">
+                  {gerando ? "Gerando…" : "Gerar orçamento"}
+                </button>
+                <AjudaCampo chave="projetos.simulador.gerar_orcamento" />
+              </div>
+              <p className="text-[11px] text-[#3D2314]/50">Nasce em rascunho; o valor é recalculado na hora de gerar.</p>
             </div>
           </section>
         </div>
