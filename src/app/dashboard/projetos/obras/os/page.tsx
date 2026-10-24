@@ -3,6 +3,8 @@
 // HB0 item 6 · Ordens de serviço de OBRA (Hub). A OS do Hub é por obra, etapa, serviço e equipe — não leva placa,
 // veículo nem mecânico (essa é a OS da oficina, /dashboard/os, que não muda). Grava só pelas funções com guarda de
 // empresa (fn_obra_os_salvar / _status / _excluir); lista por fn_obra_os_listar. Celular primeiro: a lista é de cartões.
+// HBF-0.5: horas da equipe apontadas na própria OS (fn_obra_os_apontar_horas) — viram custo de mão de obra da obra.
+// HBF-0.5: diário de obra (RDO) do dia na OS (fn_obra_rdo_salvar); fotos no bucket projetos-plantas, pasta da empresa.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -15,8 +17,12 @@ const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT =
 type Obra = { id: string; numero: string | null; nome: string }
 type Etapa = { id: string; nome: string }
 type Servico = { id: string; descricao: string | null }
+type Funcao = { id: string; nome: string; custo_hora_manual: number | null }
+type Horas = { horas: number; valor: number }
+type Rdo = { os_id: string; data: string; clima: Clima; praticavel: boolean; efetivo: number; atividades: string | null; ocorrencias: string | null; fotos: string[] }
+type Clima = 'sol' | 'nublado' | 'chuva' | 'chuva_forte'
 type OS = {
-  id: string; numero: string; obra_id: string; obra_numero: string | null; obra_nome: string
+  id: string; company_id: string; numero: string; obra_id: string; obra_numero: string | null; obra_nome: string
   tarefa_id: string | null; etapa: string | null; obra_item_id: string | null; servico: string | null
   descricao: string; equipe: string | null; responsavel: string | null; data_prevista: string | null
   prioridade: 'baixa' | 'normal' | 'alta' | 'urgente'; status: 'aberta' | 'em_execucao' | 'concluida' | 'cancelada'
@@ -32,6 +38,12 @@ const PRIORIDADES = [['baixa', 'Baixa'], ['normal', 'Normal'], ['alta', 'Alta'],
 const VAZIO = { obra_id: '', tarefa_id: '', obra_item_id: '', descricao: '', equipe: '', responsavel: '', data_prevista: '', prioridade: 'normal' }
 const hoje = () => new Date().toISOString().slice(0, 10)
 const dataBR = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
+const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const num = (v: string) => Number(v.replace(',', '.'))
+const VAZIO_H = { data: '', funcao_id: '', horas: '', custo_hora: '' }
+const CLIMAS: [Clima, string][] = [['sol', 'Sol'], ['nublado', 'Nublado'], ['chuva', 'Chuva'], ['chuva_forte', 'Chuva forte']]
+const VAZIO_R = { data: '', clima: 'sol' as Clima, praticavel: true, efetivo: '', atividades: '', ocorrencias: '', fotos: [] as string[] }
+const BUCKET = 'projetos-plantas'
 const nomeObra = (o: { obra_numero?: string | null; numero?: string | null; obra_nome?: string; nome?: string }) =>
   [o.obra_numero ?? o.numero, o.obra_nome ?? o.nome].filter(Boolean).join(' · ')
 
@@ -50,20 +62,42 @@ export default function OSObraPage() {
   const [salvando, setSalvando] = useState(false)
   const [ocupado, setOcupado] = useState<string | null>(null)
   const [editando, setEditando] = useState<string | null>(null)
+  const [funcoes, setFuncoes] = useState<Funcao[]>([])
+  const [horasOS, setHorasOS] = useState<Record<string, Horas>>({})
+  const [apontando, setApontando] = useState<string | null>(null)
+  const [fh, setFh] = useState({ ...VAZIO_H })
+  const [rdos, setRdos] = useState<Rdo[]>([])
+  const [diario, setDiario] = useState<string | null>(null)
+  const [fr, setFr] = useState({ ...VAZIO_R })
+  const [novasFotos, setNovasFotos] = useState<File[]>([])
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
     try {
-      const [a, b] = await Promise.all([
+      const [a, b, h, fn, rd] = await Promise.all([
         comPrazo(async () => await supabase.rpc('fn_obra_os_listar', { p_company_ids: companyIds, p_obra_id: null }),
           { ms: 8000, tentativas: 1, label: 'os_obra' }),
         comPrazo(async () => await supabase.from('projetos_obras').select('id,numero,nome').in('company_id', companyIds)
           .not('status', 'in', '("concluida","cancelada")').order('created_at', { ascending: false }).limit(300),
           { ms: 8000, tentativas: 1, label: 'obras' }),
+        comPrazo(async () => await supabase.from('projetos_obra_mao_obra_apontamento').select('os_id,horas,valor')
+          .in('company_id', companyIds).not('os_id', 'is', null).is('excluido_em', null),
+          { ms: 8000, tentativas: 1, label: 'horas_os' }),
+        comPrazo(async () => await supabase.from('erp_funcao_mao_obra').select('id,nome,custo_hora_manual').in('company_id', companyIds).eq('ativo', true).order('nome'),
+          { ms: 8000, tentativas: 1, label: 'funcoes' }),
+        comPrazo(async () => await supabase.from('projetos_obra_rdo').select('os_id,data,clima,praticavel,efetivo,atividades,ocorrencias,fotos')
+          .in('company_id', companyIds).is('excluido_em', null).order('data', { ascending: false }).limit(2000),
+          { ms: 8000, tentativas: 1, label: 'rdo_os' }),
       ])
       if (a.error) { setErro(a.error.message); return }
-      setLista((a.data ?? []) as OS[]); setObras((b.data ?? []) as Obra[])
+      setLista((a.data ?? []) as OS[]); setObras((b.data ?? []) as Obra[]); setFuncoes((fn.data ?? []) as Funcao[])
+      const soma: Record<string, Horas> = {}
+      for (const r of (h.data ?? []) as { os_id: string; horas: number; valor: number }[]) {
+        const t = soma[r.os_id] ?? { horas: 0, valor: 0 }
+        soma[r.os_id] = { horas: t.horas + Number(r.horas), valor: t.valor + Number(r.valor) }
+      }
+      setHorasOS(soma); setRdos((rd.data ?? []) as Rdo[])
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
@@ -122,6 +156,59 @@ export default function OSObraPage() {
     setOcupado(null)
     if (error) { setErro(error.message); return }
     carregar()
+  }
+
+  const abrirHoras = (o: OS) => { setFh({ ...VAZIO_H, data: hoje() }); setErro(''); setDiario(null); setApontando(apontando === o.id ? null : o.id) }
+  const escolherFuncao = (fid: string) => {
+    const x = funcoes.find(q => q.id === fid)
+    setFh(p => ({ ...p, funcao_id: fid, custo_hora: x?.custo_hora_manual != null && !p.custo_hora ? String(x.custo_hora_manual).replace('.', ',') : p.custo_hora }))
+  }
+  const lancarHoras = async (e: React.FormEvent, o: OS) => {
+    e.preventDefault(); setErro('')
+    const horas = num(fh.horas), custo = num(fh.custo_hora)
+    if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
+    if (fh.custo_hora === '' || !(custo >= 0)) { setErro('Informe o custo da hora.'); return }
+    setOcupado(o.id)
+    const { error } = await supabase.rpc('fn_obra_os_apontar_horas', { p_os_id: o.id, p_dados: { data: fh.data, funcao_id: fh.funcao_id, horas, custo_hora: custo } })
+    setOcupado(null)
+    if (error) { setErro(error.message); return }
+    setApontando(null); setFh({ ...VAZIO_H }); carregar()
+  }
+
+  // diário do dia: escolher um dia que já tem diário abre esse diário para corrigir (um por OS e por dia)
+  const rdoDoDia = (osId: string, data: string) => rdos.find(r => r.os_id === osId && r.data === data)
+  const preencherDiario = (osId: string, data: string) => {
+    const r = rdoDoDia(osId, data)
+    setFr(r ? { data, clima: r.clima, praticavel: r.praticavel, efetivo: String(r.efetivo), atividades: r.atividades ?? '', ocorrencias: r.ocorrencias ?? '', fotos: r.fotos }
+      : { ...VAZIO_R, data })
+    setNovasFotos([])
+  }
+  const abrirDiario = (o: OS) => { setErro(''); setApontando(null); if (diario === o.id) { setDiario(null); return } preencherDiario(o.id, hoje()); setDiario(o.id) }
+  const verFoto = async (path: string) => {
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 600)
+    if (error || !data) { setErro('Não foi possível abrir a foto.'); return }
+    window.open(data.signedUrl, '_blank', 'noopener')
+  }
+  const salvarDiario = async (e: React.FormEvent, o: OS) => {
+    e.preventDefault(); setErro('')
+    if (!fr.atividades.trim() && !fr.ocorrencias.trim()) { setErro('Conte o que foi feito ou o que aconteceu no dia.'); return }
+    if (fr.data > hoje()) { setErro('O diário é do dia que já aconteceu — a data não pode ser futura.'); return }
+    if (fr.fotos.length + novasFotos.length > 10) { setErro('No máximo 10 fotos por dia.'); return }
+    setOcupado(o.id)
+    const enviadas: string[] = []
+    for (const file of novasFotos) {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = `${o.company_id}/rdo/${o.id}/${crypto.randomUUID()}.${ext}`
+      const up = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: file.type || 'image/jpeg' })
+      if (up.error) { setOcupado(null); setErro('Não foi possível enviar uma das fotos. Confira a conexão e tente de novo.'); return }
+      enviadas.push(path)
+    }
+    const { error } = await supabase.rpc('fn_obra_rdo_salvar', { p_os_id: o.id, p_dados: {
+      data: fr.data, clima: fr.clima, praticavel: fr.praticavel, efetivo: fr.efetivo === '' ? 0 : Number(fr.efetivo),
+      atividades: fr.atividades, ocorrencias: fr.ocorrencias, fotos: [...fr.fotos, ...enviadas] } })
+    setOcupado(null)
+    if (error) { setErro(error.message); return }
+    setDiario(null); setFr({ ...VAZIO_R }); setNovasFotos([]); carregar()
   }
 
   const inp: React.CSSProperties = { padding: '10px 12px', border: `1px solid ${LINE}`, borderRadius: 10, background: '#fff', fontSize: 15, width: '100%', boxSizing: 'border-box', color: ESP }
@@ -231,6 +318,7 @@ export default function OSObraPage() {
             <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))' }} data-testid="os-obra-lista">
               {visiveis.map(o => {
                 const st = STATUS[o.status]
+                const diarios = rdos.filter(r => r.os_id === o.id)
                 const atrasada = o.data_prevista && o.data_prevista < hoje() && (o.status === 'aberta' || o.status === 'em_execucao')
                 return (
                   <article key={o.id} data-testid="os-obra-cartao" style={{ background: '#fff', border: `1px solid ${o.prioridade === 'urgente' ? VERM : LINE}`, borderRadius: 14, padding: 14, display: 'grid', gap: 8, opacity: ocupado === o.id ? 0.5 : 1 }}>
@@ -247,10 +335,62 @@ export default function OSObraPage() {
                       {o.responsavel && <><dt style={{ color: MUT }}>Responsável</dt><dd style={{ margin: 0 }}>{o.responsavel}</dd></>}
                       {o.data_prevista && <><dt style={{ color: MUT }}>Para</dt><dd style={{ margin: 0, color: atrasada ? VERM : ESP, fontWeight: atrasada ? 700 : 400 }}>{dataBR(o.data_prevista)}{atrasada ? ' · atrasada' : ''}</dd></>}
                       {o.prioridade !== 'normal' && <><dt style={{ color: MUT }}>Prioridade</dt><dd style={{ margin: 0, color: o.prioridade === 'urgente' ? VERM : ESP }}>{PRIORIDADES.find(p => p[0] === o.prioridade)?.[1]}</dd></>}
+                      {horasOS[o.id] && <><dt style={{ ...rot, color: MUT }}>Horas <AjudaCampo chave="projetos.os_obra.horas_apontadas" /></dt>
+                        <dd style={{ margin: 0, fontWeight: 600 }} data-testid="os-obra-horas-total">{horasOS[o.id].horas.toLocaleString('pt-BR')} h · {brl(horasOS[o.id].valor)}</dd></>}
+                      {diarios.length > 0 && <><dt style={{ ...rot, color: MUT }}>Diários <AjudaCampo chave="projetos.os_obra.rdo_registrados" /></dt>
+                        <dd style={{ margin: 0 }} data-testid="os-obra-rdo-total">{diarios.length} {diarios.length === 1 ? 'dia' : 'dias'} · último {dataBR(diarios[0].data)}</dd></>}
                     </dl>
+                    {apontando === o.id && (
+                      <form onSubmit={e => lancarHoras(e, o)} data-testid="os-obra-horas-form" style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr', background: BG, borderRadius: 10, padding: 10 }}>
+                        <label style={lab}><span style={rot}>Dia <AjudaCampo chave="projetos.os_obra.apontar_data" /></span>
+                          <input type="date" value={fh.data} onChange={e => setFh({ ...fh, data: e.target.value })} style={inp} data-testid="os-obra-horas-data" /></label>
+                        <label style={lab}><span style={rot}>Função <AjudaCampo chave="projetos.os_obra.apontar_funcao" /></span>
+                          <select value={fh.funcao_id} onChange={e => escolherFuncao(e.target.value)} style={inp} data-testid="os-obra-horas-funcao">
+                            <option value="">Sem função</option>{funcoes.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></label>
+                        <label style={lab}><span style={rot}>Horas <AjudaCampo chave="projetos.os_obra.apontar_horas" /></span>
+                          <input inputMode="decimal" value={fh.horas} onChange={e => setFh({ ...fh, horas: e.target.value })} placeholder="Ex.: 16" style={inp} data-testid="os-obra-horas-horas" /></label>
+                        <label style={lab}><span style={rot}>R$/hora <AjudaCampo chave="projetos.os_obra.apontar_custo_hora" /></span>
+                          <input inputMode="decimal" value={fh.custo_hora} onChange={e => setFh({ ...fh, custo_hora: e.target.value })} placeholder="Ex.: 45,00" style={inp} data-testid="os-obra-horas-custo" /></label>
+                        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <button type="submit" disabled={!!ocupado} style={btn(ESP, '#fff')} data-testid="os-obra-horas-lancar">
+                            Lançar{num(fh.horas) > 0 && num(fh.custo_hora) >= 0 && fh.custo_hora !== '' ? ` ${brl(Math.round(num(fh.horas) * num(fh.custo_hora) * 100) / 100)}` : ''}</button>
+                          <AjudaCampo chave="projetos.os_obra.apontar_lancar" />
+                          <button type="button" onClick={() => setApontando(null)} style={btn('#fff', ESP)}>Fechar</button>
+                        </div>
+                      </form>
+                    )}
+                    {diario === o.id && (
+                      <form onSubmit={e => salvarDiario(e, o)} data-testid="os-obra-rdo-form" style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr', background: BG, borderRadius: 10, padding: 10 }}>
+                        <label style={lab}><span style={rot}>Dia <AjudaCampo chave="projetos.os_obra.rdo_data" /></span>
+                          <input type="date" value={fr.data} max={hoje()} onChange={e => preencherDiario(o.id, e.target.value)} style={inp} data-testid="os-obra-rdo-data" /></label>
+                        <label style={lab}><span style={rot}>Clima <AjudaCampo chave="projetos.os_obra.rdo_clima" /></span>
+                          <select value={fr.clima} onChange={e => setFr({ ...fr, clima: e.target.value as Clima })} style={inp} data-testid="os-obra-rdo-clima">
+                            {CLIMAS.map(([v, r]) => <option key={v} value={v}>{r}</option>)}</select></label>
+                        <label style={lab}><span style={rot}>Efetivo <AjudaCampo chave="projetos.os_obra.rdo_efetivo" /></span>
+                          <input inputMode="numeric" value={fr.efetivo} onChange={e => setFr({ ...fr, efetivo: e.target.value.replace(/\D/g, '') })} placeholder="Ex.: 3" style={inp} data-testid="os-obra-rdo-efetivo" /></label>
+                        <label style={{ ...lab, alignContent: 'end' }}><span style={{ ...rot, color: ESP, minHeight: 40 }}>
+                          <input type="checkbox" checked={fr.praticavel} onChange={e => setFr({ ...fr, praticavel: e.target.checked })} style={{ width: 20, height: 20 }} data-testid="os-obra-rdo-praticavel" />
+                          Deu para trabalhar <AjudaCampo chave="projetos.os_obra.rdo_praticavel" /></span></label>
+                        <label style={{ ...lab, gridColumn: '1 / -1' }}><span style={rot}>O que foi feito <AjudaCampo chave="projetos.os_obra.rdo_atividades" /></span>
+                          <textarea value={fr.atividades} onChange={e => setFr({ ...fr, atividades: e.target.value })} rows={2} placeholder="Ex.: forro fechado nas salas 201 e 202 (34 m²)" style={{ ...inp, resize: 'vertical' }} data-testid="os-obra-rdo-atividades" /></label>
+                        <label style={{ ...lab, gridColumn: '1 / -1' }}><span style={rot}>Ocorrências <AjudaCampo chave="projetos.os_obra.rdo_ocorrencias" /></span>
+                          <textarea value={fr.ocorrencias} onChange={e => setFr({ ...fr, ocorrencias: e.target.value })} rows={2} placeholder="Ex.: faltou perfil de 3 m" style={{ ...inp, resize: 'vertical' }} data-testid="os-obra-rdo-ocorrencias" /></label>
+                        <label style={{ ...lab, gridColumn: '1 / -1' }}><span style={rot}>Fotos ({fr.fotos.length + novasFotos.length}/10) <AjudaCampo chave="projetos.os_obra.rdo_fotos" /></span>
+                          <input type="file" accept="image/*" capture="environment" multiple onChange={e => setNovasFotos(Array.from(e.target.files ?? []))} style={{ ...inp, padding: 8 }} data-testid="os-obra-rdo-fotos" /></label>
+                        {fr.fotos.length > 0 && <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {fr.fotos.map((p, i) => <button key={p} type="button" onClick={() => verFoto(p)} style={btn('#fff', ESP)}>Foto {i + 1}</button>)}</div>}
+                        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <button type="submit" disabled={!!ocupado} style={btn(ESP, '#fff')} data-testid="os-obra-rdo-salvar">{ocupado === o.id ? 'Salvando…' : rdoDoDia(o.id, fr.data) ? 'Atualizar diário' : 'Salvar diário'}</button>
+                          <AjudaCampo chave="projetos.os_obra.rdo_salvar" />
+                          <button type="button" onClick={() => setDiario(null)} style={btn('#fff', ESP)}>Fechar</button>
+                        </div>
+                      </form>
+                    )}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
                       {o.status === 'aberta' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'em_execucao')} style={btn(GOLD, ESP)} data-testid="os-obra-iniciar">Iniciar</button>}
                       {o.status === 'em_execucao' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'concluida')} style={btn(VERDE, '#fff')} data-testid="os-obra-concluir">Concluir</button>}
+                      {(o.status === 'aberta' || o.status === 'em_execucao') && <span style={rot}><button type="button" disabled={!!ocupado} onClick={() => abrirHoras(o)} style={btn('#fff', ESP)} data-testid="os-obra-apontar">Apontar horas</button><AjudaCampo chave="projetos.os_obra.apontar" /></span>}
+                      {(o.status === 'aberta' || o.status === 'em_execucao') && <span style={rot}><button type="button" disabled={!!ocupado} onClick={() => abrirDiario(o)} style={btn('#fff', ESP)} data-testid="os-obra-rdo">Diário do dia</button><AjudaCampo chave="projetos.os_obra.rdo" /></span>}
                       {(o.status === 'aberta' || o.status === 'em_execucao') && <button type="button" disabled={!!ocupado} onClick={() => editar(o)} style={btn('#fff', ESP)}>Editar</button>}
                       {(o.status === 'aberta' || o.status === 'em_execucao') && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'cancelada')} style={btn('#fff', VERM)}>Cancelar</button>}
                       {o.status === 'cancelada' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'aberta')} style={btn('#fff', ESP)}>Reabrir</button>}

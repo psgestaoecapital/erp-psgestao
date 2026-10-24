@@ -3,16 +3,24 @@
 // HB2 · Tabela de preço por cliente (fatia 2) — lista as tabelas da empresa e calcula o preço de um serviço:
 // o usuário escolhe tabela, serviço, quantidade e condição; o sistema acha a faixa, aplica o adicional e mostra a margem
 // contra o custo informado. Só leitura (a importação vem na próxima fatia). Regra única em src/lib/hub/tabelaPreco.ts.
+// HB0 (auditor F10): o contrato inteiro aparece na tela — faixas × condições com o preço de cada célula e o código do item
+// no cliente; tocar numa célula leva serviço, faixa e condição para a calculadora. Erro do banco nunca aparece cru.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
 
+// Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
+const fmtPreco = (v: number) => (Number.isInteger(v) ? fmtR(v) : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
+
+// Preço de tabela tem centavos (15 × 1,5 = R$ 22,50): o fmtR do painel arredonda para reais inteiros e mostrava "R$ 23".
+const fmtR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 type Tabela = { id: string; nome: string; vigencia_inicio: string; vigencia_fim: string | null }
 type Item = ItemFaixa & { servico_ref: string; servico_nome: string; unidade: string; adicional: boolean }
@@ -41,7 +49,7 @@ export default function TabelasPrecoPage() {
         async () => await supabase.from('erp_tabela_preco_cliente').select('id,nome,vigencia_inicio,vigencia_fim').in('company_id', companyIds).eq('ativo', true).order('nome'),
         { ms: 8000, tentativas: 1, label: 'tabelas de preço' },
       )
-      if (error) { setErro(error.message); return }
+      if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as tabelas de preço.')); return }
       const t = (data ?? []) as Tabela[]
       setTabelas(t)
       setTabelaId(prev => prev || t[0]?.id || '')
@@ -59,9 +67,13 @@ export default function TabelasPrecoPage() {
         supabase.from('erp_tabela_preco_codigo').select('servico_ref,condicao,codigo_externo,preco_fixo').eq('tabela_id', tabelaId),
       ])
       if (!vivo) return
+      const falha = i.error ?? c.error ?? k.error
+      if (falha) { setErro(erroAmigavel(falha, 'Não foi possível abrir esta tabela de preço.')); return }
+      setErro('')
       const its = ((i.data ?? []) as Item[]).map(x => ({ ...x, faixa_de: Number(x.faixa_de), faixa_ate: x.faixa_ate == null ? null : Number(x.faixa_ate), preco_base: Number(x.preco_base) }))
       setItens(its)
-      setConds(((c.data ?? []) as Cond[]).map(x => ({ ...x, percentual: x.percentual == null ? null : Number(x.percentual) })))
+      // "normal" é a coluna base (sem adicional) e já tem opção própria: não repete na lista de condições.
+      setConds(((c.data ?? []) as Cond[]).filter(x => x.condicao !== 'normal').map(x => ({ ...x, percentual: x.percentual == null ? null : Number(x.percentual) })))
       setCods(((k.data ?? []) as Cod[]).map(x => ({ ...x, preco_fixo: x.preco_fixo == null ? null : Number(x.preco_fixo) })))
       setServico(its[0]?.servico_ref ?? '')
       setCondSel('normal')
@@ -90,6 +102,15 @@ export default function TabelasPrecoPage() {
   const semCodigo = useMemo(() => servicos.filter(s => !cods.some(k => k.servico_ref === s.servico_ref)), [servicos, cods])
   const codigoOrfao = useMemo(() => [...new Set(cods.filter(k => !servicos.some(s => s.servico_ref === k.servico_ref)).map(k => k.servico_ref))], [servicos, cods])
   const margem = preco != null && custoN > 0 ? margemContraCusto(preco, custoN) : null
+  const tabelaSel = tabelas.find(t => t.id === tabelaId)
+  const condCol = (sref: string, c: string): Condicao | null => {
+    if (c === 'normal') return null
+    const fixo = cods.find(x => x.servico_ref === sref && x.condicao === c)?.preco_fixo ?? null
+    return { condicao: c, percentual: conds.find(x => x.condicao === c)?.percentual ?? 0, preco_fixo: fixo }
+  }
+  const colunas = ['normal', ...conds.map(c => c.condicao)]
+  const fmtData = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('pt-BR') : 'sem fim')
+  const usarCelula = (sref: string, de: number, c: string) => { setServico(sref); setQtd(String(de)); setCondSel(c) }
 
   const campo: React.CSSProperties = { display: 'block', width: '100%', padding: 10, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP }
   const rot: React.CSSProperties = { fontSize: 13, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
@@ -114,6 +135,12 @@ export default function TabelasPrecoPage() {
               <select data-testid="tp-tabela" style={campo} value={tabelaId} onChange={e => setTabelaId(e.target.value)}>
                 {tabelas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
               </select></label>
+            {tabelaSel && (
+              <div data-testid="tp-vigencia" style={{ fontSize: 13, color: MUT, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                Vigência {fmtData(tabelaSel.vigencia_inicio)} a {fmtData(tabelaSel.vigencia_fim)} · {servicos.length} serviço(s) · {conds.length} adicional(is)
+                <AjudaCampo chave="hub.tabela_preco.vigencia" />
+              </div>
+            )}
             <label><span style={rot}>Serviço <AjudaCampo chave="hub.tabela_preco.servico" /></span>
               <select data-testid="tp-servico" style={campo} value={servico} onChange={e => setServico(e.target.value)}>
                 {servicos.map(s => <option key={s.servico_ref} value={s.servico_ref}>{s.servico_nome} ({s.unidade})</option>)}
@@ -136,9 +163,9 @@ export default function TabelasPrecoPage() {
             )}
             <div data-testid="tp-resultado" style={{ background: BG, borderRadius: 10, padding: 14, border: `1px solid ${LINE}` }}>
               {preco == null ? <b>Sem faixa para essa quantidade.</b> : (<>
-                <div style={{ fontSize: 26, fontWeight: 700 }} data-testid="tp-preco">{fmtR(preco)} <span style={{ fontSize: 14, fontWeight: 400 }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
+                <div style={{ fontSize: 26, fontWeight: 700 }} data-testid="tp-preco">{fmtPreco(preco)} <span style={{ fontSize: 14, fontWeight: 400 }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
                 <div style={{ fontSize: 13, color: MUT, marginTop: 4 }}>
-                  Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} · preço base {fmtR(faixa!.preco_base)}
+                  Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} · preço base {fmtPreco(faixa!.preco_base)}
                   {cond?.preco_fixo != null ? ' · preço fixo da condição' : cond?.percentual ? ` · adicional +${cond.percentual}%` : ''}
                 </div>
                 <div style={{ fontSize: 14, marginTop: 6 }}>Total: <b>{fmtR(preco * q)}</b>{codigo ? <> · código no cliente: <b>{codigo}</b></> : null}</div>
@@ -146,6 +173,59 @@ export default function TabelasPrecoPage() {
               </>)}
             </div>
           </div>
+        )}
+        {!loading && !erro && servicos.length > 0 && (
+          <section data-testid="tp-contrato" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
+            <h2 style={{ fontSize: 17, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>Contrato completo <AjudaCampo chave="hub.tabela_preco.contrato" /></h2>
+            <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Preço por unidade em cada faixa e condição. Toque num preço para levá-lo à calculadora.</p>
+            {servicos.map(s => {
+              const fs = itens.filter(i => i.servico_ref === s.servico_ref).sort((a, b) => a.faixa_de - b.faixa_de)
+              return (
+                <div key={s.servico_ref} style={{ marginBottom: 16 }} data-testid={`tp-contrato-${s.servico_ref}`}>
+                  <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>{s.servico_nome} <span style={{ fontWeight: 400, color: MUT }}>({s.unidade})</span></div>
+                  <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                    <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14, minWidth: 120 + colunas.length * 110 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: `1px solid ${LINE}`, color: MUT, fontWeight: 600 }}>Faixa</th>
+                          {colunas.map(c => {
+                            const cod = cods.find(x => x.servico_ref === s.servico_ref && x.condicao === c)?.codigo_externo
+                            const pct = conds.find(x => x.condicao === c)?.percentual
+                            return (
+                              <th key={c} style={{ textAlign: 'right', padding: '8px 10px', borderBottom: `1px solid ${LINE}`, color: MUT, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                {c === 'normal' ? 'Normal' : c}{c !== 'normal' && pct != null ? ` +${pct}%` : ''}
+                                {cod && <div style={{ fontSize: 12, fontWeight: 400 }} data-testid="tp-codigo-externo">cód. {cod}</div>}
+                              </th>
+                            )
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fs.map(f => (
+                          <tr key={`${f.faixa_de}`}>
+                            <td style={{ padding: '8px 10px', borderBottom: `1px solid ${LINE}`, whiteSpace: 'nowrap' }}>{f.faixa_de}–{f.faixa_ate ?? 'em diante'}</td>
+                            {colunas.map(c => {
+                              const v = precoUnitario([f], f.faixa_de, condCol(s.servico_ref, c))
+                              const ativo = servico === s.servico_ref && condSel === c && faixa?.faixa_de === f.faixa_de
+                              return (
+                                <td key={c} style={{ padding: 4, borderBottom: `1px solid ${LINE}`, textAlign: 'right' }}>
+                                  <button type="button" onClick={() => usarCelula(s.servico_ref, f.faixa_de, c)} data-testid="tp-celula"
+                                    style={{ width: '100%', textAlign: 'right', padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 14, color: ESP,
+                                      border: `1px solid ${ativo ? GOLD : 'transparent'}`, background: ativo ? '#FBF3E2' : 'transparent', fontWeight: ativo ? 700 : 400 }}>
+                                    {v == null ? '—' : fmtPreco(v)}
+                                  </button>
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })}
+          </section>
         )}
       </div>
     </div>

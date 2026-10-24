@@ -43,5 +43,13 @@ test.describe('HB2 — tabela de preço por cliente', () => {
     await expect(tela.getByTestId('tp-preco')).toContainText(/R\$\s*30(,00)?\s*por/)
     await tela.getByTestId('tp-custo').fill('20')
     await expect(tela.getByTestId('tp-margem')).toContainText(/33[.,]3\s*%/)
+
+    // HB0: o contrato completo aparece e tocar numa célula leva serviço, faixa e condição para a calculadora.
+    const contrato = tela.getByTestId('tp-contrato-pintura-epoxi')
+    await expect(contrato).toBeVisible()
+    await expect(contrato.getByTestId('tp-celula')).toHaveCount(6) // 3 faixas × (normal + sábado)
+    await contrato.getByTestId('tp-celula').nth(5).click() // faixa 500+, sábado: 15 × 1,5
+    await expect(tela.getByTestId('tp-qtd')).toHaveValue('500')
+    await expect(tela.getByTestId('tp-preco')).toContainText(/R\$\s*22,50\s*por/)
   })
 })
