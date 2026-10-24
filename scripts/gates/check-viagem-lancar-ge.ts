@@ -2,12 +2,15 @@
 // custo = obra, SÓ ADITIVO (tabela de vínculo + função nova; nada financeiro existente muda, nada de cliente se altera
 // ou apaga), uma vez só, autoria do usuário logado, Σ dos títulos por obra = a fonte única do Resultado; a tela mostra o
 // relatório por obra do fn_viagem_relatorio e o botão "Lançar no GE", com "?" (RD-95). Sem rede.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const mig = readFileSync('supabase/migrations/20261025200052_viagem_lancar_ge_obra.sql', 'utf8').replace(/--[^\n]*/g, '')
+// acha a migration pelo sufixo: a fila pode renumerar a versão sem quebrar o gate
+const arq = readdirSync('supabase/migrations').find(f => f.endsWith('_viagem_lancar_ge_obra.sql'))
+if (!arq) throw new Error('migration *_viagem_lancar_ge_obra.sql não encontrada')
+const mig = readFileSync(`supabase/migrations/${arq}`, 'utf8').replace(/--[^\n]*/g, '')
 const i = mig.indexOf('CREATE OR REPLACE FUNCTION public.fn_viagem_lancar_ge(')
 const fn = i < 0 ? '' : mig.slice(i, mig.indexOf('$function$;', i))
 
