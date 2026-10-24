@@ -1,10 +1,12 @@
 'use client'
 import { useEffect, useState, type CSSProperties, type DragEvent } from 'react'
+import { Clock, FileText, Link2, Pencil, Phone, Trash2, User } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import { linkTelefone } from '@/lib/crm/oportunidadeCliente'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 type Fechada = {
@@ -372,7 +374,7 @@ export default function OportunidadesKanban({
                     {_link && linkHref && (
                       <button type="button" onClick={() => router.push(linkHref)} title={_link.tip}
                         aria-label={_link.tip}
-                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0, color: DOURADO }}>🔗</button>
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0, color: DOURADO }}><Link2 size={14} aria-hidden /></button>
                     )}
                     <span style={{ fontSize: 11, color: TEXTM }}>{tot.qtd}</span>
                   </div>
@@ -412,7 +414,7 @@ export default function OportunidadesKanban({
                       {linkTelefone(c.cliente_telefone) && (
                         <a href={linkTelefone(c.cliente_telefone)} onClick={(e) => e.stopPropagation()} data-testid="card-oport-telefone"
                           style={{ display: 'inline-block', fontSize: 12, color: DOURADO, marginTop: 3, textDecoration: 'none' }}>
-                          <span aria-hidden>📞</span> {c.cliente_telefone}
+                          <Phone size={12} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {c.cliente_telefone}
                         </a>
                       )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6 }}>
@@ -423,20 +425,20 @@ export default function OportunidadesKanban({
                       </div>
                       {nomeResp(c.responsavel_id) && (
                         <div style={{ fontSize: 11, color: TEXTM, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span aria-hidden>👤</span>{nomeResp(c.responsavel_id)}
+                          <User size={12} aria-hidden />{nomeResp(c.responsavel_id)}
                         </div>
                       )}
                       {/* F2.6 · quem moveu por último (autor · ação · data) */}
                       {quemMap[c.id] && (
                         <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>
-                          <span aria-hidden>👤</span> {quemMap[c.id].autor_nome} · {ACAO_LBL[quemMap[c.id].acao] ?? quemMap[c.id].acao} em {fmtDiaMes(quemMap[c.id].quando)}
+                          <User size={11} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {quemMap[c.id].autor_nome} · {ACAO_LBL[quemMap[c.id].acao] ?? quemMap[c.id].acao} em {fmtDiaMes(quemMap[c.id].quando)}
                         </div>
                       )}
                       {/* F2.6 · tempo parado na etapa com semáforo (RD-51: "desde a criação" quando não há histórico) */}
                       {tempoMap[c.id] && (
                         <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
                           <span style={{ width: 8, height: 8, borderRadius: 999, background: semColor(tempoMap[c.id].semaforo), display: 'inline-block', flexShrink: 0 }} aria-hidden />
-                          ⏱️ {tempoMap[c.id].dias_na_etapa} {tempoMap[c.id].dias_na_etapa === 1 ? 'dia' : 'dias'} {tempoMap[c.id].origem === 'created_at' ? '(desde a criação)' : 'nesta etapa'}
+                          <Clock size={11} aria-hidden /> {tempoMap[c.id].dias_na_etapa} {tempoMap[c.id].dias_na_etapa === 1 ? 'dia' : 'dias'} {tempoMap[c.id].origem === 'created_at' ? '(desde a criação)' : 'nesta etapa'}
                         </div>
                       )}
                       {/* F2.7 · orçamento vinculado (chip clicável) ou botão de gerar */}
@@ -452,9 +454,9 @@ export default function OportunidadesKanban({
                               background: orcMap[c.id].itens === 0 ? '#FBF0D8' : '#F6F1E8',
                               color: orcMap[c.id].itens === 0 ? '#7A5A0F' : ESPRESSO,
                             }}>
-                            📄 {orcMap[c.id].numero} · {orcMap[c.id].itens > 0
+                            <FileText size={12} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {orcMap[c.id].numero} · {orcMap[c.id].itens > 0
                               ? `${brl(orcMap[c.id].total)} · ${orcMap[c.id].itens} ${orcMap[c.id].itens === 1 ? 'item' : 'itens'}`
-                              : (Number(orcMap[c.id].total) > 0 ? `📎 PDF · ${brl(orcMap[c.id].total)}` : 'aguardando o PDF do orçamento')}
+                              : (Number(orcMap[c.id].total) > 0 ? `PDF · ${brl(orcMap[c.id].total)}` : 'aguardando o PDF do orçamento')}
                           </button>
                         ) : (
                           <button
@@ -466,7 +468,7 @@ export default function OportunidadesKanban({
                         )}
                       </div>
                       {/* Fallback touch: select de etapa */}
-                      <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }} onClick={(e) => e.stopPropagation()}>
                         <select
                           value={et.v}
                           onChange={(e) => moverPara(c.id, e.target.value, et.v)}
@@ -480,17 +482,18 @@ export default function OportunidadesKanban({
                             </option>
                           ))}
                         </select>
+                        <AjudaCampo chave="projetos.oportunidades.kanban.mover_etapa" />
                       </div>
                       {/* Ações herdadas da lista: Editar · Orçamento/ficha · Excluir */}
                       <div style={cardActions} onClick={(e) => e.stopPropagation()}>
-                        <button style={cardActBtn} onClick={() => onEdit(c.id)} title="Editar" aria-label="Editar">✏️</button>
-                        <button style={cardActBtn} onClick={() => router.push(`/dashboard/projetos/oportunidades/${c.id}`)} title="Orçamento / ficha" aria-label="Orçamento">📄</button>
+                        <button style={cardActBtn} onClick={() => onEdit(c.id)} title="Editar" aria-label="Editar"><Pencil size={14} aria-hidden /></button>
+                        <button style={cardActBtn} onClick={() => router.push(`/dashboard/projetos/oportunidades/${c.id}`)} title="Orçamento / ficha" aria-label="Orçamento"><FileText size={14} aria-hidden /></button>
                         <button
                           style={{ ...cardActBtn, color: '#9A1F1F' }}
                           onClick={() => onExcluir(c.id)}
                           disabled={excluindoId === c.id}
                           title="Excluir" aria-label="Excluir"
-                        >🗑️</button>
+                        ><Trash2 size={14} aria-hidden /></button>
                       </div>
                     </div>
                   ))}
@@ -511,8 +514,11 @@ export default function OportunidadesKanban({
                 <button key={m} onClick={() => setPerdaMotivo(m)} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize', border: `1px solid ${perdaMotivo === m ? '#7A1F1F' : BORDA}`, background: perdaMotivo === m ? '#F4D6D6' : '#fff', color: perdaMotivo === m ? '#7A1F1F' : TEXTM }}>{m}</button>
               ))}
             </div>
-            <textarea value={perdaObs} onChange={(e) => setPerdaObs(e.target.value)} placeholder="Observação (opcional)" rows={2}
-              style={{ width: '100%', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESPRESSO, boxSizing: 'border-box', resize: 'vertical' }} />
+            <label style={{ display: 'block', fontSize: 12, color: TEXTM }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Observação (opcional) <AjudaCampo chave="projetos.oportunidades.perda.observacao" /></span>
+              <textarea value={perdaObs} onChange={(e) => setPerdaObs(e.target.value)} placeholder="Ex.: fechou com outro fornecedor 12% mais barato" rows={2}
+                style={{ width: '100%', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESPRESSO, boxSizing: 'border-box', resize: 'vertical' }} />
+            </label>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
               <button onClick={() => setPerda(null)} style={{ ...cardActBtn, padding: '7px 14px' }}>Cancelar</button>
               <button onClick={() => { void confirmarPerda() }} disabled={!perdaMotivo}

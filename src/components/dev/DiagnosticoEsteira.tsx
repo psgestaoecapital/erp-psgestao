@@ -12,6 +12,8 @@ const ESP = '#3D2314', BRANCO = '#FFFFFF', BD = '#E7DED3', TXM = '#6B5D4F', ROTA
 const COR: Record<Semaforo, { bg: string; fg: string }> = {
   verde: { bg: '#DCFCE7', fg: '#166534' }, amarelo: { bg: '#FEF3C7', fg: '#92400E' }, vermelho: { bg: '#FEE2E2', fg: '#B91C1C' },
 }
+// A lista PR a PR saiu daqui (CEO 23/10): virou o bloco "Próximas publicações" no TOPO, com barra de progresso.
+// Este card mostra só o agregado da fila.
 
 function Card({ id, titulo, ajuda, sem, children }: { id: string; titulo: string; ajuda: string; sem?: Semaforo; children: ReactNode }) {
   const c = sem ? COR[sem] : { bg: BRANCO, fg: ESP }
@@ -74,6 +76,7 @@ export default function DiagnosticoEsteira() {
           <Card id="fila" titulo="Fila" ajuda="diag.fila">
             <div style={{ fontSize: 20, fontWeight: 700 }}>{d.fila.esperando} esperando · {d.fila.fora_da_rodada} fora da rodada · {d.fila.fora} fora</div>
             {d.motivos.map((m) => <div key={m.motivo} style={{ fontSize: 12 }}>{m.n}× {m.motivo}</div>)}
+            <div style={{ fontSize: 11, color: TXM, marginTop: 6 }}>PR a PR, ao vivo, no bloco “Próximas publicações” no topo.</div>
           </Card>
         </div>
       )}

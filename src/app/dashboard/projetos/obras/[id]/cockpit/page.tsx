@@ -4,6 +4,8 @@
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
+import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ROTA = '/dashboard/projetos/obras/[id]/cockpit'
@@ -24,14 +26,18 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
+  const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
+    if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
     setLoading(true); setErro(null)
-    const { data, error } = await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle()
+    let res: Awaited<ReturnType<typeof consulta>>
+    try { res = await comPrazo(consulta, { ms: 8000, tentativas: 1, label: 'cockpit-obra' }) } catch { setLoading(false); setErro(MSG_CARREGAMENTO_FALHOU); return }
+    const { data, error } = res
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar a obra. Tente de novo.')); return }
     if (!data) { setErro('Obra não encontrada ou sem acesso.'); return }
     setR(data as Resultado)
-  }, [id])
+  }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
   const receita = r ? Number(r.receita_servico) + Number(r.receita_material) : 0
@@ -83,9 +89,9 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                   ? <div style={{ fontSize: 12, color: VERDE }}>Nenhuma pendência. Obra em ordem.</div>
                   : <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: ESP }}>{pendencias.map((p) => <li key={p}>{p}</li>)}</ul>}
               </div>
-              <Link href={`/dashboard/projetos/obras/${id}/horas?area=hub`} data-testid="link-lancar-horas" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginRight: 12 }}>Lançar horas →</Link>
-              <Link href={`/dashboard/projetos/obras/${id}/linha-do-tempo?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver linha do tempo →</Link>
-              <Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Ver cronograma →</Link>
+              <Link href={`/dashboard/projetos/obras/${id}/horas?area=hub`} data-testid="link-lancar-horas" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginRight: 12 }}>Lançar horas →</Link><AjudaCampo chave="projetos.cockpit.lancar_horas" rota={ROTA} />
+              <Link href={`/dashboard/projetos/obras/${id}/linha-do-tempo?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver linha do tempo →</Link><AjudaCampo chave="projetos.cockpit.linha_tempo" rota={ROTA} />
+              <Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Ver cronograma →</Link><AjudaCampo chave="projetos.cockpit.cronograma" rota={ROTA} />
             </>
           )}
       </div>

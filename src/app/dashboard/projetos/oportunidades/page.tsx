@@ -1,10 +1,13 @@
 'use client'
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { Target } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { labelUsuario } from '@/lib/usuarioLabel'
-import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
+import OportunidadeFormModal, { empty as oportunidadeVazia, type OportunidadeRow } from './OportunidadeFormModal'
+import { clienteDaUrl } from '../clientes/clientes-regras'
 import OportunidadesKanban from './OportunidadesKanban'
 
 type Row = {
@@ -99,6 +102,18 @@ export default function OportunidadesPage() {
     return () => clearTimeout(t)
   }, [toast])
 
+  // Vindo de Clientes de obra ("Nova oportunidade" no cliente): abre o formulário com o cliente escolhido
+  // e limpa o ?cliente= da URL para não reabrir ao recarregar.
+  useEffect(() => {
+    if (!empresaUnica) return
+    const clienteId = clienteDaUrl(window.location.search)
+    if (!clienteId) return
+    setEditing({ ...oportunidadeVazia(), cliente_id: clienteId })
+    const url = new URL(window.location.href)
+    url.searchParams.delete('cliente')
+    window.history.replaceState(null, '', url.pathname + url.search)
+  }, [empresaUnica])
+
   function rowParaForm(r: Row): OportunidadeRow {
     return {
       id: r.id,
@@ -157,7 +172,7 @@ export default function OportunidadesPage() {
     return (
       <div className="p-4 max-w-3xl mx-auto" style={{ color: ESPRESSO }}>
         <header className="mb-4">
-          <h1 className="text-xl font-bold">🎯 Oportunidades · Funil</h1>
+          <h1 className="text-xl font-bold"><Target className="inline-block align-[-3px] mr-1.5" size={20} aria-hidden /> Oportunidades · Funil</h1>
         </header>
         <div className="rounded-xl p-6 text-center" style={{ background: OFFWHITE }}>
           <p className="font-medium">Selecione uma empresa específica</p>
@@ -180,7 +195,7 @@ export default function OportunidadesPage() {
     <div className="px-4 py-4 w-full" style={{ color: ESPRESSO }}>
       <header className="mb-4 flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold">🎯 Oportunidades · Funil</h1>
+          <h1 className="text-xl font-bold"><Target className="inline-block align-[-3px] mr-1.5" size={20} aria-hidden /> Oportunidades · Funil</h1>
           <p className="text-sm opacity-70">CRM de obra: leads, propostas e negociação.</p>
           {/* Contador honesto: nada some — as terminais (ganhas/perdidas) contam junto com o funil ativo. */}
           <p className="text-sm font-medium mt-1">
@@ -203,16 +218,19 @@ export default function OportunidadesPage() {
           <option value="todas">Todas as etapas</option>
           {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
         </select>
+        <AjudaCampo chave="projetos.oportunidades.filtro_etapa" />
         <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={selSt}>
           <option value="todos">Todos os responsáveis</option>
           {responsaveis.map((u) => <option key={u.id} value={u.id}>{labelUsuario(u, responsaveis)}</option>)}
         </select>
+        <AjudaCampo chave="projetos.oportunidades.filtro_responsavel" />
         <input
           placeholder="Buscar por título ou cliente…"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           style={{ ...selSt, minWidth: 200, flex: 1 }}
         />
+        <AjudaCampo chave="projetos.oportunidades.busca" />
         {loading && <span className="text-xs opacity-60">Carregando…</span>}
         <span className="text-xs opacity-60 ml-auto">{countKanban} oportunidade(s)</span>
       </div>
