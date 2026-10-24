@@ -23,8 +23,9 @@ ok(/REVOKE ALL ON FUNCTION public\.fn_demo_seed_construtora_fc\(uuid, text\) FRO
 ok(!/GRANT EXECUTE[^;]*(authenticated|anon)/.test(mig), 'nenhum GRANT a anon/authenticated')
 
 const dels = [...fn.matchAll(/DELETE FROM [\s\S]*?;/g)].map((m) => m[0])
-ok(dels.length === 4 && dels.every((d) => /erp_tabela_preco_\w+ WHERE (tabela_id|id) = tp AND company_id = c;$/.test(d)),
-  'limpar apaga só a tabela de preço FIXA da semente, escopada por company_id')
+ok(dels.length === 6 && dels.every((d) => /erp_tabela_preco_\w+ WHERE (tabela_id|id) = tp AND company_id = c;$/.test(d)
+  || /erp_medicao_cliente(_item)? WHERE company_id = c AND [^;]*;$/.test(d)),
+  'limpar apaga só a tabela de preço FIXA da semente e a medição demo da …e0001, escopadas por company_id')
 ok(!/DELETE FROM/.test(semear), 'semear não apaga nada')
 ok(!/erp_pagar|erp_receber|erp_nfse|erp_lancamentos|pagar_id/.test(fn), 'não toca financeiro nem fiscal')
 ok(/tp constant uuid := 'b0700000-0000-4000-a000-0000000e0002'/.test(fn), 'tabela de preço com id fixo próprio (não colide com a …e0001)')
