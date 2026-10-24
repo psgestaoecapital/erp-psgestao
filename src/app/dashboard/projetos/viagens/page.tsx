@@ -3,13 +3,14 @@
 // Viagem · fechamento administrativo (CEO 30/09 e 01/10): só viagens NOVAS. O administrativo abre a viagem, lança os
 // cupons (despesa ou abastecimento, cada um com a SUA obra — rateio), confere o adiantamento (5.01) × gastos × saldo
 // (5.02) e fecha. Gravação só pelas funções do banco (fn_viagem_*); o fechamento emite o evento 'viagem_fechada' e o
-// título nasce no GE — esta tela nunca lança financeiro.
+// título nasce no GE pela fn_viagem_lancar_ge (onda 2: centro de custo = obra) — esta tela não calcula nem grava título.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { resumoTexto, validarLancamento, type LancamentoForm } from '@/lib/viagem/tela'
+import { RelatorioViagens } from './RelatorioViagens'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 type Viagem = { id: string; numero: number; colaborador_nome: string; obra_id: string; periodo_inicio: string; periodo_fim: string; adiantamento: number; status: string; km_inicial: number | null; km_final: number | null; placa: string | null; origem: string | null; destino: string | null }
@@ -35,21 +36,28 @@ export default function ViagensPage() {
   const [form, setForm] = useState<Record<string, string>>({})
   const [lf, setLf] = useState<LancamentoForm | null>(null)
   const [msg, setMsg] = useState('')
+  const [aviso, setAviso] = useState('')
+  // viagens já lançadas no GE (nº de títulos por viagem), lidas do vínculo erp_viagem_ge_titulo
+  const [noGe, setNoGe] = useState<Record<string, number>>({})
   const [busy, setBusy] = useState(false)
   // perfil consulta (viewer) só lê: o banco barra a gravação (gatilho trg_viagem_trava_viewer); a tela esconde as ações
   const [podeGravar, setPodeGravar] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!empresa) return
-    const [v, o, c, g] = await Promise.all([
+    const [v, o, c, g, t] = await Promise.all([
       supabase.from('erp_viagem').select('id,numero,colaborador_nome,obra_id,periodo_inicio,periodo_fim,adiantamento,status,km_inicial,km_final,placa,origem,destino').eq('company_id', empresa).is('excluido_em', null).order('periodo_inicio', { ascending: false }).limit(100),
       supabase.from('projetos_obras').select('id,numero,nome').eq('company_id', empresa).order('numero'),
       supabase.from('erp_plano_contas').select('codigo,descricao').eq('company_id', empresa).eq('ativo', true).order('codigo'),
       supabase.rpc('fn_viagem_pode_gravar', { p_company_id: empresa }),
+      supabase.from('erp_viagem_ge_titulo').select('viagem_id').eq('company_id', empresa).limit(5000),
     ])
     if (v.error) setMsg(v.error.message)
     setViagens((v.data ?? []) as Viagem[]); setObras((o.data ?? []) as Obra[]); setCats((c.data ?? []) as Cat[])
     setPodeGravar(g.data === true)
+    const ge: Record<string, number> = {}
+    for (const x of (t.data ?? []) as { viagem_id: string }[]) ge[x.viagem_id] = (ge[x.viagem_id] ?? 0) + 1
+    setNoGe(ge)
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da empresa
   useEffect(() => { carregar() }, [carregar])
@@ -64,10 +72,10 @@ export default function ViagensPage() {
   }, [])
 
   const rpc = async (fn: string, args: Record<string, unknown>) => {
-    setBusy(true); setMsg('')
+    setBusy(true); setMsg(''); setAviso('')
     const { data, error } = await supabase.rpc(fn, args)
     setBusy(false)
-    const d = data as { ok?: boolean; erro?: string; erros?: string[] } | null
+    const d = data as { ok?: boolean; erro?: string; erros?: string[]; titulos?: number; total?: number; reembolso_colaborador?: number; a_devolver?: number } | null
     if (error || !d?.ok) { setMsg(error?.message ?? d?.erro ?? (d?.erros ?? []).join(' · ') ?? 'Não foi possível salvar'); return null }
     return d
   }
@@ -90,9 +98,17 @@ export default function ViagensPage() {
     if (!aberta || !confirm('Excluir este lançamento?')) return
     if (await rpc('fn_viagem_lancamento_excluir', { p_id: id })) await abrir(aberta)
   }
+  async function lancarGe(id: string) {
+    const d = await rpc('fn_viagem_lancar_ge', { p_viagem_id: id })
+    if (!d) return
+    const extra = [(d.reembolso_colaborador ?? 0) > 0 ? `reembolso ao colaborador ${brl(d.reembolso_colaborador)}` : '', (d.a_devolver ?? 0) > 0 ? `a devolver pelo colaborador ${brl(d.a_devolver)}` : ''].filter(Boolean).join(' · ')
+    await carregar()
+    setAviso(`Lançada no GE: ${d.titulos} título(s), ${brl(d.total)}${extra ? ` · ${extra}` : ''}.`)
+  }
   async function fechar() {
     if (!aberta || !confirm('Fechar a viagem? Depois de fechada ela não se altera e o GE recebe o acerto.')) return
-    if (await rpc('fn_viagem_fechar', { p_viagem_id: aberta.id })) { await carregar(); setAberta(null) }
+    const id = aberta.id
+    if (await rpc('fn_viagem_fechar', { p_viagem_id: id })) { setAberta(null); await lancarGe(id) }
   }
 
   if (!empresa) return <div className="p-6 text-sm" style={{ color: ESP }}>Escolha uma empresa.</div>
@@ -104,6 +120,7 @@ export default function ViagensPage() {
         {aberta && <button className="text-sm underline" onClick={() => { setAberta(null); setMsg('') }}>← Voltar à lista</button>}
       </div>
       {msg && <div role="alert" className="mb-3 rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{msg}</div>}
+      {aviso && <div role="status" className="mb-3 rounded-lg border border-green-300 bg-green-50 p-2 text-sm text-green-900">{aviso}</div>}
 
       {nova && !aberta && podeGravar && (
         <div className="mb-4 grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
@@ -125,7 +142,9 @@ export default function ViagensPage() {
           <ul className="space-y-2">{viagens.map((v) => (
             <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-center justify-between rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
               <span><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span></span>
-              <span className="text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span></button></li>))}</ul></>)}
+              <span className="text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}{noGe[v.id] ? ' · no GE' : ''}</span></button></li>))}</ul></>)}
+
+      {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
 
       {aberta && (
         <div className="space-y-3">
@@ -137,6 +156,13 @@ export default function ViagensPage() {
               <div>Pago pelo colaborador<AjudaCampo chave="projetos.viagem.resumo_pago_colaborador" /><br /><b>{brl(resumo.pago_colaborador)}</b></div><div>Saldo<AjudaCampo chave="projetos.viagem.resumo_saldo" /><br /><b>{brl(Math.abs(resumo.saldo))}</b></div>
               <div className="col-span-2 sm:col-span-4 text-xs opacity-80">{resumoTexto(resumo.saldo)}{resumo.km_rodado != null ? ` · ${resumo.km_rodado} km` : ''}{resumo.custo_km != null ? ` · ${brl(resumo.custo_km)}/km` : ''}</div></div>}
           </div>
+          {aberta.status === 'fechada' && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3 text-sm" style={{ borderColor: LINE }}>
+              <span>Situação no GE<AjudaCampo chave="projetos.viagem.ge_situacao" />: <b>{noGe[aberta.id] ? `lançada · ${noGe[aberta.id]} título(s)` : 'ainda não lançada'}</b></span>
+              {resumo && resumo.saldo > 0 && <span>· A devolver pelo colaborador<AjudaCampo chave="projetos.viagem.ge_a_devolver" />: <b>{brl(resumo.saldo)}</b></span>}
+              {!noGe[aberta.id] && podeGravar && <span className="flex items-center gap-1"><button disabled={busy} className="rounded-lg px-3 py-1.5 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => lancarGe(aberta.id)}>Lançar no GE</button><AjudaCampo chave="projetos.viagem.ge_lancar" /></span>}
+            </div>
+          )}
           <ul className="space-y-1">{lancs.map((l) => (
             <li key={l.id} className="flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-sm" style={{ borderColor: LINE }}>
               <span>{dt(l.data)} · {l.fornecedor_nome} <span className="text-xs opacity-60">· {l.categoria} · {obraNome(l.obra_id)}{l.tipo === 'abastecimento' ? ` · ${l.litros} L` : ''}</span></span>
