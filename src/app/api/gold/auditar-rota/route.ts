@@ -28,6 +28,7 @@ const CHROMIUM_PACK_URL =
 const EMPRESA_BOT_OFICINA = 'b0700000-0000-4000-a000-000000000001'; // Demonstração · Oficina
 const EMPRESA_BOT_PM = 'b0700000-0000-4000-a000-000000000002';      // Demonstração · Agência (P&M)
 const EMPRESA_BOT_REVENDA = 'b0700000-0000-4000-a000-000000000003'; // Demonstração · Revenda
+const EMPRESA_BOT_HUB = 'b0700000-0000-4000-a000-000000000006';     // Demonstração · Construtora Modelo (Hub de Projetos)
 const EMPRESA_BOT_GE = 'b0700000-0000-4000-a000-000000000004';      // Demonstração · Comércio (GE) — default geral
 
 type Body = { rota?: string; screen_id?: string };
@@ -77,6 +78,13 @@ export async function POST(req: Request) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
+  // O login do robô usa um cliente À PARTE: signInWithPassword troca a sessão do cliente que o chama, e o
+  // cliente de serviço passaria a gravar como `authenticated` (sem INSERT em gold_camada2_validacoes → "permission
+  // denied" silencioso, nenhuma jornada gravada desde 27/09). O de serviço fica só com a service_role.
+  const authClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
   const PROJECT_REF = SUPABASE_URL.replace('https://', '').split('.')[0];
 
   const { data: botoes, error: botoesErr } = await supabase
@@ -95,7 +103,7 @@ export async function POST(req: Request) {
   let authStatus = 'desconhecido';
 
   try {
-    const { data: signIn, error: signErr } = await supabase.auth.signInWithPassword({
+    const { data: signIn, error: signErr } = await authClient.auth.signInWithPassword({
       email: BOT_EMAIL, password: BOT_PASSWORD,
     });
     if (signErr || !signIn?.session) throw new Error(`login bot: ${signErr?.message || 'sem session'}`);
@@ -114,8 +122,10 @@ export async function POST(req: Request) {
     const ehOficina = rota.startsWith('/dashboard/oficina');
     const ehPm = rota.startsWith('/dashboard/pm') || rota === '/dashboard/producao';
     const ehRevenda = rota.startsWith('/dashboard/revenda');
+    // Hub de Projetos (construção): telas em /dashboard/projetos e /dashboard/hub só têm dado na Construtora Modelo.
+    const ehHub = rota.startsWith('/dashboard/projetos') || rota.startsWith('/dashboard/hub');
     // vertical → demo por is_demo (item 4 do incidente). Default geral = Demonstração Comércio (GE), NUNCA PS LTDA.
-    const empresaAudit = ehOficina ? EMPRESA_BOT_OFICINA : ehPm ? EMPRESA_BOT_PM : ehRevenda ? EMPRESA_BOT_REVENDA : EMPRESA_BOT_GE;
+    const empresaAudit = ehOficina ? EMPRESA_BOT_OFICINA : ehPm ? EMPRESA_BOT_PM : ehRevenda ? EMPRESA_BOT_REVENDA : ehHub ? EMPRESA_BOT_HUB : EMPRESA_BOT_GE;
     // RD-69 P1/RD-70: o robô SÓ audita empresa de DEMONSTRAÇÃO (is_demo=true). Rota sem demo da vertical
     // (ex.: genérica que caía na PS LTDA) ⇒ 403 e a rota fica "NÃO AUDITADA" no painel. Fail-closed.
     if (!(await empresaPermitidaParaRobo(supabase, empresaAudit))) {
@@ -327,7 +337,7 @@ Responda APENAS JSON sem markdown:
   const veredito2 = analise.veredito === 'OURO' ? 'verde'
     : analise.veredito === 'PRATA' ? 'amarelo' : 'vermelho';
 
-  await supabase.from('gold_camada2_validacoes').insert({
+  const { error: insErr } = await supabase.from('gold_camada2_validacoes').insert({
     botao_id: botao.id,
     destino_real_url: urlAposClique,
     destino_match_esperado: botao.destino_esperado_rota ? urlAposClique.includes(botao.destino_esperado_rota) : true,
@@ -346,6 +356,7 @@ Responda APENAS JSON sem markdown:
     playwright_real: true,
     auth_status: 'autenticado',
   });
+  if (insErr) return { botao_id: botao.id, veredito: 'ERRO_GRAVACAO', custo_usd: custoUsd, motivo: `não gravou em gold_camada2_validacoes: ${insErr.message}` };
 
   return { botao_id: botao.id, veredito: analise.veredito, custo_usd: custoUsd, motivo: analise.motivo || '', estado_conteudo: estadoConteudo };
 }
