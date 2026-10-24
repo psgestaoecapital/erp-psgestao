@@ -349,7 +349,13 @@ export default function ServicoEditorPage({
         <div className="lg:col-span-3">
           {/* Header editável */}
           <div className="mb-5 rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center gap-2">
+            <h1 className="mb-2 text-xl font-medium text-[#3D2314] sm:text-2xl" style={{ fontFamily: "ui-serif,Georgia,serif" }}>
+              {servico.nome || "Serviço sem nome"}
+              {servico.codigo && (
+                <span className="ml-2 align-middle font-mono text-sm font-normal text-[#3D2314]/50">{servico.codigo}</span>
+              )}
+            </h1>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               {isFork && (
                 <span className="rounded-full bg-[#3D2314]/8 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#3D2314]/60">
                   biblioteca
