@@ -3,13 +3,17 @@
 // HB2 · Propostas dentro do Hub (RD-52: mesma fonte erp_orcamentos, sem 2ª lista). Antes redirecionava para
 // /dashboard/orcamentos e o usuário "saía" do Hub. Agora a lista, o funil e a busca vivem aqui; criar/editar
 // continua no editor completo (1 toque; "Abrir" leva o ?id= e o editor abre a proposta escolhida). Só leitura. 3 estados: erro / vazio (ensina) / dados.
+// HB0 (auditor F15): funil honesto por situação (toque filtra), taxa de aprovação, propostas que vencem em 7 dias,
+// emissão/validade/obra na lista; no celular a lista rola dentro do cartão; erro do banco nunca vai cru (erroAmigavel).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { diasParaVencer, resumoFunil, ABERTAS } from '@/lib/hub/propostas'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
@@ -19,9 +23,10 @@ const STATUS: Record<string, { cor: string; label: string }> = {
   recusado: { cor: '#B91C1C', label: 'Recusado' }, expirado: { cor: '#F59E0B', label: 'Expirado' },
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
-const ABERTAS = ['rascunho', 'enviado', 'visualizado']
 
-type Proposta = { id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; obra_id: string | null }
+type Proposta = { id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null }
+
+const dataBR = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '—')
 
 export default function PropostasHubPage() {
   const { companyIds } = useCompanyIds()
@@ -36,11 +41,11 @@ export default function PropostasHubPage() {
     setLoading(true); setErro('')
     try {
       const { data, error } = await comPrazo(
-        async () => await supabase.from('erp_orcamentos').select('id,numero,cliente_nome,status,total,data_emissao,obra_id')
+        async () => await supabase.from('erp_orcamentos').select('id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id')
           .in('company_id', companyIds).order('data_emissao', { ascending: false }).limit(100),
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
-      if (error) { setErro(error.message); return }
+      if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as propostas.')); return }
       setLinhas((data ?? []) as Proposta[])
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
@@ -51,9 +56,7 @@ export default function PropostasHubPage() {
     return linhas.filter(l => (filtro === 'todos' || l.status === filtro)
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b)))
   }, [linhas, busca, filtro])
-  const abertas = linhas.filter(l => ABERTAS.includes(l.status))
-  const valorAberto = abertas.reduce((s, l) => s + Number(l.total ?? 0), 0)
-  const valorAprov = linhas.filter(l => l.status === 'aprovado' || l.status === 'convertido').reduce((s, l) => s + Number(l.total ?? 0), 0)
+  const r = useMemo(() => resumoFunil(linhas), [linhas])
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '12px 16px', flex: '1 1 160px' }
   return (
@@ -61,7 +64,7 @@ export default function PropostasHubPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Propostas</h1>
-          <div style={{ fontSize: 12, color: MUT }}>Orçamentos enviados aos clientes — do rascunho ao pedido.</div>
+          <div style={{ fontSize: 12, color: MUT }}>Propostas (orçamentos) enviadas aos clientes — do rascunho ao pedido.</div>
         </div>
         <Link href="/dashboard/orcamentos" style={{ background: GOLD, color: '#fff', padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>+ Nova proposta</Link>
       </div>
@@ -79,9 +82,40 @@ export default function PropostasHubPage() {
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 16 }}>
-            <div style={card}><div style={{ fontSize: 11, color: MUT }}>Em aberto</div><div style={{ fontSize: 18, fontWeight: 700 }}>{abertas.length}</div><div style={{ fontSize: 12, color: MUT }}>{fmtR(valorAberto)}</div></div>
-            <div style={card}><div style={{ fontSize: 11, color: MUT }}>Aprovadas / viraram pedido</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtR(valorAprov)}</div></div>
+          <div data-testid="hub-propostas-indicadores" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 16 }}>
+            <div style={card}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Em aberto <AjudaCampo chave="projetos.propostas.em_aberto" /></div>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{r.abertas}</div><div style={{ fontSize: 12, color: MUT }}>{fmtR(r.valorAberto)}</div>
+            </div>
+            <div style={card}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Aprovadas / viraram pedido <AjudaCampo chave="projetos.propostas.aprovadas" /></div>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{r.ganhas}</div><div style={{ fontSize: 12, color: MUT }}>{fmtR(r.valorGanho)}</div>
+            </div>
+            <div style={card}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Taxa de aprovação <AjudaCampo chave="projetos.propostas.taxa_aprovacao" /></div>
+              <div data-testid="hub-propostas-taxa" style={{ fontSize: 18, fontWeight: 700 }}>{r.taxaAprovacao === null ? '—' : `${r.taxaAprovacao}%`}</div>
+              <div style={{ fontSize: 12, color: MUT }}>{r.taxaAprovacao === null ? 'nenhum cliente respondeu ainda' : 'das propostas já respondidas'}</div>
+            </div>
+            <div style={{ ...card, borderColor: r.aVencer ? '#F59E0B' : LINE }}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Vencem em 7 dias <AjudaCampo chave="projetos.propostas.a_vencer" /></div>
+              <div data-testid="hub-propostas-a-vencer" style={{ fontSize: 18, fontWeight: 700 }}>{r.aVencer}</div><div style={{ fontSize: 12, color: MUT }}>{fmtR(r.valorAVencer)}</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>
+              {r.total} proposta(s) · {r.abertas} em aberto — toque numa situação para filtrar <AjudaCampo chave="projetos.propostas.funil" />
+            </div>
+            <div data-testid="hub-propostas-funil" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              {Object.entries(STATUS).filter(([k]) => r.porStatus[k]).map(([k, v]) => {
+                const ativo = filtro === k
+                return (
+                  <button key={k} type="button" data-testid="hub-propostas-funil-etapa" aria-pressed={ativo} onClick={() => setFiltro(ativo ? 'todos' : k)}
+                    style={{ border: `1px solid ${ativo ? v.cor : LINE}`, background: ativo ? `${v.cor}14` : '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 12, color: ESP, cursor: 'pointer', minHeight: 36 }}>
+                    <span style={{ color: v.cor, fontWeight: 700 }}>{v.label}</span> · {r.porStatus[k].n} · {fmtR(r.porStatus[k].valor)}
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             <div style={{ flex: '1 1 220px', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -98,27 +132,36 @@ export default function PropostasHubPage() {
             </div>
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left', fontSize: 12, color: MUT }}>
                 <th style={{ padding: '8px 12px' }}>Número</th><th style={{ padding: '8px 12px' }}>Cliente</th>
-                <th style={{ padding: '8px 12px' }}>Status</th><th style={{ padding: '8px 12px', textAlign: 'right' }}>Total</th><th style={{ padding: '8px 12px' }} />
+                <th style={{ padding: '8px 12px' }}>Status</th><th style={{ padding: '8px 12px' }}>Emissão</th>
+                <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Validade <AjudaCampo chave="projetos.propostas.validade" /></span></th>
+                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Total</th><th style={{ padding: '8px 12px' }} />
               </tr></thead>
               <tbody>
                 {vis.map(l => {
                   const st = STATUS[l.status] ?? { cor: MUT, label: l.status }
+                  const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
+                  const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
                   return (
                     <tr key={l.id} style={{ borderTop: `1px solid ${LINE}`, fontSize: 13 }}>
                       <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600 }}>{l.numero ?? '—'}</td>
                       <td style={{ padding: '8px 12px' }}>{l.cliente_nome ?? '—'}</td>
                       <td style={{ padding: '8px 12px' }}><span style={{ color: st.cor, fontWeight: 600 }}>{st.label}</span></td>
+                      <td style={{ padding: '8px 12px' }}>{dataBR(l.data_emissao)}</td>
+                      <td style={{ padding: '8px 12px', color: corVal }} data-testid="hub-proposta-validade">
+                        {dataBR(l.data_validade)}{dias !== null && dias < 0 ? ' · vencida' : dias !== null && dias <= 7 ? ` · ${dias === 0 ? 'vence hoje' : `${dias} dia(s)`}` : ''}
+                      </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmtR(Number(l.total ?? 0))}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {l.obra_id && <Link href={`/dashboard/projetos/obras/${l.obra_id}`} data-testid="hub-proposta-obra" style={{ color: ESP, fontSize: 12, marginRight: 12 }}>Obra</Link>}
                         <Link href={`/dashboard/orcamentos?id=${l.id}`} data-testid="hub-proposta-abrir" style={{ color: GOLD, fontWeight: 600, fontSize: 12 }}>Abrir</Link>
                       </td>
                     </tr>
                   )
                 })}
-                {vis.length === 0 && <tr><td colSpan={5} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
+                {vis.length === 0 && <tr><td colSpan={7} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
               </tbody>
             </table>
           </div>
