@@ -333,6 +333,7 @@ export default function CalculadoraObraPage() {
             {companyId && (
               <div className="flex flex-wrap items-center gap-2">
                 <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Nome do cálculo (obra, cliente…)" data-testid="calc-titulo" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm" />
+                <AjudaCampo chave="projetos.calculadora.titulo_calculo" rota="/dashboard/projetos/calculadora" />
                 <button onClick={() => void salvarCalculo()} data-testid="calc-salvar" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">Salvar cálculo<AjudaCampo chave="projetos.calculadora.salvar_calculo" rota="/dashboard/projetos/calculadora" /></button>
               </div>
             )}

@@ -4,7 +4,8 @@
 // Fatia 10: itens do contrato executados em cada tarefa (projetos_obra_tarefa_item) e quadro "Compras do período"
 // (fn_obra_necessidades_periodo: o que falta executar × composição do serviço, no período do quadro de próximas semanas).
 // Fatia 11: histograma de mão de obra (horas apontadas por semana) e pluviometria (dias de chuva e parados do diário/RDO).
-// Fatia 12: linha realizada da curva S (projetos_obra_tarefa_avanco: o % de cada tarefa gravado a cada dia).
+// Fatia 12: Gantt logo abaixo dos indicadores (legenda e marca de hoje), curva S com a linha de base × planejado atual
+// e linha realizada (projetos_obra_tarefa_avanco: o % de cada tarefa gravado a cada dia).
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -193,6 +194,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
 
   const pos = (d: string) => (janela ? ((ms(d) - ms(janela.ini)) / DIA / janela.total) * 100 : 0)
   const larg = (a: string, b: string) => (janela ? (dias(a, b) / janela.total) * 100 : 0)
+  const hojeX = janela && hoje() >= janela.ini && hoje() <= janela.fim ? pos(hoje()) : null
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '20px 16px' }}>
@@ -297,6 +299,55 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                   <Mini label="Caminho crítico" valor={`${cpm.criticas.size} de ${tarefas.length}`} cor={VERM} ajuda="projetos.cronograma.ind_caminho_critico" />
                 </div>
 
+                <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14, overflowX: 'auto' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Tarefas no tempo (Gantt) <AjudaCampo chave="projetos.cronograma.gantt" rota={ROTA_AJUDA} /></div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: ESP }}>
+                    <input type="checkbox" checked={soCriticas} onChange={(e) => setSoCriticas(e.target.checked)} style={{ width: 18, height: 18 }} />
+                    Só caminho crítico <AjudaCampo chave="projetos.cronograma.so_criticas" rota={ROTA_AJUDA} />
+                  </label>
+                  </div>
+                  <LegendaGantt />
+                  <div style={{ minWidth: 560 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUT, marginLeft: 160, marginBottom: 6 }}>
+                      <span>{janela && fmt(janela.ini)}</span>{hojeX !== null && <span style={{ color: ESP, fontWeight: 600 }}>hoje {fmt(hoje())}</span>}<span>{janela && fmt(janela.fim)}</span>
+                    </div>
+                    {visiveis.map((t) => {
+                      const p = predDe(t.id)
+                      const atras = !!t.fim_base && t.fim > t.fim_base
+                      const pt = p ? tarefas.find((x) => x.id === p.predecessora_id) : undefined
+                      const conflito = !!pt && t.inicio < pt.fim
+                      const critica = cpm.criticas.has(t.id), folga = cpm.folga.get(t.id) ?? 0
+                      return (
+                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
+                          <div style={{ width: 152, flexShrink: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, color: ESP }}>{t.nome}{critica && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: VERM, textTransform: 'uppercase', letterSpacing: 0.4 }}>crítica</span>}</div>
+                            <div style={{ fontSize: 10.5, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%{p ? ` · após ${nomePorId.get(p.predecessora_id) ?? '—'}` : ''}{!critica ? ` · folga ${folga} d` : ''}</div>
+                          </div>
+                          <div style={{ position: 'relative', flex: 1, height: 22 }}>
+                            {hojeX !== null && <div aria-hidden style={{ position: 'absolute', top: -6, bottom: -6, left: `${hojeX}%`, borderLeft: `1px dashed ${MUT}` }} />}
+                            {t.inicio_base && t.fim_base && (
+                              <div title="Linha de base" style={{ position: 'absolute', top: 15, height: 4, left: `${pos(t.inicio_base)}%`, width: `${larg(t.inicio_base, t.fim_base)}%`, background: LINE, borderRadius: 2 }} />
+                            )}
+                            {pt && (
+                              <div title={conflito ? `Começa antes de "${pt.nome}" terminar` : `Depende de "${pt.nome}"`}
+                                style={{ position: 'absolute', top: 8, height: 0, left: `${Math.min(pos(pt.fim), pos(t.inicio))}%`, width: `${Math.abs(pos(t.inicio) - pos(pt.fim))}%`, borderTop: `2px dashed ${conflito ? VERM : MUT}` }} />
+                            )}
+                            <div style={{ position: 'absolute', top: 2, height: 12, left: `${pos(t.inicio)}%`, width: `${larg(t.inicio, t.fim)}%`, background: '#FBF4E4', border: `${critica ? 2 : 1}px solid ${atras || critica ? VERM : GOLD}`, borderRadius: 4, overflow: 'hidden' }}>
+                              <div style={{ width: `${Number(t.percentual)}%`, height: '100%', background: atras ? VERM : GOLD }} />
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                            <button onClick={() => editar(t)} style={btnMini}>Editar</button>
+                            <AjudaCampo chave="projetos.cronograma.acao_editar" rota={ROTA_AJUDA} />
+                            <button onClick={() => void excluir(t)} style={{ ...btnMini, color: VERM }}>Excluir</button>
+                            <AjudaCampo chave="projetos.cronograma.acao_excluir" rota={ROTA_AJUDA} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
                 {ff && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
                     <Mini label="Custo previsto total" valor={brl(ff.previsto)} ajuda="projetos.cronograma.ind_custo_previsto" />
@@ -358,7 +409,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                     <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 6 }}>Curva S — planejado × realizado <AjudaCampo chave="projetos.cronograma.curva_s" rota={ROTA_AJUDA} /></div>
                     <CurvaSvg curva={curva} realizada={realizada} />
                     <div style={{ fontSize: 11, color: MUT, marginTop: 4, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
-                      <span>Linha dourada: planejado acumulado{temBase ? ' (pela linha de base)' : ''}. {realizada.length > 1 ? 'Linha verde: avanço realizado de cada semana até hoje.' : 'Ponto: avanço realizado hoje (a linha realizada aparece conforme o % das tarefas é atualizado).'}</span>
+                      <span>{curva.temBase ? 'Linha dourada: planejado pela linha de base. Linha tracejada: planejado pelas datas atuais (reprogramado); a distância entre as duas é o quanto o cronograma escorregou.' : 'Linha dourada: planejado acumulado. Fixe a linha de base para comparar com as datas reprogramadas.'} {realizada.length > 1 ? 'Linha verde: avanço realizado de cada semana até hoje.' : 'Ponto: avanço realizado hoje (a linha realizada aparece conforme o % das tarefas é atualizado).'}</span>
                       <AjudaCampo chave="projetos.cronograma.curva_realizada" rota={ROTA_AJUDA} />
                     </div>
                   </div>
@@ -383,50 +434,6 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                   )}
                 </div>
 
-                <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, overflowX: 'auto' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: ESP, marginBottom: 8 }}>
-                    <input type="checkbox" checked={soCriticas} onChange={(e) => setSoCriticas(e.target.checked)} style={{ width: 18, height: 18 }} />
-                    Só caminho crítico <AjudaCampo chave="projetos.cronograma.so_criticas" rota={ROTA_AJUDA} />
-                  </label>
-                  <div style={{ minWidth: 560 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUT, marginLeft: 160, marginBottom: 6 }}>
-                      <span>{janela && fmt(janela.ini)}</span><span>{janela && fmt(janela.fim)}</span>
-                    </div>
-                    {visiveis.map((t) => {
-                      const p = predDe(t.id)
-                      const atras = !!t.fim_base && t.fim > t.fim_base
-                      const pt = p ? tarefas.find((x) => x.id === p.predecessora_id) : undefined
-                      const conflito = !!pt && t.inicio < pt.fim
-                      const critica = cpm.criticas.has(t.id), folga = cpm.folga.get(t.id) ?? 0
-                      return (
-                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
-                          <div style={{ width: 152, flexShrink: 0 }}>
-                            <div style={{ fontSize: 12.5, fontWeight: 600, color: ESP }}>{t.nome}{critica && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: VERM, textTransform: 'uppercase', letterSpacing: 0.4 }}>crítica</span>}</div>
-                            <div style={{ fontSize: 10.5, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%{p ? ` · após ${nomePorId.get(p.predecessora_id) ?? '—'}` : ''}{!critica ? ` · folga ${folga} d` : ''}</div>
-                          </div>
-                          <div style={{ position: 'relative', flex: 1, height: 22 }}>
-                            {t.inicio_base && t.fim_base && (
-                              <div title="Linha de base" style={{ position: 'absolute', top: 15, height: 4, left: `${pos(t.inicio_base)}%`, width: `${larg(t.inicio_base, t.fim_base)}%`, background: LINE, borderRadius: 2 }} />
-                            )}
-                            {pt && (
-                              <div title={conflito ? `Começa antes de "${pt.nome}" terminar` : `Depende de "${pt.nome}"`}
-                                style={{ position: 'absolute', top: 8, height: 0, left: `${Math.min(pos(pt.fim), pos(t.inicio))}%`, width: `${Math.abs(pos(t.inicio) - pos(pt.fim))}%`, borderTop: `2px dashed ${conflito ? VERM : MUT}` }} />
-                            )}
-                            <div style={{ position: 'absolute', top: 2, height: 12, left: `${pos(t.inicio)}%`, width: `${larg(t.inicio, t.fim)}%`, background: '#FBF4E4', border: `${critica ? 2 : 1}px solid ${atras || critica ? VERM : GOLD}`, borderRadius: 4, overflow: 'hidden' }}>
-                              <div style={{ width: `${Number(t.percentual)}%`, height: '100%', background: atras ? VERM : GOLD }} />
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                            <button onClick={() => editar(t)} style={btnMini}>Editar</button>
-                            <AjudaCampo chave="projetos.cronograma.acao_editar" rota={ROTA_AJUDA} />
-                            <button onClick={() => void excluir(t)} style={{ ...btnMini, color: VERM }}>Excluir</button>
-                            <AjudaCampo chave="projetos.cronograma.acao_excluir" rota={ROTA_AJUDA} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
               </>
             )}
           </>
@@ -448,6 +455,21 @@ function Mini({ label, valor, cor = ESP, ajuda }: { label: string; valor: string
     <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px' }}>
       <div style={{ fontSize: 16, fontWeight: 700, color: cor }}>{valor}</div>
       <div style={{ fontSize: 10, color: MUT, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label} <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} /></div>
+    </div>
+  )
+}
+
+function LegendaGantt() {
+  const item = (amostra: React.ReactNode, texto: string) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: MUT }}>{amostra}{texto}</span>
+  )
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginBottom: 10 }}>
+      {item(<span style={{ width: 22, height: 10, borderRadius: 3, border: `1px solid ${GOLD}`, background: `linear-gradient(90deg, ${GOLD} 50%, #FBF4E4 50%)` }} />, 'prazo atual · parte cheia = avanço')}
+      {item(<span style={{ width: 22, height: 4, borderRadius: 2, background: LINE }} />, 'linha de base')}
+      {item(<span style={{ width: 22, height: 10, borderRadius: 3, border: `2px solid ${VERM}`, background: '#FBF4E4' }} />, 'crítica ou fora da base')}
+      {item(<span style={{ width: 22, borderTop: `2px dashed ${MUT}` }} />, 'depende de')}
+      {item(<span style={{ height: 12, borderLeft: `1px dashed ${MUT}` }} />, 'hoje')}
     </div>
   )
 }
@@ -479,7 +501,8 @@ function CurvaSvg({ curva, realizada }: { curva: NonNullable<ReturnType<typeof c
   const t0 = new Date(curva.inicio + 'T00:00:00').getTime(), t1 = new Date(curva.fim + 'T00:00:00').getTime()
   const x = (d: string) => PL + ((new Date(d + 'T00:00:00').getTime() - t0) / Math.max(1, t1 - t0)) * (W - PL - PR)
   const y = (v: number) => PT + (1 - v / 100) * (H - PT - PB)
-  const linha = curva.pontos.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.data).toFixed(1)},${y(p.planejado).toFixed(1)}`).join(' ')
+  const caminho = (v: (p: (typeof curva.pontos)[number]) => number) => curva.pontos.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.data).toFixed(1)},${y(v(p)).toFixed(1)}`).join(' ')
+  const linha = caminho((p) => p.planejado), atual = caminho((p) => p.atual)
   const lim = (d: string) => (d < curva.inicio ? curva.inicio : d > curva.fim ? curva.fim : d)
   const h = hoje(); const hx = x(lim(h))
   const linhaReal = realizada.length > 1 ? realizada.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(lim(p.data)).toFixed(1)},${y(p.realizado).toFixed(1)}`).join(' ') : null
@@ -490,6 +513,7 @@ function CurvaSvg({ curva, realizada }: { curva: NonNullable<ReturnType<typeof c
       ))}
       <text x={PL} y={H - 5} fontSize={9} fill={MUT}>{fmt(curva.inicio)}</text>
       <text x={W - PR} y={H - 5} fontSize={9} textAnchor="end" fill={MUT}>{fmt(curva.fim)}</text>
+      {curva.temBase && <path d={atual} fill="none" stroke={ESP} strokeWidth={1.5} strokeDasharray="5 4" />}
       <path d={linha} fill="none" stroke={GOLD} strokeWidth={2} />
       {linhaReal && <path d={linhaReal} fill="none" stroke={VERDE} strokeWidth={2} />}
       <line x1={hx} x2={hx} y1={PT} y2={H - PB} stroke={MUT} strokeWidth={0.8} strokeDasharray="3 3" />
