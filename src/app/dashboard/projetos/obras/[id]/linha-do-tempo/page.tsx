@@ -4,6 +4,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { ehUuid, erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A'
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -33,12 +34,13 @@ export default function LinhaDoTempoPage({ params }: { params: Promise<{ id: str
   const [faseFiltro, setFaseFiltro] = useState<string>('todas')
 
   const carregar = useCallback(async () => {
+    if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_obra_linha_do_tempo', { p_obra_id: id })
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Falha ao carregar a linha do tempo.')); return }
     const j = data as Timeline
-    if (!j?.ok) { setErro(j?.erro === 'sem_acesso' ? 'Sem acesso a esta obra.' : (j?.erro ?? 'Falha ao carregar a linha do tempo.')); return }
+    if (!j?.ok) { setErro(j?.erro === 'sem_acesso' ? 'Sem acesso a esta obra.' : codigoAmigavel(j?.erro, 'Falha ao carregar a linha do tempo.')); return }
     setTl(j)
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
