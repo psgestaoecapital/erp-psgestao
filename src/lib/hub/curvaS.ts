@@ -45,3 +45,40 @@ export function curvaS(tarefas: TarefaCurva[], hoje: string): CurvaS | null {
   const realizado = realizadoGeral(tarefas)
   return { pontos, planejadoHoje, realizado, desvio: realizado - planejadoHoje, inicio, fim }
 }
+
+// Fatia 12 · linha REALIZADA: o % de cada tarefa ao longo do tempo (projetos_obra_tarefa_avanco, um ponto por dia).
+export type TarefaHist = TarefaCurva & { id: string }
+export type AvancoHist = { tarefa_id: string; data: string; percentual: number }
+export type PontoRealizado = { data: string; realizado: number }
+
+/**
+ * Realizado acumulado (0..100) nos dias da curva planejada até `hoje`, mais o ponto de hoje (= realizadoGeral).
+ * Em cada dia, a tarefa vale o último % registrado até ali; antes de começar, 0. A linha só começa no primeiro dia em
+ * que TODAS as tarefas são conhecidas (tarefa já começada e sem registro até ali = desconhecida: não chuta zero).
+ */
+export function curvaRealizada(tarefas: TarefaHist[], hist: AvancoHist[], pontos: PontoCurva[], hoje: string): PontoRealizado[] {
+  if (tarefas.length === 0) return []
+  const porTarefa = new Map<string, AvancoHist[]>()
+  for (const h of hist) { const l = porTarefa.get(h.tarefa_id) ?? []; l.push(h); porTarefa.set(h.tarefa_id, l) }
+  for (const l of porTarefa.values()) l.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0))
+  const em = (d: string): number | null => {
+    let peso = 0, feito = 0
+    for (const t of tarefas) {
+      const l = porTarefa.get(t.id) ?? []
+      let v: number | null = null
+      for (const h of l) { if (h.data <= d) v = Number(h.percentual); else break }
+      if (v === null) { if (d < t.inicio) v = 0; else return null }
+      const p = dur(t.inicio, t.fim); peso += p; feito += (p * v) / 100
+    }
+    return peso > 0 ? (feito / peso) * 100 : 0
+  }
+  const out: PontoRealizado[] = []
+  for (const p of pontos) {
+    if (p.data >= hoje) break
+    const r = em(p.data)
+    if (r === null) { if (out.length > 0) out.length = 0; continue }
+    out.push({ data: p.data, realizado: r })
+  }
+  out.push({ data: hoje, realizado: realizadoGeral(tarefas) })
+  return out
+}
