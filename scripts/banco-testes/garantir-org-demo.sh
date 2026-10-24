@@ -22,3 +22,5 @@ SQL
 n=$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "select count(*) from public.organizations where id = 'c830f980-9be9-40c1-bb46-584cdc92dd65'")
 [ "$n" = 1 ] || { echo "::error::organização das DEMOs (c830f980-…) não existe na vaga e não pôde ser criada (slug ocupado?)"; exit 1; }
 echo "organização das DEMOs (c830f980-…) presente na vaga"
+# 25/10: extensões no mesmo schema da produção (pg_trgm/unaccent em public) — este script já roda antes de todo db push
+TEST_DATABASE_URL="$TEST_DATABASE_URL" "$(dirname "$0")/garantir-extensoes.sh"
