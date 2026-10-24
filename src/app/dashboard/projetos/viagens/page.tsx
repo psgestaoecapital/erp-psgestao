@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { IndicadoresViagem } from './IndicadoresViagem'
 import { resumoTexto, validarLancamento, type LancamentoForm } from '@/lib/viagem/tela'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
@@ -161,6 +162,8 @@ export default function ViagensPage() {
           ))}
         </div>
       )}
+
+      {!aberta && <IndicadoresViagem empresa={empresa} />}
     </div>
   )
 }
