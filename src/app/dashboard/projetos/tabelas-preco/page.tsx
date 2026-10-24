@@ -15,6 +15,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { MedicaoContrato } from './_componentes/MedicaoContrato'
 import { VinculoCatalogo, type VinculoCpu } from './_componentes/VinculoCatalogo'
 import { lerPlanilhaFaixas } from '@/lib/hub/tabelaPrecoImportar'
+import { precedenciaPreco } from '@/lib/hub/precedenciaPreco'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
 
 // Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
@@ -166,6 +167,7 @@ export default function TabelasPrecoPage() {
   const hoje = new Date().toISOString().slice(0, 10)
   const selo = !tabelaSel ? null : tabelaSel.vigencia_inicio > hoje ? 'Começa em breve' : tabelaSel.vigencia_fim && tabelaSel.vigencia_fim < hoje ? 'Vencido' : tabelaSel.vigencia_fim && tabelaSel.vigencia_fim <= new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) ? 'Vence em até 30 dias' : 'Vigente'
   const fmtData = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('pt-BR') : 'sem fim')
+  const prec = precedenciaPreco({ contratoVigente: selo === 'Vigente' || selo === 'Vence em até 30 dias', tabelaCliente: !!tabelaSel, tabelaPadrao: false, temFaixa: preco != null })
   const usarCelula = (sref: string, de: number, c: string) => { setServico(sref); setQtd(String(de > 0 ? de : 1)); setCondSel(c) }
 
   const campo: React.CSSProperties = { display: 'block', width: '100%', padding: 10, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP }
@@ -223,6 +225,17 @@ export default function TabelasPrecoPage() {
                 <b>Conferir o de-para com o cliente <AjudaCampo chave="hub.tabela_preco.depara" /></b>
                 {semCodigo.length > 0 && <div>Serviço sem código no cliente: {semCodigo.map(s => s.servico_nome).join(', ')}.</div>}
                 {codigoOrfao.length > 0 && <div>Código sem serviço na tabela: {codigoOrfao.join(', ')}.</div>}
+              </div>
+            )}
+            <div data-testid="tp-precedencia" style={{ fontSize: 13, background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12 }}>
+              <b>Qual preço vale: <span data-testid="tp-prec-origem">{prec.rotulo}</span> <AjudaCampo chave="hub.tabela_preco.precedencia" /></b>
+              <div data-testid="tp-prec-motivo">{prec.motivo}</div>
+              <div style={{ color: MUT, marginTop: 4 }}>Ordem: contrato do cliente → tabela do cliente → tabela padrão.</div>
+            </div>
+            {preco != null && q > 0 && (
+              <div data-testid="tp-simulador" style={{ fontSize: 14, background: '#fff', border: `1px dashed ${GOLD}`, borderRadius: 10, padding: 12 }}>
+                <b>Na medição: <AjudaCampo chave="hub.tabela_preco.simulador" /></b>{' '}
+                {q} {servicos.find(s => s.servico_ref === servico)?.unidade} de {servicos.find(s => s.servico_ref === servico)?.servico_nome} · {condSel === 'normal' ? 'condição normal' : condSel} · faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} → {fmtPreco(preco)} por unidade = <b>{fmtR(preco * q)}</b>
               </div>
             )}
             <div data-testid="tp-resultado" style={{ background: BG, borderRadius: 10, padding: 14, border: `1px solid ${LINE}` }}>
@@ -290,6 +303,23 @@ export default function TabelasPrecoPage() {
                       <AjudaCampo chave="hub.tabela_preco.importar_texto" />
                     </div>
                     {planilha.trim() && <div data-testid="tp-imp-previa" style={{ fontSize: 13 }}>{previa.faixas.length} faixa(s) prontas{previa.erros.map(e => <div key={e} style={{ color: '#B91C1C' }}>{e}</div>)}</div>}
+                    {planilha.trim() && previa.linhas.length > 0 && (
+                      <div data-testid="tp-imp-revisao" style={{ overflowX: 'auto' }}>
+                        <div style={{ ...rot, marginBottom: 4 }}>Revisão lado a lado <AjudaCampo chave="hub.tabela_preco.importar_revisao" /></div>
+                        <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                          <thead><tr style={{ textAlign: 'left', color: MUT }}><th>Linha</th><th>Como veio</th><th>Como será gravado</th></tr></thead>
+                          <tbody>
+                            {previa.linhas.map(l => (
+                              <tr key={l.n} data-testid="tp-imp-linha" style={{ borderTop: `1px solid ${LINE}`, background: l.erro ? '#FEF2F2' : undefined }}>
+                                <td style={{ padding: '4px 6px' }}>{l.n}</td>
+                                <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>{l.original}</td>
+                                <td style={{ padding: '4px 6px' }}>{l.faixa ? `${l.faixa.servico_nome} (${l.faixa.servico_ref}) · ${l.faixa.faixa_de}${l.faixa.faixa_ate == null ? ' em diante' : `–${l.faixa.faixa_ate}`} ${l.faixa.unidade} · ${fmtPreco(l.faixa.preco_base)}` : <span style={{ color: '#B91C1C' }}>{l.erro}</span>}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <button type="button" data-testid="tp-imp-aplicar" onClick={importar} disabled={!previa.faixas.length || previa.erros.length > 0} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Importar faixas</button>
                       <AjudaCampo chave="hub.tabela_preco.importar_aplicar" />
