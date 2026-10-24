@@ -31,7 +31,9 @@ test.describe('Hub — Visitas técnicas com indicadores do banco', () => {
     }
     await page.getByTestId('ajuda-projetos.visitas.ind_sem_orcamento').click()
     await expect(page.getByTestId('ajuda-cartao-projetos.visitas.ind_sem_orcamento')).toContainText('dinheiro parado')
-    await page.getByTestId('ajuda-projetos.visitas.ind_sem_orcamento').click()
+    // no celular o fundo escuro do bottom sheet cobre o "?": fecha pelo Esc (o componente escuta), não clicando de novo
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('ajuda-cartao-projetos.visitas.ind_sem_orcamento')).toHaveCount(0)
 
     // clicar no indicador filtra a lista pelo mesmo número
     const n = Number(await page.getByTestId('visitas-kpi-sem_orcamento').innerText())
