@@ -9,6 +9,9 @@
 // itens (sem custo informado = "sem custo", nunca 100%). Regra única em composicaoProposta.
 // HB0 (auditor F15 · origem): coluna "Origem" — oportunidade, visitas e plantas do take-off que levaram à proposta, pelos
 // vínculos que já existem no banco (regra única em origemPorProposta); indicador "Origem rastreada". Sem vínculo = "avulsa".
+// HB0 (auditor F15 · proposta → obra): coluna "Obra" com número, nome e situação da obra que nasceu da proposta
+// (obra_id ou projetos_obras.orcamento_id, regra única em obraPorProposta); ganha sem obra fica em destaque; indicador
+// "Ganhas com obra".
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { fmtR } from '@/lib/psgc-tokens'
@@ -17,7 +20,7 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { composicaoPorProposta, diasParaVencer, origemPorProposta, resumoFunil, temOrigem, ABERTAS, type Composicao, type ItemProposta, type OportunidadeVinculo, type Origem, type PlantaVinculo, type VisitaVinculo } from '@/lib/hub/propostas'
+import { composicaoPorProposta, diasParaVencer, ganhasComObra, obraPorProposta, origemPorProposta, resumoFunil, temOrigem, ABERTAS, type Composicao, type ObraVinculo, type SituacaoObra, type ItemProposta, type OportunidadeVinculo, type Origem, type PlantaVinculo, type VisitaVinculo } from '@/lib/hub/propostas'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
@@ -28,7 +31,9 @@ const STATUS: Record<string, { cor: string; label: string }> = {
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
 
-type Proposta = { id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null }
+type Proposta = { id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null }
+
+const OBRA_STATUS: Record<string, string> = { em_andamento: 'em andamento', pausada: 'pausada', concluida: 'concluída', cancelada: 'cancelada' }
 
 const pct = (v: number) => `${v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
 
@@ -45,6 +50,8 @@ export default function PropostasHubPage() {
   const [compErro, setCompErro] = useState(false)
   const [orig, setOrig] = useState<Record<string, Origem>>({})
   const [origErro, setOrigErro] = useState(false)
+  const [obras, setObras] = useState<Record<string, SituacaoObra>>({})
+  const [obraErro, setObraErro] = useState(false)
 
   // Origem: oportunidades e plantas ligadas às propostas; depois as visitas (diretas ou da oportunidade). Falha → coluna avisa.
   const carregarOrigem = useCallback(async (ids: string[]) => {
@@ -68,7 +75,7 @@ export default function PropostasHubPage() {
     setLoading(true); setErro('')
     try {
       const { data, error } = await comPrazo(
-        async () => await supabase.from('erp_orcamentos').select('id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id')
+        async () => await supabase.from('erp_orcamentos').select('id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra')
           .in('company_id', companyIds).order('data_emissao', { ascending: false }).limit(100),
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
@@ -86,6 +93,18 @@ export default function PropostasHubPage() {
         if (it.error) setCompErro(true)
         else setComp(composicaoPorProposta((it.data ?? []) as ItemProposta[]))
       }
+      // Obra: pelos dois lados do vínculo (obra_id da proposta ou orcamento_id da obra). Falha → coluna avisa.
+      setObraErro(false); setObras({})
+      if (ls.length) {
+        const ids = ls.map(l => l.id), obraIds = ls.map(l => l.obra_id).filter((x): x is string => !!x)
+        const filtroObra = [`orcamento_id.in.(${ids.join(',')})`, ...(obraIds.length ? [`id.in.(${obraIds.join(',')})`] : [])].join(',')
+        const ob = await comPrazo(
+          async () => await supabase.from('projetos_obras').select('id,numero,nome,status,orcamento_id').in('company_id', companyIds).or(filtroObra),
+          { ms: 8000, tentativas: 1, label: 'propostas_hub_obras' },
+        ).catch(() => ({ data: null, error: true }))
+        if (ob.error) setObraErro(true)
+        else setObras(obraPorProposta(ls, (ob.data ?? []) as ObraVinculo[]))
+      }
       setOrigErro(false); setOrig({})
       if (ls.length) await carregarOrigem(ls.map(l => l.id))
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
@@ -99,6 +118,7 @@ export default function PropostasHubPage() {
   }, [linhas, busca, filtro])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
   const comOrigem = useMemo(() => linhas.filter(l => temOrigem(orig[l.id])).length, [linhas, orig])
+  const gObra = useMemo(() => ganhasComObra(obras, linhas), [obras, linhas])
   const comCatalogo = useMemo(() => linhas.filter(l => { const c = comp[l.id]; return c && c.itens > 0 && c.doCatalogo === c.itens }).length, [linhas, comp])
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '12px 16px', flex: '1 1 160px' }
@@ -153,6 +173,11 @@ export default function PropostasHubPage() {
               <div data-testid="hub-propostas-com-origem" style={{ fontSize: 18, fontWeight: 700 }}>{origErro ? '—' : `${comOrigem} de ${r.total}`}</div>
               <div style={{ fontSize: 12, color: MUT }}>{origErro ? 'origem indisponível agora' : 'vieram de oportunidade, visita ou take-off'}</div>
             </div>
+            <div style={{ ...card, borderColor: !obraErro && gObra.comObra < gObra.ganhas ? '#F59E0B' : LINE }}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Ganhas com obra <AjudaCampo chave="projetos.propostas.ganhas_com_obra" /></div>
+              <div data-testid="hub-propostas-ganhas-com-obra" style={{ fontSize: 18, fontWeight: 700 }}>{obraErro ? '—' : `${gObra.comObra} de ${gObra.ganhas}`}</div>
+              <div style={{ fontSize: 12, color: MUT }}>{obraErro ? 'obras indisponíveis agora' : gObra.comObra < gObra.ganhas ? `${gObra.ganhas - gObra.comObra} aprovada(s) ainda sem obra` : 'toda proposta ganha já é obra'}</div>
+            </div>
           </div>
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -185,7 +210,7 @@ export default function PropostasHubPage() {
             </div>
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-            <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 1040, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left', fontSize: 12, color: MUT }}>
                 <th style={{ padding: '8px 12px' }}>Número</th><th style={{ padding: '8px 12px' }}>Cliente</th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Origem <AjudaCampo chave="projetos.propostas.origem" /></span></th>
@@ -193,7 +218,9 @@ export default function PropostasHubPage() {
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Validade <AjudaCampo chave="projetos.propostas.validade" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens <AjudaCampo chave="projetos.propostas.composicao" /></span></th>
                 <th style={{ padding: '8px 12px', textAlign: 'right' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Margem <AjudaCampo chave="projetos.propostas.margem" /></span></th>
-                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Total</th><th style={{ padding: '8px 12px' }} />
+                <th style={{ padding: '8px 12px', textAlign: 'right' }}>Total</th>
+                <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Obra <AjudaCampo chave="projetos.propostas.obra" /></span></th>
+                <th style={{ padding: '8px 12px' }} />
               </tr></thead>
               <tbody>
                 {vis.map(l => {
@@ -202,6 +229,7 @@ export default function PropostasHubPage() {
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
                   const c = comp[l.id]
                   const o = orig[l.id]
+                  const so = obras[l.id]
                   return (
                     <tr key={l.id} style={{ borderTop: `1px solid ${LINE}`, fontSize: 13 }}>
                       <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600 }}>{l.numero ?? '—'}</td>
@@ -229,14 +257,23 @@ export default function PropostasHubPage() {
                           : <span title={`Custo ${fmtR(c.custo)} de ${fmtR(c.preco)}`} style={{ color: c.margemPct < 0 ? '#B91C1C' : ESP, fontWeight: 600 }}>{pct(c.margemPct)}</span>}
                       </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmtR(Number(l.total ?? 0))}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 200 }} data-testid="hub-proposta-obra-situacao">
+                        {obraErro || !so ? '—' : so.tipo === 'obra' ? (
+                          <Link href={`/dashboard/projetos/obras/${so.obra.id}`} data-testid="hub-proposta-obra" style={{ color: ESP, display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600 }}>{so.obra.numero}{so.obra.nome ? ` · ${so.obra.nome}` : ''}</span>
+                            {so.obra.status && <span style={{ color: MUT }}>{OBRA_STATUS[so.obra.status] ?? so.obra.status}</span>}
+                          </Link>
+                        ) : so.tipo === 'sem_obra' ? <span data-testid="hub-proposta-sem-obra" style={{ color: '#B45309', fontWeight: 600 }}>aprovada sem obra</span>
+                          : so.tipo === 'nao_e_obra' ? <span style={{ color: MUT }}>não é obra</span>
+                          : <span style={{ color: MUT }}>vira obra ao aprovar</span>}
+                      </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {l.obra_id && <Link href={`/dashboard/projetos/obras/${l.obra_id}`} data-testid="hub-proposta-obra" style={{ color: ESP, fontSize: 12, marginRight: 12 }}>Obra</Link>}
                         <Link href={`/dashboard/orcamentos?id=${l.id}`} data-testid="hub-proposta-abrir" style={{ color: GOLD, fontWeight: 600, fontSize: 12 }}>Abrir</Link>
                       </td>
                     </tr>
                   )
                 })}
-                {vis.length === 0 && <tr><td colSpan={10} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
+                {vis.length === 0 && <tr><td colSpan={11} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
               </tbody>
             </table>
           </div>
