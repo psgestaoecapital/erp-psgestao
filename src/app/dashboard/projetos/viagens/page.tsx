@@ -58,6 +58,9 @@ export default function ViagensPage() {
   // editar os dados da viagem aberta (reusa fn_viagem_salvar com p_id; o banco só altera viagem aberta)
   const [editar, setEditar] = useState(false)
   const [ef, setEf] = useState<Record<string, string>>({})
+  // excluir viagem aberta é soft-delete com desfazer de 15 min (fn_viagem_excluir / fn_viagem_restaurar),
+  // igual ao lançamento; guarda o id da viagem recém-excluída para o "Desfazer" na lista
+  const [desfazerViagem, setDesfazerViagem] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresa) return
@@ -173,6 +176,16 @@ export default function ViagensPage() {
     if (!aberta || !desfazer) return
     if (await rpc('fn_viagem_lancamento_restaurar', { p_id: desfazer })) { setDesfazer(null); await abrir(aberta) }
   }
+  // excluir a viagem toda (só aberta e fora do GE): volta à lista e oferece desfazer por 15 min
+  async function excluirViagem() {
+    if (!aberta) return
+    const id = aberta.id
+    if (await rpc('fn_viagem_excluir', { p_id: id })) { setAberta(null); setEditar(false); setDesfazer(null); await carregar(); setDesfazerViagem(id) }
+  }
+  async function restaurarViagem() {
+    if (!desfazerViagem) return
+    if (await rpc('fn_viagem_restaurar', { p_id: desfazerViagem })) { setDesfazerViagem(null); await carregar() }
+  }
   async function lancarGe(id: string) {
     const d = await rpc('fn_viagem_lancar_ge', { p_viagem_id: id })
     if (!d) return
@@ -195,11 +208,12 @@ export default function ViagensPage() {
           <span className="rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Fechamento administrativo · só viagens novas</span>
           {!podeGravar && <span className="rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Perfil de consulta</span>}
         </div></div>
-        {!aberta && podeGravar && <span className="flex items-center gap-1"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => { setNova(true); setMsg('') }}>Nova viagem</button><AjudaCampo chave="projetos.viagem.nova" /></span>}
+        {!aberta && podeGravar && <span className="flex items-center gap-1"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => { setNova(true); setMsg(''); setDesfazerViagem(null) }}>Nova viagem</button><AjudaCampo chave="projetos.viagem.nova" /></span>}
         {aberta && <button className="text-sm underline" onClick={() => { setAberta(null); setMsg(''); setDesfazer(null); setEditar(false) }}>← Voltar à lista</button>}
       </div>
       {msg && <div role="alert" className="mb-3 rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{msg}</div>}
       {aviso && <div role="status" className="mb-3 rounded-lg border border-green-300 bg-green-50 p-2 text-sm text-green-900">{aviso}</div>}
+      {!aberta && desfazerViagem && <div role="status" className="mb-3 flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm" style={{ borderColor: GOLD }}>Viagem excluída.<button disabled={busy} className="font-medium underline" onClick={restaurarViagem}>Desfazer</button><AjudaCampo chave="projetos.viagem.desfazer_exclusao_viagem" /></div>}
 
       {nova && !aberta && podeGravar && (
         <div className="mb-4 grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
@@ -250,7 +264,10 @@ export default function ViagensPage() {
               <Campo rotulo="Km na saída" ajuda="projetos.viagem.km_inicial"><input inputMode="decimal" className={campo} value={km.ini} onChange={(e) => setKm({ ...km, ini: e.target.value.replace(',', '.') })} /></Campo>
               <Campo rotulo="Km na volta" ajuda="projetos.viagem.km_final"><input inputMode="decimal" className={campo} value={km.fim} onChange={(e) => setKm({ ...km, fim: e.target.value.replace(',', '.') })} /></Campo>
               <button disabled={busy} className="rounded-lg border px-3 py-1.5 text-sm" style={{ borderColor: ESP }} onClick={salvarKm}>Salvar km</button><AjudaCampo chave="projetos.viagem.salvar_km" /></div>}
-            {aberta.status === 'aberta' && podeGravar && <div className="mt-2 flex items-center gap-1"><button className="text-sm underline" onClick={() => (editar ? setEditar(false) : abrirEdicao())}>{editar ? 'Fechar edição' : 'Editar dados da viagem'}</button><AjudaCampo chave="projetos.viagem.editar" /></div>}
+            {aberta.status === 'aberta' && podeGravar && <div className="mt-2 flex flex-wrap items-center gap-3">
+              <span className="flex items-center gap-1"><button className="text-sm underline" onClick={() => (editar ? setEditar(false) : abrirEdicao())}>{editar ? 'Fechar edição' : 'Editar dados da viagem'}</button><AjudaCampo chave="projetos.viagem.editar" /></span>
+              {!noGe[aberta.id] && <span className="flex items-center gap-1"><button disabled={busy} className="text-sm text-red-700 underline" onClick={excluirViagem}>Excluir viagem</button><AjudaCampo chave="projetos.viagem.excluir_viagem" /></span>}
+            </div>}
           </div>
           {editar && aberta.status === 'aberta' && podeGravar && (
             <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
