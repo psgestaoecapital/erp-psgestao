@@ -6,10 +6,13 @@
 "use client";
 
 import { ReactNode } from "react";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 export interface CatalogoColumn<T> {
   key: string;
   label: string;
+  /** chave do "?" (RD-95) do cabeçalho da coluna */
+  ajuda?: string;
   align?: "left" | "right" | "center";
   className?: string;
   hiddenOnMobile?: boolean;
@@ -57,7 +60,7 @@ export function CatalogoTable<T>({
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
                 {camposCartao.map((col) => (
                   <div key={col.key} className="min-w-0">
-                    <dt className="text-[11px] uppercase tracking-wider text-[#3D2314]/50">{col.label}</dt>
+                    <dt className="text-[11px] uppercase tracking-wider text-[#3D2314]/50">{col.label}{col.ajuda && <AjudaCampo chave={col.ajuda} />}</dt>
                     <dd className="mt-0.5 break-words">{col.render(row)}</dd>
                   </div>
                 ))}
@@ -86,7 +89,7 @@ export function CatalogoTable<T>({
                     : "text-left"
                 } ${col.hiddenOnMobile ? "hidden md:table-cell" : ""} ${col.className || ""}`}
               >
-                {col.label}
+                {col.label}{col.ajuda && <AjudaCampo chave={col.ajuda} />}
               </th>
             ))}
             {actions && (
