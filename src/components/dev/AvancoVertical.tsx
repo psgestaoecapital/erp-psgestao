@@ -12,12 +12,12 @@ const COR = { verde: '#166534', amarelo: '#B7791F', vermelho: '#B91C1C', neutro:
 const ROTA = '/dashboard/dev/codes'
 const CORES_LINHA = [ESP, DOU, '#7C5A3C', '#A68A64', '#4B3A2A', '#D9B96A', '#8A6F4D']
 
-function Barra({ pct, rotulo }: { pct: number | null; rotulo: string }) {
+function Barra({ pct, rotulo, ajuda }: { pct: number | null; rotulo: string; ajuda?: string }) {
   const cor = COR[semaforo(pct)]
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: TXM }}>
-        <span>{rotulo}</span><b style={{ color: cor }}>{fmtPct(pct)}</b>
+        <span>{rotulo}{ajuda ? <> <AjudaCampo chave={ajuda} rota={ROTA} /></> : null}</span><b style={{ color: cor }}>{fmtPct(pct)}</b>
       </div>
       <div role="progressbar" aria-valuenow={pct ?? 0} aria-valuemin={0} aria-valuemax={100} aria-label={rotulo}
         style={{ height: 10, background: '#F1EAE0', borderRadius: 6, overflow: 'hidden' }}>
@@ -37,7 +37,7 @@ function CartaoVertical({ c, ondas }: { c: Cobertura; ondas: OndaHub[] | null })
         <span style={{ fontSize: 12, color: TXM }}>{c.total_requisitos} mapeados <AjudaCampo chave="dev.codes.avanco.mapeado" rota={ROTA} /></span>
       </header>
       <div style={{ marginTop: 8 }}>
-        <Barra pct={c.geral_pct} rotulo="Geral" />
+        <Barra pct={c.geral_pct} rotulo="Geral" ajuda="dev.codes.avanco.geral" />
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ flex: 1 }}><Barra pct={c.essenciais_pct} rotulo="Essenciais" /></div><AjudaCampo chave="dev.codes.avanco.essencial" rota={ROTA} /></div>
       </div>
       <div style={{ fontSize: 12, color: TXM }}>
@@ -53,7 +53,7 @@ function CartaoVertical({ c, ondas }: { c: Cobertura; ondas: OndaHub[] | null })
         <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0' }}>
           {telas.map((t) => (
             <li key={String(t.tela_num)} style={{ padding: '6px 0', borderTop: `1px solid ${BD}` }}>
-              <Barra pct={t.pct} rotulo={`${t.tela_nome} · ${t.requisitos} req. · ${t.provado_por_jornada} provados`} />
+              <Barra pct={t.pct} rotulo={`${t.tela_nome} · ${t.requisitos} req. · ${t.provado_por_jornada} provados`} ajuda="dev.codes.avanco.tela" />
             </li>
           ))}
         </ul>
@@ -83,7 +83,7 @@ function OndasHub({ ondas }: { ondas: OndaHub[] }) {
           </div>
         )
       })}
-      <div style={{ fontSize: 10, color: TXM }}>concluídas / em andamento / planejadas</div>
+      <div style={{ fontSize: 10, color: TXM }}>concluídas / em andamento / planejadas <AjudaCampo chave="dev.codes.avanco.ondas_legenda" rota={ROTA} /></div>
     </div>
   )
 }
