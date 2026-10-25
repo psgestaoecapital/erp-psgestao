@@ -200,16 +200,17 @@ export default function OportunidadesPage() {
           {/* Contador honesto: nada some — as terminais (ganhas/perdidas) contam junto com o funil ativo. */}
           <p className="text-sm font-medium mt-1">
             {totalOps} oportunidade{totalOps === 1 ? '' : 's'} · {nAberto} em aberto · {nGanhas} ganha{nGanhas === 1 ? '' : 's'} · {nPerdidas} perdida{nPerdidas === 1 ? '' : 's'}
+            <AjudaCampo chave="projetos.oportunidades.contador" />
           </p>
         </div>
-        <button onClick={() => setEditing(null)} style={btnNovo}>+ Nova oportunidade</button>
+        <span className="inline-flex items-center gap-1"><button onClick={() => setEditing(null)} style={btnNovo}>+ Nova oportunidade</button><AjudaCampo chave="projetos.oportunidades.nova" /></span>
       </header>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4" style={{ maxWidth: 640 }}>
-        <Kpi titulo="Em aberto"     valor={String(nAberto)} />
+        <Kpi titulo="Em aberto"     valor={String(nAberto)} ajuda="projetos.oportunidades.kpi_aberto" />
         {/* rótulo nomeia o mês — "Ganhas no mês 0" parecia erro; as ganhas da Tryo são de agosto */}
-        <Kpi titulo={`Ganhas em ${mesAtual}`} valor={String(resumo?.ganhas_mes ?? 0)} />
-        <Kpi titulo="Pipeline (R$)" valor={brl(resumo?.valor_pipeline)} destaque />
+        <Kpi titulo={`Ganhas em ${mesAtual}`} valor={String(resumo?.ganhas_mes ?? 0)} ajuda="projetos.oportunidades.kpi_ganhas_mes" />
+        <Kpi titulo="Pipeline (R$)" valor={brl(resumo?.valor_pipeline)} destaque ajuda="projetos.oportunidades.kpi_pipeline" />
       </div>
 
       {/* Filtros herdados da antiga Lista — agora sempre visíveis (Kanban é a única visão) */}
@@ -232,7 +233,7 @@ export default function OportunidadesPage() {
         />
         <AjudaCampo chave="projetos.oportunidades.busca" />
         {loading && <span className="text-xs opacity-60">Carregando…</span>}
-        <span className="text-xs opacity-60 ml-auto">{countKanban} oportunidade(s)</span>
+        <span className="text-xs opacity-60 ml-auto inline-flex items-center gap-1">{countKanban} oportunidade(s)<AjudaCampo chave="projetos.oportunidades.contagem_filtro" /></span>
       </div>
 
       <OportunidadesKanban
@@ -269,10 +270,10 @@ export default function OportunidadesPage() {
   )
 }
 
-function Kpi({ titulo, valor, destaque }: { titulo: string; valor: string; destaque?: boolean }) {
+function Kpi({ titulo, valor, destaque, ajuda }: { titulo: string; valor: string; destaque?: boolean; ajuda: string }) {
   return (
     <div className="rounded-xl p-3" style={{ background: OFFWHITE, minHeight: 76 }}>
-      <div className="text-[11px] uppercase opacity-60 leading-tight">{titulo}</div>
+      <div className="text-[11px] uppercase leading-tight flex items-center gap-1"><span className="opacity-60">{titulo}</span><AjudaCampo chave={ajuda} /></div>
       <div className="font-bold leading-tight" style={{ color: destaque ? DOURADO : ESPRESSO, fontSize: 18 }}>{valor}</div>
     </div>
   )
