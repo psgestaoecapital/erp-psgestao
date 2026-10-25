@@ -9,15 +9,16 @@ import { supabase } from '@/lib/supabase'
 import { ConsumoVeiculo } from './ConsumoVeiculo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
+import { CampoComprovante, VerComprovante } from './Comprovante'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { IndicadoresViagem } from './IndicadoresViagem'
 import { PreviaFechamento } from './PreviaFechamento'
-import { resumoTexto, validarLancamento, type LancamentoForm } from '@/lib/viagem/tela'
+import { precoLitro, resumoTexto, validarKm, validarLancamento, type LancamentoForm } from '@/lib/viagem/tela'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
-type Viagem = { id: string; numero: number; colaborador_nome: string; obra_id: string; periodo_inicio: string; periodo_fim: string; adiantamento: number; status: string; km_inicial: number | null; km_final: number | null; placa: string | null; origem: string | null; destino: string | null }
-type Lanc = { id: string; tipo: string; data: string; fornecedor_nome: string; categoria: string; forma_pagamento: string; valor: number; obra_id: string; pago_colaborador: boolean; litros: number | null; hodometro: number | null }
-type Resumo = { total: number; adiantamento: number; pago_colaborador: number; saldo: number; km_rodado: number | null; custo_km: number | null }
+type Viagem = { id: string; numero: number; colaborador_nome: string; obra_id: string; periodo_inicio: string; periodo_fim: string; adiantamento: number; status: string; km_inicial: number | null; km_final: number | null; placa: string | null; origem: string | null; destino: string | null; funcionario_id: string | null; observacao: string | null }
+type Lanc = { id: string; tipo: string; data: string; fornecedor_nome: string; categoria: string; forma_pagamento: string; valor: number; obra_id: string; pago_colaborador: boolean; litros: number | null; hodometro: number | null; anexo_path: string | null }
+type Resumo = { total: number; adiantamento: number; pago_colaborador: number; saldo: number; km_rodado: number | null; custo_km: number | null; litros: number | null; media_km_l: number | null }
 type Obra = { id: string; numero: string; nome: string }
 type Cat = { codigo: string; descricao: string }
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -37,6 +38,7 @@ export default function ViagensPage() {
   const [nova, setNova] = useState(false)
   const [form, setForm] = useState<Record<string, string>>({})
   const [lf, setLf] = useState<LancamentoForm | null>(null)
+  const [km, setKm] = useState({ ini: '', fim: '' })
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
   // fechar passa pela prévia; excluir lançamento pode ser desfeito por 15 min (fn_viagem_lancamento_restaurar)
@@ -44,11 +46,13 @@ export default function ViagensPage() {
   const [desfazer, setDesfazer] = useState<string | null>(null)
   // perfil consulta (viewer) só lê: o banco barra a gravação (gatilho trg_viagem_trava_viewer); a tela esconde as ações
   const [podeGravar, setPodeGravar] = useState(false)
+  // caminho da foto do comprovante já enviada para o lançamento em edição (vai no anexo_path)
+  const [anexo, setAnexo] = useState('')
 
   const carregar = useCallback(async () => {
     if (!empresa) return
     const [v, o, c, g] = await Promise.all([
-      supabase.from('erp_viagem').select('id,numero,colaborador_nome,obra_id,periodo_inicio,periodo_fim,adiantamento,status,km_inicial,km_final,placa,origem,destino').eq('company_id', empresa).is('excluido_em', null).order('periodo_inicio', { ascending: false }).limit(100),
+      supabase.from('erp_viagem').select('id,numero,colaborador_nome,obra_id,periodo_inicio,periodo_fim,adiantamento,status,km_inicial,km_final,placa,origem,destino,funcionario_id,observacao').eq('company_id', empresa).is('excluido_em', null).order('periodo_inicio', { ascending: false }).limit(100),
       supabase.from('projetos_obras').select('id,numero,nome').eq('company_id', empresa).order('numero'),
       supabase.from('erp_plano_contas').select('codigo,descricao').eq('company_id', empresa).eq('ativo', true).order('codigo'),
       supabase.rpc('fn_viagem_pode_gravar', { p_company_id: empresa }),
@@ -69,9 +73,9 @@ export default function ViagensPage() {
   }, [podeGravar, obras])
 
   const abrir = useCallback(async (v: Viagem) => {
-    setAberta(v); setLf(null); setPrevia(false)
+    setAberta(v); setLf(null); setAnexo(''); setPrevia(false); setKm({ ini: v.km_inicial?.toString() ?? '', fim: v.km_final?.toString() ?? '' })
     const [l, r] = await Promise.all([
-      supabase.from('erp_viagem_lancamento').select('id,tipo,data,fornecedor_nome,categoria,forma_pagamento,valor,obra_id,pago_colaborador,litros,hodometro').eq('viagem_id', v.id).is('excluido_em', null).order('data'),
+      supabase.from('erp_viagem_lancamento').select('id,tipo,data,fornecedor_nome,categoria,forma_pagamento,valor,obra_id,pago_colaborador,litros,hodometro,anexo_path').eq('viagem_id', v.id).is('excluido_em', null).order('data'),
       supabase.rpc('fn_viagem_resumo', { p_viagem_id: v.id }),
     ])
     setLancs((l.data ?? []) as Lanc[]); setResumo((r.data as Resumo) ?? null)
@@ -97,8 +101,23 @@ export default function ViagensPage() {
     if (!aberta || !lf) return
     const erros = validarLancamento(lf, aberta.periodo_inicio, aberta.periodo_fim)
     if (erros.length) { setMsg(erros.join(' · ')); return }
-    const d = await rpc('fn_viagem_lancamento_salvar', { p_viagem_id: aberta.id, p_id: null, p_dados: lf })
-    if (d) { setLf(vazio(aberta.obra_id, lf.data)); await abrir(aberta) }
+    const d = await rpc('fn_viagem_lancamento_salvar', { p_viagem_id: aberta.id, p_id: null, p_dados: { ...lf, anexo_path: anexo } })
+    if (d) { setLf(vazio(aberta.obra_id, lf.data)); setAnexo(''); await abrir(aberta) }
+  }
+  // hodômetro da saída e da volta: regrava a viagem inteira pelo fn_viagem_salvar (ele substitui todos os campos)
+  async function salvarKm() {
+    if (!aberta || !empresa) return
+    const erros = validarKm(km.ini, km.fim)
+    if (erros.length) { setMsg(erros.join(' · ')); return }
+    const a = aberta
+    const d = await rpc('fn_viagem_salvar', { p_company_id: empresa, p_id: a.id, p_dados: {
+      colaborador_nome: a.colaborador_nome, funcionario_id: a.funcionario_id ?? '', placa: a.placa ?? '', obra_id: a.obra_id,
+      periodo_inicio: a.periodo_inicio, periodo_fim: a.periodo_fim, origem: a.origem ?? '', destino: a.destino ?? '',
+      adiantamento: String(a.adiantamento), observacao: a.observacao ?? '', km_inicial: km.ini.trim(), km_final: km.fim.trim() } })
+    if (d) {
+      const nv = { ...a, km_inicial: km.ini.trim() === '' ? null : Number(km.ini), km_final: km.fim.trim() === '' ? null : Number(km.fim) }
+      await carregar(); await abrir(nv)
+    }
   }
   async function excluir(id: string) {
     if (!aberta) return
@@ -131,6 +150,7 @@ export default function ViagensPage() {
           <Campo rotulo="Saída" ajuda="projetos.viagem.saida"><input type="date" className={campo} value={form.periodo_inicio ?? ''} onChange={(e) => setForm({ ...form, periodo_inicio: e.target.value })} /></Campo>
           <Campo rotulo="Volta" ajuda="projetos.viagem.volta"><input type="date" className={campo} value={form.periodo_fim ?? ''} onChange={(e) => setForm({ ...form, periodo_fim: e.target.value })} /></Campo>
           <Campo rotulo="Adiantamento (5.01)" ajuda="projetos.viagem.adiantamento"><input inputMode="decimal" className={campo} onChange={(e) => setForm({ ...form, adiantamento: e.target.value.replace(',', '.') })} /></Campo>
+          <Campo rotulo="Km na saída (hodômetro)" ajuda="projetos.viagem.km_inicial"><input inputMode="decimal" className={campo} placeholder="Ex.: 128450" onChange={(e) => setForm({ ...form, km_inicial: e.target.value.replace(',', '.') })} /></Campo>
           <Campo rotulo="Origem" ajuda="projetos.viagem.origem"><input className={campo} placeholder="Origem" onChange={(e) => setForm({ ...form, origem: e.target.value })} /></Campo>
           <Campo rotulo="Destino" ajuda="projetos.viagem.destino"><input className={campo} placeholder="Destino" onChange={(e) => setForm({ ...form, destino: e.target.value })} /></Campo>
           <div className="flex gap-2"><button disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-white" style={{ background: ESP }} onClick={criar}>Abrir viagem</button><button className="text-sm underline" onClick={() => setNova(false)}>Cancelar</button></div>
@@ -153,12 +173,20 @@ export default function ViagensPage() {
             {resumo && <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
               <div>Total<AjudaCampo chave="projetos.viagem.resumo_total" /><br /><b>{brl(resumo.total)}</b></div><div>Adiantamento<AjudaCampo chave="projetos.viagem.resumo_adiantamento" /><br /><b>{brl(resumo.adiantamento)}</b></div>
               <div>Pago pelo colaborador<AjudaCampo chave="projetos.viagem.resumo_pago_colaborador" /><br /><b>{brl(resumo.pago_colaborador)}</b></div><div>Saldo<AjudaCampo chave="projetos.viagem.resumo_saldo" /><br /><b>{brl(Math.abs(resumo.saldo))}</b></div>
-              <div className="col-span-2 sm:col-span-4 text-xs opacity-80">{resumoTexto(resumo.saldo)}{resumo.km_rodado != null ? ` · ${resumo.km_rodado} km` : ''}{resumo.custo_km != null ? ` · ${brl(resumo.custo_km)}/km` : ''}</div></div>}
+              <div>Km rodado<AjudaCampo chave="projetos.viagem.resumo_km" /><br /><b>{resumo.km_rodado != null ? `${resumo.km_rodado.toLocaleString('pt-BR')} km` : '—'}</b></div>
+              <div>Custo por km<AjudaCampo chave="projetos.viagem.resumo_custo_km" /><br /><b>{resumo.custo_km != null ? `${brl(resumo.custo_km)}/km` : '—'}</b></div>
+              <div>Litros<AjudaCampo chave="projetos.viagem.resumo_litros" /><br /><b>{resumo.litros ? `${resumo.litros.toLocaleString('pt-BR')} L` : '—'}</b></div>
+              <div>Consumo médio<AjudaCampo chave="projetos.viagem.resumo_consumo" /><br /><b>{resumo.media_km_l != null ? `${resumo.media_km_l.toLocaleString('pt-BR')} km/l` : '—'}</b></div>
+              <div className="col-span-2 sm:col-span-4 text-xs opacity-80">{resumoTexto(resumo.saldo)}{resumo.km_rodado == null ? ' · informe o km da saída e da volta para ver o custo por km e o consumo' : ''}</div></div>}
+            {aberta.status === 'aberta' && podeGravar && <div className="mt-2 flex flex-wrap items-end gap-2">
+              <Campo rotulo="Km na saída" ajuda="projetos.viagem.km_inicial"><input inputMode="decimal" className={campo} value={km.ini} onChange={(e) => setKm({ ...km, ini: e.target.value.replace(',', '.') })} /></Campo>
+              <Campo rotulo="Km na volta" ajuda="projetos.viagem.km_final"><input inputMode="decimal" className={campo} value={km.fim} onChange={(e) => setKm({ ...km, fim: e.target.value.replace(',', '.') })} /></Campo>
+              <button disabled={busy} className="rounded-lg border px-3 py-1.5 text-sm" style={{ borderColor: ESP }} onClick={salvarKm}>Salvar km</button><AjudaCampo chave="projetos.viagem.salvar_km" /></div>}
           </div>
           <ul className="space-y-1">{lancs.map((l) => (
             <li key={l.id} className="flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-sm" style={{ borderColor: LINE }}>
-              <span>{dt(l.data)} · {l.fornecedor_nome} <span className="text-xs opacity-60">· {l.categoria} · {obraNome(l.obra_id)}{l.tipo === 'abastecimento' ? ` · ${l.litros} L` : ''}</span></span>
-              <span>{brl(l.valor)} {aberta.status === 'aberta' && podeGravar && <><button aria-label="Excluir lançamento" className="ml-2 text-xs underline" onClick={() => excluir(l.id)}>excluir</button><AjudaCampo chave="projetos.viagem.excluir_lancamento" /></>}</span></li>))}
+              <span>{dt(l.data)} · {l.fornecedor_nome} <span className="text-xs opacity-60">· {l.categoria} · {obraNome(l.obra_id)}{l.tipo === 'abastecimento' ? ` · ${l.litros} L` : ''}</span>{l.tipo === 'abastecimento' && precoLitro(l.valor, l.litros) != null && <span className="text-xs opacity-60"> · {brl(precoLitro(l.valor, l.litros))}/L<AjudaCampo chave="projetos.viagem.lanc_preco_litro" /></span>}</span>
+              <span>{brl(l.valor)}{l.anexo_path && <VerComprovante path={l.anexo_path} />} {aberta.status === 'aberta' && podeGravar && <><button aria-label="Excluir lançamento" className="ml-2 text-xs underline" onClick={() => excluir(l.id)}>excluir</button><AjudaCampo chave="projetos.viagem.excluir_lancamento" /></>}</span></li>))}
             {lancs.length === 0 && <li className="text-sm opacity-60">Sem lançamentos.</li>}</ul>
           {desfazer && aberta.status === 'aberta' && <div role="status" className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm" style={{ borderColor: GOLD }}>Lançamento excluído.<button disabled={busy} className="font-medium underline" onClick={restaurar}>Desfazer</button><AjudaCampo chave="projetos.viagem.desfazer_exclusao" /></div>}
           {previa && aberta.status === 'aberta' && podeGravar && resumo && <PreviaFechamento viagemId={aberta.id} total={resumo.total} saldoTexto={resumo.saldo ? `${resumoTexto(resumo.saldo)}: ${brl(Math.abs(resumo.saldo))}` : resumoTexto(resumo.saldo)} obraNome={obraNome} busy={busy} onConfirmar={fechar} onCancelar={() => setPrevia(false)} />}
@@ -167,10 +195,11 @@ export default function ViagensPage() {
             <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }}>
               <Campo rotulo="Tipo do lançamento" ajuda="projetos.viagem.lanc_tipo"><select className={campo} value={lf.tipo} onChange={(e) => setLf({ ...lf, tipo: e.target.value as LancamentoForm['tipo'] })}><option value="despesa">Despesa</option><option value="abastecimento">Abastecimento</option></select></Campo>
               <Campo rotulo="Data do cupom" ajuda="projetos.viagem.lanc_data"><input type="date" className={campo} value={lf.data} onChange={(e) => setLf({ ...lf, data: e.target.value })} /></Campo>
-              <Campo rotulo="Fornecedor" ajuda="projetos.viagem.lanc_fornecedor"><input className={campo} placeholder="Fornecedor" value={lf.fornecedor_nome} onChange={(e) => setLf({ ...lf, fornecedor_nome: e.target.value })} /></Campo>
+              <Campo rotulo={lf.tipo === 'abastecimento' ? 'Posto' : 'Fornecedor'} ajuda="projetos.viagem.lanc_fornecedor"><input className={campo} placeholder={lf.tipo === 'abastecimento' ? 'Posto' : 'Fornecedor'} value={lf.fornecedor_nome} onChange={(e) => setLf({ ...lf, fornecedor_nome: e.target.value })} /></Campo>
               <Campo rotulo="Valor" ajuda="projetos.viagem.lanc_valor"><input inputMode="decimal" className={campo} placeholder="Valor" value={lf.valor} onChange={(e) => setLf({ ...lf, valor: e.target.value.replace(',', '.') })} /></Campo>
               <Campo rotulo="Categoria" ajuda="projetos.viagem.lanc_categoria"><select className={campo} value={lf.categoria} onChange={(e) => setLf({ ...lf, categoria: e.target.value })}><option value="">Categoria…</option>{cats.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.descricao}</option>)}</select></Campo>
               <Campo rotulo="Forma de pagamento" ajuda="projetos.viagem.lanc_forma"><select className={campo} value={lf.forma_pagamento} onChange={(e) => setLf({ ...lf, forma_pagamento: e.target.value })}>{FORMAS_PAGAMENTO_VIAGEM.map((f) => <option key={f.codigo} value={f.codigo}>{f.rotulo}</option>)}</select></Campo>
+              <CampoComprovante key={lancs.length} empresa={empresa} viagemId={aberta.id} valor={anexo} onChange={setAnexo} />
               <Campo rotulo="Obra deste cupom" ajuda="projetos.viagem.lanc_obra"><select className={campo} value={lf.obra_id} onChange={(e) => setLf({ ...lf, obra_id: e.target.value })}>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
               <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={lf.pago_colaborador} onChange={(e) => setLf({ ...lf, pago_colaborador: e.target.checked })} />Pago pelo colaborador<AjudaCampo chave="projetos.viagem.lanc_pago_colaborador" /></label>
               {lf.tipo === 'abastecimento' && <><Campo rotulo="Litros" ajuda="projetos.viagem.lanc_litros"><input inputMode="decimal" className={campo} placeholder="Litros" value={lf.litros} onChange={(e) => setLf({ ...lf, litros: e.target.value.replace(',', '.') })} /></Campo><Campo rotulo="Hodômetro" ajuda="projetos.viagem.lanc_hodometro"><input inputMode="decimal" className={campo} placeholder="Hodômetro" value={lf.hodometro} onChange={(e) => setLf({ ...lf, hodometro: e.target.value.replace(',', '.') })} /></Campo>
