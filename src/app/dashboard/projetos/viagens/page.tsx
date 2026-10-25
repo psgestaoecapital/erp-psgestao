@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { ConsumoVeiculo } from './ConsumoVeiculo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
+import { CampoComprovante, VerComprovante } from './Comprovante'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { IndicadoresViagem } from './IndicadoresViagem'
 import { PreviaFechamento } from './PreviaFechamento'
@@ -17,7 +18,7 @@ import { RelatorioViagens } from './RelatorioViagens'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 type Viagem = { id: string; numero: number; colaborador_nome: string; obra_id: string; periodo_inicio: string; periodo_fim: string; adiantamento: number; status: string; km_inicial: number | null; km_final: number | null; placa: string | null; origem: string | null; destino: string | null; funcionario_id: string | null; observacao: string | null }
-type Lanc = { id: string; tipo: string; data: string; fornecedor_nome: string; categoria: string; forma_pagamento: string; valor: number; obra_id: string; pago_colaborador: boolean; litros: number | null; hodometro: number | null }
+type Lanc = { id: string; tipo: string; data: string; fornecedor_nome: string; categoria: string; forma_pagamento: string; valor: number; obra_id: string; pago_colaborador: boolean; litros: number | null; hodometro: number | null; anexo_path: string | null }
 type Resumo = { total: number; adiantamento: number; pago_colaborador: number; saldo: number; km_rodado: number | null; custo_km: number | null; litros: number | null; media_km_l: number | null }
 type Obra = { id: string; numero: string; nome: string }
 type Cat = { codigo: string; descricao: string }
@@ -49,6 +50,8 @@ export default function ViagensPage() {
   const [desfazer, setDesfazer] = useState<string | null>(null)
   // perfil consulta (viewer) só lê: o banco barra a gravação (gatilho trg_viagem_trava_viewer); a tela esconde as ações
   const [podeGravar, setPodeGravar] = useState(false)
+  // caminho da foto do comprovante já enviada para o lançamento em edição (vai no anexo_path)
+  const [anexo, setAnexo] = useState('')
 
   const carregar = useCallback(async () => {
     if (!empresa) return
@@ -78,9 +81,9 @@ export default function ViagensPage() {
   }, [podeGravar, obras])
 
   const abrir = useCallback(async (v: Viagem) => {
-    setAberta(v); setLf(null); setPrevia(false); setKm({ ini: v.km_inicial?.toString() ?? '', fim: v.km_final?.toString() ?? '' })
+    setAberta(v); setLf(null); setAnexo(''); setPrevia(false); setKm({ ini: v.km_inicial?.toString() ?? '', fim: v.km_final?.toString() ?? '' })
     const [l, r] = await Promise.all([
-      supabase.from('erp_viagem_lancamento').select('id,tipo,data,fornecedor_nome,categoria,forma_pagamento,valor,obra_id,pago_colaborador,litros,hodometro').eq('viagem_id', v.id).is('excluido_em', null).order('data'),
+      supabase.from('erp_viagem_lancamento').select('id,tipo,data,fornecedor_nome,categoria,forma_pagamento,valor,obra_id,pago_colaborador,litros,hodometro,anexo_path').eq('viagem_id', v.id).is('excluido_em', null).order('data'),
       supabase.rpc('fn_viagem_resumo', { p_viagem_id: v.id }),
     ])
     setLancs((l.data ?? []) as Lanc[]); setResumo((r.data as Resumo) ?? null)
@@ -106,8 +109,8 @@ export default function ViagensPage() {
     if (!aberta || !lf) return
     const erros = validarLancamento(lf, aberta.periodo_inicio, aberta.periodo_fim)
     if (erros.length) { setMsg(erros.join(' · ')); return }
-    const d = await rpc('fn_viagem_lancamento_salvar', { p_viagem_id: aberta.id, p_id: null, p_dados: lf })
-    if (d) { setLf(vazio(aberta.obra_id, lf.data)); await abrir(aberta) }
+    const d = await rpc('fn_viagem_lancamento_salvar', { p_viagem_id: aberta.id, p_id: null, p_dados: { ...lf, anexo_path: anexo } })
+    if (d) { setLf(vazio(aberta.obra_id, lf.data)); setAnexo(''); await abrir(aberta) }
   }
   // hodômetro da saída e da volta: regrava a viagem inteira pelo fn_viagem_salvar (ele substitui todos os campos)
   async function salvarKm() {
@@ -209,7 +212,7 @@ export default function ViagensPage() {
           <ul className="space-y-1">{lancs.map((l) => (
             <li key={l.id} className="flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-sm" style={{ borderColor: LINE }}>
               <span>{dt(l.data)} · {l.fornecedor_nome} <span className="text-xs opacity-60">· {l.categoria} · {obraNome(l.obra_id)}{l.tipo === 'abastecimento' ? ` · ${l.litros} L` : ''}</span>{l.tipo === 'abastecimento' && precoLitro(l.valor, l.litros) != null && <span className="text-xs opacity-60"> · {brl(precoLitro(l.valor, l.litros))}/L<AjudaCampo chave="projetos.viagem.lanc_preco_litro" /></span>}</span>
-              <span>{brl(l.valor)} {aberta.status === 'aberta' && podeGravar && <><button aria-label="Excluir lançamento" className="ml-2 text-xs underline" onClick={() => excluir(l.id)}>excluir</button><AjudaCampo chave="projetos.viagem.excluir_lancamento" /></>}</span></li>))}
+              <span>{brl(l.valor)}{l.anexo_path && <VerComprovante path={l.anexo_path} />} {aberta.status === 'aberta' && podeGravar && <><button aria-label="Excluir lançamento" className="ml-2 text-xs underline" onClick={() => excluir(l.id)}>excluir</button><AjudaCampo chave="projetos.viagem.excluir_lancamento" /></>}</span></li>))}
             {lancs.length === 0 && <li className="text-sm opacity-60">Sem lançamentos.</li>}</ul>
           {desfazer && aberta.status === 'aberta' && <div role="status" className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm" style={{ borderColor: GOLD }}>Lançamento excluído.<button disabled={busy} className="font-medium underline" onClick={restaurar}>Desfazer</button><AjudaCampo chave="projetos.viagem.desfazer_exclusao" /></div>}
           {previa && aberta.status === 'aberta' && podeGravar && resumo && <PreviaFechamento viagemId={aberta.id} total={resumo.total} saldoTexto={resumo.saldo ? `${resumoTexto(resumo.saldo)}: ${brl(Math.abs(resumo.saldo))}` : resumoTexto(resumo.saldo)} obraNome={obraNome} busy={busy} onConfirmar={fechar} onCancelar={() => setPrevia(false)} />}
@@ -222,6 +225,7 @@ export default function ViagensPage() {
               <Campo rotulo="Valor" ajuda="projetos.viagem.lanc_valor"><input inputMode="decimal" className={campo} placeholder="Valor" value={lf.valor} onChange={(e) => setLf({ ...lf, valor: e.target.value.replace(',', '.') })} /></Campo>
               <Campo rotulo="Categoria" ajuda="projetos.viagem.lanc_categoria"><select className={campo} value={lf.categoria} onChange={(e) => setLf({ ...lf, categoria: e.target.value })}><option value="">Categoria…</option>{cats.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} · {c.descricao}</option>)}</select></Campo>
               <Campo rotulo="Forma de pagamento" ajuda="projetos.viagem.lanc_forma"><select className={campo} value={lf.forma_pagamento} onChange={(e) => setLf({ ...lf, forma_pagamento: e.target.value })}>{FORMAS_PAGAMENTO_VIAGEM.map((f) => <option key={f.codigo} value={f.codigo}>{f.rotulo}</option>)}</select></Campo>
+              <CampoComprovante key={lancs.length} empresa={empresa} viagemId={aberta.id} valor={anexo} onChange={setAnexo} />
               <Campo rotulo="Obra deste cupom" ajuda="projetos.viagem.lanc_obra"><select className={campo} value={lf.obra_id} onChange={(e) => setLf({ ...lf, obra_id: e.target.value })}>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
               <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={lf.pago_colaborador} onChange={(e) => setLf({ ...lf, pago_colaborador: e.target.checked })} />Pago pelo colaborador<AjudaCampo chave="projetos.viagem.lanc_pago_colaborador" /></label>
               {lf.tipo === 'abastecimento' && <><Campo rotulo="Litros" ajuda="projetos.viagem.lanc_litros"><input inputMode="decimal" className={campo} placeholder="Litros" value={lf.litros} onChange={(e) => setLf({ ...lf, litros: e.target.value.replace(',', '.') })} /></Campo><Campo rotulo="Hodômetro" ajuda="projetos.viagem.lanc_hodometro"><input inputMode="decimal" className={campo} placeholder="Hodômetro" value={lf.hodometro} onChange={(e) => setLf({ ...lf, hodometro: e.target.value.replace(',', '.') })} /></Campo>
