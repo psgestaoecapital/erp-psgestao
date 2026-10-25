@@ -3,6 +3,7 @@
 // Relatório de custo de viagem (Eng. Chefe 24/10 · onda 2): por obra e por viagem, só leitura do fn_viagem_relatorio —
 // a MESMA conta do Resultado da obra (v_viagem_custo_obra). A tela não calcula nada: mostra e confere ("Confere").
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Download } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -13,6 +14,9 @@ type RelViagem = { viagem_id: string; numero: number; colaborador: string; perio
 type Rel = { viagens: RelViagem[]; obras: RelObra[]; totais: { viagens: number; total: number; km_rodado: number; custo_km: number | null }; confere: boolean }
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dt = (s: string) => s.split('-').reverse().join('/')
+// CSV para o Excel/Planilhas pt-BR: decimal com vírgula e texto entre aspas com escape.
+const csvNum = (n: number | null | undefined) => (n ?? 0).toFixed(2).replace('.', ',')
+const csvTxt = (s: string) => `"${(s ?? '').replace(/"/g, '""')}"`
 const campo = 'w-full rounded-lg border px-2 py-1.5 text-sm'
 
 export function RelatorioViagens({ empresa, obras }: { empresa: string; obras: Obra[] }) {
@@ -46,9 +50,36 @@ export function RelatorioViagens({ empresa, obras }: { empresa: string; obras: O
   // eslint-disable-next-line react-hooks/set-state-in-effect -- recarrega ao mudar os filtros
   useEffect(() => { carregar() }, [carregar])
 
+  // Exporta no navegador o relatório JÁ carregado (fn_viagem_relatorio): uma linha por obra + total. Só formata o
+  // que está na tela — não refaz nenhuma conta (a fonte é a mesma do Resultado da obra).
+  const exportarCsv = useCallback(() => {
+    if (!rel || rel.viagens.length === 0) return
+    const sep = ';'
+    const linhas = [['Obra', 'Nome', 'Viagens', 'Custo no período', 'Dividido entre obras', 'No Resultado da obra', 'Confere'].join(sep)]
+    for (const o of rel.obras) linhas.push([o.numero, csvTxt(o.nome), String(o.viagens), csvNum(o.custo_periodo), csvNum(o.custo_rateado), csvNum(o.custo_no_resultado), o.confere ? 'Confere' : 'NAO CONFERE'].join(sep))
+    linhas.push(['Total', '', String(rel.totais.viagens), csvNum(rel.totais.total), '', csvNum(rel.totais.total), rel.confere ? 'Confere' : 'NAO CONFERE'].join(sep))
+    const selec = obra ? obras.find((o) => o.id === obra)?.numero : null
+    const url = URL.createObjectURL(new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8;' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `custo-viagem-por-obra${selec ? '-' + selec : ''}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }, [rel, obra, obras])
+
   return (
     <section ref={secRef} className="mt-6 space-y-3" aria-label="Relatório de custo de viagem">
-      <h2 className="text-lg font-semibold">Custo de viagem por obra</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Custo de viagem por obra</h2>
+        <span className="inline-flex items-center">
+          <button type="button" onClick={exportarCsv} disabled={!rel || rel.viagens.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-40"
+            style={{ borderColor: LINE, color: ESP }}>
+            <Download size={16} aria-hidden /> Exportar CSV
+          </button>
+          <AjudaCampo chave="projetos.viagem.rel_exportar" />
+        </span>
+      </div>
       <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
         <Filtro rotulo="Saída de" ajuda="projetos.viagem.rel_periodo"><input type="date" className={campo} value={ini} onChange={(e) => setIni(e.target.value)} /></Filtro>
         <Filtro rotulo="Saída até" ajuda="projetos.viagem.rel_periodo"><input type="date" className={campo} value={fim} onChange={(e) => setFim(e.target.value)} /></Filtro>
