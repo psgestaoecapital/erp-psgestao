@@ -92,9 +92,9 @@ function IndCorpo({ ind, limite }: { ind: Ind; limite: string }) {
           <li key={`${r.origem}→${r.destino}`} className="rounded-xl border bg-white p-3 text-sm" style={{ borderColor: LINE }}>
             <b>{r.origem} → {r.destino}</b> <span className="text-xs opacity-60">· {r.viagens} viagem(ns) · última {dt(r.ultima)}</span>
             <div className="mt-1 grid grid-cols-2 gap-1 text-xs">
-              <span>Custo médio <b>{brl(r.custo_medio)}</b></span><span>Km médio <b>{num(r.km_medio)}</b></span>
-              <span>Dias médios <b>{num(r.dias_medio)}</b></span><span>Por km <b>{brl(r.custo_km)}</b></span>
-              <span>Por dia <b>{brl(r.custo_dia)}</b></span>
+              <span className="inline-flex items-center">Custo médio<AjudaCampo chave="projetos.viagem.rota_custo_medio" /> <b className="ml-1">{brl(r.custo_medio)}</b></span><span className="inline-flex items-center">Km médio<AjudaCampo chave="projetos.viagem.rota_km_medio" /> <b className="ml-1">{num(r.km_medio)}</b></span>
+              <span className="inline-flex items-center">Dias médios<AjudaCampo chave="projetos.viagem.rota_dias_medio" /> <b className="ml-1">{num(r.dias_medio)}</b></span><span className="inline-flex items-center">Por km<AjudaCampo chave="projetos.viagem.rota_custo_km" /> <b className="ml-1">{brl(r.custo_km)}</b></span>
+              <span className="inline-flex items-center">Por dia<AjudaCampo chave="projetos.viagem.rota_custo_dia" /> <b className="ml-1">{brl(r.custo_dia)}</b></span>
             </div>
           </li>))}</ul>}
     </>
