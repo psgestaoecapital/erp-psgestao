@@ -55,6 +55,9 @@ export default function ViagensPage() {
   const [anexo, setAnexo] = useState('')
   // filtro da lista (auditor 25/10): obra, responsável e período — só filtra o que já veio do banco
   const [filtro, setFiltro] = useState({ obra: '', quem: '', de: '', ate: '' })
+  // editar os dados da viagem aberta (reusa fn_viagem_salvar com p_id; o banco só altera viagem aberta)
+  const [editar, setEditar] = useState(false)
+  const [ef, setEf] = useState<Record<string, string>>({})
 
   const carregar = useCallback(async () => {
     if (!empresa) return
@@ -86,7 +89,7 @@ export default function ViagensPage() {
   }, [podeGravar, obras])
 
   const abrir = useCallback(async (v: Viagem) => {
-    setAberta(v); setLf(null); setAnexo(''); setPrevia(false); setKm({ ini: v.km_inicial?.toString() ?? '', fim: v.km_final?.toString() ?? '' })
+    setAberta(v); setLf(null); setAnexo(''); setPrevia(false); setEditar(false); setKm({ ini: v.km_inicial?.toString() ?? '', fim: v.km_final?.toString() ?? '' })
     const [l, r] = await Promise.all([
       supabase.from('erp_viagem_lancamento').select('id,tipo,data,fornecedor_nome,categoria,forma_pagamento,valor,obra_id,pago_colaborador,litros,hodometro,anexo_path').eq('viagem_id', v.id).is('excluido_em', null).order('data'),
       supabase.rpc('fn_viagem_resumo', { p_viagem_id: v.id }),
@@ -139,6 +142,29 @@ export default function ViagensPage() {
       await carregar(); await abrir(nv)
     }
   }
+  function abrirEdicao() {
+    if (!aberta) return
+    const a = aberta
+    setEf({ colaborador_nome: a.colaborador_nome ?? '', placa: a.placa ?? '', obra_id: a.obra_id,
+      periodo_inicio: a.periodo_inicio, periodo_fim: a.periodo_fim, adiantamento: String(a.adiantamento ?? ''),
+      origem: a.origem ?? '', destino: a.destino ?? '' })
+    setEditar(true); setMsg('')
+  }
+  // a edição reescreve a viagem toda pela fn_viagem_salvar: o que a tela não edita (funcionário vinculado, km e
+  // observação) vai no payload com o valor atual, senão a função o zera. O banco recusa alterar viagem fechada.
+  async function salvarEdicao() {
+    if (!aberta || !empresa) return
+    const a = aberta
+    const d = await rpc('fn_viagem_salvar', { p_company_id: empresa, p_id: a.id, p_dados: { ...ef,
+      funcionario_id: a.funcionario_id ?? '', observacao: a.observacao ?? '',
+      km_inicial: a.km_inicial != null ? String(a.km_inicial) : '', km_final: a.km_final != null ? String(a.km_final) : '' } })
+    if (d) {
+      const nv: Viagem = { ...a, colaborador_nome: ef.colaborador_nome, placa: ef.placa.trim() || null, obra_id: ef.obra_id,
+        periodo_inicio: ef.periodo_inicio, periodo_fim: ef.periodo_fim, adiantamento: Number(ef.adiantamento) || 0,
+        origem: ef.origem.trim() || null, destino: ef.destino.trim() || null }
+      setEditar(false); await carregar(); await abrir(nv)
+    }
+  }
   async function excluir(id: string) {
     if (!aberta) return
     if (await rpc('fn_viagem_lancamento_excluir', { p_id: id })) { await abrir(aberta); setDesfazer(id) }
@@ -170,7 +196,7 @@ export default function ViagensPage() {
           {!podeGravar && <span className="rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Perfil de consulta</span>}
         </div></div>
         {!aberta && podeGravar && <span className="flex items-center gap-1"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => { setNova(true); setMsg('') }}>Nova viagem</button><AjudaCampo chave="projetos.viagem.nova" /></span>}
-        {aberta && <button className="text-sm underline" onClick={() => { setAberta(null); setMsg(''); setDesfazer(null) }}>← Voltar à lista</button>}
+        {aberta && <button className="text-sm underline" onClick={() => { setAberta(null); setMsg(''); setDesfazer(null); setEditar(false) }}>← Voltar à lista</button>}
       </div>
       {msg && <div role="alert" className="mb-3 rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{msg}</div>}
       {aviso && <div role="status" className="mb-3 rounded-lg border border-green-300 bg-green-50 p-2 text-sm text-green-900">{aviso}</div>}
@@ -224,7 +250,21 @@ export default function ViagensPage() {
               <Campo rotulo="Km na saída" ajuda="projetos.viagem.km_inicial"><input inputMode="decimal" className={campo} value={km.ini} onChange={(e) => setKm({ ...km, ini: e.target.value.replace(',', '.') })} /></Campo>
               <Campo rotulo="Km na volta" ajuda="projetos.viagem.km_final"><input inputMode="decimal" className={campo} value={km.fim} onChange={(e) => setKm({ ...km, fim: e.target.value.replace(',', '.') })} /></Campo>
               <button disabled={busy} className="rounded-lg border px-3 py-1.5 text-sm" style={{ borderColor: ESP }} onClick={salvarKm}>Salvar km</button><AjudaCampo chave="projetos.viagem.salvar_km" /></div>}
+            {aberta.status === 'aberta' && podeGravar && <div className="mt-2 flex items-center gap-1"><button className="text-sm underline" onClick={() => (editar ? setEditar(false) : abrirEdicao())}>{editar ? 'Fechar edição' : 'Editar dados da viagem'}</button><AjudaCampo chave="projetos.viagem.editar" /></div>}
           </div>
+          {editar && aberta.status === 'aberta' && podeGravar && (
+            <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
+              <Campo rotulo="Colaborador" ajuda="projetos.viagem.colaborador"><input className={campo} value={ef.colaborador_nome ?? ''} onChange={(e) => setEf({ ...ef, colaborador_nome: e.target.value })} /></Campo>
+              <Campo rotulo="Placa" ajuda="projetos.viagem.placa"><input className={campo} value={ef.placa ?? ''} onChange={(e) => setEf({ ...ef, placa: e.target.value })} /></Campo>
+              <Campo rotulo="Obra principal" ajuda="projetos.viagem.obra_principal"><select className={campo} value={ef.obra_id ?? ''} onChange={(e) => setEf({ ...ef, obra_id: e.target.value })}><option value="">Obra principal…</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
+              <Campo rotulo="Saída" ajuda="projetos.viagem.saida"><input type="date" className={campo} value={ef.periodo_inicio ?? ''} onChange={(e) => setEf({ ...ef, periodo_inicio: e.target.value })} /></Campo>
+              <Campo rotulo="Volta" ajuda="projetos.viagem.volta"><input type="date" className={campo} value={ef.periodo_fim ?? ''} onChange={(e) => setEf({ ...ef, periodo_fim: e.target.value })} /></Campo>
+              <Campo rotulo="Adiantamento (5.01)" ajuda="projetos.viagem.adiantamento"><input inputMode="decimal" className={campo} value={ef.adiantamento ?? ''} onChange={(e) => setEf({ ...ef, adiantamento: e.target.value.replace(',', '.') })} /></Campo>
+              <Campo rotulo="Origem" ajuda="projetos.viagem.origem"><input className={campo} value={ef.origem ?? ''} onChange={(e) => setEf({ ...ef, origem: e.target.value })} /></Campo>
+              <Campo rotulo="Destino" ajuda="projetos.viagem.destino"><input className={campo} value={ef.destino ?? ''} onChange={(e) => setEf({ ...ef, destino: e.target.value })} /></Campo>
+              <div className="flex gap-2 sm:col-span-3"><button disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-white" style={{ background: ESP }} onClick={salvarEdicao}>Salvar alterações</button><button className="text-sm underline" onClick={() => setEditar(false)}>Cancelar</button></div>
+            </div>
+          )}
           {aberta.status === 'fechada' && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3 text-sm" style={{ borderColor: LINE }}>
               <span>Situação no GE<AjudaCampo chave="projetos.viagem.ge_situacao" />: <b>{noGe[aberta.id] ? `lançada · ${noGe[aberta.id]} título(s)` : 'ainda não lançada'}</b></span>
