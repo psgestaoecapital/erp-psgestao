@@ -25,6 +25,16 @@ interface ResumoEmpresa {
   funil_valor_aberto: number;
   funil_ganhas: number;
   funil_perdidas: number;
+  obras_andamento: ObraAndamento[];
+}
+
+// Obras em andamento do painel: mesma fonte e mesma conta da "Margem prevista das obras" (receita − custo previstos).
+interface ObraAndamento {
+  obra_id: string;
+  numero: string | null;
+  nome: string | null;
+  receita_prevista: number;
+  custo_previsto: number;
 }
 
 const SITUACOES = [
@@ -67,22 +77,30 @@ export default function PainelProjetos() {
     (async () => {
       try {
         const supabase = supabaseBrowser();
-        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }] = await Promise.all([
+        // Situações por contagem no banco (head): a lista de obras não é baixada inteira — o PostgREST corta em 1000 linhas
+        // e a empresa pode ter milhares de obras encerradas. Só as obras em andamento vêm linha a linha.
+        const contarSituacao = (s: string) =>
+          supabase.from("v_obra_resultado").select("obra_id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", s);
+        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, ...situacoes] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
-          supabase.from("v_obra_resultado").select("status,receita_prevista,custo_previsto").eq("company_id", companyId),
+          supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto").eq("company_id", companyId).eq("status", "em_andamento"),
           supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado,valor_proposta").eq("company_id", companyId).is("deleted_at", null),
+          ...SITUACOES.map((x) => contarSituacao(x.s)),
         ]);
-        if (ek || ep || eo || eop) throw new Error("indicadores");
+        if (ek || ep || eo || eop || situacoes.some((r) => r.error)) throw new Error("indicadores");
         const kp = (k as { em_andamento?: number; valor_em_andamento?: number } | null) ?? {};
         const fin = v as { contas_pagar_abertas: number | null; contas_receber_abertas: number | null } | null;
         const porStatus: Record<string, number> = {};
+        SITUACOES.forEach((x, i) => { porStatus[x.s] = situacoes[i].count ?? 0; });
         let receita = 0, custo = 0;
-        for (const o of (obras as { status: string; receita_prevista: number | null; custo_previsto: number | null }[] | null) ?? []) {
-          porStatus[o.status] = (porStatus[o.status] ?? 0) + 1;
-          if (o.status === "em_andamento") { receita += Number(o.receita_prevista ?? 0); custo += Number(o.custo_previsto ?? 0); }
+        const andamento: ObraAndamento[] = [];
+        for (const o of (obras as { obra_id: string; numero: string | null; nome: string | null; status: string; receita_prevista: number | null; custo_previsto: number | null }[] | null) ?? []) {
+          receita += Number(o.receita_prevista ?? 0); custo += Number(o.custo_previsto ?? 0);
+          andamento.push({ obra_id: o.obra_id, numero: o.numero, nome: o.nome, receita_prevista: Number(o.receita_prevista ?? 0), custo_previsto: Number(o.custo_previsto ?? 0) });
         }
+        andamento.sort((a, b) => b.receita_prevista - a.receita_prevista);
         let abertas = 0, valorAberto = 0, ganhas = 0, perdidas = 0;
         for (const o of (opps as { etapa: string; valor_estimado: number | null; valor_proposta: number | null }[] | null) ?? []) {
           if (o.etapa === "ganho") ganhas++;
@@ -102,6 +120,7 @@ export default function PainelProjetos() {
             funil_valor_aberto: valorAberto,
             funil_ganhas: ganhas,
             funil_perdidas: perdidas,
+            obras_andamento: andamento,
           });
         }
       } catch {
@@ -132,19 +151,19 @@ export default function PainelProjetos() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
-      {/* HERO */}
-      <section className="text-center py-12">
-        <div className="mx-auto inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-[#3D2314]/8 mb-6">
-          <Hammer size={28} className="text-[#C8941A]" />
+    <main className="mx-auto max-w-5xl px-4 py-8 md:px-6">
+      {/* HERO — compacto: os indicadores aparecem já na primeira dobra */}
+      <section className="py-4 text-center">
+        <div className="mx-auto mb-3 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#3D2314]/8">
+          <Hammer size={22} className="text-[#C8941A]" />
         </div>
         <h1
-          className="text-3xl font-medium text-[#3D2314] mb-2"
+          className="text-2xl font-medium text-[#3D2314] mb-1 md:text-3xl"
           style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal", letterSpacing: "-0.01em" }}
         >
           Projetos · {empresaNome}
         </h1>
-        <p className="text-[#3D2314]/60 mb-8 max-w-xl mx-auto">
+        <p className="text-[#3D2314]/60 mb-5 max-w-xl mx-auto">
           Hub de engenharia, CRM de obra e acompanhamento
         </p>
         <div className="flex flex-wrap items-center justify-center gap-4">
@@ -186,7 +205,7 @@ export default function PainelProjetos() {
       </section>
 
       {/* INDICADORES */}
-      <section className="mt-16" data-testid="painel-indicadores">
+      <section className="mt-10" data-testid="painel-indicadores">
         <SectionLabel>Indicadores</SectionLabel>
 
         <div className="mb-3 mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -246,6 +265,61 @@ export default function PainelProjetos() {
             </Link>
           ))}
         </div>
+      </section>
+
+      {/* OBRAS EM ANDAMENTO — cada obra abre o cockpit dela */}
+      <section className="mt-12" data-testid="painel-obras-andamento">
+        <div className="flex items-center gap-1">
+          <SectionLabel>Obras em andamento</SectionLabel>
+          <AjudaCampo chave="projetos.cockpit.escolher_obra" rota="/dashboard/projetos/cockpit" />
+        </div>
+        {!resumo ? (
+          <p className="mt-3 text-sm text-[#3D2314]/50">…</p>
+        ) : resumo.obras_andamento.length === 0 ? (
+          <p className="mt-3 rounded-xl border border-[#3D2314]/12 bg-white p-4 text-sm text-[#3D2314]/60">
+            Nenhuma obra em andamento. A obra nasce quando um orçamento é aprovado — veja em{" "}
+            <Link href="/dashboard/projetos/obras" className="underline">Obras</Link>.
+          </p>
+        ) : (
+          <div className="mt-3 overflow-x-auto rounded-xl border border-[#3D2314]/12 bg-white shadow-sm">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#3D2314]/10 text-left text-xs text-[#3D2314]/50">
+                  <th className="px-4 py-2 font-medium">Obra</th>
+                  <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Receita prevista<AjudaCampo chave="projetos.resultado_obra.receita_prevista" rota="/dashboard/projetos/obras/resultado" /></span></th>
+                  <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Custo previsto<AjudaCampo chave="projetos.resultado_obra.custo_previsto" rota="/dashboard/projetos/obras/resultado" /></span></th>
+                  <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Margem prevista<AjudaCampo chave="projetos.painel.kpi.margem_prevista" /></span></th>
+                  <th className="px-4 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {resumo.obras_andamento.slice(0, 8).map((o) => {
+                  const m = o.receita_prevista > 0 ? ((o.receita_prevista - o.custo_previsto) / o.receita_prevista) * 100 : null;
+                  return (
+                    <tr key={o.obra_id} data-testid="painel-obra-linha" className="border-b border-[#3D2314]/5 last:border-0">
+                      <td className="px-4 py-2.5 text-[#3D2314]">
+                        <span className="text-[#3D2314]/50">{o.numero ? `${o.numero} · ` : ""}</span>{o.nome ?? "Obra sem nome"}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(o.receita_prevista)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(o.custo_previsto)}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{m === null ? "—" : fmtPct(m)}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <Link href={`/dashboard/projetos/obras/${o.obra_id}/cockpit?area=hub`} className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-[#C8941A] hover:underline">
+                          Cockpit <ArrowRight size={14} />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {resumo.obras_andamento.length > 8 && (
+              <Link href="/dashboard/projetos/obras/resultado?area=hub" className="block border-t border-[#3D2314]/10 px-4 py-2 text-sm text-[#3D2314]/60 hover:text-[#3D2314]">
+                Ver as {resumo.obras_andamento.length} obras no Resultado por obra
+              </Link>
+            )}
+          </div>
+        )}
       </section>
 
       {erro && (
