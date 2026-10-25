@@ -48,18 +48,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, erro: 'Titulo ja quitado: o boleto nao pode ser cancelado.' }, { status: 409 })
     }
 
-    let ambiente: SicoobAmbiente = 'producao'
-    let credResp = await supabaseAdmin.rpc('fn_banco_obter_credencial', {
-      p_company_id: companyId, p_banco_codigo: BANCO, p_ambiente: 'producao',
+    // Sem fallback para homologacao: baixa so no ambiente de producao, onde o boleto real foi registrado.
+    const ambiente: SicoobAmbiente = 'producao'
+    const credResp = await supabaseAdmin.rpc('fn_banco_obter_credencial', {
+      p_company_id: companyId, p_banco_codigo: BANCO, p_ambiente: ambiente,
     })
-    let credRow = credResp.data as Record<string, unknown> | null
-    if (!credRow || credRow.ok === false) {
-      credResp = await supabaseAdmin.rpc('fn_banco_obter_credencial', {
-        p_company_id: companyId, p_banco_codigo: BANCO, p_ambiente: 'homologacao',
-      })
-      credRow = credResp.data as Record<string, unknown> | null
-      ambiente = 'homologacao'
-    }
+    const credRow = credResp.data as Record<string, unknown> | null
     const clientId = credRow?.client_id as string | null
     const certBase64 = credRow?.cert_base64 as string | null
     const certSenha = credRow?.cert_senha as string | null
