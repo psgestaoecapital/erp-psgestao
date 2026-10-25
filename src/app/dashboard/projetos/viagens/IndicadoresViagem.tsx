@@ -37,8 +37,8 @@ export function IndicadoresViagem({ empresa }: { empresa: string }) {
     <section className="mt-6 space-y-3" aria-label="Indicadores da viagem">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <h2 className="text-lg font-semibold">Indicadores da viagem</h2>
-        <label className="flex items-center gap-1 text-xs">Alerta acima de<AjudaCampo chave="projetos.viagem.ind_limite" />
-          <input inputMode="decimal" className="w-16 rounded-lg border px-2 py-1 text-sm" value={limite} onChange={(e) => setLimite(e.target.value)} aria-label="Alerta acima de (% do custo previsto)" />%</label>
+        <label className="flex flex-col gap-1 text-xs"><span className="inline-flex items-center">Alerta acima de (% do orçado)<AjudaCampo chave="projetos.viagem.ind_limite" /></span>
+          <span className="relative w-28"><input inputMode="decimal" className="w-full rounded-lg border bg-white px-2 py-1.5 pr-7 text-right text-sm" style={{ borderColor: LINE }} value={limite} onChange={(e) => setLimite(e.target.value)} aria-label="Alerta acima de (% do custo previsto)" /><span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-sm opacity-60">%</span></span></label>
       </div>
       {ind.alertas > 0 && <div role="status" className="rounded-lg border p-2 text-sm" style={{ borderColor: GOLD, background: '#FFF7E6' }}>{ind.alertas} obra(s) com viagem acima de {limite}% do custo previsto.</div>}
 
@@ -46,13 +46,13 @@ export function IndicadoresViagem({ empresa }: { empresa: string }) {
         ? <p className="rounded-xl border bg-white p-4 text-sm opacity-70" style={{ borderColor: LINE }}>Sem custo de viagem nas obras ainda. Os indicadores aparecem depois do primeiro cupom lançado.</p>
         : <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: LINE }}>
           <table className="w-full min-w-[640px] text-sm">
-            <thead><tr className="text-left text-xs opacity-70">
+            <thead><tr className="text-left text-xs font-medium" style={{ color: ESP, background: '#FAF7F2' }}>
               <th className="p-2">Obra</th>
-              <th className="p-2 text-right">Custo de viagem<AjudaCampo chave="projetos.viagem.rel_custo_obra" /></th>
-              <th className="p-2 text-right">Por m²<AjudaCampo chave="projetos.viagem.ind_custo_m2" /></th>
-              <th className="p-2 text-right">Por km<AjudaCampo chave="projetos.viagem.ind_custo_km" /></th>
-              <th className="p-2 text-right">Por dia<AjudaCampo chave="projetos.viagem.ind_custo_dia" /></th>
-              <th className="p-2 text-right">% do orçado<AjudaCampo chave="projetos.viagem.ind_pct_orcado" /></th>
+              <Th rotulo="Custo de viagem" chave="projetos.viagem.rel_custo_obra" />
+              <Th rotulo="Por m²" chave="projetos.viagem.ind_custo_m2" />
+              <Th rotulo="Por km" chave="projetos.viagem.ind_custo_km" />
+              <Th rotulo="Por dia" chave="projetos.viagem.ind_custo_dia" />
+              <Th rotulo="% do orçado" chave="projetos.viagem.ind_pct_orcado" />
             </tr></thead>
             <tbody>{ind.obras.map((o) => (
               <tr key={o.obra_id} className="border-t" style={{ borderColor: LINE }}>
@@ -81,4 +81,9 @@ export function IndicadoresViagem({ empresa }: { empresa: string }) {
           </li>))}</ul>}
     </section>
   )
+}
+
+// cabeçalho numérico: rótulo e "?" lado a lado, alinhados à direita, sem opacidade (o "?" precisa aparecer inteiro)
+function Th({ rotulo, chave }: { rotulo: string; chave: string }) {
+  return <th className="p-2 text-right"><span className="inline-flex items-center justify-end whitespace-nowrap">{rotulo}<AjudaCampo chave={chave} alinhar="fim" /></span></th>
 }
