@@ -277,7 +277,7 @@ export default function CalculadoraObraPage() {
         <div className="rounded-lg bg-red-50 p-3 text-sm text-red-800" data-testid="calc-erro"><AlertTriangle className="mb-0.5 mr-1 inline" size={15} />{res.erro}</div>
       ) : (
         <section className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm" data-testid="calc-resultado">
-          <h2 className="mb-3 text-base font-medium text-[#3D2314]">O que comprar <span className="text-sm text-[#3D2314]/50">· área {fmt(res.area)} m²</span><AjudaCampo chave="projetos.calculadora.resultado" rota="/dashboard/projetos/calculadora" /></h2>
+          <h2 className="mb-3 text-base font-medium text-[#3D2314]">O que comprar <span className="text-sm text-[#3D2314]/50">· área {fmt(res.area)} m² · {res.itens.length} {res.itens.length === 1 ? "item" : "itens"}</span><AjudaCampo chave="projetos.calculadora.resultado" rota="/dashboard/projetos/calculadora" /></h2>
           {companyId && (
             <p className="mb-2 text-sm text-[#3D2314]/70" data-testid="calc-custo-total">
               Custo estimado: <b>{custo.linhas.length > 0 && custo.semCusto === custo.linhas.length ? "sem custo — vincule os itens ao estoque" : fmtBRL(custo.total)}</b><AjudaCampo chave="projetos.calculadora.custo_total" rota="/dashboard/projetos/calculadora" />
@@ -298,33 +298,9 @@ export default function CalculadoraObraPage() {
             </button>
           )}
           {erroVinculo && <p className="mb-2 text-sm text-red-700">{erroVinculo}</p>}
-          <ul className="divide-y divide-[#3D2314]/8">
-            {res.itens.map((i) => (
-              <li key={i.chave} className="py-2.5" data-testid={`calc-item-${i.chave}`}>
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm text-[#3D2314]">{i.descricao}</span>
-                  <span className="font-mono text-sm text-[#3D2314]"><b data-testid={`calc-qtd-${i.chave}`}>{i.quantidade}</b> × {i.unidadeCompra}</span>
-                </div>
-                {companyId && (
-                  <label className="mt-1 flex items-center gap-2 text-xs text-[#3D2314]/60">
-                    <span className="flex items-center">Produto do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" /></span>
-                    <select value={vinculos[i.chave] ?? ""} data-testid={`calc-produto-${i.chave}`} onChange={(e) => void vincular(i.chave, e.target.value)}
-                      className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1 text-xs">
-                      <option value="">Sem vínculo</option>
-                      {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.unidade ? ` (${p.unidade})` : ""}</option>)}
-                    </select>
-                  </label>
-                )}
-                {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
-                {custoPorChave[i.chave]?.total != null && <p className="mt-0.5 text-xs text-[#3D2314]/60">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade} = <b>{fmtBRL(custoPorChave[i.chave].total!)}</b></p>}
-                <details className="mt-1 text-xs text-[#3D2314]/60">
-                  <summary className="cursor-pointer">ver a conta<AjudaCampo chave="projetos.calculadora.ver_conta" rota="/dashboard/projetos/calculadora" /></summary>
-                  {i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}
-                </details>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-4 flex flex-col gap-2 border-t border-[#3D2314]/8 pt-4" data-testid="calc-saida">
+          {/* Ações em destaque ACIMA da lista longa de itens: o usuário vê o total e salva/envia/gera proposta sem rolar
+              (auditor 25/10: "lista 'o que comprar' cortada" deixava salvar/exportar/histórico fora da área visível). */}
+          <div className="mb-4 flex flex-col gap-2 rounded-xl bg-[#FAF7F2] p-3" data-testid="calc-saida">
             <button onClick={() => void copiarLista()} data-testid="calc-copiar-lista" className="self-start rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
               Copiar lista de compra<AjudaCampo chave="projetos.calculadora.lista_compra" rota="/dashboard/projetos/calculadora" />
             </button>
@@ -358,6 +334,33 @@ export default function CalculadoraObraPage() {
             )}
             {msgSaida && <p className={`text-sm ${msgSaida.ok ? "text-emerald-700" : "text-red-700"}`} data-testid="calc-saida-msg">{msgSaida.texto}</p>}
           </div>
+          <h3 className="mb-1 mt-1 border-t border-[#3D2314]/8 pt-3 text-xs font-medium uppercase tracking-wider text-[#3D2314]/55">Itens e a conta de cada um</h3>
+          <ul className="divide-y divide-[#3D2314]/8">
+            {res.itens.map((i) => (
+              <li key={i.chave} className="py-2.5" data-testid={`calc-item-${i.chave}`}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm text-[#3D2314]">{i.descricao}</span>
+                  <span className="font-mono text-sm text-[#3D2314]"><b data-testid={`calc-qtd-${i.chave}`}>{i.quantidade}</b> × {i.unidadeCompra}</span>
+                </div>
+                {companyId && (
+                  <label className="mt-1 flex items-center gap-2 text-xs text-[#3D2314]/60">
+                    <span className="flex items-center">Produto do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" /></span>
+                    <select value={vinculos[i.chave] ?? ""} data-testid={`calc-produto-${i.chave}`} onChange={(e) => void vincular(i.chave, e.target.value)}
+                      className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1 text-xs">
+                      <option value="">Sem vínculo</option>
+                      {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.unidade ? ` (${p.unidade})` : ""}</option>)}
+                    </select>
+                  </label>
+                )}
+                {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
+                {custoPorChave[i.chave]?.total != null && <p className="mt-0.5 text-xs text-[#3D2314]/60">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade} = <b>{fmtBRL(custoPorChave[i.chave].total!)}</b></p>}
+                <details className="mt-1 text-xs text-[#3D2314]/60">
+                  <summary className="cursor-pointer">ver a conta<AjudaCampo chave="projetos.calculadora.ver_conta" rota="/dashboard/projetos/calculadora" /></summary>
+                  {i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}
+                </details>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
       {companyId && (
