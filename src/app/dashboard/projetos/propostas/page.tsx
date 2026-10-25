@@ -37,6 +37,9 @@ type Proposta = { id: string; company_id: string; numero: string | null; cliente
 
 const OBRA_STATUS: Record<string, string> = { em_andamento: 'em andamento', pausada: 'pausada', concluida: 'concluída', cancelada: 'cancelada' }
 
+// Contador honesto: a lista traz as N mais recentes; ao bater o teto, o funil avisa que não é o total da empresa.
+const LIMITE_LISTA = 100
+
 const pct = (v: number) => `${v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`
 
 const dataBR = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '—')
@@ -79,7 +82,7 @@ export default function PropostasHubPage() {
     try {
       const { data, error } = await comPrazo(
         async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra')
-          .in('company_id', companyIds).order('data_emissao', { ascending: false }).limit(100),
+          .in('company_id', companyIds).order('data_emissao', { ascending: false }).limit(LIMITE_LISTA),
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
       if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as propostas.')); return }
@@ -205,7 +208,7 @@ export default function PropostasHubPage() {
           </div>
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>
-              {r.total} proposta(s) · {r.abertas} em aberto — toque numa situação para filtrar <AjudaCampo chave="projetos.propostas.funil" />
+              {r.total} proposta(s){r.total >= LIMITE_LISTA ? ` (as ${LIMITE_LISTA} mais recentes — as anteriores não entram nestes números)` : ''} · {r.abertas} em aberto — toque numa situação para filtrar <AjudaCampo chave="projetos.propostas.funil" />
             </div>
             <div data-testid="hub-propostas-funil" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
               {Object.entries(STATUS).filter(([k]) => r.porStatus[k]).map(([k, v]) => {
