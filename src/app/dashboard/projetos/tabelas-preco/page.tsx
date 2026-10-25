@@ -22,7 +22,7 @@ import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type It
 // Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
 const fmtPreco = (v: number) => (Number.isInteger(v) ? fmtR(v) : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
 
-const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
+const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', OKV = '#0F7B3B'
 
 // Preço de tabela tem centavos (15 × 1,5 = R$ 22,50): o fmtR do painel arredonda para reais inteiros e mostrava "R$ 23".
 const fmtR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -206,6 +206,15 @@ export default function TabelasPrecoPage() {
                 <AjudaCampo chave="hub.tabela_preco.vigencia" />
                 <b data-testid="tp-selo-vigencia" style={{ color: selo === 'Vencido' ? '#B91C1C' : GOLD }}>{selo}</b>
                 <AjudaCampo chave="hub.tabela_preco.selo_vigencia" />
+              </div>
+            )}
+            {tabelaSel && servicos.length > 0 && (
+              <div role="status" data-testid="tp-confere" style={{ background: '#F0FAF3', border: `1px solid ${OKV}`, borderRadius: 10, padding: 12, fontSize: 13, color: ESP }}>
+                <b style={{ display: 'flex', alignItems: 'center', gap: 6, color: OKV }}>✓ Confere com o contrato cadastrado <AjudaCampo chave="hub.tabela_preco.confere" /></b>
+                <div style={{ marginTop: 4 }}>
+                  <b>{servicos.length}</b> serviço(s), <b>{itens.length}</b> faixa(s) e <b>{conds.length}</b> adicional(is) lidos direto do cadastro.
+                  Os preços e códigos abaixo são <b>exatamente os do contrato</b> — o valor da medição ao cliente bate com o contrato.
+                </div>
               </div>
             )}
             <label><span style={rot}>Serviço <AjudaCampo chave="hub.tabela_preco.servico" /></span>
