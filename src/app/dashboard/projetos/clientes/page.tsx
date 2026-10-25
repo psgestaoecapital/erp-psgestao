@@ -12,7 +12,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import Link from 'next/link'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { buscarCEP } from '@/lib/cadastros/buscarCEP'
-import { aplicarCEP, brlCurto, cepCompleto, comercialPorCliente, etapaPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, linkNovaOportunidade, obraRecentePorCliente, obrasPorCliente, oportunidadesComObra, rotuloStatusObra, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type OpLinha, type TipoPF } from './clientes-regras'
+import { aplicarCEP, brlCurto, cepCompleto, comercialPorCliente, etapaPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, linkNovaOportunidade, obraRecenteIdPorCliente, obraRecentePorCliente, obrasPorCliente, oportunidadesComObra, rotuloStatusObra, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type OpLinha, type TipoPF } from './clientes-regras'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -71,6 +71,7 @@ export default function ClientesPage() {
   const [fCidade, setFCidade] = useState('')
   const [nObras, setNObras] = useState<Record<string, number>>({})
   const [obraRecente, setObraRecente] = useState<Record<string, string>>({})
+  const [obraRecenteId, setObraRecenteId] = useState<Record<string, string>>({})
   const [opsComObra, setOpsComObra] = useState<Set<string>>(new Set())
   const [demo, setDemo] = useState(false)
   const [ops, setOps] = useState<Oportunidade[]>([])
@@ -100,11 +101,11 @@ export default function ClientesPage() {
     if (error) { setErro(error.message); setLista([]) } else { setLista((data ?? []) as Cliente[]) }
     // Obras de cada cliente (quantas e a mais recente, com cidade): uma consulta só, contada na tela.
     const [{ data: ob }, { data: emp }] = await Promise.all([
-      supabase.from('projetos_obras').select('cliente_id, nome, obra_cidade:cidade, obra_uf:uf, created_at, oportunidade_id').eq('company_id', empresaUnica).limit(5000),
+      supabase.from('projetos_obras').select('id, cliente_id, nome, obra_cidade:cidade, obra_uf:uf, created_at, oportunidade_id').eq('company_id', empresaUnica).limit(5000),
       supabase.from('companies').select('is_demo').eq('id', empresaUnica).maybeSingle(),
     ])
     const obL = (ob ?? []) as (ObraLinha & { oportunidade_id: string | null })[]
-    setNObras(obrasPorCliente(obL)); setObraRecente(obraRecentePorCliente(obL)); setOpsComObra(oportunidadesComObra(obL))
+    setNObras(obrasPorCliente(obL)); setObraRecente(obraRecentePorCliente(obL)); setObraRecenteId(obraRecenteIdPorCliente(obL)); setOpsComObra(oportunidadesComObra(obL))
     setDemo(!!(emp as { is_demo?: boolean } | null)?.is_demo)
     // Elo comercial (cliente → oportunidade → visita → proposta): 3 consultas da empresa, contadas na tela.
     const [rOp, rOrc, rVis] = await Promise.all([
@@ -302,7 +303,9 @@ export default function ClientesPage() {
                   </div>
                   <div style={{ fontSize: 11, color: MUT }}>{docLabel(tipo)}: {docOf(c) === '—' ? <i>não informado</i> : docOf(c)}{c.cidade ? ` · ${c.cidade}${c.uf ? '/' + c.uf : ''}` : ''}</div>
                   <div style={{ fontSize: 11, color: contato ? MUT : RED }}>{contato || 'Sem telefone nem e-mail — complete em Editar'}</div>
-                  {obraRecente[c.id] && <div data-testid="hub-cliente-obra" style={{ fontSize: 11, color: ESP }}>Obra: {obraRecente[c.id]}{n > 1 ? ` (+${n - 1})` : ''}</div>}
+                  {obraRecente[c.id] && (obraRecenteId[c.id]
+                    ? <Link href={`/dashboard/projetos/obras/${obraRecenteId[c.id]}/cockpit`} data-testid="hub-cliente-obra" onClick={(e) => e.stopPropagation()} style={{ display: 'inline-block', fontSize: 11, color: GOLD_D, fontWeight: 600, textDecoration: 'none' }}>Obra: {obraRecente[c.id]}{n > 1 ? ` (+${n - 1})` : ''} · resultado ›</Link>
+                    : <div data-testid="hub-cliente-obra" style={{ fontSize: 11, color: ESP }}>Obra: {obraRecente[c.id]}{n > 1 ? ` (+${n - 1})` : ''}</div>)}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} data-testid="hub-cliente-comercial">
                   {etapa[c.id] && <span data-testid="hub-cliente-etapa" title="Etapa mais avançada do funil entre as oportunidades em aberto" style={pilula(true)}>Funil: {ETAPA_ROTULO[etapa[c.id]] ?? etapa[c.id]}</span>}
