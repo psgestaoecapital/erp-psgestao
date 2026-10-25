@@ -1,21 +1,26 @@
 'use client'
 // OFICINA · VEÍCULOS POR PLACA (histórico). Mobile-first.
 // Busca por placa/cliente → dados do veículo + histórico de OS (data, status, serviços, km, mecânico,
-// valor de referência) + evolução do km. 🚫 SEM operação financeira — leitura consolidada de erp_os.
+// valor de referência) + evolução do km + checklist de entrada de cada passagem (#4052: km, combustível, itens,
+// avarias, objetos e fotos da recepção). 🚫 SEM operação financeira — leitura consolidada de erp_os.
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Car, ChevronLeft, Search, Gauge, Wrench } from 'lucide-react'
+import { Car, ChevronLeft, Search, Gauge, Wrench, ClipboardCheck, ChevronDown, ChevronUp } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
-const OK = '#166534'
+const OK = '#166534'; const RED = '#A32D2D'
+const BUCKET_RECEPCAO = 'oficina-recepcao'
+const COMBUSTIVEL_LABEL: Record<string, string> = { vazio: 'Vazio', '1_4': '1/4', meio: '1/2', '3_4': '3/4', cheio: 'Cheio' }
 const brl = (n: number | null) => n == null ? null : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(n) || 0)
 const STATUS_LABEL: Record<string, string> = { aberta: 'Recebido', aguardando_aprovacao: 'Aguardando aprovação', aprovada: 'Aprovado', em_execucao: 'Em serviço', aguardando_peca: 'Aguardando peça', pronta: 'Pronto', entregue: 'Entregue', cancelada: 'Cancelada' }
 const fmtData = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
 const fmtKm = (k: number | null) => k == null ? '—' : `${new Intl.NumberFormat('pt-BR').format(k)} km`
 
 type VeicLinha = { placa: string; cliente_nome: string | null; marca: string | null; modelo: string | null; ano: number | null; ultimo_km: number | null; os_count: number; ultima_data: string | null }
-type OSHist = { id: string; numero: string; status: string; data: string | null; km: number | null; tecnico_nome: string | null; defeito_relatado: string | null; diagnostico: string | null; pecas_utilizadas: string | null; total: number | null; itens_count: number; valor_aprovado: number | null }
+type OSHist = { id: string; numero: string; status: string; data: string | null; km: number | null; tecnico_nome: string | null; defeito_relatado: string | null; diagnostico: string | null; pecas_utilizadas: string | null; total: number | null; itens_count: number; valor_aprovado: number | null; recepcao: Recepcao | null }
+type Recepcao = { registrado_em: string; km_entrada: number | null; combustivel: string | null; checklist: Record<string, string>; avarias: string | null; objetos_veiculo: string | null; observacoes: string | null; fotos: { path: string; legenda?: string }[] }
 type Veiculo = { placa: string; cliente_nome: string | null; marca: string | null; modelo: string | null; ano: number | null; chassi: string | null; ultimo_km: number | null; os_count: number }
 type KmPt = { data: string | null; km: number }
 type Contato = { id: string; tipo: string; canal: string; mensagem: string | null; resultado: string | null; agendado_para: string | null; criado_em: string }
@@ -144,6 +149,7 @@ export default function VeiculosPage() {
                     <span style={{ color: OK, fontWeight: 700, marginLeft: 'auto' }}>{brl(o.valor_aprovado ?? o.total)}</span>
                   )}
                 </div>
+                <ChecklistEntrada rec={o.recepcao} />
               </div>
             ))}
           </Sec>
@@ -225,3 +231,62 @@ function Stat({ l, v }: { l: string; v: string }) {
 const inp: CSSProperties = { width: '100%', padding: '11px 12px', border: `1px solid ${LINE}`, borderRadius: 10, fontSize: 15, background: '#fff', color: ESP, outline: 'none', fontFamily: 'inherit' }
 const btnGold: CSSProperties = { background: GOLD, color: '#3D2314', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }
 const linkBtn: CSSProperties = { background: 'none', border: 'none', color: ESP60, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: 0 }
+
+// #4052 — como o veículo chegou naquela passagem (o que foi registrado na Recepção). Só consulta; fotos sob demanda.
+function ChecklistEntrada({ rec }: { rec: Recepcao | null }) {
+  const [aberto, setAberto] = useState(false)
+  const [urls, setUrls] = useState<string[] | null>(null)
+  if (!rec) return <div style={{ fontSize: 11.5, color: ESP60, marginTop: 8 }}>Sem checklist de entrada (OS aberta sem passar pela Recepção).</div>
+  const itens = Object.entries(rec.checklist ?? {})
+  const fotos = Array.isArray(rec.fotos) ? rec.fotos : []
+  const abrir = async () => {
+    const novo = !aberto
+    setAberto(novo)
+    if (novo && urls === null && fotos.length > 0) {
+      const { data } = await supabase.storage.from(BUCKET_RECEPCAO).createSignedUrls(fotos.map((f) => f.path), 3600)
+      setUrls((data ?? []).map((d) => d.signedUrl).filter((u): u is string => !!u))
+    }
+  }
+  return (
+    <div style={{ marginTop: 8, borderTop: `1px dashed ${LINE}`, paddingTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <button onClick={() => void abrir()} aria-expanded={aberto} style={{ ...linkBtn, color: ESP, fontWeight: 700, fontSize: 12.5, minHeight: 32 }}>
+          <ClipboardCheck size={14} /> {aberto ? 'Fechar checklist de entrada' : 'Ver checklist de entrada'} {aberto ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+        <AjudaCampo chave="oficina.veiculos.checklist_entrada" />
+      </div>
+      {aberto && (
+        <div style={{ marginTop: 6, fontSize: 12.5, color: ESP, lineHeight: 1.5 }}>
+          <div style={{ color: ESP60, fontSize: 11.5 }}>Registrado em {fmtDataHora(rec.registrado_em)}</div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
+            <span><b>KM na entrada:</b> {fmtKm(rec.km_entrada)}</span>
+            <span><b>Combustível:</b> {rec.combustivel ? (COMBUSTIVEL_LABEL[rec.combustivel] ?? rec.combustivel) : '—'}</span>
+          </div>
+          {itens.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+              {itens.map(([item, st]) => (
+                <span key={item} style={{ fontSize: 11.5, padding: '3px 8px', borderRadius: 999, border: `1px solid ${st === 'avaria' ? RED : OK}`, color: st === 'avaria' ? RED : OK }}>
+                  {item}: {st === 'avaria' ? 'avaria' : 'OK'}
+                </span>
+              ))}
+            </div>
+          )}
+          {rec.avarias && <div style={{ marginTop: 6 }}><b>Avarias:</b> {rec.avarias}</div>}
+          {rec.objetos_veiculo && <div style={{ marginTop: 3 }}><b>Objetos no veículo:</b> {rec.objetos_veiculo}</div>}
+          {rec.observacoes && <div style={{ marginTop: 3, whiteSpace: 'pre-wrap' }}><b>Observações:</b> {rec.observacoes}</div>}
+          {fotos.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+              {urls === null && <span style={{ fontSize: 11.5, color: ESP60 }}>Carregando {fotos.length} foto(s)…</span>}
+              {(urls ?? []).map((u, i) => (
+                <a key={i} href={u} target="_blank" rel="noreferrer">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={u} alt={`Foto da entrada ${i + 1}`} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: `1px solid ${LINE}` }} />
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
