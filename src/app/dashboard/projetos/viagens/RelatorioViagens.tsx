@@ -86,8 +86,9 @@ export function RelatorioViagens({ empresa, obras }: { empresa: string; obras: O
         <Filtro rotulo="Obra" ajuda="projetos.viagem.rel_obra"><select className={campo} value={obra} onChange={(e) => setObra(e.target.value)}><option value="">Todas as obras</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Filtro>
       </div>
       {erro && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{erro}</div>}
+      {!erro && !rel && <p aria-busy="true" className="rounded-xl border bg-white p-6 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Carregando o custo de viagem por obra…</p>}
       {rel && (rel.viagens.length === 0
-        ? <p className="rounded-xl border bg-white p-6 text-center text-sm" style={{ borderColor: LINE }}>Nenhuma viagem neste filtro.</p>
+        ? <p className="rounded-xl border bg-white p-6 text-center text-sm opacity-80" style={{ borderColor: LINE }}>Nenhuma viagem neste filtro. Ajuste o período ou a obra acima — cada viagem fechada entra aqui com o custo que vai para o Resultado da obra.</p>
         : <>
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
             <Indicador rotulo="Viagens" ajuda="projetos.viagem.rel_viagens" valor={String(rel.totais.viagens)} />
