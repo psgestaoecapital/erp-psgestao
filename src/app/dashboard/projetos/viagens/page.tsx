@@ -136,7 +136,11 @@ export default function ViagensPage() {
   return (
     <div className="mx-auto max-w-5xl p-4" style={{ background: BG, color: ESP }}>
       <div className="mb-3 flex items-center justify-between">
-        <div><h1 className="text-xl font-semibold">Viagens</h1><p className="text-xs opacity-60">Fechamento administrativo · {totalViagens} aberta(s)<AjudaCampo chave="projetos.viagem.contador_abertas" /> · só viagens novas{!podeGravar && ' · perfil de consulta'}</p></div>
+        <div><h1 className="text-2xl font-semibold tracking-tight">Viagens</h1><div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="inline-flex items-center rounded-full border bg-white px-2 py-0.5" style={{ borderColor: LINE }}><b className="mr-1">{totalViagens}</b> aberta(s)<AjudaCampo chave="projetos.viagem.contador_abertas" /></span>
+          <span className="rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Fechamento administrativo · só viagens novas</span>
+          {!podeGravar && <span className="rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Perfil de consulta</span>}
+        </div></div>
         {!aberta && podeGravar && <span className="flex items-center gap-1"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => { setNova(true); setMsg('') }}>Nova viagem</button><AjudaCampo chave="projetos.viagem.nova" /></span>}
         {aberta && <button className="text-sm underline" onClick={() => { setAberta(null); setMsg(''); setDesfazer(null) }}>← Voltar à lista</button>}
       </div>
@@ -176,7 +180,7 @@ export default function ViagensPage() {
               <div>Km rodado<AjudaCampo chave="projetos.viagem.resumo_km" /><br /><b>{resumo.km_rodado != null ? `${resumo.km_rodado.toLocaleString('pt-BR')} km` : '—'}</b></div>
               <div>Custo por km<AjudaCampo chave="projetos.viagem.resumo_custo_km" /><br /><b>{resumo.custo_km != null ? `${brl(resumo.custo_km)}/km` : '—'}</b></div>
               <div>Litros<AjudaCampo chave="projetos.viagem.resumo_litros" /><br /><b>{resumo.litros ? `${resumo.litros.toLocaleString('pt-BR')} L` : '—'}</b></div>
-              <div>Consumo médio<AjudaCampo chave="projetos.viagem.resumo_consumo" /><br /><b>{resumo.media_km_l != null ? `${resumo.media_km_l.toLocaleString('pt-BR')} km/l` : '—'}</b></div>
+              <div>Consumo desta viagem<AjudaCampo chave="projetos.viagem.resumo_consumo" /><br /><b>{resumo.media_km_l != null ? `${resumo.media_km_l.toLocaleString('pt-BR')} km/l` : '—'}</b></div>
               <div className="col-span-2 sm:col-span-4 text-xs opacity-80">{resumoTexto(resumo.saldo)}{resumo.km_rodado == null ? ' · informe o km da saída e da volta para ver o custo por km e o consumo' : ''}</div></div>}
             {aberta.status === 'aberta' && podeGravar && <div className="mt-2 flex flex-wrap items-end gap-2">
               <Campo rotulo="Km na saída" ajuda="projetos.viagem.km_inicial"><input inputMode="decimal" className={campo} value={km.ini} onChange={(e) => setKm({ ...km, ini: e.target.value.replace(',', '.') })} /></Campo>
