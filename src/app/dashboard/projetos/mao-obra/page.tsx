@@ -101,7 +101,7 @@ export default function MaoObraPage() {
       {enc && (
         <div className={`rounded-md border px-3 py-2 text-[12.5px] flex flex-wrap items-center justify-between gap-2 ${enc.provisorio ? "border-[#C8941A]/60 bg-[#FAEEDA]/60" : "border-[#3D2314]/15 bg-[#FAF7F2]"}`} data-testid="mao-obra-encargos">
           <span>
-            {enc.provisorio ? <><AlertTriangle size={13} className="inline -mt-0.5 mr-1" /><b>Encargos provisórios</b> — até o contador confirmar. </> : <><CheckCircle2 size={13} className="inline -mt-0.5 mr-1" />Encargos confirmados pelo contador. </>}
+            {enc.provisorio ? <><AlertTriangle size={13} className="inline -mt-0.5 mr-1" /><b>Encargos provisórios</b> — até o contador confirmar. </> : <><CheckCircle2 size={13} className="inline -mt-0.5 mr-1" />Encargos confirmados pelo contador. </>}<AjudaCampo chave="projetos.mao_obra.padrao.resumo" />
             Regime {enc.regime}{enc.simples_anexo ? ` (Anexo ${enc.simples_anexo})` : ""} · encargos da folha <b>{pct(enc.encargos_folha_pct)}</b>
             {enc.desoneracao ? ` · desoneração: ${pct(Number(enc.desoneracao_fator_folha) * 100)} do INSS patronal na folha${enc.cprb_pct ? `, CPRB ${pct(enc.cprb_pct)} sobre a receita` : ""}` : ""}
             {" "}· 13º {pct(enc.prov_13_pct)} · férias {pct(enc.prov_ferias_pct)} · rescisão {pct(enc.prov_rescisao_pct)}
@@ -138,8 +138,8 @@ export default function MaoObraPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-equipe">
             <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
-              <th className="py-2 pr-2">Nome</th><th className="pr-2">Função</th><th className="pr-2">Vínculo</th><th className="pr-2 text-right">Horas/mês</th>
-              <th className="pr-2 text-right">Custo mensal</th><th className="pr-2 text-right">Custo da hora</th><th className="pr-2 text-right">Por unidade</th><th className="pr-2">Situação<AjudaCampo chave="projetos.mao_obra.equipe.conferido" /></th><th></th>
+              <th className="py-2 pr-2">Nome<AjudaCampo chave="projetos.mao_obra.equipe.col_nome" /></th><th className="pr-2">Função<AjudaCampo chave="projetos.mao_obra.equipe.col_funcao" /></th><th className="pr-2">Vínculo<AjudaCampo chave="projetos.mao_obra.equipe.col_vinculo" /></th><th className="pr-2 text-right">Horas/mês<AjudaCampo chave="projetos.mao_obra.equipe.col_horas" /></th>
+              <th className="pr-2 text-right">Custo mensal<AjudaCampo chave="projetos.mao_obra.equipe.col_mensal" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.equipe.col_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.equipe.col_unidade" /></th><th className="pr-2">Situação<AjudaCampo chave="projetos.mao_obra.equipe.conferido" /></th><th></th>
             </tr></thead>
             <tbody>
               {dados.equipe.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-[#3D2314]/60">Ninguém cadastrado ainda. Use “Novo funcionário” ou “Novo perfil padrão”{dados.funcoes.length === 0 ? " (antes, cadastre as funções na aba Funções)" : ""}.</td></tr>}
@@ -178,8 +178,8 @@ export default function MaoObraPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-funcoes">
             <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
-              <th className="py-2 pr-2">Função</th><th className="pr-2">CBO</th><th className="pr-2">Pagamento</th><th className="pr-2 text-right">Custo da hora</th><th className="pr-2 text-right">Por unidade</th>
-              <th className="pr-2">Origem</th><th className="pr-2 text-right">Pessoas conferidas</th><th className="pr-2 text-right">Não conferidas</th><th></th>
+              <th className="py-2 pr-2">Função</th><th className="pr-2">CBO<AjudaCampo chave="projetos.mao_obra.funcoes.col_cbo" /></th><th className="pr-2">Pagamento<AjudaCampo chave="projetos.mao_obra.funcoes.col_pagamento" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.funcoes.col_custo_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.funcoes.col_unidade" /></th>
+              <th className="pr-2">Origem<AjudaCampo chave="projetos.mao_obra.funcoes.col_origem" /></th><th className="pr-2 text-right">Pessoas conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_conferidas" /></th><th className="pr-2 text-right">Não conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_nao_conferidas" /></th><th></th>
             </tr></thead>
             <tbody>
               {dados.funcoes.length === 0 && (

@@ -28,7 +28,7 @@ const nomeVertical = (s: string) => NOME[s] ?? s.replace(/_/g, ' ')
 const pct = (v: number | string | null): number | null => (v === null || v === '' ? null : Number(v))
 const eixo = { fill: TXM, fontSize: 11 }
 
-export default function BarrasQualidadeVertical() {
+export default function BarrasQualidadeVertical({ altura = 280 }: { altura?: number } = {}) {
   const [linhas, setLinhas] = useState<Barra[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const carregar = useCallback(async () => {
@@ -49,7 +49,7 @@ export default function BarrasQualidadeVertical() {
     .sort((a, b) => b.construido - a.construido)
 
   return (
-    <section data-testid="codes-qualidade-vertical" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, marginBottom: 12, color: ESP }}>
+    <section data-testid="codes-qualidade-vertical" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 12, marginBottom: 0, color: ESP }}>
       <h3 style={{ margin: '0 0 2px', fontSize: 14, fontWeight: 700 }}>
         Qualidade por vertical <AjudaCampo chave="dev.codes.qualidade_vertical" rota={ROTA} />
       </h3>
@@ -58,7 +58,7 @@ export default function BarrasQualidadeVertical() {
       {!linhas && !erro && <div style={{ fontSize: 12, color: TXM }}>Carregando…</div>}
       {linhas && dados.length === 0 && !erro && <div style={{ fontSize: 12, color: TXM }}>Nenhuma vertical com telas mapeadas ainda.</div>}
       {dados.length > 0 && (
-        <div style={{ height: 280 }}>
+        <div style={{ height: altura }}>
           <ResponsiveContainer>
             <ComposedChart data={dados} margin={{ top: 8, right: 8, left: -12, bottom: 48 }} barGap={2} barCategoryGap="18%">
               <CartesianGrid stroke={BD} vertical={false} />

@@ -64,7 +64,55 @@ function ListaHora({ pontos, rotulo, onFechar }: { pontos: PontoProducao[]; rotu
   )
 }
 
-export default function GraficosCodes() {
+/** Produzidas × publicadas COMPACTO (CEO 24/10): vive no topo da aba, ao lado do resumo por Code. Usa as entregas que o painel
+ *  já carregou e mantém ao vivo (Realtime) — sem outra consulta. Hoje (por hora) e 7 dias (por dia); 30 dias fica em "Desempenho". */
+export function ProducaoCompacta({ entregas, agora }: { entregas: Entrega[]; agora: Date }) {
+  const [periodo, setPeriodo] = useState<Periodo>('hoje')
+  const [aberto, setAberto] = useState<string | null>(null)
+  const prod = useMemo(() => producaoPublicacao(entregas, agora, periodo, null), [entregas, agora, periodo])
+  const resumo = useMemo(() => resumoProducao(prod, periodo), [prod, periodo])
+  const eixo = { fontSize: 10, fill: TXM }
+  return (
+    <section data-testid="grafico-publicacoes" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 12, minWidth: 0, color: ESP }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{periodo === 'hoje' ? 'Produzidas × publicadas por hora' : 'Produzidas × publicadas por dia'}</h3>
+        <AjudaCampo chave="dev.codes.graficos.publicacoes" rota={ROTA} />
+        <div role="group" aria-label="Período" style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+          {PERIODOS.filter((p) => p.id !== '30d').map((p) => (
+            <button key={p.id} type="button" onClick={() => { setPeriodo(p.id); setAberto(null) }} aria-pressed={periodo === p.id} data-testid={`codes-periodo-${p.id}`}
+              style={{ padding: '4px 10px', minHeight: 32, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                border: `1px solid ${periodo === p.id ? ESP : BD}`, background: periodo === p.id ? ESP : BRANCO, color: periodo === p.id ? BRANCO : ESP }}>
+              {p.rotulo}
+            </button>
+          ))}
+        </div>
+      </header>
+      <div data-testid="producao-resumo" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+        <Numero testid="producao-produzidas" rotulo="Produzidas" valor={resumo.produzidas} chave="dev.codes.graficos.produzidas" />
+        <Numero testid="producao-publicadas" rotulo="Publicadas" valor={resumo.publicadas} chave="dev.codes.graficos.publicadas" />
+        <Numero testid="producao-saldo" rotulo="Saldo" valor={(resumo.saldo > 0 ? '+' : '') + resumo.saldo} chave="dev.codes.graficos.saldo" cor={SEMAFORO[resumo.semaforo]} extra={resumo.semaforo} />
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <div style={{ minWidth: Math.max(300, prod.length * 30), height: 170 }}>
+          <ResponsiveContainer>
+            <ComposedChart data={prod} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}
+              onClick={(st) => { const r = (st as { activeLabel?: string | number } | null)?.activeLabel; if (r !== undefined) setAberto(String(r)) }}>
+              <CartesianGrid stroke={BD} vertical={false} />
+              <XAxis dataKey="rotulo" tick={eixo} interval={periodo === 'hoje' ? 1 : 0} /><YAxis allowDecimals={false} tick={eixo} />
+              <Tooltip /><Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="produzidas" name="Produzidas" fill={DOU} cursor="pointer" />
+              <Bar dataKey="publicadas" name="Publicadas" fill={ESP} cursor="pointer" />
+              <Line type="monotone" dataKey="fila" name="Fila acumulada" stroke={TXM} strokeWidth={2} dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <ListaHora pontos={prod} rotulo={aberto} onFechar={() => setAberto(null)} />
+    </section>
+  )
+}
+
+export default function GraficosCodes({ semProducao = false }: { semProducao?: boolean } = {}) {
   const [periodo, setPeriodo] = useState<Periodo>('hoje')
   const [code, setCode] = useState<string>('')
   const [aberto, setAberto] = useState<string | null>(null)
@@ -126,7 +174,7 @@ export default function GraficosCodes() {
       {erro && <div role="alert" style={{ fontSize: 12, color: TXM, marginBottom: 8 }}>Não consegui ler o histórico: {erro}</div>}
       {!serie ? <div style={{ fontSize: 13, color: TXM }}>Carregando gráficos…</div> : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div data-testid="grafico-publicacoes" style={{ gridColumn: '1 / -1', background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, minWidth: 0 }}>
+          {!semProducao && <div data-testid="grafico-publicacoes" style={{ gridColumn: '1 / -1', background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, minWidth: 0 }}>
             <header style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: ESP }}>{periodo === 'hoje' ? 'Produzidas × publicadas por hora' : 'Produzidas × publicadas por dia'}</h3>
               <AjudaCampo chave="dev.codes.graficos.publicacoes" rota={ROTA} />
@@ -152,7 +200,7 @@ export default function GraficosCodes() {
               </div>
             </div>
             <ListaHora pontos={serie.prod} rotulo={aberto} onFechar={() => setAberto(null)} />
-          </div>
+          </div>}
           <Cartao testid="grafico-pilha" chave="dev.codes.graficos.pilha" titulo="PRs prontas esperando" resumo="Quantas estavam prontas e ainda não publicadas">
             <ResponsiveContainer>
               <AreaChart data={serie.pilha} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
