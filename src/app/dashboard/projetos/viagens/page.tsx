@@ -10,6 +10,7 @@ import { ConsumoVeiculo } from './ConsumoVeiculo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
 import { CampoComprovante, VerComprovante } from './Comprovante'
+import { AssinaturaAcerto } from './AssinaturaAcerto'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { IndicadoresViagem } from './IndicadoresViagem'
 import { PreviaFechamento } from './PreviaFechamento'
@@ -211,6 +212,7 @@ export default function ViagensPage() {
           {desfazer && aberta.status === 'aberta' && <div role="status" className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm" style={{ borderColor: GOLD }}>Lançamento excluído.<button disabled={busy} className="font-medium underline" onClick={restaurar}>Desfazer</button><AjudaCampo chave="projetos.viagem.desfazer_exclusao" /></div>}
           {previa && aberta.status === 'aberta' && podeGravar && resumo && <PreviaFechamento viagemId={aberta.id} total={resumo.total} saldoTexto={resumo.saldo ? `${resumoTexto(resumo.saldo)}: ${brl(Math.abs(resumo.saldo))}` : resumoTexto(resumo.saldo)} obraNome={obraNome} busy={busy} onConfirmar={fechar} onCancelar={() => setPrevia(false)} />}
           {aberta.placa && <ConsumoVeiculo key={lancs.length} empresa={empresa} placa={aberta.placa} />}
+          {lancs.length > 0 && <AssinaturaAcerto viagemId={aberta.id} colaborador={aberta.colaborador_nome} podeGravar={podeGravar} versao={`${lancs.map((l) => `${l.id}:${l.valor}:${l.obra_id}:${l.pago_colaborador}`).join('|')}|${resumo?.adiantamento ?? ''}`} />}
           {aberta.status === 'aberta' && podeGravar && !previa && (lf ? (
             <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }}>
               <Campo rotulo="Tipo do lançamento" ajuda="projetos.viagem.lanc_tipo"><select className={campo} value={lf.tipo} onChange={(e) => setLf({ ...lf, tipo: e.target.value as LancamentoForm['tipo'] })}><option value="despesa">Despesa</option><option value="abastecimento">Abastecimento</option></select></Campo>
