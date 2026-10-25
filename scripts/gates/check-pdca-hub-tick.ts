@@ -28,6 +28,10 @@ if (comDef.length > 0) {
   ok(/fn_auditor_tela_completo\(/.test(corpo) && /v_vd\s*=\s*'LIBERADO'\s+THEN\s+UPDATE\s+system_screens\s+SET\s+estado_real\s*=\s*'pronto'/i.test(corpo),
     "fn_pdca_hub_tick: 'pronto' só com veredito LIBERADO do auditor")
   ok(/PERFORM\s+public\.fn_auditor_disparar\(/i.test(corpo), 'fn_pdca_hub_tick: dispara pelo fn_auditor_disparar (só DEMO)')
+  // Rodízio (25/10): o disparo não pode ordenar só pela ultima_validacao_visual_em (o disparo nunca a atualiza → as
+  // mesmas 6 rotas eram fotografadas toda hora e o resto do Hub nunca era reauditado). Tem de considerar o último print.
+  ok(/greatest\(\s*s\.ultima_validacao_visual_em\s*,\s*u\.ultimo_print\s*\)/i.test(corpo) && /system_screens_insights\s+i\s+WHERE\s+i\.rota\s*=\s*s\.rota/i.test(corpo),
+    'fn_pdca_hub_tick: rodízio do disparo pelo último print do auditor (sem rota faminta)')
   ok(/REVOKE\s+ALL\s+ON\s+FUNCTION\s+public\.fn_pdca_hub_tick\([^)]*\)\s+FROM\s+PUBLIC,\s*anon/i.test(corpo), 'fn_pdca_hub_tick: REVOKE de PUBLIC/anon')
 }
 
