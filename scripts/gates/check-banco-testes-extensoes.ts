@@ -2,9 +2,10 @@
 // (run 40134440043) deu 106 falhas iguais no [computador] e no [celular]: os 3 bancos de teste não tinham o pg_trgm
 // ("function similarity(text, text) does not exist" em conciliação/inbox/P&M) e a erp_agente_rotina estava vazia (23503
 // em erp_agente_dono/erp_agente_mensagem). Regras: pg_trgm e unaccent em public (como na produção), garantidos antes de
-// todo `db push` das vagas (via garantir-org-demo.sh), idempotente, só no banco de TESTES; erp_agente_rotina na whitelist.
+// todo `db push` das vagas (via garantir-org-demo.sh), idempotente, só no banco de TESTES. erp_agente_rotina FORA da
+// whitelist até uma migration alinhar o CHECK da produção (drift fora de migration quebrou o Montar 788-795).
 // Sem rede, banco ou variável.
-import { readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗ ' + msg) } else console.log('✓ ' + msg) }
@@ -29,9 +30,13 @@ ok(/^TEST_DATABASE_URL="\$TEST_DATABASE_URL" "\$\(dirname "\$0"\)\/garantir-exte
 // montagem do zero cria o pg_trgm no mesmo schema
 ok(/CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;/.test(ler('scripts/banco-testes/montar-do-zero.sh')), 'montar-do-zero: pg_trgm em public')
 
-// rotinas dos agentes na whitelist de catálogos (FK de erp_agente_dono/erp_agente_mensagem)
+// rotinas dos agentes FORA da whitelist: o CHECK erp_agente_rotina_agente_check da produção tem agentes que nenhuma
+// migration criou, e a carga (transação única) derrubava o Montar inteiro. Volta junto com a migration que alinha o CHECK.
 const cat = ler('scripts/banco-testes/catalogos.txt').split('\n').map((l) => l.replace(/#.*/, '').trim()).filter(Boolean)
-ok(cat.includes('erp_agente_rotina'), 'catalogos.txt: erp_agente_rotina na whitelist')
+const checkNaMigration = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql'))
+  .map((f) => ler(`supabase/migrations/${f}`))
+  .some((sql) => /ADD CONSTRAINT erp_agente_rotina_agente_check[\s\S]*?desenvolvedor_4_g/.test(sql))
+ok(checkNaMigration || !cat.includes('erp_agente_rotina'), 'catalogos.txt: erp_agente_rotina só na whitelist com o CHECK alinhado por migration')
 ok(!cat.includes('erp_agente_mensagem'), 'catalogos.txt: mensagens de agentes seguem fora')
 
 if (falhas) { console.error(`\n${falhas} falha(s) no gate check-banco-testes-extensoes`); process.exit(1) }
