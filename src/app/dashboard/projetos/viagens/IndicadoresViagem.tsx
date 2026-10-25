@@ -32,7 +32,9 @@ export function IndicadoresViagem({ empresa }: { empresa: string }) {
     return () => { vivo = false }
   }, [empresa, limite])
 
-  if (!ind) return erro ? <div role="alert" className="mt-4 rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{erro}</div> : null
+  // A seção (cabeçalho + controle de %) sempre aparece: antes ela sumia por inteiro enquanto a fn_viagem_indicadores
+  // não respondia (ind === null), o que o auditor lia como "indicadores cortados/sem linhas". Agora: erro → aviso;
+  // carregando → esqueleto; carregado → tabela ou estado vazio.
   return (
     <section className="mt-6 space-y-3" aria-label="Indicadores da viagem">
       <div className="flex flex-wrap items-end justify-between gap-2">
@@ -40,6 +42,22 @@ export function IndicadoresViagem({ empresa }: { empresa: string }) {
         <label className="flex flex-col gap-1 text-xs"><span className="inline-flex items-center">Alerta acima de (% do orçado)<AjudaCampo chave="projetos.viagem.ind_limite" /></span>
           <span className="relative w-28"><input inputMode="decimal" className="w-full rounded-lg border bg-white px-2 py-1.5 pr-7 text-right text-sm" style={{ borderColor: LINE }} value={limite} onChange={(e) => setLimite(e.target.value)} aria-label="Alerta acima de (% do custo previsto)" /><span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-sm opacity-60">%</span></span></label>
       </div>
+
+      {erro
+        ? <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{erro}</div>
+        : !ind
+          ? <div role="status" aria-label="Carregando indicadores" className="space-y-2">
+            <div className="h-20 animate-pulse rounded-xl border bg-white" style={{ borderColor: LINE }} />
+            <div className="h-16 animate-pulse rounded-xl border bg-white" style={{ borderColor: LINE }} />
+          </div>
+          : <IndCorpo ind={ind} limite={limite} />}
+    </section>
+  )
+}
+
+function IndCorpo({ ind, limite }: { ind: Ind; limite: string }) {
+  return (
+    <>
       {ind.alertas > 0 && <div role="status" className="rounded-lg border p-2 text-sm" style={{ borderColor: GOLD, background: '#FFF7E6' }}>{ind.alertas} obra(s) com viagem acima de {limite}% do custo previsto.</div>}
 
       {ind.obras.length === 0
@@ -74,12 +92,12 @@ export function IndicadoresViagem({ empresa }: { empresa: string }) {
           <li key={`${r.origem}→${r.destino}`} className="rounded-xl border bg-white p-3 text-sm" style={{ borderColor: LINE }}>
             <b>{r.origem} → {r.destino}</b> <span className="text-xs opacity-60">· {r.viagens} viagem(ns) · última {dt(r.ultima)}</span>
             <div className="mt-1 grid grid-cols-2 gap-1 text-xs">
-              <span>Custo médio <b>{brl(r.custo_medio)}</b></span><span>Km médio <b>{num(r.km_medio)}</b></span>
-              <span>Dias médios <b>{num(r.dias_medio)}</b></span><span>Por km <b>{brl(r.custo_km)}</b></span>
-              <span>Por dia <b>{brl(r.custo_dia)}</b></span>
+              <span className="inline-flex items-center">Custo médio<AjudaCampo chave="projetos.viagem.rota_custo_medio" /> <b className="ml-1">{brl(r.custo_medio)}</b></span><span className="inline-flex items-center">Km médio<AjudaCampo chave="projetos.viagem.rota_km_medio" /> <b className="ml-1">{num(r.km_medio)}</b></span>
+              <span className="inline-flex items-center">Dias médios<AjudaCampo chave="projetos.viagem.rota_dias_medio" /> <b className="ml-1">{num(r.dias_medio)}</b></span><span className="inline-flex items-center">Por km<AjudaCampo chave="projetos.viagem.rota_custo_km" /> <b className="ml-1">{brl(r.custo_km)}</b></span>
+              <span className="inline-flex items-center">Por dia<AjudaCampo chave="projetos.viagem.rota_custo_dia" /> <b className="ml-1">{brl(r.custo_dia)}</b></span>
             </div>
           </li>))}</ul>}
-    </section>
+    </>
   )
 }
 
