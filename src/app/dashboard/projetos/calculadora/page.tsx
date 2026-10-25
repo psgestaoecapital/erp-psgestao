@@ -18,8 +18,22 @@ import {
 
 type Sistema = "parede" | "separativa" | "cortafogo" | "forro" | "aramado" | "revestimento" | "estruturado";
 const n = (v: string) => Number((v || "0").replace(",", ".")) || 0
-const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
-const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })
+// Formatação pt-BR determinística (idêntica no servidor e no navegador). Usar toLocaleString aqui
+// causava erro de hidratação React #418 ao abrir a tela: o separador de milhar/moeda do pt-BR
+// depende da versão do ICU, que difere entre o Node do servidor e o navegador (ex.: espaço comum
+// vs. U+00A0 depois do "R$"), então o HTML do SSR não batia com o primeiro render do cliente.
+const agrupaMilhar = (inteiro: string) => inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+const fmtBRL = (v: number) => {
+  if (!Number.isFinite(v)) return "R$ 0,00"
+  const [int, dec] = Math.abs(v).toFixed(2).split(".")
+  return `${v < 0 ? "-" : ""}R$ ${agrupaMilhar(int)},${dec}`
+}
+const fmt = (v: number) => {
+  if (!Number.isFinite(v)) return "0"
+  const [int, dec] = Math.abs(v).toFixed(2).split(".")
+  const decSemZero = dec.replace(/0+$/, "")
+  return `${v < 0 ? "-" : ""}${agrupaMilhar(int)}${decSemZero ? "," + decSemZero : ""}`
+}
 const inCls = "w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-right font-mono text-sm text-[#3D2314] focus:border-[#C8941A] focus:outline-none";
 const lbCls = "mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/55";
 
