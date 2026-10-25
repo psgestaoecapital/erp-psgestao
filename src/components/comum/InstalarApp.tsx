@@ -7,6 +7,13 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { APP_URL as APP_BASE } from '@/lib/appUrl'
+import { BUNDLE_VERSION } from '@/lib/bundleVersion'
+import { instaladoComoApp } from '@/lib/push/cliente'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// Chaves do "?" (RD-95) por bloco da tela; a vertical passa as chaves dela (erp_ajuda_campo). Sem a chave, o bloco fica sem "?".
+export type AjudaInstalar = Partial<Record<'instalar' | 'qr' | 'whatsapp' | 'copiar' | 'android' | 'iphone', string>>
+type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -20,15 +27,22 @@ export default function InstalarApp({
   subtitulo,
   offline = false,   // só true quando a fonte REALMENTE funciona offline (Agro cacheia o rebanho)
   nota,              // aviso honesto opcional (ex.: sobre o que o ícone abre)
+  ajuda,
 }: {
   destino: string
   titulo: string
   subtitulo: string
   offline?: boolean
   nota?: string
+  ajuda?: AjudaInstalar
 }) {
   const [qr, setQr] = useState<string | null>(null)
   const [copiado, setCopiado] = useState(false)
+  // "Instalar agora": o navegador (Chrome/Edge no Android e no computador) só oferece o pedido nativo via beforeinstallprompt;
+  // no iPhone ele não existe — ficam os passos do Safari.
+  const [pedido, setPedido] = useState<BIPEvent | null>(null)
+  const [instalado, setInstalado] = useState(false)
+  const ajudaDe = (k: keyof AjudaInstalar) => (ajuda?.[k] ? <AjudaCampo chave={ajuda[k]!} /> : null)
 
   // URL canônica de produção (sem hash de preview) — o QR e o link levam pra cá.
   const APP_URL = `${APP_BASE}${destino.startsWith('/') ? destino : `/${destino}`}`
@@ -42,6 +56,24 @@ export default function InstalarApp({
       .then(setQr)
       .catch(() => setQr(null))
   }, [APP_URL])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- leitura do modo de exibição só existe no navegador
+    setInstalado(instaladoComoApp())
+    const h = (e: Event) => { e.preventDefault(); setPedido(e as BIPEvent) }
+    const ok = () => { setInstalado(true); setPedido(null) }
+    window.addEventListener('beforeinstallprompt', h)
+    window.addEventListener('appinstalled', ok)
+    return () => { window.removeEventListener('beforeinstallprompt', h); window.removeEventListener('appinstalled', ok) }
+  }, [])
+
+  const instalarAgora = async () => {
+    if (!pedido) return
+    await pedido.prompt()
+    const { outcome } = await pedido.userChoice.catch(() => ({ outcome: 'dismissed' }))
+    setPedido(null)
+    if (outcome === 'accepted') setInstalado(true)
+  }
 
   const copiar = async () => {
     try { await navigator.clipboard.writeText(APP_URL); setCopiado(true); setTimeout(() => setCopiado(false), 2000) } catch { /* noop */ }
@@ -63,38 +95,62 @@ export default function InstalarApp({
           )}
         </header>
 
+        {/* Já instalado / Instalar agora */}
+        {instalado ? (
+          <div className="text-sm rounded-xl p-3" style={{ background: '#EAF3DE', border: '1px solid #CBE0B0', color: '#3B5A1E' }}>
+            ✓ O app já está instalado neste aparelho. Para outro celular, use o QR ou o link abaixo.
+          </div>
+        ) : pedido ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={instalarAgora}
+              className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold"
+              style={{ background: GOLD, color: '#fff' }}
+            >
+              ⬇️ Instalar agora neste aparelho
+            </button>
+            {ajudaDe('instalar')}
+          </div>
+        ) : null}
+
         {/* QR */}
         <section style={card} className="p-5 flex flex-col items-center text-center">
           {qr
             ? <img src={qr} alt="QR Code do app" width={220} height={220} style={{ width: 220, height: 220 }} />
             : <div style={{ width: 220, height: 220, background: BG, borderRadius: 12 }} />}
-          <div className="text-sm font-semibold mt-3" style={{ color: ESP }}>Aponte a câmera do celular</div>
+          <div className="text-sm font-semibold mt-3 flex items-center gap-1" style={{ color: ESP }}>Aponte a câmera do celular {ajudaDe('qr')}</div>
           <div className="text-xs mt-1" style={{ color: ESP60 }}>O celular abre o app; aí é só instalar (passos abaixo).</div>
         </section>
 
         {/* Ações rápidas */}
         <div className="grid sm:grid-cols-2 gap-3">
+          <div className="flex items-center gap-2">
           <a
             href={`https://wa.me/?text=${encodeURIComponent(WPP_MSG)}`}
             target="_blank" rel="noopener noreferrer"
-            className="px-4 py-3 rounded-xl text-sm font-semibold text-center"
+            className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold text-center"
             style={{ background: '#25D366', color: '#fff' }}
           >
             📱 Enviar via WhatsApp
           </a>
+          {ajudaDe('whatsapp')}
+          </div>
+          <div className="flex items-center gap-2">
           <button
             onClick={copiar}
-            className="px-4 py-3 rounded-xl text-sm font-semibold"
+            className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold"
             style={{ border: `1px solid ${GOLD}`, color: GOLD, background: 'transparent' }}
           >
             {copiado ? '✓ Link copiado!' : '🔗 Copiar link'}
           </button>
+          {ajudaDe('copiar')}
+          </div>
         </div>
 
         {/* Instruções */}
         <div className="grid sm:grid-cols-2 gap-3">
           <section style={card} className="p-4">
-            <div className="text-sm font-bold mb-2" style={{ color: ESP }}>🤖 Android (Chrome)</div>
+            <div className="text-sm font-bold mb-2 flex items-center gap-1" style={{ color: ESP }}>🤖 Android (Chrome) {ajudaDe('android')}</div>
             <ol className="text-sm space-y-1.5" style={{ color: ESP60 }}>
               <li>1. Abra o link no <b>Chrome</b>.</li>
               <li>2. Toque no menu <b>⋮</b> (3 pontinhos, canto superior).</li>
@@ -103,7 +159,7 @@ export default function InstalarApp({
             </ol>
           </section>
           <section style={card} className="p-4">
-            <div className="text-sm font-bold mb-2" style={{ color: ESP }}>🍎 iPhone (Safari)</div>
+            <div className="text-sm font-bold mb-2 flex items-center gap-1" style={{ color: ESP }}>🍎 iPhone (Safari) {ajudaDe('iphone')}</div>
             <ol className="text-sm space-y-1.5" style={{ color: ESP60 }}>
               <li>1. Abra o link no <b>Safari</b>.</li>
               <li>2. Toque no botão <b>Compartilhar</b> (quadrado com seta ↑).</li>
@@ -122,7 +178,11 @@ export default function InstalarApp({
           </div>
         )}
 
-        <div className="text-xs text-center break-all" style={{ color: ESP60 }}>{APP_URL}</div>
+        {/* Link de reserva: se o QR não abrir (câmera sem leitor), o próprio endereço resolve */}
+        <div className="text-xs text-center break-all" style={{ color: ESP60 }}>
+          Se o QR não abrir, use o endereço: <a href={APP_URL} className="underline" style={{ color: ESP }}>{APP_URL}</a>
+        </div>
+        <div className="text-[11px] text-center" style={{ color: ESP60 }}>versão {BUNDLE_VERSION}</div>
       </div>
     </div>
   )
