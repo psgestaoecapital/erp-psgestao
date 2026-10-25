@@ -8,7 +8,7 @@ import { dbSelect } from '../../support/api'
 const DEMO = 'b0700000-0000-4000-a000-000000000004'
 
 test.describe('Hub — Painel com indicadores do banco', () => {
-  test('indicadores, funil e obras por situação batem com o banco e têm "?"', { tag: '@pos-migration' }, async ({ page }) => {
+  test('indicadores, funil, obras por situação e obras em andamento batem com o banco e têm "?"', { tag: '@pos-migration' }, async ({ page }) => {
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO)
     await page.goto('/dashboard/projetos')
     await aguardarConteudo(page)
@@ -20,10 +20,20 @@ test.describe('Hub — Painel com indicadores do banco', () => {
     await expect(page.getByTestId('kpi-obras-ativas')).toHaveText(String(obras.length), { timeout: 30000 })
     await expect(page.getByTestId('situacao-em_andamento')).toContainText(String(obras.length))
 
-    for (const chave of ['projetos.painel.kpi.obras_ativas', 'projetos.painel.kpi.margem_prevista', 'projetos.painel.funil', 'projetos.painel.obras_situacao']) {
+    // Obras em andamento: uma linha por obra (até 8), cada uma com o atalho para o cockpit dela.
+    const lista = page.getByTestId('painel-obras-andamento')
+    await expect(lista).toBeVisible()
+    await expect(lista.getByTestId('painel-obra-linha')).toHaveCount(Math.min(obras.length, 8))
+
+    // A margem prevista tem "?" no cartão e na coluna da lista: o clique é no do cartão de indicadores.
+    const indicadores = page.getByTestId('painel-indicadores')
+    for (const chave of ['projetos.painel.kpi.obras_ativas', 'projetos.painel.kpi.margem_prevista']) {
+      await expect(indicadores.getByTestId(`ajuda-${chave}`)).toBeVisible()
+    }
+    for (const chave of ['projetos.painel.funil', 'projetos.painel.obras_situacao', 'projetos.cockpit.escolher_obra']) {
       await expect(page.getByTestId(`ajuda-${chave}`)).toBeVisible()
     }
-    await page.getByTestId('ajuda-projetos.painel.kpi.margem_prevista').click()
+    await indicadores.getByTestId('ajuda-projetos.painel.kpi.margem_prevista').click()
     await expect(page.getByTestId('ajuda-cartao-projetos.painel.kpi.margem_prevista')).toContainText('receita prevista')
   })
 })
