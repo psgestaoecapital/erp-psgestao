@@ -3,6 +3,7 @@
 // Indicadores da viagem (auditor 24/10): por obra — custo de viagem por m² executado, por km e por dia de equipe, e o %
 // do custo previsto com alerta acima do limite; por rota — o histórico das viagens fechadas para orçar a próxima
 // mobilização. Só lê a fn_viagem_indicadores (mesma fonte do Resultado da obra); esta tela não calcula nada.
+import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -15,6 +16,9 @@ type Ind = { obras: IndObra[]; rotas: IndRota[]; alertas: number; confere: boole
 const brl = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
 const num = (n: number | null | undefined, d = 1) => (n == null ? '—' : n.toLocaleString('pt-BR', { maximumFractionDigits: d }))
 const dt = (s: string) => s.split('-').reverse().join('/')
+// drill-down para o Resultado da obra (cockpit): o custo de viagem desta tela é o mesmo que entra no Resultado da obra
+// (fn_viagem_indicadores → v_obra_resultado). Mesmo padrão aprovado em /obras/resultado (#3206). Auditor 25/10.
+const cockpit = (obraId: string) => `/dashboard/projetos/obras/${obraId}/cockpit`
 
 export function IndicadoresViagem({ empresa }: { empresa: string }) {
   const [limite, setLimite] = useState('5')
@@ -74,7 +78,7 @@ function IndCorpo({ ind, limite }: { ind: Ind; limite: string }) {
             </tr></thead>
             <tbody>{ind.obras.map((o) => (
               <tr key={o.obra_id} className="border-t" style={{ borderColor: LINE }}>
-                <td className="p-2"><b>{o.numero}</b> · {o.nome}<div className="text-xs opacity-60">{o.viagens} viagem(ns){o.m2_executado > 0 ? ` · ${num(o.m2_executado)} m² executados` : ''}</div></td>
+                <td className="p-2"><Link href={cockpit(o.obra_id)} style={{ color: GOLD, textDecoration: 'none' }} title="Abrir o Resultado da obra (cockpit)"><b>{o.numero}</b> · {o.nome}</Link><div className="text-xs opacity-60">{o.viagens} viagem(ns){o.m2_executado > 0 ? ` · ${num(o.m2_executado)} m² executados` : ''}</div></td>
                 <td className="p-2 text-right">{brl(o.custo_viagens)}</td>
                 <td className="p-2 text-right">{brl(o.custo_m2)}</td>
                 <td className="p-2 text-right">{brl(o.custo_km)}</td>
