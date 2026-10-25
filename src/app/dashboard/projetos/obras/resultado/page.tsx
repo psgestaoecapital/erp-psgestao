@@ -23,6 +23,9 @@ const n = (v: unknown) => Number(v ?? 0)
 const receita = (l: Linha) => n(l.receita_servico) + n(l.receita_material)
 const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens) + n(l.custo_mao_obra) + n(l.custo_rateio)
 const margem = (l: Linha) => l.margem_alocada ?? n(l.margem_realizada)
+// Margem % sobre a receita (margem ÷ receita). Sem receita não há percentual a mostrar (evita ∞/−100% enganoso).
+const pctMargem = (m: number, r: number) => (r ? Math.round((m / r) * 100) : null)
+const fmtPct = (p: number | null) => (p === null ? '' : `${p > 0 ? '+' : ''}${p}%`)
 
 export default function ResultadoObrasPage() {
   const { companyIds } = useCompanyIds()
@@ -108,7 +111,7 @@ export default function ResultadoObrasPage() {
                       <td style={{ ...td, ...fixa, textAlign: 'left' }}>{l.numero} · {l.nome}</td>
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
                       <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
-                      <td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
+                      <td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}{pctMargem(margem(l), receita(l)) !== null && <span style={{ fontWeight: 400, color: MUT, marginLeft: 6, fontSize: 11 }}>{fmtPct(pctMargem(margem(l), receita(l)))}</span>}</td>
                       <td style={td}>{fmtR(n(l.receita_prevista))}</td><td style={td}>{fmtR(n(l.custo_previsto))}</td>
                     </tr>
                   ))}
@@ -116,7 +119,7 @@ export default function ResultadoObrasPage() {
                     <td style={{ ...td, ...fixa, textAlign: 'left' }}>Consolidado</td>
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
                     <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
-                    <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
+                    <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}{pctMargem(total.margem, total.receita) !== null && <span style={{ fontWeight: 400, color: MUT, marginLeft: 6, fontSize: 11 }}>{fmtPct(pctMargem(total.margem, total.receita))}</span>}</td>
                     <td style={td}>{fmtR(total.prevista)}</td><td style={td}>{fmtR(total.custoPrev)}</td>
                   </tr>
                 </tbody>
@@ -144,7 +147,7 @@ function CartaoObra({ titulo, receita, custo, maoObra, margem, prevista, custoPr
     <div data-testid={destaque ? 'resultado-cartao-consolidado' : 'resultado-cartao'} style={{ background: '#fff', border: `1px solid ${destaque ? GOLD : LINE}`, borderRadius: 12, padding: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
         <span style={{ fontWeight: 700, fontSize: 14, minWidth: 0, overflowWrap: 'anywhere' }}>{titulo}</span>
-        <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', color: margem < 0 ? VERM : VERDE }}>{fmtR(margem)}</span>
+        <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', color: margem < 0 ? VERM : VERDE }}>{fmtR(margem)}{pctMargem(margem, receita) !== null && <span style={{ fontWeight: 400, fontSize: 11, color: MUT, marginLeft: 6 }}>{fmtPct(pctMargem(margem, receita))}</span>}</span>
       </div>
       <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>margem{destaque && <AjudaCampo chave="projetos.resultado_obra.margem" />}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginTop: 10 }}>
