@@ -496,6 +496,7 @@ export default function InsumosPage() {
     {
       key: "code",
       label: "Código",
+      ajuda: "projetos.insumos.col_code",
       hiddenOnMobile: true,
       render: (i) => (
         <span className="font-mono text-xs text-[#3D2314]/70">{i.erp_code || "—"}</span>
@@ -504,6 +505,7 @@ export default function InsumosPage() {
     {
       key: "name",
       label: "Nome",
+      ajuda: "projetos.insumos.col_name",
       render: (i) => (
         <div>
           <div className="font-medium text-[#3D2314]">{i.name}</div>
@@ -518,6 +520,7 @@ export default function InsumosPage() {
     {
       key: "category",
       label: "Categoria",
+      ajuda: "projetos.insumos.col_category",
       hiddenOnMobile: true,
       render: (i) =>
         i.category ? (
@@ -531,12 +534,14 @@ export default function InsumosPage() {
     {
       key: "unit",
       label: "Un",
+      ajuda: "projetos.insumos.col_unit",
       hiddenOnMobile: true,
       render: (i) => <span className="text-[#3D2314]/70">{i.unit || "—"}</span>,
     },
     {
       key: "current_cost",
       label: "Preço",
+      ajuda: "projetos.insumos.col_current_cost",
       align: "right",
       render: (i) => (
         <span className="font-mono text-[#3D2314]">{fmtBRL(i.current_cost)}</span>
@@ -545,6 +550,7 @@ export default function InsumosPage() {
     {
       key: "variacao",
       label: "Variação",
+      ajuda: "projetos.insumos.col_variacao",
       align: "right",
       hiddenOnMobile: true,
       render: (i) => {
@@ -566,6 +572,7 @@ export default function InsumosPage() {
     {
       key: "estoque",
       label: "Estoque (GE)",
+      ajuda: "projetos.insumos.estoque",
       hiddenOnMobile: true,
       render: (i) => {
         const v = vinculos[i.id];
@@ -581,6 +588,7 @@ export default function InsumosPage() {
     {
       key: "uso",
       label: "Em uso",
+      ajuda: "projetos.insumos.col_uso",
       align: "center",
       render: (i) => (
         <span
