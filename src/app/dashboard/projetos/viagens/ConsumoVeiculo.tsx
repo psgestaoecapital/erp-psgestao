@@ -34,8 +34,9 @@ export function ConsumoVeiculo({ empresa, placa }: { empresa: string; placa: str
   return (
     <section className="rounded-xl border bg-white p-3" style={{ borderColor: LINE }} aria-label={`Consumo do veículo ${v.placa}`}>
       <h3 className="text-sm font-semibold">Consumo do veículo {v.placa} <span className="text-xs font-normal opacity-60">· {v.viagens} viagem(ns) · {v.abastecimentos} abastecimento(s)</span></h3>
+      <p className="text-xs opacity-70">Junta todas as viagens desta placa (tanque cheio a tanque cheio). O consumo acima, no resumo, é só desta viagem.</p>
       <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-        <div>Consumo médio<AjudaCampo chave="projetos.viagem.cons_km_l" /><br /><b>{v.km_l == null ? 'falta 2º tanque cheio' : `${num(v.km_l)} km/l`}</b></div>
+        <div>Consumo médio do veículo<AjudaCampo chave="projetos.viagem.cons_km_l" /><br /><b>{v.km_l == null ? 'falta 2º tanque cheio' : `${num(v.km_l)} km/l`}</b></div>
         <div>Combustível por km<AjudaCampo chave="projetos.viagem.cons_combustivel_km" /><br /><b>{brl(v.combustivel_km)}</b></div>
         <div>Preço médio do litro<AjudaCampo chave="projetos.viagem.cons_preco_litro" /><br /><b>{brl(v.preco_litro)}</b></div>
         <div>Viagem por km<AjudaCampo chave="projetos.viagem.cons_custo_km" /><br /><b>{brl(v.custo_km)}</b></div>
