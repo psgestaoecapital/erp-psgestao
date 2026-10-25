@@ -48,6 +48,8 @@ export default function ViagensPage() {
   const [podeGravar, setPodeGravar] = useState(false)
   // caminho da foto do comprovante já enviada para o lançamento em edição (vai no anexo_path)
   const [anexo, setAnexo] = useState('')
+  // filtro da lista (auditor 25/10): obra, responsável e período — só filtra o que já veio do banco
+  const [filtro, setFiltro] = useState({ obra: '', quem: '', de: '', ate: '' })
 
   const carregar = useCallback(async () => {
     if (!empresa) return
@@ -90,6 +92,13 @@ export default function ViagensPage() {
     return d
   }
   const obraNome = (id: string) => { const o = obras.find((x) => x.id === id); return o ? `${o.numero} · ${o.nome}` : '—' }
+  const filtradas = useMemo(() => {
+    const quem = filtro.quem.trim().toLowerCase()
+    return viagens.filter((v) => (!filtro.obra || v.obra_id === filtro.obra)
+      && (!quem || v.colaborador_nome.toLowerCase().includes(quem))
+      && (!filtro.de || v.periodo_fim >= filtro.de)
+      && (!filtro.ate || v.periodo_inicio <= filtro.ate))
+  }, [viagens, filtro])
   const totalViagens = useMemo(() => viagens.filter((v) => v.status === 'aberta').length, [viagens])
 
   async function criar() {
@@ -163,8 +172,15 @@ export default function ViagensPage() {
 
       {!aberta && (viagens.length === 0
         ? <p className="rounded-xl border bg-white p-6 text-center text-sm" style={{ borderColor: LINE }}>Nenhuma viagem ainda.{podeGravar ? ' Clique em “Nova viagem” para abrir a primeira — o acerto é lançado aqui, cupom por cupom.' : ' Quando o administrativo abrir uma viagem, ela aparece aqui.'}</p>
-        : <><div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span>Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span>Situação<AjudaCampo chave="projetos.viagem.status" /></span></div>
-          <ul className="space-y-2">{viagens.map((v) => (
+        : <><div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }} aria-label="Filtrar viagens">
+            <Campo rotulo="Obra" ajuda="projetos.viagem.filtro_obra"><select className={campo} value={filtro.obra} onChange={(e) => setFiltro({ ...filtro, obra: e.target.value })}><option value="">Todas</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
+            <Campo rotulo="Responsável" ajuda="projetos.viagem.filtro_responsavel"><input className={campo} placeholder="Nome do colaborador" value={filtro.quem} onChange={(e) => setFiltro({ ...filtro, quem: e.target.value })} /></Campo>
+            <Campo rotulo="De" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.de} onChange={(e) => setFiltro({ ...filtro, de: e.target.value })} /></Campo>
+            <Campo rotulo="Até" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.ate} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value })} /></Campo>
+          </div>
+          <div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span>Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span>Situação<AjudaCampo chave="projetos.viagem.status" /></span></div>
+          {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '' })}>Limpar filtro</button></p>}
+          <ul className="space-y-2">{filtradas.map((v) => (
             <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-center justify-between rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
               <span><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span></span>
               <span className="text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span></button></li>))}</ul></>)}
