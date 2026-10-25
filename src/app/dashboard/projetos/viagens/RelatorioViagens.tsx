@@ -2,7 +2,7 @@
 
 // Relatório de custo de viagem (Eng. Chefe 24/10 · onda 2): por obra e por viagem, só leitura do fn_viagem_relatorio —
 // a MESMA conta do Resultado da obra (v_viagem_custo_obra). A tela não calcula nada: mostra e confere ("Confere").
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -21,6 +21,22 @@ export function RelatorioViagens({ empresa, obras }: { empresa: string; obras: O
   const [obra, setObra] = useState('')
   const [rel, setRel] = useState<Rel | null>(null)
   const [erro, setErro] = useState('')
+  const secRef = useRef<HTMLElement>(null)
+  const linkFeito = useRef(false)
+
+  // Jornada obra → relatório: o Resultado/Cockpit da obra linka /viagens?obra=<id>&ver=relatorio
+  // (o ?obra= sem ver=relatorio continua abrindo o formulário de nova viagem). Abre o relatório já
+  // filtrado nessa obra e rola até ele, uma única vez quando as obras carregam.
+  useEffect(() => {
+    if (linkFeito.current || obras.length === 0) return
+    const p = new URLSearchParams(window.location.search)
+    const alvo = p.get('obra')
+    if (!alvo || p.get('ver') !== 'relatorio' || !obras.some((o) => o.id === alvo)) return
+    linkFeito.current = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- aplica o filtro da URL uma vez quando as obras carregam
+    setObra(alvo)
+    secRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [obras])
 
   const carregar = useCallback(async () => {
     const { data, error } = await supabase.rpc('fn_viagem_relatorio', { p_company_id: empresa, p_ini: ini || null, p_fim: fim || null, p_obra_id: obra || null })
@@ -31,7 +47,7 @@ export function RelatorioViagens({ empresa, obras }: { empresa: string; obras: O
   useEffect(() => { carregar() }, [carregar])
 
   return (
-    <section className="mt-6 space-y-3" aria-label="Relatório de custo de viagem">
+    <section ref={secRef} className="mt-6 space-y-3" aria-label="Relatório de custo de viagem">
       <h2 className="text-lg font-semibold">Custo de viagem por obra</h2>
       <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
         <Filtro rotulo="Saída de" ajuda="projetos.viagem.rel_periodo"><input type="date" className={campo} value={ini} onChange={(e) => setIni(e.target.value)} /></Filtro>

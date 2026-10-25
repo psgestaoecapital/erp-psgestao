@@ -74,10 +74,12 @@ export default function ViagensPage() {
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da empresa
   useEffect(() => { carregar() }, [carregar])
-  // viagem criada a partir da obra (cockpit → ?obra=<id>): abre o formulário já com a obra e a saída/volta = hoje
+  // viagem criada a partir da obra (cockpit → ?obra=<id>): abre o formulário já com a obra e a saída/volta = hoje.
+  // Com ver=relatorio o destino é o relatório da obra (jornada obra → relatório), não o formulário: não abre aqui.
   useEffect(() => {
-    const obra = new URLSearchParams(window.location.search).get('obra')
-    if (!obra || !podeGravar || !obras.some((o) => o.id === obra)) return
+    const q = new URLSearchParams(window.location.search)
+    const obra = q.get('obra')
+    if (!obra || q.get('ver') === 'relatorio' || !podeGravar || !obras.some((o) => o.id === obra)) return
     const hoje = new Date().toLocaleDateString('sv-SE')
     // eslint-disable-next-line react-hooks/set-state-in-effect -- pré-preenche uma vez quando a obra da URL carrega
     setNova(true); setForm((f) => (f.obra_id ? f : { ...f, obra_id: obra, periodo_inicio: hoje, periodo_fim: hoje }))
