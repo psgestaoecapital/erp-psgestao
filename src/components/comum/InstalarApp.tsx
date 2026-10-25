@@ -6,6 +6,7 @@
 // um host de preview *.vercel.app vazaria no QR que o cliente escaneia (RD-38).
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
+import { Download, Smartphone } from 'lucide-react'
 import { APP_URL as APP_BASE } from '@/lib/appUrl'
 import { BUNDLE_VERSION } from '@/lib/bundleVersion'
 import { instaladoComoApp } from '@/lib/push/cliente'
@@ -107,7 +108,7 @@ export default function InstalarApp({
               className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold"
               style={{ background: GOLD, color: '#fff' }}
             >
-              ⬇️ Instalar agora neste aparelho
+              <Download size={16} strokeWidth={1.5} className="inline -mt-0.5 mr-1" />Instalar agora neste aparelho
             </button>
             {ajudaDe('instalar')}
           </div>
@@ -150,7 +151,7 @@ export default function InstalarApp({
         {/* Instruções */}
         <div className="grid sm:grid-cols-2 gap-3">
           <section style={card} className="p-4">
-            <div className="text-sm font-bold mb-2 flex items-center gap-1" style={{ color: ESP }}>🤖 Android (Chrome) {ajudaDe('android')}</div>
+            <div className="text-sm font-bold mb-2 flex items-center gap-1" style={{ color: ESP }}><Smartphone size={16} strokeWidth={1.5} /> Android (Chrome) {ajudaDe('android')}</div>
             <ol className="text-sm space-y-1.5" style={{ color: ESP60 }}>
               <li>1. Abra o link no <b>Chrome</b>.</li>
               <li>2. Toque no menu <b>⋮</b> (3 pontinhos, canto superior).</li>
@@ -159,7 +160,7 @@ export default function InstalarApp({
             </ol>
           </section>
           <section style={card} className="p-4">
-            <div className="text-sm font-bold mb-2 flex items-center gap-1" style={{ color: ESP }}>🍎 iPhone (Safari) {ajudaDe('iphone')}</div>
+            <div className="text-sm font-bold mb-2 flex items-center gap-1" style={{ color: ESP }}><Smartphone size={16} strokeWidth={1.5} /> iPhone (Safari) {ajudaDe('iphone')}</div>
             <ol className="text-sm space-y-1.5" style={{ color: ESP60 }}>
               <li>1. Abra o link no <b>Safari</b>.</li>
               <li>2. Toque no botão <b>Compartilhar</b> (quadrado com seta ↑).</li>
