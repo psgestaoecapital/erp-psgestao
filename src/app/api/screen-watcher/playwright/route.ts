@@ -18,6 +18,7 @@ import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-t
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 import { empresaDoPedidoRobo } from '@/lib/gold/empresaDoPedidoRobo';
+import { rotaConcreta } from '@/lib/gold/rotaConcreta';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -104,7 +105,12 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
     page.on('pageerror', () => { errorsCount++; });
     page.on('console', (msg) => { if (msg.type() === 'error') errorsCount++; });
 
-    const urlAlvo = `${SAAS_BASE_URL}${rotaCompleta}`;
+    // Rota-modelo com [id] (Hub PDCA 24/10): visita um registro REAL da empresa DEMO do pedido; sem registro,
+    // não fotografa (a foto do "[id]" literal reprovava a tela por engano). O screen/foto seguem na rota-modelo.
+    const alvo = await rotaConcreta(supabase, rotaCompleta, empresaId);
+    if (alvo.tipo === 'sem_registro') throw new Error(`Rota dinâmica não fotografada: ${alvo.motivo}`);
+    const rotaVisita = alvo.rota;
+    const urlAlvo = `${SAAS_BASE_URL}${rotaVisita}`;
 
     async function ehTelaLogin(): Promise<boolean> {
       const u = page.url();
@@ -166,7 +172,7 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
 
     // CONFERE a URL final antes de fotografar (não salva tela errada).
     const finalPath = (() => { try { return (new URL(urlFinalVisitada!).pathname.replace(/\/+$/, '')) || '/'; } catch { return ''; } })();
-    const pedidoPath = rotaBase.replace(/\/+$/, '') || '/';
+    const pedidoPath = rotaVisita.split('?')[0].split('#')[0].replace(/\/+$/, '') || '/';
     rotaAlcancada = finalPath === pedidoPath || finalPath.startsWith(pedidoPath + '/');
 
     if (!rotaAlcancada) {

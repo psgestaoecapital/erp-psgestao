@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
 import { CamposPix } from './CamposPix'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
 import GerarBoletosReceita from './GerarBoletosReceita'
@@ -18,6 +19,9 @@ import { useSalvar } from '@/components/ui/feedback/useSalvar'
 import { estiloBordaInput, mensagemDeResultado, VERBO_SUCESSO, type ResultadoSalvar } from '@/components/ui/feedback/contratoSalvar'
 // #71 · modo edição: a mesma tela da inclusão abre o lançamento existente
 import { useEdicaoLancamento, ReplicaParcelasDialog, SituacaoEdicao, type Campos } from './edicaoLancamento'
+
+// RD-95: textos do "?" (erp_ajuda_campo) ficam na rota da tela; o formulário também abre em modal noutras telas.
+const ROTA_AJUDA = '/dashboard/financeiro/nova-receita'
 
 type Cliente = {
   id: string
@@ -672,7 +676,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             gap: 18,
           }}
         >
-          <Campo label="O que é essa receita? (opcional)" fullWidth>
+          <Campo ajuda="financeiro.receita.descricao" ajudaRota={ROTA_AJUDA} label="O que é essa receita? (opcional)" fullWidth>
             <input
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
@@ -682,7 +686,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             />
           </Campo>
 
-          <Campo label="Quanto vou receber?" obrigatorio erro={erroCampo === 'valor' ? 'Informe o valor' : null}>
+          <Campo ajuda="financeiro.receita.valor" ajudaRota={ROTA_AJUDA} label="Quanto vou receber?" obrigatorio erro={erroCampo === 'valor' ? 'Informe o valor' : null}>
             <input
               type="number"
               step="0.01"
@@ -696,7 +700,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             <small style={helperStyle}>Em reais (R$)</small>
           </Campo>
 
-          <Campo label="Quando entra na conta?" obrigatorio erro={erroCampo === 'dataRecebimento' ? 'Informe quando entra na conta' : null}>
+          <Campo ajuda="financeiro.receita.recebimento" ajudaRota={ROTA_AJUDA} label="Quando entra na conta?" obrigatorio erro={erroCampo === 'dataRecebimento' ? 'Informe quando entra na conta' : null}>
             <input
               type="date"
               value={dataRecebimento}
@@ -706,7 +710,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             />
           </Campo>
 
-          <Campo label="Data de competência (opcional)">
+          <Campo ajuda="financeiro.receita.competencia" ajudaRota={ROTA_AJUDA} label="Data de competência (opcional)">
             <input
               type="date"
               value={dataCompetencia}
@@ -719,7 +723,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </small>
           </Campo>
 
-          <Campo label="De quem você vai receber?">
+          <Campo ajuda="financeiro.receita.cliente" ajudaRota={ROTA_AJUDA} label="De quem você vai receber?">
             <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
               {/* #36: busca de cliente por CNPJ e por QUALQUER posição do nome/cidade (combobox), com CNPJ + cidade/UF ao lado. */}
               <div style={{ position: 'relative', flex: '1 1 180px', minWidth: 0 }}>
@@ -775,7 +779,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             )}
           </Campo>
 
-          <Campo label="Em qual categoria do DRE?">
+          <Campo ajuda="financeiro.receita.categoria" ajudaRota={ROTA_AJUDA} label="Em qual categoria do DRE?">
             {/* FASE-1 CATEGORIAS (07/07): combobox digitavel + criar inline. */}
             <CategoriaCombobox
               companyId={companyId}
@@ -786,7 +790,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           </Campo>
 
           {!editando && (
-          <Campo label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
+          <Campo ajuda="financeiro.receita.parcelas" ajudaRota={ROTA_AJUDA} label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
             <input
               type="number"
               min="1"
@@ -800,7 +804,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           )}
 
           {parcelas > 1 && !vendaCartao && (
-            <Campo label="Intervalo entre parcelas">
+            <Campo ajuda="financeiro.receita.intervalo" ajudaRota={ROTA_AJUDA} label="Intervalo entre parcelas">
               <select
                 value={intervaloDias}
                 onChange={(e) => setIntervaloDias(parseInt(e.target.value))}
@@ -816,7 +820,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           )}
 
           {parcelas > 1 && !vendaCartao && (intervaloDias === 30 || intervaloDias === 60 || intervaloDias === 90) && (
-            <Campo label="Dia do vencimento (opcional)">
+            <Campo ajuda="financeiro.receita.dia_fixo" ajudaRota={ROTA_AJUDA} label="Dia do vencimento (opcional)">
               <input
                 type="number" min="1" max="31" inputMode="numeric"
                 value={diaFixo}
@@ -852,16 +856,16 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               <div style={{ border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', background: '#F3ECE0' }}>
                   <div style={cellHead}>Nº</div>
-                  <div style={cellHead}>Vencimento</div>
-                  <div style={cellHead}>Valor (R$)</div>
+                  <div style={cellHead}>Vencimento <AjudaCampo chave="financeiro.receita.parcela_vencimento" rota={ROTA_AJUDA} /></div>
+                  <div style={cellHead}>Valor (R$) <AjudaCampo chave="financeiro.receita.parcela_valor" rota={ROTA_AJUDA} /></div>
                 </div>
                 {parcelasEdit.map((p, idx) => (
                   <div key={idx} style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', borderTop: '0.5px solid rgba(61,35,20,0.1)', alignItems: 'center' }}>
                     <div style={{ ...cellBody, fontWeight: 600 }}>{idx + 1}/{parcelas}</div>
-                    <div style={cellBody}>
+                    <div style={cellBody} data-ajuda="financeiro.receita.parcela_vencimento">
                       <input type="date" value={p.vencimento} onChange={(e) => editParcela(idx, 'vencimento', e.target.value)} style={inputMini} />
                     </div>
-                    <div style={cellBody}>
+                    <div style={cellBody} data-ajuda="financeiro.receita.parcela_valor">
                       <input type="number" step="0.01" min="0" value={p.valor} onChange={(e) => editParcela(idx, 'valor', e.target.value)} style={inputMini} />
                     </div>
                   </div>
@@ -881,7 +885,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </div>
           )}
 
-          <Campo label="Como você vai receber?">
+          <Campo ajuda="financeiro.receita.forma" ajudaRota={ROTA_AJUDA} label="Como você vai receber?">
             <select
               value={formaRecebimento}
               onChange={(e) => setFormaRecebimento(e.target.value)}
@@ -906,7 +910,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           )}
           {ehCartao && !editando && (
             <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, padding: '14px 16px', background: '#FBF6EC', border: '0.5px solid rgba(200,148,26,0.35)', borderRadius: 10 }}>
-              <Campo label="Adquirente (maquininha)">
+              <Campo ajuda="financeiro.receita.adquirente" ajudaRota={ROTA_AJUDA} label="Adquirente (maquininha)">
                 <select value={adquirenteId} onChange={(e) => { setAdquirenteId(e.target.value); setBandeira(''); setModalidadeCartao('') }} style={inputStyle}>
                   <option value="">— escolher —</option>
                   {adquirentes.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
@@ -918,14 +922,14 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                 )}
               </Campo>
 
-              <Campo label="Bandeira">
+              <Campo ajuda="financeiro.receita.bandeira" ajudaRota={ROTA_AJUDA} label="Bandeira">
                 <select value={bandeira} onChange={(e) => { setBandeira(e.target.value); setModalidadeCartao('') }} disabled={!adquirenteId} style={inputStyle}>
                   <option value="">— escolher —</option>
                   {bandeirasDisp.map((b) => <option key={b} value={b}>{b}</option>)}
                 </select>
               </Campo>
 
-              <Campo label="Modalidade">
+              <Campo ajuda="financeiro.receita.modalidade" ajudaRota={ROTA_AJUDA} label="Modalidade">
                 <select value={modalidadeCartao} onChange={(e) => setModalidadeCartao(e.target.value)} disabled={!bandeira} style={inputStyle}>
                   <option value="">— escolher —</option>
                   {modalidadesDisp.map((m) => <option key={m} value={m}>{rotuloModalidade(m)}</option>)}
@@ -966,7 +970,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </div>
           )}
 
-          <Campo label="Em qual conta entra o dinheiro?">
+          <Campo ajuda="financeiro.receita.conta" ajudaRota={ROTA_AJUDA} label="Em qual conta entra o dinheiro?">
             <select
               value={contaBancaria}
               onChange={(e) => setContaBancaria(e.target.value)}
@@ -988,7 +992,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             )}
           </Campo>
 
-          <Campo label="Centro de custo (opcional)">
+          <Campo ajuda="financeiro.receita.centro_custo" ajudaRota={ROTA_AJUDA} label="Centro de custo (opcional)">
             <select
               value={centroCustoId}
               onChange={(e) => setCentroCustoId(e.target.value)}
@@ -1006,7 +1010,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             )}
           </Campo>
 
-          <Campo label="Número do documento (opcional)">
+          <Campo ajuda="financeiro.receita.documento" ajudaRota={ROTA_AJUDA} label="Número do documento (opcional)">
             <input
               value={numeroDocumento}
               onChange={(e) => setNumeroDocumento(e.target.value)}
@@ -1016,7 +1020,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             />
           </Campo>
 
-          <Campo label="Observação (opcional)" fullWidth>
+          <Campo ajuda="financeiro.receita.observacao" ajudaRota={ROTA_AJUDA} label="Observação (opcional)" fullWidth>
             <textarea
               value={observacao}
               onChange={(e) => setObservacao(e.target.value)}
@@ -1028,13 +1032,13 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
 
           {editando && (
             <>
-              <Campo label="Juros (R$)">
+              <Campo ajuda="financeiro.receita.juros" ajudaRota={ROTA_AJUDA} label="Juros (R$)">
                 <input type="number" step="0.01" min="0" value={juros} onChange={(e) => setJuros(e.target.value)} placeholder="0,00" style={inputStyle} />
               </Campo>
-              <Campo label="Multa (R$)">
+              <Campo ajuda="financeiro.receita.multa" ajudaRota={ROTA_AJUDA} label="Multa (R$)">
                 <input type="number" step="0.01" min="0" value={multa} onChange={(e) => setMulta(e.target.value)} placeholder="0,00" style={inputStyle} />
               </Campo>
-              <Campo label="Desconto (R$)">
+              <Campo ajuda="financeiro.receita.desconto" ajudaRota={ROTA_AJUDA} label="Desconto (R$)">
                 <input type="number" step="0.01" min="0" value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" style={inputStyle} />
               </Campo>
             </>
@@ -1070,11 +1074,12 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                   onChange={(e) => setJaRecebido(e.target.checked)}
                 />
                 {parcelas > 1 ? 'Já recebi a 1ª parcela' : 'Já recebi essa receita'}
+                <AjudaCampo chave="financeiro.receita.ja_recebido" rota={ROTA_AJUDA} />
               </label>
             )}
             {jaRecebido && !origemConciliacao && !editando && !vendaCartao && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
-                <Campo label="Data do recebimento" obrigatorio>
+                <Campo ajuda="financeiro.receita.data_recebimento" ajudaRota={ROTA_AJUDA} label="Data do recebimento" obrigatorio>
                   <input
                     type="date"
                     value={dataPagamento}
