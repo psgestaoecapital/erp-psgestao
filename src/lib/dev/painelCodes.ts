@@ -6,8 +6,10 @@
 //   • EM TESTE = PR com evento aberta/pronta e sem publicada/fechada.
 //   • faixa VERDE = houve publicação na última hora E nenhum Code parado com tarefa na fila; senão VERMELHA com a trava.
 
-export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-chamados', 'gilberto-produto', 'jordana-code', 'rodrigo-code', 'gilberto-esteira'] as const
-export const CODES_LINHA_FINAL = ['gilberto-revisor', 'eng-chefe-auto'] as const
+// CEO 24/10: o painel mostra SÓ os Codes que existem (tarefa agendada ligada: desenvolvedores, esteira, revisor, auditor PDCA)
+// mais os dos sócios (Rodrigo e Jordana). gilberto-produto, gilberto-chamados, stephany-code, andre-code e eng-chefe-auto saíram.
+export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-esteira', 'code-desenvolvedor-3', 'desenvolvedor_4_g', 'desenvolvedor_5_g', 'desenvolvedor_6_g', 'gilberto-revisor', 'auditor_pdca_g', 'rodrigo-code', 'jordana-code'] as const
+export const CODES_LINHA_FINAL: readonly string[] = []
 export const CODES_PAINEL: readonly string[] = [...CODES_PRINCIPAIS, ...CODES_LINHA_FINAL]
 
 export const LEASE_MIN = 12
@@ -168,7 +170,7 @@ export function esteira(p: { entregas: Entrega[]; agora: Date; mainVerde?: boole
   return { cor, ultimaPub: ult ? new Date(ult) : null, prontas: emTeste(p.entregas, null).filter((x) => x.pronta).length, mainVerde, filaTestes: p.filaTestes ?? null, mainDesde: p.mainDesde ?? null, specFalha: p.specFalha ?? null }
 }
 
-export type StatusCode = 'trabalhando' | 'travado' | 'na_fila' | 'esperando' | 'dormindo'
+export type StatusCode = 'trabalhando' | 'travado' | 'na_fila' | 'esperando' | 'agendado' | 'dormindo'
 export type ResumoCode = {
   code: string; status: StatusCode; desde: Date | null; fazendo: string
   ultimaSessaoMin: number | null; naoLidas: number
@@ -191,7 +193,10 @@ export function resumoCode(p: { code: string; entregas: Entrega[]; msgs: Mensage
   const naFila = novas.length > 0
   const teste = emTeste(p.entregas, code)
   const andando = emAndamento(p.msgs, code)[0]
-  const status: StatusCode = sessao.ativa ? 'trabalhando' : travada ? 'travado' : naFila ? 'na_fila' : teste.length > 0 ? 'esperando' : 'dormindo'
+  // Rotina LIGADA (tarefa agendada ativa) sem sessão/fila/teste ≠ "dormindo": o Code roda sozinho a cada hora
+  // (CEO 23/10 — revisor e esteira aparecem "dormindo" mesmo rodando no plantão). "Dormindo" = sem rotina E sem nada.
+  const rotinaLigada = p.rotinas?.find((r) => r.agente === code)?.aciona ?? null
+  const status: StatusCode = sessao.ativa ? 'trabalhando' : travada ? 'travado' : naFila ? 'na_fila' : teste.length > 0 ? 'esperando' : rotinaLigada ? 'agendado' : 'dormindo'
   const ultEntrega = entregues(p.entregas, code, agora, 30 * DIA)[0]
   const fazendo = andando?.assunto
     || (teste[0] ? `PR #${teste[0].pr_numero} · ${teste[0].titulo}` : ultEntrega ? `entregou #${ultEntrega.pr_numero} · ${ultEntrega.titulo}` : 'sem atividade recente')
@@ -200,7 +205,7 @@ export function resumoCode(p: { code: string; entregas: Entrega[]; msgs: Mensage
     code, status, desde: sessao.ativa ? sessao.desde : null, fazendo, ultimaSessaoMin, naoLidas: novas.length,
     fila: todas.length - filaAntiga, filaAntiga, emTeste: teste.length,
     entreguesHoje: p.entregas.filter((e) => e.evento === 'publicada' && e.code === code && diaSP(new Date(e.ocorrido_em)) === hoje).length,
-    rotinaLigada: p.rotinas?.find((r) => r.agente === code)?.aciona ?? null,
+    rotinaLigada,
   }
 }
 
