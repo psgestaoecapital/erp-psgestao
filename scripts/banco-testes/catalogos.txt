@@ -62,8 +62,7 @@ erp_ajuda_campo             # ajuda-campo-mao-obra, produtividade-cadastro-edita
 # psgc_depara_psgc_codigo_fkey); sem o catálogo o Montar 473-477 abortou na Semente.
 psgc_contas
 
-# Rotinas dos agentes (25/10, msg 3e5e6c6a): registro global (agente/aciona/observacao, sem dono, sem segredo — URL/token
-# ficam no Vault, que não é copiado). erp_agente_dono.agente e erp_agente_mensagem.para têm FK para cá; vazia no banco
-# de testes, a aceitação #818 caiu em canal-ps-conector/pedido-socio (rodrigo-code) e agente-chamado-responder
-# (gilberto-chamados) com 23503. Não é mensagem de agente (essas seguem proibidas).
-erp_agente_rotina
+# erp_agente_rotina (rotinas dos agentes) NÃO entra (25/10, gilberto-desenv): a #3181 a pôs aqui e o Montar 788-795
+# quebrou — o CHECK erp_agente_rotina_agente_check da produção ganhou agentes (code-desenvolvedor-3, desenvolvedor_4/5/6_g,
+# auditor_pdca_g) FORA de migration, e o banco de testes (só migrations) recusa essas linhas. Volta quando uma migration
+# alinhar o CHECK à produção (via revisada). Até lá canal-ps e agente-chamado-responder seguem com 23503 na aceitação.
