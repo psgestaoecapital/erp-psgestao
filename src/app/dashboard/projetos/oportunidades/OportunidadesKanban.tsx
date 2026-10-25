@@ -341,8 +341,8 @@ export default function OportunidadesKanban({
     <div>
       {/* Resumo lateral ganho/perdido (V1 — colunas terminais como tiles) */}
       <div className="flex gap-2 mb-3 flex-wrap">
-        <ResumoTile titulo="Ganhas" qtd={ganhos.qtd} valor={ganhos.total} variante="ganho" onClick={() => void abrirFechadas('ganho')} />
-        <ResumoTile titulo="Perdidas" qtd={perdidos.qtd} valor={perdidos.total} variante="perdido" onClick={() => void abrirFechadas('perdido')} />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ResumoTile titulo="Ganhas" qtd={ganhos.qtd} valor={ganhos.total} variante="ganho" onClick={() => void abrirFechadas('ganho')} /><AjudaCampo chave="projetos.oportunidades.resumo_ganhas" /></span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ResumoTile titulo="Perdidas" qtd={perdidos.qtd} valor={perdidos.total} variante="perdido" onClick={() => void abrirFechadas('perdido')} /><AjudaCampo chave="projetos.oportunidades.resumo_perdidas" /></span>
         {loading && <span className="text-xs opacity-60 self-center">Carregando…</span>}
       </div>
 
@@ -369,7 +369,7 @@ export default function OportunidadesKanban({
                 onDrop={(e) => onDrop(e, et.v)}
               >
                 <div style={colHead}>
-                  <span style={{ ...etapaChip, background: et.bg, color: et.fg }}>{et.l}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ ...etapaChip, background: et.bg, color: et.fg }}>{et.l}</span><AjudaCampo chave="projetos.oportunidades.coluna_etapa" /></span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {_link && linkHref && (
                       <button type="button" onClick={() => router.push(linkHref)} title={_link.tip}
@@ -380,7 +380,7 @@ export default function OportunidadesKanban({
                   </div>
                 </div>
                 <div style={colSubHead}>
-                  <span>{brl(tot.valor)}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{brl(tot.valor)}<AjudaCampo chave="projetos.oportunidades.coluna_total" /></span>
                 </div>
                 <div style={colList}>
                   {cards.length === 0 ? (
@@ -419,9 +419,11 @@ export default function OportunidadesKanban({
                       )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6 }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color: DOURADO }}>{brl(c.valor_estimado)}</span>
-                        {c.probabilidade != null && (
-                          <span style={probBadge}>{c.probabilidade}%</span>
-                        )}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          {c.probabilidade != null && <span style={probBadge}>{c.probabilidade}%</span>}
+                          {/* o "?" fica fora do clique/Enter do card (senão abriria a ficha) */}
+                          <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card" /></span>
+                        </span>
                       </div>
                       {nomeResp(c.responsavel_id) && (
                         <div style={{ fontSize: 11, color: TEXTM, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -442,7 +444,7 @@ export default function OportunidadesKanban({
                         </div>
                       )}
                       {/* F2.7 · orçamento vinculado (chip clicável) ou botão de gerar */}
-                      <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }} onClick={(e) => e.stopPropagation()}>
                         {orcMap[c.id] ? (
                           <button
                             onClick={() => router.push(`/dashboard/orcamentos?id=${orcMap[c.id].orcamento_id}`)}
@@ -466,6 +468,7 @@ export default function OportunidadesKanban({
                             {gerandoId === c.id ? 'Gerando…' : '+ Gerar orçamento'}
                           </button>
                         )}
+                        <AjudaCampo chave="projetos.oportunidades.card_orcamento" />
                       </div>
                       {/* Fallback touch: select de etapa */}
                       <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }} onClick={(e) => e.stopPropagation()}>
@@ -485,7 +488,8 @@ export default function OportunidadesKanban({
                         <AjudaCampo chave="projetos.oportunidades.kanban.mover_etapa" />
                       </div>
                       {/* Ações herdadas da lista: Editar · Orçamento/ficha · Excluir */}
-                      <div style={cardActions} onClick={(e) => e.stopPropagation()}>
+                      <div style={cardActions} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                        <AjudaCampo chave="projetos.oportunidades.card_acoes" />
                         <button style={cardActBtn} onClick={() => onEdit(c.id)} title="Editar" aria-label="Editar"><Pencil size={14} aria-hidden /></button>
                         <button style={cardActBtn} onClick={() => router.push(`/dashboard/projetos/oportunidades/${c.id}`)} title="Orçamento / ficha" aria-label="Orçamento"><FileText size={14} aria-hidden /></button>
                         <button
@@ -650,7 +654,7 @@ const cardSt: CSSProperties = {
   padding: 8, userSelect: 'none', transition: 'opacity .15s',
 }
 const cardActions: CSSProperties = {
-  display: 'flex', gap: 4, marginTop: 6, justifyContent: 'flex-end',
+  display: 'flex', gap: 4, marginTop: 6, justifyContent: 'flex-end', alignItems: 'center',
 }
 const cardActBtn: CSSProperties = {
   border: `1px solid ${BORDA}`, background: '#fff', borderRadius: 6,
