@@ -2,6 +2,10 @@
 // Campos condicionais de PIX (aparecem quando a forma = Pix): tipo de chave + chave com máscara/validação.
 // Reutilizável em Nova despesa, Nova receita e Editar. Pendência Jordana #4.
 import { TIPOS_CHAVE_PIX, mascararChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95: aparece em Nova despesa, Nova receita e Editar → textos do "?" numa rota própria.
+const ROTA_AJUDA = '/dashboard/financeiro/chave-pix'
 
 export function CamposPix({ tipoChave, chave, setTipoChave, setChave, inputStyle }: {
   tipoChave: string
@@ -21,7 +25,7 @@ export function CamposPix({ tipoChave, chave, setTipoChave, setChave, inputStyle
   return (
     <div style={{ gridColumn: '1 / -1', background: '#FBF6EC', border: '0.5px solid rgba(200,148,26,0.5)', borderRadius: 10, padding: 12, display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) 2fr', gap: 12 }}>
       <label style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>
-        Tipo de chave PIX
+        Tipo de chave PIX <AjudaCampo chave="financeiro.pix.tipo_chave" rota={ROTA_AJUDA} />
         <select
           value={tipoChave}
           onChange={(e) => { setTipoChave(e.target.value); setChave('') }}
@@ -31,7 +35,7 @@ export function CamposPix({ tipoChave, chave, setTipoChave, setChave, inputStyle
         </select>
       </label>
       <label style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>
-        Chave PIX
+        Chave PIX <AjudaCampo chave="financeiro.pix.chave" rota={ROTA_AJUDA} />
         <input
           value={chave}
           onChange={(e) => setChave(tipoChave === 'copia_cola' || tipoChave === 'email' || tipoChave === 'aleatoria' ? e.target.value : mascararChavePix(tipoChave, e.target.value))}

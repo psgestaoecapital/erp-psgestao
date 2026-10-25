@@ -9,7 +9,8 @@ import EditorRegras from "./EditorRegras";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { custearItens, sugerirVinculos, type ProdutoEstoque } from "@/lib/calculadora/depara";
-import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv } from "@/lib/calculadora/saida";
+import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv, listaDeCompraHtml } from "@/lib/calculadora/saida";
+import { precoComMargem } from "@/lib/calculadora/margem";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import {
   REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, REGRAS_PAREDE_SEPARATIVA, REGRAS_PAREDE_CORTA_FOGO, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoColado, REGRAS_REVESTIMENTO_ESTRUTURADO, calcularRevestimentoEstruturado, calcularForroAramado, calcularForroF530, calcularParede, type Resultado,
@@ -17,8 +18,22 @@ import {
 
 type Sistema = "parede" | "separativa" | "cortafogo" | "forro" | "aramado" | "revestimento" | "estruturado";
 const n = (v: string) => Number((v || "0").replace(",", ".")) || 0
-const fmtBRL = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
-const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })
+// Formatação pt-BR determinística (idêntica no servidor e no navegador). Usar toLocaleString aqui
+// causava erro de hidratação React #418 ao abrir a tela: o separador de milhar/moeda do pt-BR
+// depende da versão do ICU, que difere entre o Node do servidor e o navegador (ex.: espaço comum
+// vs. U+00A0 depois do "R$"), então o HTML do SSR não batia com o primeiro render do cliente.
+const agrupaMilhar = (inteiro: string) => inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+const fmtBRL = (v: number) => {
+  if (!Number.isFinite(v)) return "R$ 0,00"
+  const [int, dec] = Math.abs(v).toFixed(2).split(".")
+  return `${v < 0 ? "-" : ""}R$ ${agrupaMilhar(int)},${dec}`
+}
+const fmt = (v: number) => {
+  if (!Number.isFinite(v)) return "0"
+  const [int, dec] = Math.abs(v).toFixed(2).split(".")
+  const decSemZero = dec.replace(/0+$/, "")
+  return `${v < 0 ? "-" : ""}${agrupaMilhar(int)}${decSemZero ? "," + decSemZero : ""}`
+}
 const inCls = "w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-right font-mono text-sm text-[#3D2314] focus:border-[#C8941A] focus:outline-none";
 const lbCls = "mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/55";
 
@@ -50,6 +65,9 @@ export default function CalculadoraObraPage() {
   const [orcamentos, setOrcamentos] = useState<{ id: string; numero: string | null; cliente_nome: string | null }[]>([]);
   const [orcId, setOrcId] = useState("");
   const [msgSaida, setMsgSaida] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [margem, setMargem] = useState("20");
+  const [titulo, setTitulo] = useState("");
+  const [historico, setHistorico] = useState<{ id: string; titulo: string; sistema: string; entradas: any; custo_total: number; preco_venda: number; margem_pct: number; criado_em: string }[]>([]);
   const sistemaDb = sistema === "parede" ? "parede" : sistema === "separativa" ? "parede_separativa" : sistema === "cortafogo" ? "parede_corta_fogo" : sistema === "estruturado" ? "revestimento_estruturado" : sistema === "revestimento" ? "revestimento_colado" : sistema === "aramado" ? "forro_aramado" : "forro_f530";
 
   const carregarEstoque = useCallback(async () => {
@@ -61,6 +79,8 @@ export default function CalculadoraObraPage() {
       sb.from("erp_orcamentos").select("id,numero,cliente_nome").eq("company_id", companyId).eq("status", "rascunho").order("created_at", { ascending: false }).limit(100),
     ]);
     setOrcamentos((o.data ?? []) as any);
+    const h = await sb.from("erp_calc_historico").select("id,titulo,sistema,entradas,custo_total,preco_venda,margem_pct,criado_em").eq("company_id", companyId).order("criado_em", { ascending: false }).limit(10);
+    setHistorico((h.data ?? []) as any);
     setProdutos((p.data ?? []).map((x: any) => ({ id: x.id, nome: x.nome, unidade: x.unidade, custo: Number(x.preco_custo_medio) || Number(x.preco_custo) || null })));
     setVinculos(Object.fromEntries((d.data ?? []).map((x: any) => [x.chave, x.produto_id])));
   }, [companyId, sistemaDb]);
@@ -93,14 +113,46 @@ export default function CalculadoraObraPage() {
     const { data: ult } = await sb.from("erp_orcamentos_itens").select("ordem").eq("orcamento_id", orcId).order("ordem", { ascending: false }).limit(1);
     const linhas = itensParaOrcamento(custo.linhas, orcId, companyId, Number(ult?.[0]?.ordem) || 0);
     const { error } = await sb.from("erp_orcamentos_itens").insert(linhas);
-    setMsgSaida(error ? { ok: false, texto: "Não consegui enviar: " + error.message } : { ok: true, texto: `${linhas.length} itens enviados ao orçamento. Itens sem produto vinculado foram com preço zero para você completar lá.` });
+    if (!error) await salvarCalculo(orcId, true);
+    setMsgSaida(error ? { ok: false, texto: "Não consegui enviar: " + error.message } : { ok: true, texto: `${linhas.length} itens enviados à proposta. Itens sem produto vinculado foram com preço zero para você completar lá.` });
+  }
+
+  async function salvarCalculo(orcamentoId: string | null = null, silencioso = false) {
+    if (!companyId || !res.ok) return;
+    const sb = supabaseBrowser();
+    const { error } = await sb.from("erp_calc_historico").insert({
+      company_id: companyId, sistema: sistemaDb, titulo: titulo.trim(), orcamento_id: orcamentoId,
+      entradas: { sistema, comp, pd, vaos, comLa, estDupla, camadas, larg, compF },
+      itens: custo.linhas.map((l) => ({ chave: l.item.chave, descricao: l.item.descricao, quantidade: l.item.quantidade, unidade: l.item.unidadeCompra, custo_unitario: l.custoUnitario, total: l.total })),
+      custo_total: custo.total, margem_pct: venda?.margemPct ?? 0, preco_venda: venda?.preco ?? 0,
+    });
+    if (error) { if (!silencioso) setMsgSaida({ ok: false, texto: "Não consegui salvar o cálculo: " + error.message }); return; }
+    if (!silencioso) setMsgSaida({ ok: true, texto: "Cálculo salvo no histórico." });
+    void carregarEstoque();
+  }
+
+  function reabrir(h: { entradas: any }) {
+    const e = h.entradas ?? {};
+    if (e.sistema) setSistema(e.sistema);
+    if (e.comp != null) setComp(String(e.comp)); if (e.pd != null) setPd(String(e.pd)); if (e.vaos != null) setVaos(String(e.vaos));
+    if (e.larg != null) setLarg(String(e.larg)); if (e.compF != null) setCompF(String(e.compF));
+    setComLa(!!e.comLa); setEstDupla(!!e.estDupla); setCamadas(Number(e.camadas) || 1);
   }
 
   async function copiarLista() {
     if (!res.ok) return;
     const texto = listaDeCompra(custo.linhas, sistema === "parede" ? "Lista de compra — parede simples" : sistema === "separativa" ? "Lista de compra — parede separativa" : sistema === "cortafogo" ? "Lista de compra — parede corta-fogo" : sistema === "estruturado" ? "Lista de compra — revestimento estruturado" : sistema === "revestimento" ? "Lista de compra — revestimento colado" : sistema === "aramado" ? "Lista de compra — forro aramado" : "Lista de compra — forro F530");
-    try { await navigator.clipboard.writeText(texto); setMsgSaida({ ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." }); }
-    catch { setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." }); }
+    const ok = () => setMsgSaida({ ok: true, texto: "Lista copiada. É só colar no WhatsApp ou no e-mail." });
+    try { await navigator.clipboard.writeText(texto); ok(); return; } catch { /* sem permissão da área de transferência: tenta o caminho antigo */ }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = texto; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      const copiou = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (copiou) { ok(); return; }
+    } catch { /* cai na mensagem manual */ }
+    setMsgSaida({ ok: false, texto: "Não consegui copiar automaticamente. Selecione e copie a lista manualmente." });
   }
 
   function tituloLista() {
@@ -117,6 +169,15 @@ export default function CalculadoraObraPage() {
     a.href = url; a.download = "lista-de-compra.csv"; a.click();
     URL.revokeObjectURL(url);
     setMsgSaida({ ok: true, texto: "Planilha baixada. Abre direto no Excel." });
+  }
+
+  function imprimirPdf() {
+    if (!res.ok) return;
+    const w = window.open("", "_blank");
+    if (!w) { setMsgSaida({ ok: false, texto: "O navegador bloqueou a janela. Libere pop-ups e tente de novo." }); return; }
+    w.document.write(listaDeCompraHtml(custo.linhas, tituloLista()));
+    w.document.close(); w.focus(); w.print();
+    setMsgSaida({ ok: true, texto: "Na janela de impressão, escolha “Salvar como PDF”." });
   }
 
   const [regraSalva, setRegraSalva] = useState<unknown>(null);
@@ -147,6 +208,7 @@ export default function CalculadoraObraPage() {
       : calcularForroF530(regrasForro, { largura: n(larg), comprimento: n(compF) }), [sistema, comp, pd, vaos, comLa, camadas, estDupla, larg, compF, regrasParede, regrasSep, regrasCF, regrasForro, regrasAramado, regrasRevest, regrasEstrut]);
 
   const custo = useMemo(() => res.ok ? custearItens(res.itens, vinculos, new Map(produtos.map((p) => [p.id, p]))) : { linhas: [], total: 0, semCusto: 0 }, [res, vinculos, produtos]);
+  const venda = useMemo(() => precoComMargem(custo.total, n(margem)), [custo.total, margem]);
   const custoPorChave = useMemo(() => Object.fromEntries(custo.linhas.map((l) => [l.item.chave, l])), [custo]);
 
   return (
@@ -229,19 +291,64 @@ export default function CalculadoraObraPage() {
         <div className="rounded-lg bg-red-50 p-3 text-sm text-red-800" data-testid="calc-erro"><AlertTriangle className="mb-0.5 mr-1 inline" size={15} />{res.erro}</div>
       ) : (
         <section className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm" data-testid="calc-resultado">
-          <h2 className="mb-3 text-base font-medium text-[#3D2314]">O que comprar <span className="text-sm text-[#3D2314]/50">· área {fmt(res.area)} m²</span><AjudaCampo chave="projetos.calculadora.resultado" rota="/dashboard/projetos/calculadora" /></h2>
+          <h2 className="mb-3 text-base font-medium text-[#3D2314]">O que comprar <span className="text-sm text-[#3D2314]/50">· área {fmt(res.area)} m² · {res.itens.length} {res.itens.length === 1 ? "item" : "itens"}</span><AjudaCampo chave="projetos.calculadora.resultado" rota="/dashboard/projetos/calculadora" /></h2>
           {companyId && (
             <p className="mb-2 text-sm text-[#3D2314]/70" data-testid="calc-custo-total">
               Custo estimado: <b>{custo.linhas.length > 0 && custo.semCusto === custo.linhas.length ? "sem custo — vincule os itens ao estoque" : fmtBRL(custo.total)}</b><AjudaCampo chave="projetos.calculadora.custo_total" rota="/dashboard/projetos/calculadora" />
               {custo.semCusto > 0 && <span className="ml-2 text-amber-700">{custo.semCusto} item(ns) sem custo — fora do total</span>}
             </p>
           )}
+          {companyId && (
+            <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="calc-margem-bloco">
+              <Campo rotulo="Margem (%)" chave="projetos.calculadora.margem" valor={margem} set={setMargem} testid="calc-margem" />
+              <p className="text-sm text-[#3D2314]/70 sm:col-span-2 sm:self-end" data-testid="calc-venda">
+                {venda ? <>Preço de venda: <b>{fmtBRL(venda.preco)}</b> · Lucro: <b>{fmtBRL(venda.lucro)}</b></> : "Informe uma margem entre 0 e 95%."}
+              </p>
+            </div>
+          )}
           {companyId && custo.semCusto > 0 && (
             <button onClick={() => void sugerirEVincular()} data-testid="calc-sugerir-vinculos" className="mb-2 rounded-full bg-[#C8941A]/15 px-4 py-2 text-sm text-[#3D2314]">
-              Sugerir produtos do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" />
+              Sugerir produtos do estoque<AjudaCampo chave="projetos.calculadora.sugerir_produtos" rota="/dashboard/projetos/calculadora" />
             </button>
           )}
           {erroVinculo && <p className="mb-2 text-sm text-red-700">{erroVinculo}</p>}
+          {/* Ações em destaque ACIMA da lista longa de itens: o usuário vê o total e salva/envia/gera proposta sem rolar
+              (auditor 25/10: "lista 'o que comprar' cortada" deixava salvar/exportar/histórico fora da área visível). */}
+          <div className="mb-4 flex flex-col gap-2 rounded-xl bg-[#FAF7F2] p-3" data-testid="calc-saida">
+            <button onClick={() => void copiarLista()} data-testid="calc-copiar-lista" className="self-start rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+              Copiar lista de compra<AjudaCampo chave="projetos.calculadora.lista_compra" rota="/dashboard/projetos/calculadora" />
+            </button>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={enviarWhatsApp} data-testid="calc-whatsapp" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                Enviar por WhatsApp<AjudaCampo chave="projetos.calculadora.whatsapp" rota="/dashboard/projetos/calculadora" />
+              </button>
+              <button onClick={baixarExcel} data-testid="calc-excel" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                Baixar Excel<AjudaCampo chave="projetos.calculadora.excel" rota="/dashboard/projetos/calculadora" />
+              </button>
+              <button onClick={imprimirPdf} data-testid="calc-pdf" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                Imprimir / PDF<AjudaCampo chave="projetos.calculadora.pdf" rota="/dashboard/projetos/calculadora" />
+              </button>
+            </div>
+            {companyId && (
+              <div className="flex flex-wrap items-center gap-2">
+                <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Nome do cálculo (obra, cliente…)" data-testid="calc-titulo" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm" />
+                <AjudaCampo chave="projetos.calculadora.titulo_calculo" rota="/dashboard/projetos/calculadora" />
+                <button onClick={() => void salvarCalculo()} data-testid="calc-salvar" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">Salvar cálculo<AjudaCampo chave="projetos.calculadora.salvar_calculo" rota="/dashboard/projetos/calculadora" /></button>
+              </div>
+            )}
+            {companyId && (
+              <label className="flex flex-wrap items-center gap-2 text-sm text-[#3D2314]/70">
+                <span className="flex items-center">Proposta em rascunho<AjudaCampo chave="projetos.calculadora.orcamento" rota="/dashboard/projetos/calculadora" /></span>
+                <select value={orcId} onChange={(e) => setOrcId(e.target.value)} data-testid="calc-orcamento" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm">
+                  <option value="">{orcamentos.length ? "Escolha o orçamento" : "Nenhum orçamento em rascunho"}</option>
+                  {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? "sem número"}{o.cliente_nome ? ` · ${o.cliente_nome}` : ""}</option>)}
+                </select>
+                <button onClick={() => void mandarParaOrcamento()} disabled={!orcId} data-testid="calc-mandar-orcamento" className="rounded-full bg-[#3D2314] px-4 py-2 text-sm text-white disabled:opacity-40">Adicionar à proposta<AjudaCampo chave="projetos.calculadora.adicionar_proposta" rota="/dashboard/projetos/calculadora" /></button>
+              </label>
+            )}
+            {msgSaida && <p className={`text-sm ${msgSaida.ok ? "text-emerald-700" : "text-red-700"}`} data-testid="calc-saida-msg">{msgSaida.texto}</p>}
+          </div>
+          <h3 className="mb-1 mt-1 border-t border-[#3D2314]/8 pt-3 text-xs font-medium uppercase tracking-wider text-[#3D2314]/55">Itens e a conta de cada um</h3>
           <ul className="divide-y divide-[#3D2314]/8">
             {res.itens.map((i) => (
               <li key={i.chave} className="py-2.5" data-testid={`calc-item-${i.chave}`}>
@@ -262,36 +369,29 @@ export default function CalculadoraObraPage() {
                 {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
                 {custoPorChave[i.chave]?.total != null && <p className="mt-0.5 text-xs text-[#3D2314]/60">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade} = <b>{fmtBRL(custoPorChave[i.chave].total!)}</b></p>}
                 <details className="mt-1 text-xs text-[#3D2314]/60">
-                  <summary className="cursor-pointer">ver a conta</summary>
+                  <summary className="cursor-pointer">ver a conta<AjudaCampo chave="projetos.calculadora.ver_conta" rota="/dashboard/projetos/calculadora" /></summary>
                   {i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}
                 </details>
               </li>
             ))}
           </ul>
-          <div className="mt-4 flex flex-col gap-2 border-t border-[#3D2314]/8 pt-4" data-testid="calc-saida">
-            <button onClick={() => void copiarLista()} data-testid="calc-copiar-lista" className="self-start rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
-              Copiar lista de compra<AjudaCampo chave="projetos.calculadora.lista_compra" rota="/dashboard/projetos/calculadora" />
-            </button>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={enviarWhatsApp} data-testid="calc-whatsapp" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
-                Enviar por WhatsApp<AjudaCampo chave="projetos.calculadora.whatsapp" rota="/dashboard/projetos/calculadora" />
-              </button>
-              <button onClick={baixarExcel} data-testid="calc-excel" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
-                Baixar Excel<AjudaCampo chave="projetos.calculadora.excel" rota="/dashboard/projetos/calculadora" />
-              </button>
-            </div>
-            {companyId && (
-              <label className="flex flex-wrap items-center gap-2 text-sm text-[#3D2314]/70">
-                <span className="flex items-center">Orçamento em rascunho<AjudaCampo chave="projetos.calculadora.orcamento" rota="/dashboard/projetos/calculadora" /></span>
-                <select value={orcId} onChange={(e) => setOrcId(e.target.value)} data-testid="calc-orcamento" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm">
-                  <option value="">{orcamentos.length ? "Escolha o orçamento" : "Nenhum orçamento em rascunho"}</option>
-                  {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? "sem número"}{o.cliente_nome ? ` · ${o.cliente_nome}` : ""}</option>)}
-                </select>
-                <button onClick={() => void mandarParaOrcamento()} disabled={!orcId} data-testid="calc-mandar-orcamento" className="rounded-full bg-[#3D2314] px-4 py-2 text-sm text-white disabled:opacity-40">Mandar para o orçamento</button>
-              </label>
-            )}
-            {msgSaida && <p className={`text-sm ${msgSaida.ok ? "text-emerald-700" : "text-red-700"}`} data-testid="calc-saida-msg">{msgSaida.texto}</p>}
-          </div>
+        </section>
+      )}
+      {companyId && (
+        <section className="mt-5 rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm" data-testid="calc-historico">
+          <h2 className="mb-3 text-base font-medium text-[#3D2314]">Cálculos anteriores<AjudaCampo chave="projetos.calculadora.historico" rota="/dashboard/projetos/calculadora" /></h2>
+          {historico.length === 0 ? <p className="text-sm text-[#3D2314]/60">Nenhum cálculo salvo ainda. Use “Salvar cálculo” depois de calcular.</p> : (
+            <ul className="divide-y divide-[#3D2314]/8">
+              {historico.map((h) => (
+                <li key={h.id}>
+                  <button onClick={() => reabrir(h)} data-testid="calc-historico-item" className="flex w-full items-baseline justify-between gap-3 py-2.5 text-left text-sm text-[#3D2314]">
+                    <span>{h.titulo || "Sem nome"} <span className="text-xs text-[#3D2314]/50">· {new Date(h.criado_em).toLocaleDateString("pt-BR")}</span></span>
+                    <span className="font-mono text-xs">{fmtBRL(Number(h.preco_venda) || Number(h.custo_total))}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
       )}
     </main>
