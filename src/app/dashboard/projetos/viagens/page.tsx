@@ -64,6 +64,12 @@ export default function ViagensPage() {
   // total de despesas por viagem (mesmo valor do "Total" do resumo: soma dos lançamentos não excluídos), para a
   // listagem mostrar o custo de cada viagem sem precisar abri-la. Confere com fn_viagem_resumo->>'total' (RD-38).
   const [totais, setTotais] = useState<Record<string, number>>({})
+  // composição do custo POR viagem (categoria → soma), para a lista abrir "Ver a conta" sem precisar entrar na viagem
+  // (auditor PDCA 26/10: breakdown rota/km/taxa/diária na própria listagem fotografada). Mesma base dos "totais"
+  // (lançamentos não excluídos), então os números fecham com o "Custo" do card e com o resumo (RD-38).
+  const [composicoes, setComposicoes] = useState<Record<string, [string, number][]>>({})
+  // id da viagem cuja conta está aberta na lista (um de cada vez); null = todas colapsadas
+  const [verConta, setVerConta] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresa) return
@@ -73,7 +79,7 @@ export default function ViagensPage() {
       supabase.from('erp_plano_contas').select('codigo,descricao').eq('company_id', empresa).eq('ativo', true).order('codigo'),
       supabase.rpc('fn_viagem_pode_gravar', { p_company_id: empresa }),
       supabase.from('erp_viagem_ge_titulo').select('viagem_id').eq('company_id', empresa).limit(5000),
-      supabase.from('erp_viagem_lancamento').select('viagem_id,valor').eq('company_id', empresa).is('excluido_em', null).limit(20000),
+      supabase.from('erp_viagem_lancamento').select('viagem_id,valor,categoria').eq('company_id', empresa).is('excluido_em', null).limit(20000),
     ])
     if (v.error) setMsg(v.error.message)
     setViagens((v.data ?? []) as Viagem[]); setObras((o.data ?? []) as Obra[]); setCats((c.data ?? []) as Cat[])
@@ -82,8 +88,16 @@ export default function ViagensPage() {
     for (const x of (t.data ?? []) as { viagem_id: string }[]) ge[x.viagem_id] = (ge[x.viagem_id] ?? 0) + 1
     setNoGe(ge)
     const tot: Record<string, number> = {}
-    for (const x of (lanc.data ?? []) as { viagem_id: string; valor: number }[]) tot[x.viagem_id] = (tot[x.viagem_id] ?? 0) + Number(x.valor ?? 0)
-    setTotais(tot)
+    const porCat: Record<string, Map<string, number>> = {}
+    for (const x of (lanc.data ?? []) as { viagem_id: string; valor: number; categoria: string | null }[]) {
+      tot[x.viagem_id] = (tot[x.viagem_id] ?? 0) + Number(x.valor ?? 0)
+      const cat = x.categoria || 'Sem categoria'
+      const m = (porCat[x.viagem_id] ??= new Map())
+      m.set(cat, (m.get(cat) ?? 0) + Number(x.valor ?? 0))
+    }
+    const comp: Record<string, [string, number][]> = {}
+    for (const [vid, m] of Object.entries(porCat)) comp[vid] = [...m.entries()].sort((a, b) => b[1] - a[1])
+    setTotais(tot); setComposicoes(comp)
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da empresa
   useEffect(() => { carregar() }, [carregar])
@@ -267,11 +281,25 @@ export default function ViagensPage() {
             // km rodado só existe na viagem fechada; na aberta mostramos o hodômetro de saída. Ambos terminam em "km"
             // para a lista ter um só formato (auditor PDCA 26/10 — "saída km X" destoava do "X km" das outras).
             const kmTxt = km != null ? `${km.toLocaleString('pt-BR')} km` : (v.km_inicial != null ? `saída ${v.km_inicial.toLocaleString('pt-BR')} km` : null)
+            const conta = composicoes[v.id] ?? []
+            const kmRodado = v.km_inicial != null && v.km_final != null && v.km_final >= v.km_inicial ? v.km_final - v.km_inicial : null
             return (
-            <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-start justify-between gap-3 rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
-              <span className="min-w-0 flex-1 break-words"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
-                {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</span>
-              <span className="flex min-w-fit shrink-0 flex-col items-end gap-1.5 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-medium leading-none"><span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 capitalize" style={v.status === 'aberta' ? { borderColor: GOLD, color: GOLD, background: '#FBF3E0' } : { borderColor: LINE, color: ESP, background: '#FFFFFF' }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span></span></button></li>)})}</ul></>)}
+            <li key={v.id} className="rounded-xl border bg-white" style={{ borderColor: LINE }}>
+              <div className="flex w-full items-start justify-between gap-3 p-3">
+                <button onClick={() => abrir(v)} className="min-w-0 flex-1 break-words text-left"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
+                  {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</button>
+                <span className="flex min-w-fit shrink-0 flex-col items-end gap-1.5 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-medium leading-none"><span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 capitalize" style={v.status === 'aberta' ? { borderColor: GOLD, color: GOLD, background: '#FBF3E0' } : { borderColor: LINE, color: ESP, background: '#FFFFFF' }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span>
+                  {conta.length > 0 && <span className="flex items-center gap-0.5"><button type="button" aria-expanded={verConta === v.id} className="whitespace-nowrap text-[11px] underline opacity-70" onClick={() => setVerConta(verConta === v.id ? null : v.id)}>{verConta === v.id ? 'Ocultar a conta' : 'Ver a conta'}</button><AjudaCampo chave="projetos.viagem.composicao_custo" /></span>}</span>
+              </div>
+              {verConta === v.id && conta.length > 0 && (
+                <div className="border-t px-3 py-2 text-sm" style={{ borderColor: LINE }}>
+                  <ul className="space-y-0.5">{conta.map(([cod, val]) => (
+                    <li key={cod} className="flex items-baseline justify-between gap-3"><span className="min-w-0 break-words opacity-80">{cats.find((c) => c.codigo === cod)?.descricao || cod}</span><span className="shrink-0 tabular-nums">{brl(val)}</span></li>))}</ul>
+                  <div className="mt-1 flex items-baseline justify-between gap-3 border-t pt-1 font-medium" style={{ borderColor: LINE }}><span>Total</span><span className="shrink-0 tabular-nums">{brl(totais[v.id] ?? 0)}</span></div>
+                  {kmRodado && kmRodado > 0 && <div className="mt-1 text-xs opacity-70">{kmRodado.toLocaleString('pt-BR')} km · {brl((totais[v.id] ?? 0) / kmRodado)}/km</div>}
+                </div>
+              )}
+            </li>)})}</ul></>)}
 
       {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
 
