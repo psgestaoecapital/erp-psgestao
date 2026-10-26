@@ -12,7 +12,14 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
 const ROTA = '/dashboard/projetos/cockpit'
-const STATUS: Record<string, string> = { em_andamento: 'Em andamento', concluida: 'Concluída', pausada: 'Pausada', cancelada: 'Cancelada' }
+// Cada situação tem cor e fundo próprios (pílula) — leitura imediata, sem tudo em dourado. Mesmo padrão da OS de obra.
+const STATUS: Record<string, { rotulo: string; cor: string; fundo: string }> = {
+  em_andamento: { rotulo: 'Em andamento', cor: '#92400E', fundo: 'rgba(200,148,26,0.18)' },
+  concluida: { rotulo: 'Concluída', cor: '#15803D', fundo: 'rgba(21,128,61,0.12)' },
+  pausada: { rotulo: 'Pausada', cor: '#6B5B4D', fundo: 'rgba(61,35,20,0.07)' },
+  cancelada: { rotulo: 'Cancelada', cor: '#B91C1C', fundo: 'rgba(185,28,28,0.08)' },
+}
+const situacao = (s: string) => STATUS[s] ?? { rotulo: s, cor: GOLD, fundo: 'rgba(200,148,26,0.12)' }
 
 type ObraLinha = { obra_id: string; numero: string; nome: string | null; status: string }
 
@@ -57,7 +64,10 @@ export default function CockpitEscolherObraPage() {
             style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px', textDecoration: 'none', color: ESP }}>
             <div style={{ fontWeight: 700, fontSize: 14 }}>{o.numero}</div>
             <div style={{ fontSize: 13, color: MUT, marginTop: 2 }}>{o.nome || 'Sem nome'}</div>
-            <div style={{ fontSize: 11, color: GOLD, fontWeight: 700, marginTop: 6, textTransform: 'uppercase' }}>{STATUS[o.status] ?? o.status} <AjudaCampo chave="projetos.cockpit.status_obra" rota={ROTA} /></div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: situacao(o.status).cor, background: situacao(o.status).fundo, borderRadius: 999, padding: '2px 9px' }}>{situacao(o.status).rotulo}</span>
+              <AjudaCampo chave="projetos.cockpit.status_obra" rota={ROTA} />
+            </div>
           </Link>
         ))}
       </div>
