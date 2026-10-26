@@ -86,6 +86,7 @@ export function RelatorioViagens({ empresa, obras }: { empresa: string; obras: O
         <Filtro rotulo="Obra" ajuda="projetos.viagem.rel_obra"><select className={campo} value={obra} onChange={(e) => setObra(e.target.value)}><option value="">Todas as obras</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Filtro>
       </div>
       {erro && <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{erro}</div>}
+      {!rel && !erro && <p role="status" className="rounded-xl border bg-white p-6 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Carregando o custo por obra…</p>}
       {rel && (rel.viagens.length === 0
         ? <p className="rounded-xl border bg-white p-6 text-center text-sm" style={{ borderColor: LINE }}>Nenhuma viagem neste filtro.</p>
         : <>
