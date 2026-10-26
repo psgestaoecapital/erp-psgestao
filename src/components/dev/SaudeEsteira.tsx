@@ -27,7 +27,7 @@ function Bloco({ id, titulo, sem, valor, detalhe, ajuda }: { id: string; titulo:
   )
 }
 
-export default function SaudeEsteira() {
+export default function SaudeEsteira({ compacto = false }: { compacto?: boolean } = {}) {
   const [s, setS] = useState<Saude | null>(null)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -45,12 +45,12 @@ export default function SaudeEsteira() {
 
   const k = s ? classificarSaude(s, new Date()) : null
   return (
-    <section data-testid="codes-saude-esteira" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, marginBottom: 12, color: ESP }}>
+    <section data-testid="codes-saude-esteira" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: compacto ? 12 : 14, marginBottom: compacto ? 0 : 12, color: ESP }}>
       <h3 style={{ margin: '0 0 8px', fontSize: 14, fontWeight: 700 }}>Saúde da Esteira <span style={{ fontWeight: 400, fontSize: 12, color: TXM }}>· últimas 24 h</span></h3>
       {erro && <div role="alert" style={{ fontSize: 12 }}>Não consegui ler a saúde da esteira: {erro}</div>}
       {!s && !erro && <div style={{ fontSize: 12, color: TXM }}>Carregando…</div>}
       {s && k && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className={compacto ? "grid grid-cols-1 sm:grid-cols-2 gap-2" : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"}>
           <Bloco id="cadencia" titulo="Cadência" sem={k.cadencia} valor={k.cadenciaTexto}
             detalhe={`${s.merges_24h ?? 0} publicações em 24 h`}
             ajuda="Tempo típico (mediana) entre uma publicação e a seguinte. Verde: até 30 min. Amarelo: até 90 min. Vermelho: mais que isso ou sem publicações." />

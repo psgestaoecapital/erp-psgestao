@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import AjudaCampo from "@/components/ajuda/AjudaCampo";
+import { precedenciaPreco } from "@/lib/hub/precedenciaPreco";
 
 const ROTA = "/dashboard/hub/orcamento-itens";
 type Orc = { id: string; numero: string; cliente_nome: string | null; status: string };
@@ -42,6 +43,25 @@ export default function OrcamentoItensPage() {
       .finally(() => setCarregandoOrcs(false));
   }, [empresa]);
 
+  type Sug = { origem: string; preco_unitario?: number; total?: number; faixa_de?: number; faixa_ate?: number | null; unidade?: string; codigo_externo?: string | null; tabela_nome?: string; erro?: string };
+  const [contrato, setContrato] = useState<{ tabela_id: string | null; tabela_nome?: string; servicos: { servico_ref: string; nome: string; unidade: string }[]; condicoes?: string[] }>({ tabela_id: null, servicos: [] });
+  const [servRef, setServRef] = useState("");
+  const [regime, setRegime] = useState("normal");
+  const [sug, setSug] = useState<Sug | null>(null);
+  useEffect(() => {
+    setServRef(""); setSug(null);
+    if (!orcId) { setContrato({ tabela_id: null, servicos: [] }); return; }
+    void Promise.resolve(supabase.rpc("fn_orcamento_contrato_servicos", { p_orcamento: orcId })).then(({ data }) => {
+      const r = data as { ok?: boolean; tabela_id: string | null; tabela_nome?: string; servicos: { servico_ref: string; nome: string; unidade: string }[]; condicoes?: string[] } | null;
+      setContrato(r?.ok ? r : { tabela_id: null, servicos: [] });
+    }, () => setContrato({ tabela_id: null, servicos: [] }));
+  }, [orcId]);
+  useEffect(() => {
+    const q = Number(String(form?.quantidade ?? "").replace(",", "."));
+    if (!orcId || !servRef || !(q >= 0) || !form) { setSug(null); return; }
+    void Promise.resolve(supabase.rpc("fn_orcamento_preco_sugerido", { p_orcamento: orcId, p_servico_ref: servRef, p_quantidade: q, p_condicao: regime })).then(({ data }) => setSug((data as Sug) ?? null), () => setSug(null));
+  }, [orcId, servRef, regime, form?.quantidade]); // eslint-disable-line react-hooks/exhaustive-deps
+  const prec = sug ? precedenciaPreco({ contratoVigente: sug.origem === "contrato", tabelaCliente: false, tabelaPadrao: false, temFaixa: sug.origem === "contrato" }) : null;
   const carregar = useCallback(async (id: string) => {
     if (!id) { setLista(null); return; }
     const { data, error } = await supabase.rpc("fn_orcamento_item_listar", { p_orcamento_id: id });
@@ -116,6 +136,29 @@ export default function OrcamentoItensPage() {
       )}
       {form && (
         <section className="mt-5 grid gap-3 rounded-xl border border-[#E8E2D6] bg-white p-4 md:grid-cols-2" data-testid="item-form">
+          {contrato.tabela_id && (
+            <div className="md:col-span-2 grid gap-2 rounded-lg border border-[#E8E2D6] bg-[#FAF7F2] p-3 md:grid-cols-2" data-testid="item-contrato">
+              <label className={lbl}><span className="flex items-center gap-1">Serviço do contrato ({contrato.tabela_nome}) <AjudaCampo chave="hub.orcamento_itens.servico_contrato" rota={ROTA} /></span>
+                <select className={inp} value={servRef} onChange={(e) => { const r = e.target.value; setServRef(r); const sv = contrato.servicos.find((x) => x.servico_ref === r); if (sv) setForm((f) => (f ? { ...f, produto_nome: f.produto_nome || sv.nome, unidade: sv.unidade || f.unidade } : f)); }} data-testid="f-servico-contrato">
+                  <option value="">— preço digitado —</option>
+                  {contrato.servicos.map((x) => <option key={x.servico_ref} value={x.servico_ref}>{x.servico_ref} · {x.nome}</option>)}
+                </select></label>
+              <label className={lbl}><span className="flex items-center gap-1">Regime de execução <AjudaCampo chave="hub.orcamento_itens.regime_contrato" rota={ROTA} /></span>
+                <select className={inp} value={regime} onChange={(e) => setRegime(e.target.value)}>
+                  <option value="normal">Normal (dia útil)</option>
+                  {(contrato.condicoes ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
+                </select></label>
+              {sug && prec && (
+                <div className="md:col-span-2 text-[14px] text-[#3D2314]" data-testid="item-origem-preco">
+                  <span className="flex items-center gap-1 font-semibold">{sug.origem === "contrato" ? prec.rotulo : "Sem preço no contrato"} <AjudaCampo chave="hub.orcamento_itens.origem_preco" rota={ROTA} /></span>
+                  <div>{sug.origem === "contrato"
+                    ? `${brl(sug.preco_unitario ?? 0)} por ${sug.unidade ?? "un"} (faixa ${sug.faixa_de}${sug.faixa_ate != null ? ` a ${sug.faixa_ate}` : "+"}${sug.codigo_externo ? ` · código ${sug.codigo_externo}` : ""}). ${prec.motivo}`
+                    : sug.erro ?? "Nenhuma faixa do contrato cobre esta quantidade ou regime; digite o preço."}</div>
+                  {sug.origem === "contrato" && (
+                    <button type="button" className="mt-2 rounded-lg border border-[#3D2314] px-3 py-1 text-[14px]" data-testid="usar-preco-contrato"
+                      onClick={() => setForm((f) => (f ? { ...f, preco_unitario: String(sug.preco_unitario ?? 0) } : f))}>Usar preço do contrato <AjudaCampo chave="hub.orcamento_itens.usar_preco_contrato" rota={ROTA} /></button>)}
+                </div>)}
+            </div>)}
           <label className={`${lbl} md:col-span-2`}><span className="flex items-center gap-1">Descrição <AjudaCampo chave="hub.orcamento_itens.descricao" rota={ROTA} /></span>
             <input className={inp} value={form.produto_nome} onChange={set("produto_nome")} data-testid="f-descricao" /></label>
           <label className={lbl}><span className="flex items-center gap-1">Tipo <AjudaCampo chave="hub.orcamento_itens.tipo" rota={ROTA} /></span>
