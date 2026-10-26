@@ -139,6 +139,16 @@ export default function ViagensPage() {
       && (!filtro.situacao || v.status === filtro.situacao))
   }, [viagens, filtro])
   const totalViagens = useMemo(() => viagens.filter((v) => v.status === 'aberta').length, [viagens])
+  // Resumo da lista (acima da dobra): conta e custo das viagens que o filtro atual deixou à mostra. Deriva só de dados já
+  // carregados (viagens/totais/noGe) — nenhuma conta nova; o custo soma os MESMOS "totais" do card (RD-38, fecham entre si).
+  // Antes, custo total, abertas e "no GE" só apareciam no relatório/indicadores lá embaixo (abaixo da dobra) — o visitante
+  // (e o auditor, que fotografa o topo) não via o panorama sem rolar. Agora o número de abertura fica à vista.
+  const resumoLista = useMemo(() => {
+    const custo = filtradas.reduce((s, v) => s + (totais[v.id] ?? 0), 0)
+    const abertas = filtradas.filter((v) => v.status === 'aberta').length
+    const noGeCount = filtradas.filter((v) => noGe[v.id]).length
+    return { count: filtradas.length, custo, abertas, noGeCount }
+  }, [filtradas, totais, noGe])
   // composição do custo da viagem aberta: soma dos lançamentos por categoria (combustível, pedágio, diárias…),
   // para mostrar DE ONDE vem o valor total antes de lançar no GE (auditor PDCA 26/10 — detalhamento do cálculo).
   // Mesma base do "Total" do resumo (lançamentos não excluídos), então os números fecham (RD-38).
@@ -285,7 +295,16 @@ export default function ViagensPage() {
             <Campo rotulo="De" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.de} onChange={(e) => setFiltro({ ...filtro, de: e.target.value })} /></Campo>
             <Campo rotulo="Até" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.ate} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value })} /></Campo>
           </div>
-          <div className="mb-1 flex items-center px-1 text-xs opacity-60"><span className="inline-flex items-center">{filtradas.length === viagens.length ? `${viagens.length} viagem(ns)` : `${filtradas.length} de ${viagens.length} viagem(ns)`}<AjudaCampo chave="projetos.viagem.total_lista" /></span></div>
+          {/* Faixa de resumo acima da lista (auditor PDCA 26/10): o panorama — viagens, abertas, custo somado e quantas já
+              foram ao GE — e o atalho de exportar, à vista no topo em vez de só no relatório lá embaixo. Acompanha o filtro. */}
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <ResumoTile rotulo="Viagens" ajuda="projetos.viagem.total_lista" valor={resumoLista.count.toLocaleString('pt-BR')} />
+            <ResumoTile rotulo="Abertas" ajuda="projetos.viagem.contador_abertas" valor={resumoLista.abertas.toLocaleString('pt-BR')} destaque={resumoLista.abertas > 0} />
+            <ResumoTile rotulo="Custo somado" ajuda="projetos.viagem.resumo_total" valor={brl(resumoLista.custo)} />
+            <ResumoTile rotulo="Lançadas no GE" ajuda="projetos.viagem.ge_situacao" valor={`${resumoLista.noGeCount.toLocaleString('pt-BR')} de ${resumoLista.count.toLocaleString('pt-BR')}`} />
+          </div>
+          <div className="mb-1 flex items-center justify-between px-1 text-xs opacity-60"><span className="inline-flex items-center">{filtradas.length === viagens.length ? `${viagens.length} viagem(ns)` : `${filtradas.length} de ${viagens.length} viagem(ns)`}<AjudaCampo chave="projetos.viagem.total_lista" /></span>
+            <span className="inline-flex items-center"><button type="button" className="underline opacity-80 hover:opacity-100" onClick={() => document.getElementById('viagens-relatorio')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Relatório e exportar ↓</button><AjudaCampo chave="projetos.viagem.rel_exportar" /></span></div>
           <div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span className="flex items-center">Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span className="flex items-center gap-1">Custo<AjudaCampo chave="projetos.viagem.resumo_total" /> · Situação<AjudaCampo chave="projetos.viagem.status" /> · no GE<AjudaCampo chave="projetos.viagem.ge_situacao" /></span></div>
           {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '', situacao: '' })}>Limpar filtro</button></p>}
           <ul className="space-y-2">{filtradas.map((v) => {
@@ -301,7 +320,7 @@ export default function ViagensPage() {
               <div className="flex w-full items-start justify-between gap-3 p-3">
                 <button onClick={() => abrir(v)} className="min-w-0 flex-1 break-words text-left"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
                   {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</button>
-                <span className="flex min-w-fit shrink-0 flex-col items-end gap-1.5 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-medium leading-none"><span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 capitalize" style={v.status === 'aberta' ? { borderColor: GOLD, color: GOLD, background: '#FBF3E0' } : { borderColor: LINE, color: ESP, background: '#FFFFFF' }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span>
+                <span className="flex min-w-fit shrink-0 flex-col items-end gap-1.5 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-medium leading-none"><span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-0.5 capitalize" style={v.status === 'aberta' ? { borderColor: GOLD, color: GOLD, background: '#FBF3E0' } : { borderColor: LINE, color: ESP, background: '#FFFFFF' }}><span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: v.status === 'aberta' ? GOLD : '#B9AC94' }} />{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span>
                   {conta.length > 0 && <span className="flex items-center gap-0.5"><button type="button" aria-expanded={verConta === v.id} className="whitespace-nowrap text-[11px] underline opacity-70" onClick={() => setVerConta(verConta === v.id ? null : v.id)}>{verConta === v.id ? 'Ocultar a conta' : 'Ver a conta'}</button><AjudaCampo chave="projetos.viagem.composicao_custo" /></span>}</span>
               </div>
               {podeGravar && v.status === 'aberta' && !noGe[v.id] && (
@@ -320,7 +339,7 @@ export default function ViagensPage() {
               )}
             </li>)})}</ul></>)}
 
-      {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
+      {!aberta && <div id="viagens-relatorio" className="scroll-mt-4"><RelatorioViagens empresa={empresa} obras={obras} /></div>}
 
       {aberta && (
         <div className="space-y-3">
@@ -412,4 +431,14 @@ export default function ViagensPage() {
 // todo campo do Hub tem o "?" (AjudaCampo) ao lado do rótulo — CEO 01/10; o gate check-ajuda-campo reprova campo sem ajuda
 function Campo({ rotulo, ajuda, children }: { rotulo: string; ajuda: string; children: React.ReactNode }) {
   return <label className="flex flex-col gap-1 text-xs"><span>{rotulo}<AjudaCampo chave={ajuda} /></span>{children}</label>
+}
+
+// tile da faixa de resumo: rótulo + "?" (RD-95) em cima, número grande embaixo; destaque realça as viagens abertas (pendentes)
+function ResumoTile({ rotulo, ajuda, valor, destaque = false }: { rotulo: string; ajuda: string; valor: string; destaque?: boolean }) {
+  return (
+    <div className="rounded-xl border bg-white p-3" style={{ borderColor: destaque ? GOLD : LINE }}>
+      <div className="flex items-center text-xs opacity-70">{rotulo}<AjudaCampo chave={ajuda} /></div>
+      <div className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: destaque ? GOLD : ESP }}>{valor}</div>
+    </div>
+  )
 }
