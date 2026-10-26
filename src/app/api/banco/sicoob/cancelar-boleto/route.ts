@@ -38,6 +38,13 @@ export async function POST(req: NextRequest) {
     if (!rec) return NextResponse.json({ ok: false, erro: 'titulo nao encontrado' }, { status: 404 })
     const companyId: string = rec.company_id
 
+    // Acao irreversivel no banco: papeis sem poder de edicao financeira (consulta, operador, mecanico) nao cancelam.
+    const { data: acesso } = await sb.rpc('fn_acesso_efetivo', { p_user: user.id, p_company: companyId })
+    const papel = (acesso as { papel_gestao?: string | null } | null)?.papel_gestao ?? null
+    if (papel && ['CLIENT_VIEWER', 'CLIENT_OPERATOR', 'OFICINA_MECANICO'].includes(papel)) {
+      return NextResponse.json({ ok: false, erro: 'Seu perfil nao tem permissao para cancelar boleto. Peca ao gestor da empresa.' }, { status: 403 })
+    }
+
     if (rec.boleto_status !== 'registrado' || !rec.boleto_nosso_numero) {
       return NextResponse.json({ ok: false, erro: 'Este titulo nao tem boleto ativo para cancelar.' }, { status: 409 })
     }

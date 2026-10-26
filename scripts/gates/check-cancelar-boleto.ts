@@ -19,5 +19,6 @@ ok(/window\.confirm\(/.test(acoes) && /boleto-cancelar/.test(acoes) && /!pago &&
 ok(/provider === 'sicoob'/.test(acoes) && /ainda não está disponível/.test(acoes), 'tela: provedor sem suporte avisa em vez de falhar calado')
 ok(/errUpd/.test(rota) && /não atualizou/.test(rota), 'rota: erro do UPDATE local após a baixa no banco é tratado e auditado')
 ok(/<AjudaCampo chave="financeiro\.receber\.cancelar_boleto"/.test(acoes), 'tela: "?" (AjudaCampo) no botão')
+ok(/fn_acesso_efetivo/.test(rota) && /status: 403/.test(rota) && /CLIENT_VIEWER/.test(rota), 'rota: confere o papel do usuário antes de baixar no banco')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
