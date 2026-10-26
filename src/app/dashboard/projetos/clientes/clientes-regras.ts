@@ -70,7 +70,7 @@ export const brlCurto = (v: number) =>
 
 // PDCA 24/10 06:03 (auditor: "só contador de obra na linha" e "ganhar não abre obra"): a linha mostra a obra
 // mais recente (nome · cidade/UF) e avisa quando o cliente tem mais vendas ganhas do que obras abertas.
-export type ObraLinha = { cliente_id: string | null; nome: string | null; projeto_nome?: string | null; obra_cidade: string | null; obra_uf: string | null; created_at: string | null }
+export type ObraLinha = { id?: string | null; cliente_id: string | null; nome: string | null; projeto_nome?: string | null; obra_cidade: string | null; obra_uf: string | null; created_at: string | null }
 export const rotuloObra = (o: Pick<ObraLinha, 'nome' | 'projeto_nome' | 'obra_cidade' | 'obra_uf'>) =>
   [o.nome || o.projeto_nome || '(obra sem nome)', o.obra_cidade ? `${o.obra_cidade}${o.obra_uf ? '/' + o.obra_uf : ''}` : ''].filter(Boolean).join(' · ')
 export function obraRecentePorCliente(linhas: ObraLinha[]): Record<string, string> {
@@ -81,6 +81,17 @@ export function obraRecentePorCliente(linhas: ObraLinha[]): Record<string, strin
     if (!atual || (l.created_at ?? '') > (atual.created_at ?? '')) m[l.cliente_id] = l
   }
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, rotuloObra(v)]))
+}
+// Id da obra mais recente de cada cliente — para ligar o card do cliente direto ao Resultado da obra (cockpit),
+// na mesma linha em que hoje só mostra o nome. Só entra cliente cuja obra recente tem id.
+export function obraRecenteIdPorCliente(linhas: ObraLinha[]): Record<string, string> {
+  const m: Record<string, ObraLinha> = {}
+  for (const l of linhas) {
+    if (!l.cliente_id || !l.id) continue
+    const atual = m[l.cliente_id]
+    if (!atual || (l.created_at ?? '') > (atual.created_at ?? '')) m[l.cliente_id] = l
+  }
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.id as string]))
 }
 export const ganhasSemObra = (ganhas: number, obras: number) => Math.max(0, ganhas - obras)
 // Vendas que já viraram obra (projetos_obras.oportunidade_id): "Abrir obra desta venda" some nelas, para não duplicar.

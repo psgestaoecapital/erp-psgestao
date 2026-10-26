@@ -293,88 +293,96 @@ export default function CalculadoraObraPage() {
         <section className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm" data-testid="calc-resultado">
           <h2 className="mb-3 text-base font-medium text-[#3D2314]">O que comprar <span className="text-sm text-[#3D2314]/50">· área {fmt(res.area)} m² · {res.itens.length} {res.itens.length === 1 ? "item" : "itens"}</span><AjudaCampo chave="projetos.calculadora.resultado" rota="/dashboard/projetos/calculadora" /></h2>
           {companyId && (
-            <p className="mb-2 text-sm text-[#3D2314]/70" data-testid="calc-custo-total">
+            <p className="mb-3 text-sm text-[#3D2314]/70" data-testid="calc-custo-total">
               Custo estimado: <b>{custo.linhas.length > 0 && custo.semCusto === custo.linhas.length ? "sem custo — vincule os itens ao estoque" : fmtBRL(custo.total)}</b><AjudaCampo chave="projetos.calculadora.custo_total" rota="/dashboard/projetos/calculadora" />
               {custo.semCusto > 0 && <span className="ml-2 text-amber-700">{custo.semCusto} item(ns) sem custo — fora do total</span>}
             </p>
           )}
-          {companyId && (
-            <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="calc-margem-bloco">
-              <Campo rotulo="Margem (%)" chave="projetos.calculadora.margem" valor={margem} set={setMargem} testid="calc-margem" />
-              <p className="text-sm text-[#3D2314]/70 sm:col-span-2 sm:self-end" data-testid="calc-venda">
-                {venda ? <>Preço de venda: <b>{fmtBRL(venda.preco)}</b> · Lucro: <b>{fmtBRL(venda.lucro)}</b></> : "Informe uma margem entre 0 e 95%."}
-              </p>
+          {/* Resultado em DUAS colunas: a lista "o que comprar" (com a conta de cada item) fica à ESQUERDA, no topo da área
+              visível; total (acima), margem e exportação à DIREITA (grudada no topo no desktop). No celular empilha com o
+              total no topo e os itens logo abaixo. Antes a lista vinha por último e o auditor (RD-38, insight 26/10) só via
+              "7 itens cortados"/"rolar para ver a lista" — o que comprar é o resultado e tem de aparecer sem rolagem. */}
+          <div className="grid gap-5 lg:grid-cols-5">
+            <div className="lg:col-span-3">
+              <h3 className="mb-1 text-xs font-medium uppercase tracking-wider text-[#3D2314]/55">Itens e a conta de cada um</h3>
+              <ul className="divide-y divide-[#3D2314]/8">
+                {res.itens.map((i) => (
+                  <li key={i.chave} className="py-2.5" data-testid={`calc-item-${i.chave}`}>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm text-[#3D2314]">{i.descricao}</span>
+                      <span className="font-mono text-sm text-[#3D2314]"><b data-testid={`calc-qtd-${i.chave}`}>{i.quantidade}</b> × {i.unidadeCompra}</span>
+                    </div>
+                    {companyId && (
+                      <label className="mt-1 flex items-center gap-2 text-xs text-[#3D2314]/60">
+                        <span className="flex items-center">Produto do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" /></span>
+                        <select value={vinculos[i.chave] ?? ""} data-testid={`calc-produto-${i.chave}`} onChange={(e) => void vincular(i.chave, e.target.value)}
+                          className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1 text-xs">
+                          <option value="">Sem vínculo</option>
+                          {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.unidade ? ` (${p.unidade})` : ""}</option>)}
+                        </select>
+                      </label>
+                    )}
+                    {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
+                    {custoPorChave[i.chave]?.total != null && <p className="mt-0.5 text-xs text-[#3D2314]/60">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade} = <b>{fmtBRL(custoPorChave[i.chave].total!)}</b></p>}
+                    <details className="mt-1 text-xs text-[#3D2314]/60">
+                      <summary className="cursor-pointer">ver a conta<AjudaCampo chave="projetos.calculadora.ver_conta" rota="/dashboard/projetos/calculadora" /></summary>
+                      {i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}
+                    </details>
+                  </li>
+                ))}
+              </ul>
             </div>
-          )}
-          {companyId && custo.semCusto > 0 && (
-            <button onClick={() => void sugerirEVincular()} data-testid="calc-sugerir-vinculos" className="mb-2 rounded-full bg-[#C8941A]/15 px-4 py-2 text-sm text-[#3D2314]">
-              Sugerir produtos do estoque<AjudaCampo chave="projetos.calculadora.sugerir_produtos" rota="/dashboard/projetos/calculadora" />
-            </button>
-          )}
-          {erroVinculo && <p className="mb-2 text-sm text-red-700">{erroVinculo}</p>}
-          {/* Ações em destaque ACIMA da lista longa de itens: o usuário vê o total e salva/envia/gera proposta sem rolar
-              (auditor 25/10: "lista 'o que comprar' cortada" deixava salvar/exportar/histórico fora da área visível). */}
-          <div className="mb-4 flex flex-col gap-2 rounded-xl bg-[#FAF7F2] p-3" data-testid="calc-saida">
-            <button onClick={() => void copiarLista()} data-testid="calc-copiar-lista" className="self-start rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
-              Copiar lista de compra<AjudaCampo chave="projetos.calculadora.lista_compra" rota="/dashboard/projetos/calculadora" />
-            </button>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={enviarWhatsApp} data-testid="calc-whatsapp" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
-                Enviar por WhatsApp<AjudaCampo chave="projetos.calculadora.whatsapp" rota="/dashboard/projetos/calculadora" />
-              </button>
-              <button onClick={baixarExcel} data-testid="calc-excel" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
-                Baixar Excel<AjudaCampo chave="projetos.calculadora.excel" rota="/dashboard/projetos/calculadora" />
-              </button>
-              <button onClick={imprimirPdf} data-testid="calc-pdf" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
-                Imprimir / PDF<AjudaCampo chave="projetos.calculadora.pdf" rota="/dashboard/projetos/calculadora" />
-              </button>
-            </div>
-            {companyId && (
-              <div className="flex flex-wrap items-center gap-2">
-                <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Nome do cálculo (obra, cliente…)" data-testid="calc-titulo" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm" />
-                <AjudaCampo chave="projetos.calculadora.titulo_calculo" rota="/dashboard/projetos/calculadora" />
-                <button onClick={() => void salvarCalculo()} data-testid="calc-salvar" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">Salvar cálculo<AjudaCampo chave="projetos.calculadora.salvar_calculo" rota="/dashboard/projetos/calculadora" /></button>
-              </div>
-            )}
-            {companyId && (
-              <label className="flex flex-wrap items-center gap-2 text-sm text-[#3D2314]/70">
-                <span className="flex items-center">Proposta em rascunho<AjudaCampo chave="projetos.calculadora.orcamento" rota="/dashboard/projetos/calculadora" /></span>
-                <select value={orcId} onChange={(e) => setOrcId(e.target.value)} data-testid="calc-orcamento" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm">
-                  <option value="">{orcamentos.length ? "Escolha o orçamento" : "Nenhum orçamento em rascunho"}</option>
-                  {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? "sem número"}{o.cliente_nome ? ` · ${o.cliente_nome}` : ""}</option>)}
-                </select>
-                <button onClick={() => void mandarParaOrcamento()} disabled={!orcId} data-testid="calc-mandar-orcamento" className="rounded-full bg-[#3D2314] px-4 py-2 text-sm text-white disabled:opacity-40">Adicionar à proposta<AjudaCampo chave="projetos.calculadora.adicionar_proposta" rota="/dashboard/projetos/calculadora" /></button>
-              </label>
-            )}
-            {msgSaida && <p className={`text-sm ${msgSaida.ok ? "text-emerald-700" : "text-red-700"}`} data-testid="calc-saida-msg">{msgSaida.texto}</p>}
-          </div>
-          <h3 className="mb-1 mt-1 border-t border-[#3D2314]/8 pt-3 text-xs font-medium uppercase tracking-wider text-[#3D2314]/55">Itens e a conta de cada um</h3>
-          <ul className="divide-y divide-[#3D2314]/8">
-            {res.itens.map((i) => (
-              <li key={i.chave} className="py-2.5" data-testid={`calc-item-${i.chave}`}>
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm text-[#3D2314]">{i.descricao}</span>
-                  <span className="font-mono text-sm text-[#3D2314]"><b data-testid={`calc-qtd-${i.chave}`}>{i.quantidade}</b> × {i.unidadeCompra}</span>
+            <div className="lg:col-span-2 lg:sticky lg:top-4 lg:self-start">
+              {companyId && (
+                <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1" data-testid="calc-margem-bloco">
+                  <Campo rotulo="Margem (%)" chave="projetos.calculadora.margem" valor={margem} set={setMargem} testid="calc-margem" />
+                  <p className="text-sm text-[#3D2314]/70 sm:col-span-2 sm:self-end lg:col-span-1 lg:self-auto" data-testid="calc-venda">
+                    {venda ? <>Preço de venda: <b>{fmtBRL(venda.preco)}</b> · Lucro: <b>{fmtBRL(venda.lucro)}</b></> : "Informe uma margem entre 0 e 95%."}
+                  </p>
+                </div>
+              )}
+              {companyId && custo.semCusto > 0 && (
+                <button onClick={() => void sugerirEVincular()} data-testid="calc-sugerir-vinculos" className="mb-2 rounded-full bg-[#C8941A]/15 px-4 py-2 text-sm text-[#3D2314]">
+                  Sugerir produtos do estoque<AjudaCampo chave="projetos.calculadora.sugerir_produtos" rota="/dashboard/projetos/calculadora" />
+                </button>
+              )}
+              {erroVinculo && <p className="mb-2 text-sm text-red-700">{erroVinculo}</p>}
+              <div className="flex flex-col gap-2 rounded-xl bg-[#FAF7F2] p-3" data-testid="calc-saida">
+                <button onClick={() => void copiarLista()} data-testid="calc-copiar-lista" className="self-start rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                  Copiar lista de compra<AjudaCampo chave="projetos.calculadora.lista_compra" rota="/dashboard/projetos/calculadora" />
+                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={enviarWhatsApp} data-testid="calc-whatsapp" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                    Enviar por WhatsApp<AjudaCampo chave="projetos.calculadora.whatsapp" rota="/dashboard/projetos/calculadora" />
+                  </button>
+                  <button onClick={baixarExcel} data-testid="calc-excel" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                    Baixar Excel<AjudaCampo chave="projetos.calculadora.excel" rota="/dashboard/projetos/calculadora" />
+                  </button>
+                  <button onClick={imprimirPdf} data-testid="calc-pdf" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
+                    Imprimir / PDF<AjudaCampo chave="projetos.calculadora.pdf" rota="/dashboard/projetos/calculadora" />
+                  </button>
                 </div>
                 {companyId && (
-                  <label className="mt-1 flex items-center gap-2 text-xs text-[#3D2314]/60">
-                    <span className="flex items-center">Produto do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" /></span>
-                    <select value={vinculos[i.chave] ?? ""} data-testid={`calc-produto-${i.chave}`} onChange={(e) => void vincular(i.chave, e.target.value)}
-                      className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1 text-xs">
-                      <option value="">Sem vínculo</option>
-                      {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.unidade ? ` (${p.unidade})` : ""}</option>)}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Nome do cálculo (obra, cliente…)" data-testid="calc-titulo" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm" />
+                    <AjudaCampo chave="projetos.calculadora.titulo_calculo" rota="/dashboard/projetos/calculadora" />
+                    <button onClick={() => void salvarCalculo()} data-testid="calc-salvar" className="rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">Salvar cálculo<AjudaCampo chave="projetos.calculadora.salvar_calculo" rota="/dashboard/projetos/calculadora" /></button>
+                  </div>
+                )}
+                {companyId && (
+                  <label className="flex flex-wrap items-center gap-2 text-sm text-[#3D2314]/70">
+                    <span className="flex items-center">Proposta em rascunho<AjudaCampo chave="projetos.calculadora.orcamento" rota="/dashboard/projetos/calculadora" /></span>
+                    <select value={orcId} onChange={(e) => setOrcId(e.target.value)} data-testid="calc-orcamento" className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1.5 text-sm">
+                      <option value="">{orcamentos.length ? "Escolha o orçamento" : "Nenhum orçamento em rascunho"}</option>
+                      {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? "sem número"}{o.cliente_nome ? ` · ${o.cliente_nome}` : ""}</option>)}
                     </select>
+                    <button onClick={() => void mandarParaOrcamento()} disabled={!orcId} data-testid="calc-mandar-orcamento" className="rounded-full bg-[#3D2314] px-4 py-2 text-sm text-white disabled:opacity-40">Adicionar à proposta<AjudaCampo chave="projetos.calculadora.adicionar_proposta" rota="/dashboard/projetos/calculadora" /></button>
                   </label>
                 )}
-                {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
-                {custoPorChave[i.chave]?.total != null && <p className="mt-0.5 text-xs text-[#3D2314]/60">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade} = <b>{fmtBRL(custoPorChave[i.chave].total!)}</b></p>}
-                <details className="mt-1 text-xs text-[#3D2314]/60">
-                  <summary className="cursor-pointer">ver a conta<AjudaCampo chave="projetos.calculadora.ver_conta" rota="/dashboard/projetos/calculadora" /></summary>
-                  {i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}
-                </details>
-              </li>
-            ))}
-          </ul>
+                {msgSaida && <p className={`text-sm ${msgSaida.ok ? "text-emerald-700" : "text-red-700"}`} data-testid="calc-saida-msg">{msgSaida.texto}</p>}
+              </div>
+            </div>
+          </div>
         </section>
       )}
       {companyId && (

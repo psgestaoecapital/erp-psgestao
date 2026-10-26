@@ -4,7 +4,7 @@
 // previsto × realizado). Só leitura. 3 estados: erro / vazio (ensina) / dados. Linha "Consolidado" no fim. Excel (CSV) e PDF (impressão do navegador).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { fmtR } from '@/lib/psgc-tokens'
+import { fmtR, fmtPct } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -23,6 +23,9 @@ const n = (v: unknown) => Number(v ?? 0)
 const receita = (l: Linha) => n(l.receita_servico) + n(l.receita_material)
 const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens) + n(l.custo_mao_obra) + n(l.custo_rateio)
 const margem = (l: Linha) => l.margem_alocada ?? n(l.margem_realizada)
+// Margem % sobre a receita realizada. Sem receita ainda → null (mostra "—"), para não dividir por zero.
+const margemPct = (rec: number, marg: number) => (rec > 0 ? (marg / rec) * 100 : null)
+const cockpit = (obraId: string) => `/dashboard/projetos/obras/${obraId}/cockpit`
 
 export default function ResultadoObrasPage() {
   const { companyIds } = useCompanyIds()
@@ -53,8 +56,8 @@ export default function ResultadoObrasPage() {
   }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [linhas])
 
   const baixarCsv = () => {
-    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Margem', 'Receita prevista', 'Custo previsto']
-    const rows = linhas.map(l => [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), margem(l), l.receita_prevista, l.custo_previsto])
+    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Margem', 'Margem %', 'Receita prevista', 'Custo previsto']
+    const rows = linhas.map(l => { const p = margemPct(receita(l), margem(l)); return [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), margem(l), p === null ? '' : p.toFixed(1), l.receita_prevista, l.custo_previsto] })
     const csv = [cab, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
@@ -89,34 +92,41 @@ export default function ResultadoObrasPage() {
             {/* celular (< md): um cartão por obra + o consolidado, sem rolagem lateral (HB0 · correção 9). A impressão usa a tabela. */}
             <div className="md:hidden no-print" data-testid="resultado-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {linhas.map(l => (
-                <CartaoObra key={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} maoObra={n(l.custo_mao_obra)}
+                <CartaoObra key={l.obra_id} obraId={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} material={n(l.custo_material)} viagens={n(l.custo_viagens)} maoObra={n(l.custo_mao_obra)}
                   margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} />
               ))}
-              <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} maoObra={linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0)}
+              <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} material={linhas.reduce((a, l) => a + n(l.custo_material), 0)} viagens={linhas.reduce((a, l) => a + n(l.custo_viagens), 0)} maoObra={linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0)}
                 margem={total.margem} prevista={total.prevista} custoPrev={total.custoPrev} />
             </div>
             <style>{'@media print{.resultado-tabela-wrap{display:block!important}}'}</style>
             <div className="hidden md:block resultado-tabela-wrap" style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-              <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse' }}>
+              <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 880, borderCollapse: 'collapse' }}>
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
                   <th style={{ ...th, ...fixa, textAlign: 'left' }}>Obra</th><th style={th}>Receita <AjudaCampo chave="projetos.resultado_obra.receita" /></th><th style={th}>Custo <AjudaCampo chave="projetos.resultado_obra.custo" /></th>
-                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
+                  <th style={th}>Materiais <AjudaCampo chave="projetos.resultado_obra.custo_material" /></th><th style={th}>Viagens <AjudaCampo chave="projetos.resultado_obra.custo_viagens" /></th>
+                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
                 </tr></thead>
                 <tbody>
                   {linhas.map(l => (
                     <tr key={l.obra_id} style={{ borderBottom: `1px solid ${LINE}` }}>
-                      <td style={{ ...td, ...fixa, textAlign: 'left' }}>{l.numero} · {l.nome}</td>
+                      <td style={{ ...td, ...fixa, textAlign: 'left' }}>
+                        <Link href={cockpit(l.obra_id)} style={{ color: GOLD, textDecoration: 'none' }} title="Abrir o cockpit da obra">{l.numero} · {l.nome}</Link>
+                      </td>
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
+                      <td style={td}>{fmtR(n(l.custo_material))}</td><td style={td}>{fmtR(n(l.custo_viagens))}</td>
                       <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
                       <td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
+                      <td style={{ ...td, color: cor(margem(l)) }}>{fmtPct(margemPct(receita(l), margem(l)))}</td>
                       <td style={td}>{fmtR(n(l.receita_prevista))}</td><td style={td}>{fmtR(n(l.custo_previsto))}</td>
                     </tr>
                   ))}
                   <tr data-testid="resultado-consolidado" style={{ fontWeight: 700 }}>
                     <td style={{ ...td, ...fixa, textAlign: 'left' }}>Consolidado</td>
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
+                    <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_material), 0))}</td><td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_viagens), 0))}</td>
                     <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
+                    <td style={{ ...td, color: cor(total.margem) }}>{fmtPct(margemPct(total.receita, total.margem))}</td>
                     <td style={td}>{fmtR(total.prevista)}</td><td style={td}>{fmtR(total.custoPrev)}</td>
                   </tr>
                 </tbody>
@@ -131,9 +141,10 @@ export default function ResultadoObrasPage() {
 
 // Cartão da obra no celular: margem em destaque (verde/vermelho), realizado × previsto em pares. O "?" de cada
 // número fica no cartão Consolidado (mesmas chaves da tabela), para não repetir em cada obra.
-function CartaoObra({ titulo, receita, custo, maoObra, margem, prevista, custoPrev, destaque }: {
-  titulo: string; receita: number; custo: number; maoObra: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean
+function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra, margem, prevista, custoPrev, destaque }: {
+  obraId?: string; titulo: string; receita: number; custo: number; material: number; viagens: number; maoObra: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean
 }) {
+  const pct = margemPct(receita, margem)
   const par = (rot: string, v: number, chave?: string) => (
     <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>{rot}{destaque && chave && <AjudaCampo chave={chave} />}</div>
@@ -143,12 +154,19 @@ function CartaoObra({ titulo, receita, custo, maoObra, margem, prevista, custoPr
   return (
     <div data-testid={destaque ? 'resultado-cartao-consolidado' : 'resultado-cartao'} style={{ background: '#fff', border: `1px solid ${destaque ? GOLD : LINE}`, borderRadius: 12, padding: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ fontWeight: 700, fontSize: 14, minWidth: 0, overflowWrap: 'anywhere' }}>{titulo}</span>
+        {obraId
+          ? <Link href={cockpit(obraId)} style={{ fontWeight: 700, fontSize: 14, minWidth: 0, overflowWrap: 'anywhere', color: GOLD, textDecoration: 'none' }} title="Abrir o cockpit da obra">{titulo}</Link>
+          : <span style={{ fontWeight: 700, fontSize: 14, minWidth: 0, overflowWrap: 'anywhere' }}>{titulo}</span>}
         <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', color: margem < 0 ? VERM : VERDE }}>{fmtR(margem)}</span>
       </div>
-      <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>margem{destaque && <AjudaCampo chave="projetos.resultado_obra.margem" />}</div>
+      <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>margem{destaque && <AjudaCampo chave="projetos.resultado_obra.margem" />}</span>
+        <span style={{ color: margem < 0 ? VERM : VERDE }}>· {fmtPct(pct)}</span>
+        {destaque && <AjudaCampo chave="projetos.resultado_obra.margem_pct" />}
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginTop: 10 }}>
         {par('Receita', receita, 'projetos.resultado_obra.receita')}{par('Custo', custo, 'projetos.resultado_obra.custo')}
+        {par('Materiais', material, 'projetos.resultado_obra.custo_material')}{par('Viagens', viagens, 'projetos.resultado_obra.custo_viagens')}
         {par('Mão de obra', maoObra, 'projetos.resultado_obra.mao_obra')}{par('Receita prevista', prevista, 'projetos.resultado_obra.receita_prevista')}
         {par('Custo previsto', custoPrev, 'projetos.resultado_obra.custo_previsto')}
       </div>
