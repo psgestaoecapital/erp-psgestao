@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
+import { esperaConsulta, AVISO_PROCESSANDO } from '@/lib/fiscal/consultaRetorno'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   validarNFeAvulsa, cfopNoCatalogo, formatarCfop, ufDestino, soDigitos,
@@ -25,6 +26,8 @@ interface DestPessoa {
   cnpj_cpf: string | null
   cpf_cnpj: string | null
   uf: string | null
+  ie: string | null
+  contribuinte_icms: string | null
 }
 
 interface Produto {
@@ -94,6 +97,8 @@ export default function RemessaClient() {
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState<{ numero: string; chave?: string; danfeUrl?: string } | null>(null)
+  // #3861 · 'processando' na Focus NÃO é falha: nota enviada, aguardando a SEFAZ (consulta até a resposta final)
+  const [aguardando, setAguardando] = useState<{ nfeId: string; esgotou: boolean } | null>(null)
 
   useEffect(() => {
     const cid = resolveCompanyId()
@@ -131,7 +136,7 @@ export default function RemessaClient() {
     void (async () => {
       const { data } = await supabase
         .from(destTabela)
-        .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, uf')
+        .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, uf, ie, contribuinte_icms')
         .eq('company_id', companyId)
         .eq('ativo', true)
         .order('razao_social')
@@ -231,6 +236,7 @@ export default function RemessaClient() {
       icmsCodigo,
       simples,
       catalogo,
+      destinatario: { doc: destinatario.cnpj_cpf ?? destinatario.cpf_cnpj, ie: destinatario.ie, contribuinteIcms: destinatario.contribuinte_icms },
     })
   }, [cfop, destinatario, itens, ufEmpresa, ufDest, finalidade, chaveRef, icmsCodigo, simples, catalogo])
 
@@ -238,7 +244,34 @@ export default function RemessaClient() {
   const icmsOpcoes = simples ? ICMS_OPCOES_SIMPLES : ICMS_OPCOES_NORMAL
   const totalItens = itens.reduce((s, it) => s + (it.valorUnitarioOverride ?? 0) * it.quantidade, 0)
   const podeEnviar = !!companyId && !!destinatarioId && !!cfop && !!natureza && itens.length > 0 && !enviando
-    && !!previa && previa.erros.length === 0
+    && !aguardando && !!previa && previa.erros.length === 0
+
+  async function consultarRetorno(nfeId: string, tentativa: number) {
+    const espera = esperaConsulta(tentativa)
+    if (espera === null) { setAguardando({ nfeId, esgotou: true }); return }
+    await new Promise((r) => setTimeout(r, espera))
+    try {
+      const r = await authFetch(`/api/fiscal/nfe/consultar/${nfeId}`)
+      const json = await r.json()
+      if (json?.status === 'autorizada') {
+        setAguardando(null)
+        setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
+        return
+      }
+      if (json?.status === 'rejeitada' || json?.status === 'denegada') {
+        setAguardando(null)
+        setErro(`Nota ${json.status} pela SEFAZ: ${json.motivoRejeicao ?? 'motivo não informado'}. Use "Corrigir e reenviar" em Notas emitidas.`)
+        return
+      }
+    } catch { /* falha de rede na consulta: tenta de novo no próximo degrau */ }
+    void consultarRetorno(nfeId, tentativa + 1)
+  }
+
+  function consultarAgora() {
+    if (!aguardando) return
+    setAguardando({ nfeId: aguardando.nfeId, esgotou: false })
+    void consultarRetorno(aguardando.nfeId, 0)
+  }
 
   async function emitir() {
     if (!podeEnviar || !previa) return
@@ -272,12 +305,28 @@ export default function RemessaClient() {
         }),
       })
       const json = await resp.json()
-      if (!resp.ok || json?.ok === false) {
-        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir')
-        setEnviando(false); return
-      }
-      setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
       setEnviando(false)
+      // Só HTTP != 2xx é falha da emissão. ok=false com status 'processando' é a Focus esperando a SEFAZ (#3861).
+      if (!resp.ok) {
+        // já há nota deste destinatário esperando a SEFAZ: acompanha essa, não envia outra
+        if (json?.erro === 'nota_em_processamento' && json?.nfeId) {
+          setAguardando({ nfeId: json.nfeId, esgotou: false })
+          void consultarRetorno(json.nfeId, 0)
+          return
+        }
+        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir')
+        return
+      }
+      if (json?.status === 'autorizada') {
+        setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
+      } else if (json?.status === 'rejeitada' || json?.status === 'denegada') {
+        setErro(`Nota ${json.status} pela SEFAZ: ${json.motivoRejeicao ?? 'motivo não informado'}. Use "Corrigir e reenviar" em Notas emitidas.`)
+      } else if (json?.nfeId) {
+        setAguardando({ nfeId: json.nfeId, esgotou: false })
+        void consultarRetorno(json.nfeId, 0)
+      } else {
+        setErro(json?.mensagem ?? 'Resposta inesperada do provedor fiscal')
+      }
     } catch (e) {
       setErro((e as Error)?.message ?? 'Erro ao emitir')
       setEnviando(false)
@@ -315,6 +364,22 @@ export default function RemessaClient() {
           Teste cada operação nova em homologação e confirme o CFOP e o ICMS com a contabilidade.
         </span>
       </div>
+
+      {aguardando && (
+        <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[12.5px] text-[#3D2314]" data-testid="nfe-avulsa-aguardando">
+          <div className="flex items-center gap-2 font-semibold">
+            {!aguardando.esgotou && <Loader2 size={13} className="animate-spin text-[#C8941A]" />}
+            Nota enviada, aguardando SEFAZ
+            <AjudaCampo chave="fiscal.nfe_avulsa.emitir" />
+          </div>
+          <div className="mt-1 text-[11.5px] text-[#3D2314]/80">{AVISO_PROCESSANDO}</div>
+          {aguardando.esgotou && (
+            <button type="button" onClick={consultarAgora} className="mt-2 px-3 py-1.5 text-[11.5px] font-semibold rounded-lg border border-[#C8941A] text-[#3D2314]" data-testid="nfe-avulsa-consultar">
+              Consultar agora
+            </button>
+          )}
+        </div>
+      )}
 
       {sucesso && (
         <div className="mb-4 p-3 bg-[#E7F4EC] border border-[#1B873F]/40 rounded-lg text-[12.5px] text-[#1B873F]" data-testid="nfe-avulsa-sucesso">
@@ -606,7 +671,7 @@ export default function RemessaClient() {
           className="px-5 py-2 text-[12.5px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A77A12] disabled:opacity-50 flex items-center gap-1.5"
         >
           {enviando ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-          {enviando ? 'Emitindo…' : `Emitir NF-e${previa?.cfop ? ` · ${formatarCfop(previa.cfop)}` : ''}`}
+          {enviando ? 'Emitindo…' : aguardando ? 'Aguardando SEFAZ…' : `Emitir NF-e${previa?.cfop ? ` · ${formatarCfop(previa.cfop)}` : ''}`}
         </button>
       </div>
     </div>

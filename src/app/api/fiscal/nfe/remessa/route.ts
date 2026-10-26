@@ -76,7 +76,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     if (negado) return negado
 
     // Busca o destinatario (cliente ou fornecedor)
-    const cols = 'id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, email, logradouro, numero, complemento, bairro, cidade, uf, cep'
+    const cols = 'id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, ie, contribuinte_icms, email, logradouro, numero, complemento, bairro, cidade, uf, cep'
 
     const { data: dest, error: errDest } = await supabaseAdmin
       .from(body.destinatarioTabela)
@@ -114,10 +114,30 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       icmsCodigo: body.icmsCodigo,
       simples,
       catalogo: (catalogo ?? []) as CfopSaida[],
+      destinatario: { doc, ie: destAny.ie as string | null, contribuinteIcms: destAny.contribuinte_icms as string | null },
     })
     if (avulsa.erros.length > 0) {
       return NextResponse.json({ ok: false, mensagem: avulsa.erros.join(' · '), erros: avulsa.erros, avisos: avulsa.avisos }, { status: 400 })
     }
+    // #3861 · não reenviar enquanto a anterior para o mesmo destinatário ainda espera a SEFAZ (evita nota duplicada)
+    const { data: pendente } = await supabaseAdmin
+      .from('erp_nfe_emitidas')
+      .select('id, numero')
+      .eq('company_id', body.companyId)
+      .eq(ehCnpj ? 'destinatario_cnpj' : 'destinatario_cpf', doc)
+      .eq('status', 'processando')
+      .gte('criado_em', new Date(Date.now() - 30 * 60_000).toISOString())
+      .limit(1)
+      .maybeSingle()
+    if (pendente) {
+      return NextResponse.json({
+        ok: false,
+        erro: 'nota_em_processamento',
+        nfeId: pendente.id,
+        mensagem: 'Já existe uma NF-e para este destinatário aguardando a SEFAZ. Espere a resposta em Notas emitidas antes de enviar outra.',
+      }, { status: 409 })
+    }
+
     const icmsCodigo = soDigitos(body.icmsCodigo)
     // ICMS escolhido para a operação (remessa não destaca imposto): sem base, alíquota nem valor
     const icmsOverride = icmsCodigo ? { csosn: icmsCodigo, base: 0, aliquota: 0, valor: 0 } : undefined
@@ -152,6 +172,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           cpf: !ehCnpj ? doc : undefined,
           email: destAny.email ? String(destAny.email) : undefined,
           endereco: enderecoBuilder,
+          // #3861: IE + indicador do cadastro (cliente ou fornecedor) — sem isso a SEFAZ recusava "IE não informada"
+          inscricaoEstadual: avulsa.ie?.inscricaoEstadual,
+          indicadorIE: avulsa.ie?.indicadorIE,
         },
         itens: itensBuilder,
         naturezaOperacao: body.naturezaOperacao,
