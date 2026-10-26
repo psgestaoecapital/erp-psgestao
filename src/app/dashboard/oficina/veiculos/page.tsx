@@ -4,7 +4,7 @@
 // valor de referência) + evolução do km + checklist de entrada de cada passagem (#4052, lido de erp_os_recepcao). 🚫 SEM operação financeira — leitura consolidada de erp_os.
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Car, ChevronLeft, Search, Gauge, Wrench, ClipboardCheck } from 'lucide-react'
+import { Car, ChevronLeft, Search, Gauge, Wrench, ClipboardCheck, Fuel, Camera } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -232,8 +232,8 @@ function EntradaDetalhe({ e }: { e: Entrada }) {
       <div style={{ fontSize: 11, color: ESP60, marginBottom: 6 }}>Registrado na recepção em {fmtDataHora(e.registrado_em)}</div>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
         <span><Gauge size={12} style={{ verticalAlign: -1 }} /> {fmtKm(e.km_entrada)}</span>
-        <span>⛽ {e.combustivel ? (COMBUSTIVEL[e.combustivel] ?? e.combustivel) : 'combustível não informado'}</span>
-        {e.fotos_count > 0 && <span>📷 {e.fotos_count} foto(s)</span>}
+        <span><Fuel size={12} style={{ verticalAlign: -1 }} /> {e.combustivel ? (COMBUSTIVEL[e.combustivel] ?? e.combustivel) : 'combustível não informado'}</span>
+        {e.fotos_count > 0 && <span><Camera size={12} style={{ verticalAlign: -1 }} /> {e.fotos_count} foto(s)</span>}
       </div>
       {itens.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
