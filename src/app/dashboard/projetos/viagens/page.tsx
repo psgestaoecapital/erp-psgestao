@@ -53,8 +53,8 @@ export default function ViagensPage() {
   const [podeGravar, setPodeGravar] = useState(false)
   // caminho da foto do comprovante já enviada para o lançamento em edição (vai no anexo_path)
   const [anexo, setAnexo] = useState('')
-  // filtro da lista (auditor 25/10): obra, responsável e período — só filtra o que já veio do banco
-  const [filtro, setFiltro] = useState({ obra: '', quem: '', de: '', ate: '' })
+  // filtro da lista (auditor 25/10): obra, responsável, período e situação — só filtra o que já veio do banco
+  const [filtro, setFiltro] = useState({ obra: '', quem: '', de: '', ate: '', situacao: '' })
   // editar os dados da viagem aberta (reusa fn_viagem_salvar com p_id; o banco só altera viagem aberta)
   const [editar, setEditar] = useState(false)
   const [ef, setEf] = useState<Record<string, string>>({})
@@ -121,7 +121,8 @@ export default function ViagensPage() {
     return viagens.filter((v) => (!filtro.obra || v.obra_id === filtro.obra)
       && (!quem || v.colaborador_nome.toLowerCase().includes(quem))
       && (!filtro.de || v.periodo_fim >= filtro.de)
-      && (!filtro.ate || v.periodo_inicio <= filtro.ate))
+      && (!filtro.ate || v.periodo_inicio <= filtro.ate)
+      && (!filtro.situacao || v.status === filtro.situacao))
   }, [viagens, filtro])
   const totalViagens = useMemo(() => viagens.filter((v) => v.status === 'aberta').length, [viagens])
   // composição do custo da viagem aberta: soma dos lançamentos por categoria (combustível, pedágio, diárias…),
@@ -223,7 +224,7 @@ export default function ViagensPage() {
       <div className="mb-3 flex items-center justify-between">
         <div><h1 className="text-2xl font-semibold tracking-tight">Viagens</h1><div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
           <span className="inline-flex items-center rounded-full border bg-white px-2 py-0.5" style={{ borderColor: LINE }}><b className="mr-1">{totalViagens}</b> aberta(s)<AjudaCampo chave="projetos.viagem.contador_abertas" /></span>
-          <span className="rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Fechamento administrativo · só viagens novas</span>
+          <span className="inline-flex items-center rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Fechamento administrativo · só viagens novas<AjudaCampo chave="projetos.viagem.fechamento_administrativo" /></span>
           {!podeGravar && <span className="rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Perfil de consulta</span>}
         </div></div>
         {!aberta && podeGravar && <span className="flex items-center gap-1"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => { setNova(true); setMsg(''); setDesfazerViagem(null) }}>Nova viagem</button><AjudaCampo chave="projetos.viagem.nova" /></span>}
@@ -250,15 +251,16 @@ export default function ViagensPage() {
 
       {!aberta && (viagens.length === 0
         ? <p className="rounded-xl border bg-white p-6 text-center text-sm" style={{ borderColor: LINE }}>Nenhuma viagem ainda.{podeGravar ? ' Clique em “Nova viagem” para abrir a primeira — o acerto é lançado aqui, cupom por cupom.' : ' Quando o administrativo abrir uma viagem, ela aparece aqui.'}</p>
-        : <><div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }} aria-label="Filtrar viagens">
+        : <><div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border bg-white p-3 sm:grid-cols-5" style={{ borderColor: LINE }} aria-label="Filtrar viagens">
             <Campo rotulo="Obra" ajuda="projetos.viagem.filtro_obra"><select className={campo} value={filtro.obra} onChange={(e) => setFiltro({ ...filtro, obra: e.target.value })}><option value="">Todas</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
             <Campo rotulo="Responsável" ajuda="projetos.viagem.filtro_responsavel"><input className={campo} placeholder="Nome do colaborador" value={filtro.quem} onChange={(e) => setFiltro({ ...filtro, quem: e.target.value })} /></Campo>
+            <Campo rotulo="Situação" ajuda="projetos.viagem.filtro_situacao"><select className={campo} value={filtro.situacao} onChange={(e) => setFiltro({ ...filtro, situacao: e.target.value })}><option value="">Todas</option><option value="aberta">Aberta</option><option value="fechada">Fechada</option></select></Campo>
             <Campo rotulo="De" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.de} onChange={(e) => setFiltro({ ...filtro, de: e.target.value })} /></Campo>
             <Campo rotulo="Até" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.ate} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value })} /></Campo>
           </div>
           <div className="mb-1 flex items-center px-1 text-xs opacity-60"><span className="inline-flex items-center">{filtradas.length === viagens.length ? `${viagens.length} viagem(ns)` : `${filtradas.length} de ${viagens.length} viagem(ns)`}<AjudaCampo chave="projetos.viagem.total_lista" /></span></div>
           <div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span className="flex items-center">Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span className="flex items-center gap-1">Custo<AjudaCampo chave="projetos.viagem.resumo_total" /> · Situação<AjudaCampo chave="projetos.viagem.status" /> · no GE<AjudaCampo chave="projetos.viagem.ge_situacao" /></span></div>
-          {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '' })}>Limpar filtro</button></p>}
+          {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '', situacao: '' })}>Limpar filtro</button></p>}
           <ul className="space-y-2">{filtradas.map((v) => {
             const km = v.km_inicial != null && v.km_final != null && v.km_final >= v.km_inicial ? v.km_final - v.km_inicial : null
             const rota = v.origem || v.destino ? `${v.origem ?? '—'} → ${v.destino ?? '—'}` : null
@@ -269,7 +271,7 @@ export default function ViagensPage() {
             <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-start justify-between gap-3 rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
               <span className="min-w-0 flex-1 break-words"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
                 {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</span>
-              <span className="flex shrink-0 flex-col items-end gap-1.5 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-medium leading-none"><span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 capitalize" style={v.status === 'aberta' ? { borderColor: GOLD, color: GOLD, background: '#FBF3E0' } : { borderColor: LINE, color: ESP, background: '#FFFFFF' }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span></span></button></li>)})}</ul></>)}
+              <span className="flex min-w-fit shrink-0 flex-col items-end gap-1.5 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-medium leading-none"><span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 capitalize" style={v.status === 'aberta' ? { borderColor: GOLD, color: GOLD, background: '#FBF3E0' } : { borderColor: LINE, color: ESP, background: '#FFFFFF' }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span></span></button></li>)})}</ul></>)}
 
       {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
 
