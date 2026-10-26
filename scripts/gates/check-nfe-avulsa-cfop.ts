@@ -53,7 +53,7 @@ ok(/p_erp_receber_id: null/.test(rota), 'NF-e avulsa não gera título (etapa 1)
 const lista = readFileSync('src/app/dashboard/fiscal/nfe/NFeListClient.tsx', 'utf8')
 ok(/href="\/dashboard\/fiscal\/nfe\/remessa"[^>]*data-testid="nfe-emitir-avulsa"/.test(lista), 'botão "Emitir NF-e" em Notas emitidas')
 
-const mig = readFileSync('supabase/migrations/20261026180020_fiscal_nfe_avulsa_cfop.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261027010020_fiscal_nfe_avulsa_cfop.sql', 'utf8')
 ok(/ENABLE ROW LEVEL SECURITY/.test(mig) && /REVOKE ALL ON public\.erp_fiscal_cfop_saida FROM anon, public/.test(mig), 'catálogo com RLS e sem acesso anônimo')
 for (const cod of ['5915', '5916', '5908', '5912', '5949', '5910']) ok(mig.includes(`('${cod}'`), `catálogo traz o CFOP ${cod}`)
 const tela = readFileSync('src/app/dashboard/fiscal/nfe/remessa/RemessaClient.tsx', 'utf8')
