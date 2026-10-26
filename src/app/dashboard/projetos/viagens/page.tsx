@@ -53,8 +53,8 @@ export default function ViagensPage() {
   const [podeGravar, setPodeGravar] = useState(false)
   // caminho da foto do comprovante já enviada para o lançamento em edição (vai no anexo_path)
   const [anexo, setAnexo] = useState('')
-  // filtro da lista (auditor 25/10): obra, responsável e período — só filtra o que já veio do banco
-  const [filtro, setFiltro] = useState({ obra: '', quem: '', de: '', ate: '' })
+  // filtro da lista (auditor 25/10): obra, responsável, período e situação — só filtra o que já veio do banco
+  const [filtro, setFiltro] = useState({ obra: '', quem: '', de: '', ate: '', situacao: '' })
   // editar os dados da viagem aberta (reusa fn_viagem_salvar com p_id; o banco só altera viagem aberta)
   const [editar, setEditar] = useState(false)
   const [ef, setEf] = useState<Record<string, string>>({})
@@ -121,7 +121,8 @@ export default function ViagensPage() {
     return viagens.filter((v) => (!filtro.obra || v.obra_id === filtro.obra)
       && (!quem || v.colaborador_nome.toLowerCase().includes(quem))
       && (!filtro.de || v.periodo_fim >= filtro.de)
-      && (!filtro.ate || v.periodo_inicio <= filtro.ate))
+      && (!filtro.ate || v.periodo_inicio <= filtro.ate)
+      && (!filtro.situacao || v.status === filtro.situacao))
   }, [viagens, filtro])
   const totalViagens = useMemo(() => viagens.filter((v) => v.status === 'aberta').length, [viagens])
   // composição do custo da viagem aberta: soma dos lançamentos por categoria (combustível, pedágio, diárias…),
@@ -250,15 +251,16 @@ export default function ViagensPage() {
 
       {!aberta && (viagens.length === 0
         ? <p className="rounded-xl border bg-white p-6 text-center text-sm" style={{ borderColor: LINE }}>Nenhuma viagem ainda.{podeGravar ? ' Clique em “Nova viagem” para abrir a primeira — o acerto é lançado aqui, cupom por cupom.' : ' Quando o administrativo abrir uma viagem, ela aparece aqui.'}</p>
-        : <><div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }} aria-label="Filtrar viagens">
+        : <><div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border bg-white p-3 sm:grid-cols-5" style={{ borderColor: LINE }} aria-label="Filtrar viagens">
             <Campo rotulo="Obra" ajuda="projetos.viagem.filtro_obra"><select className={campo} value={filtro.obra} onChange={(e) => setFiltro({ ...filtro, obra: e.target.value })}><option value="">Todas</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
             <Campo rotulo="Responsável" ajuda="projetos.viagem.filtro_responsavel"><input className={campo} placeholder="Nome do colaborador" value={filtro.quem} onChange={(e) => setFiltro({ ...filtro, quem: e.target.value })} /></Campo>
             <Campo rotulo="De" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.de} onChange={(e) => setFiltro({ ...filtro, de: e.target.value })} /></Campo>
             <Campo rotulo="Até" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.ate} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value })} /></Campo>
+            <Campo rotulo="Situação" ajuda="projetos.viagem.status"><select className={campo} value={filtro.situacao} onChange={(e) => setFiltro({ ...filtro, situacao: e.target.value })}><option value="">Todas</option><option value="aberta">Abertas</option><option value="fechada">Fechadas</option></select></Campo>
           </div>
           <div className="mb-1 flex items-center px-1 text-xs opacity-60"><span className="inline-flex items-center">{filtradas.length === viagens.length ? `${viagens.length} viagem(ns)` : `${filtradas.length} de ${viagens.length} viagem(ns)`}<AjudaCampo chave="projetos.viagem.total_lista" /></span></div>
           <div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span className="flex items-center">Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span className="flex items-center gap-1">Custo<AjudaCampo chave="projetos.viagem.resumo_total" /> · Situação<AjudaCampo chave="projetos.viagem.status" /> · no GE<AjudaCampo chave="projetos.viagem.ge_situacao" /></span></div>
-          {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '' })}>Limpar filtro</button></p>}
+          {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '', situacao: '' })}>Limpar filtro</button></p>}
           <ul className="space-y-2">{filtradas.map((v) => {
             const km = v.km_inicial != null && v.km_final != null && v.km_final >= v.km_inicial ? v.km_final - v.km_inicial : null
             const rota = v.origem || v.destino ? `${v.origem ?? '—'} → ${v.destino ?? '—'}` : null
