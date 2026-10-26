@@ -262,13 +262,14 @@ export default function ViagensPage() {
           <ul className="space-y-2">{filtradas.map((v) => {
             const km = v.km_inicial != null && v.km_final != null && v.km_final >= v.km_inicial ? v.km_final - v.km_inicial : null
             const rota = v.origem || v.destino ? `${v.origem ?? '—'} → ${v.destino ?? '—'}` : null
-            // km rodado só existe na viagem fechada; na aberta mostramos o hodômetro de saída para dar a mesma leitura visual
-            const kmTxt = km != null ? `${km.toLocaleString('pt-BR')} km` : (v.km_inicial != null ? `saída km ${v.km_inicial.toLocaleString('pt-BR')}` : null)
+            // km rodado só existe na viagem fechada; na aberta mostramos o hodômetro de saída. Ambos terminam em "km"
+            // para a lista ter um só formato (auditor PDCA 26/10 — "saída km X" destoava do "X km" das outras).
+            const kmTxt = km != null ? `${km.toLocaleString('pt-BR')} km` : (v.km_inicial != null ? `saída ${v.km_inicial.toLocaleString('pt-BR')} km` : null)
             return (
             <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-start justify-between gap-3 rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
-              <span className="min-w-0 break-words"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
+              <span className="min-w-0 flex-1 break-words"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
                 {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</span>
-              <span className="flex shrink-0 flex-col items-end gap-1 text-right"><b className="text-sm" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-xs font-medium"><span style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] leading-none" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span></span></button></li>)})}</ul></>)}
+              <span className="flex shrink-0 flex-col items-end gap-1 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-xs font-medium"><span style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] leading-none" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span></span></button></li>)})}</ul></>)}
 
       {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
 
