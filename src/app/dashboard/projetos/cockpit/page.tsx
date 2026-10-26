@@ -1,7 +1,7 @@
 'use client'
 
 // HB0 · Cockpit — porta de entrada do menu: escolhe a obra e abre /obras/[id]/cockpit (1 obra = abre direto).
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -12,16 +12,35 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
 const ROTA = '/dashboard/projetos/cockpit'
-const STATUS: Record<string, string> = { em_andamento: 'Em andamento', concluida: 'Concluída', pausada: 'Pausada', cancelada: 'Cancelada' }
+// Cada situação tem cor e fundo próprios (pílula) — leitura imediata, sem tudo em dourado. Mesmo padrão da OS de obra.
+const STATUS: Record<string, { rotulo: string; cor: string; fundo: string }> = {
+  em_andamento: { rotulo: 'Em andamento', cor: '#92400E', fundo: 'rgba(200,148,26,0.18)' },
+  concluida: { rotulo: 'Concluída', cor: '#15803D', fundo: 'rgba(21,128,61,0.12)' },
+  pausada: { rotulo: 'Pausada', cor: '#6B5B4D', fundo: 'rgba(61,35,20,0.07)' },
+  cancelada: { rotulo: 'Cancelada', cor: '#B91C1C', fundo: 'rgba(185,28,28,0.08)' },
+}
+const ATALHOS = [{ rota: 'cronograma', rotulo: 'Cronograma' }, { rota: 'horas', rotulo: 'Horas' }, { rota: 'linha-do-tempo', rotulo: 'Linha do tempo' }]
+const situacao = (s: string) => STATUS[s] ?? { rotulo: s, cor: GOLD, fundo: 'rgba(200,148,26,0.12)' }
 
-type ObraLinha = { obra_id: string; numero: string; nome: string | null; status: string }
+type ObraLinha = {
+  obra_id: string; numero: string; nome: string | null; status: string
+  receita_prevista: number; receita_servico: number; receita_material: number
+  custo_previsto: number; custo_material: number; custo_viagens: number; margem_realizada: number
+}
+type ObraInfo = { id: string; cliente_nome: string | null; cidade: string | null; pct_conclusao: number | null; data_prevista_fim: string | null }
+
+const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+const num = (v: unknown) => Number(v) || 0
 
 export default function CockpitEscolherObraPage() {
   const router = useRouter()
   const { companyIds } = useCompanyIds()
   const [obras, setObras] = useState<ObraLinha[]>([])
+  const [info, setInfo] = useState<Record<string, ObraInfo>>({})
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
+  const [busca, setBusca] = useState('')
+  const [filtroStatus, setFiltroStatus] = useState('')
 
   useEffect(() => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -29,7 +48,9 @@ export default function CockpitEscolherObraPage() {
     ;(async () => {
       try {
         const { data, error } = await comPrazo(
-          async () => await supabase.from('v_obra_resultado').select('obra_id,numero,nome,status').in('company_id', companyIds).order('numero', { ascending: false }),
+          async () => await supabase.from('v_obra_resultado')
+            .select('obra_id,numero,nome,status,receita_prevista,receita_servico,receita_material,custo_previsto,custo_material,custo_viagens,margem_realizada')
+            .in('company_id', companyIds).order('numero', { ascending: false }),
           { ms: 8000, tentativas: 1, label: 'cockpit-obras' },
         )
         if (!vivo) return
@@ -37,29 +58,109 @@ export default function CockpitEscolherObraPage() {
         const lista = (data ?? []) as ObraLinha[]
         if (lista.length === 1) { router.replace(`/dashboard/projetos/obras/${lista[0].obra_id}/cockpit?area=hub`); return }
         setObras(lista)
+        const ids = lista.map(o => o.obra_id)
+        if (ids.length) {
+          const r = await supabase.from('projetos_obras').select('id,cliente_nome,cidade,pct_conclusao,data_prevista_fim').in('id', ids)
+          if (vivo && !r.error) setInfo(Object.fromEntries(((r.data ?? []) as ObraInfo[]).map(x => [x.id, x])))
+        }
       } catch { if (vivo) setErro(MSG_CARREGAMENTO_FALHOU) } finally { if (vivo) setLoading(false) }
     })()
     return () => { vivo = false }
   }, [companyIds, router])
 
+  const hoje = new Date().toISOString().slice(0, 10)
+  const filtradas = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    return obras.filter(o => {
+      if (filtroStatus && o.status !== filtroStatus) return false
+      if (!q) return true
+      const i = info[o.obra_id]
+      return [o.numero, o.nome, i?.cliente_nome, i?.cidade].some(t => (t ?? '').toLowerCase().includes(q))
+    })
+  }, [obras, info, busca, filtroStatus])
+
+  const atrasadas = obras.filter(o => o.status === 'em_andamento' && info[o.obra_id]?.data_prevista_fim && (info[o.obra_id]!.data_prevista_fim as string) < hoje).length
+  const resumo = [
+    { k: 'Obras', v: String(obras.length), chave: 'projetos.cockpit.kpi_obras' },
+    { k: 'Em andamento', v: String(obras.filter(o => o.status === 'em_andamento').length), chave: 'projetos.cockpit.kpi_andamento' },
+    { k: 'Margem realizada', v: brl(obras.reduce((t, o) => t + num(o.margem_realizada), 0)), chave: 'projetos.cockpit.kpi_margem' },
+    { k: 'Com prazo vencido', v: String(atrasadas), chave: 'projetos.cockpit.kpi_atrasadas' },
+  ]
+
   return (
     <div style={{ background: BG, padding: '20px 24px', color: ESP }} data-testid="cockpit-escolher">
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Cockpit da obra <AjudaCampo chave="projetos.cockpit.escolher_obra" rota={ROTA} /></h1>
-      <p style={{ color: MUT, fontSize: 13, margin: '4px 0 16px' }}>Escolha a obra para ver avanço, custo, margem e pendências numa tela só.</p>
+      <p style={{ color: MUT, fontSize: 13, margin: '4px 0 16px' }}>Veja avanço, custo, margem e prazo de todas as obras e abra o cockpit completo de uma delas.</p>
       {loading && <div style={{ color: MUT }}>Carregando…</div>}
       {erro && <div style={{ background: '#FBEAEA', color: '#B91C1C', borderRadius: 8, padding: '8px 10px', fontSize: 13 }}>{erro}</div>}
       {!loading && !erro && obras.length === 0 && (
         <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra ainda. Aprove um orçamento para criar a primeira obra em <Link href="/dashboard/projetos/obras?area=hub" style={{ color: ESP, textDecoration: 'underline' }}>Obras</Link>.</div>
       )}
-      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))' }}>
-        {obras.map(o => (
-          <Link key={o.obra_id} href={`/dashboard/projetos/obras/${o.obra_id}/cockpit?area=hub`} data-testid="cockpit-obra-link"
-            style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px', textDecoration: 'none', color: ESP }}>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{o.numero}</div>
-            <div style={{ fontSize: 13, color: MUT, marginTop: 2 }}>{o.nome || 'Sem nome'}</div>
-            <div style={{ fontSize: 11, color: GOLD, fontWeight: 700, marginTop: 6, textTransform: 'uppercase' }}>{STATUS[o.status] ?? o.status} <AjudaCampo chave="projetos.cockpit.status_obra" rota={ROTA} /></div>
-          </Link>
-        ))}
+      {obras.length > 0 && (
+        <>
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', marginBottom: 14 }}>
+            {resumo.map(r => (
+              <div key={r.k} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '10px 12px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: MUT, textTransform: 'uppercase', letterSpacing: 0.3 }}>{r.k} <AjudaCampo chave={r.chave} rota={ROTA} /></div>
+                <div style={{ fontSize: 20, fontWeight: 700, marginTop: 2 }}>{r.v}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por número, nome, cliente ou cidade" aria-label="Buscar obra" data-testid="cockpit-busca"
+              style={{ flex: '1 1 240px', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 14, background: '#fff', color: ESP }} />
+            <AjudaCampo chave="projetos.cockpit.busca" rota={ROTA} />
+            <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} aria-label="Filtrar por situação" data-testid="cockpit-filtro-status"
+              style={{ border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 14, background: '#fff', color: ESP }}>
+              <option value="">Todas as situações</option>
+              {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.rotulo}</option>)}
+            </select>
+            <AjudaCampo chave="projetos.cockpit.filtro_situacao" rota={ROTA} />
+          </div>
+          {filtradas.length === 0 && <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra encontrada com esse filtro.</div>}
+        </>
+      )}
+      <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill,minmax(290px,1fr))' }}>
+        {filtradas.map(o => {
+          const i = info[o.obra_id]
+          const pct = Math.max(0, Math.min(100, num(i?.pct_conclusao)))
+          const receita = num(o.receita_servico) + num(o.receita_material)
+          const custo = num(o.custo_material) + num(o.custo_viagens)
+          const margem = num(o.margem_realizada)
+          const vencida = o.status === 'em_andamento' && !!i?.data_prevista_fim && i.data_prevista_fim < hoje
+          const st = situacao(o.status)
+          return (
+            <div key={o.obra_id} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px' }}>
+            <Link href={`/dashboard/projetos/obras/${o.obra_id}/cockpit?area=hub`} data-testid="cockpit-obra-link"
+              style={{ textDecoration: 'none', color: ESP, display: 'block' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{o.numero}</div>
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: st.cor, background: st.fundo, border: `1px solid ${st.cor}`, borderRadius: 999, padding: '2px 9px' }}>{st.rotulo}</span>
+              </div>
+              <div style={{ fontSize: 13, color: MUT, marginTop: 2 }}>{o.nome || 'Sem nome'}{i?.cliente_nome ? ` · ${i.cliente_nome}` : ''}</div>
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUT }}><span>Avanço <AjudaCampo chave="projetos.cockpit.avanco" rota={ROTA} /></span><span>{pct.toFixed(0)}%</span></div>
+                <div style={{ height: 6, background: LINE, borderRadius: 999, marginTop: 3 }}><div style={{ width: `${pct}%`, height: '100%', background: GOLD, borderRadius: 999 }} /></div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10, fontSize: 12 }}>
+                <div><div style={{ color: MUT, fontSize: 11 }}>Receita <AjudaCampo chave="projetos.cockpit.card_receita" rota={ROTA} /></div><b>{brl(receita)}</b></div>
+                <div><div style={{ color: MUT, fontSize: 11 }}>Custo <AjudaCampo chave="projetos.cockpit.card_custo" rota={ROTA} /></div><b>{brl(custo)}</b></div>
+                <div><div style={{ color: MUT, fontSize: 11 }}>Margem <AjudaCampo chave="projetos.cockpit.card_margem" rota={ROTA} /></div><b style={{ color: margem < 0 ? '#B91C1C' : '#15803D' }}>{brl(margem)}</b></div>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: vencida ? '#B91C1C' : MUT }}>
+                Prazo: {i?.data_prevista_fim ? new Date(i.data_prevista_fim + 'T12:00:00').toLocaleDateString('pt-BR') : 'não definido'}{vencida ? ' · vencido' : ''} <AjudaCampo chave="projetos.cockpit.card_prazo" rota={ROTA} />
+              </div>
+            </Link>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: `1px solid ${LINE}` }} data-testid="cockpit-atalhos">
+                {ATALHOS.map(a => (
+                  <Link key={a.rota} href={`/dashboard/projetos/obras/${o.obra_id}/${a.rota}?area=hub`}
+                    style={{ fontSize: 12, fontWeight: 600, color: ESP, border: `1px solid ${LINE}`, borderRadius: 999, padding: '3px 10px', textDecoration: 'none' }}>{a.rotulo}</Link>
+                ))}
+                <AjudaCampo chave="projetos.cockpit.card_atalhos" rota={ROTA} />
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

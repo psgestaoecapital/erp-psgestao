@@ -199,7 +199,15 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
         auditabilidade_em: new Date().toISOString(),
       }).eq('id', screenId);
     } else {
-      const buffer = await page.screenshot({ type: 'jpeg', quality: 75, fullPage: false, clip: { x: 0, y: 0, width: 1280, height: 800 } });
+      // Captura a tela INTEIRA (não só o topo 800px). O auditor reprovava por engano tudo que ficava
+      // ABAIXO da dobra — "seção cortada/truncada", "ver a conta", ações de salvar/exportar "fora da área
+      // visível" — porque só via o recorte do topo (CEO 25/10, prioridade #1: auditar a tela toda, não um
+      // pedaço). A altura vai capada (6000px) para proteger a memória do serverless em página muito longa;
+      // JPEG q75 mantém o peso baixo. Largura segue 1280 (desktop).
+      const alturaConteudo = await page.evaluate(() => Math.ceil(Math.max(
+        document.documentElement?.scrollHeight ?? 0, document.body?.scrollHeight ?? 0, 800)));
+      const alturaCaptura = Math.min(alturaConteudo, 6000);
+      const buffer = await page.screenshot({ type: 'jpeg', quality: 75, clip: { x: 0, y: 0, width: 1280, height: alturaCaptura } });
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
       const path = `${sanitizePathComponent(rotaBase)}/${ts}.jpg`;
       const { error: errUp } = await supabase.storage.from('system-screenshots').upload(path, buffer, { contentType: 'image/jpeg', upsert: false });
