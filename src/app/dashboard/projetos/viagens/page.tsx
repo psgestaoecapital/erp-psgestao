@@ -61,15 +61,19 @@ export default function ViagensPage() {
   // excluir viagem aberta é soft-delete com desfazer de 15 min (fn_viagem_excluir / fn_viagem_restaurar),
   // igual ao lançamento; guarda o id da viagem recém-excluída para o "Desfazer" na lista
   const [desfazerViagem, setDesfazerViagem] = useState<string | null>(null)
+  // total de despesas por viagem (mesmo valor do "Total" do resumo: soma dos lançamentos não excluídos), para a
+  // listagem mostrar o custo de cada viagem sem precisar abri-la. Confere com fn_viagem_resumo->>'total' (RD-38).
+  const [totais, setTotais] = useState<Record<string, number>>({})
 
   const carregar = useCallback(async () => {
     if (!empresa) return
-    const [v, o, c, g, t] = await Promise.all([
+    const [v, o, c, g, t, lanc] = await Promise.all([
       supabase.from('erp_viagem').select('id,numero,colaborador_nome,obra_id,periodo_inicio,periodo_fim,adiantamento,status,km_inicial,km_final,placa,origem,destino,funcionario_id,observacao').eq('company_id', empresa).is('excluido_em', null).order('periodo_inicio', { ascending: false }).limit(100),
       supabase.from('projetos_obras').select('id,numero,nome').eq('company_id', empresa).order('numero'),
       supabase.from('erp_plano_contas').select('codigo,descricao').eq('company_id', empresa).eq('ativo', true).order('codigo'),
       supabase.rpc('fn_viagem_pode_gravar', { p_company_id: empresa }),
       supabase.from('erp_viagem_ge_titulo').select('viagem_id').eq('company_id', empresa).limit(5000),
+      supabase.from('erp_viagem_lancamento').select('viagem_id,valor').eq('company_id', empresa).is('excluido_em', null).limit(20000),
     ])
     if (v.error) setMsg(v.error.message)
     setViagens((v.data ?? []) as Viagem[]); setObras((o.data ?? []) as Obra[]); setCats((c.data ?? []) as Cat[])
@@ -77,6 +81,9 @@ export default function ViagensPage() {
     const ge: Record<string, number> = {}
     for (const x of (t.data ?? []) as { viagem_id: string }[]) ge[x.viagem_id] = (ge[x.viagem_id] ?? 0) + 1
     setNoGe(ge)
+    const tot: Record<string, number> = {}
+    for (const x of (lanc.data ?? []) as { viagem_id: string; valor: number }[]) tot[x.viagem_id] = (tot[x.viagem_id] ?? 0) + Number(x.valor ?? 0)
+    setTotais(tot)
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da empresa
   useEffect(() => { carregar() }, [carregar])
@@ -240,10 +247,14 @@ export default function ViagensPage() {
           </div>
           <div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span>Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span>Situação<AjudaCampo chave="projetos.viagem.status" /></span></div>
           {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '' })}>Limpar filtro</button></p>}
-          <ul className="space-y-2">{filtradas.map((v) => (
-            <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-center justify-between rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
-              <span><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span></span>
-              <span className="text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}{noGe[v.id] ? ' · no GE' : ''}</span></button></li>))}</ul></>)}
+          <ul className="space-y-2">{filtradas.map((v) => {
+            const km = v.km_inicial != null && v.km_final != null && v.km_final >= v.km_inicial ? v.km_final - v.km_inicial : null
+            const rota = v.origem || v.destino ? `${v.origem ?? '—'} → ${v.destino ?? '—'}` : null
+            return (
+            <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-start justify-between gap-3 rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
+              <span className="min-w-0"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
+                {(km != null || rota) && <><br /><span className="text-xs opacity-60">{[rota, km != null ? `${km.toLocaleString('pt-BR')} km` : null].filter(Boolean).join(' · ')}</span></>}</span>
+              <span className="shrink-0 text-right"><b className="text-sm" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><br /><span className="text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}{noGe[v.id] ? ' · no GE' : ''}</span></span></button></li>)})}</ul></>)}
 
       {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
 
