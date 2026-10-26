@@ -27,6 +27,10 @@ export function RelatorioViagens({ empresa, obras }: { empresa: string; obras: O
   const [erro, setErro] = useState('')
   const secRef = useRef<HTMLElement>(null)
   const linkFeito = useRef(false)
+  // A tabela detalhada é só uma amostra das viagens mais recentes: os totais e o "Confere" acima já somam TODAS
+  // (uma obra DEMO pode ter centenas de viagens). Cap no render para a tela não despejar 900+ linhas — RD-96.
+  const MAX_LINHAS = 100
+  const viagensMostradas = rel ? [...rel.viagens].sort((a, b) => (a.periodo_inicio < b.periodo_inicio ? 1 : -1)).slice(0, MAX_LINHAS) : []
 
   // Jornada obra → relatório: o Resultado/Cockpit da obra linka /viagens?obra=<id>&ver=relatorio
   // (o ?obra= sem ver=relatorio continua abrindo o formulário de nova viagem). Abre o relatório já
@@ -106,11 +110,14 @@ export function RelatorioViagens({ empresa, obras }: { empresa: string; obras: O
                 <div>Dividido entre obras<AjudaCampo chave="projetos.viagem.lanc_rateio" /><br /><b>{brl(o.custo_rateado)}</b></div>
                 <div>No Resultado da obra<AjudaCampo chave="projetos.viagem.rel_confere" /><br /><b style={{ color: GOLD }}>{brl(o.custo_no_resultado)}</b></div>
               </div></li>))}</ul>
+          {rel.viagens.length > MAX_LINHAS && (
+            <p className="px-1 text-xs opacity-70">Mostrando as {MAX_LINHAS} viagens mais recentes de {rel.viagens.length.toLocaleString('pt-BR')} — os totais e o “Confere” acima já consideram todas. Estreite o período acima para ver uma viagem mais antiga.</p>
+          )}
           <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: LINE }}>
             <table className="w-full text-sm"><thead><tr className="text-left text-xs opacity-70">
               <th className="p-2">Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></th><th className="p-2">Custo<AjudaCampo chave="projetos.viagem.rel_total" /></th>
               <th className="p-2">Km<AjudaCampo chave="projetos.viagem.rel_km" /></th><th className="p-2">Custo/km<AjudaCampo chave="projetos.viagem.rel_custo_km" /></th></tr></thead>
-              <tbody>{rel.viagens.map((v) => (
+              <tbody>{viagensMostradas.map((v) => (
                 <tr key={v.viagem_id} className="border-t" style={{ borderColor: LINE }}>
                   <td className="p-2"><b>{v.numero}</b> · {v.colaborador}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} · {v.status}</span></td>
                   <td className="p-2">{brl(v.total)}</td><td className="p-2">{v.km_rodado ?? '—'}</td><td className="p-2">{v.custo_km != null ? brl(v.custo_km) : '—'}</td></tr>))}</tbody></table>
