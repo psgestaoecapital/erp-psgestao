@@ -254,7 +254,7 @@ export default function ViagensPage() {
             <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-start justify-between gap-3 rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
               <span className="min-w-0"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
                 {(km != null || rota) && <><br /><span className="text-xs opacity-60">{[rota, km != null ? `${km.toLocaleString('pt-BR')} km` : null].filter(Boolean).join(' · ')}</span></>}</span>
-              <span className="shrink-0 text-right"><b className="text-sm" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><br /><span className="text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}{noGe[v.id] ? ' · no GE' : ''}</span></span></button></li>)})}</ul></>)}
+              <span className="shrink-0 text-right"><b className="text-sm" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><br /><span className="whitespace-nowrap text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}{noGe[v.id] ? ' · no GE' : ''}</span></span></button></li>)})}</ul></>)}
 
       {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
 
