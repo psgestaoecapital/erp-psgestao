@@ -254,9 +254,9 @@ export default function ViagensPage() {
             const kmTxt = km != null ? `${km.toLocaleString('pt-BR')} km` : (v.km_inicial != null ? `saída km ${v.km_inicial.toLocaleString('pt-BR')}` : null)
             return (
             <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-start justify-between gap-3 rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
-              <span className="min-w-0"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
+              <span className="min-w-0 break-words"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
                 {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</span>
-              <span className="flex shrink-0 flex-col items-end gap-1 text-right"><b className="text-sm" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-xs font-medium"><span style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span>{noGe[v.id] ? <span className="rounded-full border px-1.5 py-0.5 text-[10px] leading-none" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span></span></button></li>)})}</ul></>)}
+              <span className="flex shrink-0 flex-col items-end gap-1 text-right"><b className="text-sm" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-xs font-medium"><span style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] leading-none" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span></span></button></li>)})}</ul></>)}
 
       {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
 
