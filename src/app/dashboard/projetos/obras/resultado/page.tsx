@@ -32,6 +32,8 @@ export default function ResultadoObrasPage() {
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
+  const [busca, setBusca] = useState('')
+  const [situacao, setSituacao] = useState('')
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -50,10 +52,16 @@ export default function ResultadoObrasPage() {
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
 
-  const total = useMemo(() => linhas.reduce((a, l) => ({
+  const situacoes = useMemo(() => Array.from(new Set(linhas.map(l => l.status).filter(Boolean))).sort(), [linhas])
+  const todas = linhas
+  const visiveis = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    return todas.filter(l => (!situacao || l.status === situacao) && (!q || `${l.numero} ${l.nome}`.toLowerCase().includes(q)))
+  }, [todas, busca, situacao])
+  const total = useMemo(() => visiveis.reduce((a, l) => ({
     receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + margem(l),
     prevista: a.prevista + n(l.receita_prevista), custoPrev: a.custoPrev + n(l.custo_previsto),
-  }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [linhas])
+  }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [visiveis])
 
   const baixarCsv = () => {
     const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Margem', 'Margem %', 'Receita prevista', 'Custo previsto']
@@ -89,13 +97,24 @@ export default function ResultadoObrasPage() {
               <AjudaCampo chave="projetos.resultado_obra.pdf" />
             </div>
             <style>{'@media print{.no-print{display:none!important}body{background:#fff}}'}</style>
+            <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+              <input data-testid="resultado-busca" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar obra (número ou nome)" style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8, background: '#fff', minWidth: 220 }} />
+              <AjudaCampo chave="projetos.resultado_obra.filtro_busca" />
+              <select data-testid="resultado-situacao" value={situacao} onChange={e => setSituacao(e.target.value)} style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8, background: '#fff' }}>
+                <option value="">Todas as situações</option>
+                {situacoes.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <AjudaCampo chave="projetos.resultado_obra.filtro_situacao" />
+            </div>
+            {visiveis.length === 0 && <p data-testid="resultado-filtro-vazio" style={{ fontSize: 13, color: MUT }}>Nenhuma obra combina com o filtro. Limpe a busca ou escolha “Todas as situações”.</p>}
+            {visiveis.some(l => receita(l) === 0 && custo(l) > 0) && <p data-testid="resultado-aviso-sem-receita" style={{ fontSize: 12, color: MUT, margin: '0 0 8px' }}>Obras com custo e sem receita ainda: a margem fica “—” até haver medição ou venda de material. Abra o cockpit da obra para ver o que falta medir.</p>}
             {/* celular (< md): um cartão por obra + o consolidado, sem rolagem lateral (HB0 · correção 9). A impressão usa a tabela. */}
             <div className="md:hidden no-print" data-testid="resultado-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {linhas.map(l => (
+              {visiveis.map(l => (
                 <CartaoObra key={l.obra_id} obraId={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} material={n(l.custo_material)} viagens={n(l.custo_viagens)} maoObra={n(l.custo_mao_obra)}
                   margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} />
               ))}
-              <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} material={linhas.reduce((a, l) => a + n(l.custo_material), 0)} viagens={linhas.reduce((a, l) => a + n(l.custo_viagens), 0)} maoObra={linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0)}
+              <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} material={visiveis.reduce((a, l) => a + n(l.custo_material), 0)} viagens={visiveis.reduce((a, l) => a + n(l.custo_viagens), 0)} maoObra={visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0)}
                 margem={total.margem} prevista={total.prevista} custoPrev={total.custoPrev} />
             </div>
             <style>{'@media print{.resultado-tabela-wrap{display:block!important}}'}</style>
@@ -107,7 +126,7 @@ export default function ResultadoObrasPage() {
                   <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
                 </tr></thead>
                 <tbody>
-                  {linhas.map(l => (
+                  {visiveis.map(l => (
                     <tr key={l.obra_id} style={{ borderBottom: `1px solid ${LINE}` }}>
                       <td style={{ ...td, ...fixa, textAlign: 'left' }}>
                         <Link href={cockpit(l.obra_id)} style={{ color: GOLD, textDecoration: 'none' }} title="Abrir o cockpit da obra">{l.numero} · {l.nome}</Link>
@@ -123,8 +142,8 @@ export default function ResultadoObrasPage() {
                   <tr data-testid="resultado-consolidado" style={{ fontWeight: 700 }}>
                     <td style={{ ...td, ...fixa, textAlign: 'left' }}>Consolidado</td>
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
-                    <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_material), 0))}</td><td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_viagens), 0))}</td>
-                    <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
+                    <td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_material), 0))}</td><td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_viagens), 0))}</td>
+                    <td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtPct(margemPct(total.receita, total.margem))}</td>
                     <td style={td}>{fmtR(total.prevista)}</td><td style={td}>{fmtR(total.custoPrev)}</td>
