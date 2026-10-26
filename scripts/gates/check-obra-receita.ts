@@ -28,7 +28,7 @@ ok(/setReceita\(er \? null :/.test(tela), 'falha na receita não derruba o board
 for (const id of ['obra-resultado', 'obra-faturado', 'obra-recebido', 'obra-a-receber', 'obra-custo', 'obra-notas']) {
   ok(tela.includes(`'${id}'`) || tela.includes(`"${id}"`), `cartão: ${id}`)
 }
-ok(tela.includes("cel('Custo', 'a partir de novembro'"), 'custo aparece como "a partir de novembro"')
+ok(tela.includes("cel('Custo real'"), 'custo real aparece no cartão')
 ok(tela.includes('<ResultadoObra r={receita} />'), 'cartão dentro da ficha (card) da obra')
 
 if (falhas) { console.error(`\n${falhas} falha(s) no resultado por obra`); process.exit(1) }

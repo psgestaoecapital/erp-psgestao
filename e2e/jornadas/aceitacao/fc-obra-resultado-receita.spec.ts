@@ -89,7 +89,7 @@ test.describe('Resultado por obra — receita (FC)', () => {
     await expect(res.getByTestId('obra-faturado')).toHaveText(/^R\$\s?0,00$/)
     await expect(res.getByTestId('obra-recebido')).toHaveText(/^R\$\s?0,00$/)
     await expect(res.getByTestId('obra-a-receber')).toHaveText(/^R\$\s?0,00$/)
-    await expect(res.getByTestId('obra-custo')).toHaveText('a partir de novembro')
+    await expect(res.getByTestId('obra-custo')).toHaveText(/Sem custo lançado|R\$/)
     await expect(res.getByTestId('obra-notas')).toHaveText('Nenhuma NFS-e autorizada ligada a esta obra')
   })
 })
