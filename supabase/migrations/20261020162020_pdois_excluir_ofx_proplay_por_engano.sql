@@ -3,7 +3,7 @@
 -- (company 36b69d77-…, lote 0baaa231-090b-40af-8f0f-0d2b2bf950b7). São 7 movimentos de 16/10 (R$ 1.156,05).
 --
 -- Prova no dado (RD-38, conferida em produção antes desta PR):
---   * os 7 estão PENDENTES, sem lancamento_id, sem match aplicado, sem conciliacao_vinculo e sem erp_transferencia;
+--   * os 7 estão PENDENTES (em 23/10, 3 foram marcados IGNORADO na tela — idem, sem efeito), sem lancamento_id, sem match aplicado, sem conciliacao_vinculo e sem erp_transferencia;
 --   * os 7 existem na Proplay (b2b96eef-…) com o MESMO id_externo (FITID) — 7/7 —, mesma data, valor e descrição.
 --
 -- Correção de dado de UMA empresa, sem tocar título: apaga só esse lote (os movimentos saem por ON DELETE CASCADE).
@@ -42,9 +42,9 @@ BEGIN
     FROM public.conciliacao_movimento m
    WHERE m.lote_id = c_lote
      AND m.company_id = c_pdois
-     AND m.status = 'pendente'
+     -- 'ignorado' (marcado em 23/10 na tela: 3 dos 7) não gera lançamento nem baixa; conta como livre
+     AND (m.status = 'pendente' AND m.match_aplicado_em IS NULL OR m.status = 'ignorado')
      AND m.lancamento_id IS NULL
-     AND m.match_aplicado_em IS NULL
      AND NOT EXISTS (SELECT 1 FROM public.conciliacao_vinculo v WHERE v.movimento_id = m.id)
      AND NOT EXISTS (SELECT 1 FROM public.erp_transferencia t WHERE t.movimento_id = m.id);
 
@@ -58,7 +58,7 @@ BEGIN
                     AND p.valor = m.valor
                     AND p.natureza = m.natureza);
 
-  RAISE NOTICE '[pdois-ofx] ANTES: movimentos=% · livres (pendente, sem baixa/vínculo)=% · iguais na Proplay=%',
+  RAISE NOTICE '[pdois-ofx] ANTES: movimentos=% · livres (pendente/ignorado, sem baixa/vínculo)=% · iguais na Proplay=%',
     v_total, v_livres, v_dup;
 
   IF v_total <> 7 OR v_livres <> 7 OR v_dup <> 7 THEN
