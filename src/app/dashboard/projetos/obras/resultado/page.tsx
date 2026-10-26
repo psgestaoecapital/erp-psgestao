@@ -29,9 +29,11 @@ const cockpit = (obraId: string) => `/dashboard/projetos/obras/${obraId}/cockpit
 
 export default function ResultadoObrasPage() {
   const { companyIds } = useCompanyIds()
-  const [linhas, setLinhas] = useState<Linha[]>([])
+  const [todas, setLinhas] = useState<Linha[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
+  const [busca, setBusca] = useState('')
+  const [situacao, setSituacao] = useState('')
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -49,6 +51,13 @@ export default function ResultadoObrasPage() {
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
+
+  const situacoes = useMemo(() => Array.from(new Set(todas.map(l => l.status).filter(Boolean))).sort(), [todas])
+  const linhas = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    return todas.filter(l => (!situacao || l.status === situacao) && (!q || `${l.numero} ${l.nome}`.toLowerCase().includes(q)))
+  }, [todas, busca, situacao])
+  const semReceita = linhas.some(l => receita(l) === 0 && custo(l) > 0)
 
   const total = useMemo(() => linhas.reduce((a, l) => ({
     receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + margem(l),
@@ -77,11 +86,22 @@ export default function ResultadoObrasPage() {
         <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Receita (serviço medido + material vendido) menos custo (material, viagens e mão de obra apontada), previsto × realizado.</p>
         {loading && <p data-testid="resultado-carregando">Carregando…</p>}
         {!loading && erro && <p role="alert" style={{ color: VERM }}>{erro} <button onClick={carregar}>Tentar de novo</button></p>}
-        {!loading && !erro && linhas.length === 0 && (
+        {!loading && !erro && todas.length === 0 && (
           <p data-testid="resultado-vazio">Nenhuma obra ainda. A obra nasce do orçamento aprovado; assim que houver medição, venda de material ou viagem, o resultado aparece aqui.</p>
         )}
-        {!loading && !erro && linhas.length > 0 && (
+        {!loading && !erro && todas.length > 0 && (
           <>
+            <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+              <input data-testid="resultado-busca" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar obra" aria-label="Buscar obra" style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8, background: '#fff' }} />
+              <AjudaCampo chave="projetos.resultado_obra.busca" />
+              <select data-testid="resultado-filtro-situacao" value={situacao} onChange={e => setSituacao(e.target.value)} aria-label="Situação da obra" style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8, background: '#fff' }}>
+                <option value="">Todas as situações</option>
+                {situacoes.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+              </select>
+              <AjudaCampo chave="projetos.resultado_obra.filtro_situacao" />
+            </div>
+            {semReceita && <p data-testid="resultado-sem-medicao" style={{ fontSize: 12.5, color: MUT, margin: '0 0 8px' }}>Obras com custo e sem receita ainda não tiveram medição nem venda de material: a margem aparece como “—” até o primeiro lançamento (veja a receita prevista ao lado).</p>}
+            {linhas.length === 0 && <p data-testid="resultado-filtro-vazio">Nenhuma obra com esse filtro.</p>}
             <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
               <button onClick={baixarCsv} style={{ padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Baixar Excel (CSV)</button>
               <AjudaCampo chave="projetos.resultado_obra.excel" />
