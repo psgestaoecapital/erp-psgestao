@@ -12,11 +12,15 @@ const FUSO_PADRAO = '-03:00'
 // Regra: o dia do saldo é o maior entre o dia do DTASOF e o último dia com movimento no arquivo; a hora é o FIM
 // desse dia (23:59:59). Só mantém a hora do DTASOF quando o banco manda uma hora de verdade (≠ 00:00:00) e o dia
 // dele não é anterior ao último movimento. Assim a tela nunca rotula um saldo com data anterior aos movimentos.
-export function dataReferenciaSaldoOFX(dtasofBruto: string | null, datasMovimentos: string[]): string | null {
+// #4969 (Troian · Bradesco): DTASOF zerado ("00000000") ou inválido → o dia do saldo é o último movimento, ou o
+// DTEND do <BANKTRANLIST> quando ele é posterior aos movimentos (o Bradesco manda DTEND = dia da geração do arquivo).
+// O DTEND só entra quando o DTASOF não vale: com DTASOF válido a regra do #3952 fica igual.
+export function dataReferenciaSaldoOFX(dtasofBruto: string | null, datasMovimentos: string[], dtendBruto: string | null = null): string | null {
   const iso = parseDataOFX(dtasofBruto)
   const diaDtasof = iso ? iso.slice(0, 10) : null
   const ultimoMov = datasMovimentos.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().pop() ?? null
-  const dia = [diaDtasof, ultimoMov].filter((d): d is string => !!d).sort().pop()
+  const diaDtend = iso ? null : (parseDataOFX(dtendBruto)?.slice(0, 10) ?? null)
+  const dia = [diaDtasof, ultimoMov, diaDtend].filter((d): d is string => !!d).sort().pop()
   if (!dia) return null
   const offset = iso?.match(/[+-]\d{2}:\d{2}$/)?.[0] ?? FUSO_PADRAO
   const hora = iso ? iso.slice(11, 19) : '00:00:00'
@@ -80,4 +84,23 @@ export function saldosPorConta(contas: ContaSaldo[], bancos: Record<string, stri
     }))
   const total = Math.round(linhas.reduce((s, l) => s + (l.saldo ?? 0), 0) * 100) / 100
   return { linhas, total }
+}
+
+// #4969: período do lote pelos movimentos (menor e maior DTPOSTED), nunca pelo DTSTART/DTEND do arquivo — o Bradesco
+// manda DTSTART = DTEND = dia da geração, embora os movimentos venham de dias antes.
+export function periodoPorMovimentos(datasMovimentos: string[]): { inicio: string | null; fim: string | null } {
+  const ds = datasMovimentos.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort()
+  return { inicio: ds[0] ?? null, fim: ds[ds.length - 1] ?? null }
+}
+
+// #4969: o saldo do OFX só é gravado com valor E data. Faltando um deles, a importação AVISA — nunca mantém o saldo
+// antigo calada (antes o DTASOF zerado do Bradesco fazia o saldo ser descartado sem nenhuma mensagem).
+export function saldoOFXValido(valor: number | null, dataRef: string | null): boolean {
+  return valor !== null && Number.isFinite(valor) && dataRef !== null
+}
+export const AVISO_SALDO_INVALIDO = 'Atenção: este extrato não informa saldo válido — o saldo do banco não foi atualizado.'
+
+// DTEND cru do <BANKTRANLIST> (fim do período declarado pelo banco), para o fallback acima.
+export function dtendDoOFX(texto: string): string | null {
+  return texto.match(/<BANKTRANLIST>[\s\S]*?<DTEND>([^<\n\r]+)/i)?.[1]?.trim() ?? null
 }

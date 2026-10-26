@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
-import { dataReferenciaSaldoOFX, rotuloDataSaldo } from '@/lib/financeiro/saldoPorConta'
+import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
 import { temConectorExtrato } from '@/lib/banco/extratoConector'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
@@ -530,7 +530,9 @@ export default function InboxPage() {
       // na MESMA transação do lote (ponto único de escrita, RD-65). Sem LEDGERBAL → segue sem saldo.
       // #3952: a data do saldo é o FIM do dia a que ele se refere (nunca antes do último movimento do arquivo).
       const saldo = parseSaldoFechamento(text)
-      const saldoDataRef = saldo.presente ? dataReferenciaSaldoOFX(saldo.dtasof_bruto, movimentos.map((m) => m.data_transacao)) : null
+      // #4969: DTASOF zerado (Bradesco "00000000") → último movimento ou DTEND; sem valor/data válidos → aviso, não grava.
+      const saldoDataRef = saldo.presente ? dataReferenciaSaldoOFX(saldo.dtasof_bruto, movimentos.map((m) => m.data_transacao), dtendDoOFX(text)) : null
+      const saldoLedgerOk = saldo.presente && saldoOFXValido(saldo.valor, saldoDataRef)
       // Fallback do saldo pela linha "SALDO ANTERIOR/DO DIA": só quando NÃO há LEDGERBAL (este tem
       // prioridade). Pega a linha de saldo mais recente do arquivo (>= mantém a última em empate de
       // data). O valor volta ao sinal contábil (débito → negativo). origem 'ofx_saldo_linha'.
@@ -552,8 +554,8 @@ export default function InboxPage() {
         p_storage_path: null,
         p_movimentos: movimentos,
         p_conta_bancaria_id: contaImportId,
-        p_saldo_fechamento: saldo.presente ? saldo.valor : (saldoLinha ? saldoLinha.valor : null),
-        p_saldo_data: saldo.presente ? saldoDataRef : (saldoLinha ? saldoLinha.dataISO : null),
+        p_saldo_fechamento: saldo.presente ? (saldoLedgerOk ? saldo.valor : null) : (saldoLinha ? saldoLinha.valor : null),
+        p_saldo_data: saldo.presente ? (saldoLedgerOk ? saldoDataRef : null) : (saldoLinha ? saldoLinha.dataISO : null),
         p_saldo_bruto: saldo.presente
           ? { balamt_bruto: saldo.balamt_bruto, dtasof_bruto: saldo.dtasof_bruto, origem: 'ofx' }
           : (saldoLinha ? { origem: 'ofx_saldo_linha', descricao_linha: saldoLinha.descricao } : null),
@@ -573,6 +575,8 @@ export default function InboxPage() {
       let linhaSaldo = ''
       if (!temSaldo) {
         linhaSaldo = '\nEste arquivo não trouxe o saldo do banco.'
+      } else if (saldo.presente && !saldoLedgerOk) {
+        linhaSaldo = `\n${AVISO_SALDO_INVALIDO}`
       } else if (r.saldo?.gravado === false && r.saldo?.motivo === 'leitura_mais_antiga') {
         linhaSaldo = '\nSaldo mais antigo que o já registrado — mantido.'
       } else if (r.saldo?.ok && saldoValor != null) {
