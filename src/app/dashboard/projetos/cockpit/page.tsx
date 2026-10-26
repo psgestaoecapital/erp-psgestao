@@ -20,6 +20,7 @@ const STATUS: Record<string, { rotulo: string; cor: string; fundo: string }> = {
   cancelada: { rotulo: 'Cancelada', cor: '#B91C1C', fundo: 'rgba(185,28,28,0.08)' },
 }
 const ATALHOS = [{ rota: 'cronograma', rotulo: 'Cronograma' }, { rota: 'horas', rotulo: 'Horas' }, { rota: 'linha-do-tempo', rotulo: 'Linha do tempo' }]
+const GRUPOS = ['em_andamento', 'pausada', 'concluida', 'cancelada', 'outras']
 const situacao = (s: string) => STATUS[s] ?? { rotulo: s, cor: GOLD, fundo: 'rgba(200,148,26,0.12)' }
 
 type ObraLinha = {
@@ -120,8 +121,14 @@ export default function CockpitEscolherObraPage() {
           {filtradas.length === 0 && <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra encontrada com esse filtro.</div>}
         </>
       )}
+      {GRUPOS.map(g => {
+        const doGrupo = filtradas.filter(o => (STATUS[o.status] ? o.status : 'outras') === g)
+        if (!doGrupo.length) return null
+        return (
+      <section key={g} data-testid={`cockpit-grupo-${g}`} style={{ marginBottom: 18 }}>
+      <h2 style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: ESP, margin: '0 0 8px' }}>{g === 'outras' ? 'Outras situações' : STATUS[g].rotulo} · {doGrupo.length}</h2>
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill,minmax(290px,1fr))' }}>
-        {filtradas.map(o => {
+        {doGrupo.map(o => {
           const i = info[o.obra_id]
           const pct = Math.max(0, Math.min(100, num(i?.pct_conclusao)))
           const receita = num(o.receita_servico) + num(o.receita_material)
@@ -134,7 +141,7 @@ export default function CockpitEscolherObraPage() {
             <Link href={`/dashboard/projetos/obras/${o.obra_id}/cockpit?area=hub`} data-testid="cockpit-obra-link"
               style={{ textDecoration: 'none', color: ESP, display: 'block' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{o.numero}</div>
+                <div style={{ fontWeight: 700, fontSize: 14, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: 0.4 }}>{o.numero}</div>
                 <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: st.cor, background: st.fundo, border: `1px solid ${st.cor}`, borderRadius: 999, padding: '2px 9px' }}>{st.rotulo}</span>
               </div>
               <div style={{ fontSize: 13, color: MUT, marginTop: 2 }}>{o.nome || 'Sem nome'}{i?.cliente_nome ? ` · ${i.cliente_nome}` : ''}</div>
@@ -145,7 +152,9 @@ export default function CockpitEscolherObraPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10, fontSize: 12 }}>
                 <div><div style={{ color: MUT, fontSize: 11 }}>Receita <AjudaCampo chave="projetos.cockpit.card_receita" rota={ROTA} /></div><b>{brl(receita)}</b></div>
                 <div><div style={{ color: MUT, fontSize: 11 }}>Custo <AjudaCampo chave="projetos.cockpit.card_custo" rota={ROTA} /></div><b>{brl(custo)}</b></div>
-                <div><div style={{ color: MUT, fontSize: 11 }}>Margem <AjudaCampo chave="projetos.cockpit.card_margem" rota={ROTA} /></div><b style={{ color: margem < 0 ? '#B91C1C' : '#15803D' }}>{brl(margem)}</b></div>
+                <div><div style={{ color: MUT, fontSize: 11 }}>Margem <AjudaCampo chave="projetos.cockpit.card_margem" rota={ROTA} /></div>{receita > 0
+                  ? <b style={{ color: margem < 0 ? '#B91C1C' : '#15803D' }}>{brl(margem)}</b>
+                  : <b style={{ color: MUT, fontSize: 11 }} data-testid="cockpit-sem-medicao">Sem medição ainda — margem indisponível</b>}</div>
               </div>
               <div style={{ marginTop: 8, fontSize: 12, color: vencida ? '#B91C1C' : MUT }}>
                 Prazo: {i?.data_prevista_fim ? new Date(i.data_prevista_fim + 'T12:00:00').toLocaleDateString('pt-BR') : 'não definido'}{vencida ? ' · vencido' : ''} <AjudaCampo chave="projetos.cockpit.card_prazo" rota={ROTA} />
@@ -162,6 +171,9 @@ export default function CockpitEscolherObraPage() {
           )
         })}
       </div>
+      </section>
+        )
+      })}
     </div>
   )
 }
