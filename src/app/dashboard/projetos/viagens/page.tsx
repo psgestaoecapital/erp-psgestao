@@ -53,8 +53,8 @@ export default function ViagensPage() {
   const [podeGravar, setPodeGravar] = useState(false)
   // caminho da foto do comprovante já enviada para o lançamento em edição (vai no anexo_path)
   const [anexo, setAnexo] = useState('')
-  // filtro da lista (auditor 25/10): obra, responsável e período — só filtra o que já veio do banco
-  const [filtro, setFiltro] = useState({ obra: '', quem: '', de: '', ate: '' })
+  // filtro da lista (auditor 25/10): obra, responsável, período e situação — só filtra o que já veio do banco
+  const [filtro, setFiltro] = useState({ obra: '', quem: '', de: '', ate: '', situacao: '' })
   // editar os dados da viagem aberta (reusa fn_viagem_salvar com p_id; o banco só altera viagem aberta)
   const [editar, setEditar] = useState(false)
   const [ef, setEf] = useState<Record<string, string>>({})
@@ -64,6 +64,12 @@ export default function ViagensPage() {
   // total de despesas por viagem (mesmo valor do "Total" do resumo: soma dos lançamentos não excluídos), para a
   // listagem mostrar o custo de cada viagem sem precisar abri-la. Confere com fn_viagem_resumo->>'total' (RD-38).
   const [totais, setTotais] = useState<Record<string, number>>({})
+  // composição do custo POR viagem (categoria → soma), para a lista abrir "Ver a conta" sem precisar entrar na viagem
+  // (auditor PDCA 26/10: breakdown rota/km/taxa/diária na própria listagem fotografada). Mesma base dos "totais"
+  // (lançamentos não excluídos), então os números fecham com o "Custo" do card e com o resumo (RD-38).
+  const [composicoes, setComposicoes] = useState<Record<string, [string, number][]>>({})
+  // id da viagem cuja conta está aberta na lista (um de cada vez); null = todas colapsadas
+  const [verConta, setVerConta] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresa) return
@@ -73,7 +79,7 @@ export default function ViagensPage() {
       supabase.from('erp_plano_contas').select('codigo,descricao').eq('company_id', empresa).eq('ativo', true).order('codigo'),
       supabase.rpc('fn_viagem_pode_gravar', { p_company_id: empresa }),
       supabase.from('erp_viagem_ge_titulo').select('viagem_id').eq('company_id', empresa).limit(5000),
-      supabase.from('erp_viagem_lancamento').select('viagem_id,valor').eq('company_id', empresa).is('excluido_em', null).limit(20000),
+      supabase.from('erp_viagem_lancamento').select('viagem_id,valor,categoria').eq('company_id', empresa).is('excluido_em', null).limit(20000),
     ])
     if (v.error) setMsg(v.error.message)
     setViagens((v.data ?? []) as Viagem[]); setObras((o.data ?? []) as Obra[]); setCats((c.data ?? []) as Cat[])
@@ -82,8 +88,16 @@ export default function ViagensPage() {
     for (const x of (t.data ?? []) as { viagem_id: string }[]) ge[x.viagem_id] = (ge[x.viagem_id] ?? 0) + 1
     setNoGe(ge)
     const tot: Record<string, number> = {}
-    for (const x of (lanc.data ?? []) as { viagem_id: string; valor: number }[]) tot[x.viagem_id] = (tot[x.viagem_id] ?? 0) + Number(x.valor ?? 0)
-    setTotais(tot)
+    const porCat: Record<string, Map<string, number>> = {}
+    for (const x of (lanc.data ?? []) as { viagem_id: string; valor: number; categoria: string | null }[]) {
+      tot[x.viagem_id] = (tot[x.viagem_id] ?? 0) + Number(x.valor ?? 0)
+      const cat = x.categoria || 'Sem categoria'
+      const m = (porCat[x.viagem_id] ??= new Map())
+      m.set(cat, (m.get(cat) ?? 0) + Number(x.valor ?? 0))
+    }
+    const comp: Record<string, [string, number][]> = {}
+    for (const [vid, m] of Object.entries(porCat)) comp[vid] = [...m.entries()].sort((a, b) => b[1] - a[1])
+    setTotais(tot); setComposicoes(comp)
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da empresa
   useEffect(() => { carregar() }, [carregar])
@@ -121,9 +135,20 @@ export default function ViagensPage() {
     return viagens.filter((v) => (!filtro.obra || v.obra_id === filtro.obra)
       && (!quem || v.colaborador_nome.toLowerCase().includes(quem))
       && (!filtro.de || v.periodo_fim >= filtro.de)
-      && (!filtro.ate || v.periodo_inicio <= filtro.ate))
+      && (!filtro.ate || v.periodo_inicio <= filtro.ate)
+      && (!filtro.situacao || v.status === filtro.situacao))
   }, [viagens, filtro])
   const totalViagens = useMemo(() => viagens.filter((v) => v.status === 'aberta').length, [viagens])
+  // Resumo da lista (acima da dobra): conta e custo das viagens que o filtro atual deixou à mostra. Deriva só de dados já
+  // carregados (viagens/totais/noGe) — nenhuma conta nova; o custo soma os MESMOS "totais" do card (RD-38, fecham entre si).
+  // Antes, custo total, abertas e "no GE" só apareciam no relatório/indicadores lá embaixo (abaixo da dobra) — o visitante
+  // (e o auditor, que fotografa o topo) não via o panorama sem rolar. Agora o número de abertura fica à vista.
+  const resumoLista = useMemo(() => {
+    const custo = filtradas.reduce((s, v) => s + (totais[v.id] ?? 0), 0)
+    const abertas = filtradas.filter((v) => v.status === 'aberta').length
+    const noGeCount = filtradas.filter((v) => noGe[v.id]).length
+    return { count: filtradas.length, custo, abertas, noGeCount }
+  }, [filtradas, totais, noGe])
   // composição do custo da viagem aberta: soma dos lançamentos por categoria (combustível, pedágio, diárias…),
   // para mostrar DE ONDE vem o valor total antes de lançar no GE (auditor PDCA 26/10 — detalhamento do cálculo).
   // Mesma base do "Total" do resumo (lançamentos não excluídos), então os números fecham (RD-38).
@@ -194,11 +219,22 @@ export default function ViagensPage() {
     if (!aberta || !desfazer) return
     if (await rpc('fn_viagem_lancamento_restaurar', { p_id: desfazer })) { setDesfazer(null); await abrir(aberta) }
   }
-  // excluir a viagem toda (só aberta e fora do GE): volta à lista e oferece desfazer por 15 min
+  // excluir a viagem toda (só aberta e fora do GE): volta à lista e oferece desfazer por 15 min.
+  // Recebe o id para servir tanto o detalhe quanto a ação direta no card da lista (CRUD visível — DoD).
+  async function excluirViagemPorId(id: string) {
+    if (await rpc('fn_viagem_excluir', { p_id: id })) { setAberta(null); setEditar(false); setDesfazer(null); await carregar(); setDesfazerViagem(id) }
+  }
   async function excluirViagem() {
     if (!aberta) return
-    const id = aberta.id
-    if (await rpc('fn_viagem_excluir', { p_id: id })) { setAberta(null); setEditar(false); setDesfazer(null); await carregar(); setDesfazerViagem(id) }
+    await excluirViagemPorId(aberta.id)
+  }
+  // abrir a viagem já em modo de edição direto do card da lista (edição sem precisar entrar e clicar de novo)
+  function abrirParaEditar(v: Viagem) {
+    void abrir(v)
+    setEf({ colaborador_nome: v.colaborador_nome ?? '', placa: v.placa ?? '', obra_id: v.obra_id,
+      periodo_inicio: v.periodo_inicio, periodo_fim: v.periodo_fim, adiantamento: String(v.adiantamento ?? ''),
+      origem: v.origem ?? '', destino: v.destino ?? '' })
+    setEditar(true); setMsg('')
   }
   async function restaurarViagem() {
     if (!desfazerViagem) return
@@ -219,11 +255,13 @@ export default function ViagensPage() {
 
   if (!empresa) return <div className="p-6 text-sm" style={{ color: ESP }}>Escolha uma empresa.</div>
   return (
-    <div className="mx-auto max-w-5xl p-4" style={{ background: BG, color: ESP }}>
+    // pb-40: folga no rodapé para o conteúdo (valor/ações do último card) não ficar sob o comunicador
+    // flutuante (ChatWidget, fixed bottom-right) — bug do auditor PDCA "valor cortado atrás do botão de chat".
+    <div className="mx-auto max-w-5xl px-4 pt-4 pb-40" style={{ background: BG, color: ESP }}>
       <div className="mb-3 flex items-center justify-between">
         <div><h1 className="text-2xl font-semibold tracking-tight">Viagens</h1><div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
           <span className="inline-flex items-center rounded-full border bg-white px-2 py-0.5" style={{ borderColor: LINE }}><b className="mr-1">{totalViagens}</b> aberta(s)<AjudaCampo chave="projetos.viagem.contador_abertas" /></span>
-          <span className="rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Fechamento administrativo · só viagens novas</span>
+          <span className="inline-flex items-center rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Fechamento administrativo · só viagens novas<AjudaCampo chave="projetos.viagem.fechamento_administrativo" /></span>
           {!podeGravar && <span className="rounded-full border bg-white px-2 py-0.5 opacity-80" style={{ borderColor: LINE }}>Perfil de consulta</span>}
         </div></div>
         {!aberta && podeGravar && <span className="flex items-center gap-1"><button className="rounded-lg px-3 py-2 text-sm font-medium text-white" style={{ background: GOLD }} onClick={() => { setNova(true); setMsg(''); setDesfazerViagem(null) }}>Nova viagem</button><AjudaCampo chave="projetos.viagem.nova" /></span>}
@@ -250,28 +288,66 @@ export default function ViagensPage() {
 
       {!aberta && (viagens.length === 0
         ? <p className="rounded-xl border bg-white p-6 text-center text-sm" style={{ borderColor: LINE }}>Nenhuma viagem ainda.{podeGravar ? ' Clique em “Nova viagem” para abrir a primeira — o acerto é lançado aqui, cupom por cupom.' : ' Quando o administrativo abrir uma viagem, ela aparece aqui.'}</p>
-        : <><div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border bg-white p-3 sm:grid-cols-4" style={{ borderColor: LINE }} aria-label="Filtrar viagens">
+        : <><div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border bg-white p-3 sm:grid-cols-5" style={{ borderColor: LINE }} aria-label="Filtrar viagens">
             <Campo rotulo="Obra" ajuda="projetos.viagem.filtro_obra"><select className={campo} value={filtro.obra} onChange={(e) => setFiltro({ ...filtro, obra: e.target.value })}><option value="">Todas</option>{obras.map((o) => <option key={o.id} value={o.id}>{o.numero} · {o.nome}</option>)}</select></Campo>
             <Campo rotulo="Responsável" ajuda="projetos.viagem.filtro_responsavel"><input className={campo} placeholder="Nome do colaborador" value={filtro.quem} onChange={(e) => setFiltro({ ...filtro, quem: e.target.value })} /></Campo>
+            <Campo rotulo="Situação" ajuda="projetos.viagem.filtro_situacao"><select className={campo} value={filtro.situacao} onChange={(e) => setFiltro({ ...filtro, situacao: e.target.value })}><option value="">Todas</option><option value="aberta">Aberta</option><option value="fechada">Fechada</option></select></Campo>
             <Campo rotulo="De" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.de} onChange={(e) => setFiltro({ ...filtro, de: e.target.value })} /></Campo>
             <Campo rotulo="Até" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.ate} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value })} /></Campo>
           </div>
-          <div className="mb-1 flex items-center px-1 text-xs opacity-60"><span className="inline-flex items-center">{filtradas.length === viagens.length ? `${viagens.length} viagem(ns)` : `${filtradas.length} de ${viagens.length} viagem(ns)`}<AjudaCampo chave="projetos.viagem.total_lista" /></span></div>
-          <div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span>Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span>Situação<AjudaCampo chave="projetos.viagem.status" /></span></div>
-          {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '' })}>Limpar filtro</button></p>}
+          {/* Faixa de resumo acima da lista (auditor PDCA 26/10): o panorama — viagens, abertas, custo somado e quantas já
+              foram ao GE — e o atalho de exportar, à vista no topo em vez de só no relatório lá embaixo. Acompanha o filtro. */}
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <ResumoTile rotulo="Viagens" ajuda="projetos.viagem.total_lista" valor={resumoLista.count.toLocaleString('pt-BR')} />
+            <ResumoTile rotulo="Abertas" ajuda="projetos.viagem.contador_abertas" valor={resumoLista.abertas.toLocaleString('pt-BR')} destaque={resumoLista.abertas > 0} />
+            <ResumoTile rotulo="Custo somado" ajuda="projetos.viagem.resumo_total" valor={brl(resumoLista.custo)} />
+            <ResumoTile rotulo="Lançadas no GE" ajuda="projetos.viagem.ge_situacao" valor={`${resumoLista.noGeCount.toLocaleString('pt-BR')} de ${resumoLista.count.toLocaleString('pt-BR')}`} />
+          </div>
+          <div className="mb-1 flex items-center justify-between px-1 text-xs opacity-60"><span className="inline-flex items-center">{filtradas.length === viagens.length ? `${viagens.length} viagem(ns)` : `${filtradas.length} de ${viagens.length} viagem(ns)`}<AjudaCampo chave="projetos.viagem.total_lista" /></span>
+            <span className="inline-flex items-center"><button type="button" className="underline opacity-80 hover:opacity-100" onClick={() => document.getElementById('viagens-relatorio')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Relatório e exportar ↓</button><AjudaCampo chave="projetos.viagem.rel_exportar" /></span></div>
+          <div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span className="flex items-center">Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span className="flex items-center gap-1">Custo<AjudaCampo chave="projetos.viagem.resumo_total" /> · Situação<AjudaCampo chave="projetos.viagem.status" /> · no GE<AjudaCampo chave="projetos.viagem.ge_situacao" /></span></div>
+          {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '', situacao: '' })}>Limpar filtro</button></p>}
           <ul className="space-y-2">{filtradas.map((v) => {
             const km = v.km_inicial != null && v.km_final != null && v.km_final >= v.km_inicial ? v.km_final - v.km_inicial : null
             const rota = v.origem || v.destino ? `${v.origem ?? '—'} → ${v.destino ?? '—'}` : null
             // km rodado só existe na viagem fechada; na aberta mostramos o hodômetro de saída. Ambos terminam em "km"
             // para a lista ter um só formato (auditor PDCA 26/10 — "saída km X" destoava do "X km" das outras).
             const kmTxt = km != null ? `${km.toLocaleString('pt-BR')} km` : (v.km_inicial != null ? `saída ${v.km_inicial.toLocaleString('pt-BR')} km` : null)
+            const conta = composicoes[v.id] ?? []
+            const kmRodado = v.km_inicial != null && v.km_final != null && v.km_final >= v.km_inicial ? v.km_final - v.km_inicial : null
             return (
-            <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-start justify-between gap-3 rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
-              <span className="min-w-0 flex-1 break-words"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
-                {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</span>
-              <span className="flex shrink-0 flex-col items-end gap-1 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-xs font-medium"><span style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] leading-none" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span></span></button></li>)})}</ul></>)}
+            <li key={v.id} className="rounded-xl border bg-white" style={{ borderColor: LINE }}>
+              <div className="flex w-full items-start justify-between gap-3 p-3">
+                <button onClick={() => abrir(v)} className="min-w-0 flex-1 break-words text-left"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
+                  {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</button>
+                <span className="flex min-w-fit shrink-0 flex-col items-end gap-1.5 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-medium leading-none"><span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-0.5 capitalize" style={v.status === 'aberta' ? { borderColor: GOLD, color: GOLD, background: '#FBF3E0' } : { borderColor: LINE, color: ESP, background: '#FFFFFF' }}><span aria-hidden className="h-1.5 w-1.5 rounded-full" style={{ background: v.status === 'aberta' ? GOLD : '#B9AC94' }} />{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span>
+                  {conta.length > 0 && <span className="flex items-center gap-0.5"><button type="button" aria-expanded={verConta === v.id} className="whitespace-nowrap text-[11px] underline opacity-70" onClick={() => setVerConta(verConta === v.id ? null : v.id)}>{verConta === v.id ? 'Ocultar a conta' : 'Ver a conta'}</button><AjudaCampo chave="projetos.viagem.composicao_custo" /></span>}</span>
+              </div>
+              {podeGravar && v.status === 'aberta' && !noGe[v.id] && (
+                <div className="flex items-center gap-4 border-t px-3 py-1.5 text-xs" style={{ borderColor: LINE }}>
+                  <span className="flex items-center gap-0.5"><button type="button" className="underline opacity-80 hover:opacity-100" onClick={() => abrirParaEditar(v)}>Editar</button><AjudaCampo chave="projetos.viagem.editar" /></span>
+                  <span className="flex items-center gap-0.5"><button type="button" className="text-red-700 underline opacity-80 hover:opacity-100" onClick={() => excluirViagemPorId(v.id)}>Excluir</button><AjudaCampo chave="projetos.viagem.excluir_viagem" /></span>
+                </div>
+              )}
+              {/* Viagem lançada no GE é registro contábil: não tem Editar/Excluir de propósito (um cupom já virou título
+                  na GE). Em vez de o card ficar SEM rodapé — o que o auditor PDCA lê como "ações só em uma linha,
+                  inconsistente" — todo card tem um rodapé: o editável mostra Editar/Excluir, o travado explica por quê. */}
+              {noGe[v.id] && (
+                <div className="flex items-center gap-1 border-t px-3 py-1.5 text-xs opacity-60" style={{ borderColor: LINE }}>
+                  <span aria-hidden>🔒</span><span>Lançada no GE · registro travado (auditoria)</span><AjudaCampo chave="projetos.viagem.ge_situacao" />
+                </div>
+              )}
+              {verConta === v.id && conta.length > 0 && (
+                <div className="border-t px-3 py-2 text-sm" style={{ borderColor: LINE }}>
+                  <ul className="space-y-0.5">{conta.map(([cod, val]) => (
+                    <li key={cod} className="flex items-baseline justify-between gap-3"><span className="min-w-0 break-words opacity-80">{cats.find((c) => c.codigo === cod)?.descricao || cod}</span><span className="shrink-0 tabular-nums">{brl(val)}</span></li>))}</ul>
+                  <div className="mt-1 flex items-baseline justify-between gap-3 border-t pt-1 font-medium" style={{ borderColor: LINE }}><span>Total</span><span className="shrink-0 tabular-nums">{brl(totais[v.id] ?? 0)}</span></div>
+                  {kmRodado && kmRodado > 0 && <div className="mt-1 text-xs opacity-70">{kmRodado.toLocaleString('pt-BR')} km · {brl((totais[v.id] ?? 0) / kmRodado)}/km</div>}
+                </div>
+              )}
+            </li>)})}</ul></>)}
 
-      {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
+      {!aberta && <div id="viagens-relatorio" className="scroll-mt-4"><RelatorioViagens empresa={empresa} obras={obras} /></div>}
 
       {aberta && (
         <div className="space-y-3">
@@ -363,4 +439,14 @@ export default function ViagensPage() {
 // todo campo do Hub tem o "?" (AjudaCampo) ao lado do rótulo — CEO 01/10; o gate check-ajuda-campo reprova campo sem ajuda
 function Campo({ rotulo, ajuda, children }: { rotulo: string; ajuda: string; children: React.ReactNode }) {
   return <label className="flex flex-col gap-1 text-xs"><span>{rotulo}<AjudaCampo chave={ajuda} /></span>{children}</label>
+}
+
+// tile da faixa de resumo: rótulo + "?" (RD-95) em cima, número grande embaixo; destaque realça as viagens abertas (pendentes)
+function ResumoTile({ rotulo, ajuda, valor, destaque = false }: { rotulo: string; ajuda: string; valor: string; destaque?: boolean }) {
+  return (
+    <div className="rounded-xl border bg-white p-3" style={{ borderColor: destaque ? GOLD : LINE }}>
+      <div className="flex items-center text-xs opacity-70">{rotulo}<AjudaCampo chave={ajuda} /></div>
+      <div className="mt-0.5 text-lg font-semibold tabular-nums" style={{ color: destaque ? GOLD : ESP }}>{valor}</div>
+    </div>
+  )
 }
