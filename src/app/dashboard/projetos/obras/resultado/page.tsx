@@ -92,17 +92,18 @@ export default function ResultadoObrasPage() {
             {/* celular (< md): um cartão por obra + o consolidado, sem rolagem lateral (HB0 · correção 9). A impressão usa a tabela. */}
             <div className="md:hidden no-print" data-testid="resultado-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {linhas.map(l => (
-                <CartaoObra key={l.obra_id} obraId={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} maoObra={n(l.custo_mao_obra)}
+                <CartaoObra key={l.obra_id} obraId={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} material={n(l.custo_material)} viagens={n(l.custo_viagens)} maoObra={n(l.custo_mao_obra)}
                   margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} />
               ))}
-              <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} maoObra={linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0)}
+              <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} material={linhas.reduce((a, l) => a + n(l.custo_material), 0)} viagens={linhas.reduce((a, l) => a + n(l.custo_viagens), 0)} maoObra={linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0)}
                 margem={total.margem} prevista={total.prevista} custoPrev={total.custoPrev} />
             </div>
             <style>{'@media print{.resultado-tabela-wrap{display:block!important}}'}</style>
             <div className="hidden md:block resultado-tabela-wrap" style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-              <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse' }}>
+              <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 880, borderCollapse: 'collapse' }}>
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
                   <th style={{ ...th, ...fixa, textAlign: 'left' }}>Obra</th><th style={th}>Receita <AjudaCampo chave="projetos.resultado_obra.receita" /></th><th style={th}>Custo <AjudaCampo chave="projetos.resultado_obra.custo" /></th>
+                  <th style={th}>Materiais <AjudaCampo chave="projetos.resultado_obra.custo_material" /></th><th style={th}>Viagens <AjudaCampo chave="projetos.resultado_obra.custo_viagens" /></th>
                   <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
                 </tr></thead>
                 <tbody>
@@ -112,6 +113,7 @@ export default function ResultadoObrasPage() {
                         <Link href={cockpit(l.obra_id)} style={{ color: GOLD, textDecoration: 'none' }} title="Abrir o cockpit da obra">{l.numero} · {l.nome}</Link>
                       </td>
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
+                      <td style={td}>{fmtR(n(l.custo_material))}</td><td style={td}>{fmtR(n(l.custo_viagens))}</td>
                       <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
                       <td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
                       <td style={{ ...td, color: cor(margem(l)) }}>{fmtPct(margemPct(receita(l), margem(l)))}</td>
@@ -121,6 +123,7 @@ export default function ResultadoObrasPage() {
                   <tr data-testid="resultado-consolidado" style={{ fontWeight: 700 }}>
                     <td style={{ ...td, ...fixa, textAlign: 'left' }}>Consolidado</td>
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
+                    <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_material), 0))}</td><td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_viagens), 0))}</td>
                     <td style={td}>{fmtR(linhas.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtPct(margemPct(total.receita, total.margem))}</td>
@@ -138,8 +141,8 @@ export default function ResultadoObrasPage() {
 
 // Cartão da obra no celular: margem em destaque (verde/vermelho), realizado × previsto em pares. O "?" de cada
 // número fica no cartão Consolidado (mesmas chaves da tabela), para não repetir em cada obra.
-function CartaoObra({ obraId, titulo, receita, custo, maoObra, margem, prevista, custoPrev, destaque }: {
-  obraId?: string; titulo: string; receita: number; custo: number; maoObra: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean
+function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra, margem, prevista, custoPrev, destaque }: {
+  obraId?: string; titulo: string; receita: number; custo: number; material: number; viagens: number; maoObra: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean
 }) {
   const pct = margemPct(receita, margem)
   const par = (rot: string, v: number, chave?: string) => (
@@ -163,6 +166,7 @@ function CartaoObra({ obraId, titulo, receita, custo, maoObra, margem, prevista,
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginTop: 10 }}>
         {par('Receita', receita, 'projetos.resultado_obra.receita')}{par('Custo', custo, 'projetos.resultado_obra.custo')}
+        {par('Materiais', material, 'projetos.resultado_obra.custo_material')}{par('Viagens', viagens, 'projetos.resultado_obra.custo_viagens')}
         {par('Mão de obra', maoObra, 'projetos.resultado_obra.mao_obra')}{par('Receita prevista', prevista, 'projetos.resultado_obra.receita_prevista')}
         {par('Custo previsto', custoPrev, 'projetos.resultado_obra.custo_previsto')}
       </div>
