@@ -79,11 +79,11 @@ export default function CockpitEscolherObraPage() {
     })
   }, [obras, info, busca, filtroStatus])
 
-  const atrasadas = obras.filter(o => o.status === 'em_andamento' && info[o.obra_id]?.data_prevista_fim && (info[o.obra_id]!.data_prevista_fim as string) < hoje).length
+  const atrasadas = filtradas.filter(o => o.status === 'em_andamento' && info[o.obra_id]?.data_prevista_fim && (info[o.obra_id]!.data_prevista_fim as string) < hoje).length
   const resumo = [
-    { k: 'Obras', v: String(obras.length), chave: 'projetos.cockpit.kpi_obras' },
-    { k: 'Em andamento', v: String(obras.filter(o => o.status === 'em_andamento').length), chave: 'projetos.cockpit.kpi_andamento' },
-    { k: 'Margem realizada', v: brl(obras.reduce((t, o) => t + num(o.margem_realizada), 0)), chave: 'projetos.cockpit.kpi_margem' },
+    { k: 'Obras', v: filtradas.length === obras.length ? String(obras.length) : `${filtradas.length} de ${obras.length}`, chave: 'projetos.cockpit.kpi_obras' },
+    { k: 'Em andamento', v: String(filtradas.filter(o => o.status === 'em_andamento').length), chave: 'projetos.cockpit.kpi_andamento' },
+    { k: 'Margem realizada', v: brl(filtradas.reduce((t, o) => t + num(o.margem_realizada), 0)), chave: 'projetos.cockpit.kpi_margem' },
     { k: 'Com prazo vencido', v: String(atrasadas), chave: 'projetos.cockpit.kpi_atrasadas' },
   ]
 
@@ -117,6 +117,7 @@ export default function CockpitEscolherObraPage() {
             </select>
             <AjudaCampo chave="projetos.cockpit.filtro_situacao" rota={ROTA} />
           </div>
+          <div style={{ color: MUT, fontSize: 12, marginBottom: 10 }} data-testid="cockpit-contagem">Mostrando {filtradas.length} de {obras.length} obras — os indicadores acima somam exatamente as obras listadas abaixo.</div>
           {filtradas.length === 0 && <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra encontrada com esse filtro.</div>}
         </>
       )}
