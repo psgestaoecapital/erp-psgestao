@@ -1,21 +1,25 @@
 'use client'
 // OFICINA · VEÍCULOS POR PLACA (histórico). Mobile-first.
 // Busca por placa/cliente → dados do veículo + histórico de OS (data, status, serviços, km, mecânico,
-// valor de referência) + evolução do km. 🚫 SEM operação financeira — leitura consolidada de erp_os.
+// valor de referência) + evolução do km + checklist de entrada de cada passagem (#4052, lido de erp_os_recepcao). 🚫 SEM operação financeira — leitura consolidada de erp_os.
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Car, ChevronLeft, Search, Gauge, Wrench } from 'lucide-react'
+import { Car, ChevronLeft, Search, Gauge, Wrench, ClipboardCheck } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
-const OK = '#166534'
+const OK = '#166534'; const ALERTA = '#9A3412'
 const brl = (n: number | null) => n == null ? null : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(n) || 0)
 const STATUS_LABEL: Record<string, string> = { aberta: 'Recebido', aguardando_aprovacao: 'Aguardando aprovação', aprovada: 'Aprovado', em_execucao: 'Em serviço', aguardando_peca: 'Aguardando peça', pronta: 'Pronto', entregue: 'Entregue', cancelada: 'Cancelada' }
 const fmtData = (d: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('pt-BR') : '—'
 const fmtKm = (k: number | null) => k == null ? '—' : `${new Intl.NumberFormat('pt-BR').format(k)} km`
 
 type VeicLinha = { placa: string; cliente_nome: string | null; marca: string | null; modelo: string | null; ano: number | null; ultimo_km: number | null; os_count: number; ultima_data: string | null }
-type OSHist = { id: string; numero: string; status: string; data: string | null; km: number | null; tecnico_nome: string | null; defeito_relatado: string | null; diagnostico: string | null; pecas_utilizadas: string | null; total: number | null; itens_count: number; valor_aprovado: number | null }
+// #4052 — checklist registrado na Recepção do veículo (null quando a OS não passou pela recepção)
+type Entrada = { registrado_em: string; km_entrada: number | null; combustivel: string | null; checklist: Record<string, string>; avarias: string | null; objetos_veiculo: string | null; observacoes: string | null; fotos_count: number }
+type OSHist = { id: string; numero: string; status: string; data: string | null; km: number | null; tecnico_nome: string | null; defeito_relatado: string | null; diagnostico: string | null; pecas_utilizadas: string | null; total: number | null; itens_count: number; valor_aprovado: number | null; entrada?: Entrada | null }
+const COMBUSTIVEL: Record<string, string> = { vazio: 'Reserva / vazio', '1_4': '¼ de tanque', meio: '½ tanque', '3_4': '¾ de tanque', cheio: 'Tanque cheio' }
 type Veiculo = { placa: string; cliente_nome: string | null; marca: string | null; modelo: string | null; ano: number | null; chassi: string | null; ultimo_km: number | null; os_count: number }
 type KmPt = { data: string | null; km: number }
 type Contato = { id: string; tipo: string; canal: string; mensagem: string | null; resultado: string | null; agendado_para: string | null; criado_em: string }
@@ -48,6 +52,7 @@ export default function VeiculosPage() {
   const [carregando, setCarregando] = useState(false)
   const [gerandoLink, setGerandoLink] = useState(false)
   const [linkMsg, setLinkMsg] = useState<string | null>(null)
+  const [entradaAberta, setEntradaAberta] = useState<string | null>(null)
 
   const buscar = useCallback(async () => {
     if (!companyId) return
@@ -80,6 +85,7 @@ export default function VeiculosPage() {
       supabase.rpc('fn_oficina_veiculo_historico', { p_company_id: companyId, p_placa: placa }),
       supabase.rpc('fn_oficina_veiculo_contatos', { p_company_id: companyId, p_placa: placa }),
     ])
+    setEntradaAberta(null)
     setSel(data as { veiculo: Veiculo; os: OSHist[]; km_evolucao: KmPt[] })
     setContatos((cts as Contato[]) ?? [])
   }
@@ -125,7 +131,7 @@ export default function VeiculosPage() {
             </Sec>
           )}
 
-          <Sec titulo={`Histórico de serviços (${sel.os.length})`}>
+          <Sec titulo={`Histórico de serviços (${sel.os.length})`} ajuda={<AjudaCampo chave="oficina.veiculos.checklist_entrada" rota="/dashboard/oficina/veiculos" />}>
             {sel.os.length === 0 && <div style={{ color: ESP60, fontSize: 13 }}>Sem OS registradas.</div>}
             {sel.os.map((o) => (
               <div key={o.id} style={{ border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, marginBottom: 10, background: '#fff' }}>
@@ -144,6 +150,18 @@ export default function VeiculosPage() {
                     <span style={{ color: OK, fontWeight: 700, marginLeft: 'auto' }}>{brl(o.valor_aprovado ?? o.total)}</span>
                   )}
                 </div>
+                {o.entrada ? (
+                  <>
+                    <button data-testid={`veic-entrada-${o.numero}`} onClick={() => setEntradaAberta((a) => (a === o.id ? null : o.id))}
+                      aria-expanded={entradaAberta === o.id}
+                      style={{ marginTop: 8, minHeight: 36, padding: '0 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: BG, color: ESP, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <ClipboardCheck size={14} /> {entradaAberta === o.id ? 'Fechar checklist de entrada' : 'Ver checklist de entrada'}
+                    </button>
+                    {entradaAberta === o.id && <EntradaDetalhe e={o.entrada} />}
+                  </>
+                ) : (
+                  <div style={{ fontSize: 11.5, color: ESP60, marginTop: 6 }}>Sem checklist de entrada nesta passagem.</div>
+                )}
               </div>
             ))}
           </Sec>
@@ -206,10 +224,37 @@ export default function VeiculosPage() {
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+// #4052 — como o veículo entrou nesta passagem (Recepção do veículo). Só consulta; nada é gravado aqui.
+function EntradaDetalhe({ e }: { e: Entrada }) {
+  const itens = Object.entries(e.checklist ?? {})
+  return (
+    <div data-testid="veic-entrada-detalhe" style={{ marginTop: 8, borderTop: `1px dashed ${LINE}`, paddingTop: 8, fontSize: 12.5, color: ESP }}>
+      <div style={{ fontSize: 11, color: ESP60, marginBottom: 6 }}>Registrado na recepção em {fmtDataHora(e.registrado_em)}</div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+        <span><Gauge size={12} style={{ verticalAlign: -1 }} /> {fmtKm(e.km_entrada)}</span>
+        <span>⛽ {e.combustivel ? (COMBUSTIVEL[e.combustivel] ?? e.combustivel) : 'combustível não informado'}</span>
+        {e.fotos_count > 0 && <span>📷 {e.fotos_count} foto(s)</span>}
+      </div>
+      {itens.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+          {itens.map(([item, st]) => (
+            <span key={item} style={{ fontSize: 11.5, padding: '3px 8px', borderRadius: 999, border: `1px solid ${LINE}`, background: st === 'ok' ? '#F0FDF4' : '#FFF7ED', color: st === 'ok' ? OK : ALERTA, fontWeight: 600 }}>
+              {item}: {st === 'ok' ? 'ok' : st === 'avaria' ? 'avaria' : st}
+            </span>
+          ))}
+        </div>
+      )}
+      {e.avarias && <div style={{ marginTop: 3 }}><b>Avarias:</b> {e.avarias}</div>}
+      {e.objetos_veiculo && <div style={{ marginTop: 3 }}><b>Objetos no veículo:</b> {e.objetos_veiculo}</div>}
+      {e.observacoes && <div style={{ marginTop: 3, color: ESP60, whiteSpace: 'pre-wrap' }}><b style={{ color: ESP }}>Observações:</b> {e.observacoes}</div>}
+    </div>
+  )
+}
+
+function Sec({ titulo, ajuda, children }: { titulo: string; ajuda?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>{titulo}{ajuda}</div>
       {children}
     </div>
   )
