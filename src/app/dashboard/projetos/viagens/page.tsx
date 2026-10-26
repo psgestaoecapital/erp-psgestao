@@ -124,6 +124,17 @@ export default function ViagensPage() {
       && (!filtro.ate || v.periodo_inicio <= filtro.ate))
   }, [viagens, filtro])
   const totalViagens = useMemo(() => viagens.filter((v) => v.status === 'aberta').length, [viagens])
+  // composição do custo da viagem aberta: soma dos lançamentos por categoria (combustível, pedágio, diárias…),
+  // para mostrar DE ONDE vem o valor total antes de lançar no GE (auditor PDCA 26/10 — detalhamento do cálculo).
+  // Mesma base do "Total" do resumo (lançamentos não excluídos), então os números fecham (RD-38).
+  const composicao = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const l of lancs) {
+      const nome = cats.find((c) => c.codigo === l.categoria)?.descricao || l.categoria || 'Sem categoria'
+      m.set(nome, (m.get(nome) ?? 0) + Number(l.valor ?? 0))
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1])
+  }, [lancs, cats])
 
   async function criar() {
     if (!empresa) return
@@ -245,6 +256,7 @@ export default function ViagensPage() {
             <Campo rotulo="De" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.de} onChange={(e) => setFiltro({ ...filtro, de: e.target.value })} /></Campo>
             <Campo rotulo="Até" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.ate} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value })} /></Campo>
           </div>
+          <div className="mb-1 flex items-center px-1 text-xs opacity-60"><span className="inline-flex items-center">{filtradas.length === viagens.length ? `${viagens.length} viagem(ns)` : `${filtradas.length} de ${viagens.length} viagem(ns)`}<AjudaCampo chave="projetos.viagem.total_lista" /></span></div>
           <div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span>Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span>Situação<AjudaCampo chave="projetos.viagem.status" /></span></div>
           {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '' })}>Limpar filtro</button></p>}
           <ul className="space-y-2">{filtradas.map((v) => {
@@ -273,6 +285,15 @@ export default function ViagensPage() {
               <div>Litros<AjudaCampo chave="projetos.viagem.resumo_litros" /><br /><b>{resumo.litros ? `${resumo.litros.toLocaleString('pt-BR')} L` : '—'}</b></div>
               <div>Consumo desta viagem<AjudaCampo chave="projetos.viagem.resumo_consumo" /><br /><b>{resumo.media_km_l != null ? `${resumo.media_km_l.toLocaleString('pt-BR')} km/l` : '—'}</b></div>
               <div className="col-span-2 sm:col-span-4 text-xs opacity-80">{resumoTexto(resumo.saldo)}{resumo.km_rodado == null ? ' · informe o km da saída e da volta para ver o custo por km e o consumo' : ''}</div></div>}
+            {composicao.length > 0 && (
+              <div className="mt-3 rounded-lg border p-2 text-sm" style={{ borderColor: LINE }}>
+                <div className="mb-1 flex items-center text-xs font-medium opacity-70">Composição do custo<AjudaCampo chave="projetos.viagem.composicao_custo" /></div>
+                <ul className="space-y-0.5">{composicao.map(([nome, valor]) => (
+                  <li key={nome} className="flex items-baseline justify-between gap-3"><span className="min-w-0 break-words opacity-80">{nome}</span><span className="shrink-0 tabular-nums">{brl(valor)}</span></li>))}</ul>
+                <div className="mt-1 flex items-baseline justify-between gap-3 border-t pt-1 font-medium" style={{ borderColor: LINE }}><span>Total</span><span className="shrink-0 tabular-nums">{brl(composicao.reduce((s, [, v]) => s + v, 0))}</span></div>
+                {resumo?.km_rodado != null && resumo.custo_km != null && <div className="mt-1 text-xs opacity-70">{resumo.km_rodado.toLocaleString('pt-BR')} km × {brl(resumo.custo_km)}/km</div>}
+              </div>
+            )}
             {aberta.status === 'aberta' && podeGravar && <div className="mt-2 flex flex-wrap items-end gap-2">
               <Campo rotulo="Km na saída" ajuda="projetos.viagem.km_inicial"><input inputMode="decimal" className={campo} value={km.ini} onChange={(e) => setKm({ ...km, ini: e.target.value.replace(',', '.') })} /></Campo>
               <Campo rotulo="Km na volta" ajuda="projetos.viagem.km_final"><input inputMode="decimal" className={campo} value={km.fim} onChange={(e) => setKm({ ...km, fim: e.target.value.replace(',', '.') })} /></Campo>
