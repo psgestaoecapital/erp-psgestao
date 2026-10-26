@@ -85,6 +85,12 @@ export default function DesempenhoComercialPage() {
         ) : (
           <>
             {/* Bloco A · cartões */}
+            {r!.oportunidades === 0 && r!.ganhas_qtd === 0 && r!.perdidas_qtd === 0 && (
+              <div data-testid="desempenho-vazio" style={{ padding: '10px 14px', borderRadius: 8, background: '#FBF4E4', color: ESP, fontSize: 13, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span>Nenhuma oportunidade neste período — por isso os números estão zerados e a conversão aparece como “—” (não há base para calcular).</span>
+                {periodo !== 'ano' && <button onClick={() => setPreset('ano')} style={{ padding: '5px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${GOLD}`, background: '#FFF', color: '#A57A15' }}>Ver o ano inteiro</button>}
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 16 }}>
               <Card titulo="Conversão" valor={pct(r!.conversao_pct)} cor={corConversao(r!.conversao_pct)} sub={rotConversao(r!.conversao_pct)} />
               <Card titulo="Ganhas" valor={String(r!.ganhas_qtd)} cor={VERDE} sub={brl(r!.ganhas_valor)} />
