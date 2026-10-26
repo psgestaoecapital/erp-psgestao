@@ -209,11 +209,22 @@ export default function ViagensPage() {
     if (!aberta || !desfazer) return
     if (await rpc('fn_viagem_lancamento_restaurar', { p_id: desfazer })) { setDesfazer(null); await abrir(aberta) }
   }
-  // excluir a viagem toda (só aberta e fora do GE): volta à lista e oferece desfazer por 15 min
+  // excluir a viagem toda (só aberta e fora do GE): volta à lista e oferece desfazer por 15 min.
+  // Recebe o id para servir tanto o detalhe quanto a ação direta no card da lista (CRUD visível — DoD).
+  async function excluirViagemPorId(id: string) {
+    if (await rpc('fn_viagem_excluir', { p_id: id })) { setAberta(null); setEditar(false); setDesfazer(null); await carregar(); setDesfazerViagem(id) }
+  }
   async function excluirViagem() {
     if (!aberta) return
-    const id = aberta.id
-    if (await rpc('fn_viagem_excluir', { p_id: id })) { setAberta(null); setEditar(false); setDesfazer(null); await carregar(); setDesfazerViagem(id) }
+    await excluirViagemPorId(aberta.id)
+  }
+  // abrir a viagem já em modo de edição direto do card da lista (edição sem precisar entrar e clicar de novo)
+  function abrirParaEditar(v: Viagem) {
+    void abrir(v)
+    setEf({ colaborador_nome: v.colaborador_nome ?? '', placa: v.placa ?? '', obra_id: v.obra_id,
+      periodo_inicio: v.periodo_inicio, periodo_fim: v.periodo_fim, adiantamento: String(v.adiantamento ?? ''),
+      origem: v.origem ?? '', destino: v.destino ?? '' })
+    setEditar(true); setMsg('')
   }
   async function restaurarViagem() {
     if (!desfazerViagem) return
@@ -234,7 +245,9 @@ export default function ViagensPage() {
 
   if (!empresa) return <div className="p-6 text-sm" style={{ color: ESP }}>Escolha uma empresa.</div>
   return (
-    <div className="mx-auto max-w-5xl p-4" style={{ background: BG, color: ESP }}>
+    // pb-40: folga no rodapé para o conteúdo (valor/ações do último card) não ficar sob o comunicador
+    // flutuante (ChatWidget, fixed bottom-right) — bug do auditor PDCA "valor cortado atrás do botão de chat".
+    <div className="mx-auto max-w-5xl px-4 pt-4 pb-40" style={{ background: BG, color: ESP }}>
       <div className="mb-3 flex items-center justify-between">
         <div><h1 className="text-2xl font-semibold tracking-tight">Viagens</h1><div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
           <span className="inline-flex items-center rounded-full border bg-white px-2 py-0.5" style={{ borderColor: LINE }}><b className="mr-1">{totalViagens}</b> aberta(s)<AjudaCampo chave="projetos.viagem.contador_abertas" /></span>
@@ -291,6 +304,12 @@ export default function ViagensPage() {
                 <span className="flex min-w-fit shrink-0 flex-col items-end gap-1.5 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-medium leading-none"><span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 capitalize" style={v.status === 'aberta' ? { borderColor: GOLD, color: GOLD, background: '#FBF3E0' } : { borderColor: LINE, color: ESP, background: '#FFFFFF' }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span>
                   {conta.length > 0 && <span className="flex items-center gap-0.5"><button type="button" aria-expanded={verConta === v.id} className="whitespace-nowrap text-[11px] underline opacity-70" onClick={() => setVerConta(verConta === v.id ? null : v.id)}>{verConta === v.id ? 'Ocultar a conta' : 'Ver a conta'}</button><AjudaCampo chave="projetos.viagem.composicao_custo" /></span>}</span>
               </div>
+              {podeGravar && v.status === 'aberta' && !noGe[v.id] && (
+                <div className="flex items-center gap-4 border-t px-3 py-1.5 text-xs" style={{ borderColor: LINE }}>
+                  <span className="flex items-center gap-0.5"><button type="button" className="underline opacity-80 hover:opacity-100" onClick={() => abrirParaEditar(v)}>Editar</button><AjudaCampo chave="projetos.viagem.editar" /></span>
+                  <span className="flex items-center gap-0.5"><button type="button" className="text-red-700 underline opacity-80 hover:opacity-100" onClick={() => excluirViagemPorId(v.id)}>Excluir</button><AjudaCampo chave="projetos.viagem.excluir_viagem" /></span>
+                </div>
+              )}
               {verConta === v.id && conta.length > 0 && (
                 <div className="border-t px-3 py-2 text-sm" style={{ borderColor: LINE }}>
                   <ul className="space-y-0.5">{conta.map(([cod, val]) => (
