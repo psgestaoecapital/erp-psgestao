@@ -43,6 +43,8 @@ ok(tela.includes('Nota enviada, aguardando SEFAZ') && tela.includes('/api/fiscal
 ok(tela.includes('!aguardando && !!previa'), 'botão travado enquanto aguarda a SEFAZ')
 ok(tela.includes('ie, contribuinte_icms') && tela.includes('contribuinteIcms: destinatario.contribuinte_icms'), 'tela valida a IE antes de enviar (mesma regra da rota)')
 
+ok(rota.includes('.update({ payload_enviado: resposta.payloadEnviado })'), 'rota grava o payload enviado à Focus (auditoria), também na recusa')
+
 // item 4: "Corrigir e reenviar" para QUALQUER nota recusada (não só devolução)
 const lista = readFileSync('src/app/dashboard/fiscal/nfe/NFeListClient.tsx', 'utf8')
 ok(!lista.includes('Só a devolução tem reenvio pré-preenchido'), 'lista não recusa mais o reenvio de nota que não é devolução')

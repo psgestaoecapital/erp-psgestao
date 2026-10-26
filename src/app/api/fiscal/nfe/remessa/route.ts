@@ -271,6 +271,15 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
 
     await registrarTentativaEmissaoNFe(ctxEmissao, resposta, (registroId as string | null) ?? null)
 
+    // #3861 · payload EXATO enviado à Focus (sem cert/token), também na nota rejeitada — mesmo caminho da nfe/emitir.
+    // Sem isso as duas recusas da HUTSONTURBO ficaram sem payload_enviado para auditar.
+    if (!rpcErr && registroId && resposta.payloadEnviado != null) {
+      await supabaseAdmin
+        .from('erp_nfe_emitidas')
+        .update({ payload_enviado: resposta.payloadEnviado })
+        .eq('id', registroId as string)
+    }
+
     // Reenvio: só o VÍNCULO com o pedido/título da nota recusada, gravado à parte (mesmo caminho do pedido_id na
     // nfe/emitir). A avulsa não gera nem altera título — por isso não passa p_erp_receber_id à RPC.
     if (!rpcErr && registroId && (vinculoReenvio?.pedido_id || vinculoReenvio?.erp_receber_id)) {
