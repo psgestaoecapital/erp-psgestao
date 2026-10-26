@@ -6,19 +6,18 @@
 // 🚫 ZERO R$ aqui (Pilar 2 — a defesa real é no backend; a tela só não pede/mostra valor).
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { X, Camera, Loader2, Play, Square, Wrench, Package, Image as ImageIcon, Plus } from 'lucide-react'
+import { X, Play, Square, Wrench, Package, Image as ImageIcon, Plus } from 'lucide-react'
 import SolicitarPecaModal from './SolicitarPecaModal'
+import FotosOS from './FotosOS'   // #135 item 6 · fotos em lote
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534', RED = '#A32D2D', AMBER = '#B45309'
-const BUCKET = 'oficina-recepcao'
 
 type OSResumo = { numero?: string | number | null; placa?: string | null; marca?: string | null; modelo?: string | null; cliente_nome?: string | null }
 type DiagItem = { tipo: string; descricao: string; tempo_estimado_h?: number | string | null; severidade?: string; observacao?: string | null }
 type Peca = { id: string; descricao: string | null; quantidade: number | null; status: string; foto_path: string | null }
 type Apont = { id: string; status: string; tempo_real_h: number | null; iniciado_em: string | null } | null
 type ItemAp = { item_id: string; descricao: string; tempo_estimado_h: number | null; severidade: string; apontamento: Apont }
-type Registro = { id: string; foto_path: string; descricao: string; criado_por_nome: string | null; created_at: string; _url?: string | null }
 
 const SEV_COR: Record<string, string> = { critico: RED, recomendado: AMBER, futuro: ESP60 }
 const STATUS_PECA: Record<string, { l: string; c: string }> = {
@@ -26,21 +25,6 @@ const STATUS_PECA: Record<string, { l: string; c: string }> = {
   recusado: { l: 'Recusada', c: RED }, trocada: { l: 'Trocada ✓', c: OK },
 }
 
-async function comprimir(file: File): Promise<Blob> {
-  try {
-    const img = document.createElement('img')
-    const url = URL.createObjectURL(file)
-    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url })
-    const max = 1280
-    const escala = Math.min(1, max / Math.max(img.width, img.height))
-    const cv = document.createElement('canvas')
-    cv.width = Math.round(img.width * escala); cv.height = Math.round(img.height * escala)
-    cv.getContext('2d')!.drawImage(img, 0, 0, cv.width, cv.height)
-    URL.revokeObjectURL(url)
-    const blob: Blob | null = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.7))
-    return blob ?? file
-  } catch { return file }
-}
 function fmtH(h: number | null | undefined): string {
   if (h == null) return '—'
   const n = Number(h)
@@ -54,36 +38,22 @@ export default function VisaoExecucaoModal({ companyId, osId, osResumo, mecanico
   const [diag, setDiag] = useState<{ texto: string; itens: DiagItem[] }>({ texto: '', itens: [] })
   const [pecas, setPecas] = useState<Peca[]>([])
   const [apont, setApont] = useState<ItemAp[]>([])
-  const [registros, setRegistros] = useState<Registro[]>([])
   const [mecanico, setMecanico] = useState(mecanicoNome ?? '')
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [solicitarAberto, setSolicitarAberto] = useState(false)
-  // registro fotográfico novo
-  const [novaFotoPath, setNovaFotoPath] = useState<string | null>(null)
-  const [novaFotoUrl, setNovaFotoUrl] = useState<string | null>(null)
-  const [novaDesc, setNovaDesc] = useState('')
-  const [subindo, setSubindo] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyId || !osId) return
-    const [d, p, a, r] = await Promise.all([
+    const [d, p, a] = await Promise.all([
       supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: companyId, p_os_id: osId }),
       supabase.rpc('fn_oficina_peca_solicitacoes_listar', { p_company_id: companyId, p_os_id: osId }),
       supabase.rpc('fn_oficina_apontamento_obter', { p_company_id: companyId, p_os_id: osId }),
-      supabase.rpc('fn_oficina_registro_listar', { p_company_id: companyId, p_os_id: osId }),
     ])
     const dd = d.data as { os?: { diagnostico?: string }; itens?: DiagItem[] } | null
     setDiag({ texto: dd?.os?.diagnostico ?? '', itens: dd?.itens ?? [] })
     setPecas((p.data as Peca[]) ?? [])
     setApont(((a.data as { itens?: ItemAp[] } | null)?.itens) ?? [])
-    const regs = ((r.data as Registro[]) ?? [])
-    // assina as URLs das fotos pra exibir os thumbnails
-    const comUrl = await Promise.all(regs.map(async (rg) => {
-      const { data: s } = await supabase.storage.from(BUCKET).createSignedUrl(rg.foto_path, 3600)
-      return { ...rg, _url: s?.signedUrl ?? null }
-    }))
-    setRegistros(comUrl)
   }, [companyId, osId])
 
   useEffect(() => { if (aberto) void carregar() }, [aberto, carregar])
@@ -118,31 +88,6 @@ export default function VisaoExecucaoModal({ companyId, osId, osResumo, mecanico
     const j = data as { ok?: boolean; erro?: string; tempo_real_h?: number } | null
     if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
     setMsg(`✅ ${fmtH(j?.tempo_real_h)} registradas.`); void carregar()
-  }
-
-  const onFoto = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]; if (!f) return
-    setSubindo(true)
-    const blob = await comprimir(f)
-    const path = `${companyId}/servico/${osId}/${crypto.randomUUID()}.jpg`
-    const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
-    if (error) { setMsg('❌ Falha ao enviar a foto: ' + error.message); setSubindo(false); return }
-    const { data: s } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600)
-    setNovaFotoPath(path); setNovaFotoUrl(s?.signedUrl ?? null); setSubindo(false)
-  }, [companyId, osId])
-
-  const salvarRegistro = async () => {
-    if (!novaFotoPath) { setMsg('❌ Tire a foto do serviço primeiro.'); return }
-    if (!novaDesc.trim()) { setMsg('❌ Escreva a descrição do serviço.'); return }
-    setBusy('registro')
-    const { data, error } = await supabase.rpc('fn_oficina_registro_salvar', {
-      p_company_id: companyId, p_os_id: osId, p_foto_path: novaFotoPath, p_descricao: novaDesc.trim(), p_criado_por_nome: mecanico || null,
-      p_etapa: 'servico',   // registro da execução (Onda 7: passa o param novo p/ não cair no overload antigo)
-    })
-    setBusy(null)
-    const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setMsg('❌ ' + (error?.message || j?.erro || 'falha')); return }
-    setNovaFotoPath(null); setNovaFotoUrl(null); setNovaDesc(''); setMsg('✅ Registro salvo.'); void carregar()
   }
 
   if (!aberto) return null
@@ -249,31 +194,11 @@ export default function VisaoExecucaoModal({ companyId, osId, osResumo, mecanico
 
         {/* REGISTRO FOTOGRÁFICO (foto + descrição) */}
         <div style={secTit}><ImageIcon size={14} /> Registro fotográfico</div>
+        {/* #135 item 6 · várias fotos de uma vez, cada uma já ligada à OS; legenda opcional na miniatura */}
         <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 14px', borderRadius: 10, background: BG, border: `1px solid ${LINE}`, cursor: 'pointer', color: ESP, fontSize: 13, fontWeight: 700 }}>
-            {subindo ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />} {subindo ? 'Enviando…' : (novaFotoPath ? 'Trocar foto' : 'Tirar / anexar foto')}
-            <input type="file" accept="image/*" capture="environment" onChange={onFoto} style={{ display: 'none' }} />
-          </label>
-          {novaFotoUrl && <img src={novaFotoUrl} alt="serviço" style={{ display: 'block', marginTop: 8, maxWidth: 180, borderRadius: 8, border: `1px solid ${LINE}` }} />}
-          <textarea value={novaDesc} onChange={(e) => setNovaDesc(e.target.value)} rows={2} placeholder="Descreva o serviço registrado (obrigatório)" style={{ ...inp, marginTop: 8, resize: 'vertical' }} />
-          <button onClick={() => void salvarRegistro()} disabled={busy === 'registro' || subindo}
-            style={{ marginTop: 8, width: '100%', padding: '10px', borderRadius: 10, border: 'none', background: GOLD, color: '#1A1410', fontWeight: 700, fontSize: 13, cursor: 'pointer', opacity: busy === 'registro' ? 0.6 : 1 }}>
-            {busy === 'registro' ? 'Salvando…' : 'Salvar registro'}
-          </button>
+          <FotosOS companyId={companyId} osId={osId} etapa="servico" criadoPorNome={mecanico || null} podeExcluir={false}
+            chaveEnviar="oficina.patio.fotos_enviar" chaveLegenda="oficina.patio.foto_legenda" rotaAjuda="/dashboard/oficina/patio" testId="execucao-fotos" />
         </div>
-        {registros.length > 0 && (
-          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {registros.map((rg) => (
-              <div key={rg.id} style={{ display: 'flex', gap: 10, alignItems: 'center', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 8 }}>
-                {rg._url && <img src={rg._url} alt="" style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, border: `1px solid ${LINE}` }} />}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, color: ESP }}>{rg.descricao}</div>
-                  <div style={{ fontSize: 11, color: ESP60 }}>{rg.criado_por_nome ? `${rg.criado_por_nome} · ` : ''}{new Date(rg.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
 
         {msg && <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, background: msg.startsWith('❌') ? '#FCEBEB' : '#EAF3DE', color: msg.startsWith('❌') ? '#791F1F' : OK, fontSize: 13 }}>{msg}</div>}
 
