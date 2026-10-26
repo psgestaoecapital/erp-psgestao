@@ -480,9 +480,12 @@ export default function RemessaClient() {
           </div>
           <div className="mt-1 text-[11.5px] text-[#3D2314]/80">{AVISO_PROCESSANDO}</div>
           {aguardando.esgotou && (
-            <button type="button" onClick={consultarAgora} className="mt-2 px-3 py-1.5 text-[11.5px] font-semibold rounded-lg border border-[#C8941A] text-[#3D2314]" data-testid="nfe-avulsa-consultar">
-              Consultar agora
-            </button>
+            <div className="mt-2 flex items-center gap-2">
+              <button type="button" onClick={consultarAgora} className="px-3 py-1.5 text-[11.5px] font-semibold rounded-lg border border-[#C8941A] text-[#3D2314]" data-testid="nfe-avulsa-consultar">
+                Consultar agora
+              </button>
+              <AjudaCampo chave="fiscal.nfe_avulsa.consultar" />
+            </div>
           )}
         </div>
       )}
