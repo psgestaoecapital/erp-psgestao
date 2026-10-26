@@ -22,7 +22,8 @@ type Obra = {
   responsavel_nome: string | null; data_inicio: string | null; data_prevista_fim: string | null; data_conclusao: string | null
 }
 type Kpis = { em_andamento: number; concluidas: number; valor_em_andamento: number; valor_concluido: number }
-// Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita. Custo entra em novembro, com o centro de custo.
+// Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita. Custo = material + viagens (v_obra_resultado).
+type Custo = { obra_id: string; custo_material: number; custo_viagens: number }
 type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number }
 
 const ST: Record<string, { label: string; cor: string }> = {
@@ -50,6 +51,7 @@ export default function ObrasPage() {
   const [obraAberta, setObraAberta] = useState<Obra | null>(null)
   const [obraFiscal, setObraFiscal] = useState<Obra | null>(null)
   const [receita, setReceita] = useState<Record<string, Receita> | null>(null)
+  const [custos, setCustos] = useState<Record<string, number>>({})
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -64,6 +66,9 @@ export default function ObrasPage() {
       // receita não derruba o board: se falhar, o cartão mostra "não deu para carregar"
       const { data: rc, error: er } = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
       setReceita(er ? null : Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, x])))
+      // custo real (material + viagens) da v_obra_resultado; falhou = cartão mostra "—", nunca texto de placeholder
+      const { data: cu } = await supabase.from('v_obra_resultado').select('obra_id,custo_material,custo_viagens').in('company_id', companyIds)
+      setCustos(Object.fromEntries(((cu as Custo[]) ?? []).map((x) => [x.obra_id, Number(x.custo_material || 0) + Number(x.custo_viagens || 0)])))
     } catch {
       setErro(MSG_CARREGAMENTO_FALHOU)
     } finally {
@@ -143,13 +148,13 @@ export default function ObrasPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, alignItems: 'start' }}>
               {aba === 'principais' ? (
                 <>
-                  <Coluna titulo="Em andamento" cor={GOLD} obras={grupos.em_andamento} receita={receita} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
-                  <Coluna titulo="Concluídas" cor={VERDE} obras={grupos.concluida} receita={receita} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Em andamento" cor={GOLD} obras={grupos.em_andamento} receita={receita} custos={custos} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Concluídas" cor={VERDE} obras={grupos.concluida} receita={receita} custos={custos} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
                 </>
               ) : (
                 <>
-                  <Coluna titulo="Pausadas" cor={AMBAR} obras={grupos.pausada} receita={receita} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
-                  <Coluna titulo="Canceladas" cor={VERM} obras={grupos.cancelada} receita={receita} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Pausadas" cor={AMBAR} obras={grupos.pausada} receita={receita} custos={custos} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Canceladas" cor={VERM} obras={grupos.cancelada} receita={receita} custos={custos} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
                 </>
               )}
             </div>
@@ -162,7 +167,7 @@ export default function ObrasPage() {
   )
 }
 
-function Coluna({ titulo, cor, obras, receita, onStatus, busy, onAbrir, onFiscal }: { titulo: string; cor: string; obras: Obra[]; receita: Record<string, Receita> | null; onStatus: (o: Obra, s: string) => void; busy: string; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
+function Coluna({ titulo, cor, obras, receita, custos, onStatus, busy, onAbrir, onFiscal }: { titulo: string; cor: string; obras: Obra[]; receita: Record<string, Receita> | null; custos: Record<string, number>; onStatus: (o: Obra, s: string) => void; busy: string; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
   return (
     <div>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: cor, fontWeight: 700, marginBottom: 8 }}>{titulo} · {obras.length}</div>
@@ -174,13 +179,13 @@ function Coluna({ titulo, cor, obras, receita, onStatus, busy, onAbrir, onFiscal
               : <>Nenhuma obra {titulo.toLowerCase()} por enquanto.</>}
           </div>
         ) :
-          obras.map((o) => <ObraCard key={o.id} o={o} receita={receita ? (receita[o.id] ?? null) : undefined} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} onFiscal={onFiscal} />)}
+          obras.map((o) => <ObraCard key={o.id} o={o} receita={receita ? (receita[o.id] ?? null) : undefined} custo={custos[o.id]} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} onFiscal={onFiscal} />)}
       </div>
     </div>
   )
 }
 
-function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; receita: Receita | null | undefined; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
+function ObraCard({ o, receita, custo, onStatus, busy, onAbrir, onFiscal }: { o: Obra; receita: Receita | null | undefined; custo?: number; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
   const st = ST[o.status] ?? { label: o.status, cor: MUT }
   const local = [o.cidade, o.uf].filter(Boolean).join('/')
   return (
@@ -202,7 +207,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
         </div>
       </div>
 
-      <ResultadoObra r={receita} />
+      <ResultadoObra r={receita} custo={custo} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
         <button onClick={() => onAbrir(o)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${GOLD}`, background: '#FBF4E4', color: '#A57A15' }}>
@@ -230,7 +235,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
 // Cartão "Resultado da obra" (receita): faturado = NFS-e autorizadas ligadas à obra; recebido = baixas dos títulos
 // dessas notas. undefined = não carregou (falha); null = obra sem nota autorizada.
 const fmtRc = (v: number) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-function ResultadoObra({ r }: { r: Receita | null | undefined }) {
+function ResultadoObra({ r, custo }: { r: Receita | null | undefined; custo?: number }) {
   const cel = (label: string, valor: string, cor: string, testId: string) => (
     <div>
       <div style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>{label}</div>
@@ -248,7 +253,7 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
             {cel('Faturado', fmtRc(r?.faturado ?? 0), ESP, 'obra-faturado')}
             {cel('Recebido', fmtRc(r?.recebido ?? 0), VERDE, 'obra-recebido')}
             {cel('A receber', fmtRc(r?.a_receber ?? 0), GOLD, 'obra-a-receber')}
-            {cel('Custo', 'a partir de novembro', MUT, 'obra-custo')}
+            {cel('Custo', custo === undefined ? '—' : fmtRc(custo), VERM, 'obra-custo')}
           </div>
           <div style={{ fontSize: 10.5, color: MUT, marginTop: 4 }} data-testid="obra-notas">
             {r && r.notas > 0 ? `${r.notas} NFS-e autorizada(s)` : 'Nenhuma NFS-e autorizada ligada a esta obra'}
