@@ -25,7 +25,7 @@ ok(!/FOR (INSERT|UPDATE|DELETE|ALL)/.test(s), 'nenhuma policy de escrita')
 // só a Troian recebe corte, em 01/10/2026; nenhuma outra empresa
 const inserts = s.match(/INSERT INTO public\.erp_empresa_corte_historico[^;]*;/g) ?? []
 ok(inserts.length === 1, 'um único INSERT de configuração')
-ok(inserts[0]?.includes("'d577602d-b21a-4d97-ae59-401777383c23'") && inserts[0]?.includes("DATE '2026-10-01'"), 'Troian com corte em 01/10/2026')
+ok(!!inserts[0]?.includes("'d577602d-b21a-4d97-ae59-401777383c23'") && !!inserts[0]?.includes("DATE '2026-10-01'"), 'Troian com corte em 01/10/2026')
 ok(!/UPDATE public\.erp_(receber|pagar)|DELETE FROM public\.erp_(receber|pagar)/.test(s), 'nenhum título importado é alterado ou apagado')
 
 // a função: corte por LEFT JOIN na configuração (sem linha = sem corte), vencimento E pagamento antes do corte
