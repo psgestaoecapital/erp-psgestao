@@ -1,9 +1,10 @@
 // Gate (#4917, jordana-code 27/10): a migration que desliga o Omie da Gean e da Toy Tintas só toca essas duas empresas,
 // guarda backup antes de gravar e nunca mexe em R.R, M.M, Tryo Acabamentos e Tryo Gesso (decisão da Jordana 26/10).
 // Sem rede, banco ou variável.
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 
-const ARQ = 'supabase/migrations/20261027001020_omie_desligar_gean_toy_4917.sql'
+// acha a migration pelo sufixo: a fila pode renumerar a versão sem quebrar o gate
+const ARQ = 'supabase/migrations/' + (readdirSync('supabase/migrations').find((f) => f.endsWith('_omie_desligar_gean_toy_4917.sql')) ?? '_omie_desligar_gean_toy_4917.sql')
 const GEAN = 'a462e13f-0f51-4c54-abe8-4474b591633b'
 const TOY = '22a7f4fd-149d-47ee-8dd2-bfbb4c897f58'
 const FICAM = {
