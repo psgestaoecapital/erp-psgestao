@@ -275,6 +275,7 @@ export default function CatalogoServicosPage() {
     {
       key: "codigo",
       label: "Código",
+      ajuda: "projetos.catalogo.col_codigo",
       hiddenOnMobile: true,
       render: (s) => (
         <span className="font-mono text-xs text-[#3D2314]/70">{s.codigo || "—"}</span>
@@ -283,6 +284,7 @@ export default function CatalogoServicosPage() {
     {
       key: "nome",
       label: "Nome",
+      ajuda: "projetos.catalogo.col_nome",
       render: (s) => (
         <div>
           <div className="font-medium text-[#3D2314]">{s.nome}</div>
@@ -309,6 +311,7 @@ export default function CatalogoServicosPage() {
     {
       key: "categoria",
       label: "Categoria",
+      ajuda: "projetos.catalogo.col_categoria",
       hiddenOnMobile: true,
       render: (s) =>
         s.categoria ? (
@@ -322,12 +325,14 @@ export default function CatalogoServicosPage() {
     {
       key: "unidade",
       label: "Un",
+      ajuda: "projetos.catalogo.col_unidade",
       hiddenOnMobile: true,
       render: (s) => <span className="text-[#3D2314]/70">{s.unidade || "—"}</span>,
     },
     {
       key: "bom",
       label: "BOM",
+      ajuda: "projetos.catalogo.col_bom",
       align: "center",
       render: (s) => {
         const q = s.qtd_itens_bom ?? 0;
@@ -355,6 +360,7 @@ export default function CatalogoServicosPage() {
     {
       key: "custo",
       label: "Custo",
+      ajuda: "projetos.catalogo.col_custo",
       align: "right",
       render: (s) => (
         <span className="font-mono text-[#3D2314]/80">
@@ -365,6 +371,7 @@ export default function CatalogoServicosPage() {
     {
       key: "venda",
       label: "Preço venda",
+      ajuda: "projetos.catalogo.col_venda",
       align: "right",
       render: (s) => {
         const preco = calcPrecoVenda(s.custo_unitario_total);
@@ -376,6 +383,7 @@ export default function CatalogoServicosPage() {
     {
       key: "produtividade",
       label: "Prod/dia",
+      ajuda: "projetos.catalogo.col_produtividade",
       align: "right",
       hiddenOnMobile: true,
       render: (s) =>

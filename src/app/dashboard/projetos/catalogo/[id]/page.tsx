@@ -288,16 +288,28 @@ export default function ServicoEditorPage({
   if (erro && !servico) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-20">
-        <div className="rounded-xl bg-red-50 p-5 text-sm text-red-800">
-          <p className="font-medium">Erro ao carregar serviço</p>
-          <p className="mt-1">{erro}</p>
-        </div>
-        <button
-          onClick={() => router.push("/dashboard/projetos/catalogo")}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-4 py-2 text-sm font-medium text-[#FAF7F2] hover:bg-[#3D2314]/90"
+        <div
+          data-testid="catalogo-servico-erro"
+          className="mx-auto max-w-md rounded-2xl border border-[#3D2314]/10 bg-white p-8 text-center shadow-sm"
         >
-          <ArrowLeft size={14} /> Voltar ao catálogo
-        </button>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#C8941A]/10 text-[#C8941A]">
+            <AlertTriangle size={22} />
+          </div>
+          <h1
+            className="mb-2 text-[#3D2314]"
+            style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 20, fontWeight: 400 }}
+          >
+            Não foi possível abrir este serviço
+          </h1>
+          <p className="mb-6 text-sm leading-relaxed text-[#3D2314]/60">{erro}</p>
+          <button
+            onClick={() => router.push("/dashboard/projetos/catalogo")}
+            data-testid="catalogo-servico-erro-voltar"
+            className="inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-5 py-2.5 text-sm font-medium text-[#FAF7F2] hover:bg-[#3D2314]/90"
+          >
+            <ArrowLeft size={14} /> Voltar ao catálogo
+          </button>
+        </div>
       </main>
     );
   }

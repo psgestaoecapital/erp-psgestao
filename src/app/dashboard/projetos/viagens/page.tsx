@@ -61,15 +61,19 @@ export default function ViagensPage() {
   // excluir viagem aberta é soft-delete com desfazer de 15 min (fn_viagem_excluir / fn_viagem_restaurar),
   // igual ao lançamento; guarda o id da viagem recém-excluída para o "Desfazer" na lista
   const [desfazerViagem, setDesfazerViagem] = useState<string | null>(null)
+  // total de despesas por viagem (mesmo valor do "Total" do resumo: soma dos lançamentos não excluídos), para a
+  // listagem mostrar o custo de cada viagem sem precisar abri-la. Confere com fn_viagem_resumo->>'total' (RD-38).
+  const [totais, setTotais] = useState<Record<string, number>>({})
 
   const carregar = useCallback(async () => {
     if (!empresa) return
-    const [v, o, c, g, t] = await Promise.all([
+    const [v, o, c, g, t, lanc] = await Promise.all([
       supabase.from('erp_viagem').select('id,numero,colaborador_nome,obra_id,periodo_inicio,periodo_fim,adiantamento,status,km_inicial,km_final,placa,origem,destino,funcionario_id,observacao').eq('company_id', empresa).is('excluido_em', null).order('periodo_inicio', { ascending: false }).limit(100),
       supabase.from('projetos_obras').select('id,numero,nome').eq('company_id', empresa).order('numero'),
       supabase.from('erp_plano_contas').select('codigo,descricao').eq('company_id', empresa).eq('ativo', true).order('codigo'),
       supabase.rpc('fn_viagem_pode_gravar', { p_company_id: empresa }),
       supabase.from('erp_viagem_ge_titulo').select('viagem_id').eq('company_id', empresa).limit(5000),
+      supabase.from('erp_viagem_lancamento').select('viagem_id,valor').eq('company_id', empresa).is('excluido_em', null).limit(20000),
     ])
     if (v.error) setMsg(v.error.message)
     setViagens((v.data ?? []) as Viagem[]); setObras((o.data ?? []) as Obra[]); setCats((c.data ?? []) as Cat[])
@@ -77,6 +81,9 @@ export default function ViagensPage() {
     const ge: Record<string, number> = {}
     for (const x of (t.data ?? []) as { viagem_id: string }[]) ge[x.viagem_id] = (ge[x.viagem_id] ?? 0) + 1
     setNoGe(ge)
+    const tot: Record<string, number> = {}
+    for (const x of (lanc.data ?? []) as { viagem_id: string; valor: number }[]) tot[x.viagem_id] = (tot[x.viagem_id] ?? 0) + Number(x.valor ?? 0)
+    setTotais(tot)
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial dos dados da empresa
   useEffect(() => { carregar() }, [carregar])
@@ -117,6 +124,17 @@ export default function ViagensPage() {
       && (!filtro.ate || v.periodo_inicio <= filtro.ate))
   }, [viagens, filtro])
   const totalViagens = useMemo(() => viagens.filter((v) => v.status === 'aberta').length, [viagens])
+  // composição do custo da viagem aberta: soma dos lançamentos por categoria (combustível, pedágio, diárias…),
+  // para mostrar DE ONDE vem o valor total antes de lançar no GE (auditor PDCA 26/10 — detalhamento do cálculo).
+  // Mesma base do "Total" do resumo (lançamentos não excluídos), então os números fecham (RD-38).
+  const composicao = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const l of lancs) {
+      const nome = cats.find((c) => c.codigo === l.categoria)?.descricao || l.categoria || 'Sem categoria'
+      m.set(nome, (m.get(nome) ?? 0) + Number(l.valor ?? 0))
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1])
+  }, [lancs, cats])
 
   async function criar() {
     if (!empresa) return
@@ -238,12 +256,20 @@ export default function ViagensPage() {
             <Campo rotulo="De" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.de} onChange={(e) => setFiltro({ ...filtro, de: e.target.value })} /></Campo>
             <Campo rotulo="Até" ajuda="projetos.viagem.filtro_periodo"><input type="date" className={campo} value={filtro.ate} onChange={(e) => setFiltro({ ...filtro, ate: e.target.value })} /></Campo>
           </div>
+          <div className="mb-1 flex items-center px-1 text-xs opacity-60"><span className="inline-flex items-center">{filtradas.length === viagens.length ? `${viagens.length} viagem(ns)` : `${filtradas.length} de ${viagens.length} viagem(ns)`}<AjudaCampo chave="projetos.viagem.total_lista" /></span></div>
           <div className="mb-1 flex justify-between px-1 text-xs opacity-60"><span>Viagem<AjudaCampo chave="projetos.viagem.card_viagem" /></span><span>Situação<AjudaCampo chave="projetos.viagem.status" /></span></div>
           {filtradas.length === 0 && <p className="rounded-xl border bg-white p-4 text-center text-sm opacity-70" style={{ borderColor: LINE }}>Nenhuma viagem com esse filtro. <button className="underline" onClick={() => setFiltro({ obra: '', quem: '', de: '', ate: '' })}>Limpar filtro</button></p>}
-          <ul className="space-y-2">{filtradas.map((v) => (
-            <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-center justify-between rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
-              <span><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span></span>
-              <span className="text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}{noGe[v.id] ? ' · no GE' : ''}</span></button></li>))}</ul></>)}
+          <ul className="space-y-2">{filtradas.map((v) => {
+            const km = v.km_inicial != null && v.km_final != null && v.km_final >= v.km_inicial ? v.km_final - v.km_inicial : null
+            const rota = v.origem || v.destino ? `${v.origem ?? '—'} → ${v.destino ?? '—'}` : null
+            // km rodado só existe na viagem fechada; na aberta mostramos o hodômetro de saída. Ambos terminam em "km"
+            // para a lista ter um só formato (auditor PDCA 26/10 — "saída km X" destoava do "X km" das outras).
+            const kmTxt = km != null ? `${km.toLocaleString('pt-BR')} km` : (v.km_inicial != null ? `saída ${v.km_inicial.toLocaleString('pt-BR')} km` : null)
+            return (
+            <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-start justify-between gap-3 rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
+              <span className="min-w-0 flex-1 break-words"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
+                {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</span>
+              <span className="flex shrink-0 flex-col items-end gap-1 text-right"><b className="whitespace-nowrap text-sm tabular-nums" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><span className="flex flex-wrap items-center justify-end gap-1 text-xs font-medium"><span style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}</span>{noGe[v.id] ? <span className="shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] leading-none" style={{ borderColor: GOLD, color: GOLD }}>no GE</span> : null}</span></span></button></li>)})}</ul></>)}
 
       {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
 
@@ -260,6 +286,15 @@ export default function ViagensPage() {
               <div>Litros<AjudaCampo chave="projetos.viagem.resumo_litros" /><br /><b>{resumo.litros ? `${resumo.litros.toLocaleString('pt-BR')} L` : '—'}</b></div>
               <div>Consumo desta viagem<AjudaCampo chave="projetos.viagem.resumo_consumo" /><br /><b>{resumo.media_km_l != null ? `${resumo.media_km_l.toLocaleString('pt-BR')} km/l` : '—'}</b></div>
               <div className="col-span-2 sm:col-span-4 text-xs opacity-80">{resumoTexto(resumo.saldo)}{resumo.km_rodado == null ? ' · informe o km da saída e da volta para ver o custo por km e o consumo' : ''}</div></div>}
+            {composicao.length > 0 && (
+              <div className="mt-3 rounded-lg border p-2 text-sm" style={{ borderColor: LINE }}>
+                <div className="mb-1 flex items-center text-xs font-medium opacity-70">Composição do custo<AjudaCampo chave="projetos.viagem.composicao_custo" /></div>
+                <ul className="space-y-0.5">{composicao.map(([nome, valor]) => (
+                  <li key={nome} className="flex items-baseline justify-between gap-3"><span className="min-w-0 break-words opacity-80">{nome}</span><span className="shrink-0 tabular-nums">{brl(valor)}</span></li>))}</ul>
+                <div className="mt-1 flex items-baseline justify-between gap-3 border-t pt-1 font-medium" style={{ borderColor: LINE }}><span>Total</span><span className="shrink-0 tabular-nums">{brl(composicao.reduce((s, [, v]) => s + v, 0))}</span></div>
+                {resumo?.km_rodado != null && resumo.custo_km != null && <div className="mt-1 text-xs opacity-70">{resumo.km_rodado.toLocaleString('pt-BR')} km × {brl(resumo.custo_km)}/km</div>}
+              </div>
+            )}
             {aberta.status === 'aberta' && podeGravar && <div className="mt-2 flex flex-wrap items-end gap-2">
               <Campo rotulo="Km na saída" ajuda="projetos.viagem.km_inicial"><input inputMode="decimal" className={campo} value={km.ini} onChange={(e) => setKm({ ...km, ini: e.target.value.replace(',', '.') })} /></Campo>
               <Campo rotulo="Km na volta" ajuda="projetos.viagem.km_final"><input inputMode="decimal" className={campo} value={km.fim} onChange={(e) => setKm({ ...km, fim: e.target.value.replace(',', '.') })} /></Campo>
