@@ -15,6 +15,7 @@ import {
   validarNFeAvulsa, cfopNoCatalogo, formatarCfop, ufDestino, soDigitos,
   ICMS_OPCOES_SIMPLES, ICMS_OPCOES_NORMAL, type CfopSaida, type FinalidadeNFe,
 } from '@/lib/fiscal/nfeAvulsa'
+import { termosBuscaProduto, filtroTermoProduto, filtroPrefixoProduto, juntarResultados } from '@/lib/fiscal/buscaProdutoAvulsa'
 import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info } from 'lucide-react'
 
 interface DestPessoa {
@@ -86,7 +87,7 @@ export default function RemessaClient() {
   const [valorFrete, setValorFrete] = useState(0)
   const [observacoes, setObservacoes] = useState('')
 
-  const [produtos, setProdutos] = useState<Produto[]>([])
+  const [produtosFiltrados, setProdutosFiltrados] = useState<Produto[]>([])
   const [itens, setItens] = useState<ItemRem[]>([])
   const [produtoBusca, setProdutoBusca] = useState('')
 
@@ -103,20 +104,13 @@ export default function RemessaClient() {
   useEffect(() => {
     if (!companyId) return
     void (async () => {
-      const [t, p, c, e] = await Promise.all([
+      const [t, c, e] = await Promise.all([
         supabase
           .from('erp_fiscal_remessa_tipos')
           .select('id, nome, natureza, cfop_dentro, cfop_fora')
           .eq('ativo', true)
           .or(`company_id.is.null,company_id.eq.${companyId}`)
           .order('nome'),
-        supabase
-          .from('erp_produtos')
-          .select('id, codigo, nome, preco_venda')
-          .eq('company_id', companyId)
-          .eq('ativo', true)
-          .order('nome')
-          .limit(500),
         supabase
           .from('erp_fiscal_cfop_saida')
           .select('cfop, descricao, natureza_sugerida, exige_referenciada')
@@ -125,7 +119,6 @@ export default function RemessaClient() {
         supabase.from('companies').select('uf_fiscal, regime_tributario').eq('id', companyId).maybeSingle(),
       ])
       setTipos((t.data ?? []) as RemessaTipo[])
-      setProdutos((p.data ?? []) as Produto[])
       setCatalogo((c.data ?? []) as CfopSaida[])
       const emp = (e.data ?? {}) as { uf_fiscal?: string | null; regime_tributario?: string | null }
       setUfEmpresa(ufDestino(emp.uf_fiscal))
@@ -190,12 +183,31 @@ export default function RemessaClient() {
     setItens((arr) => arr.filter((_, i) => i !== idx))
   }
 
-  const produtosFiltrados = produtoBusca.trim().length > 0
-    ? produtos.filter((p) =>
-        p.nome.toLowerCase().includes(produtoBusca.toLowerCase()) ||
-        (p.codigo ?? '').toLowerCase().includes(produtoBusca.toLowerCase())
-      ).slice(0, 20)
-    : []
+  // #3861: busca no banco (todos os produtos ativos da empresa), não numa lista dos 500 primeiros.
+  useEffect(() => {
+    const termos = termosBuscaProduto(produtoBusca)
+    if (!companyId || termos.length === 0) { setProdutosFiltrados([]); return }
+    let cancelado = false
+    const h = window.setTimeout(async () => {
+      const consulta = () => {
+        let q = supabase
+          .from('erp_produtos')
+          .select('id, codigo, nome, preco_venda')
+          .eq('company_id', companyId)
+          .eq('ativo', true)
+        for (const t of termos) q = q.or(filtroTermoProduto(t))
+        return q
+      }
+      const [comeca, contem] = await Promise.all([
+        consulta().or(filtroPrefixoProduto(termos[0])).order('nome').limit(30),
+        consulta().order('nome').limit(50),
+      ])
+      if (!cancelado) {
+        setProdutosFiltrados(juntarResultados((comeca.data ?? []) as Produto[], (contem.data ?? []) as Produto[]))
+      }
+    }, 250)
+    return () => { cancelado = true; window.clearTimeout(h) }
+  }, [produtoBusca, companyId])
 
   const cfopsFiltrados = useMemo(() => {
     const q = cfopBusca.trim().toLowerCase()
