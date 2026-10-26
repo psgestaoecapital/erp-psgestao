@@ -43,5 +43,15 @@ ok(tela.includes('Nota enviada, aguardando SEFAZ') && tela.includes('/api/fiscal
 ok(tela.includes('!aguardando && !!previa'), 'botão travado enquanto aguarda a SEFAZ')
 ok(tela.includes('ie, contribuinte_icms') && tela.includes('contribuinteIcms: destinatario.contribuinte_icms'), 'tela valida a IE antes de enviar (mesma regra da rota)')
 
+// item 4: "Corrigir e reenviar" para QUALQUER nota recusada (não só devolução)
+const lista = readFileSync('src/app/dashboard/fiscal/nfe/NFeListClient.tsx', 'utf8')
+ok(!lista.includes('Só a devolução tem reenvio pré-preenchido'), 'lista não recusa mais o reenvio de nota que não é devolução')
+ok(lista.includes('/dashboard/fiscal/nfe/remessa?reenviar=${doc.principal_id}'), 'reenvio abre "Emitir NF-e" pré-preenchida pela nota recusada')
+ok(tela.includes("get('reenviar')") && tela.includes("for (const tabela of ['erp_clientes', 'erp_fornecedores'] as const)"), 'tela acha o destinatário em clientes OU fornecedores')
+ok(tela.includes(".in('codigo', codigos)") && tela.includes('informacoes_adicionais_contribuinte') && tela.includes('setValorFrete(frete)'), 'tela preenche itens, frete e informações complementares')
+ok(tela.includes('...(reenvioDe ? { reenvioDe } : {})'), 'tela manda o id da nota recusada')
+ok(rota.includes("orig.status === 'autorizada' || orig.status === 'processando'") && rota.includes(".eq('id', body.reenvioDe)\n        .eq('company_id', body.companyId)"), 'rota só reenvia nota recusada da mesma empresa')
+ok(/p_erp_receber_id: null/.test(rota) && rota.includes('erp_receber_id: vinculoReenvio.erp_receber_id'), 'reenvio herda só o vínculo (não gera nem altera título)')
+
 if (falhas) { console.error(`\n${falhas} falha(s) no gate da IE do destinatário da NF-e avulsa`); process.exit(1) }
 console.log('\nGate IE do destinatário da NF-e avulsa: ok')

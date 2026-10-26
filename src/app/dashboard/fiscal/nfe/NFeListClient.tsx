@@ -270,7 +270,8 @@ export default function NFeListClient() {
   }
 
   // "Corrigir e reenviar" documento não emitido — devolução (reabre a tela de devolução pré-preenchida
-  // pela nota de compra referenciada) ou nota de OS (#2167: abre a própria OS, onde o botão vira "Reenviar NF-e").
+  // pela nota de compra referenciada), nota de OS (#2167: abre a própria OS, onde o botão vira "Reenviar NF-e")
+  // ou qualquer outra (#3861: "Emitir NF-e" pré-preenchida pela nota recusada).
   // Busca a finalidade/chave_referenciada/os_id no registro principal.
   async function corrigirEReenviar(doc: Documento) {
     setReabrindo(doc.grupo_chave)
@@ -285,7 +286,9 @@ export default function NFeListClient() {
         return
       }
       if (nota.finalidade !== 'devolucao' || !nota.chave_referenciada) {
-        alert('Só a devolução tem reenvio pré-preenchido. Reemita esta nota pela tela de origem (venda/pedido).')
+        // #3861 · qualquer outra nota recusada (avulsa, venda, pedido): abre "Emitir NF-e" com os dados dela,
+        // relendo o cadastro atual do destinatário; a nova nota herda o vínculo com o pedido/título.
+        router.push(`/dashboard/fiscal/nfe/remessa?reenviar=${doc.principal_id}`)
         return
       }
       const { data: rec } = await supabase
