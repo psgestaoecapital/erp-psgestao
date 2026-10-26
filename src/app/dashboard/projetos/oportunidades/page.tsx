@@ -246,6 +246,7 @@ export default function OportunidadesPage() {
         onCount={setCountKanban}
         onEdit={(id) => { const r = rows.find((x) => x.id === id); if (r) setEditing(rowParaForm(r)) }}
         onExcluir={(id) => { const r = rows.find((x) => x.id === id); if (r) excluir(r) }}
+        onNova={(etapa) => setEditing({ ...oportunidadeVazia(), etapa })}
         excluindoId={excluindoId}
         onMoved={(m) => { setToast(m); reload(); setKanbanKey((k) => k + 1) }}
         onError={(m) => setToast(m)}
