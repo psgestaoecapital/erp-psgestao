@@ -16,6 +16,7 @@ ok(iHelper >= 0 && iTrg > iHelper, 'helper criado antes do gatilho')
 const helper = sql.slice(iHelper, iTrg)
 ok(/SECURITY DEFINER/.test(helper) && /SET search_path TO 'public', 'pg_temp'/.test(helper), 'helper SECURITY DEFINER com search_path fixo')
 ok(/ativo = true/.test(helper) && /sync_mode NOT IN \('read_only','paused'\)/.test(helper), "helper: só ativo e fora de read_only/paused envia")
+ok(/auth\.uid\(\) IS NOT NULL AND NOT public\.is_admin\(\) AND \(p_company_id IS NULL OR p_company_id NOT IN \(SELECT public\.get_user_company_ids\(\)\)\)/.test(helper) && /RAISE EXCEPTION 'Sem acesso a esta empresa'/.test(helper), 'helper recusa empresa que não é do usuário (mesma guarda de fn_outbox_enfileirar)')
 ok(/REVOKE ALL ON FUNCTION public\.fn_outbox_envio_ativo\(uuid, text\) FROM PUBLIC, anon;/.test(sql), 'helper fechado para anon')
 
 const trg = sql.slice(iTrg)

@@ -10,13 +10,19 @@
 
 CREATE OR REPLACE FUNCTION public.fn_outbox_envio_ativo(p_company_id uuid, p_provider text)
  RETURNS boolean
- LANGUAGE sql
+ LANGUAGE plpgsql
  STABLE
  SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
 AS $function$
+BEGIN
+  -- mesma guarda de fn_outbox_enfileirar: a empresa tem de ser do usuário (sem usuário = serviço/cron passa)
+  IF auth.uid() IS NOT NULL AND NOT public.is_admin() AND (p_company_id IS NULL OR p_company_id NOT IN (SELECT public.get_user_company_ids())) THEN
+    RAISE EXCEPTION 'Sem acesso a esta empresa' USING ERRCODE = '42501';
+  END IF;
+
   -- mesma regra de fn_outbox_enfileirar: sem config ativa = 'paused'; read_only/paused não enviam
-  SELECT EXISTS (
+  RETURN EXISTS (
     SELECT 1 FROM public.erp_provider_config
      WHERE company_id = p_company_id
        AND provider = p_provider
@@ -24,6 +30,7 @@ AS $function$
        AND sync_mode IS NOT NULL
        AND sync_mode NOT IN ('read_only','paused')
   );
+END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.fn_outbox_envio_ativo(uuid, text) FROM PUBLIC, anon;
