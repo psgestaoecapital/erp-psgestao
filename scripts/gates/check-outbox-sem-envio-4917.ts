@@ -1,9 +1,10 @@
 // Gate (#4917 item 2, jordana-code 27/10): o gatilho do outbox de pagar/receber sai antes de qualquer consulta quando a
 // empresa não tem provider com ENVIO ativo (sem config, read_only ou paused), sem gravar linha 'cancelado'; quem envia
 // continua passando por fn_outbox_enfileirar como antes. Sem rede, banco ou variável.
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 
-const ARQ = 'supabase/migrations/20261027003020_outbox_pular_sem_envio_4917.sql'
+// acha a migration pelo sufixo: a fila pode renumerar a versão sem quebrar o gate
+const ARQ = 'supabase/migrations/' + (readdirSync('supabase/migrations').find((f) => f.endsWith('_outbox_pular_sem_envio_4917.sql')) ?? '_outbox_pular_sem_envio_4917.sql')
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
