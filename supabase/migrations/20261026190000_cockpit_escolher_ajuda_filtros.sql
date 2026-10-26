@@ -1,0 +1,9 @@
+-- "?" (RD-95) da busca, do filtro e dos indicadores dos cards do Cockpit (escolher obra). Aditiva: só linhas de ajuda.
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+VALUES
+('projetos.cockpit.busca_obra', 'Cockpit', 'Buscar obra', 'Digite parte do número ou do nome da obra.', 'Acha a obra rápido quando a lista cresce.', 'FC-001 ou piso', 'Buscar pelo cliente: a busca olha só número e nome da obra.', 140, '/dashboard/projetos/cockpit', 'projetos', 'publicado'),
+('projetos.cockpit.filtro_situacao', 'Cockpit', 'Filtrar por situação', 'Escolha uma situação para listar só as obras nela.', 'Separa o que está em andamento do que já foi concluído ou pausado.', 'Em andamento (3)', 'Achar que a obra sumiu: confira se o filtro está em "Todas as situações".', 150, '/dashboard/projetos/cockpit', 'projetos', 'publicado'),
+('projetos.cockpit.card_custo', 'Cockpit', 'Custo previsto', 'Nada a preencher: vem do orçamento aprovado da obra.', 'É quanto se espera gastar na obra; compare com o custo real dentro do cockpit.', 'R$ 120.000', 'Confundir com custo realizado: aqui é o previsto.', 160, '/dashboard/projetos/cockpit', 'projetos', 'publicado'),
+('projetos.cockpit.card_receita', 'Cockpit', 'Receita prevista', 'Nada a preencher: vem do orçamento aprovado da obra.', 'É quanto a obra deve faturar (serviço + material).', 'R$ 180.000', 'Esperar valor aqui sem orçamento aprovado.', 170, '/dashboard/projetos/cockpit', 'projetos', 'publicado'),
+('projetos.cockpit.card_margem', 'Cockpit', 'Margem prevista', 'Nada a preencher: calculada como (receita − custo) ÷ receita.', 'Mostra de relance se a obra dá lucro; vermelho = margem negativa.', '33,3%', 'Confundir com margem realizada, que só aparece no cockpit da obra.', 180, '/dashboard/projetos/cockpit', 'projetos', 'publicado')
+ON CONFLICT (chave) DO NOTHING;
