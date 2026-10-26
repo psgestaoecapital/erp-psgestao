@@ -250,10 +250,12 @@ export default function ViagensPage() {
           <ul className="space-y-2">{filtradas.map((v) => {
             const km = v.km_inicial != null && v.km_final != null && v.km_final >= v.km_inicial ? v.km_final - v.km_inicial : null
             const rota = v.origem || v.destino ? `${v.origem ?? '—'} → ${v.destino ?? '—'}` : null
+            // km rodado só existe na viagem fechada; na aberta mostramos o hodômetro de saída para dar a mesma leitura visual
+            const kmTxt = km != null ? `${km.toLocaleString('pt-BR')} km` : (v.km_inicial != null ? `saída km ${v.km_inicial.toLocaleString('pt-BR')}` : null)
             return (
             <li key={v.id}><button onClick={() => abrir(v)} className="flex w-full items-start justify-between gap-3 rounded-xl border bg-white p-3 text-left" style={{ borderColor: LINE }}>
               <span className="min-w-0"><b>Viagem {v.numero}</b> · {v.colaborador_nome}<br /><span className="text-xs opacity-60">{dt(v.periodo_inicio)} a {dt(v.periodo_fim)} · {obraNome(v.obra_id)}</span>
-                {(km != null || rota) && <><br /><span className="text-xs opacity-60">{[rota, km != null ? `${km.toLocaleString('pt-BR')} km` : null].filter(Boolean).join(' · ')}</span></>}</span>
+                {(kmTxt || rota) && <><br /><span className="text-xs opacity-60">{rota && <span className="font-medium" style={{ color: ESP }}>Rota </span>}{[rota, kmTxt].filter(Boolean).join(' · ')}</span></>}</span>
               <span className="shrink-0 text-right"><b className="text-sm" style={{ color: ESP }}>{brl(totais[v.id] ?? 0)}</b><br /><span className="whitespace-nowrap text-xs font-medium" style={{ color: v.status === 'aberta' ? GOLD : ESP }}>{v.status}{noGe[v.id] ? ' · no GE' : ''}</span></span></button></li>)})}</ul></>)}
 
       {!aberta && <RelatorioViagens empresa={empresa} obras={obras} />}
