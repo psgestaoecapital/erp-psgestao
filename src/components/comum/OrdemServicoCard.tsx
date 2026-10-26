@@ -15,6 +15,7 @@ import OSNotasFiscaisSelo from '@/components/comum/OSNotasFiscaisSelo'   // cham
 import OSNFForaDaOS from '@/components/comum/OSNFForaDaOS'   // chamado #2167 · marcação "NF fora da OS"
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
+import { useOficinaRamo } from '@/lib/oficina/ramo'   // HB0 item 6 · campos de oficina só no ramo automotivo
 import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
@@ -189,6 +190,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const podeAjustarEntregue = isMaster || isBpo             // BUG #16b: Master OU BPO ajustam pós-entrega
   const bloqueadoEntrega = Boolean(entregue && !podeAjustarEntregue)
   const roEntrega = bloqueadoEntrega                         // readOnly nos campos quando bloqueado
+  const { config: ramoCfg, carregado: ramoCarregado } = useOficinaRamo(os?.company_id ?? null)
+  const mostraPlaca = !ramoCarregado || ramoCfg.automotivo   // desconhecido/carregando = automotiva (regressão zero)
   const oficina = useOficinaModelo(os?.company_id ?? null)   // #135 · modelo de atendimento da empresa da OS
   const tipEntrega = 'OS entregue — ajustes só por Master ou BPO.'
 
@@ -699,6 +702,20 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         </div>
       )}
 
+      {/* #2867 etapa 3 · OS-orçamento: agenda o serviço direto daqui (a agenda abre já preenchida; na chegada do veículo faz-se a recepção/checklist). */}
+      {os.status === 'orcamento' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <a
+            href={`/dashboard/oficina/agenda?${new URLSearchParams({ os: os.id, osn: os.numero ?? '', cliente: os.cliente_nome ?? '', clienteId: os.cliente_id ?? '', placa: os.placa ?? '' }).toString()}`}
+            data-testid="os-agendar-orcamento"
+            style={{ ...btnPri, minHeight: 44, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+          >
+            Agendar serviço
+          </a>
+          <AjudaCampo chave="os.orcamento.agendar" rota="/dashboard/os" />
+        </div>
+      )}
+
       {/* #135 (Triches) · atendimento centralizado: aprovar o orçamento aqui mesmo (a tela de Aprovação fica opcional) */}
       {podeAprovarNaOS(oficina.modelo, oficina.podePreco, os.status, itensPendentes.length) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -712,8 +729,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
 
       {/* #121 · placa editável (erro de digitação ao abrir a OS). Mesma RPC do pátio (fn_oficina_os_set_placa):
           normaliza (maiúsculas, sem traço) e exige ≥ 5 caracteres. Salva na hora, separado do "Salvar" da ficha. */}
-      <div style={{ display: 'block' }}>
-        <span style={lbl}>Placa</span>
+      {mostraPlaca && <div style={{ display: 'block' }}>
+        <span style={lbl}>Placa <AjudaCampo chave="os.ficha.placa" rota="/dashboard/os" /></span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
             value={placaEdit}
@@ -746,7 +763,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           )}
         </div>
         {msgPlaca && <div data-testid="os-placa-msg" style={{ fontSize: 12, marginTop: 4, color: msgPlaca.startsWith('Placa SALVA') ? C.green : C.red }}>{msgPlaca}</div>}
-      </div>
+      </div>}
 
       {/* FIX 1 · cliente editável em qualquer status + re-vínculo a outro cadastro */}
       <div style={{ display: 'block' }}>

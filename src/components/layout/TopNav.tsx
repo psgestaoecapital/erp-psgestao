@@ -146,8 +146,11 @@ export default function TopNav() {
   }, [])
 
   return (
-    <header className="sticky top-0 z-20 bg-[#FAF7F2] border-b border-[#3D2314]/10 h-14 px-3 sm:px-4 flex items-center justify-between">
-      <div className="flex items-center gap-2">
+    // Celular 390px (auditor 24/10): o cabeçalho tem de caber na tela — antes alargava o shell para 404px e cortava o
+    // "Sair". No celular: sem o texto "PS Gestão" (fica o selo PS), botões de 32px com folga de 4px e o logo da empresa
+    // é o único item que encolhe (min-w-0). Do sm para cima, igual a antes.
+    <header className="sticky top-0 z-20 bg-[#FAF7F2] border-b border-[#3D2314]/10 h-14 px-3 sm:px-4 flex items-center justify-between gap-2 min-w-0" data-testid="topnav">
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         <div className="md:hidden bg-[#3D2314] rounded-lg">
           <MobileDrawer />
         </div>
@@ -158,19 +161,19 @@ export default function TopNav() {
           <span className="w-8 h-8 bg-[#C8941A] rounded-md flex items-center justify-center text-[#3D2314] font-medium text-[12px]">
             PS
           </span>
-          <span className="text-[14px] font-medium">PS Gestão</span>
+          <span className="hidden sm:inline text-[14px] font-medium">PS Gestão</span>
         </Link>
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center justify-end gap-1 sm:gap-3 min-w-0">
         {/* BRAND-1 · logo/iniciais da empresa selecionada, à esquerda do sino */}
         {selInfo.tipo === 'empresa' && (
-          <div className="flex items-center pr-1 sm:pr-2 sm:border-r sm:border-[#3D2314]/10" title={empresaNome} data-testid="topnav-empresa-logo">
+          <div className="flex items-center min-w-0 max-w-[92px] sm:max-w-none pr-1 sm:pr-2 sm:border-r sm:border-[#3D2314]/10" title={empresaNome} data-testid="topnav-empresa-logo">
             {empresaLogo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={empresaLogo} alt={empresaNome} className="h-6 sm:h-8 w-auto max-w-[92px] sm:max-w-[128px] object-contain" />
+              <img src={empresaLogo} alt={empresaNome} className="h-6 sm:h-8 w-auto min-w-0 max-w-full sm:max-w-[128px] object-contain" />
             ) : (
-              <span className="w-8 h-8 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[12px] flex items-center justify-center ring-[1.5px] ring-[#3D2314]/15">
+              <span className="w-8 h-8 shrink-0 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[12px] flex items-center justify-center ring-[1.5px] ring-[#3D2314]/15">
                 {iniciaisDe(empresaNome)}
               </span>
             )}
@@ -184,7 +187,7 @@ export default function TopNav() {
             aria-label="Central de Desenvolvimento"
             title={`Central de Desenvolvimento · ${devBadge.numero} aguardando você · saúde: ${devBadge.cor}`}
             data-testid="header-central-dev"
-            className="relative w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+            className="relative w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
           >
             <Gauge size={18} />
             <span
@@ -205,7 +208,7 @@ export default function TopNav() {
           aria-label="Central de Melhorias"
           title="Melhorias"
           data-testid="header-melhorias"
-          className="w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+          className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
         >
           <Lightbulb size={18} />
         </Link>
@@ -216,7 +219,7 @@ export default function TopNav() {
           title="Ajuda"
           data-testid="header-ajuda"
           onClick={() => abrirAjuda()}
-          className="w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+          className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
         >
           <HelpCircle size={18} />
         </button>
@@ -228,7 +231,7 @@ export default function TopNav() {
             aria-expanded={sinoAberto}
             data-testid="bell-notifications"
             onClick={() => setSinoAberto((s) => !s)}
-            className="relative w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+            className="relative w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
           >
             <Bell size={18} />
             {temNotificacao && (
@@ -323,7 +326,7 @@ export default function TopNav() {
               aria-expanded={menuAberto}
               data-testid="user-avatar"
               onClick={() => setMenuAberto((v) => !v)}
-              className="w-9 h-9 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[13px] flex items-center justify-center hover:opacity-95 transition-opacity ring-[1.5px] ring-[#3D2314]/15"
+              className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-full bg-[#C8941A] text-[#3D2314] font-medium text-[13px] flex items-center justify-center hover:opacity-95 transition-opacity ring-[1.5px] ring-[#3D2314]/15"
             >
               {user.iniciais}
             </button>
@@ -355,7 +358,7 @@ export default function TopNav() {
             title="Sair"
             data-testid="header-logout"
             onClick={() => void sair()}
-            className="w-9 h-9 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
+            className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-lg hover:bg-[#3D2314]/8 flex items-center justify-center transition-colors text-[#3D2314]"
           >
             <LogOut size={18} />
           </button>
