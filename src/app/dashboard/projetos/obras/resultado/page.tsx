@@ -88,6 +88,11 @@ export default function ResultadoObrasPage() {
               <button data-testid="resultado-pdf" onClick={() => window.print()} style={{ padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Baixar PDF</button>
               <AjudaCampo chave="projetos.resultado_obra.pdf" />
             </div>
+            {total.receita === 0 && total.custo > 0 && (
+              <p data-testid="resultado-sem-receita" className="no-print" style={{ fontSize: 13, color: MUT, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 12px', margin: '0 0 8px' }}>
+                Ainda não há receita realizada: ela entra quando houver medição de serviço ou venda de material na obra. Enquanto isso, a margem mostra só o custo já lançado e a receita prevista ({fmtR(total.prevista)}) fica como referência.
+              </p>
+            )}
             <style>{'@media print{.no-print{display:none!important}body{background:#fff}}'}</style>
             {/* celular (< md): um cartão por obra + o consolidado, sem rolagem lateral (HB0 · correção 9). A impressão usa a tabela. */}
             <div className="md:hidden no-print" data-testid="resultado-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
