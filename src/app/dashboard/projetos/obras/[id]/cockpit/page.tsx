@@ -71,7 +71,13 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
           Cockpit {r ? `· ${r.numero}${r.nome ? ` — ${r.nome}` : ''}` : ''}
         </h1>
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div>
-          : erro ? <div style={{ background: '#FBEAEA', color: VERM, borderRadius: 10, padding: 14, fontSize: 13 }}>{erro}</div>
+          : erro ? (
+            <div data-testid="cockpit-erro" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 14, padding: '32px 24px', textAlign: 'center', maxWidth: 440, margin: '20px auto 0' }}>
+              <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 400, color: ESP, marginBottom: 6 }}>Não foi possível abrir este cockpit</div>
+              <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5, marginBottom: 18 }}>{erro}</div>
+              <Link href="/dashboard/projetos/obras?area=hub" data-testid="cockpit-erro-voltar" style={{ display: 'inline-block', background: ESP, color: BG, borderRadius: 10, padding: '10px 20px', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>Voltar para Obras</Link>
+            </div>
+          )
           : (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 }}>
