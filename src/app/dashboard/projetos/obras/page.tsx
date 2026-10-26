@@ -22,8 +22,8 @@ type Obra = {
   responsavel_nome: string | null; data_inicio: string | null; data_prevista_fim: string | null; data_conclusao: string | null
 }
 type Kpis = { em_andamento: number; concluidas: number; valor_em_andamento: number; valor_concluido: number }
-// Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita. Custo entra em novembro, com o centro de custo.
-type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number }
+// Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita; custo real (material + viagens) vem de v_obra_resultado.
+type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number; custo?: number }
 
 const ST: Record<string, { label: string; cor: string }> = {
   em_andamento: { label: 'Em andamento', cor: GOLD },
@@ -63,7 +63,9 @@ export default function ObrasPage() {
       setKpis(k as Kpis); setObras((l as Obra[]) ?? [])
       // receita não derruba o board: se falhar, o cartão mostra "não deu para carregar"
       const { data: rc, error: er } = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
-      setReceita(er ? null : Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, x])))
+      const { data: cs } = await supabase.from('v_obra_resultado').select('obra_id,custo_material,custo_viagens').in('company_id', companyIds)
+      const custoPorObra = new Map(((cs as { obra_id: string; custo_material: number; custo_viagens: number }[]) ?? []).map((x) => [x.obra_id, Number(x.custo_material || 0) + Number(x.custo_viagens || 0)]))
+      setReceita(er ? null : Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, { ...x, custo: custoPorObra.get(x.obra_id) ?? 0 }])))
     } catch {
       setErro(MSG_CARREGAMENTO_FALHOU)
     } finally {
@@ -248,7 +250,7 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
             {cel('Faturado', fmtRc(r?.faturado ?? 0), ESP, 'obra-faturado')}
             {cel('Recebido', fmtRc(r?.recebido ?? 0), VERDE, 'obra-recebido')}
             {cel('A receber', fmtRc(r?.a_receber ?? 0), GOLD, 'obra-a-receber')}
-            {cel('Custo', 'a partir de novembro', MUT, 'obra-custo')}
+            {cel('Custo real', r && r.custo ? fmtRc(r.custo) : 'Sem custo lançado', r && r.custo ? ESP : MUT, 'obra-custo')}
           </div>
           <div style={{ fontSize: 10.5, color: MUT, marginTop: 4 }} data-testid="obra-notas">
             {r && r.notas > 0 ? `${r.notas} NFS-e autorizada(s)` : 'Nenhuma NFS-e autorizada ligada a esta obra'}
