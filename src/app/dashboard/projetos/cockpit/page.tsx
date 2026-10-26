@@ -79,11 +79,13 @@ export default function CockpitEscolherObraPage() {
     })
   }, [obras, info, busca, filtroStatus])
 
-  const atrasadas = obras.filter(o => o.status === 'em_andamento' && info[o.obra_id]?.data_prevista_fim && (info[o.obra_id]!.data_prevista_fim as string) < hoje).length
+  // Topo e cards saem do MESMO conjunto (as obras listadas, já filtradas): o total fecha com a soma dos cards.
+  const atrasadas = filtradas.filter(o => o.status === 'em_andamento' && info[o.obra_id]?.data_prevista_fim && (info[o.obra_id]!.data_prevista_fim as string) < hoje).length
+  const filtrando = filtradas.length !== obras.length
   const resumo = [
-    { k: 'Obras', v: String(obras.length), chave: 'projetos.cockpit.kpi_obras' },
-    { k: 'Em andamento', v: String(obras.filter(o => o.status === 'em_andamento').length), chave: 'projetos.cockpit.kpi_andamento' },
-    { k: 'Margem realizada', v: brl(obras.reduce((t, o) => t + num(o.margem_realizada), 0)), chave: 'projetos.cockpit.kpi_margem' },
+    { k: 'Obras', v: filtrando ? `${filtradas.length} de ${obras.length}` : String(obras.length), chave: 'projetos.cockpit.kpi_obras' },
+    { k: 'Em andamento', v: String(filtradas.filter(o => o.status === 'em_andamento').length), chave: 'projetos.cockpit.kpi_andamento' },
+    { k: 'Margem realizada', v: brl(filtradas.reduce((t, o) => t + num(o.margem_realizada), 0)), chave: 'projetos.cockpit.kpi_margem' },
     { k: 'Com prazo vencido', v: String(atrasadas), chave: 'projetos.cockpit.kpi_atrasadas' },
   ]
 
@@ -117,6 +119,7 @@ export default function CockpitEscolherObraPage() {
             </select>
             <AjudaCampo chave="projetos.cockpit.filtro_situacao" rota={ROTA} />
           </div>
+          {filtradas.length > 0 && <div style={{ color: MUT, fontSize: 12, marginBottom: 10 }} data-testid="cockpit-contagem">Mostrando {filtradas.length} de {obras.length} obras — todas listadas abaixo.</div>}
           {filtradas.length === 0 && <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra encontrada com esse filtro.</div>}
         </>
       )}
