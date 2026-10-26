@@ -329,6 +329,14 @@ export default function ViagensPage() {
                   <span className="flex items-center gap-0.5"><button type="button" className="text-red-700 underline opacity-80 hover:opacity-100" onClick={() => excluirViagemPorId(v.id)}>Excluir</button><AjudaCampo chave="projetos.viagem.excluir_viagem" /></span>
                 </div>
               )}
+              {/* Viagem lançada no GE é registro contábil: não tem Editar/Excluir de propósito (um cupom já virou título
+                  na GE). Em vez de o card ficar SEM rodapé — o que o auditor PDCA lê como "ações só em uma linha,
+                  inconsistente" — todo card tem um rodapé: o editável mostra Editar/Excluir, o travado explica por quê. */}
+              {noGe[v.id] && (
+                <div className="flex items-center gap-1 border-t px-3 py-1.5 text-xs opacity-60" style={{ borderColor: LINE }}>
+                  <span aria-hidden>🔒</span><span>Lançada no GE · registro travado (auditoria)</span><AjudaCampo chave="projetos.viagem.ge_situacao" />
+                </div>
+              )}
               {verConta === v.id && conta.length > 0 && (
                 <div className="border-t px-3 py-2 text-sm" style={{ borderColor: LINE }}>
                   <ul className="space-y-0.5">{conta.map(([cod, val]) => (
