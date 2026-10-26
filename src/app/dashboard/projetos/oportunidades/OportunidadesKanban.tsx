@@ -63,6 +63,7 @@ type Card = {
   valor_estimado: number | null
   probabilidade: number | null
   responsavel_id: string | null
+  responsavel_nome?: string | null  // DELTA FC · fallback do texto legado (forward-compatible; usado se o RPC passar a enviá-lo)
   ordem: number | null
   data_prevista: string | null
 }
@@ -91,11 +92,13 @@ interface Props {
   onEdit: (id: string) => void
   onExcluir: (id: string) => void
   excluindoId?: string | null
+  // DELTA FC · coluna vazia ganha CTA "+ nova oportunidade" já na etapa da coluna (estado vazio M.8).
+  onNova: (etapa: string) => void
 }
 
 export default function OportunidadesKanban({
   companyId, usuarios, refreshKey, onMoved, onError,
-  filtroEtapa, filtroResp, busca, onCount, onEdit, onExcluir, excluindoId,
+  filtroEtapa, filtroResp, busca, onCount, onEdit, onExcluir, excluindoId, onNova,
 }: Props) {
   const router = useRouter()
   // FIX 3 · responsável exibido pelo NOME do usuário (via responsavel_id), não pelo texto legado.
@@ -104,6 +107,8 @@ export default function OportunidadesKanban({
     const u = usuarios.find((x) => x.id === id)
     return u ? labelUsuario(u, usuarios) : null
   }
+  // DELTA FC · nome do responsável do card: usuário resolvido por id OU texto legado (responsavel_nome).
+  const respCard = (c: Card): string | null => nomeResp(c.responsavel_id) ?? (c.responsavel_nome?.trim() || null)
   const [pipe, setPipe] = useState<Pipeline | null>(null)
   const [loading, setLoading] = useState(true)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -384,7 +389,10 @@ export default function OportunidadesKanban({
                 </div>
                 <div style={colList}>
                   {cards.length === 0 ? (
-                    <div style={emptyHint}>—</div>
+                    // DELTA FC · coluna vazia: CTA de estado vazio (padrão M.8) em vez de só "—" com muito branco.
+                    <button type="button" onClick={() => onNova(et.v)} style={emptyCta} title={`Nova oportunidade em ${et.l}`}>
+                      + nova oportunidade
+                    </button>
                   ) : cards.map((c) => (
                     <div
                       key={c.id}
@@ -418,18 +426,23 @@ export default function OportunidadesKanban({
                         </a>
                       )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: DOURADO }}>{brl(c.valor_estimado)}</span>
+                        {/* DELTA FC · valor DENTRO do card; nulo → estado claro ("sem valor estimado"), nunca "R$ 0,00" (parecia bug) */}
+                        {c.valor_estimado == null ? (
+                          <span style={{ fontSize: 11.5, color: TEXTM, fontStyle: 'italic' }}>sem valor estimado</span>
+                        ) : (
+                          <span style={{ fontSize: 13, fontWeight: 700, color: DOURADO, fontVariantNumeric: 'tabular-nums' }}>{brl(c.valor_estimado)}</span>
+                        )}
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                           {c.probabilidade != null && <span style={probBadge}>{c.probabilidade}%</span>}
                           {/* o "?" fica fora do clique/Enter do card (senão abriria a ficha) */}
                           <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card" /></span>
                         </span>
                       </div>
-                      {nomeResp(c.responsavel_id) && (
-                        <div style={{ fontSize: 11, color: TEXTM, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <User size={12} aria-hidden />{nomeResp(c.responsavel_id)}
-                        </div>
-                      )}
+                      {/* DELTA FC · responsável em TODO card: nomeResp(id) → texto legado → "Sem responsável" (nunca ocultar) */}
+                      <div style={{ fontSize: 11, color: TEXTM, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <User size={12} aria-hidden />
+                        {respCard(c) ?? <span style={{ fontStyle: 'italic', opacity: 0.8 }}>Sem responsável</span>}
+                      </div>
                       {/* F2.6 · quem moveu por último (autor · ação · data) */}
                       {quemMap[c.id] && (
                         <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>
@@ -664,8 +677,12 @@ const probBadge: CSSProperties = {
   fontSize: 10, fontWeight: 600, color: TEXTM,
   background: '#FAF7F2', padding: '2px 8px', borderRadius: 999, border: `1px solid ${BORDA}`,
 }
-const emptyHint: CSSProperties = {
-  textAlign: 'center', color: TEXTM, fontSize: 12, opacity: 0.6, padding: '12px 0',
+// DELTA FC · CTA de estado vazio da coluna (M.8): convida a criar na própria etapa, sem o "muito branco".
+const emptyCta: CSSProperties = {
+  width: '100%', textAlign: 'center', cursor: 'pointer',
+  color: '#A57A15', fontSize: 12, fontWeight: 600,
+  background: 'transparent', border: `1px dashed ${DOURADO}`, borderRadius: 8,
+  padding: '12px 8px', marginTop: 4,
 }
 const moverSel: CSSProperties = {
   width: '100%', border: `1px solid ${BORDA}`, borderRadius: 6,
