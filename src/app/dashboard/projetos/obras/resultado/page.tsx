@@ -139,8 +139,10 @@ export default function ResultadoObrasPage() {
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
                       <td style={td}>{fmtR(n(l.custo_material))}</td><td style={td}>{fmtR(n(l.custo_viagens))}</td>
                       <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
-                      <td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
-                      <td style={{ ...td, color: cor(margem(l)) }}>{fmtPct(margemPct(receita(l), margem(l)))}</td>
+                      {receita(l) <= 0 && custo(l) > 0
+                        ? <td colSpan={2} data-testid="resultado-sem-medicao" style={{ ...td, color: MUT }} title="Margem = receita medida − custo. Sem medição lançada, a margem ainda não existe.">Sem medição ainda — margem indisponível</td>
+                        : <><td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
+                          <td style={{ ...td, color: cor(margem(l)) }}>{fmtPct(margemPct(receita(l), margem(l)))}</td></>}
                       <td style={td}>{fmtR(n(l.receita_prevista))}</td><td style={td}>{fmtR(n(l.custo_previsto))}</td>
                     </tr>
                   ))}

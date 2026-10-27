@@ -55,6 +55,7 @@ export default function PropostasHubPage() {
   const [obras, setObras] = useState<Record<string, SituacaoObra>>({})
   const [obraErro, setObraErro] = useState(false)
   const [bdiPadrao, setBdiPadrao] = useState<Record<string, number | null>>({})
+  const [demo, setDemo] = useState(false)
 
   // Origem: oportunidades e plantas ligadas às propostas; depois as visitas (diretas ou da oportunidade). Falha → coluna avisa.
   const carregarOrigem = useCallback(async (ids: string[]) => {
@@ -75,6 +76,8 @@ export default function PropostasHubPage() {
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
+    // Empresa de demonstração: os números (ex.: 100% de aprovação) não são adoção real — a tela avisa.
+    supabase.from('companies').select('is_demo').in('id', companyIds).then(({ data }) => setDemo(!!data?.length && (data as { is_demo: boolean | null }[]).every(c => c.is_demo === true)), () => setDemo(false))
     setLoading(true); setErro('')
     try {
       const { data, error } = await comPrazo(
@@ -148,6 +151,7 @@ export default function PropostasHubPage() {
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Propostas</h1>
           <div style={{ fontSize: 12, color: MUT }}>Propostas (orçamentos) enviadas aos clientes — do rascunho ao pedido.</div>
         </div>
+        {demo && <span data-testid="hub-propostas-demo" style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #F59E0B', borderRadius: 999, padding: '4px 10px', fontSize: 12, fontWeight: 600 }}>Empresa de demonstração — números ilustrativos</span>}
         <Link href="/dashboard/orcamentos" style={{ background: GOLD, color: '#fff', padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>+ Nova proposta</Link>
       </div>
 
@@ -225,13 +229,6 @@ export default function PropostasHubPage() {
                 style={{ flex: 1, padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
               <AjudaCampo chave="projetos.propostas.busca" />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <select value={filtro} onChange={e => setFiltro(e.target.value)} style={{ padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
-                <option value="todos">Todos os status</option>
-                {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-              </select>
-              <AjudaCampo chave="projetos.propostas.status" />
-            </div>
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
             <table style={{ width: '100%', minWidth: 1120, borderCollapse: 'collapse' }}>
@@ -301,7 +298,7 @@ export default function PropostasHubPage() {
                             <span style={{ fontWeight: 600 }}>{so.obra.numero}{so.obra.nome ? ` · ${so.obra.nome}` : ''}</span>
                             {so.obra.status && <span style={{ color: MUT }}>{OBRA_STATUS[so.obra.status] ?? so.obra.status}</span>}
                           </Link>
-                        ) : so.tipo === 'sem_obra' ? <span data-testid="hub-proposta-sem-obra" style={{ color: '#B45309', fontWeight: 600 }}>aprovada sem obra</span>
+                        ) : so.tipo === 'sem_obra' ? <Link href={`/dashboard/orcamentos?id=${l.id}`} data-testid="hub-proposta-sem-obra" title="Abra a proposta para congelar o escopo e gerar a obra" style={{ color: '#B45309', fontWeight: 600 }}>aprovada sem obra · gerar obra</Link>
                           : so.tipo === 'nao_e_obra' ? <span style={{ color: MUT }}>não é obra</span>
                           : <span style={{ color: MUT }}>vira obra ao aprovar</span>}
                       </td>
