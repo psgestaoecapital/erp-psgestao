@@ -5,7 +5,11 @@
 // entra no lucro total (RD-51: pendência não vira número bonito).
 
 export type JobMargem = { id: string; valor_job: number | null; custo_estimado: number | null }
-export type ApontamentoMargem = { job_id: string | null; horas: number | null; custo_hora: number | null; custo_total: number | null }
+// LGPD (20261005180000): ninguém lê custo_hora/custo_total de agency_timesheet direto. A margem usa o AGREGADO por job de
+// fn_pm_job_custos: `tem_custo` diz se aquelas horas têm custo/hora da pessoa (sem revelar o valor por hora).
+// `custo_hora` segue aceito (testes e leitura por quem vê salário); quando `tem_custo` vem, ele manda.
+export type ApontamentoMargem = { job_id: string | null; horas: number | null; custo_hora?: number | null; custo_total: number | null; tem_custo?: boolean }
+const semCustoHoraDe = (a: ApontamentoMargem) => (a.tem_custo !== undefined ? !a.tem_custo : !(Number(a.custo_hora ?? 0) > 0))
 
 export type SituacaoMargem = 'ok' | 'sem_custo_hora' | 'sem_custo'
 
@@ -23,7 +27,7 @@ export function calcularMargem(job: JobMargem, apontamentos: ApontamentoMargem[]
   const doJob = apontamentos.filter((a) => a.job_id === job.id)
   const valor = Number(job.valor_job ?? 0)
   const horasSemCusto = doJob
-    .filter((a) => Number(a.horas ?? 0) > 0 && !(Number(a.custo_hora ?? 0) > 0))
+    .filter((a) => Number(a.horas ?? 0) > 0 && semCustoHoraDe(a))
     .reduce((s, a) => s + Number(a.horas ?? 0), 0)
   const custoReal = doJob.reduce((s, a) => s + Number(a.custo_total ?? 0), 0)
 
@@ -51,4 +55,37 @@ export function totaisMargem(linhas: LinhaMargem[]) {
     semCustoHora: linhas.filter((l) => l.situacao === 'sem_custo_hora').length,
     semCusto: linhas.filter((l) => l.situacao === 'sem_custo').length,
   }
+}
+
+// ── Margem agrupada (onda 1 da P&M da Pdois, mapeamento do SIGA — Parte S): o SIGA só mostra por cliente; aqui a mesma
+// conta por job é somada por cliente, por serviço ou por fee (contrato). Mesma regra do job: só entra no lucro do grupo
+// o job com custo completo; os pendentes são contados à parte no próprio grupo (RD-51).
+export type DimensaoMargem = 'job' | 'cliente' | 'servico' | 'fee'
+
+export type GrupoMargem = {
+  chave: string | null
+  jobs: number
+  valor: number
+  custo: number
+  lucro: number
+  margem: number | null
+  pendentes: number
+}
+
+export function agruparMargem(itens: { chave: string | null; linha: LinhaMargem }[]): GrupoMargem[] {
+  const mapa = new Map<string, { chave: string | null; linhas: LinhaMargem[] }>()
+  for (const it of itens) {
+    const k = it.chave ?? ''
+    const g = mapa.get(k) ?? { chave: it.chave, linhas: [] }
+    g.linhas.push(it.linha)
+    mapa.set(k, g)
+  }
+  return [...mapa.values()].map((g) => {
+    const t = totaisMargem(g.linhas)
+    const algumOk = g.linhas.some((l) => l.situacao === 'ok')
+    return {
+      chave: g.chave, jobs: g.linhas.length, valor: t.valor, custo: t.custo, lucro: t.lucro,
+      margem: algumOk ? t.margem : null, pendentes: t.semCustoHora + t.semCusto,
+    }
+  }).sort((a, b) => (a.margem ?? -1e9) - (b.margem ?? -1e9))
 }

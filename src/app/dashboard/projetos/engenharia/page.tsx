@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Ruler, Plus, Check, Sparkles, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 function useEmpresaSelecionada(): { companyId: string | null } {
   const [companyId, setCompanyId] = useState<string | null>(null)
@@ -57,6 +58,8 @@ export default function EngenhariaPage() {
   const [itensGerados, setItensGerados] = useState<ItemGerado[]>([])
   const [bom, setBom] = useState<BomRow[]>([])
   const [addAberto, setAddAberto] = useState(false)
+  const [novoAberto, setNovoAberto] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -117,7 +120,7 @@ export default function EngenhariaPage() {
   // Passo 1 · novo take-off manual (sem DWG). fn_takeoff_planta_salvar aceita arquivo 'manual'.
   const novoTakeoff = async () => {
     if (!companyId) return
-    const nome = window.prompt('Nome do projeto / take-off:')?.trim()
+    const nome = novoNome.trim()
     if (!nome) return
     setBusy(true); setErro(null); setMsg(null)
     try {
@@ -129,6 +132,7 @@ export default function EngenhariaPage() {
       const id = data as string
       await recarregarPlantas()
       await abrirPlanta({ id, nome, status: 'rascunho', created_at: new Date(0).toISOString() })
+      setNovoAberto(false); setNovoNome('')
       setMsg('Take-off criado. Adicione ambientes e vincule serviços.')
     } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
   }
@@ -234,26 +238,32 @@ export default function EngenhariaPage() {
       {/* Passo 1 · take-off + orçamento de destino */}
       <section className="rounded-2xl bg-white p-4 border border-[#E7DECF] space-y-3">
         <div className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: ESP }}>Orçamento de destino</label>
+          <div data-ajuda="1">
+            <label className="block text-xs font-medium mb-1" style={{ color: ESP }}><span className="inline-flex items-center gap-1">Orçamento de destino <AjudaCampo chave="projetos.engenharia.orcamento" rota="/dashboard/projetos/engenharia" /></span></label>
             <select className={inp} value={orcId} onChange={(e) => setOrcId(e.target.value)}>
               <option value="">— selecione (crie em Projetos › Propostas) —</option>
               {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: ESP }}>Take-off</label>
+          <div data-ajuda="1">
+            <label className="block text-xs font-medium mb-1" style={{ color: ESP }}><span className="inline-flex items-center gap-1">Take-off <AjudaCampo chave="projetos.engenharia.takeoff" rota="/dashboard/projetos/engenharia" /></span></label>
             <div className="flex gap-2">
               <select className={inp} value={planta?.id ?? ''} onChange={(e) => { const p = plantas.find((x) => x.id === e.target.value); if (p) void abrirPlanta(p) }}>
                 <option value="">— novo ou selecione um existente —</option>
                 {plantas.map((p) => <option key={p.id} value={p.id}>{p.nome} · {p.status}</option>)}
               </select>
-              <button onClick={novoTakeoff} disabled={busy} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: busy ? 0.6 : 1 }}>
+              <button onClick={() => setNovoAberto((v) => !v)} disabled={busy} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: busy ? 0.6 : 1 }}>
                 <Plus size={15} /> Novo
               </button>
             </div>
           </div>
         </div>
+        {novoAberto && (
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void novoTakeoff() }}>
+            <div className="flex-1 flex items-center gap-1"><input autoFocus className={inp} value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Nome do projeto / take-off" aria-label="Nome do take-off" /><AjudaCampo chave="projetos.engenharia.novo_nome" rota="/dashboard/projetos/engenharia" /></div>
+            <button type="submit" disabled={busy || !novoNome.trim()} className="shrink-0 px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: (busy || !novoNome.trim()) ? 0.6 : 1 }}>Criar</button>
+          </form>
+        )}
       </section>
 
       {msg && <div className="rounded-xl p-3 text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>{msg}</div>}
@@ -280,8 +290,8 @@ export default function EngenhariaPage() {
               <table className="w-full text-sm">
                 <thead className="text-xs" style={{ color: ESP60, background: BG }}>
                   <tr>
-                    <th className="text-left p-2">Nome</th><th className="text-right p-2">m²</th><th className="text-right p-2">ml</th><th className="text-right p-2">pé-dir.</th>
-                    <th className="p-2">Serviço</th><th className="p-2">Base</th><th className="p-2">OK</th>
+                    <th className="text-left p-2"><span className="inline-flex items-center gap-1">Nome <AjudaCampo chave="projetos.engenharia.amb_nome" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">m² <AjudaCampo chave="projetos.engenharia.amb_area" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">ml <AjudaCampo chave="projetos.engenharia.amb_perimetro" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">pé-dir. <AjudaCampo chave="projetos.engenharia.amb_pe_direito" rota="/dashboard/projetos/engenharia" /></span></th>
+                    <th className="p-2"><span className="inline-flex items-center gap-1">Serviço <AjudaCampo chave="projetos.engenharia.amb_servico" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">Base <AjudaCampo chave="projetos.engenharia.amb_base" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">OK <AjudaCampo chave="projetos.engenharia.amb_ok" rota="/dashboard/projetos/engenharia" /></span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -417,16 +427,16 @@ function AmbienteModal({ onFechar, onSalvar, busy }: {
       <div onClick={(e) => e.stopPropagation()} className="bg-[#FAF7F2] rounded-2xl border border-[#E7DECF] w-full max-w-md p-5" style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
         <h3 className="text-lg font-semibold text-[#3D2314] mb-1">Adicionar ambiente</h3>
         <p className="text-[11px] mb-4" style={{ color: ESP60 }}>Informe a área direto, ou largura × comprimento que a gente calcula.</p>
-        <div className="mb-3">
-          <label className={lbl} style={{ color: ESP60 }}>Nome do ambiente *</label>
+        <div className="mb-3" data-ajuda="1">
+          <label className={lbl} style={{ color: ESP60 }}><span className="inline-flex items-center gap-1">Nome do ambiente * <AjudaCampo chave="projetos.engenharia.m_nome" rota="/dashboard/projetos/engenharia" /></span></label>
           <input autoFocus className={inp} value={nome} onChange={(e) => setNome(e.target.value)} placeholder='ex: "Sala 01", "Banheiro"' />
         </div>
         <div className="grid grid-cols-2 gap-3 mb-3">
-          <div><label className={lbl} style={{ color: ESP60 }}>Área (m²)</label><input className={inp + ' text-right'} inputMode="decimal" value={areaM2} onChange={(e) => setAreaM2(e.target.value)} placeholder={areaCalc != null ? areaCalc.toFixed(2) : '0,00'} /></div>
-          <div><label className={lbl} style={{ color: ESP60 }}>Pé-direito (m)</label><input className={inp + ' text-right'} inputMode="decimal" value={peDireito} onChange={(e) => setPeDireito(e.target.value)} placeholder="2,80" /></div>
-          <div><label className={lbl} style={{ color: ESP60 }}>Largura (m)</label><input className={inp + ' text-right'} inputMode="decimal" value={largura} onChange={(e) => setLargura(e.target.value)} /></div>
-          <div><label className={lbl} style={{ color: ESP60 }}>Comprimento (m)</label><input className={inp + ' text-right'} inputMode="decimal" value={comprimento} onChange={(e) => setComprimento(e.target.value)} /></div>
-          <div className="col-span-2"><label className={lbl} style={{ color: ESP60 }}>Perímetro (ml)</label><input className={inp + ' text-right'} inputMode="decimal" value={perimetro} onChange={(e) => setPerimetro(e.target.value)} placeholder={perimCalc != null ? perimCalc.toFixed(2) : '0,00'} /></div>
+          <div data-ajuda="1"><label className={lbl} style={{ color: ESP60 }}><span className="inline-flex items-center gap-1">Área (m²) <AjudaCampo chave="projetos.engenharia.m_area" rota="/dashboard/projetos/engenharia" /></span></label><input className={inp + ' text-right'} inputMode="decimal" value={areaM2} onChange={(e) => setAreaM2(e.target.value)} placeholder={areaCalc != null ? areaCalc.toFixed(2) : '0,00'} /></div>
+          <div data-ajuda="1"><label className={lbl} style={{ color: ESP60 }}><span className="inline-flex items-center gap-1">Pé-direito (m) <AjudaCampo chave="projetos.engenharia.m_pe_direito" rota="/dashboard/projetos/engenharia" /></span></label><input className={inp + ' text-right'} inputMode="decimal" value={peDireito} onChange={(e) => setPeDireito(e.target.value)} placeholder="2,80" /></div>
+          <div data-ajuda="1"><label className={lbl} style={{ color: ESP60 }}><span className="inline-flex items-center gap-1">Largura (m) <AjudaCampo chave="projetos.engenharia.m_largura" rota="/dashboard/projetos/engenharia" /></span></label><input className={inp + ' text-right'} inputMode="decimal" value={largura} onChange={(e) => setLargura(e.target.value)} /></div>
+          <div data-ajuda="1"><label className={lbl} style={{ color: ESP60 }}><span className="inline-flex items-center gap-1">Comprimento (m) <AjudaCampo chave="projetos.engenharia.m_comprimento" rota="/dashboard/projetos/engenharia" /></span></label><input className={inp + ' text-right'} inputMode="decimal" value={comprimento} onChange={(e) => setComprimento(e.target.value)} /></div>
+          <div className="col-span-2" data-ajuda="1"><label className={lbl} style={{ color: ESP60 }}><span className="inline-flex items-center gap-1">Perímetro (ml) <AjudaCampo chave="projetos.engenharia.m_perimetro" rota="/dashboard/projetos/engenharia" /></span></label><input className={inp + ' text-right'} inputMode="decimal" value={perimetro} onChange={(e) => setPerimetro(e.target.value)} placeholder={perimCalc != null ? perimCalc.toFixed(2) : '0,00'} /></div>
         </div>
         {areaCalc != null && !areaM2.trim() && (
           <div className="text-[11px] mb-3" style={{ color: '#7A5A0B' }}>Área calculada: <b>{areaCalc.toFixed(2)} m²</b> · Perímetro: <b>{perimCalc?.toFixed(2)} ml</b> (L×C)</div>

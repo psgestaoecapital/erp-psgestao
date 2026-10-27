@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { categorizeRota, colorForScore, type CategoriaArea } from '@/lib/auditores/categorizeRota'
 import ScreenshotAssinado from './ScreenshotAssinado'
+import CardQualidadeVertical from './CardQualidadeVertical'
 
 interface Insight {
   rota: string
@@ -161,6 +162,7 @@ export default function PainelAuditores() {
       </header>
 
       <main style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 28px' }}>
+        <CardQualidadeVertical />
         {msg && (
           <div style={{ background: '#FFF7E6', border: '0.5px solid rgba(200,148,26,0.3)', color: COLORS.espresso, padding: '10px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>
             {msg}

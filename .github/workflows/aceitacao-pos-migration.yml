@@ -11,6 +11,9 @@ on:
     workflows: ['Deploy Migrations (Production)']
     types: [completed]
     branches: [main]
+  # Disparo manual (Eng. Chefe 11/10): conserto SÓ-SPEC não gera deploy de migration, então o portão (erp_dev_main_teste)
+  # fica vermelho/stale. Rodar à mão na ponta da main reavalia e limpa o portão.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,8 +22,8 @@ permissions:
 jobs:
   producao:
     # só depois de um deploy de migrations VERDE (vermelho lá já é o alarme do próprio deploy-migrations)
-    if: github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     # Fila única da demo (CEO 30/09): todo workflow que roda Playwright na demonstração entra no MESMO grupo e espera
     # a vez em FIFO (queue: max, até 100), sem ocupar runner e sem estourar tempo. Antes, cada run pegava um runner e
     # disputava a trava no banco — com 3+ PRs, a espera passava de 30 min e a aceitação ficava vermelha sem rodar teste.
@@ -34,11 +37,11 @@ jobs:
     timeout-minutes: 40
     env:
       PROD_BASE_URL: https://erp-psgestao.vercel.app
-      COMMIT: ${{ github.event.workflow_run.head_sha }}
+      COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
       # A migration já está no banco (este job só roda após o deploy-migrations verde); falta a Vercel servir o
       # código do MESMO commit (ou um posterior). /sw.js traz "ps-shell-<VERCEL_GIT_COMMIT_SHA>" (RD-78, #1819).
@@ -62,6 +65,8 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - name: Aceitação @pos-migration contra produção
+        id: suite
+        timeout-minutes: 30
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -69,8 +74,10 @@ jobs:
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
           TRAVA_DEMO_ESPERA_MIN: '10'
-        # sem teste @pos-migration no repo → nada a julgar (verde)
-        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration
+        # sem teste @pos-migration no repo → nada a julgar (verde). Guarda a saída para extrair o spec que falhou.
+        run: |
+          set -o pipefail
+          npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests --grep @pos-migration 2>&1 | tee /tmp/pw-pos.log
       # CEO 07/10: libera a trava da demo SEMPRE (cancelamento/timeout não rodam o global-teardown; a lease ficava até
       # 25 min e a aceitação seguinte esperava sem rodar teste).
       - name: Soltar a trava da demo (sempre)
@@ -80,6 +87,28 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/e2e-trava-soltar.ts
+      # Grava o veredito desta run no banco: alimenta o card "Esteira" da aba Codes e o alerta pg_cron (>30 min).
+      # Só quando a suíte REALMENTE rodou (sucesso/falha); se o job parou antes (ex.: produção não serviu o commit),
+      # não marca a main como vermelha à toa. continue-on-error: nunca derruba a aceitação por causa do registro.
+      - name: Registrar status da main (card Esteira + alerta)
+        if: always() && (steps.suite.outcome == 'success' || steps.suite.outcome == 'failure')
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESULTADO: ${{ steps.suite.outcome }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          verde=$([ "$RESULTADO" = success ] && echo true || echo false)
+          # 1º spec da SEÇÃO de falhas (após a linha "N failed"); sem falha, não grava spec (linhas de PASS não contam)
+          spec=$(sed -n '/^[[:space:]]*[0-9][0-9]* failed/,$p' /tmp/pw-pos.log 2>/dev/null | grep -oE 'e2e/[A-Za-z0-9_./-]+\.spec\.ts:[0-9]+' | head -1)
+          body=$(jq -nc --argjson v "$verde" --arg s "$spec" --arg ri "$RUN_ID" --arg ru "$RUN_URL" --arg h "$COMMIT" \
+                 '{p_verde:$v, p_run_id:($ri|tonumber), p_run_url:$ru, p_head_sha:$h} + (if $s=="" then {} else {p_spec:$s} end)')
+          curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_dev_main_teste_set" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H 'Content-Type: application/json' --data "$body" \
+            || echo "::warning::não gravei o status da main (fn_dev_main_teste_set)"
       # Prints de produção (o CEO pede print e link em toda onda): sobem sempre, verde ou vermelho.
       - name: Upload prints (sempre)
         if: always()
@@ -101,6 +130,20 @@ jobs:
           else
             echo "::warning::commit $COMMIT sem PR associada — avise o CEO manualmente"
           fi
+      # Quarentena automática (CEO 10/10): se um spec falhou 2x seguidas no @pos da main, SEM relação com a PR do 1º
+      # vermelho e não-crítico, o detector abre uma PR (via rápida, só e2e/quarentena.ts) que o tira da execução — a
+      # fila publica mesmo com o @pos vermelho e o @pos volta ao verde. Crítico/regressão → só alerta, segura a fila.
+      # continue-on-error: nunca muda o veredito VERMELHO deste job; usa o PAT para a PR disparar os checks.
+      - name: Quarentena de spec @pos (sem relação com a PR, 2x seguidas)
+        if: failure()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/merge/quarentena-detectar.ts
       - name: Upload relatório (em caso de falha)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -108,3 +151,29 @@ jobs:
           name: aceitacao-pos-migration-report
           path: test-results/
           if-no-files-found: ignore
+
+      # GATILHO POR EVENTO (CEO 23/10): o @pos-migration vermelho que a quarentena NÃO resolve (spec crítico ou da própria
+      # PR) SEGURA a fila — nenhuma migration publica — mas ninguém era avisado: o guardião só acordava no deploy vermelho.
+      # Em 22→23/10 isso travou a esteira 3h EM SILÊNCIO (spec ehs-e0 falso-positivo). Aqui acorda o guardião gilberto-esteira
+      # NA HORA (tarefa P1 na caixa, mesmo mecanismo do deploy-migrations). Dedup por assunto (uma P1 aberta por vez). Reusa
+      # SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY; no-op se ausentes (nunca quebra o veredito do job). Roda sempre no failure:
+      # se for flaky/quarentenável, o guardião checa barato e encerra (a quarentena automática já tratou); dedup evita pilha.
+      - name: Acionar o guardião da esteira (@pos vermelho)
+        if: failure()
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || { echo "::warning::sem SUPABASE_URL/SERVICE_KEY — não acionei o guardião"; exit 0; }
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          assunto="P1: @pos-migration VERMELHO na main"
+          aberta=$(curl -fsS "$SUPABASE_URL/rest/v1/erp_agente_mensagem?para=eq.gilberto-esteira&assunto=eq.$(jq -rn --arg a "$assunto" '$a|@uri')&status=neq.concluida&select=id&limit=1" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" 2>/dev/null | jq -r '.[0].id // empty' 2>/dev/null)
+          [ -z "$aberta" ] || { echo "já há tarefa P1 aberta ($aberta) — não duplico"; exit 0; }
+          corpo="O @pos-migration ficou VERMELHO na main ($run_url). Com o @pos vermelho nenhuma PR com migration publica — a esteira trava. A quarentena automática NÃO resolveu (spec crítico ou da própria PR). Playbook: leia os specs falhos pelas ANOTAÇÕES do check-run (check-runs/<id>/annotations), decida — (1) FALSO POSITIVO/flaky não-crítico sem relação com a PR → quarentena; (2) regressão real de PR → reverta a PR culpada; (3) teste frágil (ex.: UUID casando regex) → conserte o spec via rápida (sem migration, publica mesmo com @pos vermelho) e deixe o @pos re-rodar verde. Decisão de dado de cliente real, RLS, fiscal, financeiro, LGPD, NR-36 → alerte o CEO, não decida sozinho. RODE ATÉ O @pos VOLTAR AO VERDE (não encerre com erro aberto; checkpoint + retomada)."
+          if curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_agente_mensagem_enviar" \
+               -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' \
+               -d "$(jq -nc --arg assunto "$assunto" --arg corpo "$corpo" --arg ep "aceitacao-pos-migration · acionamento automático" \
+                     '{p_para:"gilberto-esteira", p_de:"eng_chefe", p_tipo:"tarefa", p_assunto:$assunto, p_corpo:$corpo, p_requer_ok_ceo:false, p_enviado_por:$ep}')" \
+               >/dev/null 2>&1; then echo "guardião gilberto-esteira acionado (tarefa P1 na caixa)"; else echo "::warning::não consegui acionar o guardião (fn_agente_mensagem_enviar falhou)"; fi

@@ -4,6 +4,8 @@
 //    listas e links; "Objetivo" virou campo grande; prazo desejado; "?" em cada campo;
 //  · cliente vem do cadastro da empresa (erp_clientes, busca por nome/razão/CNPJ) — o banco liga ao perfil P&M;
 //  · "Virar job" leva o briefing COMPLETO (objetivo, público, prazo, referências + texto) para o job, com prazo e cliente.
+//  · (CEO 07/10 · Marciana) o briefing salvo ABRE de novo ("Abrir"): ver o texto formatado e continuar desenvolvendo;
+//    o job ligado (agency_jobs.briefing_id) mostra esse briefing formatado.
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { FileText, Plus, ArrowRight, CheckCircle2 } from 'lucide-react'
@@ -40,6 +42,7 @@ export default function BriefingsPage() {
   const [nomes, setNomes] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [novo, setNovo] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<Form>(VAZIO)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ texto: string; jobId?: string } | null>(null)
@@ -66,20 +69,34 @@ export default function BriefingsPage() {
     viraramJob: briefings.filter((b) => b.status === 'virou_job').length,
   }), [briefings])
 
+  function abrir(b: Briefing) {
+    setForm({
+      cliente_id: b.cliente_id ?? '', cliente_nome: b.cliente_id ? (nomes[b.cliente_id] ?? '') : '', titulo: b.titulo,
+      objetivo: b.objetivo ?? '', descricao: b.descricao ?? '', publico_alvo: b.publico_alvo ?? '', referencias: b.referencias ?? '',
+      tipo_servico: b.tipo_servico ?? '', prazo_desejado: b.prazo_desejado?.slice(0, 10) ?? '',
+    })
+    setEditId(b.id); setNovo(true)
+  }
+  function fechar() { setNovo(false); setEditId(null); setForm(VAZIO) }
+
   async function criar() {
     if (!empresa) return
     if (!form.titulo.trim()) { setToast({ texto: 'Informe o título do briefing.' }); return }
     setBusy(true)
-    const { error } = await supabase.from('agency_briefings').insert({
-      company_id: empresa, cliente_id: form.cliente_id || null, titulo: form.titulo.trim(),
+    const campos = {
+      cliente_id: form.cliente_id || null, titulo: form.titulo.trim(),
       objetivo: form.objetivo.trim() || null, descricao: form.descricao.trim() || null,
       publico_alvo: form.publico_alvo.trim() || null, referencias: form.referencias.trim() || null,
-      tipo_servico: form.tipo_servico.trim() || null, prazo_desejado: form.prazo_desejado || null, status: 'novo',
-    })
+      tipo_servico: form.tipo_servico.trim() || null, prazo_desejado: form.prazo_desejado || null,
+    }
+    const { error } = editId
+      ? await supabase.from('agency_briefings').update({ ...campos, updated_at: new Date().toISOString() }).eq('id', editId).eq('company_id', empresa)
+      : await supabase.from('agency_briefings').insert({ ...campos, company_id: empresa, status: 'novo' })
     setBusy(false)
     if (error) { setToast({ texto: `Erro: ${error.message}` }); return }
-    setNovo(false); setForm(VAZIO)
-    setToast({ texto: 'Briefing criado.' }); void carregar()
+    const eraEdicao = !!editId
+    fechar()
+    setToast({ texto: eraEdicao ? 'Briefing salvo.' : 'Briefing criado.' }); void carregar()
   }
 
   async function virarJob(b: Briefing) {
@@ -139,6 +156,7 @@ export default function BriefingsPage() {
                       {b.prazo_desejado && <div className="mt-0.5 text-[11.5px] text-[#3D2314]/50">prazo desejado {b.prazo_desejado.split('-').reverse().join('/')}</div>}
                     </div>
                     <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${st.cls}`}>{st.l}</span>
+                    <button onClick={() => abrir(b)} className="rounded-xl border border-[#3D2314]/15 px-3 py-1.5 text-[12.5px] font-medium" data-testid="briefing-abrir">Abrir</button>
                     {b.status !== 'virou_job'
                       ? <button disabled={busy} onClick={() => void virarJob(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#2F5A1F] px-3 py-1.5 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="briefing-virar-job">Virar job <ArrowRight size={14} /></button>
                       : <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#2F5A1F]"><CheckCircle2 size={14} /> em produção</span>}
@@ -150,9 +168,9 @@ export default function BriefingsPage() {
       </div>
 
       {novo && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-0 sm:p-4" onClick={() => setNovo(false)}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-0 sm:p-4" onClick={fechar}>
           <div className="min-h-full w-full bg-white p-5 sm:mt-8 sm:min-h-0 sm:max-w-2xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()} data-testid="briefing-modal">
-            <h2 className="mb-3 text-[19px] font-medium">Novo briefing</h2>
+            <h2 className="mb-3 text-[19px] font-medium">{editId ? 'Briefing' : 'Novo briefing'}</h2>
             <div className="space-y-3">
               <ClienteBusca empresa={empresa} valorNome={form.cliente_nome} testId="briefing-cliente"
                 onEscolher={(id, nome) => setForm({ ...form, cliente_id: id, cliente_nome: nome })} onLimpar={() => setForm({ ...form, cliente_id: '', cliente_nome: '' })} />
@@ -173,8 +191,8 @@ export default function BriefingsPage() {
               </div>
             </div>
             <div className="sticky bottom-0 mt-4 flex justify-end gap-2 bg-white pt-2">
-              <button onClick={() => setNovo(false)} className="rounded-xl border border-[#3D2314]/15 px-4 py-2 text-[13px]">Cancelar</button>
-              <button disabled={busy} onClick={() => void criar()} className="rounded-xl bg-[#3D2314] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-40" data-testid="briefing-salvar">{busy ? 'Salvando…' : 'Criar briefing'}</button>
+              <button onClick={fechar} className="rounded-xl border border-[#3D2314]/15 px-4 py-2 text-[13px]">Cancelar</button>
+              <button disabled={busy} onClick={() => void criar()} className="rounded-xl bg-[#3D2314] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-40" data-testid="briefing-salvar">{busy ? 'Salvando…' : editId ? 'Salvar briefing' : 'Criar briefing'}</button>
             </div>
           </div>
         </div>

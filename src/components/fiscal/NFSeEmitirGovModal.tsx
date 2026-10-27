@@ -10,9 +10,14 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
+import TomadorEnderecoPendente from '@/components/fiscal/TomadorEnderecoPendente'
+import { CAMPOS_CADASTRO_TOMADOR, escolherCadastroTomador, filtroCadastroTomador, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@/components/comum/BlocoObraFiscal'
 import { aplicarRetencoesNota, calcularRetencoesFederais, MSG_EXIGE_SERVICO_NFSE, retencoesNotaDoCadastro, retencoesNotaIguais, sugerirRetencoesNota, TRIBUTOS_RETENCAO, type RetencoesNota, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 import { conferirMedicaoEscopo, brl as brlEscopo, type ItemEscopo } from '@/lib/fiscal/medicaoEscopoObra'
+import { modoObraInicial, textoBloqueioNfse } from '@/lib/fiscal/bloqueioNfseTexto'
+import { camposObraFaltando, obraPreenchidaDoOrcamento, OBRA_PREENCHIDA_SELECT, type ObraSalva } from '@/lib/fiscal/obraPreenchida'
 
 // bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos).
 // obra_sem_cno saiu (CNO virou opcional); obra_endereco_incompleto é o novo — a prefeitura exige endereço.
@@ -48,6 +53,8 @@ interface RespFocus {
   retencoesFederais?: { inss: number; irrf: number; pis: number; cofins: number; csll: number; total: number } | null
   issRetido?: number | null
   avisosTributos?: string[]
+  // caixa jordana-code 3352399e · dois cadastros ativos com o documento do tomador: a rota não chuta, pede a escolha
+  tomadorAmbiguo?: boolean
 }
 
 interface Props {
@@ -62,6 +69,8 @@ interface Props {
   tomadorTipo?: 'cpf' | 'cnpj' | 'indefinido'
   tomadorNome?: string
   tomadorEmail?: string
+  // cliente da OS/venda: é ELE o tomador (caixa jordana-code 3352399e — nunca um duplicado com o mesmo CNPJ)
+  tomadorClienteId?: string
   descricaoServico?: string
   codigoServicoMunicipio?: string
   codigoLC116?: string
@@ -84,6 +93,9 @@ interface Props {
   // financeiro dessas parcelas nasce na autorização — ou fica previsto, se a pessoa desmarcar.
   medicao?: { parcelaIds: string[]; valor: number; rotulo: string }
 }
+
+// RD-95: o modal abre em várias telas (OS, pedido, contas a receber, NFS-e) — os "?" usam uma rota própria de ajuda.
+const ROTA_AJUDA_NFSE = '/dashboard/fiscal/nfse/emitir'
 
 type Municipio = { codigo_ibge: string; nome_municipio: string; uf: string }
 type Bloqueio = { codigo: string; mensagem: string; acao?: string; onde?: string }
@@ -136,7 +148,7 @@ function mensagemAmigavel(raw: string | null | undefined): string {
 
 export default function NFSeEmitirGovModal({
   companyId, aberto, onFechar, onEmitida, producaoDisponivel = false,
-  tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail,
+  tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail, tomadorClienteId,
   descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
   servicoId, issNoLocalPrestacao = false, obraId, municipioPrestacaoIbge, municipioPrestacaoLabel,
   permitirObra = false, pedidoId, pedidoNumero, medicao,
@@ -162,6 +174,8 @@ export default function NFSeEmitirGovModal({
   const [tomTipo, setTomTipo] = useState<TomadorTipo>(tomTipoSeed)
   const [tomDoc, setTomDoc] = useState(tomDocSeed)
   const [tomNome, setTomNome] = useState(tomadorNome ?? '')
+  // cadastro do cliente que é o tomador (o da operação, ou o escolhido quando há dois com o mesmo documento)
+  const [tomClienteId, setTomClienteId] = useState<string | null>(tomadorClienteId ?? null)
   // tomadorEmail nao tem input no modal hoje · guardamos pra payload futuro
   void tomadorEmail
   const [descricao, setDescricao] = useState(descricaoServico ?? '')
@@ -206,6 +220,8 @@ export default function NFSeEmitirGovModal({
   // bloqueio sem ter como vincular a obra (o beco sem saída do print). Mesmo componente da venda/reenvio.
   const [obraFiscal, setObraFiscal] = useState<ObraFiscalState>(obraFiscalStateInicial)
   const [exigeObra, setExigeObra] = useState(false)
+  // #3862 · a pessoa já mexeu no quadro da obra? Sem mexer, o quadro abre em "Informar o endereço agora".
+  const [obraTocada, setObraTocada] = useState(false)
   // aviso (não bloqueia): produção + tomador é um usuário da própria empresa → "nota REAL pra você mesmo"
   const [avisoAutoTomador, setAvisoAutoTomador] = useState(false)
   // NFS-e PRIMEIRO → financeiro pelo LÍQUIDO. Após a nota AUTORIZADA, o passo "Gerar financeiro desta
@@ -247,6 +263,34 @@ export default function NFSeEmitirGovModal({
     return () => { vivo = false }
   }, [aberto, obraIdEff])
   const mostrarObra = !obraId && (permitirObra || exigeObra)
+  // #3862 · serviço exige obra e nada escolhido ainda → abre em "Informar o endereço agora" (o endereço basta).
+  useEffect(() => {
+    if (!mostrarObra) return
+    const modo = modoObraInicial({ modo: obraFiscal.modo, obraSel: obraFiscal.obraSel, tocado: obraTocada }, exigeObra)
+    if (modo !== obraFiscal.modo) setObraFiscal((st) => ({ ...st, modo }))
+  }, [mostrarObra, exigeObra, obraTocada, obraFiscal.modo, obraFiscal.obraSel])
+  // #3862 complemento · a obra do pedido (orçamento) já vem na emissão: pré-preenche e só pede o que falta.
+  // Não desfaz o que a pessoa já mexeu (obraTocada).
+  useEffect(() => {
+    if (!aberto || !pedidoId || obraTocada) return
+    let vivo = true
+    ;(async () => {
+      const { data: orcs } = await supabase.from('erp_orcamentos')
+        .select('obra_id,obra_cno,obra_logradouro,obra_numero,obra_complemento,obra_bairro,obra_cidade,obra_uf,obra_cep,obra_codigo_ibge')
+        .eq('company_id', companyId).eq('pedido_id', pedidoId).limit(1)
+      const orc = (orcs ?? [])[0]
+      if (!vivo || !orc) return
+      let obraSalva: ObraSalva | null = null
+      if (orc.obra_id) {
+        const { data } = await supabase.from('projetos_obras').select(OBRA_PREENCHIDA_SELECT)
+          .eq('company_id', companyId).eq('id', orc.obra_id).maybeSingle()
+        obraSalva = (data ?? null) as ObraSalva | null
+      }
+      const pre = obraPreenchidaDoOrcamento(orc, obraSalva)
+      if (vivo && pre) setObraFiscal((st) => ({ ...st, ...pre, obraEnd: pre.obraEnd ?? st.obraEnd }))
+    })()
+    return () => { vivo = false }
+  }, [aberto, pedidoId, companyId, obraTocada])
 
   // #32/#35 · servico_id efetivo: o que veio do pedido/OS (prop) OU o escolhido aqui no modal.
   // issNoLocalEff idem — habilita o seletor de município e a busca de alíquota também na emissão avulsa.
@@ -299,6 +343,7 @@ export default function NFSeEmitirGovModal({
     setTomTipo(tomTipoSeed)
     setTomDoc(tomDocSeed)
     setTomNome(tomadorNome ?? '')
+    setTomClienteId(tomadorClienteId ?? null)
     setDescricao(descricaoServico ?? '')
     setValor(valorSeed)
     setCodigoTrib(codTribSeed)
@@ -314,11 +359,11 @@ export default function NFSeEmitirGovModal({
     setServicoSelId(''); setServicoIssLocal(false); setIssInfo('')
     setTomEndereco(''); setBuscaDocMsg(''); setBuscandoDoc(false)
     setObraFiscal(obraFiscalStateInicial)
-    setExigeObra(false); setAvisoAutoTomador(false); setProviderAtivo(undefined)
+    setExigeObra(false); setObraTocada(false); setAvisoAutoTomador(false); setProviderAtivo(undefined)
     setNfseIdGerado(null); setFinRet({ iss: '', irrf: '', pis: '', cofins: '', csll: '', inss: '', deducoes: '', desconto: '' })
     setFinVenc(''); setFinFase('idle'); setFinMsg(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
+  }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, tomadorClienteId, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
 
   // Item 2 (print Rodrigo) · em PRODUÇÃO, se o tomador for um usuário da própria empresa (mesmo CPF),
   // avisa que a nota é REAL para si mesmo — não bloqueia, só alerta (best-effort; falha silenciosa = sem aviso).
@@ -424,7 +469,7 @@ export default function NFSeEmitirGovModal({
 
   function resetForm() {
     // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · reset volta pros seeds (se houver) ou vazio
-    setTomDoc(tomDocSeed); setTomNome(tomadorNome ?? '')
+    setTomDoc(tomDocSeed); setTomNome(tomadorNome ?? ''); setTomClienteId(tomadorClienteId ?? null)
     setDescricao(descricaoServico ?? '')
     setValor(valorSeed)
     setCodigoTrib(codTribSeed); setAliquota(aliquotaSeed)
@@ -462,11 +507,20 @@ export default function NFSeEmitirGovModal({
     if (tomTipo === 'CPF' && doc.length !== 11) { setBuscaDocMsg('Informe o CPF completo (11 dígitos).'); return }
     setBuscandoDoc(true)
     try {
-      const { data: cli } = await supabase.from('erp_clientes')
-        .select('razao_social,nome_fantasia,logradouro,numero,bairro,cidade,uf,cep,endereco,cidade_estado')
-        .eq('company_id', companyId).or(`cpf_cnpj.eq.${doc},cnpj_cpf.eq.${doc}`).limit(1).maybeSingle()
-      if (cli) {
-        const c = cli as Record<string, string | null>
+      // a MESMA regra da emissão (escolherCadastroTomador): cliente da operação; senão um ATIVO pelo documento;
+      // dois ativos → o bloco abaixo pede a escolha. Antes: limit(1) com o documento sem máscara, inativo incluído.
+      const filtroCad = filtroCadastroTomador(doc, tomClienteId)
+      const { data: cands } = filtroCad
+        ? await supabase.from('erp_clientes').select(CAMPOS_CADASTRO_TOMADOR + ', cidade_estado').eq('company_id', companyId).or(filtroCad).limit(20)
+        : { data: null }
+      const escolha = escolherCadastroTomador((cands ?? []) as unknown as (CadastroTomador & { cidade_estado?: string | null })[], doc, tomClienteId)
+      if (escolha.tipo === 'ambiguo') {
+        setBuscaDocMsg(`Há ${escolha.candidatos.length} cadastros ativos com este documento — escolha o tomador abaixo.`)
+        return
+      }
+      if (escolha.tipo === 'cliente') {
+        const c = escolha.cliente
+        setTomClienteId(c.id)
         setTomNome(c.razao_social || c.nome_fantasia || tomNome)
         const endCad = [c.logradouro, c.numero, c.bairro, (c.cidade && c.uf) ? `${c.cidade}/${c.uf}` : (c.cidade || c.cidade_estado), c.cep]
           .filter(Boolean).join(', ')
@@ -611,6 +665,7 @@ export default function NFSeEmitirGovModal({
     }
 
     setFase('enviando')
+    let voltarAoForm = false
     try {
       if (emitirViaFocus) {
         // Mesmo formato do NFSePreviewModal/EmitirNFSeButton: authFetch (Bearer) + emissão por erp_receber.
@@ -652,6 +707,7 @@ export default function NFSeEmitirGovModal({
               razaoSocial: tomNome.trim() || (tomTipo === 'CPF' ? 'Pessoa Física' : 'Pessoa Jurídica'),
               cnpj: tomTipo === 'CNPJ' && docDig ? docDig : undefined,
               cpf: tomTipo === 'CPF' && docDig ? docDig : undefined,
+              clienteId: tomClienteId ?? undefined,
             },
           }
         }
@@ -662,6 +718,10 @@ export default function NFSeEmitirGovModal({
         const json = (await resp.json().catch(() => null)) as RespFocus | null
         if (!json) {
           setResultado({ erro: 'Sem resposta do emissor fiscal.' })
+        } else if (json.tomadorAmbiguo) {
+          // volta ao formulário: o bloco do tomador lista os cadastros para a escolha
+          setErroLocal(json.mensagem ?? 'Escolha qual cadastro é o tomador desta nota.')
+          voltarAoForm = true
         } else {
           const st = json.status
           const okEmissao = resp.ok && (json.ok || st === 'processando' || st === 'autorizada')
@@ -732,7 +792,7 @@ export default function NFSeEmitirGovModal({
     } catch (e) {
       setResultado({ erro: e instanceof Error ? e.message : 'Erro inesperado' })
     } finally {
-      setFase('concluido')
+      setFase(voltarAoForm ? 'form' : 'concluido')
     }
   }
 
@@ -863,7 +923,7 @@ export default function NFSeEmitirGovModal({
                 <legend className="text-[11px] font-medium text-[#3D2314]/70 uppercase tracking-wide">
                   Tomador (opcional)
                 </legend>
-                <div className="grid grid-cols-[92px_1fr_auto] gap-2">
+                <div className="grid grid-cols-[92px_1fr_auto_auto] items-center gap-2">
                   <select
                     value={tomTipo}
                     data-testid="nfse-tomador-tipo"
@@ -893,14 +953,18 @@ export default function NFSeEmitirGovModal({
                   >
                     {buscandoDoc ? <Loader2 size={13} className="animate-spin" /> : 'Buscar'}
                   </button>
+                  <AjudaCampo chave="fiscal.nfse.emitir.tomador_documento" rota={ROTA_AJUDA_NFSE} />
                 </div>
-                <input
-                  type="text"
-                  value={tomNome}
-                  onChange={(e) => setTomNome(e.target.value)}
-                  placeholder="Razão social / Nome"
-                  className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
-                />
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={tomNome}
+                    onChange={(e) => setTomNome(e.target.value)}
+                    placeholder="Razão social / Nome"
+                    className="flex-1 min-w-0 bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
+                  />
+                  <AjudaCampo chave="fiscal.nfse.emitir.tomador_nome" rota={ROTA_AJUDA_NFSE} />
+                </div>
                 {/* #35 · endereço do cliente para conferência (não vai no corpo da nota — o provedor
                     usa o endereço do cadastro/Receita; aqui é só pra Jordana confirmar que é o cliente certo). */}
                 {tomEndereco && (
@@ -909,6 +973,9 @@ export default function NFSeEmitirGovModal({
                   </div>
                 )}
                 {buscaDocMsg && <div className="text-[11px] text-[#3D2314]/60">{buscaDocMsg}</div>}
+                {/* caixa jordana-code 25fac6b6 (4) · tomador do cadastro sem IBGE/número: pede o CEP (ou cidade) aqui e grava no cliente */}
+                <TomadorEnderecoPendente companyId={companyId} documento={tomDoc} clienteId={tomClienteId}
+                  onEscolher={(id) => { setTomClienteId(id); setErroLocal(null); setBuscaDocMsg('') }} />
               </fieldset>
 
               <fieldset className="space-y-3 border-t border-[#3D2314]/10 pt-4">
@@ -919,7 +986,7 @@ export default function NFSeEmitirGovModal({
                     Escolher também liga a busca de ISS por município quando o serviço é "fora do município". */}
                 {servicos.length > 0 && (
                   <label className="block">
-                    <span className="block text-[11px] text-[#3D2314]/60 mb-1">Serviço cadastrado (as retenções vêm dele)</span>
+                    <span className="block text-[11px] text-[#3D2314]/60 mb-1">Serviço cadastrado (as retenções vêm dele) <AjudaCampo chave="fiscal.nfse.emitir.servico" rota={ROTA_AJUDA_NFSE} /></span>
                     <select
                       value={servicoSelId}
                       onChange={(e) => aplicarServico(e.target.value)}
@@ -946,22 +1013,25 @@ export default function NFSeEmitirGovModal({
                         data-testid="nfse-medicao-gerar-financeiro"
                         className="mt-0.5"
                       />
-                      <span>Gerar o financeiro destas parcelas quando a prefeitura autorizar a nota.
+                      <span>Gerar o financeiro destas parcelas quando a prefeitura autorizar a nota. <AjudaCampo chave="fiscal.nfse.emitir.medicao_financeiro" rota={ROTA_AJUDA_NFSE} />
                         <span className="block text-[11px] text-[#3D2314]/60">Desmarcado: as parcelas seguem previstas; você gera depois pela nota.</span>
                       </span>
                     </label>
                   </div>
                 )}
-                <textarea
-                  value={descricao}
-                  onChange={(e) => setDescricao(e.target.value)}
-                  placeholder="Descrição do serviço prestado"
-                  rows={2}
-                  className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
-                />
+                <div className="flex items-start gap-1.5">
+                  <textarea
+                    value={descricao}
+                    onChange={(e) => setDescricao(e.target.value)}
+                    placeholder="Descrição do serviço prestado"
+                    rows={2}
+                    className="flex-1 min-w-0 bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]"
+                  />
+                  <AjudaCampo chave="fiscal.nfse.emitir.descricao" rota={ROTA_AJUDA_NFSE} />
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block">
-                    <span className="block text-[11px] text-[#3D2314]/60 mb-1">Valor (R$)</span>
+                    <span className="block text-[11px] text-[#3D2314]/60 mb-1">Valor (R$) <AjudaCampo chave="fiscal.nfse.emitir.valor" rota={ROTA_AJUDA_NFSE} /></span>
                     <input
                       type="text"
                       inputMode="decimal"
@@ -982,7 +1052,7 @@ export default function NFSeEmitirGovModal({
                     </div>
                   ) : (
                     <label className="block">
-                      <span className="block text-[11px] text-[#3D2314]/60 mb-1">Alíquota ISS (%)</span>
+                      <span className="block text-[11px] text-[#3D2314]/60 mb-1">Alíquota ISS (%) <AjudaCampo chave="fiscal.nfse.emitir.aliquota_iss" rota={ROTA_AJUDA_NFSE} /></span>
                       <input
                         type="text"
                         inputMode="decimal"
@@ -995,7 +1065,7 @@ export default function NFSeEmitirGovModal({
                 </div>
                 <label className="block">
                   <span className="block text-[11px] text-[#3D2314]/60 mb-1">
-                    Informações complementares (dados adicionais da nota)
+                    Informações complementares (dados adicionais da nota) <AjudaCampo chave="fiscal.nfse.emitir.observacoes" rota={ROTA_AJUDA_NFSE} />
                   </span>
                   <textarea
                     value={observacoes}
@@ -1036,7 +1106,7 @@ export default function NFSeEmitirGovModal({
                   </div>
                 )}
                 <label className="block">
-                  <span className="block text-[11px] text-[#3D2314]/60 mb-1">Código tributação nacional ISS</span>
+                  <span className="block text-[11px] text-[#3D2314]/60 mb-1">Código tributação nacional ISS <AjudaCampo chave="fiscal.nfse.emitir.codigo_tributacao" rota={ROTA_AJUDA_NFSE} /></span>
                   <input
                     type="text"
                     value={codigoTrib}
@@ -1049,7 +1119,17 @@ export default function NFSeEmitirGovModal({
 
               {/* A③ · obra no reenvio de nota rejeitada por E0370 sem obra (mesmo bloco da venda) */}
               {mostrarObra && (
-                <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={setObraFiscal} />
+                <>
+                  <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={(st) => { setObraTocada(true); setObraFiscal(st) }} />
+                  {(() => {
+                    const falta = camposObraFaltando(obraFiscal)
+                    return (
+                      <div style={{ fontSize: 11.5, color: falta.length ? '#B45309' : '#166534' }}>
+                        {falta.length ? `Falta preencher: ${falta.join(', ')}.` : 'Obra pronta: o endereço já vem do pedido, nada a preencher.'}
+                      </div>
+                    )
+                  })()}
+                </>
               )}
 
               {/* #32 · Local da execução — quando o serviço tem ISS no local da prestação. Aparece
@@ -1065,8 +1145,11 @@ export default function NFSeEmitirGovModal({
                     </div>
                   ) : (
                     <div className="relative">
-                      <input value={munBusca} onChange={(e) => setMunBusca(e.target.value)} placeholder="digite o município onde o serviço foi prestado…"
-                        className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
+                      <div className="flex items-center gap-1.5">
+                        <input value={munBusca} onChange={(e) => setMunBusca(e.target.value)} placeholder="digite o município onde o serviço foi prestado…"
+                          className="flex-1 min-w-0 bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
+                        <AjudaCampo chave="fiscal.nfse.emitir.municipio_prestacao" rota={ROTA_AJUDA_NFSE} />
+                      </div>
                       {munResultados.length > 0 && (
                         <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto bg-white border border-[#3D2314]/15 rounded-md shadow-lg">
                           {munResultados.map((m) => (
@@ -1091,11 +1174,19 @@ export default function NFSeEmitirGovModal({
                     <AlertCircle size={14} /> Esta nota não pode ser emitida ainda
                   </div>
                   <ul className="space-y-1.5">
-                    {bloqueios.map((b, i) => (
-                      <li key={i} className="text-[12px] text-[#791F1F]">
-                        • {b.mensagem}{b.acao ? <span className="text-[#3D2314]/60"> — {b.acao}{b.onde ? ` (${b.onde})` : ''}</span> : null}
-                      </li>
-                    ))}
+                    {bloqueios.map((b, i) => {
+                      const t = textoBloqueioNfse(b)
+                      return (
+                        <li key={i} className="text-[12px] text-[#791F1F]">
+                          • {t.mensagem}{t.acao ? <span className="text-[#3D2314]/60"> — {t.acao}</span> : null}
+                          {t.link && (
+                            <>{' '}<Link href={t.link.href} target="_blank" className="text-[#8B5612] underline underline-offset-2 inline-flex items-center gap-0.5">
+                              {t.link.rotulo} <ExternalLink size={10} />
+                            </Link></>
+                          )}
+                        </li>
+                      )
+                    })}
                   </ul>
                 </div>
               )}
@@ -1129,7 +1220,7 @@ export default function NFSeEmitirGovModal({
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={retNota.iss_retido} data-testid="nfse-ret-iss"
                       onChange={(e) => setRetNota({ ...retNota, iss_retido: e.target.checked })} />
-                    <span>ISS <b>retido pelo tomador</b> <span className="text-[#3D2314]/60">(alíquota do município da prestação; no Simples, a alíquota efetiva do mês)</span></span>
+                    <span><AjudaCampo chave="fiscal.nfse.emitir.iss_retido" rota={ROTA_AJUDA_NFSE} /> ISS <b>retido pelo tomador</b> <span className="text-[#3D2314]/60">(alíquota do município da prestação; no Simples, a alíquota efetiva do mês)</span></span>
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
                     {TRIBUTOS_RETENCAO.map((k) => {
@@ -1141,6 +1232,7 @@ export default function NFSeEmitirGovModal({
                           <input type="checkbox" checked={retem} data-testid={`nfse-ret-${k}`}
                             onChange={(e) => setRetNota({ ...retNota, [`retem_${k}`]: e.target.checked })} />
                           <span className="w-14">{rotulo}</span>
+                          <AjudaCampo chave="fiscal.nfse.emitir.retencao_federal" rota={ROTA_AJUDA_NFSE} />
                           <input type="text" inputMode="decimal" disabled={!retem} data-testid={`nfse-ret-aliq-${k}`}
                             value={retem ? String(retNota[`aliquota_${k}`] || '').replace('.', ',') : ''} placeholder="%"
                             onChange={(e) => { const n = Number(e.target.value.replace(/\./g, '').replace(',', '.')); setRetNota({ ...retNota, [`aliquota_${k}`]: Number.isFinite(n) && n >= 0 && n < 100 ? n : 0 }) }}
@@ -1169,6 +1261,7 @@ export default function NFSeEmitirGovModal({
                   <div className="text-[11px] text-[#3D2314]/60">Informe quanto de cada item esta nota mede. A medição entra na obra quando a prefeitura autorizar; nota cancelada estorna.</div>
                   {escopoObra.map((it) => (
                     <label key={it.id} className="flex items-center gap-2">
+                      <AjudaCampo chave="fiscal.nfse.emitir.escopo_quantidade" rota={ROTA_AJUDA_NFSE} />
                       <span className="flex-1">{it.descricao} <span className="text-[#3D2314]/50">· falta medir {Number(it.quantidade_a_medir)} · R$ {brlEscopo(Number(it.preco_unitario))}/un</span></span>
                       <input type="text" inputMode="decimal" value={qtdEscopo[it.id] ?? ''} placeholder="0"
                         onChange={(e) => setQtdEscopo((p) => ({ ...p, [it.id]: e.target.value }))}
@@ -1257,13 +1350,13 @@ export default function NFSeEmitirGovModal({
                       <div className="grid grid-cols-3 gap-2">
                         {(['iss', 'irrf', 'pis', 'cofins', 'csll', 'inss'] as const).map((k) => (
                           <label key={k} className="block">
-                            <span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">{k === 'iss' ? 'ISS retido' : k.toUpperCase()}</span>
+                            <span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">{k === 'iss' ? 'ISS retido' : k.toUpperCase()} <AjudaCampo chave="fiscal.nfse.emitir.financeiro_retencao" rota={ROTA_AJUDA_NFSE} /></span>
                             <input type="text" inputMode="decimal" value={finRet[k]} readOnly={k !== 'iss'} onChange={(e) => { if (k === 'iss') setFinRet((p) => ({ ...p, [k]: e.target.value })) }} placeholder="0,00" data-testid={`nfse-fin-ret-${k}`} className={`w-full border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314] ${k === 'iss' ? 'bg-white' : 'bg-[#3D2314]/5 cursor-not-allowed'}`} />
                           </label>
                         ))}
-                        <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">Deduções</span><input type="text" inputMode="decimal" value={finRet.deducoes} onChange={(e) => setFinRet((p) => ({ ...p, deducoes: e.target.value }))} placeholder="0,00" className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>
-                        <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">Desconto</span><input type="text" inputMode="decimal" value={finRet.desconto} onChange={(e) => setFinRet((p) => ({ ...p, desconto: e.target.value }))} placeholder="0,00" className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>
-                        <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">1º vencimento</span><input type="date" value={finVenc} onChange={(e) => setFinVenc(e.target.value)} className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>
+                        <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">Deduções <AjudaCampo chave="fiscal.nfse.emitir.financeiro_deducoes" rota={ROTA_AJUDA_NFSE} /></span><input type="text" inputMode="decimal" value={finRet.deducoes} onChange={(e) => setFinRet((p) => ({ ...p, deducoes: e.target.value }))} placeholder="0,00" className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>
+                        <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">Desconto <AjudaCampo chave="fiscal.nfse.emitir.financeiro_desconto" rota={ROTA_AJUDA_NFSE} /></span><input type="text" inputMode="decimal" value={finRet.desconto} onChange={(e) => setFinRet((p) => ({ ...p, desconto: e.target.value }))} placeholder="0,00" className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>
+                        <label className="block"><span className="block text-[10.5px] text-[#3D2314]/60 mb-0.5">1º vencimento <AjudaCampo chave="fiscal.nfse.emitir.financeiro_vencimento" rota={ROTA_AJUDA_NFSE} /></span><input type="date" value={finVenc} onChange={(e) => setFinVenc(e.target.value)} className="w-full bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[12.5px] text-[#3D2314]" /></label>
                       </div>
                       <div className="text-[12px] text-[#234D08] bg-[#EAF3DE] border border-[#3B6D11]/25 rounded-md px-3 py-2">
                         Valor da nota <b>{fmtBRL(finBruto)}</b> · retenções <b>{fmtBRL(finRetTotal)}</b> · a receber <b>{fmtBRL(finLiquido)}</b>

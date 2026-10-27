@@ -7,10 +7,15 @@
 // resultado". Erros aparecem NA LINHA (nao so no topo). CRIOU/ALTEROU/EXCLUIU. Sem "0" no lugar
 // de ausencia — capacidade em branco = a medir.
 
-import { useCallback, useEffect, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
+
+const ROTA = '/dashboard/produtividade'
+const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF',
@@ -61,6 +66,8 @@ function Inner() {
   const [configAberto, setConfigAberto] = useState(false)
   const [salAberto, setSalAberto] = useState(false)
   const [novoFluxo, setNovoFluxo] = useState(false)
+  const [setoresOpt, setSetoresOpt] = useState<Opt[]>([])
+  const [foco, setFoco] = useState<Foco>(null)
 
   const flash = useCallback((m: string) => { setMsg(m); setErro(null); window.setTimeout(() => setMsg(null), 3500) }, [])
   const flashErr = useCallback((m: string) => { setErro(m); try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* */ } window.setTimeout(() => setErro(null), 6000) }, [])
@@ -75,6 +82,16 @@ function Inner() {
       setPlants(ps); setPlantId((prev) => prev && ps.some((p) => p.id === prev) ? prev : (ps[0]?.id ?? null))
     })()
   }, [companyId])
+
+  // setores da planta (para trocar o setor do fluxo)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!companyId || !plantId) { setSetoresOpt([]); return }
+    void (async () => {
+      const { data } = await supabase.from('prod_setor').select('id, nome').eq('company_id', companyId).eq('plant_id', plantId).order('ordem')
+      setSetoresOpt((data as Opt[]) ?? [])
+    })()
+  }, [companyId, plantId])
 
   // fluxos + prontidao da planta
   const carregarPlanta = useCallback(async () => {
@@ -120,7 +137,7 @@ function Inner() {
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
 
       {/* Faixa: o que falta para medir */}
-      {pront && <FaixaProntidao pront={pront} />}
+      {pront && <FaixaProntidao pront={pront} temPostos={(fc?.postos.length ?? 0) > 0} onIr={(tipo) => setFoco({ tipo, n: Date.now() })} />}
 
       {/* Seletor de planta + fluxo */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '14px 0 10px' }}>
@@ -137,7 +154,7 @@ function Inner() {
             {fluxos.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
           </select>
         </label>
-        <button onClick={() => setNovoFluxo(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo fluxo</button>
+        <button data-testid="novo-fluxo" onClick={() => setNovoFluxo(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo fluxo</button>
         <button onClick={() => setConfigAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5 }}>⚙ Cadastros</button>
       </div>
 
@@ -147,15 +164,10 @@ function Inner() {
         </div>
       ) : fc ? (
         <>
-          {/* Contexto do fluxo */}
-          <div style={{ fontSize: 12.5, color: C.espM, margin: '2px 0 10px' }}>
-            Setor <b style={{ color: C.esp }}>{fc.fluxo.setor_nome ?? '—'}</b>
-            {fc.fluxo.unidade_entrada_codigo ? <> · entra <b style={{ color: C.esp }}>{fc.fluxo.unidade_entrada_codigo}</b></> : null}
-            {` · ponto: ${fc.contexto.ponto} vínculo(s)`}
-            {fc.contexto.producao.length > 0 ? ` · produção: ${fc.contexto.producao.join(', ')}` : ' · produção: sem vínculo'}
-          </div>
+          {/* Contexto do fluxo — cada valor edita no lugar */}
+          <ContextoFluxo fc={fc} setores={setoresOpt} flash={flash} onMudou={recarregar} />
 
-          <TabelaPostos fc={fc} companyId={companyId} plantId={plantId!} flash={flash} flashErr={flashErr} onMudou={recarregar} />
+          <TabelaPostos fc={fc} companyId={companyId} plantId={plantId!} flash={flash} flashErr={flashErr} onMudou={recarregar} foco={foco} />
         </>
       ) : (
         <div style={{ fontSize: 13, color: C.espM, padding: 20 }}>Carregando o fluxo…</div>
@@ -175,7 +187,7 @@ function Inner() {
   )
 }
 
-function FaixaProntidao({ pront }: { pront: Prontidao }) {
+function FaixaProntidao({ pront, temPostos, onIr }: { pront: Prontidao; temPostos: boolean; onIr: (tipo: 'turno' | 'novo') => void }) {
   const ok = pront.pronto_para_medir
   const t = pront.tem
   const temFrase = [
@@ -183,32 +195,160 @@ function FaixaProntidao({ pront }: { pront: Prontidao }) {
     t.producao_chaves.length > 0 ? `produção ${t.producao_chaves.join(', ')}` : null,
     t.dias_com_ponto > 0 ? `${t.dias_com_ponto.toLocaleString('pt-BR')} dias de ponto em ${(t.datas_distintas ?? 0).toLocaleString('pt-BR')} datas` : null,
   ].filter(Boolean).join(', ')
+  // cada pendencia vira link para o campo que a resolve (fn_prod_prontidao devolve estes textos)
+  const destino = (f: string): { rotulo: string; tipo: 'turno' | 'novo' | null; dica: string } => {
+    if (f === 'nenhum posto cadastrado') return { rotulo: 'cadastrar o 1º posto', tipo: 'novo', dica: 'abre a linha "nova atividade"' }
+    if (f === 'nenhum posto tem quadro de turno') return temPostos
+      ? { rotulo: 'definir o Turno e horário do 1º posto', tipo: 'turno', dica: 'abre o Turno e horário do 1º posto' }
+      : { rotulo: 'cadastre um posto primeiro', tipo: 'novo', dica: 'abre a linha "nova atividade"' }
+    if (f === 'nenhum setor vinculado a uma base (ponto ou producao)') return { rotulo: 'vincular o setor ao ponto/produção (feito pela equipe PS — peça pelo chamado)', tipo: null, dica: 'não há campo nesta tela para isso' }
+    return { rotulo: f, tipo: null, dica: '' }
+  }
   return (
-    <div style={{ background: ok ? C.greenBg : C.amberBg, border: `1px solid ${ok ? C.green : C.amber}55`, borderRadius: 12, padding: '11px 14px', fontSize: 13, color: ok ? C.green : '#8A4B08' }}>
-      {ok ? <b>Pronto para medir.</b> : <><b>Ainda não dá para medir.</b> {pront.falta.length > 0 && `Falta: ${pront.falta.join(' · ')}.`}</>}
+    <div data-testid="faixa-prontidao" style={{ background: ok ? C.greenBg : C.amberBg, border: `1px solid ${ok ? C.green : C.amber}55`, borderRadius: 12, padding: '11px 14px', fontSize: 13, color: ok ? C.green : '#8A4B08' }}>
+      {ok ? <b>Pronto para medir.</b> : (
+        <>
+          <b>Ainda não dá para medir.</b>{pront.falta.length > 0 && ' Falta:'}
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+            {pront.falta.map((f) => {
+              const d = destino(f)
+              return (
+                <li key={f}>{f} {d.tipo
+                  ? <button type="button" data-testid={`falta-${d.tipo}`} onClick={() => onIr(d.tipo!)} title={d.dica} style={{ background: 'none', border: 'none', padding: 0, color: C.blue, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}>→ {d.rotulo}</button>
+                  : <span style={{ color: C.espM }}>→ {d.rotulo}</span>}</li>
+              )
+            })}
+          </ul>
+        </>
+      )}
       {temFrase && <div style={{ color: C.espM, marginTop: 3 }}>Você já tem: {temFrase}.</div>}
     </div>
   )
 }
 
+// Contexto do fluxo (nome, setor, unidade de entrada) editavel no lugar — grava em prod_fluxo (RLS por empresa).
+function ContextoFluxo({ fc, setores, flash, onMudou }: { fc: FluxoCompleto; setores: Opt[]; flash: (m: string) => void; onMudou: () => Promise<void> }) {
+  const f = fc.fluxo
+  async function gravar(patch: Record<string, unknown>, msg: string): Promise<string | null> {
+    const { error } = await supabase.from('prod_fluxo').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', f.id)
+    if (error) return ehDuplicado(error) ? 'Já existe um fluxo com esse nome nesta planta — escolha outro nome.' : `Não consegui salvar: ${error.message}`
+    flash(msg); await onMudou(); return null
+  }
+  const sets = setores.map((s) => ({ value: s.id, label: s.nome }))
+  const unids = fc.listas.unidades.map((u) => ({ value: u.id, label: String(u.codigo ?? u.nome) }))
+  return (
+    <div data-testid="fluxo-contexto" style={{ fontSize: 12.5, color: C.espM, margin: '2px 0 10px', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+      <span>Fluxo<Aj k="prod.fluxo.nome" /> <b style={{ color: C.esp }}><CelulaEditavel testid="fluxo-nome" valor={f.nome} obrigatorio onSalvar={(v) => gravar({ nome: v }, 'ALTEROU o nome do fluxo.')} /></b></span>
+      <span>Setor<Aj k="prod.fluxo.setor" /> <b style={{ color: C.esp }}><CelulaEditavel testid="fluxo-setor" tipo="lista" obrigatorio valor={f.setor_id} opcoes={sets} rotuloValor={(v) => sets.find((o) => o.value === v)?.label ?? f.setor_nome ?? '—'}
+        onSalvar={async (v) => {
+          if (!window.confirm('Trocar o setor do fluxo?\n\nA tabela passa a mostrar os postos do NOVO setor. Os postos do setor antigo não são apagados.')) return 'Troca de setor cancelada — nada foi alterado.'
+          return gravar({ setor_id: v }, 'ALTEROU o setor do fluxo.')
+        }} /></b></span>
+      <span>Entra<Aj k="prod.fluxo.unidade_entrada" /> <b style={{ color: C.esp }}><CelulaEditavel testid="fluxo-unidade" tipo="lista" valor={f.unidade_entrada_id ?? ''} opcoes={unids} vazio="— escolher" rotuloValor={(v) => unids.find((o) => o.value === v)?.label ?? '—'} onSalvar={(v) => gravar({ unidade_entrada_id: v || null }, 'ALTEROU a unidade de entrada.')} /></b></span>
+      <span>{`ponto: ${fc.contexto.ponto} vínculo(s)`}{fc.contexto.producao.length > 0 ? ` · produção: ${fc.contexto.producao.join(', ')}` : ' · produção: sem vínculo'}</span>
+    </div>
+  )
+}
+
 // ─────────── TABELA DE POSTOS ───────────
-function TabelaPostos({ fc, companyId, plantId, flash, flashErr, onMudou }: {
-  fc: FluxoCompleto; companyId: string; plantId: string; flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>
+type Foco = { tipo: 'turno' | 'novo'; n: number } | null
+
+// Cargos do posto = TODAS as funcoes do PONTO da planta (fonte unica, RD-65) + os prod_cargo ja cadastrados. Lista via
+// fn_prod_sugerir_cargos (so funcao + contagem, sem dado pessoal). Ao escolher: fn_prod_cargo_do_ponto_vincular reusa/cria o prod_cargo
+// e grava o vinculo com o ponto (prod_cargo_vinculo) — e assim que as horas do ponto passam a contar para o posto.
+const normCargo = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+type OpcaoCargo = { value: string; label: string; nome: string; doPonto: boolean }
+type CargosPonto = { opcoes: OpcaoCargo[]; vinculados: number | null; resolver: (valor: string) => Promise<{ id: string; erro?: string }> }
+function useCargosPonto(companyId: string, plantId: string, cargos: Opt[], flashErr: (m: string) => void): CargosPonto {
+  const [ponto, setPonto] = useState<{ nome: string; pessoas: number }[]>([])
+  const [vinculados, setVinculados] = useState<number | null>(null)
+  const carregar = useCallback(async () => {
+    const [{ data }, vinc] = await Promise.all([
+      supabase.rpc('fn_prod_sugerir_cargos', { p_company_id: companyId, p_plant_id: plantId }),
+      supabase.from('prod_cargo_vinculo').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('plant_id', plantId),
+    ])
+    const r = data as { ok?: boolean; itens?: { nome: string; pessoas: number }[] } | null
+    // mesma funcao com maiuscula/acento diferente = um item so (soma as pessoas; fica a grafia mais frequente)
+    const m = new Map<string, { nome: string; pessoas: number; top: number }>()
+    for (const it of r?.ok ? (r.itens ?? []) : []) {
+      const k = normCargo(it.nome); const a = m.get(k)
+      if (!a) m.set(k, { nome: it.nome, pessoas: it.pessoas, top: it.pessoas })
+      else { a.pessoas += it.pessoas; if (it.pessoas > a.top) { a.top = it.pessoas; a.nome = it.nome } }
+    }
+    setPonto([...m.values()].map(({ nome, pessoas }) => ({ nome, pessoas })))
+    setVinculados(vinc.error ? null : (vinc.count ?? 0))
+  }, [companyId, plantId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+  // liga ao ponto os prod_cargo que ja existem (idempotente: so insere o que falta)
+  useEffect(() => {
+    void (async () => { const { data } = await supabase.rpc('fn_prod_cargo_do_ponto_vincular', { p_company_id: companyId, p_plant_id: plantId, p_funcao: null }); if ((data as { vinculos_novos?: number } | null)?.vinculos_novos) void carregar() })()
+  }, [companyId, plantId, carregar])
+
+  const opcoes = useMemo<OpcaoCargo[]>(() => {
+    const porNorm = new Map(cargos.map((c) => [normCargo(c.nome), c]))
+    const out: OpcaoCargo[] = ponto.map((f) => {
+      const c = porNorm.get(normCargo(f.nome))
+      return { value: c ? c.id : `ponto:${f.nome}`, label: `${f.nome} · ${f.pessoas}`, nome: f.nome, doPonto: true }
+    })
+    const jaTem = new Set(out.map((o) => o.value))
+    for (const c of cargos) if (!jaTem.has(c.id)) out.push({ value: c.id, label: c.nome, nome: c.nome, doPonto: false })
+    return out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }, [ponto, cargos])
+
+  const resolver: CargosPonto['resolver'] = async (valor) => {
+    if (!valor) return { id: '' }
+    const o = opcoes.find((x) => x.value === valor)
+    if (!o || !o.doPonto) return { id: valor }
+    const { data, error } = await supabase.rpc('fn_prod_cargo_do_ponto_vincular', { p_company_id: companyId, p_plant_id: plantId, p_funcao: o.nome })
+    const r = data as { ok?: boolean; erro?: string; cargo_id?: string } | null
+    if (error || !r?.ok || !r.cargo_id) {
+      const msg = r?.erro === 'sem_fonte_ponto' ? 'Esta planta não tem o ponto conectado — conecte o ponto antes de escolher o cargo.' : r?.erro === 'funcao_nao_esta_no_ponto' ? 'Essa função não está mais no ponto. Atualize a página.' : (error?.message || 'Não consegui ligar o cargo ao ponto. Tente de novo.')
+      flashErr(msg); return { id: '', erro: msg }
+    }
+    void carregar()
+    return { id: r.cargo_id }
+  }
+  return { opcoes, vinculados, resolver }
+}
+
+function TabelaPostos({ fc, companyId, plantId, flash, flashErr, onMudou, foco }: {
+  fc: FluxoCompleto; companyId: string; plantId: string; flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>; foco: Foco
 }) {
+  // descricao_funcao nao vem em fn_prod_fluxo_completo: leitura a parte (so dos postos desta tela).
+  const [descs, setDescs] = useState<Record<string, string>>({})
+  const cp = useCargosPonto(companyId, plantId, fc.listas.cargos, flashErr)
+  const ids = fc.postos.map((p) => p.id).join(',')
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!ids) { setDescs({}); return }
+    void (async () => {
+      const { data } = await supabase.from('prod_posto').select('id, descricao_funcao').in('id', ids.split(','))
+      const m: Record<string, string> = {}
+      ;((data as { id: string; descricao_funcao: string | null }[]) ?? []).forEach((r) => { m[r.id] = r.descricao_funcao ?? '' })
+      setDescs(m)
+    })()
+  }, [ids, fc])
+  useEffect(() => {
+    if (foco?.tipo !== 'novo') return
+    const el = document.querySelector<HTMLInputElement>('[data-testid="posto-novo-atividade"]')
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' }); el?.focus()
+  }, [foco])
   return (
     <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
       <div style={{ overflowX: 'auto' }}>
+        <div data-testid="cargos-ponto-vinculados" style={{ fontSize: 11.5, color: C.espM, padding: '6px 10px 0' }}>{cp.opcoes.filter((o) => o.doPonto).length} cargo(s) do ponto na lista · {cp.vinculados ?? '—'} função(ões) do ponto ligada(s) a cargos</div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
           <thead style={{ background: C.cream }}>
             <tr>
-              <Th w={44}>Nº</Th><Th>Atividade</Th><Th w={150}>Cargo</Th><Th w={170}>Turno e horário</Th><Th w={80}>Pessoas</Th><Th w={90}>Cap./h</Th><Th w={70}></Th>
+              <Th w={54} ajuda="prod.posto.numero">Nº</Th><Th ajuda="prod.posto.atividade">Atividade</Th><Th w={150} ajuda="prod.posto.cargo">Cargo</Th><Th w={170} ajuda="prod.posto.turno_horario">Turno e horário</Th><Th w={80} ajuda="prod.posto.pessoas">Pessoas</Th><Th w={90} ajuda="prod.posto.capacidade">Cap./h</Th><Th w={70} ajuda="prod.posto.arquivar"></Th>
             </tr>
           </thead>
           <tbody>
-            {fc.postos.map((p) => (
-              <LinhaPosto key={p.id} posto={p} fc={fc} companyId={companyId} plantId={plantId} setor_id={fc.fluxo.setor_id} flash={flash} flashErr={flashErr} onMudou={onMudou} />
+            {fc.postos.map((p, i) => (
+              <LinhaPostoEditavel key={p.id} posto={p} descricao={descs[p.id] ?? ''} fc={fc} companyId={companyId} plantId={plantId} flash={flash} flashErr={flashErr} onMudou={onMudou} cp={cp} abrirTurno={i === 0 && foco?.tipo === 'turno' ? foco.n : 0} />
             ))}
-            <LinhaPosto novo fc={fc} companyId={companyId} plantId={plantId} setor_id={fc.fluxo.setor_id} flash={flash} flashErr={flashErr} onMudou={onMudou} />
+            <LinhaPosto novo fc={fc} companyId={companyId} plantId={plantId} setor_id={fc.fluxo.setor_id} flash={flash} flashErr={flashErr} onMudou={onMudou} cp={cp} />
           </tbody>
         </table>
       </div>
@@ -216,14 +356,168 @@ function TabelaPostos({ fc, companyId, plantId, flash, flashErr, onMudou }: {
   )
 }
 
+// Linha de posto ja criada: cada valor edita no lugar (clique → campo → salva ao sair/Enter, Esc cancela). Toda gravacao manda a
+// linha INTEIRA para fn_prod_posto_salvar (a funcao regrava todos os campos da linha; mandar so um apagaria os outros).
+function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, abrirTurno, cp }: {
+  posto: Posto; descricao: string; fc: FluxoCompleto; companyId: string; plantId: string;
+  flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>; abrirTurno: number; cp: CargosPonto
+}) {
+  const [mais, setMais] = useState(false)
+  const [turnoOpen, setTurnoOpen] = useState(false)
+  const [t, setT] = useState<TurnoRasc>({ turno_id: '', hora_entrada: '', hora_saida: '' })
+  const [erroTurno, setErroTurno] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const base = rascunhoDe(posto)
+  // reabre/reidrata o horario quando o posto muda de fora
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setT({ turno_id: base.turno_id, hora_entrada: base.hora_entrada, hora_saida: base.hora_saida }) }, [posto]) // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (abrirTurno > 0) setTurnoOpen(true) }, [abrirTurno])
+
+  // devolve null = gravou; texto = erro que ensina
+  async function gravar(patch: Partial<Rascunho>): Promise<string | null> {
+    const r = { ...base, ...patch }
+    if (!r.atividade.trim()) return 'A atividade é obrigatória — digite o que o posto faz.'
+    const mexeuTurno = ['turno_id', 'hora_entrada', 'hora_saida', 'pessoas'].some((k) => k in patch)
+    const cap = r.capacidade_hora.trim().replace(',', '.')
+    if (cap && (!Number.isFinite(Number(cap)) || Number(cap) <= 0)) return cap && Number(cap) === 0 ? 'Zero não vale: deixe em branco (a medir) até medir de verdade.' : 'Digite só número, ex.: 420 ou 12,5.'
+    const pes = r.pessoas.trim().replace(',', '.')
+    if (pes && (!Number.isFinite(Number(pes)) || Number(pes) <= 0)) return 'Pessoas: digite só número maior que zero, ex.: 4.'
+    if (mexeuTurno && pes && !r.turno_id && !r.hora_entrada) return 'Pessoas só entram junto com o horário: preencha antes o "Turno e horário" deste posto.'
+    const dados: Record<string, unknown> = {
+      id: posto.id, numero: r.numero?.trim() || undefined, atividade: r.atividade.trim(), cargo_id: r.cargo_id || null, unidade_medida_id: r.unidade_medida_id || null,
+      tipo_posto_id: r.tipo_posto_id || null, categoria_produto_id: r.categoria_produto_id || null, indicador_id: posto.indicador_id,
+      capacidade_hora: cap || null, alocacao: r.alocacao, centro_custo: r.centro_custo || null, supervisor_nome: r.supervisor_nome || null,
+    }
+    if (mexeuTurno && (r.turno_id || r.hora_entrada)) dados.turno = { turno_id: r.turno_id || null, hora_entrada: r.hora_entrada || null, hora_saida: r.hora_saida || null, pessoas: pes || null }
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data, error } = await supabase.rpc('fn_prod_posto_salvar', { p_dados: dados, p_user: user?.id ?? null })
+    const res = data as { ok?: boolean; erro?: string; numero?: string } | null
+    if (error || !res?.ok) {
+      return res?.erro === 'numero_duplicado' ? `Já existe um posto com o número ${res?.numero} neste setor — escolha outro número.`
+        : res?.erro === 'atividade_obrigatoria' ? 'A atividade é obrigatória.'
+        : res?.erro === 'sem_acesso' ? 'Sem acesso a este posto.'
+        : (error?.message || 'Não consegui salvar. Confira o valor e tente de novo.')
+    }
+    if (mexeuTurno && dados.turno) await fecharQuadrosAntigos(posto.id, r)
+    await onMudou()
+    return null
+  }
+
+  // fn_prod_posto_salvar so encerra o quadro do MESMO turno; ao trocar o horario sobraria um 2º quadro aberto no posto
+  // (a faixa "Pronto para medir" contaria dois). Encerra (vigencia_fim = hoje) os abertos que nao sao o que acabou de gravar.
+  async function fecharQuadrosAntigos(postoId: string, r: Rascunho) {
+    const { data } = await supabase.from('prod_posto_turno').select('id, hora_entrada, hora_saida, pessoas').eq('posto_id', postoId).is('vigencia_fim', null)
+    const abertos = (data as { id: string; hora_entrada: string | null; hora_saida: string | null; pessoas: number | null }[]) ?? []
+    if (abertos.length < 2) return
+    const igual = (a: string | null, b: string) => hhmm(a) === b
+    const novo = abertos.find((q) => igual(q.hora_entrada, r.hora_entrada) && igual(q.hora_saida, r.hora_saida) && (q.pessoas == null ? !r.pessoas.trim() : Number(q.pessoas) === Number(r.pessoas.replace(',', '.'))))
+    if (!novo) return
+    const hoje = new Date().toLocaleDateString('en-CA')
+    await supabase.from('prod_posto_turno').update({ vigencia_fim: hoje }).in('id', abertos.filter((q) => q.id !== novo.id).map((q) => q.id))
+  }
+
+  async function salvarTurno() {
+    setErroTurno(null); setBusy(true)
+    const e = await gravar({ turno_id: t.turno_id, hora_entrada: t.hora_entrada, hora_saida: t.hora_saida })
+    setBusy(false)
+    if (e) { setErroTurno(e); return }
+    flash('ALTEROU o horário do posto.'); setTurnoOpen(false)
+  }
+
+  async function arquivar() {
+    if (!window.confirm(`Arquivar o posto "${posto.numero} · ${posto.atividade}"?\n\nNada é apagado: o posto sai da lista e o histórico fica guardado.`)) return
+    setBusy(true)
+    const hoje = new Date().toLocaleDateString('en-CA')
+    const { error } = await supabase.from('prod_posto').update({ ativo: false, updated_at: new Date().toISOString() }).eq('id', posto.id)
+    if (!error) await supabase.from('prod_posto_turno').update({ vigencia_fim: hoje }).eq('posto_id', posto.id).is('vigencia_fim', null)
+    setBusy(false)
+    if (error) { flashErr(`Não consegui arquivar o posto: ${error.message}`); return }
+    flash('ARQUIVOU o posto.'); await onMudou()
+  }
+
+  async function gravarDescricao(v: string): Promise<string | null> {
+    const { error } = await supabase.from('prod_posto').update({ descricao_funcao: v || null, updated_at: new Date().toISOString() }).eq('id', posto.id)
+    if (error) return error.message
+    await onMudou(); return null
+  }
+
+  const topSug = fc.sugestoes_turno[0]
+  const temHorario = !!(base.hora_entrada || base.turno_id)
+  const turnoLabel = temHorario
+    ? (base.hora_entrada ? `${base.hora_entrada}${base.hora_saida ? `–${base.hora_saida}` : ''}` : (fc.listas.turnos.find((x) => x.id === base.turno_id)?.codigo ?? 'turno'))
+    : (topSug ? `${topSug.horario} · ${topSug.ocorrencias.toLocaleString('pt-BR')}d (sugestão)` : 'sem histórico')
+  const n = posto.numero
+  const tid = (c: string) => `posto-${n}-${c}`
+  const lista = (xs: Opt[], campoNome: 'nome' | 'codigo' = 'nome') => xs.map((o) => ({ value: o.id, label: String(campoNome === 'codigo' ? (o.codigo ?? o.nome) : o.nome) }))
+  const rot = (xs: { value: string; label: string }[]) => (v: string) => xs.find((o) => o.value === v)?.label ?? '—'
+  const cargos = cp.opcoes.map((o) => ({ value: o.value, label: o.label })), cats = lista(fc.listas.categorias), tipos = lista(fc.listas.tipos), unids = lista(fc.listas.unidades, 'codigo')
+  const aloc = [{ value: 'fixa', label: 'pessoas fixas' }, { value: 'rotativa', label: 'pessoas rotativas' }]
+
+  return (
+    <>
+      <tr data-testid={`posto-${n}`} style={{ borderTop: `1px solid ${C.cream}`, verticalAlign: 'top' }}>
+        <Td><CelulaEditavel testid={tid('numero')} valor={posto.numero} obrigatorio onSalvar={(v) => gravar({ numero: v })} /></Td>
+        <Td><CelulaEditavel testid={tid('atividade')} valor={posto.atividade} obrigatorio onSalvar={(v) => gravar({ atividade: v })} /></Td>
+        <Td><CelulaEditavel testid={tid('cargo')} tipo="busca" valor={base.cargo_id} opcoes={cargos} vazio="— escolher" rotuloValor={(v) => (rot(cargos)(v).replace(/ · \d+$/, '') || '—')}
+          onSalvar={async (v) => { const r = await cp.resolver(v); return r.erro ? r.erro : gravar({ cargo_id: r.id }) }} /></Td>
+        <Td>
+          <button type="button" data-testid={tid('turno')} onClick={() => setTurnoOpen((v) => !v)} title={temHorario ? 'Turno e horário — clique para editar' : 'Sem quadro de turno — clique para definir'}
+            style={{ ...inp, padding: '5px 6px', fontSize: 12.5, textAlign: 'left', cursor: 'pointer', color: temHorario ? C.esp : C.blue, fontStyle: temHorario ? 'normal' : 'italic' }}>
+            {turnoLabel} {turnoOpen ? '▲' : '▾'}
+          </button>
+        </Td>
+        <Td><CelulaEditavel testid={tid('pessoas')} tipo="numero" valor={base.pessoas} vazio="— (preencha)" onSalvar={(v) => gravar({ pessoas: v })} /></Td>
+        <Td><CelulaEditavel testid={tid('capacidade')} tipo="numero" valor={base.capacidade_hora} vazio="a medir" onSalvar={(v) => gravar({ capacidade_hora: v })} /></Td>
+        <Td>
+          <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+            <button disabled={busy} data-testid={tid('arquivar')} onClick={() => void arquivar()} title="Arquivar posto (não apaga)" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700, fontSize: 16 }}>×</button>
+          </div>
+        </Td>
+      </tr>
+      {turnoOpen && (
+        <tr>
+          <td /><td colSpan={6} style={{ padding: '8px 9px' }}>
+            <TurnoPicker fc={fc} r={t} up={(p) => { setT((o) => ({ ...o, ...p })); setErroTurno(null) }} onClose={() => setTurnoOpen(false)} onSalvar={() => void salvarTurno()} erro={erroTurno} />
+          </td>
+        </tr>
+      )}
+      {mais && (
+        <tr>
+          <td /><td colSpan={6} style={{ padding: '4px 9px 10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+              <L label="Centro de custo" ajuda="prod.posto.centro_custo"><CelulaEditavel testid={tid('centro_custo')} valor={base.centro_custo} onSalvar={(v) => gravar({ centro_custo: v })} /></L>
+              <L label="Supervisor" ajuda="prod.posto.supervisor"><CelulaEditavel testid={tid('supervisor')} valor={base.supervisor_nome} onSalvar={(v) => gravar({ supervisor_nome: v })} /></L>
+              <L label="Alocação" ajuda="prod.posto.alocacao"><CelulaEditavel testid={tid('alocacao')} tipo="lista" obrigatorio valor={base.alocacao} opcoes={aloc} rotuloValor={rot(aloc)} onSalvar={(v) => gravar({ alocacao: v })} /></L>
+              <L label="Categoria de produto" ajuda="prod.posto.categoria"><CelulaEditavel testid={tid('categoria')} tipo="lista" valor={base.categoria_produto_id} opcoes={cats} rotuloValor={rot(cats)} onSalvar={(v) => gravar({ categoria_produto_id: v })} /></L>
+              <L label="Tipo do posto" ajuda="prod.posto.tipo"><CelulaEditavel testid={tid('tipo')} tipo="lista" valor={base.tipo_posto_id} opcoes={tipos} rotuloValor={rot(tipos)} onSalvar={(v) => gravar({ tipo_posto_id: v })} /></L>
+              <L label="Unidade que conta" ajuda="prod.posto.unidade"><CelulaEditavel testid={tid('unidade')} tipo="lista" valor={base.unidade_medida_id} opcoes={unids} rotuloValor={rot(unids)} onSalvar={(v) => gravar({ unidade_medida_id: v })} /></L>
+              <L label="Descrição da função" ajuda="prod.posto.descricao_funcao"><CelulaEditavel testid={tid('descricao')} tipo="longo" valor={descricao} onSalvar={gravarDescricao} /></L>
+            </div>
+            {base.alocacao === 'rotativa' && <div style={{ fontSize: 11.5, color: C.amber, marginTop: 6 }}>⚠️ Posto rotativo: a produtividade por pessoa virá do ponto, não do quadro.</div>}
+          </td>
+        </tr>
+      )}
+      <tr>
+        <td /><td colSpan={6} style={{ padding: '0 9px 8px' }}>
+          <button type="button" data-testid={tid('mais')} onClick={() => setMais((v) => !v)} style={{ background: 'none', border: 'none', color: C.blue, cursor: 'pointer', fontSize: 11.5, padding: 0 }}>
+            {mais ? '− menos campos' : '+ mais campos (centro de custo, supervisor, categoria, descrição…)'}
+          </button>
+          {posto.capacidade_hora == null && <span style={{ fontSize: 11.5, color: C.espM, marginLeft: 10 }}>Capacidade em branco = <b>a medir</b> (nunca zero).</span>}
+        </td>
+      </tr>
+    </>
+  )
+}
+
 type Rascunho = {
-  atividade: string; cargo_id: string; unidade_medida_id: string; tipo_posto_id: string; categoria_produto_id: string;
+  numero?: string; atividade: string; cargo_id: string; unidade_medida_id: string; tipo_posto_id: string; categoria_produto_id: string;
   pessoas: string; capacidade_hora: string; alocacao: string; centro_custo: string; supervisor_nome: string;
   turno_id: string; hora_entrada: string; hora_saida: string
 }
 function rascunhoDe(p?: Posto): Rascunho {
   return {
-    atividade: p?.atividade ?? '', cargo_id: p?.cargo_id ?? '', unidade_medida_id: p?.unidade_medida_id ?? '',
+    numero: p?.numero ?? '', atividade: p?.atividade ?? '', cargo_id: p?.cargo_id ?? '', unidade_medida_id: p?.unidade_medida_id ?? '',
     tipo_posto_id: p?.tipo_posto_id ?? '', categoria_produto_id: p?.categoria_produto_id ?? '',
     pessoas: p?.quadro?.pessoas != null ? String(p.quadro.pessoas) : '', capacidade_hora: p?.capacidade_hora != null ? String(p.capacidade_hora) : '',
     alocacao: p?.alocacao ?? 'fixa', centro_custo: p?.centro_custo ?? '', supervisor_nome: p?.supervisor_nome ?? '',
@@ -231,9 +525,9 @@ function rascunhoDe(p?: Posto): Rascunho {
   }
 }
 
-function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flashErr, onMudou }: {
+function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flashErr, onMudou, cp }: {
   posto?: Posto; novo?: boolean; fc: FluxoCompleto; companyId: string; plantId: string; setor_id: string;
-  flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>
+  flash: (m: string) => void; flashErr: (m: string) => void; onMudou: () => Promise<void>; cp: CargosPonto
 }) {
   // linha nova ja abre com a entrada mais comum do ponto (o turno vem pronto — SPEC §3).
   const [r, setR] = useState<Rascunho>(() => { const b = rascunhoDe(posto); if (novo && !b.hora_entrada && fc.sugestoes_turno[0]) b.hora_entrada = fc.sugestoes_turno[0].horario; return b })
@@ -241,6 +535,7 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
   const [turnoOpen, setTurnoOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [erroLinha, setErroLinha] = useState<string | null>(null)
+  const [cargoTexto, setCargoTexto] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   // reidrata quando o posto muda de fora (recarregar)
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -252,12 +547,15 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
   async function salvar() {
     if (!podeSalvar) { setErroLinha('A atividade é obrigatória.'); return }
     setBusy(true); setErroLinha(null)
+    const cg = await cp.resolver(r.cargo_id)
+    if (cg.erro) { setBusy(false); setErroLinha(cg.erro); return }
+    const cargoId = cg.id
     const { data: { user } } = await supabase.auth.getUser()
     const turno = (r.turno_id || r.hora_entrada || r.pessoas)
       ? { turno_id: r.turno_id || null, hora_entrada: r.hora_entrada || null, hora_saida: r.hora_saida || null, pessoas: r.pessoas || null }
       : null
     const dados: Record<string, unknown> = {
-      atividade: r.atividade.trim(), cargo_id: r.cargo_id || null, unidade_medida_id: r.unidade_medida_id || null,
+      atividade: r.atividade.trim(), cargo_id: cargoId || null, unidade_medida_id: r.unidade_medida_id || null,
       tipo_posto_id: r.tipo_posto_id || null, categoria_produto_id: r.categoria_produto_id || null,
       capacidade_hora: r.capacidade_hora || null, alocacao: r.alocacao,
       centro_custo: r.centro_custo || null, supervisor_nome: r.supervisor_nome || null, turno,
@@ -313,12 +611,14 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
       <tr style={{ borderTop: `1px solid ${C.cream}`, background: novo ? C.goldBg : undefined, verticalAlign: 'top' }}>
         <Td>{novo ? '+' : posto!.numero}</Td>
         <Td>
-          <input value={r.atividade} onChange={(e) => up({ atividade: e.target.value })} placeholder={novo ? 'nova atividade…' : ''} style={{ ...inp, padding: '5px 7px' }} />
+          <input data-testid={novo ? 'posto-novo-atividade' : undefined} value={r.atividade} onChange={(e) => up({ atividade: e.target.value })} placeholder={novo ? 'nova atividade…' : ''} style={{ ...inp, padding: '5px 7px' }} />
         </Td>
         <Td>
-          <select value={r.cargo_id} onChange={(e) => up({ cargo_id: e.target.value })} style={cellSel}>
-            <option value="">—</option>{fc.listas.cargos.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
+          <input data-testid={novo ? 'posto-novo-cargo' : undefined} list={`cargos-${posto?.id ?? 'novo'}`} placeholder="cargo — digite para buscar" style={{ ...inp, padding: '5px 7px' }}
+            value={cargoTexto ?? (cp.opcoes.find((o) => o.value === r.cargo_id)?.label ?? '')}
+            onChange={(e) => { const t = e.target.value; setCargoTexto(t); const o = cp.opcoes.find((x) => x.label.toLowerCase() === t.trim().toLowerCase()); if (o) up({ cargo_id: o.value }); else if (!t.trim()) up({ cargo_id: '' }) }}
+            onBlur={() => setCargoTexto(null)} />
+          <datalist id={`cargos-${posto?.id ?? 'novo'}`}>{cp.opcoes.map((o) => <option key={o.value} value={o.label} />)}</datalist>
         </Td>
         <Td>
           <button type="button" onClick={() => setTurnoOpen((v) => !v)}
@@ -327,13 +627,13 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
             {turnoLabel} {turnoOpen ? '▲' : '▾'}
           </button>
         </Td>
-        <Td><input value={r.pessoas} onChange={(e) => up({ pessoas: e.target.value })} placeholder="—" inputMode="numeric" style={{ ...inp, padding: '5px 7px' }} /></Td>
+        <Td><input data-testid="posto-novo-pessoas" value={r.pessoas} onChange={(e) => up({ pessoas: e.target.value })} placeholder="—" inputMode="numeric" style={{ ...inp, padding: '5px 7px' }} /></Td>
         <Td>
-          <input value={r.capacidade_hora} onChange={(e) => up({ capacidade_hora: e.target.value })} placeholder="a medir" inputMode="decimal" style={{ ...inp, padding: '5px 7px' }} />
+          <input data-testid="posto-novo-capacidade" value={r.capacidade_hora} onChange={(e) => up({ capacidade_hora: e.target.value })} placeholder="a medir" inputMode="decimal" style={{ ...inp, padding: '5px 7px' }} />
         </Td>
         <Td>
           <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-            {(dirty || novo) && <button disabled={busy || !podeSalvar} onClick={() => void salvar()} title="Salvar linha" style={{ ...btn(!busy && podeSalvar), padding: '5px 9px', fontSize: 12 }}>{busy ? '…' : '✓'}</button>}
+            {(dirty || novo) && <button disabled={busy || !podeSalvar} data-testid="posto-novo-salvar" onClick={() => void salvar()} title="Salvar linha" style={{ ...btn(!busy && podeSalvar), padding: '5px 9px', fontSize: 12 }}>{busy ? '…' : '✓'}</button>}
             {!novo && <button disabled={busy} onClick={() => void excluir()} title="Excluir posto" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700, fontSize: 16 }}>×</button>}
           </div>
         </Td>
@@ -351,12 +651,12 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
             {erroLinha && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12.5, marginBottom: mais ? 8 : 0 }}>{erroLinha}</div>}
             {mais && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
-                <L label="Centro de custo"><input value={r.centro_custo} onChange={(e) => up({ centro_custo: e.target.value })} style={inp} /></L>
-                <L label="Supervisor"><input value={r.supervisor_nome} onChange={(e) => up({ supervisor_nome: e.target.value })} style={inp} /></L>
-                <L label="Alocação"><select value={r.alocacao} onChange={(e) => up({ alocacao: e.target.value })} style={inp}><option value="fixa">pessoas fixas</option><option value="rotativa">pessoas rotativas</option></select></L>
-                <L label="Categoria de produto"><select value={r.categoria_produto_id} onChange={(e) => up({ categoria_produto_id: e.target.value })} style={inp}><option value="">—</option>{fc.listas.categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></L>
-                <L label="Tipo do posto"><select value={r.tipo_posto_id} onChange={(e) => up({ tipo_posto_id: e.target.value })} style={inp}><option value="">—</option>{fc.listas.tipos.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></L>
-                <L label="Unidade que conta"><select value={r.unidade_medida_id} onChange={(e) => up({ unidade_medida_id: e.target.value })} style={inp}><option value="">—</option>{fc.listas.unidades.map((u) => <option key={u.id} value={u.id}>{u.codigo}</option>)}</select></L>
+                <L label="Centro de custo" ajuda="prod.posto.centro_custo"><input value={r.centro_custo} onChange={(e) => up({ centro_custo: e.target.value })} style={inp} /></L>
+                <L label="Supervisor" ajuda="prod.posto.supervisor"><input value={r.supervisor_nome} onChange={(e) => up({ supervisor_nome: e.target.value })} style={inp} /></L>
+                <L label="Alocação" ajuda="prod.posto.alocacao"><select value={r.alocacao} onChange={(e) => up({ alocacao: e.target.value })} style={inp}><option value="fixa">pessoas fixas</option><option value="rotativa">pessoas rotativas</option></select></L>
+                <L label="Categoria de produto" ajuda="prod.posto.categoria"><select value={r.categoria_produto_id} onChange={(e) => up({ categoria_produto_id: e.target.value })} style={inp}><option value="">—</option>{fc.listas.categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></L>
+                <L label="Tipo do posto" ajuda="prod.posto.tipo"><select value={r.tipo_posto_id} onChange={(e) => up({ tipo_posto_id: e.target.value })} style={inp}><option value="">—</option>{fc.listas.tipos.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}</select></L>
+                <L label="Unidade que conta" ajuda="prod.posto.unidade"><select value={r.unidade_medida_id} onChange={(e) => up({ unidade_medida_id: e.target.value })} style={inp}><option value="">—</option>{fc.listas.unidades.map((u) => <option key={u.id} value={u.id}>{u.codigo}</option>)}</select></L>
               </div>
             )}
             {r.alocacao === 'rotativa' && mais && <div style={{ fontSize: 11.5, color: C.amber, marginTop: 6 }}>⚠️ Posto rotativo: a produtividade por pessoa virá do ponto, não do quadro.</div>}
@@ -375,7 +675,8 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
   )
 }
 
-function TurnoPicker({ fc, r, up, onClose }: { fc: FluxoCompleto; r: Rascunho; up: (p: Partial<Rascunho>) => void; onClose: () => void }) {
+type TurnoRasc = Pick<Rascunho, 'hora_entrada' | 'hora_saida' | 'turno_id'>
+function TurnoPicker({ fc, r, up, onClose, onSalvar, erro }: { fc: FluxoCompleto; r: TurnoRasc; up: (p: Partial<TurnoRasc>) => void; onClose: () => void; onSalvar?: () => void; erro?: string | null }) {
   return (
     <div style={{ border: `1px solid ${C.border}`, borderRadius: 9, padding: 10, background: C.white }}>
       <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 6 }}>
@@ -394,17 +695,19 @@ function TurnoPicker({ fc, r, up, onClose }: { fc: FluxoCompleto; r: Rascunho; u
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label style={{ fontSize: 11.5, color: C.espM }}>entra <input type="time" value={r.hora_entrada} onChange={(e) => up({ hora_entrada: e.target.value, turno_id: '' })} style={{ ...inp, width: 'auto', marginLeft: 4 }} /></label>
-        <label style={{ fontSize: 11.5, color: C.espM }}>sai <input type="time" value={r.hora_saida} onChange={(e) => up({ hora_saida: e.target.value })} style={{ ...inp, width: 'auto', marginLeft: 4 }} /></label>
+        <label style={{ fontSize: 11.5, color: C.espM }}>entra<Aj k="prod.turno.entrada" /> <input type="time" data-testid="turno-entrada" value={r.hora_entrada} onChange={(e) => up({ hora_entrada: e.target.value, turno_id: '' })} style={{ ...inp, width: 'auto', marginLeft: 4 }} /></label>
+        <label style={{ fontSize: 11.5, color: C.espM }}>sai<Aj k="prod.turno.saida" /> <input type="time" data-testid="turno-saida" value={r.hora_saida} onChange={(e) => up({ hora_saida: e.target.value })} style={{ ...inp, width: 'auto', marginLeft: 4 }} /></label>
         {fc.listas.turnos.length > 0 && (
-          <label style={{ fontSize: 11.5, color: C.espM }}>ou turno da planta&nbsp;
+          <label style={{ fontSize: 11.5, color: C.espM }}>ou turno da planta<Aj k="prod.turno.turno_planta" />&nbsp;
             <select value={r.turno_id} onChange={(e) => { const t = fc.listas.turnos.find((x) => x.id === e.target.value); up({ turno_id: e.target.value, hora_entrada: hhmm(t?.inicio) || r.hora_entrada, hora_saida: hhmm(t?.fim) || r.hora_saida }) }} style={{ ...inp, width: 'auto' }}>
               <option value="">—</option>{fc.listas.turnos.map((t) => <option key={t.id} value={t.id}>{t.codigo}{t.inicio ? ` (${hhmm(t.inicio)}–${hhmm(t.fim)})` : ''}</option>)}
             </select>
           </label>
         )}
-        <button type="button" onClick={onClose} style={{ ...btn(true), background: 'transparent', color: C.espM, border: `1px solid ${C.border}`, padding: '5px 10px', fontSize: 12 }}>ok</button>
+        {onSalvar && <button type="button" data-testid="turno-salvar" onClick={onSalvar} style={{ ...btn(true), padding: '5px 12px', fontSize: 12 }}>Salvar horário</button>}
+        <button type="button" onClick={onClose} style={{ ...btn(true), background: 'transparent', color: C.espM, border: `1px solid ${C.border}`, padding: '5px 10px', fontSize: 12 }}>{onSalvar ? 'fechar' : 'ok'}</button>
       </div>
+      {erro && <div data-testid="turno-erro" role="alert" style={{ background: C.redBg, color: C.red, padding: '5px 9px', borderRadius: 7, fontSize: 12, marginTop: 6 }}>{erro}</div>}
       <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>O horário do ponto vira um turno da planta ao salvar. Depois é só ajustar em “configuração avançada”.</div>
     </div>
   )
@@ -440,13 +743,13 @@ function NovoFluxoModal({ companyId, plantId, onClose, onSaved, onErro }: { comp
         <div style={{ fontSize: 12, color: C.espM, marginBottom: 12 }}>O fluxo é o contexto dos postos. Escolha o setor e a unidade que entra.</div>
         {setores.length === 0 && <div style={{ fontSize: 12, color: C.amber, marginBottom: 8 }}>Cadastre ao menos um setor em “configuração avançada” antes.</div>}
         <div style={{ display: 'grid', gap: 8 }}>
-          <input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} placeholder="nome do fluxo (ex.: Abate — do boi à carcaça)" style={inp} />
-          <select value={f.setor_id} onChange={(e) => setF({ ...f, setor_id: e.target.value })} style={inp}><option value="">setor…</option>{setores.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select>
-          <select value={f.unidade_entrada_id} onChange={(e) => setF({ ...f, unidade_entrada_id: e.target.value })} style={inp}><option value="">unidade de entrada… (opcional)</option>{unidades.map((u) => <option key={u.id} value={u.id}>{u.codigo}</option>)}</select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><input data-testid="novo-fluxo-nome" value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} placeholder="nome do fluxo (ex.: Desossa de Bola)" style={inp} /><Aj k="prod.fluxo.nome" /></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><select data-testid="novo-fluxo-setor" value={f.setor_id} onChange={(e) => setF({ ...f, setor_id: e.target.value })} style={inp}><option value="">setor…</option>{setores.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select><Aj k="prod.fluxo.setor" /></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><select data-testid="novo-fluxo-unidade" value={f.unidade_entrada_id} onChange={(e) => setF({ ...f, unidade_entrada_id: e.target.value })} style={inp}><option value="">unidade de entrada… (opcional)</option>{unidades.map((u) => <option key={u.id} value={u.id}>{u.codigo}</option>)}</select><Aj k="prod.fluxo.unidade_entrada" /></div>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ ...btn(true), background: 'transparent', color: C.espM, border: `1px solid ${C.border}` }}>Cancelar</button>
-          <button disabled={!pode || busy} style={btn(!!pode && !busy)} onClick={() => void salvar()}>{busy ? 'Criando…' : 'Criar fluxo'}</button>
+          <button disabled={!pode || busy} data-testid="novo-fluxo-criar" style={btn(!!pode && !busy)} onClick={() => void salvar()}>{busy ? 'Criando…' : 'Criar fluxo'}</button>
         </div>
       </div>
     </div>
@@ -821,6 +1124,14 @@ function SalarioBase({ ctx }: { ctx: Ctx }) {
     if (error || !r?.ok) { ctx.flashErr(r?.erro === 'sem_alvo' ? 'Sem cadastro de funcionário para esta matrícula — use o salário por cargo.' : r?.erro === 'valor_invalido' ? 'Valor inválido.' : (error?.message || 'Falha ao salvar salário.')); return false }
     ctx.flash('CRIOU salário base.'); await carregar(); return true
   }
+  // corrige o valor no lugar; como passou a ser digitado, a fonte vira "digitado" (a folha não confirma mais esse número)
+  async function editarValor(id: string, txt: string): Promise<string | null> {
+    const n = Number(txt.replace(/\./g, '').replace(',', '.'))
+    if (!Number.isFinite(n) || n <= 0) return 'Digite o valor em reais, só números, ex.: 2850,00.'
+    const { error } = await supabase.from('prod_salario_base').update({ valor: n, fonte: 'manual' }).eq('id', id)
+    if (error) return `Não consegui salvar o salário: ${error.message}`
+    ctx.flash('ALTEROU o salário base.'); await carregar(); return null
+  }
   async function excluir(id: string) {
     if (!window.confirm('Excluir este salário base?')) return
     const { error } = await supabase.from('prod_salario_base').delete().eq('id', id)
@@ -835,7 +1146,7 @@ function SalarioBase({ ctx }: { ctx: Ctx }) {
         A folha traz o <b>pago no mês</b> (oscila com hora extra, faltas, rescisão) — <b>não</b> o salário base. Por isso a folha <b>sugere</b>, você <b>confirma</b>. A fonte fica sempre ao lado do valor.
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-        <label style={{ fontSize: 12, color: C.espM }}>Competência&nbsp;
+        <label style={{ fontSize: 12, color: C.espM }}>Competência<Aj k="prod.salario.competencia" />&nbsp;
           <select value={comp} onChange={(e) => setComp(e.target.value)} style={{ ...inp, width: 'auto' }}>
             {comps.length === 0 && <option value="">— sem folha —</option>}
             {comps.map((c) => <option key={c} value={c}>{mesBr(c)}</option>)}
@@ -852,10 +1163,10 @@ function SalarioBase({ ctx }: { ctx: Ctx }) {
       <div style={{ background: C.bg, borderRadius: 8, padding: 10, marginBottom: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Salário por cargo <span style={{ fontWeight: 400, color: C.espM }}>— estimativa, enquanto não há alocação nominal</span></div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select value={manualCargo.cargo_id} onChange={(e) => setManualCargo({ ...manualCargo, cargo_id: e.target.value })} style={{ ...inp, width: 'auto' }}><option value="">cargo…</option>{cargos.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
-          <input value={manualCargo.valor} onChange={(e) => setManualCargo({ ...manualCargo, valor: e.target.value })} placeholder="R$ base" inputMode="decimal" style={{ ...inp, width: 110 }} />
-          <select value={manualCargo.fonte} onChange={(e) => setManualCargo({ ...manualCargo, fonte: e.target.value })} style={{ ...inp, width: 'auto' }}><option value="manual">digitado</option><option value="acordo_coletivo">acordo coletivo</option></select>
-          <button type="button" disabled={!manualCargo.cargo_id || !manualCargo.valor} style={btn(!!manualCargo.cargo_id && !!manualCargo.valor)} onClick={async () => { if (await salvar({ cargo_id: manualCargo.cargo_id, valor: manualCargo.valor, fonte: manualCargo.fonte })) setManualCargo({ cargo_id: '', valor: '', fonte: 'manual' }) }}>+ Salvar por cargo</button>
+          <select data-testid="sal-cargo" value={manualCargo.cargo_id} onChange={(e) => setManualCargo({ ...manualCargo, cargo_id: e.target.value })} style={{ ...inp, width: 'auto' }}><option value="">cargo…</option>{cargos.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select><Aj k="prod.salario.cargo" />
+          <input data-testid="sal-valor" value={manualCargo.valor} onChange={(e) => setManualCargo({ ...manualCargo, valor: e.target.value })} placeholder="R$ base" inputMode="decimal" style={{ ...inp, width: 110 }} /><Aj k="prod.salario.valor" />
+          <select data-testid="sal-fonte" value={manualCargo.fonte} onChange={(e) => setManualCargo({ ...manualCargo, fonte: e.target.value })} style={{ ...inp, width: 'auto' }}><option value="manual">digitado</option><option value="acordo_coletivo">acordo coletivo</option></select><Aj k="prod.salario.fonte" />
+          <button type="button" data-testid="sal-salvar-cargo" disabled={!manualCargo.cargo_id || !manualCargo.valor} style={btn(!!manualCargo.cargo_id && !!manualCargo.valor)} onClick={async () => { if (await salvar({ cargo_id: manualCargo.cargo_id, valor: manualCargo.valor, fonte: manualCargo.fonte })) setManualCargo({ cargo_id: '', valor: '', fonte: 'manual' }) }}>+ Salvar por cargo</button>
         </div>
       </div>
       {rows.length === 0 ? <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic' }}>Nenhum salário base cadastrado.</div> : (
@@ -863,10 +1174,10 @@ function SalarioBase({ ctx }: { ctx: Ctx }) {
           {rows.map((r) => (
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, borderBottom: `1px solid ${C.cream}`, padding: '4px 0' }}>
               <span style={{ flex: 1 }}>{r.funcionario_id ? (r.compliance_funcionarios?.nome_completo ?? `matrícula ${r.matricula ?? '—'}`) : `cargo: ${r.prod_cargo?.nome ?? '—'}`}</span>
-              <b>{brl(r.valor)}</b>
+              <b><CelulaEditavel testid={`sal-${r.id}-valor`} tipo="numero" obrigatorio valor={String(r.valor).replace('.', ',')} rotuloValor={() => brl(r.valor)} onSalvar={(v) => editarValor(r.id, v)} /></b><Aj k="prod.salario.valor" />
               <span style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 999, background: r.fonte === 'folha' ? C.greenBg : C.cream, color: r.fonte === 'folha' ? C.green : C.espM }}>
                 {r.fonte === 'folha' ? `folha ${mesBr(r.competencia_ref ?? '')}` : r.fonte === 'acordo_coletivo' ? 'acordo coletivo' : 'digitado'}
-              </span>
+              </span><Aj k="prod.salario.fonte" />
               <button onClick={() => void excluir(r.id)} title="Excluir" style={{ border: 'none', background: 'none', color: C.red, cursor: 'pointer', fontWeight: 700 }}>×</button>
             </div>
           ))}
@@ -888,7 +1199,7 @@ function SugLinha({ s, jaTem, comp, onSalvar }: { s: SalSug; jaTem: boolean; com
       {jaTem ? <div style={{ fontSize: 11, color: C.green, marginTop: 4 }}>✓ já tem salário base</div> : (
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
           <button type="button" style={{ ...btn(true), padding: '4px 10px', fontSize: 12 }} onClick={() => void onSalvar({ matricula: String(s.matricula), valor: String(s.sugerido), fonte: 'folha', competencia_ref: comp })}>usar {brl(s.sugerido)}</button>
-          <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="outro valor" inputMode="decimal" style={{ ...inp, width: 100, padding: '4px 7px' }} />
+          <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="outro valor" inputMode="decimal" style={{ ...inp, width: 100, padding: '4px 7px' }} /><Aj k="prod.salario.valor" />
           {manual && <button type="button" style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '4px 8px', fontSize: 12 }} onClick={() => void onSalvar({ matricula: String(s.matricula), valor: manual, fonte: 'manual', competencia_ref: comp })}>digitar</button>}
         </div>
       )}
@@ -896,7 +1207,7 @@ function SugLinha({ s, jaTem, comp, onSalvar }: { s: SalSug; jaTem: boolean; com
   )
 }
 
-function Th({ children, w }: { children?: React.ReactNode; w?: number }) { return <th style={{ textAlign: 'left', padding: '8px 9px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM, width: w }}>{children}</th> }
+function Th({ children, w, ajuda }: { children?: React.ReactNode; w?: number; ajuda?: string }) { return <th style={{ textAlign: 'left', padding: '8px 9px', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: C.espM, width: w }}>{children}{ajuda && <Aj k={ajuda} />}</th> }
 function Td({ children }: { children?: React.ReactNode }) { return <td style={{ padding: '6px 9px', color: C.esp }}>{children}</td> }
-function L({ label, children }: { label: string; children: React.ReactNode }) { return <label style={{ fontSize: 11, color: C.espM, display: 'block' }}>{label}<div style={{ marginTop: 2 }}>{children}</div></label> }
+function L({ label, ajuda, children }: { label: string; ajuda?: string; children: React.ReactNode }) { return <label style={{ fontSize: 11, color: C.espM, display: 'block' }}>{label}{ajuda && <Aj k={ajuda} />}<div style={{ marginTop: 2 }}>{children}</div></label> }
 function Aviso({ texto }: { texto: string }) { return <div style={{ background: C.bg, minHeight: '100vh', padding: 28, color: C.espM, fontSize: 14 }}>{texto}</div> }

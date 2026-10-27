@@ -6,9 +6,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { HardHat, Plus, Users, UserPlus, Link2, History, Lock, CheckCircle2, AlertTriangle, X } from "lucide-react";
+import { Download, FileUp, HardHat, Plus, Users, UserPlus, Link2, History, Lock, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabase } from "@/lib/supabase";
+import ImportarMaoObraModal from "@/components/projetos/ImportarMaoObraModal";
 import MaoObraCatalogoLegado from "@/components/projetos/MaoObraCatalogoLegado";
 import {
   calcularCustoMaoObra, chavesPadrao, encargosFolhaPct, fatorFolhaReoneracao, meiServicoObraPadrao, rpaInssPadrao, temComponenteComValor, valorMesComponente,
@@ -17,8 +18,8 @@ import {
 import { cpfValido, mascaraCpf } from "@/lib/documentos/cpf";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
-type CustoFuncao = { custo_hora: number | null; custo_m2: number | null; custo_unidade?: number | null; unidade?: string | null; origem: "media_grupo" | "manual" | "sem_dado"; pessoas_conferidas: number; empresas: number; nao_conferidas: number };
-type Funcao = { id: string; nome: string; cbo: string | null; forma_pagamento: string; unidade_producao?: string | null; custo_hora_manual: number | null; unida_a_id: string | null; unida_a_nome: string | null; ativo: boolean; migrada_de: string | null; custo: CustoFuncao | null;
+type CustoFuncao = { usa_he?: "sem" | "com"; custo_hora_sem_he?: number | null; custo_hora_com_he?: number | null; custo_hora: number | null; custo_m2: number | null; custo_unidade?: number | null; unidade?: string | null; origem: "media_grupo" | "manual" | "sem_dado"; pessoas_conferidas: number; empresas: number; nao_conferidas: number };
+type Funcao = { id: string; nome: string; cbo: string | null; forma_pagamento: string; unidade_producao?: string | null; custo_hora_manual: number | null; he50_horas_padrao?: number; he100_horas_padrao?: number; custo_hora_usa_he?: "sem" | "com"; unida_a_id: string | null; unida_a_nome: string | null; ativo: boolean; migrada_de: string | null; custo: CustoFuncao | null;
   salario_sugerido?: { valor: number; origem: "media_conferida" | "estimado_custo_hora"; pessoas: number } | null };
 type ItemEquipe = {
   id: string; grupo_id: string; tipo: "pessoa" | "perfil"; funcionario_id: string | null; nome: string; funcao_id: string; funcao: string;
@@ -26,7 +27,8 @@ type ItemEquipe = {
   vigencia_inicio: string; conferido: boolean; ativo: boolean; matricula: string | null; ajuste_por_nome?: string | null; chaves_confirmadas?: boolean;
   ficha: (Partial<FichaCusto> & Record<string, unknown>) | null; custo: { custo_mensal: number | null; custo_hora: number | null; custo_m2: number | null; custo_unidade?: number | null; unidade?: string | null; alertas?: string[] } | null;
 };
-type Lista = { pode_ver_individual: boolean; encargos: Encargos & { fonte: string; vigencia_inicio: string | null }; funcoes: Funcao[]; equipe: ItemEquipe[] };
+type Encerrada = { id: string; grupo_id: string; tipo: "pessoa" | "perfil"; nome: string; funcao: string; vinculo: string; vigencia_inicio: string; vigencia_fim: string; motivo: string | null; quantidade_pessoas: number; ajuste_por_nome: string | null };
+type Lista = { pode_ver_individual: boolean; encargos: Encargos & { fonte: string; vigencia_inicio: string | null }; funcoes: Funcao[]; equipe: ItemEquipe[]; encerradas: Encerrada[] };
 
 const brl = (v: number | null | undefined) => (v === null || v === undefined ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`);
@@ -44,10 +46,11 @@ export default function MaoObraPage() {
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const empresa = companies.find((c) => c.id === companyId);
   const [aba, setAba] = useState<"funcoes" | "equipe" | "lista">("equipe");
+  const [verEnc, setVerEnc] = useState(false);
   const [dados, setDados] = useState<Lista | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [modal, setModal] = useState<null | { tipo: "funcao"; f?: Funcao } | { tipo: "ficha"; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe } | { tipo: "encerrar"; item: ItemEquipe } | { tipo: "encargos" } | { tipo: "historico"; item: ItemEquipe } | { tipo: "unir"; f: Funcao }>(null);
+  const [modal, setModal] = useState<null | { tipo: "funcao"; f?: Funcao } | { tipo: "ficha"; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe } | { tipo: "encerrar"; item: ItemEquipe } | { tipo: "restaurar"; item: Encerrada } | { tipo: "encargos" } | { tipo: "historico"; item: ItemEquipe } | { tipo: "unir"; f: Funcao } | { tipo: "importar" }>(null);
 
   const carregar = useCallback(async () => {
     if (!companyId) return;
@@ -70,6 +73,10 @@ export default function MaoObraPage() {
     setAviso(ok); setErro(null); await carregar(); return true;
   }
 
+  async function baixarModelo() {
+    const a = document.createElement("a"); a.href = "/api/mao-obra/modelo"; a.download = "MODELO_mao_de_obra_PS.xlsx"; a.click();
+  }
+
   if (!companyId) {
     return <div className="p-6 text-[13px] text-[#3D2314]/70">Escolha uma empresa no seletor para ver a mão de obra.</div>;
   }
@@ -84,9 +91,11 @@ export default function MaoObraPage() {
         </div>
         {pode && (
           <div className="flex flex-wrap gap-2">
-            <button className={btnSec} onClick={() => setModal({ tipo: "funcao" })} data-testid="mao-obra-nova-funcao"><Plus size={14} /> Nova função</button>
-            <button className={btnSec} onClick={() => setModal({ tipo: "ficha", modo: "perfil" })} data-testid="mao-obra-novo-perfil"><Users size={14} /> Novo perfil padrão</button>
-            <button className={btnPri} onClick={() => setModal({ tipo: "ficha", modo: "pessoa" })} data-testid="mao-obra-novo-funcionario"><UserPlus size={14} /> Novo funcionário</button>
+            <button className={btnSec} onClick={() => void baixarModelo()} data-testid="mao-obra-baixar-modelo"><Download size={14} /> Baixar modelo</button><AjudaCampo chave="projetos.mao_obra.acao.baixar_modelo" />
+            <button className={btnSec} onClick={() => setModal({ tipo: "importar" })} data-testid="mao-obra-importar"><FileUp size={14} /> Importar planilha</button><AjudaCampo chave="projetos.mao_obra.acao.importar" />
+            <button className={btnSec} onClick={() => setModal({ tipo: "funcao" })} data-testid="mao-obra-nova-funcao"><Plus size={14} /> Nova função</button><AjudaCampo chave="projetos.mao_obra.acao.nova_funcao" />
+            <button className={btnSec} onClick={() => setModal({ tipo: "ficha", modo: "perfil" })} data-testid="mao-obra-novo-perfil"><Users size={14} /> Novo perfil padrão</button><AjudaCampo chave="projetos.mao_obra.acao.novo_perfil" />
+            <button className={btnPri} onClick={() => setModal({ tipo: "ficha", modo: "pessoa" })} data-testid="mao-obra-novo-funcionario"><UserPlus size={14} /> Novo funcionário</button><AjudaCampo chave="projetos.mao_obra.acao.novo_funcionario" />
           </div>
         )}
       </header>
@@ -94,12 +103,12 @@ export default function MaoObraPage() {
       {enc && (
         <div className={`rounded-md border px-3 py-2 text-[12.5px] flex flex-wrap items-center justify-between gap-2 ${enc.provisorio ? "border-[#C8941A]/60 bg-[#FAEEDA]/60" : "border-[#3D2314]/15 bg-[#FAF7F2]"}`} data-testid="mao-obra-encargos">
           <span>
-            {enc.provisorio ? <><AlertTriangle size={13} className="inline -mt-0.5 mr-1" /><b>Encargos provisórios</b> — até o contador confirmar. </> : <><CheckCircle2 size={13} className="inline -mt-0.5 mr-1" />Encargos confirmados pelo contador. </>}
-            Regime {enc.regime}{enc.simples_anexo ? ` (Anexo ${enc.simples_anexo})` : ""} · encargos da folha <b>{pct(enc.encargos_folha_pct)}</b>
-            {enc.desoneracao ? ` · desoneração: ${pct(Number(enc.desoneracao_fator_folha) * 100)} do INSS patronal na folha${enc.cprb_pct ? `, CPRB ${pct(enc.cprb_pct)} sobre a receita` : ""}` : ""}
-            {" "}· 13º {pct(enc.prov_13_pct)} · férias {pct(enc.prov_ferias_pct)} · rescisão {pct(enc.prov_rescisao_pct)}
+            {enc.provisorio ? <><AlertTriangle size={13} className="inline -mt-0.5 mr-1" /><b>Encargos provisórios</b> — até o contador confirmar; o custo da hora já é calculado com estes valores. </> : <><CheckCircle2 size={13} className="inline -mt-0.5 mr-1" />Encargos confirmados pelo contador. </>}<AjudaCampo chave="projetos.mao_obra.padrao.resumo" />
+            Regime {enc.regime}{enc.simples_anexo ? ` (Anexo ${enc.simples_anexo})` : ""}<AjudaCampo chave="projetos.mao_obra.padrao.regime" /> · encargos da folha <b>{pct(enc.encargos_folha_pct)}</b><AjudaCampo chave="projetos.mao_obra.ajuste.encargos" />
+            {enc.desoneracao ? <> · desoneração: {pct(Number(enc.desoneracao_fator_folha) * 100)} do INSS patronal na folha{enc.cprb_pct ? `, CPRB ${pct(enc.cprb_pct)} sobre a receita` : ""}<AjudaCampo chave="projetos.mao_obra.padrao.desoneracao" /></> : null}
+            {" "}· 13º {pct(enc.prov_13_pct)}<AjudaCampo chave="projetos.mao_obra.ajuste.13" /> · férias {pct(enc.prov_ferias_pct)}<AjudaCampo chave="projetos.mao_obra.ajuste.ferias" /> · rescisão {pct(enc.prov_rescisao_pct)}<AjudaCampo chave="projetos.mao_obra.ajuste.rescisao" />
           </span>
-          {pode && <button className={btnSec} onClick={() => setModal({ tipo: "encargos" })} data-testid="mao-obra-encargos-editar">Configurar padrões</button>}
+          {pode && <button className={btnSec} onClick={() => setModal({ tipo: "encargos" })} data-testid="mao-obra-encargos-editar">Configurar padrões</button>}{pode && <AjudaCampo chave="projetos.mao_obra.acao.configurar_padroes" />}
         </div>
       )}
       {!pode && dados && (
@@ -120,14 +129,19 @@ export default function MaoObraPage() {
           <button key={k} onClick={() => setAba(k)} data-testid={`mao-obra-aba-${k}`}
             className={`px-3 py-2 text-[13px] -mb-px border-b-2 ${aba === k ? "border-[#C8941A] font-medium" : "border-transparent text-[#3D2314]/60"}`}>{l}</button>
         ))}
+        <span className="self-center"><AjudaCampo chave="projetos.mao_obra.abas" /></span>
       </nav>
+
+      {!dados && !erro && (
+        <div className="py-8 text-center text-[13px] text-[#3D2314]/60" role="status" data-testid="mao-obra-carregando">Carregando a equipe e as funções desta empresa…</div>
+      )}
 
       {aba === "equipe" && dados && (
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-equipe">
             <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
-              <th className="py-2 pr-2">Nome</th><th className="pr-2">Função</th><th className="pr-2">Vínculo</th><th className="pr-2 text-right">Horas/mês</th>
-              <th className="pr-2 text-right">Custo mensal</th><th className="pr-2 text-right">Custo da hora</th><th className="pr-2 text-right">Por unidade</th><th className="pr-2">Situação<AjudaCampo chave="projetos.mao_obra.equipe.conferido" /></th><th></th>
+              <th className="py-2 pr-2">Nome<AjudaCampo chave="projetos.mao_obra.equipe.col_nome" /></th><th className="pr-2">Função<AjudaCampo chave="projetos.mao_obra.equipe.col_funcao" /></th><th className="pr-2">Vínculo<AjudaCampo chave="projetos.mao_obra.equipe.col_vinculo" /></th><th className="pr-2 text-right">Horas/mês<AjudaCampo chave="projetos.mao_obra.equipe.col_horas" /></th>
+              <th className="pr-2 text-right">Custo mensal<AjudaCampo chave="projetos.mao_obra.equipe.col_mensal" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.equipe.col_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.equipe.col_unidade" /></th><th className="pr-2">Situação<AjudaCampo chave="projetos.mao_obra.equipe.conferido" /></th><th></th>
             </tr></thead>
             <tbody>
               {dados.equipe.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-[#3D2314]/60">Ninguém cadastrado ainda. Use “Novo funcionário” ou “Novo perfil padrão”{dados.funcoes.length === 0 ? " (antes, cadastre as funções na aba Funções)" : ""}.</td></tr>}
@@ -148,10 +162,10 @@ export default function MaoObraPage() {
                   <td className="text-right whitespace-nowrap">
                     {pode && (
                       <>
-                        {!i.conferido && <button className="text-[12px] underline mr-2" data-testid="mao-obra-conferir" onClick={() => void rpc("fn_mao_obra_ficha_conferir", { p_ficha_id: i.id, p_conferido: true }, `${i.nome}: conferido — entra no custo da função.`)}>Conferir</button>}
-                        <button className="text-[12px] underline mr-2" data-testid="mao-obra-editar" onClick={() => setModal({ tipo: "ficha", modo: "editar", item: i })}>Editar / reajuste</button>
-                        <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "historico", item: i })}><History size={12} className="inline" /> Histórico</button>
-                        <button className="text-[12px] underline text-[#791F1F]" data-testid="mao-obra-encerrar" onClick={() => setModal({ tipo: "encerrar", item: i })}>{i.tipo === "pessoa" ? "Desligar" : "Inativar"}</button>
+                        {!i.conferido && <button className="text-[12px] underline mr-2" data-testid="mao-obra-conferir" onClick={() => void rpc("fn_mao_obra_ficha_conferir", { p_ficha_id: i.id, p_conferido: true }, `${i.nome}: conferido — entra no custo da função.`)}>Conferir</button>}{!i.conferido && <AjudaCampo chave="projetos.mao_obra.acao.conferir" />}
+                        <button className="text-[12px] underline mr-2" data-testid="mao-obra-editar" onClick={() => setModal({ tipo: "ficha", modo: "editar", item: i })}>Editar / reajuste</button><AjudaCampo chave="projetos.mao_obra.acao.reajuste" />
+                        <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "historico", item: i })}><History size={12} className="inline" /> Histórico</button><AjudaCampo chave="projetos.mao_obra.acao.historico" />
+                        <button className="text-[12px] underline text-[#791F1F]" data-testid="mao-obra-encerrar" onClick={() => setModal({ tipo: "encerrar", item: i })}>{i.tipo === "pessoa" ? "Desligar" : "Inativar"}</button><AjudaCampo chave="projetos.mao_obra.acao.encerrar" />
                       </>
                     )}
                   </td>
@@ -159,6 +173,38 @@ export default function MaoObraPage() {
               ))}
             </tbody>
           </table>
+          <p className="mt-2 text-[11.5px] text-[#3D2314]/60" data-testid="mao-obra-equipe-legenda">“—” em <b>Custo mensal</b> e <b>Custo da hora</b> quer dizer <b>não se aplica</b>: MEI, PJ ou empreiteiro pago por unidade — o custo dessa pessoa aparece em <b>Por unidade</b> (R$/m², R$/metro…), não por mês ou por hora.</p>
+          {pode && dados.encerradas.length > 0 && (
+            <section className="mt-4 border-t border-[#3D2314]/10 pt-3" data-testid="mao-obra-encerradas">
+              <button className="text-[12.5px] underline text-[#3D2314]/70" onClick={() => setVerEnc((x) => !x)} data-testid="mao-obra-ver-encerradas" aria-expanded={verEnc}>
+                {verEnc ? "Ocultar" : "Ver"} encerradas ({dados.encerradas.length})
+              </button>
+              {verEnc && (
+                <div className="overflow-x-auto mt-2">
+                  <table className="w-full text-[12.5px]" data-testid="mao-obra-encerradas-tabela">
+                    <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
+                      <th className="py-2 pr-2">Nome<AjudaCampo chave="projetos.mao_obra.equipe.col_nome" /></th><th className="pr-2">Função<AjudaCampo chave="projetos.mao_obra.equipe.col_funcao" /></th><th className="pr-2">Vínculo<AjudaCampo chave="projetos.mao_obra.equipe.col_vinculo" /></th>
+                      <th className="pr-2">Encerrada em<AjudaCampo chave="projetos.mao_obra.hist.vigencia" /></th><th className="pr-2">Motivo<AjudaCampo chave="projetos.mao_obra.hist.motivo" /></th><th></th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.encerradas.map((e) => (
+                        <tr key={e.id} className="border-b border-[#3D2314]/5 text-[#3D2314]/70" data-testid={`mao-obra-encerrada-${e.grupo_id}`}>
+                          <td className="py-2 pr-2">{e.nome}{e.tipo === "perfil" && <span className="ml-1 text-[11px]">· perfil × {e.quantidade_pessoas}</span>}</td>
+                          <td className="pr-2">{e.funcao}</td>
+                          <td className="pr-2 text-[11.5px]">{rotVinculo(e.vinculo)}</td>
+                          <td className="pr-2 tabular-nums">{e.vigencia_fim}</td>
+                          <td className="pr-2 text-[11.5px]">{e.motivo ?? "—"}{e.ajuste_por_nome ? <span className="block text-[10.5px] text-[#3D2314]/50">por {e.ajuste_por_nome}</span> : null}</td>
+                          <td className="text-right whitespace-nowrap">
+                            <button className="text-[12px] underline text-[#2F5A1F]" data-testid="mao-obra-restaurar" onClick={() => setModal({ tipo: "restaurar", item: e })}>Restaurar</button><AjudaCampo chave="projetos.mao_obra.acao.restaurar" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
 
@@ -166,8 +212,8 @@ export default function MaoObraPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-funcoes">
             <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
-              <th className="py-2 pr-2">Função</th><th className="pr-2">CBO</th><th className="pr-2">Pagamento</th><th className="pr-2 text-right">Custo da hora</th><th className="pr-2 text-right">Por unidade</th>
-              <th className="pr-2">Origem</th><th className="pr-2 text-right">Pessoas conferidas</th><th className="pr-2 text-right">Não conferidas</th><th></th>
+              <th className="py-2 pr-2">Função</th><th className="pr-2">CBO<AjudaCampo chave="projetos.mao_obra.funcoes.col_cbo" /></th><th className="pr-2">Pagamento<AjudaCampo chave="projetos.mao_obra.funcoes.col_pagamento" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.funcoes.col_custo_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.funcoes.col_unidade" /></th>
+              <th className="pr-2">Origem<AjudaCampo chave="projetos.mao_obra.funcoes.col_origem" /></th><th className="pr-2 text-right">Pessoas conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_conferidas" /></th><th className="pr-2 text-right">Não conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_nao_conferidas" /></th><th></th>
             </tr></thead>
             <tbody>
               {dados.funcoes.length === 0 && (
@@ -181,15 +227,16 @@ export default function MaoObraPage() {
                   <td className="py-2 pr-2">{f.nome}{f.unida_a_nome && <span className="ml-1 text-[11px] text-[#3D2314]/60">· unida a {f.unida_a_nome}</span>}</td>
                   <td className="pr-2">{f.cbo ?? "—"}</td>
                   <td className="pr-2">{rotForma(f.forma_pagamento, f.unidade_producao)}</td>
-                  <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-custo">{brl(f.custo?.custo_hora)}</td>
+                  <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-custo">{f.custo?.origem === "sem_dado" ? <span className="text-[#3D2314]/40 font-normal" data-testid="mao-obra-funcao-sem-pessoas">sem pessoas</span> : <>{brl(f.custo?.custo_hora)}{f.custo?.custo_hora_com_he != null && f.custo.custo_hora_sem_he != null && f.custo.custo_hora_com_he !== f.custo.custo_hora_sem_he && <div className="text-[10.5px] text-[#3D2314]/60 font-normal" data-testid="mao-obra-funcao-custo-he">sem HE {brl(f.custo.custo_hora_sem_he)} · com HE {brl(f.custo.custo_hora_com_he)} · obra usa {f.custo.usa_he === "com" ? "com" : "sem"} HE</div>}</>}</td>
                   <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-custo-unidade">{f.custo?.custo_unidade != null ? `${brl(f.custo.custo_unidade)}/${f.custo.unidade === "m2" ? "m²" : f.custo.unidade ?? "un."}` : "—"}</td>
                   <td className="pr-2 text-[11.5px]">{f.custo?.origem === "media_grupo" ? `média do grupo (${f.custo.empresas} empresa${f.custo.empresas === 1 ? "" : "s"})` : f.custo?.origem === "manual" ? "manual · ninguém conferido" : "sem dado"}</td>
                   <td className="pr-2 text-right tabular-nums">{f.custo?.pessoas_conferidas ?? 0}</td>
                   <td className="pr-2 text-right tabular-nums">{f.custo?.nao_conferidas ?? 0}</td>
                   <td className="text-right whitespace-nowrap">
+                    {pode && f.custo?.origem === "sem_dado" && <><button className="text-[12px] underline mr-2 text-[#C8941A]" data-testid="mao-obra-funcao-add-pessoas" onClick={() => { setAba("equipe"); setModal({ tipo: "ficha", modo: "perfil" }); }}><UserPlus size={12} className="inline" /> Adicionar pessoas</button><AjudaCampo chave="projetos.mao_obra.acao.novo_perfil" /></>}
                     {pode && <>
-                      <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "funcao", f })}>Editar</button>
-                      <button className="text-[12px] underline" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button>
+                      <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "funcao", f })}>Editar</button><AjudaCampo chave="projetos.mao_obra.acao.editar_funcao" />
+                      <button className="text-[12px] underline" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button><AjudaCampo chave="projetos.mao_obra.acao.unir_funcao" />
                     </>}
                   </td>
                 </tr>
@@ -203,9 +250,11 @@ export default function MaoObraPage() {
       {aba === "lista" && <MaoObraCatalogoLegado />}
 
       {modal?.tipo === "funcao" && <ModalFuncao companyId={companyId} f={modal.f} onClose={() => setModal(null)} onSalvar={rpc} />}
+      {modal?.tipo === "importar" && <ImportarMaoObraModal companyId={companyId} funcoes={dados?.funcoes ?? []} equipe={dados?.equipe ?? []} onClose={() => setModal(null)} onConcluido={carregar} />}
       {modal?.tipo === "unir" && <ModalUnir f={modal.f} funcoes={funcoesAtivas} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "ficha" && enc && <ModalFicha companyId={companyId} modo={modal.modo} item={modal.item} funcoes={funcoesAtivas} encargos={enc} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "encerrar" && <ModalEncerrar item={modal.item} onClose={() => setModal(null)} onSalvar={rpc} />}
+      {modal?.tipo === "restaurar" && <ModalRestaurar item={modal.item} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "encargos" && enc && <ModalEncargos companyId={companyId} enc={enc} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "historico" && <ModalHistorico item={modal.item} onClose={() => setModal(null)} />}
     </div>
@@ -236,6 +285,9 @@ function ModalFuncao({ companyId, f, onClose, onSalvar }: { companyId: string; f
   const [unidade, setUnidade] = useState(f?.unidade_producao ?? (f?.forma_pagamento === "m2" ? "m2" : ""));
   const [manual, setManual] = useState(f?.custo_hora_manual != null ? String(f.custo_hora_manual).replace(".", ",") : "");
   const [ativo, setAtivo] = useState(f?.ativo ?? true);
+  const [he50, setHe50] = useState(f?.he50_horas_padrao ? txt(Number(f.he50_horas_padrao)) : "");
+  const [he100, setHe100] = useState(f?.he100_horas_padrao ? txt(Number(f.he100_horas_padrao)) : "");
+  const [usaHe, setUsaHe] = useState<"sem" | "com">(f?.custo_hora_usa_he === "com" ? "com" : "sem");
   return (
     <Janela titulo={f ? `Editar função · ${f.nome}` : "Nova função"} onClose={onClose} testid="mao-obra-modal-funcao">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -244,12 +296,19 @@ function ModalFuncao({ companyId, f, onClose, onSalvar }: { companyId: string; f
         <Campo ajuda="projetos.mao_obra.funcao.forma" rotulo="Forma de pagamento (sugerida na ficha)"><select className={inp} value={forma} onChange={(e) => setForma(e.target.value)} data-testid="funcao-forma">{FORMAS.map((x) => <option key={x.v} value={x.v}>{x.l}</option>)}</select></Campo>
         {forma === "producao" && <Campo ajuda="projetos.mao_obra.funcao.unidade" rotulo="Unidade de produção"><select className={inp} value={unidade || "m2"} onChange={(e) => setUnidade(e.target.value)} data-testid="funcao-unidade">{UNIDADES.map((u) => <option key={u.v} value={u.v}>{u.l}</option>)}</select></Campo>}
         <Campo ajuda="projetos.mao_obra.funcao.custo_manual" rotulo="Custo/hora manual (só enquanto ninguém estiver conferido)"><input className={inp} value={manual} onChange={(e) => setManual(e.target.value)} inputMode="decimal" placeholder="opcional" /></Campo>
+        <Campo ajuda="projetos.mao_obra.funcao.he50" rotulo="Horas extras a 50% por mês (padrão da função)"><input className={inp} value={he50} onChange={(e) => setHe50(e.target.value)} inputMode="decimal" placeholder="0" data-testid="funcao-he50" /></Campo>
+        <Campo ajuda="projetos.mao_obra.funcao.he100" rotulo="Horas extras a 100% por mês (padrão da função)"><input className={inp} value={he100} onChange={(e) => setHe100(e.target.value)} inputMode="decimal" placeholder="0" data-testid="funcao-he100" /></Campo>
+        <Campo ajuda="projetos.mao_obra.funcao.usa_he" rotulo="Custo da hora que a obra usa">
+          <select className={inp} value={usaHe} onChange={(e) => setUsaHe(e.target.value === "com" ? "com" : "sem")} data-testid="funcao-usa-he">
+            <option value="sem">Sem horas extras</option><option value="com">Com horas extras</option>
+          </select>
+        </Campo>
       </div>
       {f && <label className="flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> Função ativa<AjudaCampo chave="projetos.mao_obra.funcao.ativa" /></label>}
       <div className="flex justify-end gap-2">
         <button className={btnSec} onClick={onClose}>Voltar</button>
         <button className={btnPri} data-testid="funcao-salvar" disabled={nome.trim().length < 2} onClick={async () => {
-          if (await onSalvar("fn_mao_obra_funcao_salvar", { p_company_id: companyId, p_id: f?.id ?? null, p_dados: { nome, cbo, forma_pagamento: forma, unidade_producao: forma === "producao" ? unidade || "m2" : "", custo_hora_manual: manual ? numBR(manual) : "", ativo } }, `Função ${nome} salva.`)) onClose();
+          if (await onSalvar("fn_mao_obra_funcao_salvar", { p_company_id: companyId, p_id: f?.id ?? null, p_dados: { nome, cbo, forma_pagamento: forma, unidade_producao: forma === "producao" ? unidade || "m2" : "", custo_hora_manual: manual ? numBR(manual) : "", he50_horas_padrao: he50 ? numBR(he50) : "", he100_horas_padrao: he100 ? numBR(he100) : "", custo_hora_usa_he: usaHe, ativo } }, `Função ${nome} salva.`)) onClose();
         }}>Salvar</button>
       </div>
     </Janela>
@@ -344,6 +403,8 @@ const formaDosComponentes = (ls: LinhaComp[]): FormaPagamento => {
   return "mensal";
 };
 
+const ehHeFixa = (l: LinhaComp) => l.tipo === "hora_extra" && (numBR(l.percentual) === 50 || numBR(l.percentual) === 100);
+
 function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalvar }: { companyId: string; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe; funcoes: Funcao[]; encargos: Encargos; onClose: () => void; onSalvar: Salvar }) {
   const f0 = item?.ficha ?? {};
   const novo = modo !== "editar";
@@ -370,6 +431,15 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
     if (doBanco.length) return doBanco.map(linhaDoBanco);
     return [novaLinha("fixo", String(f0.vinculo ?? pad.vinculo), inc)];
   });
+  const heHoras = (pct: 50 | 100) => linhas.find((l) => l.tipo === "hora_extra" && numBR(l.percentual) === pct)?.quantidade ?? "";
+  function mudarHe(pct: 50 | 100, horas: string) {
+    setLinhas((ls) => {
+      const i = ls.findIndex((l) => l.tipo === "hora_extra" && numBR(l.percentual) === pct);
+      if (numBR(horas) <= 0 && horas.trim() === "") return i < 0 ? ls : ls.filter((_, k) => k !== i);
+      if (i < 0) return [...ls, novaLinha("hora_extra", v.vinculo, inc, { percentual: String(pct), quantidade: horas })];
+      return ls.map((l, k) => (k === i ? { ...l, quantidade: horas } : l));
+    });
+  }
   const [mei, setMei] = useState<boolean>(() => !!f0.mei_servico_obra);
   const [meiTocado, setMeiTocado] = useState(!novo);
   const [chavesOk, setChavesOk] = useState<boolean>(() => !!item?.chaves_confirmadas);
@@ -416,6 +486,9 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
       let out = [...ls];
       const fixo = out.find((l) => l.tipo === "fixo" && l.subtipo !== "hora");
       if (sug && fixo && ehClt(v.vinculo) && (!fixo.valor || fixo.valor === salarioSugerido)) out = out.map((l) => (l === fixo ? { ...l, valor: txt(sug) } : l));
+      for (const [pct, h] of [[50, fn.he50_horas_padrao], [100, fn.he100_horas_padrao]] as const) {
+        if (h && Number(h) > 0 && !out.some((l) => l.tipo === "hora_extra" && numBR(l.percentual) === pct)) out.push(novaLinha("hora_extra", v.vinculo, inc, { percentual: String(pct), quantidade: txt(Number(h)) }));
+      }
       const forma = fn.forma_pagamento;
       if ((forma === "producao" || forma === "m2") && !out.some((l) => l.tipo === "producao")) {
         out.push(novaLinha("producao", v.vinculo, inc, { unidade: fn.unidade_producao || "m2" }));
@@ -532,6 +605,7 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
         {linhas.map((l, idx) => {
           const c = comps[idx];
           const valorMes = valorMesComponente(c, ctx);
+          if (ehHeFixa(l)) return null;
           return (
             <div key={l.key} className={`rounded-md border bg-white px-2 py-2 space-y-1.5${l.chaves_ajustadas ? " border-[#C8941A]" : " border-[#3D2314]/15"}`} data-testid={`componente-${idx}`}>
               <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end">
@@ -568,7 +642,7 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
         <div className="flex flex-wrap items-center gap-2">
           <span className="flex items-center"><select className={inp + " max-w-[240px]"} value="" onChange={(e) => { if (e.target.value) setLinhas((ls) => [...ls, novaLinha(e.target.value as TipoComponente, v.vinculo, inc, e.target.value === "producao" && funcaoSel?.unidade_producao ? { unidade: funcaoSel.unidade_producao } : {})]); }} data-testid="componente-adicionar">
             <option value="">+ adicionar componente…</option>
-            {TIPOS_COMPONENTE.map((t) => <option key={t.tipo} value={t.tipo}>{t.rotulo} — {t.ajuda}</option>)}
+            {TIPOS_COMPONENTE.filter((t) => t.tipo !== "hora_extra").map((t) => <option key={t.tipo} value={t.tipo}>{t.rotulo} — {t.ajuda}</option>)}
           </select><AjudaCampo chave="projetos.mao_obra.comp.tipo" /></span>
           {salarioSugerido && funcaoSel?.salario_sugerido && linhas.some((l) => l.tipo === "fixo" && l.valor === salarioSugerido) && (
             <span className="text-[11px] text-[#3D2314]/60" data-testid="ficha-salario-sugerido">
@@ -579,6 +653,16 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
         {clt && (
           <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={chavesOk} onChange={(e) => setChavesOk(e.target.checked)} data-testid="ficha-chaves-confirmadas" /> As chaves de incidência desta ficha foram conferidas com o contador<AjudaCampo chave="projetos.mao_obra.chave.confirmadas" /></label>
         )}
+      </fieldset>
+
+      <fieldset className="space-y-2" data-testid="ficha-horas-extras">
+        <legend className="text-[11px] uppercase tracking-wide text-[#3D2314]/60">Horas extras (média por mês)</legend>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+          <Campo ajuda="projetos.mao_obra.ficha.he50" rotulo="Horas extras a 50%"><input className={inp} value={heHoras(50)} onChange={(e) => mudarHe(50, e.target.value)} inputMode="decimal" placeholder="0" data-testid="ficha-he50" /></Campo>
+          <Campo ajuda="projetos.mao_obra.ficha.he100" rotulo="Horas extras a 100%"><input className={inp} value={heHoras(100)} onChange={(e) => mudarHe(100, e.target.value)} inputMode="decimal" placeholder="0" data-testid="ficha-he100" /></Campo>
+          <div className="text-[12px]">Custo das horas extras no mês<AjudaCampo chave="projetos.mao_obra.ficha.he_custo" /><br /><b data-testid="ficha-he-custo">{brl(calc.custo_he ?? 0)}</b></div>
+        </div>
+        <p className="text-[11px] text-[#3D2314]/60">Hora extra = salário ÷ 220 × (1 + adicional), com reflexo no DSR, 13º, férias, encargos e rescisão pelos mesmos % de “Configurar padrões”.{funcaoSel && (Number(funcaoSel.he50_horas_padrao ?? 0) > 0 || Number(funcaoSel.he100_horas_padrao ?? 0) > 0) ? ` Padrão da função: ${txt(Number(funcaoSel.he50_horas_padrao ?? 0))} h a 50% e ${txt(Number(funcaoSel.he100_horas_padrao ?? 0))} h a 100%.` : ""}</p>
       </fieldset>
 
       <fieldset className="space-y-2">
@@ -622,6 +706,11 @@ function ModalFicha({ companyId, modo, item, funcoes, encargos, onClose, onSalva
         {clt && <div>Rescisão<br /><b>{brl(calc.rescisao)}</b></div>}
         <div>Custo mensal{tipo === "perfil" ? " (por pessoa)" : ""}<AjudaCampo chave="projetos.mao_obra.resultado.mensal" /><br /><b data-testid="ficha-custo-mensal">{brl(calc.custo_mensal)}</b></div>
         <div>Custo da hora produtiva<AjudaCampo chave="projetos.mao_obra.resultado.hora" /><br /><b data-testid="ficha-custo-hora">{brl(calc.custo_hora)}</b></div>
+        {calc.horas_extras > 0 && <>
+          <div>Custo mensal SEM horas extras<br /><b data-testid="ficha-custo-mensal-sem-he">{brl(calc.custo_mensal_sem_he)}</b></div>
+          <div>Custo da hora SEM horas extras<AjudaCampo chave="projetos.mao_obra.resultado.hora_sem_he" /><br /><b data-testid="ficha-custo-hora-sem-he">{brl(calc.custo_hora_sem_he)}</b></div>
+          <div>Custo da hora COM horas extras<AjudaCampo chave="projetos.mao_obra.resultado.hora_com_he" /><br /><b data-testid="ficha-custo-hora-com-he">{brl(calc.custo_hora_com_he)}</b></div>
+        </>}
         {calc.custo_unidade != null && <div>Custo por {rotUnidade(calc.unidade)}<AjudaCampo chave="projetos.mao_obra.resultado.unidade" /><br /><b data-testid="ficha-custo-unidade">{brl(calc.custo_unidade)}</b></div>}
       </div>
       {calc.alertas.includes("diarista_mais_8_dias") && (
@@ -693,6 +782,21 @@ function ModalEncerrar({ item, onClose, onSalvar }: { item: ItemEquipe; onClose:
       <div className="flex justify-end gap-2">
         <button className={btnSec} onClick={onClose}>Voltar</button>
         <button className={btnPri} disabled={motivo.trim().length < 3} data-testid="encerrar-confirmar" onClick={async () => { if (await onSalvar("fn_mao_obra_ficha_encerrar", { p_ficha_id: item.id, p_data: data, p_motivo: motivo }, pessoa ? `${item.nome} desligado.` : "Perfil inativado.")) onClose(); }}>{pessoa ? "Desligar" : "Inativar"}</button>
+      </div>
+    </Janela>
+  );
+}
+
+function ModalRestaurar({ item, onClose, onSalvar }: { item: Encerrada; onClose: () => void; onSalvar: Salvar }) {
+  const [motivo, setMotivo] = useState("");
+  const pessoa = item.tipo === "pessoa";
+  return (
+    <Janela titulo={pessoa ? `Restaurar ${item.nome}` : `Reativar perfil ${item.nome}`} onClose={onClose} testid="mao-obra-modal-restaurar">
+      <p className="text-[12.5px] text-[#3D2314]/70">{pessoa ? "A pessoa volta ao custo da função a partir de hoje (readmissão no cadastro compartilhado)." : "O perfil volta ao custo da função a partir de hoje."} Encerrada em {item.vigencia_fim}{item.motivo ? ` — ${item.motivo}` : ""}.</p>
+      <Campo ajuda="projetos.mao_obra.encerrar.motivo" rotulo="Motivo (opcional)"><input className={inp} value={motivo} onChange={(e) => setMotivo(e.target.value)} data-testid="restaurar-motivo" placeholder="ex.: desligamento lançado por engano" /></Campo>
+      <div className="flex justify-end gap-2">
+        <button className={btnSec} onClick={onClose}>Voltar</button>
+        <button className={btnPri} data-testid="restaurar-confirmar" onClick={async () => { if (await onSalvar("fn_mao_obra_ficha_reativar", { p_ficha_id: item.id, p_motivo: motivo || null }, pessoa ? `${item.nome} restaurado — de volta ao custo.` : "Perfil reativado.")) onClose(); }}>{pessoa ? "Restaurar" : "Reativar"}</button>
       </div>
     </Janela>
   );
@@ -811,10 +915,13 @@ function ModalHistorico({ item, onClose }: { item: ItemEquipe; onClose: () => vo
   return (
     <Janela titulo={`Histórico · ${item.nome}`} onClose={onClose} testid="mao-obra-modal-historico">
       {erro && <div className="text-[#791F1F] text-[12.5px]">{erro}</div>}
-      <table className="w-full text-[12.5px]"><thead><tr className="text-left text-[#3D2314]/60"><th>Vigência</th><th className="text-right">Salário/valor</th><th className="text-right">Custo mensal</th><th className="text-right">Hora</th><th>Motivo</th></tr></thead>
+      {/* 5 colunas não cabem em 390px: a tabela rola dentro do modal em vez de alargar a tela (HB0 · celular) */}
+      <div className="overflow-x-auto" data-testid="mao-obra-historico-rolagem">
+      <table className="w-full min-w-[520px] text-[12.5px]"><thead><tr className="text-left text-[#3D2314]/60"><th>Vigência<AjudaCampo chave="projetos.mao_obra.hist.vigencia" /></th><th className="text-right">Salário/valor<AjudaCampo chave="projetos.mao_obra.hist.valor" /></th><th className="text-right">Custo mensal<AjudaCampo chave="projetos.mao_obra.hist.mensal" /></th><th className="text-right">Hora<AjudaCampo chave="projetos.mao_obra.hist.hora" /></th><th>Motivo<AjudaCampo chave="projetos.mao_obra.hist.motivo" /></th></tr></thead>
         <tbody>{(linhas ?? []).map((l, i) => (
           <tr key={i} className="border-t border-[#3D2314]/5"><td>{l.vigencia_inicio}{l.vigencia_fim ? ` → ${l.vigencia_fim}` : " → hoje"}</td><td className="text-right">{brl(l.salario)}</td><td className="text-right">{brl(l.custo?.custo_mensal)}</td><td className="text-right">{brl(l.custo?.custo_hora)}</td><td>{l.motivo}{l.conferido ? " · conferido" : ""}</td></tr>
         ))}</tbody></table>
+      </div>
     </Janela>
   );
 }

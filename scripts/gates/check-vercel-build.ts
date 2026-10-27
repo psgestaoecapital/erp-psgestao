@@ -16,16 +16,17 @@ ok(vercel.buildCommand === 'next build', `vercel.json: buildCommand = "next buil
 ok(vercel.ignoreCommand === 'bash scripts/vercel-ignore.sh', 'vercel.json: ignoreCommand = scripts/vercel-ignore.sh')
 
 const gates = ler('.github/workflows/gates.yml')
-ok(/^  pull_request:/m.test(gates) && /branches: \[main\]/.test(gates), 'gates.yml: roda em toda PR e no push da main')
+ok(/^  push:/m.test(gates) && /branches: \[main\]/.test(gates) && !/^  pull_request:/m.test(gates), 'gates.yml: roda SÓ na main (não em PR — suíte informativa, novo modelo CEO 22/10; libera runner do Actions)')
 ok(/^  gates:\s*$/m.test(gates) && /run: npm run gates\s*$/m.test(gates), 'gates.yml: job "gates" roda npm run gates')
 ok(!/secrets\./.test(gates), 'gates.yml: não depende de segredo (gates são estáticos)')
 
 const fila = ler('scripts/merge/fila-merge.sh')
-ok(/\$1 == "gates"/.test(fila) && /esperar:gates ainda não rodaram/.test(fila), 'fila de merge: exige o check "gates" verde')
+ok(/\$1 != "gates"/.test(fila) && !/esperar:gates ainda não rodaram/.test(fila), 'fila de merge: suíte "gates" é informativa (fora do bloqueio) — guardas focados + preview bloqueiam (novo modelo CEO 22/10)')
 ok(/so_docs=1/.test(fila), 'fila de merge: PR só de docs não espera preview')
 
 const pronta = ler('.github/workflows/preview-pronta.yml')
-ok(/types: \[opened, reopened, ready_for_review\]/.test(pronta), 'preview-pronta: dispara ao abrir/reabrir/sair de draft')
+ok(/types: \[opened, reopened, ready_for_review, synchronize\]/.test(pronta), 'preview-pronta: dispara ao abrir/reabrir/sair de draft e a cada head novo (merge/renumeração da fila)')
+ok(/ci: preview da PR #/.test(pronta) && /não repito/.test(pronta), 'preview-pronta: anti-laço (head que já é o commit vazio não gera outro)')
 ok(/success\) if grep -qiE 'cancel\|ignor'/.test(pronta), 'preview-pronta: success "Canceled by Ignored Build Step" não conta como preview')
 ok(/test\("cancel\|ignor"; "i"\)/.test(fila), 'fila de merge: build ignorado não conta como Vercel verde')
 ok(/secrets\.FILA_MERGE_TOKEN/.test(pronta) && /-F force=false/.test(pronta), 'preview-pronta: commit vazio com PAT, sem force')

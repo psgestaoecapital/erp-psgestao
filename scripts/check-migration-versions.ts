@@ -66,6 +66,14 @@ async function main() {
     if (ls.length > 1) problemas.push(`versão ${v} em ${ls.length} arquivos: ${ls.map((l) => l.arquivo).join(' · ')} — só um entra no ledger; renomeie os demais`)
   }
 
+  // ── Regra 1b · versão com data futura (offline) ────────────────────────────────────────────────
+  // Versão muito à frente do relógio "trava" o ledger: toda migration normal depois dela fica MENOR que a última
+  // aplicada. Tolerância de 2 dias (a esteira já usa versão do dia seguinte).
+  const limite = new Date(Date.now() + 2 * 86400_000).toISOString().replace(/\D/g, '').slice(0, 14)
+  for (const l of all) {
+    if (l.version > limite) problemas.push(`versão ${l.version} (${l.arquivo}) está no futuro (limite ${limite}) — use o timestamp de agora`)
+  }
+
   // ── Regra 2 · colisão com o ledger (online) ────────────────────────────────────────────────────
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY

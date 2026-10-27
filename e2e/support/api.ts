@@ -25,6 +25,12 @@ export function exigirEnv(): void {
 export function projectRef(): string {
   return SUPABASE_URL.replace('https://', '').split('.')[0]
 }
+// Ref do projeto de PRODUÇÃO. Isolamento (Pilar 2): specs de aceitação que ESCREVEM em tabela GLOBAL sem isolamento
+// por empresa (ex.: erp_agente_mensagem, a caixa dos agentes) NUNCA podem gravar contra a produção com o service_role.
+// Elas pulam quando IS_PROD (test.skip(IS_PROD, ...)) e provam só no banco de testes da vaga. Incidente 13/10: um envio
+// sem essa guarda soterrou a caixa real do gilberto-chamados/andre-code com 2.922 mensagens de teste.
+export const PROD_REF = 'horsymhsinqcimflrtjo'
+export const IS_PROD = projectRef() === PROD_REF
 export function storageKey(): string {
   return `sb-${projectRef()}-auth-token`
 }
@@ -123,6 +129,16 @@ export async function pegarTravaDemo(dono: string, esperaMaxMs = ESPERA_TRAVA_MS
 export async function soltarTravaDemo(dono: string): Promise<void> {
   try { await rpc('fn_e2e_trava_soltar', { p_nome: TRAVA_DEMO, p_dono: dono }) }
   catch (e) { console.warn('[trava-demo] não soltou (expira sozinha):', e instanceof Error ? e.message : String(e)) }
+}
+
+// Purga durável do lixo de E2E nas demos (CEO 22/10): obras/centros marcados E2E que ficaram ativos porque um run
+// cancelado/timeout pulou o afterAll. Rodada no passo "sempre" (e2e-trava-soltar), zera a acumulação antes que
+// estoure o limite de 1000 linhas do PostgREST (dropdown "Centro de custo / obra"). Nunca derruba o run se falhar.
+export async function purgarLeftoversDemo(): Promise<void> {
+  try {
+    const r = await rpc<{ centros_desativados?: number; obras_canceladas?: number }>('fn_e2e_purgar_leftovers_demo', {})
+    console.log(`[purga-e2e] centros desativados: ${r?.centros_desativados ?? 0} · obras canceladas: ${r?.obras_canceladas ?? 0}`)
+  } catch (e) { console.warn('[purga-e2e] não purgou (segue):', e instanceof Error ? e.message : String(e)) }
 }
 
 // Reset da demo ao FIM da suíte (a demo pode ser mexida à vontade e volta ao seed).

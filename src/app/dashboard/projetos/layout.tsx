@@ -4,7 +4,7 @@
 
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -17,9 +17,13 @@ import {
   Package,
   HardHat,
   Construction,
-  TrendingUp,
   Settings,
   Smartphone,
+  Tag,
+  BarChart3,
+  Gauge,
+  Calculator,
+  Route,
   type LucideIcon,
 } from "lucide-react";
 
@@ -35,6 +39,7 @@ const COMERCIAL: Tab[] = [
   { href: "/dashboard/projetos/clientes",       label: "Clientes",    icon: Users,           key: "2" },
   { href: "/dashboard/projetos/visitas",        label: "Visitas",     icon: MapPin,          key: "3" },
   { href: "/dashboard/projetos/propostas",      label: "Propostas",   icon: FileSignature,   key: "4" },
+  { href: "/dashboard/projetos/tabelas-preco",  label: "Tabela de preço", icon: Tag,         key: "t" },
   { href: "/dashboard/projetos/instalar-app",   label: "Instalar app", icon: Smartphone,     key: "i" },
 ];
 
@@ -43,11 +48,14 @@ const TECNICO: Tab[] = [
   { href: "/dashboard/projetos/catalogo",       label: "Catálogo",    icon: BookOpenText, key: "6" },
   { href: "/dashboard/projetos/insumos",        label: "Insumos",     icon: Package,      key: "7" },
   { href: "/dashboard/projetos/mao-obra",       label: "Mão de obra", icon: HardHat,      key: "8" },
+  { href: "/dashboard/projetos/calculadora",    label: "Calculadora", icon: Calculator,   key: "c" },
 ];
 
 const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras",          label: "Obras",          icon: Construction, key: "9" },
-  { href: "/dashboard/projetos/acompanhamento", label: "Acompanhamento", icon: TrendingUp,   key: "0" },
+  { href: "/dashboard/projetos/obras/resultado", label: "Resultado",      icon: BarChart3,    key: "0" },
+  { href: "/dashboard/projetos/cockpit",         label: "Cockpit",        icon: Gauge,        key: "" },
+  { href: "/dashboard/projetos/viagens",         label: "Viagens",        icon: Route,        key: "" },
 ];
 
 const CONFIG: Tab = {
@@ -65,6 +73,7 @@ function TabLink({ tab, isActive }: { tab: Tab; isActive: boolean }) {
     <Link
       href={tab.href}
       title={`Ctrl+${tab.key}`}
+      aria-current={isActive ? "page" : undefined}
       className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
         isActive
           ? "border-[#C8941A] bg-[#3D2314]/5 text-[#3D2314]"
@@ -77,15 +86,32 @@ function TabLink({ tab, isActive }: { tab: Tab; isActive: boolean }) {
   );
 }
 
+function Separator() {
+  return <div className="mx-3 h-5 w-px shrink-0 bg-[#3D2314]/15" aria-hidden />;
+}
+
 function isActiveTab(tab: Tab, pathname: string | null): boolean {
   if (!pathname) return false;
   if (tab.href === "/dashboard/projetos") return pathname === tab.href;
+  // Cockpit de uma obra (/obras/[id]/cockpit) e Resultado têm aba própria: "Obras" não acende nelas.
+  const ehCockpit = /^\/dashboard\/projetos\/obras\/[^/]+\/cockpit/.test(pathname);
+  if (tab.href === "/dashboard/projetos/cockpit") return pathname.startsWith(tab.href) || ehCockpit;
+  if (tab.href === "/dashboard/projetos/obras") {
+    return pathname.startsWith(tab.href) && !ehCockpit && !pathname.startsWith("/dashboard/projetos/obras/resultado");
+  }
   return pathname.startsWith(tab.href);
 }
 
 export default function ProjetosLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const navRef = useRef<HTMLDivElement>(null);
+
+  // No celular a sub-nav rola na horizontal: leva a aba ativa para a vista (sem ela ficar cortada na borda).
+  useEffect(() => {
+    const ativa = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    ativa?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [pathname]);
 
   // Atalhos Ctrl+1..0 + Ctrl+,
   useEffect(() => {
@@ -103,16 +129,12 @@ export default function ProjetosLayout({ children }: { children: React.ReactNode
     return () => window.removeEventListener("keydown", handler);
   }, [router]);
 
-  const Separator = () => (
-    <div className="mx-3 h-5 w-px shrink-0 bg-[#3D2314]/15" aria-hidden />
-  );
-
   return (
     <div className="min-h-screen bg-[#FAF7F2]">
       {/* Breadcrumb */}
       <div className="px-6 pt-4 pb-2">
         <nav className="text-xs text-[#3D2314]/50">
-          <Link href="/dashboard" className="hover:text-[#3D2314]">
+          <Link href="/dashboard/projetos" className="hover:text-[#3D2314]">
             Início
           </Link>
           <span className="mx-2">/</span>
@@ -123,7 +145,12 @@ export default function ProjetosLayout({ children }: { children: React.ReactNode
       {/* Sub-nav sticky agrupada */}
       <div className="sticky top-0 z-10 border-b border-[#3D2314]/10 bg-[#FAF7F2]">
         <div className="mx-auto max-w-7xl px-6">
-          <div className="flex items-center overflow-x-auto">
+          {/* Desktop: as abas quebram em linhas (nenhuma fica cortada); celular: rolagem horizontal. */}
+          <div
+            ref={navRef}
+            data-testid="hub-subnav"
+            className="flex items-center overflow-x-auto md:flex-wrap md:overflow-visible"
+          >
             {/* Grupo Comercial */}
             <div className="flex items-center">
               {COMERCIAL.map((t) => (
@@ -150,7 +177,7 @@ export default function ProjetosLayout({ children }: { children: React.ReactNode
             </div>
 
             {/* Configurações (à direita) */}
-            <div className="ml-auto pl-3">
+            <div className="ml-auto shrink-0 pl-3">
               <TabLink tab={CONFIG} isActive={isActiveTab(CONFIG, pathname)} />
             </div>
           </div>

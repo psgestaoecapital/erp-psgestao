@@ -123,6 +123,24 @@ function analisar(arquivo: string, sql: string): Violacao[] {
   return v
 }
 
+// Regularização posterior (CEO 07/10 · fn_fluxo_caixa_diario da #2168): migration já aplicada não se edita (o db push não
+// reaplica versão registrada). Uma migration MAIS NOVA que faça "REVOKE ALL|EXECUTE ON FUNCTION <fn>(...) FROM ... anon"
+// regulariza a violação revoke_anon da anterior. Só vale para revoke_anon e só para versão posterior; se uma migration
+// ainda mais nova recriar a função sem REVOKE, ela mesma é barrada.
+export function regularizaRevoke(nome: string, sqlPosterior: string): boolean {
+  return new RegExp(
+    String.raw`\bREVOKE\s+(?:ALL(?:\s+PRIVILEGES)?|EXECUTE)\s+ON\s+FUNCTION\s+(?:public\.)?` + nome + String.raw`\s*\([^)]*\)\s+FROM\s+[^;]*\banon\b`,
+    'i',
+  ).test(sqlPosterior.replace(/--[^\n]*/g, ''))
+}
+export function filtrarRegularizadas(violacoes: Violacao[], arquivos: { arquivo: string; sql: string }[]): Violacao[] {
+  return violacoes.filter((x) => {
+    if (x.regra !== 'revoke_anon') return true
+    const v = versaoDoArquivo(x.arquivo) ?? ''
+    return !arquivos.some((a) => (versaoDoArquivo(a.arquivo) ?? '') > v && regularizaRevoke(x.fn, a.sql))
+  })
+}
+
 function sqlSemComentariosGlobal(sql: string): string {
   return sql.replace(/--[^\n]*/g, '')
 }
@@ -144,8 +162,26 @@ function autoteste(): void {
     ruim.some((x) => x.regra === 'grant_anon_sem_aprovacao') ? null : 'não barrou GRANT a anon fora da lista',
     boa.length === 0 ? null : 'barrou função da lista aprovada',
     escape.some((x) => x.regra === 'revoke_anon') ? null : 'o comentário ci-allow-anon liberou função fora da lista',
+    ...autotesteRegularizacao(),
   ].filter(Boolean)
   if (falhou.length) { console.error('✗ check:fn-guards — autoteste falhou: ' + falhou.join('; ')); process.exit(1) }
+}
+
+// regularização posterior: só a migration MAIS NOVA com o REVOKE da mesma função apaga a violação; mais antiga, não
+function autotesteRegularizacao(): (string | null)[] {
+  const semRevoke = 'CREATE OR REPLACE FUNCTION public.fn_w_ler(p uuid) RETURNS int LANGUAGE sql SECURITY DEFINER AS $f$ SELECT 1 $f$;'
+  const reg = 'REVOKE ALL ON FUNCTION public.fn_w_ler(uuid) FROM PUBLIC, anon;'
+  const vs = analisar('20991231000000_a.sql', semRevoke)
+  const depois = filtrarRegularizadas(vs, [{ arquivo: '20991231000000_a.sql', sql: semRevoke }, { arquivo: '20991231000060_b.sql', sql: reg }])
+  const antes = filtrarRegularizadas(vs, [{ arquivo: '20991230000000_b.sql', sql: reg }])
+  const outra = filtrarRegularizadas(vs, [{ arquivo: '20991231000060_b.sql', sql: reg.replace('fn_w_ler', 'fn_w_outra') }])
+  const comentario = filtrarRegularizadas(vs, [{ arquivo: '20991231000060_b.sql', sql: `-- ${reg}` }])
+  return [
+    vs.some((x) => x.regra === 'revoke_anon') && depois.length === 0 ? null : 'regularização posterior não foi aceita',
+    antes.length === 1 ? null : 'REVOKE em migration MAIS ANTIGA regularizou (não pode)',
+    outra.length === 1 ? null : 'REVOKE de OUTRA função regularizou (não pode)',
+    comentario.length === 1 ? null : 'REVOKE só em comentário regularizou (não pode)',
+  ]
 }
 
 function main() {
@@ -153,10 +189,11 @@ function main() {
   let arquivos: string[]
   try { arquivos = readdirSync(MIG_DIR).filter((f) => f.endsWith('.sql')) } catch { arquivos = [] }
   const alvo = arquivos.filter((f) => { const vv = versaoDoArquivo(f); return vv !== null && vv >= CUTOFF })
-  const violacoes: Violacao[] = []
+  const lidos: { arquivo: string; sql: string }[] = []
   for (const f of alvo) {
-    try { violacoes.push(...analisar(f, readFileSync(join(MIG_DIR, f), 'utf8'))) } catch { /* ignora leitura */ }
+    try { lidos.push({ arquivo: f, sql: readFileSync(join(MIG_DIR, f), 'utf8') }) } catch { /* ignora leitura */ }
   }
+  const violacoes: Violacao[] = filtrarRegularizadas(lidos.flatMap((l) => analisar(l.arquivo, l.sql)), lidos)
   if (violacoes.length === 0) {
     console.log(`✓ check:fn-guards — ${alvo.length} migration(s) desde ${CUTOFF} OK (REVOKE anon + autoria por auth.uid() + guarda de empresa).`)
     process.exit(0)
