@@ -27,7 +27,7 @@ test.describe('NF de entrada — ligar o item a um produto sem CEST completa o C
   async function novoProduto(sufixo: string, cest: string | null): Promise<string> {
     const r = await rpcRobo<{ ok: boolean; id?: string }>('fn_erp_produto_salvar', {
       p_company_id: DEMO_COMERCIO, p_id: null,
-      p_dados: { codigo: `T1755V${sufixo}${RUN}`, nome: `Peça da OS teste ${sufixo} ${RUN}`, unidade: 'PC', ncm: '84212300', origem: '0', ...(cest ? { cest } : {}) },
+      p_dados: { codigo: `T1755V${sufixo}${RUN}`, nome: `Peça da OS teste ${sufixo} ${RUN}`, unidade: 'PC', ncm: '84212300', origem: '0', tipo_item_sped: '00', ...(cest ? { cest } : {}) },
     })
     expect(r.ok, `criar produto ${sufixo}: ${JSON.stringify(r)}`).toBe(true)
     produtos.push(r.id!)
