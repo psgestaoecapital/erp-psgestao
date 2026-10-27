@@ -35,4 +35,13 @@ for (const k of ['adquirente', 'bandeira', 'modalidade', 'parcelas', 'data_venda
 const marcar = readFileSync('src/components/financeiro/MarcarPagoModal.tsx', 'utf8')
 ok(marcar.includes("tipo === 'receber' && forma === 'Cartão'") && marcar.includes('<CartaoRecebimentoModal'), 'baixa manual de receita em "Cartão" abre o recebimento em cartão')
 
+// "Nova receita" em cartão (OS-2026-0281 da Gean saiu como 3 títulos do cliente em aberto): a venda vira UM título do
+// cliente pelo total, quitado por fn_cartao_registrar_recebimento, que gera as parcelas da operadora.
+const nova = readFileSync('src/components/financeiro/NovaReceitaForm.tsx', 'utf8')
+ok(/const vendaCartao = ehCartao && !editando && !origemConciliacao/.test(nova), 'Nova receita: venda no cartão fora da conciliação')
+ok(nova.includes('parcelas >= 2 && !vendaCartao') && nova.includes('p_total_parcelas: vendaCartao ? 1 : parcelas'), 'Nova receita: cartão cria UM título do cliente (não N parcelas do cliente)')
+ok(/if \(vendaCartao && ids\.length > 0\) \{\s*const \{ data: rc, error: rcErr \} = await supabase\.rpc\('fn_cartao_registrar_recebimento'/.test(nova) && nova.includes('p_parcelas: parcelas, p_data_venda: dataRecebimento'), 'Nova receita: cartão gera os repasses da operadora por parcela')
+ok(nova.includes("Faltou preencher: maquininha, bandeira e modalidade do cartão") && nova.includes("Cartão de débito é sempre 1 parcela"), 'Nova receita: cartão exige maquininha/bandeira/modalidade; débito 1x')
+ok(nova.includes('ehCartao && cartaoCalc?.ok && !vendaCartao') && nova.includes('!origemConciliacao && !vendaCartao && jaRecebido'), 'Nova receita: sem o patch CART-1 antigo nem baixa em conta na venda no cartão')
+
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
