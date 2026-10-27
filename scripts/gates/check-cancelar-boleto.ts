@@ -20,5 +20,6 @@ ok(/provider === 'sicoob'/.test(acoes) && /ainda não está disponível/.test(ac
 ok(/errUpd/.test(rota) && /não atualizou/.test(rota), 'rota: erro do UPDATE local após a baixa no banco é tratado e auditado')
 ok(/<AjudaCampo chave="financeiro\.receber\.cancelar_boleto"/.test(acoes), 'tela: "?" (AjudaCampo) no botão')
 ok(/fn_acesso_efetivo/.test(rota) && /status: 403/.test(rota) && /CLIENT_VIEWER/.test(rota), 'rota: confere o papel do usuário antes de baixar no banco')
+ok(/if \(!papel \|\|/.test(rota), 'rota: papel nulo bloqueia (fail-closed)')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
