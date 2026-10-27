@@ -59,3 +59,7 @@ UPDATE public.system_screens
        ]::text[],
        atualizado_em = now()
  WHERE rota = '/dashboard/projetos/oportunidades';
+
+-- Permissões (gate check-fn-guards): a função não fica aberta ao anon nem ao PUBLIC.
+REVOKE ALL ON FUNCTION public.fn_crm_oportunidades_fechadas(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_crm_oportunidades_fechadas(uuid, text) TO authenticated;
