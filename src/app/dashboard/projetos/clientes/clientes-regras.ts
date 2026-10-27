@@ -70,7 +70,7 @@ export const brlCurto = (v: number) =>
 
 // PDCA 24/10 06:03 (auditor: "só contador de obra na linha" e "ganhar não abre obra"): a linha mostra a obra
 // mais recente (nome · cidade/UF) e avisa quando o cliente tem mais vendas ganhas do que obras abertas.
-export type ObraLinha = { cliente_id: string | null; nome: string | null; projeto_nome?: string | null; obra_cidade: string | null; obra_uf: string | null; created_at: string | null }
+export type ObraLinha = { id?: string | null; cliente_id: string | null; nome: string | null; projeto_nome?: string | null; obra_cidade: string | null; obra_uf: string | null; created_at: string | null }
 export const rotuloObra = (o: Pick<ObraLinha, 'nome' | 'projeto_nome' | 'obra_cidade' | 'obra_uf'>) =>
   [o.nome || o.projeto_nome || '(obra sem nome)', o.obra_cidade ? `${o.obra_cidade}${o.obra_uf ? '/' + o.obra_uf : ''}` : ''].filter(Boolean).join(' · ')
 export function obraRecentePorCliente(linhas: ObraLinha[]): Record<string, string> {
@@ -82,6 +82,67 @@ export function obraRecentePorCliente(linhas: ObraLinha[]): Record<string, strin
   }
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, rotuloObra(v)]))
 }
+// Id da obra mais recente de cada cliente — para ligar o card do cliente direto ao Resultado da obra (cockpit),
+// na mesma linha em que hoje só mostra o nome. Só entra cliente cuja obra recente tem id.
+export function obraRecenteIdPorCliente(linhas: ObraLinha[]): Record<string, string> {
+  const m: Record<string, ObraLinha> = {}
+  for (const l of linhas) {
+    if (!l.cliente_id || !l.id) continue
+    const atual = m[l.cliente_id]
+    if (!atual || (l.created_at ?? '') > (atual.created_at ?? '')) m[l.cliente_id] = l
+  }
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.id as string]))
+}
+// Nome da obra mais recente (sem a cidade) — para a hierarquia do card: nome em cima, cidade embaixo (auditor FC 27/10).
+export function obraRecenteNomePorCliente(linhas: ObraLinha[]): Record<string, string> {
+  const m: Record<string, ObraLinha> = {}
+  for (const l of linhas) {
+    if (!l.cliente_id) continue
+    const atual = m[l.cliente_id]
+    if (!atual || (l.created_at ?? '') > (atual.created_at ?? '')) m[l.cliente_id] = l
+  }
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.nome || v.projeto_nome || '(obra sem nome)']))
+}
+
+// Cidade/UF da obra mais recente do cliente — separada do nome para a hierarquia do card (auditor FC 27/10:
+// "obra / cidade / resultado concatenados num texto longo truncado, sem hierarquia"). Vazio quando não há cidade.
+export function obraRecenteCidadePorCliente(linhas: ObraLinha[]): Record<string, string> {
+  const m: Record<string, ObraLinha> = {}
+  for (const l of linhas) {
+    if (!l.cliente_id) continue
+    const atual = m[l.cliente_id]
+    if (!atual || (l.created_at ?? '') > (atual.created_at ?? '')) m[l.cliente_id] = l
+  }
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.obra_cidade ? `${v.obra_cidade}${v.obra_uf ? '/' + v.obra_uf : ''}` : '']))
+}
+
+// Resultado/margem por cliente a partir de v_obra_resultado (auditor FC 27/10, gap 3: "indicador de margem/resultado por
+// obra do cliente, reaproveitar v_obra_resultado" — e desfaz a suspeita de "Com obra = Clientes" ser coincidência: cada
+// cliente ganha um número próprio). A margem PREVISTA (receita_prevista − custo_previsto) é a do orçamento da obra — o que
+// o comercial decide; a REALIZADA soma margem_realizada (receita − custo já lançados), que começa negativa/zero. Agregado
+// por cliente somando as obras dele (uma consulta por tela). Base: as MESMAS obras do card (RD-38, fecham entre si).
+export type ObraResultadoLinha = { obra_id: string; cliente_id?: string | null; receita_prevista: number | null; custo_previsto: number | null; margem_realizada: number | null }
+export type ResultadoCliente = { receitaPrevista: number; custoPrevisto: number; margemPrevista: number; margemPct: number | null; margemRealizada: number; obras: number }
+export function resultadoPorCliente(obras: { id?: string | null; cliente_id: string | null }[], resultados: ObraResultadoLinha[]): Record<string, ResultadoCliente> {
+  const clienteDaObra = new Map<string, string>()
+  for (const o of obras) if (o.id && o.cliente_id) clienteDaObra.set(o.id, o.cliente_id)
+  const m: Record<string, ResultadoCliente> = {}
+  for (const r of resultados) {
+    const cli = clienteDaObra.get(r.obra_id) ?? r.cliente_id ?? null
+    if (!cli) continue
+    const a = (m[cli] ??= { receitaPrevista: 0, custoPrevisto: 0, margemPrevista: 0, margemPct: null, margemRealizada: 0, obras: 0 })
+    a.receitaPrevista += Number(r.receita_prevista ?? 0)
+    a.custoPrevisto += Number(r.custo_previsto ?? 0)
+    a.margemRealizada += Number(r.margem_realizada ?? 0)
+    a.obras++
+  }
+  for (const a of Object.values(m)) {
+    a.margemPrevista = a.receitaPrevista - a.custoPrevisto
+    a.margemPct = a.receitaPrevista > 0 ? (a.margemPrevista / a.receitaPrevista) * 100 : null
+  }
+  return m
+}
+
 export const ganhasSemObra = (ganhas: number, obras: number) => Math.max(0, ganhas - obras)
 // Vendas que já viraram obra (projetos_obras.oportunidade_id): "Abrir obra desta venda" some nelas, para não duplicar.
 export function oportunidadesComObra(linhas: { oportunidade_id?: string | null }[]): Set<string> {

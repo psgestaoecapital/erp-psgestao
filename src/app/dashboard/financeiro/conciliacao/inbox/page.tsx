@@ -877,6 +877,8 @@ export default function InboxPage() {
   }
 
   async function desvincularConciliado(c: Conciliado) {
+    // #3963: a caixa de erro fica no topo da página, longe do botão — a recusa também abre um aviso na hora.
+    const falhou = (msg: string) => { setErro(msg); alert(msg) }
     // Fatura AGRUPADA (lancamento_id NULL): os vínculos ficam em conciliacao_vinculo, não no 1:1.
     // Antes o botão virava um aviso inerte ("use Ignorar") — não desfazia nada. Agora chama a RPC
     // de movimento, que estorna a baixa dos N títulos + limpa vínculos + volta o movimento p/ Pendentes.
@@ -885,9 +887,9 @@ export default function InboxPage() {
       const { data, error } = await supabase.rpc('fn_conciliacao_desvincular_movimento', {
         p_movimento_id: c.movimento_id,
       })
-      if (error) { setErro('Erro ao desvincular: ' + error.message); return }
+      if (error) { falhou('Erro ao desvincular: ' + error.message); return }
       const r = (data ?? {}) as { sucesso?: boolean; erro?: string; msg?: string; aviso?: string }
-      if (r.sucesso === false) { setErro('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
+      if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
       await carregarConciliados()
       await carregar()
       if (r.aviso) setErro(r.aviso) // aviso não-bloqueante: título(s) com ajuste — confira o valor manualmente
@@ -901,10 +903,10 @@ export default function InboxPage() {
       p_lancamento_id: c.lancamento_id,
       p_tipo: c.lancamento_tabela.replace(/^erp_/, ''),
     })
-    if (error) { setErro('Erro ao desvincular: ' + error.message); return }
+    if (error) { falhou('Erro ao desvincular: ' + error.message); return }
     // a RPC retorna {sucesso:false, erro} sem erro SQL — antes era engolido
     const r = (data ?? {}) as { sucesso?: boolean; erro?: string }
-    if (r.sucesso === false) { setErro('Não desvinculou: ' + (r.erro ?? 'erro desconhecido')); return }
+    if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.erro ?? 'erro desconhecido')); return }
     await carregarConciliados()
     await carregar()
   }
