@@ -162,19 +162,18 @@ CREATE TRIGGER trg_sugestao_enfileirar_agente_socio
 -- também roda na sessão do cliente que abriu o chamado, onde a guarda do canal recusaria
 CREATE OR REPLACE FUNCTION public.fn_agente_mensagem_trg_acionar()
  RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NOT NEW.arquivada
-       AND COALESCE(NEW.enviado_por, '') NOT LIKE 'sistema ·%'
        AND NOT ( NEW.tipo = 'tarefa' AND NEW.para IN (
            'dev7claudeps','desenvolvedor_4_g','desenvolvedor_5_g','desenvolvedor_6_g',
            'code-desenvolvedor-3','gilberto-produto','gilberto-desenv',
            'gilberto-automotivo','gilberto-industria') )
-    THEN PERFORM public.fn__agente_acionar(NEW.id); END IF;
+    THEN
+      PERFORM public.fn__agente_acionar(NEW.id);
+    END IF;
   ELSIF TG_OP = 'UPDATE' THEN
     IF NEW.requer_ok_ceo AND OLD.ok_ceo_em IS NULL AND NEW.ok_ceo_em IS NOT NULL AND NOT NEW.arquivada THEN
       PERFORM public.fn__agente_acionar(NEW.id);
@@ -183,7 +182,6 @@ BEGIN
   RETURN NULL;
 END;
 $function$;
-
 REVOKE ALL ON FUNCTION public.fn_agente_mensagem_trg_acionar() FROM PUBLIC, anon, authenticated;
 
 -- backfill manual (nunca automático): enfileira os chamados abertos do escopo
