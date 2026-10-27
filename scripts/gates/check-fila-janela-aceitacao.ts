@@ -22,13 +22,13 @@ ok(/if \[ "\$via" = rapida \] \|\| aceitacao_dispensada \|\| \[ "\$acc_quar" = 1
 ok(/if \[ "\$via" = revisada \] && ! aceitacao_dispensada && \[ "\$acc_quar" != 1 \]; then/.test(sh),
   'a exigência "revisada: aceitação verde" só vale quando o bloqueio é forçado')
 // ritmo
-ok(/RITMO_MAX_HORA=\$\{RITMO_MAX_HORA:-10\}/.test(sh) && /rodada adiada/.test(sh) && /disp_hora=\$\(\(RITMO_MAX_HORA - pub_hora\)\)/.test(sh),
-  'ritmo: teto de 10 publicações/hora (RITMO_MAX_HORA), rodada adiada ao estourar')
+ok(/RITMO_MAX_HORA=\$\{RITMO_MAX_HORA:-30\}/.test(sh) && /rodada adiada/.test(sh) && /disp_hora=\$\(\(RITMO_MAX_HORA - pub_hora\)\)/.test(sh),
+  'ritmo: teto de 30 publicações/hora (RITMO_MAX_HORA), rodada adiada ao estourar')
 ok(/pub_hora=\$\{FILA_PUB_HORA:-/.test(sh) && /\|\| echo 0\)\}/.test(sh),
   'ritmo: conta merges da última hora (fail-open: erro de API = 0)')
 // prioridade
-ok(/FILA_PRIORIDADE=\$\{FILA_PRIORIDADE:-'2569 2508 2298 2100'\}/.test(sh),
-  'prioridade padrão: Hub (#2569 #2508 #2298) e FC/FCR (#2100) na frente')
+ok(/FILA_PRIORIDADE=\$\{FILA_PRIORIDADE:-'2100'\}/.test(sh) && /_hub=''; for hn in \$fila; do jq -e[\s\S]*?index\("hub"\)/.test(sh),
+  'prioridade: label hub na frente de tudo; FILA_PRIORIDADE fixa = FC/FCR (#2100)')
 // o que NUNCA deixa de bloquear (dentro ou fora da janela): Vercel (preview), guardas focados, autorização.
 // A suíte 'gates' passou a ser INFORMATIVA (novo modelo CEO 22/10): sai do bloqueio nas duas vias.
 ok(/echo "vermelho:Vercel/.test(sh)
@@ -65,13 +65,13 @@ if (!temFerramentas()) {
     ok(merges(x.escritas).length === 0 && comentariosEm(x.escritas, 1).some((l) => /sem a autorização do revisor/.test(l)),
       '4) sem MERGE AUTORIZADO do revisor não publica')
 
-    // 5) RITMO: 10 publicações na última hora → rodada adiada
-    x = rodar([{ n: 1, labels: [] }], false, 5000, { FILA_PUB_HORA: '10' })
-    ok(merges(x.escritas).length === 0 && /rodada adiada/.test(x.log), '5) ritmo: 10 publicações/h atingido → rodada adiada')
+    // 5) RITMO: 30 publicações na última hora → rodada adiada (teto subido para 30 em 23/10)
+    x = rodar([{ n: 1, labels: [] }], false, 5000, { FILA_PUB_HORA: '30' })
+    ok(merges(x.escritas).length === 0 && /rodada adiada/.test(x.log), '5) ritmo: 30 publicações/h atingido → rodada adiada')
 
-    // 6) RITMO: 9 na última hora → sobra 1 vaga; das duas comuns prontas, publica só 1 nesta rodada
-    x = rodar([{ n: 1, labels: [] }, { n: 2, labels: [] }], false, 5000, { FILA_PUB_HORA: '9' })
-    ok(merges(x.escritas).length === 1, '6) ritmo: 9/10 na hora → só 1 vaga nesta rodada (lote cortado pelo ritmo)')
+    // 6) RITMO: 29 na última hora → sobra 1 vaga; das duas comuns prontas, publica só 1 nesta rodada
+    x = rodar([{ n: 1, labels: [] }, { n: 2, labels: [] }], false, 5000, { FILA_PUB_HORA: '29' })
+    ok(merges(x.escritas).length === 1, '6) ritmo: 29/30 na hora → só 1 vaga nesta rodada (lote cortado pelo ritmo)')
 
     // 7) PRIORIDADE: FILA_PRIORIDADE reordena a fila
     x = rodar([{ n: 1, labels: [] }, { n: 2, labels: [] }, { n: 3, labels: [] }, { n: 4, labels: [] }], false, 5000, { FILA_PRIORIDADE: '3 1' })

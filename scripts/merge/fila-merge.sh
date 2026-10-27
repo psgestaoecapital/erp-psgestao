@@ -311,7 +311,7 @@ BASELINE_MAIN_FIM='2026-10-18T17:35:00Z'
 baseline_main_ativa() { return 0; }
 # specs que falharam na última aceitação da main (vazio = regra desligada: main verde, sem run ou ilegível). Um por linha.
 baseline_main_specs() {
-  local r id conc
+  local r id= conc=
   if [ "${FILA_BASELINE_MAIN_SPECS+x}" = x ]; then printf '%s\n' "$FILA_BASELINE_MAIN_SPECS" | sed '/^$/d' | sort -u; return 0; fi
   baseline_main_ativa || return 0
   # só conta run em que a suíte RODOU (job aceitacao-main success/failure): run só com o "decide" e a suíte pulada
@@ -746,11 +746,15 @@ fila=$(while read -r linha; do
     echo "${t:-$(jq -r .created_at <<< "$linha")} $n"
   done < "$TMPF/lista" | sort | awk '{print $2}')
 [ -n "$fila" ] || { log "fila vazia"; exit 0; }
-# Prioridade (CEO 15/10): Hub (#2569 #2508 #2298) e FC/FCR (#2100) na frente; o resto segue a ordem de entrada.
-FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2569 2508 2298 2100'}
-_prio=''; for p in $FILA_PRIORIDADE; do grep -qw "$p" <<< "$fila" && _prio="$_prio $p"; done
-_resto=''; for q in $fila; do grep -qw "$q" <<< "$FILA_PRIORIDADE" || _resto="$_resto $q"; done
-fila=$(echo $_prio $_resto)
+# Prioridade (CEO 23/10, cliente FC Pisos/Diego — Hub pra terça): a VIA EXPRESSA DO HUB vai na frente de TUDO — toda PR
+# com a label 'hub' (não só as de hoje; vale para as próximas ondas conforme ficarem prontas). Depois a FILA_PRIORIDADE
+# fixa (FC/FCR #2100) e o resto por ordem de entrada. A label 'hub' também dá via rápida e lote aditivo mais abaixo
+# (CEO: "sem trava nenhuma; reauditamos depois") — só as travas ESTRUTURAIS ficam (gates/build/deploy).
+_hub=''; for hn in $fila; do jq -e --argjson hn "$hn" 'select(.number==$hn)|.labels|map(.name)|index("hub")' "$TMPF/lista" >/dev/null 2>&1 && _hub="$_hub $hn"; done
+FILA_PRIORIDADE=${FILA_PRIORIDADE:-'2100'}
+_prio=''; for p in $FILA_PRIORIDADE; do grep -qw "$p" <<< "$fila" && ! grep -qw "$p" <<< "$_hub" && _prio="$_prio $p"; done
+_resto=''; for q in $fila; do grep -qw "$q" <<< "$_hub" || grep -qw "$q" <<< "$FILA_PRIORIDADE" || _resto="$_resto $q"; done
+fila=$(echo $_hub $_prio $_resto)
 log "fila: $(echo $fila | sed 's/\([0-9]*\)/#\1/g')"
 
 # próxima versão de migration > $1 (piso), com os 2 últimos dígitos $2 (faixa do agente); timestamp do momento (UTC)
@@ -801,18 +805,24 @@ Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via r
   return 0
 }
 
-so_sem_migration=0
+# Serialização de migration em 2 níveis (CEO 23/10 — escala no aditivo, cautela total no crítico):
+#  - deploy_travado: o deploy-migrations da main NÃO está verde → segura TODAS as migrations (não dá para aplicar nada).
+#  - critica_na_main: o @pos-migration de uma migration CRÍTICA (via revisada) está em andamento/vermelho → segura só as
+#    OUTRAS migrations CRÍTICAS; a migration ADITIVA (via rápida) NÃO espera esse @pos (ela já é validada só pelo deploy +
+#    auditor PDCA pós-publicação). Assim o aditivo ganha escala sem nunca afrouxar o crítico.
+deploy_travado=0; critica_na_main=0
 # Teto de PRs "da vez" em PREPARO ao mesmo tempo (CEO 09/10): atualizar com a main dispara preview/aceitação (~3 min/PR).
 # Sem teto, a fila atualizava TODA PR verde atrás da main a cada push → dezenas de builds por publicação. Agora prepara só
 # as próximas N da ordem; as demais esperam a vez (sem build) até uma da frente mergear.
-ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-4}
+ATUALIZA_NA_VEZ=${ATUALIZA_NA_VEZ:-6}
 em_preparo=0
 # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada (corta runs/builds de publicação). PR COM migration
 # é UMA por rodada e encerra a rodada. merges = quantas já saíram no lote; LOTE_MAX = teto por rodada (teto de risco).
-LOTE_MAX=${LOTE_MAX:-6}
-# RITMO (CEO 15/10): teto de publicações por hora. Conta as PRs já mergeadas na main na última hora (fail-open: erro de
-# API/valor não-numérico = 0, a rodada segue), para a janela aberta da via revisada não virar enxurrada de merges.
-RITMO_MAX_HORA=${RITMO_MAX_HORA:-10}
+LOTE_MAX=${LOTE_MAX:-10}
+# RITMO (CEO 15/10; teto subido para 30 em 23/10 — "produção máxima"): teto de publicações por hora. Conta as PRs já
+# mergeadas na main na última hora (fail-open: erro de API/valor não-numérico = 0, a rodada segue). O teto protege contra
+# enxurrada; com a via expressa do Hub + o backlog a drenar, 30/h acelera sem virar descontrole.
+RITMO_MAX_HORA=${RITMO_MAX_HORA:-30}
 pub_hora=${FILA_PUB_HORA:-$(api "search/issues?q=repo:$REPO+is:pr+is:merged+base:main+merged:>=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" --jq '.total_count' 2>/dev/null || echo 0)}
 [ "${pub_hora:-0}" -eq "${pub_hora:-0}" ] 2>/dev/null || pub_hora=0
 disp_hora=$((RITMO_MAX_HORA - pub_hora))
@@ -822,8 +832,12 @@ merges=0
 # LOTE DE MIGRATIONS INDEPENDENTES (CEO 16/10): numa rodada publica até LOTE_MIG_MAX PRs COM migration, desde que
 # INDEPENDENTES entre si (scripts/merge/migrations-independentes.ts; qualquer dúvida → 1 por rodada, como antes).
 # O @pos-migration da main roda uma vez para o lote. LOTE_MIG_MAX=1 desliga (comportamento antigo).
-LOTE_MIG_MAX=${LOTE_MIG_MAX:-3}
-lote_mig_n=0; lote_mig_sqls=()
+# ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10): o teto geral do lote (LOTE_MIG_MAX) sobe para drenar o backlog de
+# migrations ADITIVAS mais rápido; mas a migration CRÍTICA (via revisada) tem um teto PRÓPRIO e baixo (LOTE_MIG_CRIT_MAX),
+# para nunca batelar muitas críticas num mesmo @pos. Assim o aditivo ganha vazão sem afrouxar a cautela no crítico.
+LOTE_MIG_MAX=${LOTE_MIG_MAX:-6}
+LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-1}
+lote_mig_n=0; lote_mig_crit_n=0; lote_mig_sqls=()
 mkdir -p "$TMPF/mig"
 # SQL das migrations da PR no SHA conferido → $TMPF/mig/<n>.sql (vazio/falha = dúvida na checagem de independência)
 baixar_sql_migrations() {
@@ -850,12 +864,15 @@ for n in $fila; do
   fi
   # conflito: a lista não traz o mergeable; aparece no update-branch (PR atrás da main) ou na recusa do merge
 
-  com_migration=0; so_docs=0
+  com_migration=0; so_docs=0; n_critica=0
+  # VIA EXPRESSA DO HUB (CEO 23/10): label 'hub' = via rápida + lote aditivo, sem revisor nem serialização de crítica
+  # ("sem trava nenhuma; reauditamos depois"). Só as travas estruturais ficam (deploy_travado, gates, build, independência).
+  n_hub=0; jq -e '.labels | map(.name) | index("hub")' <<< "$pj" > /dev/null 2>&1 && n_hub=1
   arquivos=$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[].filename')
   grep -q '^supabase/migrations/' <<< "$arquivos" && com_migration=1
   # mesma regra do scripts/vercel-ignore.mjs: sem preview para PR só de .md/docs/.github
   grep -qvE '(\.md$|^docs/|^\.github/)' <<< "$arquivos" || so_docs=1
-  # PR COM migration não vai nesta rodada se outra migration já espera a main (so_sem_migration) OU já houve merge no lote
+  # PR COM migration: deploy não-verde segura todas; @pos de crítica segura só críticas (aditiva segue); merge no lote
   # (merges>0: a main acabou de mudar — a migration vai na próxima rodada, contra a main já assentada/verde).
   # conserto do deploy vermelho da main (corrige_deploy_vermelho): não espera a main nem as outras migrations
   corrige_deploy=0
@@ -864,7 +881,16 @@ for n in $fila; do
   # lote de migrations já aberto nesta rodada: só entram outras migrations, e só se INDEPENDENTES das do lote
   if [ "$lote_mig_n" -gt 0 ] && [ "$com_migration" = 0 ]; then log "#$n (sem migration): espera a próxima rodada — há lote de migrations nesta"; continue; fi
   if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ]; then
-    if [ "$so_sem_migration" = 1 ] || { [ "$merges" -gt 0 ] && [ "$lote_mig_n" = 0 ]; }; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
+    # Crítica = tem a etiqueta SENSIVEL (o classificador de conteúdo, mais abaixo, é o backstop: migration crítica SEM
+    # etiqueta é rotulada + pulada antes de mergear). Só o crítico é segurado pelo @pos de outra crítica; aditivo segue.
+    # hub = tratado como ADITIVO (batela até LOTE_MIG_MAX, não conta no teto de crítica); o resto, SENSIVEL = crítica.
+    [ "$n_hub" = 0 ] && jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null 2>&1 && n_critica=1
+    if [ "$deploy_travado" = 1 ]; then log "#$n tem migration: deploy-migrations da main não está verde — espera (todas as migrations)"; continue; fi
+    if [ "$critica_na_main" = 1 ] && [ "$n_critica" = 1 ]; then log "#$n tem migration CRÍTICA: espera o @pos da crítica anterior (aditivas seguem)"; continue; fi
+    # cautela no crítico (CEO 23/10): no MESMO lote, no máximo LOTE_MIG_CRIT_MAX migration(s) crítica(s). O aditivo bate até
+    # LOTE_MIG_MAX; a crítica excedente espera a próxima rodada (cada crítica tem o veredito do @pos sem se misturar com as outras).
+    if [ "$n_critica" = 1 ] && [ "$lote_mig_crit_n" -ge "$LOTE_MIG_CRIT_MAX" ]; then log "#$n tem migration CRÍTICA: já há $lote_mig_crit_n no lote (teto LOTE_MIG_CRIT_MAX=$LOTE_MIG_CRIT_MAX) — cautela no crítico, espera a próxima rodada"; continue; fi
+    if [ "$merges" -gt 0 ] && [ "$lote_mig_n" = 0 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
     if [ "$lote_mig_n" -gt 0 ]; then
       baixar_sql_migrations "$n" "$sha" || true
       ind=$(npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/migrations-independentes.ts" "$TMPF/mig/$n.sql" "${lote_mig_sqls[@]}" 2> /dev/null || echo "duvida:checagem falhou")
@@ -873,14 +899,15 @@ for n in $fila; do
     fi
   fi
 
-  # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa)
+  # (e) via: COM revisao-eng-chefe = revisada (aceitação + autorização); SEM = rápida (aceitação informativa).
+  # hub (via expressa): SEMPRE via rápida, mesmo com revisao-eng-chefe — sem revisor (reauditamos depois).
   via=rapida
-  jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
+  [ "$n_hub" = 0 ] && jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null && via=revisada
   # Eng. Chefe 14/10: tela/cálculo/migration/área crítica NUNCA publica pela via rápida, mesmo sem etiqueta (furo da #2592):
   # a fila coloca a etiqueta e espera o MERGE AUTORIZADO do revisor (o patch-id é conferido na próxima rodada).
   # Modelo CEO 21/10: produto novo/aditivo publica direto; só o CRÍTICO espera verde. O classificador decide pelo conteúdo
   # (para .sql anexa o patch em base64), com viés de segurança (migration ilegível → crítica).
-  if [ "$via" = rapida ] && [ "$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[] | select(.status != "removed") | if (.filename | test("\\.sql$")) then .filename + "\t" + ((.patch // "") | split("\n") | map(select(startswith("+")) | ltrimstr("+")) | join("\n") | @base64) else .filename end' 2>/dev/null | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
+  if [ "$via" = rapida ] && [ "$n_hub" = 0 ] && [ "$(api "repos/$REPO/pulls/$n/files" --paginate --jq '.[] | select(.status != "removed") | if (.filename | test("\\.sql$")) then .filename + "\t" + ((.patch // "") | split("\n") | map(select(startswith("+")) | ltrimstr("+")) | join("\n") | @base64) else .filename end' 2>/dev/null | npx --yes tsx scripts/merge/exige-via-revisada.ts 2>/dev/null | jq -r '.revisada // false' 2>/dev/null)" = true ]; then
     log "#$n toca núcleo crítico (fiscal/financeiro/RLS/LGPD/migration não-aditiva) sem etiqueta: ponho $SENSIVEL e espero a autorização"
     api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
     continue
@@ -971,7 +998,12 @@ for n in $fila; do
     m=$(estado_main "$via")
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
-      so_sem_migration=1; continue
+      # deploy-migrations não-verde segura TODAS as migrations; @pos (só a via revisada chega nele) segura só as CRÍTICAS.
+      case "$m" in
+        *deploy-migrations*) deploy_travado=1 ;;
+        *) critica_na_main=1 ;;
+      esac
+      continue
     fi
     # Régua de versão NA HORA do merge (incidente 08/10: #2239 entrou com 20261008140005 abaixo da 150005 já aplicada e o
     # `db push` recusou — deploy vermelho por horas). Recalcula a última migration da main agora (não usa o check antigo
@@ -994,6 +1026,7 @@ for n in $fila; do
       # migration: publica e abre/segue o LOTE de migrations independentes (até LOTE_MIG_MAX); fechado o lote, ENCERRA a rodada
       # (a próxima migration espera o deploy + @pos-migration do lote)
       lote_mig_n=$((lote_mig_n + 1)); merges=$((merges + 1))
+      [ "$n_critica" = 1 ] && lote_mig_crit_n=$((lote_mig_crit_n + 1))   # cautela no crítico: conta as críticas do lote (teto LOTE_MIG_CRIT_MAX)
       [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
       lote_mig_sqls+=("$TMPF/mig/$n.sql")
       log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: lote de migrations $lote_mig_n/$LOTE_MIG_MAX"

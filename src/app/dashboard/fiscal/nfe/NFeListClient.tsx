@@ -19,6 +19,7 @@ import {
   History, CheckCircle2, Ban, Clock, FileSignature, AlertTriangle,
 } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { AVISO_PROCESSANDO, resumoConsulta } from '@/lib/fiscal/consultaRetorno'
 
 interface Documento {
@@ -269,7 +270,8 @@ export default function NFeListClient() {
   }
 
   // "Corrigir e reenviar" documento não emitido — devolução (reabre a tela de devolução pré-preenchida
-  // pela nota de compra referenciada) ou nota de OS (#2167: abre a própria OS, onde o botão vira "Reenviar NF-e").
+  // pela nota de compra referenciada), nota de OS (#2167: abre a própria OS, onde o botão vira "Reenviar NF-e")
+  // ou qualquer outra (#3861: "Emitir NF-e" pré-preenchida pela nota recusada).
   // Busca a finalidade/chave_referenciada/os_id no registro principal.
   async function corrigirEReenviar(doc: Documento) {
     setReabrindo(doc.grupo_chave)
@@ -284,7 +286,9 @@ export default function NFeListClient() {
         return
       }
       if (nota.finalidade !== 'devolucao' || !nota.chave_referenciada) {
-        alert('Só a devolução tem reenvio pré-preenchido. Reemita esta nota pela tela de origem (venda/pedido).')
+        // #3861 · qualquer outra nota recusada (avulsa, venda, pedido): abre "Emitir NF-e" com os dados dela,
+        // relendo o cadastro atual do destinatário; a nova nota herda o vínculo com o pedido/título.
+        router.push(`/dashboard/fiscal/nfe/remessa?reenviar=${doc.principal_id}`)
         return
       }
       const { data: rec } = await supabase
@@ -323,11 +327,21 @@ export default function NFeListClient() {
         <Link href="/dashboard/fiscal" className="inline-flex items-center gap-1.5 text-[12px] text-[#BA7517] hover:text-[#8B5612] mb-3">
           <ArrowLeft size={13} /> Voltar pro Hub Fiscal
         </Link>
-        <header className="mb-5">
-          <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight">NFes Emitidas</h1>
-          <p className="text-[13px] text-[#3D2314]/70 mt-1">
-            {mostrarRecusadas ? 'Todas as tentativas' : 'Uma linha por documento'} (modelo 55) · {total} {total === 1 ? (mostrarRecusadas ? 'registro' : 'documento') : (mostrarRecusadas ? 'registros' : 'documentos')}
-          </p>
+        <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight">NFes Emitidas</h1>
+            <p className="text-[13px] text-[#3D2314]/70 mt-1">
+              {mostrarRecusadas ? 'Todas as tentativas' : 'Uma linha por documento'} (modelo 55) · {total} {total === 1 ? (mostrarRecusadas ? 'registro' : 'documento') : (mostrarRecusadas ? 'registros' : 'documentos')}
+            </p>
+          </div>
+          {/* #3861 · NF-e avulsa (remessas e outras operações, CFOP escolhido) */}
+          <div className="flex items-center gap-1.5">
+            <Link href="/dashboard/fiscal/nfe/remessa" data-testid="nfe-emitir-avulsa"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-[12.5px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A77A12]">
+              <FileText size={13} /> Emitir NF-e
+            </Link>
+            <AjudaCampo chave="fiscal.nfe.emitir_avulsa" />
+          </div>
         </header>
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 mb-4">

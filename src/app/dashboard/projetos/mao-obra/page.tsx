@@ -89,11 +89,11 @@ export default function MaoObraPage() {
         </div>
         {pode && (
           <div className="flex flex-wrap gap-2">
-            <button className={btnSec} onClick={() => void baixarModelo()} data-testid="mao-obra-baixar-modelo"><Download size={14} /> Baixar modelo</button>
-            <button className={btnSec} onClick={() => setModal({ tipo: "importar" })} data-testid="mao-obra-importar"><FileUp size={14} /> Importar planilha</button>
-            <button className={btnSec} onClick={() => setModal({ tipo: "funcao" })} data-testid="mao-obra-nova-funcao"><Plus size={14} /> Nova função</button>
-            <button className={btnSec} onClick={() => setModal({ tipo: "ficha", modo: "perfil" })} data-testid="mao-obra-novo-perfil"><Users size={14} /> Novo perfil padrão</button>
-            <button className={btnPri} onClick={() => setModal({ tipo: "ficha", modo: "pessoa" })} data-testid="mao-obra-novo-funcionario"><UserPlus size={14} /> Novo funcionário</button>
+            <button className={btnSec} onClick={() => void baixarModelo()} data-testid="mao-obra-baixar-modelo"><Download size={14} /> Baixar modelo</button><AjudaCampo chave="projetos.mao_obra.acao.baixar_modelo" />
+            <button className={btnSec} onClick={() => setModal({ tipo: "importar" })} data-testid="mao-obra-importar"><FileUp size={14} /> Importar planilha</button><AjudaCampo chave="projetos.mao_obra.acao.importar" />
+            <button className={btnSec} onClick={() => setModal({ tipo: "funcao" })} data-testid="mao-obra-nova-funcao"><Plus size={14} /> Nova função</button><AjudaCampo chave="projetos.mao_obra.acao.nova_funcao" />
+            <button className={btnSec} onClick={() => setModal({ tipo: "ficha", modo: "perfil" })} data-testid="mao-obra-novo-perfil"><Users size={14} /> Novo perfil padrão</button><AjudaCampo chave="projetos.mao_obra.acao.novo_perfil" />
+            <button className={btnPri} onClick={() => setModal({ tipo: "ficha", modo: "pessoa" })} data-testid="mao-obra-novo-funcionario"><UserPlus size={14} /> Novo funcionário</button><AjudaCampo chave="projetos.mao_obra.acao.novo_funcionario" />
           </div>
         )}
       </header>
@@ -101,12 +101,12 @@ export default function MaoObraPage() {
       {enc && (
         <div className={`rounded-md border px-3 py-2 text-[12.5px] flex flex-wrap items-center justify-between gap-2 ${enc.provisorio ? "border-[#C8941A]/60 bg-[#FAEEDA]/60" : "border-[#3D2314]/15 bg-[#FAF7F2]"}`} data-testid="mao-obra-encargos">
           <span>
-            {enc.provisorio ? <><AlertTriangle size={13} className="inline -mt-0.5 mr-1" /><b>Encargos provisórios</b> — até o contador confirmar. </> : <><CheckCircle2 size={13} className="inline -mt-0.5 mr-1" />Encargos confirmados pelo contador. </>}
+            {enc.provisorio ? <><AlertTriangle size={13} className="inline -mt-0.5 mr-1" /><b>Encargos provisórios</b> — até o contador confirmar; o custo da hora já é calculado com estes valores. </> : <><CheckCircle2 size={13} className="inline -mt-0.5 mr-1" />Encargos confirmados pelo contador. </>}<AjudaCampo chave="projetos.mao_obra.padrao.resumo" />
             Regime {enc.regime}{enc.simples_anexo ? ` (Anexo ${enc.simples_anexo})` : ""} · encargos da folha <b>{pct(enc.encargos_folha_pct)}</b>
             {enc.desoneracao ? ` · desoneração: ${pct(Number(enc.desoneracao_fator_folha) * 100)} do INSS patronal na folha${enc.cprb_pct ? `, CPRB ${pct(enc.cprb_pct)} sobre a receita` : ""}` : ""}
             {" "}· 13º {pct(enc.prov_13_pct)} · férias {pct(enc.prov_ferias_pct)} · rescisão {pct(enc.prov_rescisao_pct)}
           </span>
-          {pode && <button className={btnSec} onClick={() => setModal({ tipo: "encargos" })} data-testid="mao-obra-encargos-editar">Configurar padrões</button>}
+          {pode && <button className={btnSec} onClick={() => setModal({ tipo: "encargos" })} data-testid="mao-obra-encargos-editar">Configurar padrões</button>}{pode && <AjudaCampo chave="projetos.mao_obra.acao.configurar_padroes" />}
         </div>
       )}
       {!pode && dados && (
@@ -127,14 +127,19 @@ export default function MaoObraPage() {
           <button key={k} onClick={() => setAba(k)} data-testid={`mao-obra-aba-${k}`}
             className={`px-3 py-2 text-[13px] -mb-px border-b-2 ${aba === k ? "border-[#C8941A] font-medium" : "border-transparent text-[#3D2314]/60"}`}>{l}</button>
         ))}
+        <span className="self-center"><AjudaCampo chave="projetos.mao_obra.abas" /></span>
       </nav>
+
+      {!dados && !erro && (
+        <div className="py-8 text-center text-[13px] text-[#3D2314]/60" role="status" data-testid="mao-obra-carregando">Carregando a equipe e as funções desta empresa…</div>
+      )}
 
       {aba === "equipe" && dados && (
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-equipe">
             <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
-              <th className="py-2 pr-2">Nome</th><th className="pr-2">Função</th><th className="pr-2">Vínculo</th><th className="pr-2 text-right">Horas/mês</th>
-              <th className="pr-2 text-right">Custo mensal</th><th className="pr-2 text-right">Custo da hora</th><th className="pr-2 text-right">Por unidade</th><th className="pr-2">Situação<AjudaCampo chave="projetos.mao_obra.equipe.conferido" /></th><th></th>
+              <th className="py-2 pr-2">Nome<AjudaCampo chave="projetos.mao_obra.equipe.col_nome" /></th><th className="pr-2">Função<AjudaCampo chave="projetos.mao_obra.equipe.col_funcao" /></th><th className="pr-2">Vínculo<AjudaCampo chave="projetos.mao_obra.equipe.col_vinculo" /></th><th className="pr-2 text-right">Horas/mês<AjudaCampo chave="projetos.mao_obra.equipe.col_horas" /></th>
+              <th className="pr-2 text-right">Custo mensal<AjudaCampo chave="projetos.mao_obra.equipe.col_mensal" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.equipe.col_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.equipe.col_unidade" /></th><th className="pr-2">Situação<AjudaCampo chave="projetos.mao_obra.equipe.conferido" /></th><th></th>
             </tr></thead>
             <tbody>
               {dados.equipe.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-[#3D2314]/60">Ninguém cadastrado ainda. Use “Novo funcionário” ou “Novo perfil padrão”{dados.funcoes.length === 0 ? " (antes, cadastre as funções na aba Funções)" : ""}.</td></tr>}
@@ -155,10 +160,10 @@ export default function MaoObraPage() {
                   <td className="text-right whitespace-nowrap">
                     {pode && (
                       <>
-                        {!i.conferido && <button className="text-[12px] underline mr-2" data-testid="mao-obra-conferir" onClick={() => void rpc("fn_mao_obra_ficha_conferir", { p_ficha_id: i.id, p_conferido: true }, `${i.nome}: conferido — entra no custo da função.`)}>Conferir</button>}
-                        <button className="text-[12px] underline mr-2" data-testid="mao-obra-editar" onClick={() => setModal({ tipo: "ficha", modo: "editar", item: i })}>Editar / reajuste</button>
-                        <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "historico", item: i })}><History size={12} className="inline" /> Histórico</button>
-                        <button className="text-[12px] underline text-[#791F1F]" data-testid="mao-obra-encerrar" onClick={() => setModal({ tipo: "encerrar", item: i })}>{i.tipo === "pessoa" ? "Desligar" : "Inativar"}</button>
+                        {!i.conferido && <button className="text-[12px] underline mr-2" data-testid="mao-obra-conferir" onClick={() => void rpc("fn_mao_obra_ficha_conferir", { p_ficha_id: i.id, p_conferido: true }, `${i.nome}: conferido — entra no custo da função.`)}>Conferir</button>}{!i.conferido && <AjudaCampo chave="projetos.mao_obra.acao.conferir" />}
+                        <button className="text-[12px] underline mr-2" data-testid="mao-obra-editar" onClick={() => setModal({ tipo: "ficha", modo: "editar", item: i })}>Editar / reajuste</button><AjudaCampo chave="projetos.mao_obra.acao.reajuste" />
+                        <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "historico", item: i })}><History size={12} className="inline" /> Histórico</button><AjudaCampo chave="projetos.mao_obra.acao.historico" />
+                        <button className="text-[12px] underline text-[#791F1F]" data-testid="mao-obra-encerrar" onClick={() => setModal({ tipo: "encerrar", item: i })}>{i.tipo === "pessoa" ? "Desligar" : "Inativar"}</button><AjudaCampo chave="projetos.mao_obra.acao.encerrar" />
                       </>
                     )}
                   </td>
@@ -173,8 +178,8 @@ export default function MaoObraPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-funcoes">
             <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
-              <th className="py-2 pr-2">Função</th><th className="pr-2">CBO</th><th className="pr-2">Pagamento</th><th className="pr-2 text-right">Custo da hora</th><th className="pr-2 text-right">Por unidade</th>
-              <th className="pr-2">Origem</th><th className="pr-2 text-right">Pessoas conferidas</th><th className="pr-2 text-right">Não conferidas</th><th></th>
+              <th className="py-2 pr-2">Função</th><th className="pr-2">CBO<AjudaCampo chave="projetos.mao_obra.funcoes.col_cbo" /></th><th className="pr-2">Pagamento<AjudaCampo chave="projetos.mao_obra.funcoes.col_pagamento" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.funcoes.col_custo_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.funcoes.col_unidade" /></th>
+              <th className="pr-2">Origem<AjudaCampo chave="projetos.mao_obra.funcoes.col_origem" /></th><th className="pr-2 text-right">Pessoas conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_conferidas" /></th><th className="pr-2 text-right">Não conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_nao_conferidas" /></th><th></th>
             </tr></thead>
             <tbody>
               {dados.funcoes.length === 0 && (
@@ -188,15 +193,16 @@ export default function MaoObraPage() {
                   <td className="py-2 pr-2">{f.nome}{f.unida_a_nome && <span className="ml-1 text-[11px] text-[#3D2314]/60">· unida a {f.unida_a_nome}</span>}</td>
                   <td className="pr-2">{f.cbo ?? "—"}</td>
                   <td className="pr-2">{rotForma(f.forma_pagamento, f.unidade_producao)}</td>
-                  <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-custo">{brl(f.custo?.custo_hora)}{f.custo?.custo_hora_com_he != null && f.custo.custo_hora_sem_he != null && f.custo.custo_hora_com_he !== f.custo.custo_hora_sem_he && <div className="text-[10.5px] text-[#3D2314]/60 font-normal" data-testid="mao-obra-funcao-custo-he">sem HE {brl(f.custo.custo_hora_sem_he)} · com HE {brl(f.custo.custo_hora_com_he)} · obra usa {f.custo.usa_he === "com" ? "com" : "sem"} HE</div>}</td>
+                  <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-custo">{f.custo?.origem === "sem_dado" ? <span className="text-[#3D2314]/40 font-normal" data-testid="mao-obra-funcao-sem-pessoas">sem pessoas</span> : <>{brl(f.custo?.custo_hora)}{f.custo?.custo_hora_com_he != null && f.custo.custo_hora_sem_he != null && f.custo.custo_hora_com_he !== f.custo.custo_hora_sem_he && <div className="text-[10.5px] text-[#3D2314]/60 font-normal" data-testid="mao-obra-funcao-custo-he">sem HE {brl(f.custo.custo_hora_sem_he)} · com HE {brl(f.custo.custo_hora_com_he)} · obra usa {f.custo.usa_he === "com" ? "com" : "sem"} HE</div>}</>}</td>
                   <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-custo-unidade">{f.custo?.custo_unidade != null ? `${brl(f.custo.custo_unidade)}/${f.custo.unidade === "m2" ? "m²" : f.custo.unidade ?? "un."}` : "—"}</td>
                   <td className="pr-2 text-[11.5px]">{f.custo?.origem === "media_grupo" ? `média do grupo (${f.custo.empresas} empresa${f.custo.empresas === 1 ? "" : "s"})` : f.custo?.origem === "manual" ? "manual · ninguém conferido" : "sem dado"}</td>
                   <td className="pr-2 text-right tabular-nums">{f.custo?.pessoas_conferidas ?? 0}</td>
                   <td className="pr-2 text-right tabular-nums">{f.custo?.nao_conferidas ?? 0}</td>
                   <td className="text-right whitespace-nowrap">
+                    {pode && f.custo?.origem === "sem_dado" && <><button className="text-[12px] underline mr-2 text-[#C8941A]" data-testid="mao-obra-funcao-add-pessoas" onClick={() => { setAba("equipe"); setModal({ tipo: "ficha", modo: "perfil" }); }}><UserPlus size={12} className="inline" /> Adicionar pessoas</button><AjudaCampo chave="projetos.mao_obra.acao.novo_perfil" /></>}
                     {pode && <>
-                      <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "funcao", f })}>Editar</button>
-                      <button className="text-[12px] underline" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button>
+                      <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "funcao", f })}>Editar</button><AjudaCampo chave="projetos.mao_obra.acao.editar_funcao" />
+                      <button className="text-[12px] underline" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button><AjudaCampo chave="projetos.mao_obra.acao.unir_funcao" />
                     </>}
                   </td>
                 </tr>
@@ -859,10 +865,13 @@ function ModalHistorico({ item, onClose }: { item: ItemEquipe; onClose: () => vo
   return (
     <Janela titulo={`Histórico · ${item.nome}`} onClose={onClose} testid="mao-obra-modal-historico">
       {erro && <div className="text-[#791F1F] text-[12.5px]">{erro}</div>}
-      <table className="w-full text-[12.5px]"><thead><tr className="text-left text-[#3D2314]/60"><th>Vigência</th><th className="text-right">Salário/valor</th><th className="text-right">Custo mensal</th><th className="text-right">Hora</th><th>Motivo</th></tr></thead>
+      {/* 5 colunas não cabem em 390px: a tabela rola dentro do modal em vez de alargar a tela (HB0 · celular) */}
+      <div className="overflow-x-auto" data-testid="mao-obra-historico-rolagem">
+      <table className="w-full min-w-[520px] text-[12.5px]"><thead><tr className="text-left text-[#3D2314]/60"><th>Vigência<AjudaCampo chave="projetos.mao_obra.hist.vigencia" /></th><th className="text-right">Salário/valor<AjudaCampo chave="projetos.mao_obra.hist.valor" /></th><th className="text-right">Custo mensal<AjudaCampo chave="projetos.mao_obra.hist.mensal" /></th><th className="text-right">Hora<AjudaCampo chave="projetos.mao_obra.hist.hora" /></th><th>Motivo<AjudaCampo chave="projetos.mao_obra.hist.motivo" /></th></tr></thead>
         <tbody>{(linhas ?? []).map((l, i) => (
           <tr key={i} className="border-t border-[#3D2314]/5"><td>{l.vigencia_inicio}{l.vigencia_fim ? ` → ${l.vigencia_fim}` : " → hoje"}</td><td className="text-right">{brl(l.salario)}</td><td className="text-right">{brl(l.custo?.custo_mensal)}</td><td className="text-right">{brl(l.custo?.custo_hora)}</td><td>{l.motivo}{l.conferido ? " · conferido" : ""}</td></tr>
         ))}</tbody></table>
+      </div>
     </Janela>
   );
 }
