@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { RelatoriosFrota } from "@/components/frota/RelatoriosFrota";
 
 const ROTA = "/dashboard/projetos/frota";
 const BUCKET_ANEXOS = "frota-anexos";
@@ -97,6 +98,7 @@ export default function FrotaPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [aberto, setAberto] = useState<string | "novo" | null>(null);
   const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
+  const [visao, setVisao] = useState<"frota" | "relatorios">("frota");
 
   const carregar = useCallback(async () => {
     if (!companyId) return;
@@ -124,14 +126,30 @@ export default function FrotaPage() {
           <h1 className="text-xl font-semibold">Controle de frota</h1>
           <div className="text-xs" style={{ color: TXM }}>{nomeEmpresa} · km e consumo vêm das viagens lançadas</div>
         </div>
-        <button data-testid="frota-novo-veiculo" onClick={() => setAberto("novo")}
-          className="rounded-lg px-4 py-2 text-sm font-semibold text-white" style={{ background: ESP }}>
-          + Novo veículo
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 rounded-lg border p-1" style={{ borderColor: BD }}>
+            {(["frota", "relatorios"] as const).map((v) => (
+              <button key={v} onClick={() => setVisao(v)} className="rounded-md px-3 py-1 text-sm"
+                style={{ background: visao === v ? ESP : "transparent", color: visao === v ? BRANCO : ESP }}>
+                {v === "frota" ? "Frota" : "Relatórios"}
+              </button>
+            ))}
+          </div>
+          {visao === "frota" && (
+            <button data-testid="frota-novo-veiculo" onClick={() => setAberto("novo")}
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-white" style={{ background: ESP }}>
+              + Novo veículo
+            </button>
+          )}
+        </div>
       </div>
 
       {erro && <div role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{erro}</div>}
 
+      {visao === "relatorios" && <RelatoriosFrota companyId={companyId} veiculos={veiculos} />}
+
+      {visao === "frota" && (
+      <>
       {/* indicadores do topo */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <Indicador titulo="Veículos" valor={resumo?.total_veiculos ?? 0} chave="projetos.frota.placa" />
@@ -201,6 +219,9 @@ export default function FrotaPage() {
             </div>
           )}
         </div>
+      )}
+
+      </>
       )}
 
       {aberto === "novo" && (
