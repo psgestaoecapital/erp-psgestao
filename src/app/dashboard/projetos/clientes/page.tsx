@@ -13,6 +13,18 @@ import Link from 'next/link'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { buscarCEP } from '@/lib/cadastros/buscarCEP'
 import { aplicarCEP, brlCurto, cepCompleto, comercialPorCliente, etapaPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, linkNovaOportunidade, obraRecenteIdPorCliente, obraRecentePorCliente, obrasPorCliente, oportunidadesComObra, rotuloStatusObra, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type OpLinha, type TipoPF } from './clientes-regras'
+import { cpfValido, soDigitosCpf } from '@/lib/documentos/cpf'
+import { cnpjValido, soDigitosCnpj } from '@/lib/documentos/cnpj'
+
+// Documento válido: PF exige CPF (11 díg. + DV), PJ exige CNPJ (14 díg. + DV). Vazio é permitido
+// (documento é opcional no cadastro); só um documento PREENCHIDO e inválido barra o salvar (correção de
+// dado — CEO: toda tela tem de estar CORRETA). Mesma regra do dígito verificador do banco.
+function docInvalido(tipo: string | null | undefined, v: string | null | undefined): boolean {
+  const pj = (tipo ?? 'PJ') !== 'PF'
+  const dig = pj ? soDigitosCnpj(v) : soDigitosCpf(v)
+  if (dig.length === 0) return false
+  return pj ? !cnpjValido(dig) : !cpfValido(dig)
+}
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -162,6 +174,10 @@ export default function ClientesPage() {
     if (!empresaUnica || !form) return
     const nome = (form.nome_fantasia ?? '').trim()
     if (!nome) { setErro('Informe o nome do cliente.'); return }
+    // Não deixa gravar documento inválido (dígito verificador) — evita cadastro com CPF/CNPJ errado.
+    if (docInvalido(form.tipo_pessoa, form.cpf_cnpj)) {
+      setErro(`${docLabel(form.tipo_pessoa ?? 'PJ')} inválido — confira os números (ou deixe em branco).`); return
+    }
     setSalvando(true); setErro(null); setOk(null)
     const doc = (form.cpf_cnpj ?? '').trim() || null
     const payload = {
@@ -382,6 +398,11 @@ export default function ClientesPage() {
             <Campo label={form.tipo_pessoa === 'PF' ? 'Nome completo *' : 'Nome fantasia *'} ajuda="projetos.clientes.nome" v={form.nome_fantasia ?? ''} on={(v) => setForm({ ...form, nome_fantasia: v })} />
             {form.tipo_pessoa === 'PJ' && <Campo label="Razão social" ajuda="projetos.clientes.razao_social" v={form.razao_social ?? ''} on={(v) => setForm({ ...form, razao_social: v })} />}
             <Campo label={docLabel(form.tipo_pessoa ?? 'PJ')} ajuda="projetos.clientes.documento" v={form.cpf_cnpj ?? ''} on={(v) => setForm({ ...form, cpf_cnpj: v })} />
+            {docInvalido(form.tipo_pessoa, form.cpf_cnpj) && (
+              <div data-testid="hub-cliente-doc-invalido" style={{ fontSize: 11, color: RED, margin: '-4px 0 8px' }}>
+                {docLabel(form.tipo_pessoa ?? 'PJ')} inválido — confira os números.
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 140 }}><Campo label="Telefone" ajuda="projetos.clientes.telefone" v={form.telefone ?? ''} on={(v) => setForm({ ...form, telefone: v })} /></div>
               <div style={{ flex: 1, minWidth: 140 }}><Campo label="E-mail" ajuda="projetos.clientes.email" v={form.email ?? ''} on={(v) => setForm({ ...form, email: v })} /></div>
