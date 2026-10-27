@@ -966,6 +966,21 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_iss_retido: issRetido }).eq('id', registroId)
     }
 
+    // #3862 · total das retenções e valor LÍQUIDO gravados na própria emissão (mesma conta de fn_nfse_retencoes_totalizar).
+    // Antes só o "Gerar financeiro" os preenchia: a NFS-e 448 da FC Pisos ficou com valor_retencoes=0 e valor_liquido=NULL
+    // apesar de INSS e ISS retidos. Sem retenção, a nota fica como estava (líquido só nasce quando há o que reter).
+    if (registroId && resposta.status !== 'rejeitada') {
+      const rf = retencoesCalculadas
+      const cent = (n: number) => Math.round(n * 100) / 100
+      const retTotal = cent(issRetido + (rf?.valorCp ?? 0) + (rf?.valorIrrf ?? 0) + (rf?.valorPisRet ?? 0) + (rf?.valorCofinsRet ?? 0) + (rf?.valorCsllRet ?? 0))
+      if (retTotal > 0) {
+        await supabaseAdmin.from('erp_nfse_emitidas').update({
+          valor_retencoes: retTotal,
+          valor_liquido: Math.max(0, cent(Number(nfseReq.valorServicos) - retTotal)),
+        }).eq('id', registroId)
+      }
+    }
+
     // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)
     if (registroId && obraIdFinal) {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ obra_id: obraIdFinal }).eq('id', registroId)
