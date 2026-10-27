@@ -35,7 +35,15 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     const { data, error } = res
     setLoading(false)
     if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar a obra. Tente de novo.')); return }
-    if (!data) { setErro('Obra não encontrada ou sem acesso.'); return }
+    if (!data) {
+      // Diferencia "não existe" de "sem acesso nesta empresa" (fn_obra_existe, SECURITY DEFINER com guarda por empresa).
+      const { data: ex } = await supabase.rpc('fn_obra_existe', { p_obra_id: id })
+      const j = ex as { existe?: boolean; tem_acesso?: boolean } | null
+      setErro(j?.existe === false ? 'Esta obra não existe mais. Abra pela lista de obras.'
+        : j?.existe && !j.tem_acesso ? 'Você não tem acesso a esta obra nesta empresa. Troque de empresa ou peça acesso.'
+        : 'Obra não encontrada ou sem acesso.')
+      return
+    }
     setR(data as Resultado)
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
