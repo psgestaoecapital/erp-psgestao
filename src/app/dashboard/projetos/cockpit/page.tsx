@@ -66,8 +66,13 @@ export default function CockpitEscolherObraPage() {
         setObras(lista)
         const ids = lista.map(o => o.obra_id)
         if (ids.length) {
-          const r = await supabase.from('projetos_obras').select('id,cliente_nome,cidade,pct_conclusao,data_prevista_fim').in('id', ids)
-          if (vivo && !r.error) setInfo(Object.fromEntries(((r.data ?? []) as ObraInfo[]).map(x => [x.id, x])))
+          // obra excluída na tela de Obras (deleted_at) some também do cockpit
+          const r = await supabase.from('projetos_obras').select('id,cliente_nome,cidade,pct_conclusao,data_prevista_fim').in('id', ids).is('deleted_at', null)
+          if (vivo && !r.error) {
+            const vivas = new Set(((r.data ?? []) as ObraInfo[]).map(x => x.id))
+            setInfo(Object.fromEntries(((r.data ?? []) as ObraInfo[]).map(x => [x.id, x])))
+            setObras(lista.filter(o => vivas.has(o.obra_id)))
+          }
         }
       } catch { if (vivo) setErro(MSG_CARREGAMENTO_FALHOU) } finally { if (vivo) setLoading(false) }
     })()
