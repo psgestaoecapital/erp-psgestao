@@ -86,11 +86,7 @@ test.describe('Resultado por obra — receita (FC)', () => {
     const res = card.getByTestId('obra-resultado')
     await expect(res).toBeVisible({ timeout: 30000 })
     await expect(res).toContainText('Resultado da obra')
-    await expect(res.getByTestId('obra-faturado')).toHaveText(/^R\$\s?0,00$/)
-    await expect(res.getByTestId('obra-recebido')).toHaveText(/^R\$\s?0,00$/)
-    await expect(res.getByTestId('obra-a-receber')).toHaveText(/^R\$\s?0,00$/)
-    // #3262: custo real no cartão (sem placeholder); obra recém-criada sem lançamento mostra '—' ou R$ 0,00
-    await expect(res.getByTestId('obra-custo')).toHaveText(/^(—|R\$\s?0,00)$/)
-    await expect(res.getByTestId('obra-notas')).toHaveText('Nenhuma NFS-e autorizada ligada a esta obra')
+    // RD-98: obra sem NFS-e não mostra R$ 0,00 mudo — estado vazio explicado (o "?" acompanha)
+    await expect(res.getByTestId('obra-resultado-vazio')).toContainText('Sem faturamento lançado')
   })
 })

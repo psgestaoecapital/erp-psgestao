@@ -147,7 +147,7 @@ export default function ResultadoObrasPage() {
                       <td style={{ ...td, ...fixa, textAlign: 'left' }}>
                         <Link href={cockpit(l.obra_id)} style={{ color: GOLD, textDecoration: 'none' }} title="Abrir o cockpit da obra">{l.numero} · {l.nome}</Link>
                       </td>
-                      <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
+                      <td style={td} data-testid="resultado-receita-celula">{semMedicao(l) ? <span style={{ color: MUT, fontSize: 11.5 }}>sem medição</span> : fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
                       <td style={td}>{fmtR(n(l.custo_material))}</td><td style={td}>{fmtR(n(l.custo_viagens))}</td>
                       <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
                       {semMedicao(l)
