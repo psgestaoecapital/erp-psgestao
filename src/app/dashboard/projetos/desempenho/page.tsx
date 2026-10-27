@@ -3,6 +3,7 @@
 // Hub · Desempenho Comercial por vendedor. Tudo vem de fn_crm_desempenho (RD-38: nada fixo). Gestor vê
 // todos + ranking; vendedor vê só o seu (a RPC força o escopo por papel · Pilar 2). Blocos A-E do SPEC.
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -70,6 +71,7 @@ export default function DesempenhoComercialPage() {
           {[['mes', 'Mês'], ['tri', 'Trimestre'], ['ano', 'Ano'], ['custom', 'Personalizado']].map(([v, l]) => (
             <button key={v} onClick={() => setPreset(v)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${periodo === v ? GOLD : LINE}`, background: periodo === v ? '#FBF4E4' : '#FFF', color: periodo === v ? '#A57A15' : MUT }}>{l}</button>
           ))}
+          <AjudaCampo chave="projetos.desempenho.periodo_mes" />
           {periodo === 'custom' && (
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <input type="date" value={range.de} onChange={(e) => setRange((x) => ({ ...x, de: e.target.value }))} style={inp} />
@@ -84,19 +86,26 @@ export default function DesempenhoComercialPage() {
           <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Selecione uma empresa do Hub.</div>
         ) : (
           <>
+            {r!.oportunidades === 0 && r!.ganhas_qtd === 0 && r!.perdidas_qtd === 0 && (
+              <div data-testid="desempenho-vazio" style={{ background: '#FFF', border: `1px dashed ${LINE}`, borderRadius: 12, padding: 20, textAlign: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: ESP }}>Ainda não há oportunidades neste período</div>
+                <div style={{ fontSize: 12.5, color: MUT, margin: '6px auto 12px', maxWidth: 460 }}>Os indicadores nascem das oportunidades do funil. Cadastre a primeira ou troque o período acima.</div>
+                <Link href="/dashboard/projetos/oportunidades" style={{ display: 'inline-block', padding: '8px 16px', borderRadius: 8, background: GOLD, color: '#fff', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>Ir para Oportunidades</Link>
+              </div>
+            )}
             {/* Bloco A · cartões */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 16 }}>
-              <Card titulo="Conversão" valor={pct(r!.conversao_pct)} cor={corConversao(r!.conversao_pct)} sub={rotConversao(r!.conversao_pct)} />
-              <Card titulo="Ganhas" valor={String(r!.ganhas_qtd)} cor={VERDE} sub={brl(r!.ganhas_valor)} />
-              <Card titulo="Perdidas" valor={String(r!.perdidas_qtd)} cor={VERM} sub={brl(r!.perdidas_valor)} />
-              <Card titulo="Ticket médio" valor={brl(r!.ticket_medio)} cor={ESP} />
-              <Card titulo="Comissão gerada" valor={brl(r!.comissao)} cor={GOLD} />
-              <Card titulo="Pipeline aberto" valor={brl(r!.valor_pipeline)} cor={ROXO} sub={`${r!.oportunidades} oport. · ${r!.propostas} propostas`} />
-              <Card titulo="Velocidade" valor={data.velocidade_dias != null ? `${data.velocidade_dias} d` : '—'} cor={ESP} sub="média até fechar" />
+              <Card ajuda="conversao" titulo="Conversão" valor={pct(r!.conversao_pct)} cor={corConversao(r!.conversao_pct)} sub={rotConversao(r!.conversao_pct)} />
+              <Card ajuda="ganhas" titulo="Ganhas" valor={String(r!.ganhas_qtd)} cor={VERDE} sub={brl(r!.ganhas_valor)} />
+              <Card ajuda="perdidas" titulo="Perdidas" valor={String(r!.perdidas_qtd)} cor={VERM} sub={brl(r!.perdidas_valor)} />
+              <Card ajuda="ticket" titulo="Ticket médio" valor={brl(r!.ticket_medio)} cor={ESP} />
+              <Card ajuda="comissao" titulo="Comissão gerada" valor={brl(r!.comissao)} cor={GOLD} />
+              <Card ajuda="pipeline" titulo="Pipeline aberto" valor={brl(r!.valor_pipeline)} cor={ROXO} sub={`${r!.oportunidades} oport. · ${r!.propostas} propostas`} />
+              <Card ajuda="velocidade" titulo="Velocidade" valor={data.velocidade_dias != null ? `${data.velocidade_dias} d` : '—'} cor={ESP} sub="média até fechar" />
             </div>
 
             {/* Bloco B · funil */}
-            <Secao titulo="Funil por fase">
+            <Secao ajuda="funil" titulo="Funil por fase">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {data.funil.map((f) => (
                   <div key={f.etapa} style={{ display: 'grid', gridTemplateColumns: '110px 1fr auto', alignItems: 'center', gap: 10 }}>
@@ -112,7 +121,7 @@ export default function DesempenhoComercialPage() {
 
             {/* Bloco C · ranking (só gestor) */}
             {data.gestor && data.ranking && (
-              <Secao titulo="Ranking de vendedores">
+              <Secao ajuda="ranking" titulo="Ranking de vendedores">
                 {/* celular (< md): um cartão por vendedor, sem rolagem lateral (HB0 · correção 9) */}
                 <div className="md:hidden" data-testid="desempenho-ranking-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {data.ranking.length === 0 ? <div style={{ padding: 12, color: MUT, textAlign: 'center', fontSize: 12.5 }}>Sem dados no período.</div> :
@@ -153,7 +162,7 @@ export default function DesempenhoComercialPage() {
             )}
 
             {/* Bloco D · perdas por motivo */}
-            <Secao titulo="Por que não fechou (perdas por motivo)">
+            <Secao ajuda="perdas" titulo="Por que não fechou (perdas por motivo)">
               {data.perdas.length === 0 ? <div style={{ color: MUT, fontSize: 12.5 }}>Nenhuma perda registrada no período.</div> :
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {data.perdas.map((p) => (
@@ -171,10 +180,10 @@ export default function DesempenhoComercialPage() {
   )
 }
 
-function Card({ titulo, valor, cor, sub }: { titulo: string; valor: string; cor: string; sub?: string }) {
+function Card({ titulo, valor, cor, sub, ajuda }: { titulo: string; valor: string; cor: string; sub?: string; ajuda: string }) {
   return (
     <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
-      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>{titulo}</div>
+      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>{titulo} <AjudaCampo chave={`projetos.desempenho.${ajuda}`} /></div>
       <div style={{ fontSize: 22, fontWeight: 700, color: cor, marginTop: 2 }}>{valor}</div>
       {sub && <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>{sub}</div>}
     </div>
@@ -188,10 +197,10 @@ function Par({ rot, val }: { rot: string; val: string }) {
     </div>
   )
 }
-function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Secao({ titulo, ajuda, children }: { titulo: string; ajuda: string; children: React.ReactNode }) {
   return (
     <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginBottom: 10 }}>{titulo} <AjudaCampo chave={`projetos.desempenho.${ajuda}`} /></div>
       {children}
     </div>
   )
