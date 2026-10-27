@@ -211,20 +211,23 @@ export default function PainelProjetos() {
       <section className="mt-10" data-testid="painel-indicadores">
         <SectionLabel>Indicadores</SectionLabel>
 
+        {/* Cada indicador leva à tela CRUD correspondente (drill-down). */}
         <div className="mb-3 mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <KpiPrincipal label="Obras em andamento" chave="projetos.painel.kpi.obras_ativas" testid="kpi-obras-ativas" valor={resumo ? String(resumo.obras_ativas) : "…"} />
+          <KpiPrincipal label="Obras em andamento" chave="projetos.painel.kpi.obras_ativas" testid="kpi-obras-ativas" valor={resumo ? String(resumo.obras_ativas) : "…"} href="/dashboard/projetos/obras" />
           <KpiPrincipal
             label="Valor das obras em andamento"
             chave="projetos.painel.kpi.valor_obras"
             valor={resumo ? fmtBRL(resumo.valor_orcamento_ativo) : "…"}
+            href="/dashboard/projetos/obras/resultado?area=hub"
           />
           <KpiPrincipal
             label="Margem prevista das obras"
             chave="projetos.painel.kpi.margem_prevista"
             testid="kpi-margem-prevista"
             valor={!resumo ? "…" : resumo.margem_prevista_pct === null ? "—" : `${fmtPct(resumo.margem_prevista_pct)}`}
+            href="/dashboard/projetos/obras/resultado?area=hub"
           />
-          <KpiPrincipal label="Propostas pendentes" chave="projetos.painel.kpi.propostas_pendentes" valor={resumo ? String(resumo.propostas_pendentes) : "…"} />
+          <KpiPrincipal label="Propostas pendentes" chave="projetos.painel.kpi.propostas_pendentes" valor={resumo ? String(resumo.propostas_pendentes) : "…"} href="/dashboard/projetos/propostas" />
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -232,11 +235,17 @@ export default function PainelProjetos() {
             label="Contas a pagar abertas"
             chave="projetos.painel.kpi.pagar_aberto"
             valor={resumo ? fmtBRL(resumo.pagar_aberto) : "…"}
+            vazio={!!resumo && resumo.pagar_aberto === 0}
+            vazioTexto="Nenhuma conta a pagar em aberto"
+            href="/dashboard/financeiro/pagar"
           />
           <KpiSecundario
             label="Contas a receber abertas"
             chave="projetos.painel.kpi.receber_aberto"
             valor={resumo ? fmtBRL(resumo.receber_aberto) : "…"}
+            vazio={!!resumo && resumo.receber_aberto === 0}
+            vazioTexto="Nenhuma conta a receber em aberto"
+            href="/dashboard/financeiro/receber"
           />
         </div>
       </section>
@@ -374,9 +383,9 @@ function Numero({ label, valor, testid }: { label: string; valor: string; testid
   );
 }
 
-function KpiPrincipal({ label, valor, chave, testid }: { label: string; valor: string; chave: string; testid?: string }) {
-  return (
-    <div className="rounded-xl border border-[#3D2314]/12 bg-white p-5 shadow-sm">
+function KpiPrincipal({ label, valor, chave, testid, href }: { label: string; valor: string; chave: string; testid?: string; href?: string }) {
+  const conteudo = (
+    <>
       <div className="mb-2 flex items-center gap-1 text-xs text-[#3D2314]/50">{label}<AjudaCampo chave={chave} /></div>
       <div
         data-testid={testid}
@@ -385,15 +394,22 @@ function KpiPrincipal({ label, valor, chave, testid }: { label: string; valor: s
       >
         {valor}
       </div>
-    </div>
+    </>
+  );
+  const base = "rounded-xl border border-[#3D2314]/12 bg-white p-5 shadow-sm";
+  return href ? (
+    <Link href={href} className={`${base} block transition-colors hover:border-[#C8941A]`}>{conteudo}</Link>
+  ) : (
+    <div className={base}>{conteudo}</div>
   );
 }
 
-function KpiSecundario({ label, valor, chave }: { label: string; valor: string; chave: string }) {
+function KpiSecundario({ label, valor, chave, href, vazio, vazioTexto }: { label: string; valor: string; chave: string; href?: string; vazio?: boolean; vazioTexto?: string }) {
   // Sem cor semântica vermelho/verde quando dado é normal/zero.
-  // Reservado para futuras condições de alerta real (vencidos > 30d etc).
-  return (
-    <div className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm">
+  // Zero não é bug: quando não há conta em aberto, o valor vem acompanhado de um subtexto
+  // explícito (nunca "R$ 0,00" mudo que parece erro de leitura do dado — RD-98 pilar 1).
+  const conteudo = (
+    <>
       <div className="mb-1 flex items-center gap-1 text-xs text-[#3D2314]/50">{label}<AjudaCampo chave={chave} /></div>
       <div
         className="text-lg font-medium text-[#3D2314]"
@@ -401,6 +417,15 @@ function KpiSecundario({ label, valor, chave }: { label: string; valor: string; 
       >
         {valor}
       </div>
-    </div>
+      {vazio && vazioTexto && (
+        <div className="mt-0.5 text-xs text-[#3D2314]/45">{vazioTexto}</div>
+      )}
+    </>
+  );
+  const base = "rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm";
+  return href ? (
+    <Link href={href} className={`${base} block transition-colors hover:border-[#C8941A]`}>{conteudo}</Link>
+  ) : (
+    <div className={base}>{conteudo}</div>
   );
 }
