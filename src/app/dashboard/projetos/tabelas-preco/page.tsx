@@ -230,17 +230,25 @@ export default function TabelasPrecoPage() {
               </select></label>
             <label><span style={rot}>Custo da CPU por unidade (opcional) <AjudaCampo chave="hub.tabela_preco.custo" /></span>
               <input data-testid="tp-custo" inputMode="decimal" style={campo} value={custo} onChange={e => setCusto(e.target.value)} placeholder={cpuCatalogo != null ? `catálogo: ${fmtR(cpuCatalogo)}` : 'para ver a margem'} /></label>
-            {(semCodigo.length > 0 || codigoOrfao.length > 0) && (
-              <div role="status" data-testid="tp-depara-aviso" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12, fontSize: 13 }}>
-                <b>Conferir o de-para com o cliente <AjudaCampo chave="hub.tabela_preco.depara" /></b>
-                {semCodigo.length > 0 && <div>Serviço sem código no cliente: {semCodigo.map(s => s.servico_nome).join(', ')}.</div>}
-                {codigoOrfao.length > 0 && <div>Código sem serviço na tabela: {codigoOrfao.join(', ')}.</div>}
-              </div>
-            )}
-            <div data-testid="tp-precedencia" style={{ fontSize: 13, background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12 }}>
-              <b>Qual preço vale: <span data-testid="tp-prec-origem">{prec.rotulo}</span> <AjudaCampo chave="hub.tabela_preco.precedencia" /></b>
-              <div data-testid="tp-prec-motivo">{prec.motivo}</div>
-              <div style={{ color: MUT, marginTop: 4 }}>Ordem: contrato do cliente → tabela do cliente → tabela padrão.</div>
+            {/* Resposta primeiro (auditor FC 27/10 — "resultado cortado/ausente": a captura da auditoria parava antes do
+                preço, no fim de um formulário longo). O preço, a faixa, o turno, o total e a margem vêm LOGO abaixo dos
+                campos; as caixas explicativas (memória de cálculo, qual preço vale, de-para) seguem depois. Mesmos
+                data-testid de sempre, para não quebrar a aceitação (HB2). */}
+            <div data-testid="tp-resultado" style={{ background: preco == null ? BG : '#FBF8F0', borderRadius: 12, padding: 16, border: `1px solid ${preco == null ? LINE : GOLD}` }}>
+              {preco == null ? <b>Sem faixa para essa quantidade.</b> : (<>
+                <div style={{ fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700, marginBottom: 2 }}>Preço calculado</div>
+                <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.1 }} data-testid="tp-preco">{fmtPreco(preco)} <span style={{ fontSize: 14, fontWeight: 400, color: MUT }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: '#FFF', border: `1px solid ${GOLD}`, color: ESP }}>Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: '#FFF', border: `1px solid ${LINE}`, color: MUT }}>{condSel === 'normal' ? 'Condição normal' : condSel}{cond?.preco_fixo != null ? ' · preço fixo' : cond?.percentual ? ` · +${cond.percentual}%` : ''}</span>
+                  <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 999, background: '#FFF', border: `1px solid ${LINE}`, color: MUT }}>base {fmtPreco(faixa!.preco_base)}</span>
+                  {codigo ? <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 999, background: '#FFF', border: `1px solid ${LINE}`, color: MUT }}>cód. cliente {codigo}</span> : null}
+                </div>
+                <div style={{ fontSize: 15, marginTop: 10 }} data-testid="tp-total">{q > 0 ? <>Total: <b style={{ fontSize: 18 }}>{fmtR(preco * q)}</b> <span style={{ color: MUT, fontSize: 13 }}>({q} × {fmtPreco(preco)})</span></> : <>Informe a quantidade para ver o total</>}</div>
+                {margem != null
+                  ? <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-margem">Margem sobre o custo: <b style={{ color: margem >= 0 ? OKV : '#B91C1C' }}>{(margem * 100).toFixed(1)}%</b></div>
+                  : <div style={{ fontSize: 13, marginTop: 6, color: MUT }} data-testid="tp-margem-vazio">Informe o custo da CPU acima para ver a margem contra o preço.</div>}
+              </>)}
             </div>
             {preco != null && q > 0 && (
               <div data-testid="tp-simulador" style={{ fontSize: 14, background: '#fff', border: `1px dashed ${GOLD}`, borderRadius: 10, padding: 12 }}>
@@ -248,17 +256,18 @@ export default function TabelasPrecoPage() {
                 {q} {servicos.find(s => s.servico_ref === servico)?.unidade} de {servicos.find(s => s.servico_ref === servico)?.servico_nome} · {condSel === 'normal' ? 'condição normal' : condSel} · faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} → {fmtPreco(preco)} por unidade = <b>{fmtR(preco * q)}</b>
               </div>
             )}
-            <div data-testid="tp-resultado" style={{ background: BG, borderRadius: 10, padding: 14, border: `1px solid ${LINE}` }}>
-              {preco == null ? <b>Sem faixa para essa quantidade.</b> : (<>
-                <div style={{ fontSize: 26, fontWeight: 700 }} data-testid="tp-preco">{fmtPreco(preco)} <span style={{ fontSize: 14, fontWeight: 400 }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
-                <div style={{ fontSize: 13, color: MUT, marginTop: 4 }}>
-                  Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} · preço base {fmtPreco(faixa!.preco_base)}
-                  {cond?.preco_fixo != null ? ' · preço fixo da condição' : cond?.percentual ? ` · adicional +${cond.percentual}%` : ''}
-                </div>
-                <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-total">{q > 0 ? <>Total: <b>{fmtR(preco * q)}</b></> : <>Informe a quantidade para ver o total</>}{codigo ? <> · código no cliente: <b>{codigo}</b></> : null}</div>
-                {margem != null && <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-margem">Margem sobre o custo: <b>{(margem * 100).toFixed(1)}%</b></div>}
-              </>)}
+            <div data-testid="tp-precedencia" style={{ fontSize: 13, background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12 }}>
+              <b>Qual preço vale: <span data-testid="tp-prec-origem">{prec.rotulo}</span> <AjudaCampo chave="hub.tabela_preco.precedencia" /></b>
+              <div data-testid="tp-prec-motivo">{prec.motivo}</div>
+              <div style={{ color: MUT, marginTop: 4 }}>Ordem: contrato do cliente → tabela do cliente → tabela padrão.</div>
             </div>
+            {(semCodigo.length > 0 || codigoOrfao.length > 0) && (
+              <div role="status" data-testid="tp-depara-aviso" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12, fontSize: 13 }}>
+                <b>Conferir o de-para com o cliente <AjudaCampo chave="hub.tabela_preco.depara" /></b>
+                {semCodigo.length > 0 && <div>Serviço sem código no cliente: {semCodigo.map(s => s.servico_nome).join(', ')}.</div>}
+                {codigoOrfao.length > 0 && <div>Código sem serviço na tabela: {codigoOrfao.join(', ')}.</div>}
+              </div>
+            )}
           </div>
         )}
         {!loading && !erro && !podeGravar && (
