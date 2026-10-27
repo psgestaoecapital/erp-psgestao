@@ -59,6 +59,13 @@ interface Config {
   sincroniza_omie_pagar: boolean | null;
 }
 
+// Recursos planejados (não ativos): ficam numa seção "No roadmap", fora do caminho principal de configuração.
+const ROADMAP: Array<{ label: string; ajuda: string; hint: string }> = [
+  { label: "Exige aprovação do engenheiro", ajuda: "projetos.config.exige_engenheiro", hint: "O fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto." },
+  { label: "Sincronizar estoque com Omie", ajuda: "projetos.config.omie_estoque", hint: "A saída de material da obra já movimenta o estoque do PS; o envio ao Omie virá com a integração." },
+  { label: "Sincronizar contas a pagar com Omie", ajuda: "projetos.config.omie_pagar", hint: "Os títulos a pagar da obra ficam no financeiro do PS; o envio ao Omie virá com a integração." },
+];
+
 const PRESETS: Array<{ id: string; label: string; descricao: string }> = [
   {
     id: "simples_nacional",
@@ -638,46 +645,39 @@ export default function ConfiguracoesPage() {
               valor={!!config.vendedor_pode_aprovar_proposta}
               onChange={(v) => setField("vendedor_pode_aprovar_proposta", v)}
             />
-            <Toggle
-              label="Exige aprovação do engenheiro"
-            ajuda="projetos.config.exige_engenheiro"
-              badge="Em breve"
-              hint="Ainda não ativo — o fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto."
-              valor={!!config.exige_aprovacao_engenheiro}
-              onChange={(v) => setField("exige_aprovacao_engenheiro", v)}
-              disabled
-            />
           </div>
         </div>
 
-        {/* Integracoes */}
+        {/* No roadmap — recursos planejados, fora do caminho principal (não são toggles: ainda não fazem nada) */}
         <div className="mt-6 border-t border-[#3D2314]/8 pt-5">
-          <div className="mb-3 flex items-center gap-2">
-            <Repeat size={14} className="text-[#3D2314]/60" />
-            <h3 className="text-sm font-medium uppercase tracking-wider text-[#3D2314]/60">
-              Integrações
+          <div className="mb-1 flex items-center gap-2">
+            <Repeat size={14} className="text-[#3D2314]/40" />
+            <h3 className="text-sm font-medium uppercase tracking-wider text-[#3D2314]/50">
+              No roadmap · em breve
             </h3>
           </div>
-          <div className="space-y-2">
-            <Toggle
-              label="Sincronizar estoque com Omie"
-            ajuda="projetos.config.omie_estoque"
-              badge="Em breve"
-              hint="Ainda não ativo — a saída de material da obra movimenta o estoque do PS; o envio ao Omie virá com a integração."
-              valor={!!config.sincroniza_omie_estoque}
-              onChange={(v) => setField("sincroniza_omie_estoque", v)}
-              disabled
-            />
-            <Toggle
-              label="Sincronizar contas a pagar com Omie"
-            ajuda="projetos.config.omie_pagar"
-              badge="Em breve"
-              hint="Ainda não ativo — os títulos a pagar da obra ficam no financeiro do PS; o envio ao Omie virá com a integração."
-              valor={!!config.sincroniza_omie_pagar}
-              onChange={(v) => setField("sincroniza_omie_pagar", v)}
-              disabled
-            />
-          </div>
+          <p className="mb-3 text-xs text-[#3D2314]/50">
+            Recursos planejados. Ainda não estão ativos e não mudam nada hoje — ficam aqui só para você saber o que vem.
+          </p>
+          <ul className="space-y-2" data-testid="config-roadmap">
+            {ROADMAP.map((r) => (
+              <li
+                key={r.ajuda}
+                className="flex items-start justify-between gap-3 rounded-xl border border-dashed border-[#3D2314]/12 bg-[#FAF7F2]/50 p-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-sm text-[#3D2314]/70">
+                    {r.label}
+                    <AjudaCampo chave={r.ajuda} rota="/dashboard/projetos/configuracoes" />
+                  </div>
+                  <p className="mt-0.5 text-xs text-[#3D2314]/50">{r.hint}</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-[#3D2314]/8 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[#3D2314]/50">
+                  Em breve
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 
