@@ -3,7 +3,7 @@
 // Hub · HB2 — Calculadora de Obra PS (fatia 2: tela). Motor em src/lib/calculadora/motor.ts (regras como dado).
 // Parede simples e forro F530. "Ver a conta" em cada item; unidade de compra + quantidade real; "?" em todo campo (RD-95).
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Calculator, AlertTriangle } from "lucide-react";
+import { Calculator, AlertTriangle, ShieldCheck, ShieldAlert } from "lucide-react";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import EditorRegras from "./EditorRegras";
 import { supabaseBrowser } from "@/lib/authFetch";
@@ -11,7 +11,8 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import { custearItens, sugerirVinculos, type ProdutoEstoque } from "@/lib/calculadora/depara";
 import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv, listaDeCompraHtml } from "@/lib/calculadora/saida";
 import { precoComMargem } from "@/lib/calculadora/margem";
-import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
+import { mesclarRegras, type SistemaCalc } from "@/lib/calculadora/regras-empresa";
+import { conferirSistema } from "@/lib/calculadora/referencia";
 import {
   REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, REGRAS_PAREDE_SEPARATIVA, REGRAS_PAREDE_CORTA_FOGO, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoColado, REGRAS_REVESTIMENTO_ESTRUTURADO, calcularRevestimentoEstruturado, calcularForroAramado, calcularForroF530, calcularParede, type Resultado,
 } from "@/lib/calculadora/motor";
@@ -43,6 +44,49 @@ function Campo({ rotulo, chave, valor, set, testid }: { rotulo: string; chave: s
       <span className={lbCls}>{rotulo}<AjudaCampo chave={chave} rota="/dashboard/projetos/calculadora" /></span>
       <input inputMode="decimal" value={valor} data-testid={testid} onChange={(e) => set(e.target.value.replace(/[^\d.,]/g, ""))} className={inCls} />
     </label>
+  );
+}
+
+// Selo "fórmula validada": roda o motor sobre o caso de referência conferido à mão (src/lib/calculadora/referencia.ts) e
+// mostra que a conta deste sistema bate — a quantidade esperada é a que o cálculo devolve (RD-38: prova no dado, na tela).
+// O gate check-calculadora-referencia.ts garante que o selo nunca minta: se divergir, o build reprova.
+function SeloFormula({ sistema }: { sistema: SistemaCalc }) {
+  const c = useMemo(() => conferirSistema(sistema), [sistema]);
+  const caso = c.casos[0];
+  const validada = c.validada;
+  return (
+    <div className="mt-3 rounded-xl border border-[#3D2314]/8 bg-[#FAF7F2] p-3" data-testid="calc-selo-formula" data-validada={validada ? "1" : "0"}>
+      <div className="flex items-center gap-2 text-sm">
+        {validada
+          ? <ShieldCheck size={16} className="shrink-0 text-emerald-700" />
+          : <ShieldAlert size={16} className="shrink-0 text-amber-700" />}
+        <span className={`font-medium ${validada ? "text-emerald-800" : "text-amber-800"}`}>
+          {validada ? "Fórmula validada" : "Fórmula a conferir"}
+        </span>
+        <span className="text-[#3D2314]/55">· confere com o caso de referência do setor</span>
+        <AjudaCampo chave="projetos.calculadora.formula_validada" rota="/dashboard/projetos/calculadora" />
+      </div>
+      {caso && (
+        <details className="mt-1.5 text-xs text-[#3D2314]/65">
+          <summary className="cursor-pointer">ver a referência conferida</summary>
+          <p className="mt-1 text-[#3D2314]/70">{caso.titulo} — {caso.medida}</p>
+          <ul className="mt-1 space-y-0.5">
+            <li className="flex items-center justify-between gap-3">
+              <span>Área</span>
+              <span className="font-mono tabular-nums">
+                {caso.area.bate ? "✓ " : "✗ "}esperado {String(caso.area.esperado).replace(".", ",")} m² · veio {caso.area.obtido == null ? "—" : String(caso.area.obtido).replace(".", ",")} m²
+              </span>
+            </li>
+            {caso.itens.map((i) => (
+              <li key={i.chave} className="flex items-center justify-between gap-3">
+                <span>{i.chave}</span>
+                <span className="font-mono tabular-nums">{i.bate ? "✓ " : "✗ "}esperado {i.esperado} · veio {i.obtido == null ? "—" : i.obtido}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
   );
 }
 
@@ -253,6 +297,7 @@ export default function CalculadoraObraPage() {
               className={`rounded-full px-3 py-1.5 text-sm ${sistema === k ? "bg-[#3D2314] text-white" : "bg-[#3D2314]/5 text-[#3D2314]"}`}>{t}</button>
           ))}
         </div>
+        <SeloFormula sistema={sistemaDb as SistemaCalc} />
         {sistema === "parede" || sistema === "separativa" || sistema === "cortafogo" || sistema === "revestimento" || sistema === "estruturado" ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Campo rotulo="Comprimento (m)" chave="projetos.calculadora.comprimento" valor={comp} set={setComp} testid="calc-comprimento" />
