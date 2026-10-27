@@ -37,7 +37,7 @@ const defs = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
   .filter((f) => /FUNCTION\s+public\.fn_crm_pipeline\s*\(/i.test(readFileSync(`${dir}/${f}`, 'utf8')))
 const vigente = defs[defs.length - 1]
 const sql = readFileSync(`${dir}/${vigente}`, 'utf8')
-ok(vigente === '20261027060052_crm_pipeline_responsavel_nome.sql', `definição vigente de fn_crm_pipeline (${vigente})`)
+ok(vigente === '20261027200052_hub_oportunidades_anexo_card.sql', `definição vigente de fn_crm_pipeline (${vigente})`)
 ok(/'cliente_telefone'/.test(sql), 'fn_crm_pipeline devolve o telefone do cliente')
 ok(/'responsavel_nome'/.test(sql), 'fn_crm_pipeline devolve o nome do responsável (texto legado) — delta FC')
 ok(/NOT IN \(SELECT public\.get_user_company_ids\(\)\)/.test(sql) && /ERRCODE = '42501'/.test(sql), 'fn_crm_pipeline confere se a empresa é do usuário')

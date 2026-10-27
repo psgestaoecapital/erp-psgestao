@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import SeletorUsuario from '@/components/crm/SeletorUsuario'
@@ -73,6 +74,9 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
   )
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // aviso NÃO-bloqueante de outlier/duplicata (caso Tryo R$ 3,5 mi): avisa uma vez e deixa salvar no 2º clique
+  const [aviso, setAviso] = useState<string | null>(null)
+  const [confirmar, setConfirmar] = useState(false)
   const isEdit = !!initial?.id
   // Tryo #266 · anexos (fotos, PDF, DWG) já na criação: ficam em espera e são presos à oportunidade no CRIAR
   const anexosRef = useRef<AnexosCardHandle>(null)
@@ -268,6 +272,29 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     if (clienteId && telCli.trim() !== telCliOrig.trim()) {
       const { error: eTel } = await supabase.from('erp_clientes').update({ [telCol]: telCli.trim() || null }).eq('id', clienteId)
       if (eTel) { setSaving(false); setErr(`Erro ao gravar o telefone do cliente: ${eTel.message}`); return }
+    }
+    // Aviso NÃO-bloqueante (só na CRIAÇÃO): duplicata (mesmo cliente + mesmo título ou valor numa oportunidade aberta)
+    // ou valor atípico (muito acima da mediana das abertas, caso Tryo R$ 3,5 mi). Avisa uma vez; o 2º clique salva.
+    if (!isEdit && !confirmar) {
+      const { data: abertasData } = await supabase.from('erp_crm_oportunidade')
+        .select('titulo,valor_estimado,cliente_id').eq('company_id', companyId).is('deleted_at', null)
+        .not('etapa', 'in', '(ganho,perdido)').limit(2000)
+      const abertas = (abertasData ?? []) as { titulo: string | null; valor_estimado: number | null; cliente_id: string | null }[]
+      const motivos: string[] = []
+      const tituloNovo = tituloOportunidade(form.titulo, nomeCliente).toUpperCase()
+      if (clienteId && abertas.some((o) => o.cliente_id === clienteId
+        && ((o.titulo ?? '').toUpperCase() === tituloNovo || (form.valor_estimado != null && Number(o.valor_estimado) === form.valor_estimado)))) {
+        motivos.push('já há uma oportunidade em aberto deste cliente com o mesmo título ou valor (possível duplicata)')
+      }
+      const valores = abertas.map((o) => Number(o.valor_estimado)).filter((v) => v > 0).sort((a, b) => a - b)
+      if (valores.length >= 4 && form.valor_estimado != null) {
+        const meio = Math.floor(valores.length / 2)
+        const mediana = valores.length % 2 ? valores[meio] : (valores[meio - 1] + valores[meio]) / 2
+        if (mediana > 0 && form.valor_estimado > mediana * 5) {
+          motivos.push(`o valor ${fmtBR(form.valor_estimado)} está muito acima do normal (mediana das abertas: ${fmtBR(mediana)})`)
+        }
+      }
+      if (motivos.length) { setAviso(`Confira antes de criar: ${motivos.join('; ')}. Clique de novo para criar mesmo assim.`); setConfirmar(true); setSaving(false); return }
     }
     // Whitelist das colunas reais — ao editar via ficha [id], o `initial` chega com
     // campos extras (erp_clientes aninhado, valor_proposta, orcamento_id…) que NÃO
@@ -569,11 +596,12 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         </div>
 
         {err && <p style={{ color: '#b00', fontSize: 13, marginTop: 8 }}>Erro: {err}</p>}
+        {aviso && <p role="status" data-testid="oport-aviso" style={{ display: 'flex', alignItems: 'flex-start', gap: 6, color: '#8A5A00', background: '#FBF3E0', border: '1px solid #E6CE97', borderRadius: 8, fontSize: 13, marginTop: 8, padding: '8px 10px' }}><AlertTriangle size={15} aria-hidden style={{ flexShrink: 0, marginTop: 1 }} />{aviso}</p>}
 
         <div style={actions}>
           <button onClick={fechar} style={btnGhost}>Cancelar</button>
           <button onClick={salvar} disabled={saving} style={btnPrimary}>
-            {saving ? 'Salvando…' : isEdit ? 'SALVAR' : 'CRIAR'}
+            {saving ? 'Salvando…' : isEdit ? 'SALVAR' : confirmar ? 'CRIAR MESMO ASSIM' : 'CRIAR'}
           </button>
         </div>
       </div>
