@@ -94,7 +94,7 @@ export default function TabelasPrecoPage() {
     }
     setMsg(`${gravadas} faixa(s) importada(s).`); setPlanilha(''); setRev(r => r + 1)
   }
-  const excluirFaixa = async (id: string) => { if (window.confirm('Excluir esta faixa?')) await salvar('fn_tabela_preco_faixa_excluir', { p_id: id }, 'Faixa excluída.') }
+  const excluirFaixa = async (id: string) => { if (window.confirm('Excluir esta faixa do contrato? Ela sai do cálculo, do orçamento e do saldo. A exclusão é rastreável (fica o registro de quem excluiu e quando).')) await salvar('fn_tabela_preco_faixa_excluir', { p_id: id }, 'Faixa excluída.') }
 
   const carregarTabelas = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -117,7 +117,13 @@ export default function TabelasPrecoPage() {
     let vivo = true
     ;(async () => {
       const [i, c, k] = await Promise.all([
-        supabase.from('erp_tabela_preco_item').select('id,servico_ref,servico_nome,unidade,faixa_de,faixa_ate,preco_base,adicional').eq('tabela_id', tabelaId).order('servico_nome').order('faixa_de'),
+        (async () => {
+          // Faixas excluídas (soft-delete rastreável) saem da lista, do cálculo e do orçamento.
+          const base = () => supabase.from('erp_tabela_preco_item').select('id,servico_ref,servico_nome,unidade,faixa_de,faixa_ate,preco_base,adicional').eq('tabela_id', tabelaId).order('servico_nome').order('faixa_de')
+          const r = await base().is('deleted_at', null)
+          // Ambiente ainda sem a coluna deleted_at (preview antes da migração): lê sem o filtro para não quebrar a tela.
+          return r.error && /deleted_at/i.test(r.error.message ?? '') ? await base() : r
+        })(),
         supabase.from('erp_tabela_preco_condicao').select('condicao,percentual').eq('tabela_id', tabelaId).order('condicao'),
         supabase.from('erp_tabela_preco_codigo').select('servico_ref,condicao,codigo_externo,preco_fixo').eq('tabela_id', tabelaId),
       ])
@@ -309,6 +315,7 @@ export default function TabelasPrecoPage() {
                             <span style={{ display: 'flex', gap: 10 }}>
                               <button type="button" onClick={() => setFm(x => ({ ...x, ref: f.servico_ref, nome: f.servico_nome, un: f.unidade, de: String(f.faixa_de), ate: f.faixa_ate == null ? '' : String(f.faixa_ate), preco: String(f.preco_base).replace('.', ',') }))} style={{ color: GOLD, background: 'none', border: 'none', cursor: 'pointer' }}>Copiar</button>
                               <button type="button" onClick={() => excluirFaixa(f.id)} style={{ color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer' }}>Excluir</button>
+                              <AjudaCampo chave="hub.tabela_preco.faixa_excluir" />
                             </span>
                           </div>
                         ))}
