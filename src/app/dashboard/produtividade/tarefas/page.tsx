@@ -13,7 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel, type OpcaoCelula } from '@/components/produtividade/CelulaEditavel'
-import { Video } from 'lucide-react'
+import { Video, Timer } from 'lucide-react'
 
 const ROTA = '/dashboard/produtividade/tarefas'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -215,6 +215,7 @@ function TabelaTarefas({ ctx, etapaId, tarefas, carregando, cargosOpt, proximaOr
   ctx: Ctx; etapaId: string; tarefas: Tarefa[]; carregando: boolean; cargosOpt: OpcaoCelula[]; proximaOrdem: number; onMudou: () => Promise<void>
 }) {
   const [abertoVideo, setAbertoVideo] = useState<string | null>(null)
+  const [abertoCrono, setAbertoCrono] = useState<string | null>(null)
 
   const salvar = useCallback(async (base: Tarefa | null, patch: Partial<Tarefa>): Promise<string | null> => {
     const next: Tarefa = { id: '', etapa_id: etapaId, ordem: proximaOrdem, nome: '', cargo_id: null, cap_hora: null, unidade_cap: null, estado: 'em_validacao', ativo: true, ...(base ?? {}), ...patch }
@@ -290,6 +291,10 @@ function TabelaTarefas({ ctx, etapaId, tarefas, carregando, cargosOpt, proximaOr
                     </div>
                   </td>
                   <td style={{ ...cel, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button type="button" data-testid={`tarefa-crono-${t.id}`} onClick={() => setAbertoCrono((v) => v === t.id ? null : t.id)}
+                      style={{ background: abertoCrono === t.id ? C.goldBg : 'transparent', border: `1px solid ${C.border}`, color: C.esp, borderRadius: 7, padding: '5px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer', marginRight: 6 }}>
+                      <Timer size={13} strokeWidth={1.5} style={{ verticalAlign: '-2px', marginRight: 4 }} />Cronômetro {abertoCrono === t.id ? '▲' : '▼'}
+                    </button>
                     <button type="button" data-testid={`tarefa-videos-${t.id}`} onClick={() => setAbertoVideo((v) => v === t.id ? null : t.id)}
                       style={{ background: abertoVideo === t.id ? C.goldBg : 'transparent', border: `1px solid ${C.border}`, color: C.esp, borderRadius: 7, padding: '5px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                       <Video size={13} strokeWidth={1.5} style={{ verticalAlign: '-2px', marginRight: 4 }} />Vídeos {abertoVideo === t.id ? '▲' : '▼'}
@@ -307,6 +312,13 @@ function TabelaTarefas({ ctx, etapaId, tarefas, carregando, cargosOpt, proximaOr
                     </td>
                   </tr>
                 )}
+                {abertoCrono === t.id && (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 0, borderTop: `1px solid ${C.border}`, background: C.bg }}>
+                      <BlocoCronometro ctx={ctx} tarefa={t} onMudou={onMudou} />
+                    </td>
+                  </tr>
+                )}
               </Fragment>
             ))}
             {carregando && <tr><td colSpan={7} style={{ ...cel, textAlign: 'center', color: C.espM }}>Carregando tarefas…</td></tr>}
@@ -321,6 +333,111 @@ function TabelaTarefas({ ctx, etapaId, tarefas, carregando, cargosOpt, proximaOr
 function EstadoBadge({ estado }: { estado: string }) {
   const valida = estado === 'valida'
   return <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: valida ? C.greenBg : C.amberBg, color: valida ? C.green : '#8A4B08', border: `1px solid ${(valida ? C.green : C.amber)}55` }}>{rotuloEstado(estado)}</span>
+}
+
+type MedicaoCrono = { id: string; tempo_seg: number; qtd_pecas: number; seg_por_peca: number; observacao: string | null; medido_em: string }
+
+// Cronoanálise digitada: tempo medido + nº de peças → Cap./h (3600 ÷ segundos por peça), média de 3+ ciclos.
+function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; onMudou: () => Promise<void> }) {
+  const [tempo, setTempo] = useState('')
+  const [pecas, setPecas] = useState('1')
+  const [obs, setObs] = useState('')
+  const [lista, setLista] = useState<MedicaoCrono[]>([])
+  const [carregando, setCarregando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    setCarregando(true)
+    const { data, error } = await supabase.from('prod_tarefa_tempo')
+      .select('id, tempo_seg, qtd_pecas, seg_por_peca, observacao, medido_em')
+      .eq('tarefa_id', tarefa.id).order('medido_em', { ascending: false }).limit(50)
+    setCarregando(false)
+    if (!error) setLista((data as MedicaoCrono[]) ?? [])
+  }, [tarefa.id])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+
+  const media = lista.length ? lista.reduce((s, m) => s + Number(m.seg_por_peca), 0) / lista.length : null
+  const capCalc = media ? Math.round((3600 / media) * 10) / 10 : null
+
+  async function gravar() {
+    setErro(null)
+    const ts = Number(tempo.trim().replace(',', '.'))
+    const qp = Number((pecas.trim() || '1').replace(',', '.'))
+    if (!(ts > 0)) { setErro('Informe o tempo medido em segundos (maior que zero).'); return }
+    if (!(qp > 0)) { setErro('Nº de peças deve ser maior que zero.'); return }
+    setSalvando(true)
+    const { data, error } = await supabase.rpc('fn_prod_tarefa_cronometro_salvar', {
+      p_company_id: ctx.companyId, p_plant_id: ctx.plantId, p_tarefa_id: tarefa.id,
+      p_tempo_seg: ts, p_qtd_pecas: qp, p_observacao: obs.trim() || null,
+    })
+    setSalvando(false)
+    const r = data as { ok?: boolean; cap_hora?: number; n_medicoes?: number } | null
+    if (error || !r?.ok) { setErro(error?.message ?? 'Não consegui gravar a medição agora.'); return }
+    ctx.flash(`Medição gravada — Cap./h recalculada: ${r.cap_hora} peças/h (${r.n_medicoes} ciclo(s)).`)
+    setTempo(''); setPecas('1'); setObs('')
+    await carregar()
+    await onMudou()
+  }
+
+  const lab: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: C.espM, display: 'block', marginBottom: 3 }
+  return (
+    <div style={{ padding: '14px 16px' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.esp, marginBottom: 8 }}>
+        Cronômetro — <span style={{ color: C.espM, fontWeight: 400 }}>digite o tempo medido e o sistema calcula a Cap./h</span><Aj k="prod.tarefa.crono" />
+      </div>
+      {erro && <div style={{ background: C.redBg, color: C.red, padding: '7px 11px', borderRadius: 7, fontSize: 12.5, marginBottom: 8 }}>{erro}</div>}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div data-ajuda="prod.tarefa.crono_tempo" style={{ flex: '1 1 150px' }}>
+          <label data-ajuda="prod.tarefa.crono_tempo" style={lab}>Tempo medido (segundos)<Aj k="prod.tarefa.crono_tempo" /></label>
+          <input data-testid={`crono-tempo-${tarefa.id}`} value={tempo} onChange={(e) => setTempo(e.target.value)} inputMode="decimal" placeholder="ex.: 130" style={inp} />
+        </div>
+        <div data-ajuda="prod.tarefa.crono_pecas" style={{ flex: '1 1 110px' }}>
+          <label data-ajuda="prod.tarefa.crono_pecas" style={lab}>Nº de peças<Aj k="prod.tarefa.crono_pecas" /></label>
+          <input data-testid={`crono-pecas-${tarefa.id}`} value={pecas} onChange={(e) => setPecas(e.target.value)} inputMode="decimal" placeholder="ex.: 3" style={inp} />
+        </div>
+        <div data-ajuda="prod.tarefa.crono_obs" style={{ flex: '2 1 180px' }}>
+          <label data-ajuda="prod.tarefa.crono_obs" style={lab}>Observação (opcional)<Aj k="prod.tarefa.crono_obs" /></label>
+          <input data-testid={`crono-obs-${tarefa.id}`} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="ex.: ritmo normal" style={inp} />
+        </div>
+        <button type="button" data-testid={`crono-gravar-${tarefa.id}`} onClick={() => void gravar()} disabled={salvando} style={btn(!salvando)}>
+          {salvando ? 'Gravando…' : 'Gravar medição'}
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 22, margin: '12px 0 6px', flexWrap: 'wrap' }}>
+        <div><span style={lab}>Média seg/peça<Aj k="prod.tarefa.crono_media" /></span><b style={{ fontSize: 16 }}>{media == null ? '—' : `${Math.round(media * 10) / 10} s`}</b></div>
+        <div><span style={lab}>Cap./h calculada</span><b style={{ fontSize: 16, color: C.goldD }}>{capCalc == null ? '—' : `${capCalc} peças/h`}</b></div>
+        <div><span style={lab}>Ciclos medidos</span><b style={{ fontSize: 16 }}>{lista.length}{lista.length > 0 && lista.length < 3 ? ' · meça 3+' : ''}</b></div>
+      </div>
+
+      {carregando ? <div style={{ fontSize: 12.5, color: C.espM }}>Carregando medições…</div> : lista.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: C.espM }}>Nenhuma medição ainda — cronometre pelo menos 3 ciclos para a média ter confiança.</div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, marginTop: 2 }}>
+          <thead><tr style={{ color: C.espM }}>
+            <th style={{ textAlign: 'left', padding: '4px 6px', fontWeight: 700 }}>Quando</th>
+            <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 700 }}>Tempo</th>
+            <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 700 }}>Peças</th>
+            <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 700 }}>seg/peça</th>
+            <th style={{ textAlign: 'left', padding: '4px 6px', fontWeight: 700 }}>Obs.</th>
+          </tr></thead>
+          <tbody>
+            {lista.map((m) => (
+              <tr key={m.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                <td style={{ padding: '4px 6px' }}>{new Date(m.medido_em).toLocaleString('pt-BR')}</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right' }}>{Number(m.tempo_seg)} s</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right' }}>{Number(m.qtd_pecas)}</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right' }}>{Math.round(Number(m.seg_por_peca) * 10) / 10}</td>
+                <td style={{ padding: '4px 6px', color: C.espM }}>{m.observacao ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
 }
 
 function NovaTarefaLinha({ salvar, cargosOpt, proximaOrdem }: { salvar: (base: Tarefa | null, patch: Partial<Tarefa>) => Promise<string | null>; cargosOpt: OpcaoCelula[]; proximaOrdem: number }) {
