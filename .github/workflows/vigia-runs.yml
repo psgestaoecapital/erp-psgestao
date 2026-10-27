@@ -108,6 +108,12 @@ jobs:
           done
           echo "aceitação da main superada cancelada: $n"
 
+      # Drenagem travada 23/10: 7 runs do @pos-migration de SHAs antigos na fila demo-e2e (desde 19:16) e a fila de merge
+      # olha só o MAIS NOVO — as migrations críticas esperavam a pilha inteira. Run ESPERANDO que não é o mais novo é
+      # superado (o mais novo julga a mesma produção): cancela. Run executando nunca é tocado aqui.
+      - name: Cancelar @pos-migration superado (esperando a fila, não é o run mais novo)
+        run: scripts/merge/pos-superado-cancelar.sh || true
+
       # Esteira travada 08/10 (Eng. Chefe) + 2h na fila 10/10 (CEO): run de aceitação de PR que ocupa a vaga única à toa —
       # PR mergeada/fechada, ou SHA superado/órfão (não é head de PR aberta nem a ponta da main) — é cancelado. AGORA
       # inclui os runs status=in_progress presos na fila de concorrência (job sem step): era onde eles ficavam 2h até o

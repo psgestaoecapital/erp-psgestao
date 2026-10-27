@@ -5,12 +5,14 @@
 // (ensina) / dados. Linguagem da casa (CONCLUIU obra) · identidade Espresso · mobile-first.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { AlertTriangle, HardHat, Receipt, X } from 'lucide-react'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import CepEndereco from '@/components/comum/CepEndereco'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', AMBAR = '#B45309', VERM = '#B91C1C'
 
@@ -20,8 +22,8 @@ type Obra = {
   responsavel_nome: string | null; data_inicio: string | null; data_prevista_fim: string | null; data_conclusao: string | null
 }
 type Kpis = { em_andamento: number; concluidas: number; valor_em_andamento: number; valor_concluido: number }
-// Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita. Custo entra em novembro, com o centro de custo.
-type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number }
+// Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita. Custo real (material + viagens) vem da v_obra_resultado.
+type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number; custo?: number }
 
 const ST: Record<string, { label: string; cor: string }> = {
   em_andamento: { label: 'Em andamento', cor: GOLD },
@@ -61,7 +63,10 @@ export default function ObrasPage() {
       setKpis(k as Kpis); setObras((l as Obra[]) ?? [])
       // receita não derruba o board: se falhar, o cartão mostra "não deu para carregar"
       const { data: rc, error: er } = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
-      setReceita(er ? null : Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, x])))
+      // custo real (material + viagens) vem da v_obra_resultado; se falhar, o cartão mostra só a receita
+      const { data: cr } = await supabase.from('v_obra_resultado').select('obra_id,custo_material,custo_viagens').in('company_id', companyIds)
+      const custos = Object.fromEntries(((cr ?? []) as { obra_id: string; custo_material: number; custo_viagens: number }[]).map((x) => [x.obra_id, Number(x.custo_material || 0) + Number(x.custo_viagens || 0)]))
+      setReceita(er ? null : Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, { ...x, custo: custos[x.obra_id] }])))
     } catch {
       setErro(MSG_CARREGAMENTO_FALHOU)
     } finally {
@@ -92,17 +97,25 @@ export default function ObrasPage() {
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>Hub · Construção</div>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 6px' }}>Obras</h1>
-        <Link href="/dashboard/projetos/obras/nova?area=hub" data-testid="link-nova-obra" style={{ display: 'inline-block', margin: '0 14px 14px 0', fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>+ Nova obra</Link>
-        <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="link-resultado-obra" style={{ display: 'inline-block', margin: '0 0 14px', fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>Ver resultado por obra</Link>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <Link href="/dashboard/projetos/obras/nova?area=hub" data-testid="link-nova-obra" style={{ fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>+ Nova obra</Link>
+            <AjudaCampo chave="projetos.obras.nova_obra" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="link-resultado-obra" style={{ fontSize: 12, fontWeight: 700, color: ESP, textDecoration: 'underline' }}>Ver resultado por obra</Link>
+            <AjudaCampo chave="projetos.obras.link_resultado" />
+          </span>
+        </div>
 
         {msg && <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 12, background: msg.startsWith('Erro') ? '#FBEAEA' : '#EAF5EE', color: msg.startsWith('Erro') ? VERM : VERDE, border: `0.5px solid ${LINE}` }}>{msg}</div>}
 
         {/* KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginBottom: 16 }}>
-          <PSGCMetric label="Em andamento" valor={kpis?.em_andamento ?? 0} icon="🏗️" cor={GOLD} corBg="#FFF" />
-          <PSGCMetric label="Concluídas" valor={kpis?.concluidas ?? 0} icon="✅" cor={VERDE} corBg="#FFF" />
-          <PSGCMetric label="Valor em andamento" valor={fmtR(kpis?.valor_em_andamento ?? 0)} icon="💰" cor={ESP} corBg="#FFF" />
-          <PSGCMetric label="Valor concluído" valor={fmtR(kpis?.valor_concluido ?? 0)} icon="🏁" cor={VERDE} corBg="#FFF" />
+          <Kpi chave="projetos.obras.kpi_em_andamento"><PSGCMetric label="Em andamento" valor={kpis?.em_andamento ?? 0} cor={GOLD} corBg="#FFF" /></Kpi>
+          <Kpi chave="projetos.obras.kpi_concluidas"><PSGCMetric label="Concluídas" valor={kpis?.concluidas ?? 0} cor={VERDE} corBg="#FFF" /></Kpi>
+          <Kpi chave="projetos.obras.kpi_valor_andamento"><PSGCMetric label="Valor em andamento" valor={fmtR(kpis?.valor_em_andamento ?? 0)} cor={ESP} corBg="#FFF" /></Kpi>
+          <Kpi chave="projetos.obras.kpi_valor_concluido"><PSGCMetric label="Valor concluído" valor={fmtR(kpis?.valor_concluido ?? 0)} cor={VERDE} corBg="#FFF" /></Kpi>
         </div>
 
         {/* ESTADO: erro */}
@@ -113,7 +126,7 @@ export default function ObrasPage() {
         ) : obras.length === 0 ? (
           /* ESTADO: vazio (ensina) */
           <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>
-            <div style={{ fontSize: 34 }}>🏗️</div>
+            <div style={{ color: GOLD }}><HardHat size={34} aria-hidden style={{ margin: '0 auto' }} /></div>
             <div style={{ fontSize: 15, fontWeight: 700, color: ESP, marginTop: 6 }}>Nenhuma obra ainda</div>
             <div style={{ fontSize: 13, color: MUT, maxWidth: 440, margin: '8px auto 0', lineHeight: 1.5 }}>
               Uma obra nasce automaticamente quando um orçamento é <b>aprovado</b>. Aprove um orçamento em Propostas para ver a obra aqui.
@@ -123,11 +136,12 @@ export default function ObrasPage() {
         ) : (
           /* ESTADO: dados */
           <>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Tab ativo={aba === 'principais'} onClick={() => setAba('principais')}>Em andamento · Concluídas</Tab>
               {(grupos.pausada.length + grupos.cancelada.length > 0) && (
                 <Tab ativo={aba === 'outras'} onClick={() => setAba('outras')}>Pausadas · Canceladas ({grupos.pausada.length + grupos.cancelada.length})</Tab>
               )}
+              <AjudaCampo chave="projetos.obras.abas" />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, alignItems: 'start' }}>
               {aba === 'principais' ? (
@@ -193,7 +207,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
 
       <ResultadoObra r={receita} />
 
-      <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
         <button onClick={() => onAbrir(o)} style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${GOLD}`, background: '#FBF4E4', color: '#A57A15' }}>
           Ver escopo
         </button>
@@ -202,7 +216,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
           Linha do tempo
         </Link>
         <button onClick={() => onFiscal(o)} title="CNO e endereço para a NFS-e de construção (E0370)" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#fff', color: ESP }}>
-          🧾 Dados fiscais
+          <Receipt size={12} aria-hidden style={{ display: 'inline', verticalAlign: -2, marginRight: 4 }} />Dados fiscais
         </button>
         {(PROXIMOS[o.status] ?? []).map((p) => (
           <button key={p.s} onClick={() => onStatus(o, p.s)} disabled={busy}
@@ -210,6 +224,7 @@ function ObraCard({ o, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; 
             {p.l}
           </button>
         ))}
+        <AjudaCampo chave="projetos.obras.acoes_card" />
       </div>
     </div>
   )
@@ -227,7 +242,7 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
   )
   return (
     <div data-testid="obra-resultado" style={{ marginTop: 10, background: BG, border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px' }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: ESP, marginBottom: 4 }}>Resultado da obra</div>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: ESP, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 2 }}>Resultado da obra<AjudaCampo chave="projetos.obras.resultado_card" /></div>
       {r === undefined ? (
         <div style={{ fontSize: 11.5, color: MUT }}>Não deu para carregar o faturado agora.</div>
       ) : (
@@ -236,7 +251,7 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
             {cel('Faturado', fmtRc(r?.faturado ?? 0), ESP, 'obra-faturado')}
             {cel('Recebido', fmtRc(r?.recebido ?? 0), VERDE, 'obra-recebido')}
             {cel('A receber', fmtRc(r?.a_receber ?? 0), GOLD, 'obra-a-receber')}
-            {cel('Custo', 'a partir de novembro', MUT, 'obra-custo')}
+            {cel('Custo', r?.custo != null ? fmtRc(r.custo) : '—', MUT, 'obra-custo')}
           </div>
           <div style={{ fontSize: 10.5, color: MUT, marginTop: 4 }} data-testid="obra-notas">
             {r && r.notas > 0 ? `${r.notas} NFS-e autorizada(s)` : 'Nenhuma NFS-e autorizada ligada a esta obra'}
@@ -244,6 +259,16 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+// Indicador do topo com o "?" (RD-95) no canto, sem mexer no PSGCMetric compartilhado
+function Kpi({ chave, children }: { chave: string; children: React.ReactNode }) {
+  return (
+    <div style={{ position: 'relative' }}>
+      {children}
+      <span style={{ position: 'absolute', top: 8, right: 8 }}><AjudaCampo chave={chave} /></span>
     </div>
   )
 }
@@ -319,7 +344,7 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
       <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 900 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '14px 14px 0 0', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>{obra.numero} · Escopo da obra</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 18 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'inline-flex' }} aria-label="Fechar"><X size={18} aria-hidden /></button>
         </div>
         <div style={{ padding: 16 }}>
           {/* Cabeçalho: contratado · medido (%) · a medir · centro de custo */}
@@ -342,10 +367,10 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
 
           {addAberto && (
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.7fr 0.9fr 1fr auto', gap: 8, alignItems: 'center', marginBottom: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
-              <input style={inp} placeholder="Descrição do item *" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
-              <input style={inp} placeholder="un" value={form.unidade} onChange={(e) => setForm({ ...form, unidade: e.target.value })} />
-              <input style={{ ...inp, textAlign: 'right' }} inputMode="decimal" placeholder="qtd" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} />
-              <input style={{ ...inp, textAlign: 'right' }} inputMode="decimal" placeholder="R$/un" value={form.preco_unit} onChange={(e) => setForm({ ...form, preco_unit: e.target.value })} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}><input style={inp} placeholder="Descrição do item *" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /><AjudaCampo chave="projetos.obras.item_descricao" /></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}><input style={inp} placeholder="un" value={form.unidade} onChange={(e) => setForm({ ...form, unidade: e.target.value })} /><AjudaCampo chave="projetos.obras.item_unidade" /></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}><input style={{ ...inp, textAlign: 'right' }} inputMode="decimal" placeholder="qtd" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} /><AjudaCampo chave="projetos.obras.item_quantidade" /></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}><input style={{ ...inp, textAlign: 'right' }} inputMode="decimal" placeholder="R$/un" value={form.preco_unit} onChange={(e) => setForm({ ...form, preco_unit: e.target.value })} /><AjudaCampo chave="projetos.obras.item_preco" /></div>
               <button onClick={() => void adicionar()} disabled={busy || !form.descricao.trim()} style={{ fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', border: 'none', color: '#fff', background: GOLD, opacity: (busy || !form.descricao.trim()) ? 0.5 : 1 }}>{busy ? '…' : 'Adicionar'}</button>
             </div>
           )}
@@ -426,8 +451,8 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
   }
   const inp: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESP, background: '#fff', width: '100%', boxSizing: 'border-box' }
   const lbl: React.CSSProperties = { fontSize: 10.5, color: MUT, fontWeight: 600, display: 'block', marginBottom: 3 }
-  const campo = (label: string, k: keyof typeof f, ph = '') => (
-    <label style={{ display: 'block' }}><span style={lbl}>{label}</span>
+  const campo = (label: string, k: keyof typeof f, ph = '', ajuda = '') => (
+    <label style={{ display: 'block' }}><span style={lbl}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
       <input style={inp} value={f[k]} placeholder={ph} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
   )
   return (
@@ -435,7 +460,7 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
       <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 640 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '14px 14px 0 0' }}>
           <div style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>{obra.numero} · Dados fiscais da obra</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 18 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'inline-flex' }} aria-label="Fechar"><X size={18} aria-hidden /></button>
         </div>
         <div style={{ padding: 16 }}>
           <div style={{ fontSize: 12, color: MUT, marginBottom: 12, lineHeight: 1.5 }}>
@@ -445,11 +470,11 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
             <>
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 8 }}>Identificação da obra</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginBottom: 14 }}>
-                {campo('CNO (Cadastro Nacional de Obras)', 'cno', 'ex.: 12.345.67890/12')}
-                {campo('Código de obra municipal (se o município usar)', 'codigo_obra_municipal')}
-                {campo('ART / RRT (opcional)', 'art')}
+                {campo('CNO (Cadastro Nacional de Obras)', 'cno', 'ex.: 12.345.67890/12', 'projetos.obras.fiscal_cno')}
+                {campo('Código de obra municipal (se o município usar)', 'codigo_obra_municipal', '', 'projetos.obras.fiscal_codigo_municipal')}
+                {campo('ART / RRT (opcional)', 'art', '', 'projetos.obras.fiscal_art')}
               </div>
-              {!temId && <div style={{ fontSize: 11.5, color: '#B45309', marginBottom: 12 }}>⚠️ Falta o CNO ou o código municipal — sem um dos dois a nota de construção não sai.</div>}
+              {!temId && <div style={{ fontSize: 11.5, color: '#B45309', marginBottom: 12, display: 'flex', gap: 6, alignItems: 'flex-start' }}><AlertTriangle size={14} aria-hidden style={{ flexShrink: 0, marginTop: 1 }} /><span>Falta o CNO ou o código municipal — sem um dos dois a nota de construção não sai.</span></div>}
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 8 }}>Endereço da obra</div>
               {/* #82/CEP · o IBGE nasce do CEP (nunca digitado) — fecha o erro que mandava ISS pro estado errado */}
               <CepEndereco
