@@ -131,7 +131,7 @@ export default function MaoObraPage() {
       {aviso && !erro && <div className="rounded-md bg-[#E5F2E1] text-[#2F5A1F] px-3 py-2 text-[12.5px]" data-testid="mao-obra-aviso">{aviso}</div>}
 
       <nav className="flex gap-1 border-b border-[#3D2314]/10">
-        {([["equipe", "Equipe"], ["funcoes", "Funções"], ["lista", "Lista atual (até a migração)"]] as const).map(([k, l]) => (
+        {([["equipe", "Equipe"], ["funcoes", "Funções"], ["lista", "Lista anterior"]] as const).map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)} data-testid={`mao-obra-aba-${k}`}
             className={`px-3 py-2 text-[13px] -mb-px border-b-2 ${aba === k ? "border-[#C8941A] font-medium" : "border-transparent text-[#3D2314]/60"}`}>{l}</button>
         ))}
