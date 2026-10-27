@@ -26,7 +26,7 @@ ok(/SET conta_bancaria_id = v_conta, conta_bancaria = v_nome/.test(conta), 'a re
 ok(/UPDATE public\.erp_pagar t\s+SET conta_bancaria = v_nome/.test(conta), 'a pagar: nome da conta (como o saldo por conta lê)')
 ok(/IS NOT DISTINCT FROM v_nome\)\s+THEN\s+RETURN/.test(conta), 'já na conta do extrato → não grava nada')
 ok(/'CONTA_PELA_CONCILIACAO'/.test(conta) && /pela conciliação/.test(conta), 'troca registrada no histórico: "Conta alterada de X para Y pela conciliação"')
-ok(/AND v_outra THEN/.test(conta) && /'CONCILIACAO_CONTA_DIVERGENTE'/.test(conta), 'baixa em outra conta → não troca sozinho, deixa aviso para confirmar')
+ok(/IF v_outra THEN/.test(conta) && !/AND v_outra THEN/.test(conta) && /'CONCILIACAO_CONTA_DIVERGENTE'/.test(conta), 'qualquer baixa fora deste extrato (com ou sem conta no título) → não troca, só aviso (RD-55)')
 ok(/WHERE NOT EXISTS \(SELECT 1 FROM public\.erp_lancamento_log g/.test(conta), 'aviso de conta divergente não se repete a cada recompute')
 ok(!/SECURITY DEFINER/.test(conta), 'função auxiliar não é SECURITY DEFINER (roda dentro da recompute)')
 ok(/REVOKE ALL ON FUNCTION public\.fn_titulo_conta_pela_conciliacao\(text, uuid\) FROM PUBLIC, anon, authenticated/.test(sql), 'auxiliar fechada para anon/authenticated')

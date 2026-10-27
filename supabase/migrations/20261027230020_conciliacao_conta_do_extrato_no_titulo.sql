@@ -11,9 +11,15 @@
 --   1. o título conciliado com movimento de extrato bancário passa a ter a conta desse extrato (a do movimento
 --      conciliado mais recente, se houver mais de um) e o histórico do título registra
 --      "Conta alterada de X para Y pela conciliação" (erp_lancamento_log, acao CONTA_PELA_CONCILIACAO);
---   2. se o título já tem conta informada E uma baixa que não é dinheiro deste extrato (manual solta ou ligada a
---      movimento de outra conta), NÃO troca sozinho: grava o aviso CONCILIACAO_CONTA_DIVERGENTE no histórico
---      (uma vez por conta de extrato) para o operador confirmar.
+--   2. a troca só acontece quando TODAS as baixas ativas do título são dinheiro deste extrato (as que a própria
+--      conciliação criou). Se houver qualquer baixa que não é deste extrato (manual solta, ou ligada a movimento de
+--      outra conta) — com ou sem conta informada no título —, NÃO troca: grava só o aviso
+--      CONCILIACAO_CONTA_DIVERGENTE no histórico (uma vez por conta de extrato) para o operador confirmar.
+--      Assim nenhum pagamento já registrado fora deste extrato muda de conta (revisão 27/10, RD-55).
+-- Prova só leitura (27/10, todas as empresas, títulos hoje conciliados): se a recompute rodasse para todos, trocaria
+-- 178 a pagar e 133 a receber (todas as baixas vindas do extrato) e deixaria aviso em 4 a receber (sem conta, com
+-- baixa fora do extrato — antes seriam trocados). Esta migration não altera nenhum título: a regra vale a partir do
+-- próximo match/recompute.
 -- Lote sem conta bancária (cartão) não mexe. Desvincular não volta a conta. Só a partir de agora: o histórico já
 -- conciliado NÃO é alterado aqui (a correção dos casos antigos de Prigol/Troian/Gean é migration de dado à parte).
 
@@ -65,13 +71,13 @@ BEGIN
     RETURN;
   END IF;
 
-  -- título com conta informada e baixa em outra conta: não troca sozinho, deixa o aviso no histórico
-  IF (v_atual_id IS NOT NULL OR NULLIF(btrim(v_atual_nome), '') IS NOT NULL) AND v_outra THEN
+  -- título com qualquer baixa que não é deste extrato: não troca (pagamento já registrado), só deixa o aviso
+  IF v_outra THEN
     INSERT INTO public.erp_lancamento_log (lancamento_id, tabela_origem, user_email, acao, campos_alterados)
     SELECT p_id, p_tabela, (SELECT u.email FROM auth.users u WHERE u.id = auth.uid()), 'CONCILIACAO_CONTA_DIVERGENTE',
            jsonb_build_object('conta_bancaria', jsonb_build_object('atual', v_atual_nome, 'extrato', v_nome),
-                              'motivo', 'Conciliado no extrato de ' || v_nome || ', mas o título tem baixa em outra conta ('
-                                        || COALESCE(v_atual_nome, 'sem conta') || '). Conta mantida: confirme a troca.')
+                              'motivo', 'Conciliado no extrato de ' || v_nome || ', mas o título tem baixa fora deste extrato (conta do título: '
+                                        || COALESCE(NULLIF(btrim(v_atual_nome), ''), 'sem conta') || '). Conta mantida: confirme a troca.')
      WHERE NOT EXISTS (SELECT 1 FROM public.erp_lancamento_log g
                         WHERE g.lancamento_id = p_id AND g.acao = 'CONCILIACAO_CONTA_DIVERGENTE'
                           AND g.campos_alterados->'conta_bancaria'->>'extrato' = v_nome);
