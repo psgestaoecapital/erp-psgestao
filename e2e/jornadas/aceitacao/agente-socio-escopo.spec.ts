@@ -51,11 +51,13 @@ test.describe('Escopo de agente de sócio e OK do sócio', () => {
     const rod = await msg('rodrigo-code')
     const r2 = await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: rod, p_sugestao_id: meu.id, p_texto: 'x' })
     expect(r2.erro, 'sem OK do sócio').toBe('sem_ok_do_socio')
+    // o pedido de OK exige mensagem viva (fn_agente_pedir_ok_socio recusa arquivada); a arquivada é limpa no afterAll
+    const pedido = await msg('rodrigo-code', { arquivada: false })
     // com pedido mas sem decisão, continua barrado; fora do escopo também
-    expect((await rpc<Resp>('fn_agente_pedir_ok_socio', { p_mensagem_id: rod, p_agente: 'rodrigo-code', p_texto: 'x' })).ok).toBe(true)
-    expect((await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: rod, p_sugestao_id: meu.id, p_texto: 'x' })).erro).toBe('sem_ok_do_socio')
-    await dbPatch('erp_agente_mensagem', `id=eq.${rod}`, { ok_socio_decisao: 'aprovado', ok_socio_em: new Date().toISOString(), ok_socio_por: rodrigo })
-    expect((await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: rod, p_sugestao_id: outro.id, p_texto: 'x' })).erro).toBe('chamado_fora_do_escopo')
+    expect((await rpc<Resp>('fn_agente_pedir_ok_socio', { p_mensagem_id: pedido, p_agente: 'rodrigo-code', p_texto: 'x' })).ok).toBe(true)
+    expect((await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: pedido, p_sugestao_id: meu.id, p_texto: 'x' })).erro).toBe('sem_ok_do_socio')
+    await dbPatch('erp_agente_mensagem', `id=eq.${pedido}`, { ok_socio_decisao: 'aprovado', ok_socio_em: new Date().toISOString(), ok_socio_por: rodrigo })
+    expect((await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: pedido, p_sugestao_id: outro.id, p_texto: 'x' })).erro).toBe('chamado_fora_do_escopo')
   })
 
   test('OK só pelo sócio logado: a conexão de serviço não aprova', { tag: '@pos-migration' }, async () => {
