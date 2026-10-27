@@ -26,6 +26,8 @@ type Obra = { id: string; numero: string; nome: string }
 type Cat = { codigo: string; descricao: string }
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dt = (s: string) => s.split('-').reverse().join('/')
+// rótulo em linguagem do usuário para a situação do título no GE (erp_viagem_ge_titulo.situacao)
+const situacaoGe = (s: string) => ({ pago_empresa: 'Pago pela empresa', a_prazo: 'A prazo (em aberto)', coberto_adiantamento: 'Coberto pelo adiantamento', reembolso_colaborador: 'Reembolso ao colaborador' } as Record<string, string>)[s] ?? s
 const campo = 'w-full rounded-lg border px-2 py-1.5 text-sm'
 const vazio = (obra: string, ini: string): LancamentoForm => ({ tipo: 'despesa', data: ini, fornecedor_nome: '', categoria: '', forma_pagamento: 'dinheiro', valor: '', obra_id: obra, pago_colaborador: true, litros: '', hodometro: '', tanque_cheio: true })
 
@@ -46,6 +48,9 @@ export default function ViagensPage() {
   const [aviso, setAviso] = useState('')
   // viagens já lançadas no GE (nº de títulos por viagem), lidas do vínculo erp_viagem_ge_titulo
   const [noGe, setNoGe] = useState<Record<string, number>>({})
+  // títulos REAIS criados no contas a pagar quando a viagem foi lançada no GE (situação + valor), para o "Ver a conta"
+  // mostrar o lançamento exato no GE sem sair da tela (auditor 27/10: "Ver a conta precisa chegar ao lançamento do GE")
+  const [geTitulos, setGeTitulos] = useState<Record<string, { situacao: string; valor: number }[]>>({})
   const [busy, setBusy] = useState(false)
   // fechar passa pela prévia; excluir lançamento pode ser desfeito por 15 min (fn_viagem_lancamento_restaurar)
   const [previa, setPrevia] = useState(false)
@@ -83,15 +88,19 @@ export default function ViagensPage() {
       supabase.from('projetos_obras').select('id,numero,nome').eq('company_id', empresa).order('numero'),
       supabase.from('erp_plano_contas').select('codigo,descricao').eq('company_id', empresa).eq('ativo', true).order('codigo'),
       supabase.rpc('fn_viagem_pode_gravar', { p_company_id: empresa }),
-      supabase.from('erp_viagem_ge_titulo').select('viagem_id').eq('company_id', empresa).limit(5000),
+      supabase.from('erp_viagem_ge_titulo').select('viagem_id,situacao,valor').eq('company_id', empresa).order('valor', { ascending: false }).limit(5000),
       supabase.from('erp_viagem_lancamento').select('viagem_id,valor,categoria').eq('company_id', empresa).is('excluido_em', null).limit(20000),
     ])
     if (v.error) setMsg(v.error.message)
     setViagens((v.data ?? []) as Viagem[]); setObras((o.data ?? []) as Obra[]); setCats((c.data ?? []) as Cat[])
     setPodeGravar(g.data === true)
     const ge: Record<string, number> = {}
-    for (const x of (t.data ?? []) as { viagem_id: string }[]) ge[x.viagem_id] = (ge[x.viagem_id] ?? 0) + 1
-    setNoGe(ge)
+    const gt: Record<string, { situacao: string; valor: number }[]> = {}
+    for (const x of (t.data ?? []) as { viagem_id: string; situacao: string; valor: number }[]) {
+      ge[x.viagem_id] = (ge[x.viagem_id] ?? 0) + 1
+      ;(gt[x.viagem_id] ??= []).push({ situacao: x.situacao, valor: Number(x.valor ?? 0) })
+    }
+    setNoGe(ge); setGeTitulos(gt)
     const tot: Record<string, number> = {}
     const porCat: Record<string, Map<string, number>> = {}
     for (const x of (lanc.data ?? []) as { viagem_id: string; valor: number; categoria: string | null }[]) {
@@ -370,6 +379,15 @@ export default function ViagensPage() {
                     <li key={cod} className="flex items-baseline justify-between gap-3"><span className="min-w-0 break-words opacity-80">{cats.find((c) => c.codigo === cod)?.descricao || cod}</span><span className="shrink-0 tabular-nums">{brl(val)}</span></li>))}</ul>
                   <div className="mt-1 flex items-baseline justify-between gap-3 border-t pt-1 font-medium" style={{ borderColor: LINE }}><span>Total</span><span className="shrink-0 tabular-nums">{brl(totais[v.id] ?? 0)}</span></div>
                   {kmRodado && kmRodado > 0 && <div className="mt-1 text-xs opacity-70">{kmRodado.toLocaleString('pt-BR')} km · {brl((totais[v.id] ?? 0) / kmRodado)}/km</div>}
+                  {/* lançamento REAL no GE: os títulos criados no contas a pagar (situação + valor), o vínculo exato da
+                      viagem com o financeiro. Σ dos títulos = custo da viagem (conferido em fn_viagem_lancar_ge). */}
+                  {noGe[v.id] && (geTitulos[v.id]?.length ?? 0) > 0 && (
+                    <div className="mt-2 border-t pt-2" style={{ borderColor: LINE }}>
+                      <div className="mb-1 flex items-center text-[11px] font-medium opacity-70">Títulos no GE (contas a pagar)<AjudaCampo chave="projetos.viagem.ge_titulos_conta" /></div>
+                      <ul className="space-y-0.5">{geTitulos[v.id].map((g, i) => (
+                        <li key={`${g.situacao}-${i}`} className="flex items-baseline justify-between gap-3 text-xs"><span className="min-w-0 break-words opacity-80">{situacaoGe(g.situacao)}</span><span className="shrink-0 tabular-nums">{brl(g.valor)}</span></li>))}</ul>
+                    </div>
+                  )}
                   {noGe[v.id] && <a href={`/dashboard/projetos/obras/${v.obra_id}/cockpit`} className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium underline" style={{ color: GOLD }}><ExternalLink size={12} aria-hidden />Ver o lançamento no Resultado da obra (GE)</a>}
                 </div>
               )}

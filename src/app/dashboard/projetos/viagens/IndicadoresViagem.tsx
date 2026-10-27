@@ -10,9 +10,9 @@ import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF'
-type IndObra = { obra_id: string; numero: string; nome: string; viagens: number; custo_viagens: number; confere: boolean; m2_executado: number; custo_m2: number | null; custo_km: number | null; custo_dia: number | null; pct_orcado: number | null; alerta: boolean }
+type IndObra = { obra_id: string; numero: string; nome: string; viagens: number; custo_viagens: number; confere: boolean; m2_executado: number; custo_m2: number | null; custo_km: number | null; custo_dia: number | null; pct_orcado: number | null; alerta: boolean; preco_mobilizacao: number | null; mobilizacao_tabela: string | null; mobilizacao_pct: number | null; mobilizacao_alerta: boolean | null }
 type IndRota = { origem: string; destino: string; viagens: number; custo_medio: number; km_medio: number | null; dias_medio: number; custo_km: number | null; custo_dia: number; ultima: string }
-type Ind = { obras: IndObra[]; rotas: IndRota[]; alertas: number; confere: boolean }
+type Ind = { obras: IndObra[]; rotas: IndRota[]; alertas: number; mobilizacao_alertas?: number; confere: boolean }
 const brl = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
 const num = (n: number | null | undefined, d = 1) => (n == null ? '—' : n.toLocaleString('pt-BR', { maximumFractionDigits: d }))
 const dt = (s: string) => s.split('-').reverse().join('/')
@@ -63,11 +63,12 @@ function IndCorpo({ ind, limite }: { ind: Ind; limite: string }) {
   return (
     <>
       {ind.alertas > 0 && <div role="status" className="rounded-lg border p-2 text-sm" style={{ borderColor: GOLD, background: '#FFF7E6' }}>{ind.alertas} obra(s) com viagem acima de {limite}% do custo previsto.</div>}
+      {(ind.mobilizacao_alertas ?? 0) > 0 && <div role="status" className="rounded-lg border p-2 text-sm" style={{ borderColor: '#B42318', background: '#FEF2F2', color: '#7A271A' }}>{ind.mobilizacao_alertas} obra(s) com custo de deslocamento ACIMA do preço de mobilização do contrato — o excesso sai da margem.</div>}
 
       {ind.obras.length === 0
         ? <p className="rounded-xl border bg-white p-4 text-sm opacity-70" style={{ borderColor: LINE }}>Sem custo de viagem nas obras ainda. Os indicadores aparecem depois do primeiro cupom lançado.</p>
         : <div className="overflow-x-auto rounded-xl border bg-white" style={{ borderColor: LINE }}>
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[760px] text-sm">
             <thead><tr className="text-left text-xs font-medium" style={{ color: ESP, background: '#FAF7F2' }}>
               <th className="p-2">Obra</th>
               <Th rotulo="Custo de viagem" chave="projetos.viagem.rel_custo_obra" />
@@ -75,6 +76,7 @@ function IndCorpo({ ind, limite }: { ind: Ind; limite: string }) {
               <Th rotulo="Por km" chave="projetos.viagem.ind_custo_km" />
               <Th rotulo="Por dia" chave="projetos.viagem.ind_custo_dia" />
               <Th rotulo="% do orçado" chave="projetos.viagem.ind_pct_orcado" />
+              <Th rotulo="Mobilização (contrato)" chave="projetos.viagem.ind_mobilizacao" />
             </tr></thead>
             <tbody>{ind.obras.map((o) => (
               <tr key={o.obra_id} className="border-t" style={{ borderColor: LINE }}>
@@ -84,6 +86,7 @@ function IndCorpo({ ind, limite }: { ind: Ind; limite: string }) {
                 <td className="p-2 text-right">{brl(o.custo_km)}</td>
                 <td className="p-2 text-right">{brl(o.custo_dia)}</td>
                 <td className="p-2 text-right font-medium" style={{ color: o.alerta ? '#B42318' : ESP }}>{o.alerta && <AlertTriangle aria-label="Acima do limite" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />}{o.pct_orcado == null ? '—' : `${num(o.pct_orcado, 2)}%`}</td>
+                <MobilizacaoCell o={o} />
               </tr>))}</tbody>
           </table>
           <p className="px-2 pb-2 text-xs opacity-70">{ind.confere ? 'Confere com o Resultado da obra' : 'Não confere com o Resultado da obra — avise o suporte'}<AjudaCampo chave="projetos.viagem.rel_confere" /></p>
@@ -102,6 +105,29 @@ function IndCorpo({ ind, limite }: { ind: Ind; limite: string }) {
             </div>
           </li>))}</ul>}
     </>
+  )
+}
+
+// comparativo custo real de deslocamento × preço de mobilização do contrato do cliente (decisão CEO 22/10, FC Pisos).
+// Sem verba de mobilização no contrato → estado vazio honesto (não inventa número — RD-38). Com verba: preço + o quanto
+// o real representa dele (abaixo de 100% coube; acima estourou e sai da margem).
+function MobilizacaoCell({ o }: { o: IndObra }) {
+  if (o.preco_mobilizacao == null) return (
+    <td className="p-2 text-right align-top">
+      <span className="text-xs opacity-45" title="Cadastre a verba de mobilização na tabela de preços do cliente">sem verba no contrato</span>
+      <span className="inline-flex"><AjudaCampo chave="projetos.viagem.ind_mobilizacao" alinhar="fim" /></span>
+    </td>
+  )
+  const acima = o.mobilizacao_alerta === true
+  return (
+    <td className="p-2 text-right align-top">
+      <div className="font-medium" style={{ color: ESP }}>{brl(o.preco_mobilizacao)}</div>
+      {o.mobilizacao_pct != null && (
+        <span className="mt-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[11px] font-medium"
+          style={acima ? { borderColor: '#B42318', color: '#B42318', background: '#FEF2F2' } : { borderColor: GOLD, color: GOLD, background: '#FBF3E0' }}>
+          {acima && <AlertTriangle aria-hidden className="h-3 w-3" />}real {num(o.mobilizacao_pct, 0)}%<AjudaCampo chave="projetos.viagem.ind_mob_pct" alinhar="fim" /></span>
+      )}
+    </td>
   )
 }
 

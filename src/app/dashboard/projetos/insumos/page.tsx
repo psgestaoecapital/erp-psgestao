@@ -4,7 +4,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Package, Pencil, Trash2, TrendingUp, Upload, Plus, Search, Link2 } from "lucide-react";
+import { Package, Pencil, Trash2, TrendingUp, Upload, Plus, Search, Link2, RotateCcw, AlertTriangle } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
@@ -31,6 +31,7 @@ interface Insumo {
   ncm?: string | null;
   especificacao_tecnica?: string | null;
   observacoes?: string | null;
+  deleted_at?: string | null;
 }
 
 // Vínculo do insumo com o produto do estoque do GE integrado (RD-35): o custo vem do estoque.
@@ -93,7 +94,7 @@ export default function InsumosPage() {
   // Filtros
   const [busca, setBusca] = useState("");
   const [filtroCat, setFiltroCat] = useState("");
-  const [filtroStatus, setFiltroStatus] = useState<"ativo" | "inativo" | "todos">("ativo");
+  const [filtroStatus, setFiltroStatus] = useState<"ativo" | "inativo" | "todos" | "excluido">("ativo");
   const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork">("todos");
 
   // Form drawer
@@ -153,6 +154,7 @@ export default function InsumosPage() {
         ...r,
         ativo: r.status !== "inativo",
         fork_from_publico_id: r.forked_from ?? null,
+        deleted_at: r.deleted_at ?? null,
       })) as Insumo[]);
       setCategorias((catR.data as Categoria[]) || []);
       // Vínculos com o estoque do GE: complemento — se falhar, a lista segue sem a coluna preenchida.
@@ -174,8 +176,15 @@ export default function InsumosPage() {
   // Filtros aplicados
   const filtrados = useMemo(() => {
     return insumos.filter((i) => {
-      if (filtroStatus === "ativo" && i.ativo === false) return false;
-      if (filtroStatus === "inativo" && i.ativo !== false) return false;
+      const excluido = !!i.deleted_at;
+      // A aba "Excluídos" mostra só os excluídos; os demais filtros nunca mostram excluídos.
+      if (filtroStatus === "excluido") {
+        if (!excluido) return false;
+      } else {
+        if (excluido) return false;
+        if (filtroStatus === "ativo" && i.ativo === false) return false;
+        if (filtroStatus === "inativo" && i.ativo !== false) return false;
+      }
       if (filtroOrigem === "fork" && !i.fork_from_publico_id) return false;
       if (filtroOrigem === "manual" && i.fork_from_publico_id) return false;
       if (filtroCat && i.category !== filtroCat) return false;
@@ -259,7 +268,7 @@ export default function InsumosPage() {
   }
 
   async function deletar(i: Insumo) {
-    if (!confirm(`Deletar insumo "${i.name}"?`)) return;
+    if (!confirm(`Excluir o insumo "${i.name}"? Ele sai da lista, mas pode ser restaurado depois (filtro Status → Excluídos).`)) return;
     try {
       const supabase = supabaseBrowser();
       const { data, error } = await supabase.rpc("fn_projetos_deletar_insumo", {
@@ -267,11 +276,31 @@ export default function InsumosPage() {
       });
       if (error) throw error;
       if (data && data.success === false) {
-        setErro(data.error || "Insumo não pode ser deletado");
+        setErro(data.error || "Insumo não pode ser excluído");
         setTimeout(() => setErro(null), 5000);
         return;
       }
-      setAviso(`Insumo "${i.name}" removido`);
+      setAviso(`Insumo "${i.name}" excluído (pode restaurar no filtro Excluídos)`);
+      setTimeout(() => setAviso(null), 5000);
+      await carregar();
+    } catch (e: any) {
+      setErro(e.message);
+    }
+  }
+
+  async function restaurar(i: Insumo) {
+    try {
+      const supabase = supabaseBrowser();
+      const { data, error } = await supabase.rpc("fn_projetos_restaurar_insumo", {
+        p_insumo_id: i.id,
+      });
+      if (error) throw error;
+      if (data && data.success === false) {
+        setErro(data.error || "Insumo não pôde ser restaurado");
+        setTimeout(() => setErro(null), 5000);
+        return;
+      }
+      setAviso(`Insumo "${i.name}" restaurado`);
       setTimeout(() => setAviso(null), 4000);
       await carregar();
     } catch (e: any) {
@@ -577,10 +606,22 @@ export default function InsumosPage() {
       render: (i) => {
         const v = vinculos[i.id];
         if (!v) return <span className="text-xs text-[#3D2314]/40">sem ligação</span>;
+        // Divergência: preço do catálogo (current_cost) vs custo real do estoque. >1% = alerta.
+        const cat = Number(i.current_cost ?? 0);
+        const est = Number(v.custo_estoque ?? 0);
+        const diverge = cat > 0 && est > 0 && Math.abs(cat - est) / est > 0.01;
+        const difPct = est > 0 ? ((cat - est) / est) * 100 : 0;
         return (
           <div className="text-xs">
             <div className="font-medium text-[#3D2314]">{v.produto_codigo ? `${v.produto_codigo} · ` : ""}{v.produto_nome}</div>
             <div className="text-[#3D2314]/60">saldo {v.saldo ?? 0} · custo {fmtBRL(v.custo_estoque)}</div>
+            {diverge && (
+              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                <AlertTriangle size={11} />
+                catálogo {difPct > 0 ? "+" : ""}{difPct.toFixed(1)}%
+                <AjudaCampo chave="projetos.insumos.divergencia" />
+              </span>
+            )}
           </div>
         );
       },
@@ -604,7 +645,20 @@ export default function InsumosPage() {
     },
   ];
 
-  const acoes = (i: Insumo) => (
+  const acoes = (i: Insumo) =>
+    i.deleted_at ? (
+      <div className="flex items-center justify-end gap-1">
+        <button
+          onClick={() => restaurar(i)}
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-emerald-700 hover:bg-emerald-50"
+          title="Restaurar insumo"
+        >
+          <RotateCcw size={14} />
+          <span className="text-xs font-medium">Restaurar</span>
+        </button>
+        <AjudaCampo chave="projetos.insumos.restaurar" alinhar="fim" />
+      </div>
+    ) : (
     <div className="flex items-center justify-end gap-1">
       <button
         onClick={() => abrirEstoque(i)}
@@ -635,7 +689,7 @@ export default function InsumosPage() {
         onClick={() => deletar(i)}
         disabled={(i.qtd_servicos_uso ?? 0) > 0}
         className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-        title={(i.qtd_servicos_uso ?? 0) > 0 ? "Em uso, não pode deletar" : "Deletar"}
+        title={(i.qtd_servicos_uso ?? 0) > 0 ? "Em uso, não pode excluir" : "Excluir"}
       >
         <Trash2 size={14} />
       </button>
@@ -749,6 +803,7 @@ export default function InsumosPage() {
                   <option value="ativo">Ativos</option>
                   <option value="inativo">Inativos</option>
                   <option value="todos">Todos</option>
+                  <option value="excluido">Excluídos</option>
                 </select>
               </label>
               <label className="block">

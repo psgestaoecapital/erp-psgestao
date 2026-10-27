@@ -180,6 +180,30 @@ export function aplicarCEP<T extends EnderecoForm>(form: T, d: { logradouro: str
 }
 export const cepCompleto = (cep: string | null | undefined) => (cep ?? '').replace(/\D/g, '').length === 8
 
+// Preenche o cadastro com os dados do CNPJ (BrasilAPI/Receita) SÓ nos campos ainda vazios — o que a pessoa já
+// digitou prevalece sobre a consulta (RD-38: a consulta completa, nunca sobrescreve o cadastro manual). Mesmo
+// princípio do aplicarCEP; aqui vem também razão social, contato e número do endereço. nome_fantasia cai para a
+// razão social quando a Receita não traz o fantasia. Devolve um form novo (imutável), sem tocar no documento.
+export type ClienteDocForm = EnderecoForm & { nome_fantasia?: string | null; razao_social?: string | null; telefone?: string | null; email?: string | null; numero?: string | null }
+export function aplicarCNPJ<T extends ClienteDocForm>(form: T, d: { razao_social: string | null; nome_fantasia: string | null; email: string | null; telefone: string | null; cep: string | null; logradouro: string | null; numero: string | null; bairro: string | null; cidade: string; uf: string }): T {
+  const vazio = (v: string | null | undefined) => !(v ?? '').trim()
+  const preferir = (atual: string | null | undefined, novo: string | null | undefined) => (vazio(atual) && (novo ?? '').trim() ? novo : atual)
+  return {
+    ...form,
+    nome_fantasia: preferir(form.nome_fantasia, d.nome_fantasia || d.razao_social),
+    razao_social: preferir(form.razao_social, d.razao_social),
+    telefone: preferir(form.telefone, d.telefone),
+    email: preferir(form.email, d.email),
+    cep: preferir(form.cep, d.cep),
+    logradouro: preferir(form.logradouro, d.logradouro),
+    numero: preferir(form.numero, d.numero),
+    bairro: preferir(form.bairro, d.bairro),
+    cidade: preferir(form.cidade, d.cidade),
+    uf: (preferir(form.uf, d.uf) ?? '').toUpperCase(),
+  }
+}
+export const cnpjCompleto = (doc: string | null | undefined) => (doc ?? '').replace(/\D/g, '').length === 14
+
 // PDCA 24/10 · "Nova oportunidade" a partir do cliente já leva o cliente: a tela de oportunidades lê ?cliente=<uuid>
 // e abre o formulário com ele escolhido. Só aceita UUID (parâmetro de URL é entrada livre).
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

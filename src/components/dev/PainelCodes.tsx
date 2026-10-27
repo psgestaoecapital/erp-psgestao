@@ -12,6 +12,7 @@ import AvancoVertical from './AvancoVertical'
 import SaudeEsteira from './SaudeEsteira'
 import DiagnosticoEsteira from './DiagnosticoEsteira'
 import BarrasQualidadeVertical from './BarrasQualidadeVertical'
+import EvolucaoTelasHub from './EvolucaoTelasHub'
 import ProximasPublicacoes from './ProximasPublicacoes'
 import CronogramaHub from './CronogramaHub'
 import SaudeCodes from './SaudeCodes'
@@ -157,6 +158,7 @@ export default function PainelCodes() {
         {dados && <div style={{ minWidth: 0, maxHeight: 'min(46vh, 400px)', overflowY: 'auto' }}><BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro></div>}
         <div style={{ minWidth: 0 }}><BlocoSeguro nome="Qualidade por vertical"><BarrasQualidadeVertical altura={230} /></BlocoSeguro></div>
       </div>
+      <div className="mt-3" data-testid="codes-evolucao-telas"><BlocoSeguro nome="Evolução das telas do Hub"><EvolucaoTelasHub /></BlocoSeguro></div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start mt-3" data-testid="codes-linha-2">
         <div style={{ minWidth: 0 }}>{resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}</div>
         <div style={{ minWidth: 0 }}>{dados && <BlocoSeguro nome="Produzidas × publicadas por hora"><ProducaoCompacta entregas={dados.entregas} agora={agora} /></BlocoSeguro>}</div>
