@@ -374,7 +374,7 @@ export default function TabelasPrecoPage() {
             <h2 style={{ fontSize: 17, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>Contrato completo <AjudaCampo chave="hub.tabela_preco.contrato" /></h2>
             {/* celular (390px): grade compacta para as 5 colunas (até domingo_feriado) caberem sem cortar; a faixa fica fixa na rolagem */}
             <style>{'@media (max-width:480px){.tp-grade{min-width:0!important;font-size:12px!important}.tp-grade th,.tp-grade td{padding:6px 2px!important}.tp-grade th{white-space:normal!important;font-size:11px!important}.tp-grade td button{padding:6px 2px!important;font-size:12px!important}}.tp-grade th:first-child,.tp-grade td:first-child{position:sticky;left:0;background:#fff}'}</style>
-            <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Preço por unidade em cada faixa e condição. Toque num preço para levá-lo à calculadora.</p>
+            <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>Preço por unidade em cada faixa<AjudaCampo chave="hub.tabela_preco.contrato_col_faixa" /> e condição<AjudaCampo chave="hub.tabela_preco.contrato_col_condicao" />. Toque num preço para levá-lo à calculadora.</p>
             {servicos.map(s => {
               const fs = itens.filter(i => i.servico_ref === s.servico_ref).sort((a, b) => a.faixa_de - b.faixa_de)
               return (
