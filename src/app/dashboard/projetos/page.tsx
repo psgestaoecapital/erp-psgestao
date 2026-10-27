@@ -77,23 +77,26 @@ export default function PainelProjetos() {
     (async () => {
       try {
         const supabase = supabaseBrowser();
-        // Situações por contagem no banco (head): a lista de obras não é baixada inteira — o PostgREST corta em 1000 linhas
-        // e a empresa pode ter milhares de obras encerradas. Só as obras em andamento vêm linha a linha.
-        const contarSituacao = (s: string) =>
-          supabase.from("v_obra_resultado").select("obra_id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", s);
-        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, ...situacoes] = await Promise.all([
+        // Obras por situação: MESMA fonte da tela /projetos/obras (projetos_obras, via fn_obras_kpis). Antes o Painel
+        // contava por v_obra_resultado (view derivada) e podia divergir da lista (auditor 27/10: Painel "Concluídas 0"
+        // x lista "Concluídas 1"). Uma fonte só = os números sempre batem. Só as obras em andamento vêm linha a linha
+        // (receita/custo previstos) da v_obra_resultado para a tabela abaixo.
+        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
           supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto").eq("company_id", companyId).eq("status", "em_andamento"),
           supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado,valor_proposta").eq("company_id", companyId).is("deleted_at", null),
-          ...SITUACOES.map((x) => contarSituacao(x.s)),
         ]);
-        if (ek || ep || eo || eop || situacoes.some((r) => r.error)) throw new Error("indicadores");
-        const kp = (k as { em_andamento?: number; valor_em_andamento?: number } | null) ?? {};
+        if (ek || ep || eo || eop) throw new Error("indicadores");
+        const kp = (k as { em_andamento?: number; concluidas?: number; pausada?: number; cancelada?: number; valor_em_andamento?: number } | null) ?? {};
         const fin = v as { contas_pagar_abertas: number | null; contas_receber_abertas: number | null } | null;
-        const porStatus: Record<string, number> = {};
-        SITUACOES.forEach((x, i) => { porStatus[x.s] = situacoes[i].count ?? 0; });
+        const porStatus: Record<string, number> = {
+          em_andamento: Number(kp.em_andamento ?? 0),
+          pausada: Number(kp.pausada ?? 0),
+          concluida: Number(kp.concluidas ?? 0),
+          cancelada: Number(kp.cancelada ?? 0),
+        };
         let receita = 0, custo = 0;
         const andamento: ObraAndamento[] = [];
         for (const o of (obras as { obra_id: string; numero: string | null; nome: string | null; status: string; receita_prevista: number | null; custo_previsto: number | null }[] | null) ?? []) {
@@ -109,7 +112,7 @@ export default function PainelProjetos() {
         }
         if (!cancel) {
           setResumo({
-            obras_ativas: porStatus.em_andamento ?? Number(kp.em_andamento ?? 0),
+            obras_ativas: porStatus.em_andamento,
             propostas_pendentes: propostas ?? 0,
             valor_orcamento_ativo: Number(kp.valor_em_andamento ?? 0),
             margem_prevista_pct: receita > 0 ? ((receita - custo) / receita) * 100 : null,
