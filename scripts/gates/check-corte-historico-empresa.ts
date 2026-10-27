@@ -2,7 +2,7 @@
  * Gate de build · chamado #3866 (Jordana · Troian): o corte do histórico importado vale SÓ para a empresa configurada
  * em erp_empresa_corte_historico. Na empresa com corte, título vencido e pago antes da data fica só para consulta
  * (fora do saldo e do "Sem conta"); pagamento a partir do corte conta. Empresa sem linha = cálculo de antes.
- * Migration: supabase/migrations/20261027050020_corte_historico_importado_troian.sql.
+ * Migration: supabase/migrations/<versão>_corte_historico_importado_troian.sql (procurada pelo sufixo).
  */
 import { readFileSync, readdirSync } from 'node:fs'
 
