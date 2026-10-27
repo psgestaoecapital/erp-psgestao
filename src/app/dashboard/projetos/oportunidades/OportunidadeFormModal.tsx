@@ -5,6 +5,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import SeletorUsuario from '@/components/crm/SeletorUsuario'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
 import { telefoneDoCliente, tituloOportunidade, erroOportunidade } from '@/lib/crm/oportunidadeCliente'
+import { avisoOportunidade } from '@/lib/crm/oportunidadeAlerta'
 
 // FIX 2 · caixa alta nos campos de texto (título/endereço/cidade/bairro). Não toca e-mail/CEP/números/responsável.
 const up = (s: string | null): string | null => { const t = (s ?? '').trim(); return t ? t.toUpperCase() : null }
@@ -103,6 +104,27 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
 
   // Responsavel
   const [users, setUsers] = useState<UserOpt[]>([])
+
+  // Auditor FC · aviso NÃO-bloqueante de duplicata / valor-outlier (compara com as oportunidades abertas).
+  const [aviso, setAviso] = useState<string | null>(null)
+  useEffect(() => {
+    const clienteId = form.cliente_id
+    const valor = form.valor_estimado
+    // precisa de cliente OU valor para ter o que comparar
+    if (!clienteId && valor == null) { setAviso(null); return }
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from('erp_crm_oportunidade')
+        .select('id, cliente_id, titulo, valor_estimado')
+        .eq('company_id', companyId)
+        .is('deleted_at', null)
+        .not('etapa', 'in', '(ganho,perdido)')
+        .limit(500)
+      const abertas = (data ?? []) as { id: string; cliente_id: string | null; titulo: string | null; valor_estimado: number | null }[]
+      setAviso(avisoOportunidade({ id: initial?.id ?? null, clienteId, titulo: form.titulo, valor }, abertas))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [form.cliente_id, form.titulo, form.valor_estimado, companyId, initial?.id])
 
   // Load initial cliente label
   useEffect(() => {
@@ -567,6 +589,14 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         <div style={{ marginTop: 12 }} data-testid="oport-anexos">
           <AnexosCard ref={anexosRef} companyId={companyId} vinculoTipo="oportunidade" vinculoId={initial?.id ?? null} />
         </div>
+
+        {aviso && (
+          <div data-testid="oport-aviso" role="status" style={{ marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 6, background: '#FBF0D8', border: '1px solid #E8C98A', borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: '#7A5A0F' }}>
+            <span aria-hidden>⚠️</span>
+            <span style={{ flex: 1 }}>{aviso[0].toUpperCase() + aviso.slice(1)}. Você pode salvar mesmo assim.</span>
+            <AjudaCampo chave="projetos.oportunidade.form.alerta" rota="/dashboard/projetos/oportunidades" />
+          </div>
+        )}
 
         {err && <p style={{ color: '#b00', fontSize: 13, marginTop: 8 }}>Erro: {err}</p>}
 

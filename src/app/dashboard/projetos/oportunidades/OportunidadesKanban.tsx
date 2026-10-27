@@ -1,12 +1,13 @@
 'use client'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react'
-import { ChevronLeft, ChevronRight, Clock, FileText, Link2, Pencil, Phone, Trash2, User } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock, FileText, Link2, Paperclip, Pencil, Phone, Trash2, User } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import { linkTelefone } from '@/lib/crm/oportunidadeCliente'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { flagsPorCard } from '@/lib/crm/oportunidadeAlerta'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 type Fechada = {
@@ -127,6 +128,8 @@ export default function OportunidadesKanban({
   const [quemMap, setQuemMap] = useState<Record<string, QuemRow>>({})
   // F2.7 · orçamento vinculado por oportunidade_id.
   const [orcMap, setOrcMap] = useState<Record<string, OrcRow>>({})
+  // Auditor FC · contagem de anexos por oportunidade (badge no card) via fn_crm_anexos_contagem.
+  const [anexosMap, setAnexosMap] = useState<Record<string, number>>({})
   const [gerandoId, setGerandoId] = useState<string | null>(null)
   // Affordance de rolagem horizontal (auditor PDCA: "coluna cortada / scroll não óbvio"): quando o board
   // tem mais etapas do que cabem, aparece um degradê + seta de cada lado com conteúdo oculto; clicar rola.
@@ -195,7 +198,7 @@ export default function OportunidadesKanban({
   async function carregar() {
     setLoading(true)
     try {
-      const [p, gp, tempo, quem, orc] = await comPrazo(() => Promise.all([
+      const [p, gp, tempo, quem, orc, anx] = await comPrazo(() => Promise.all([
         supabase.rpc('fn_crm_pipeline', { p_company_id: companyId }),
         supabase
           .from('erp_crm_oportunidade')
@@ -206,6 +209,7 @@ export default function OportunidadesKanban({
         supabase.rpc('fn_crm_tempo_etapa', { p_company_id: companyId }),
         supabase.rpc('fn_crm_quem_moveu', { p_company_id: companyId }),
         supabase.rpc('fn_crm_orcamento_do_card', { p_company_id: companyId }),
+        supabase.rpc('fn_crm_anexos_contagem', { p_company_id: companyId }),
       ]), { ms: 8000, tentativas: 1, label: 'projetos_crm_kanban' })
       setPipe((p.data ?? { etapas: [] }) as Pipeline)
       // F2.6 · monta os mapas (se a RPC ainda não deployou, fica vazio — não quebra o board).
@@ -218,6 +222,10 @@ export default function OportunidadesKanban({
       const om: Record<string, OrcRow> = {}
       for (const r of ((orc.data ?? []) as OrcRow[])) om[r.oportunidade_id] = r
       setOrcMap(om)
+      // badge de anexos (se a RPC ainda não deployou, fica vazio — não quebra o board)
+      const am: Record<string, number> = {}
+      for (const r of ((anx.data ?? []) as { oportunidade_id: string; anexos: number }[])) am[r.oportunidade_id] = Number(r.anexos) || 0
+      setAnexosMap(am)
       const rows = (gp.data ?? []) as Array<{ etapa: string; valor_estimado: number | null }>
       const g = rows.filter((r) => r.etapa === 'ganho')
       const pd = rows.filter((r) => r.etapa === 'perdido')
@@ -243,6 +251,12 @@ export default function OportunidadesKanban({
 
   // Filtro de etapa vira "foco": mostra só a coluna escolhida (equivalência com o filtro da lista).
   const colunasVisiveis = ETAPAS_OPS.filter((e) => filtroEtapa === 'todas' || e.v === filtroEtapa)
+
+  // Auditor FC · flags de duplicata/valor-outlier calculadas sobre TODAS as oportunidades abertas (todas as
+  // colunas operacionais), para pegar repetição entre colunas. Lista pequena: recalcular por render é barato.
+  const flagsMap = flagsPorCard(
+    (pipe?.etapas ?? []).flatMap((e) => e.cards).map((c) => ({ id: c.id, cliente: c.cliente, titulo: c.titulo, valor_estimado: c.valor_estimado })),
+  )
 
   const totalEtapa = (etapa: string): { qtd: number; valor: number } => {
     const cards = cardsPorEtapa(etapa)
@@ -507,6 +521,26 @@ export default function OportunidadesKanban({
                           style={{ display: 'inline-block', fontSize: 12, color: DOURADO, marginTop: 3, textDecoration: 'none' }}>
                           <Phone size={12} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {c.cliente_telefone}
                         </a>
+                      )}
+                      {/* Auditor FC · selos: anexos (contagem) + alerta de duplicata/valor-outlier (não-bloqueante) */}
+                      {(anexosMap[c.id] > 0 || flagsMap[c.id]) && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, marginTop: 5 }}>
+                          {anexosMap[c.id] > 0 && (
+                            <span data-testid="card-oport-anexos" title={`${anexosMap[c.id]} anexo(s)`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 600, color: TEXTM, background: '#FAF7F2', border: `1px solid ${BORDA}`, borderRadius: 999, padding: '1px 7px' }}>
+                              <Paperclip size={11} aria-hidden /> {anexosMap[c.id]}
+                              <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_anexos" /></span>
+                            </span>
+                          )}
+                          {flagsMap[c.id] && (
+                            <span data-testid="card-oport-alerta"
+                              title={[flagsMap[c.id].duplicata ? 'possível duplicata (mesmo cliente e título)' : '', flagsMap[c.id].outlier ? 'valor fora do padrão das abertas' : ''].filter(Boolean).join(' · ')}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 600, color: '#7A5A0F', background: '#FBF0D8', border: '1px solid #E8C98A', borderRadius: 999, padding: '1px 7px' }}>
+                              <AlertTriangle size={11} aria-hidden /> {flagsMap[c.id].duplicata && flagsMap[c.id].outlier ? 'conferir' : flagsMap[c.id].duplicata ? 'duplicata?' : 'valor?'}
+                              <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_alerta" /></span>
+                            </span>
+                          )}
+                        </div>
                       )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6 }}>
                         {/* DELTA FC · valor DENTRO do card; nulo → estado claro ("sem valor estimado"), nunca "R$ 0,00" (parecia bug) */}
