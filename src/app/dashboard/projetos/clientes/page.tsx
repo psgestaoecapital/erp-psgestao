@@ -12,9 +12,10 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import Link from 'next/link'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { buscarCEP } from '@/lib/cadastros/buscarCEP'
-import { aplicarCEP, brlCurto, cepCompleto, comercialPorCliente, etapaPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, linkNovaOportunidade, obraRecenteCidadePorCliente, obraRecenteIdPorCliente, obraRecenteNomePorCliente, obraRecentePorCliente, obrasPorCliente, oportunidadesComObra, resultadoPorCliente, rotuloStatusObra, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type ObraResultadoLinha, type OpLinha, type ResultadoCliente, type TipoPF } from './clientes-regras'
+import { aplicarCEP, aplicarCNPJ, brlCurto, cepCompleto, cnpjCompleto, comercialPorCliente, etapaPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, linkNovaOportunidade, obraRecenteCidadePorCliente, obraRecenteIdPorCliente, obraRecenteNomePorCliente, obraRecentePorCliente, obrasPorCliente, oportunidadesComObra, resultadoPorCliente, rotuloStatusObra, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type ObraResultadoLinha, type OpLinha, type ResultadoCliente, type TipoPF } from './clientes-regras'
 import { cpfValido, soDigitosCpf } from '@/lib/documentos/cpf'
 import { cnpjValido, soDigitosCnpj } from '@/lib/documentos/cnpj'
+import { consultarCNPJ } from '@/lib/cadastros/buscarCNPJ'
 
 // Documento válido: PF exige CPF (11 díg. + DV), PJ exige CNPJ (14 díg. + DV). Vazio é permitido
 // (documento é opcional no cadastro); só um documento PREENCHIDO e inválido barra o salvar (correção de
@@ -95,6 +96,7 @@ export default function ClientesPage() {
   const [comercial, setComercial] = useState<Record<string, Comercial>>({})
   const [etapa, setEtapa] = useState<Record<string, string>>({})
   const [cepMsg, setCepMsg] = useState<string | null>(null)
+  const [docMsg, setDocMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
 
@@ -245,6 +247,22 @@ export default function ClientesPage() {
     setCepMsg(`Endereço do CEP: ${d.cidade}/${d.uf}`)
   }
 
+  // CNPJ completo (14 díg., só PJ) busca na Receita (BrasilAPI → ReceitaWS, rota interna /api/cnpj-lookup — o mesmo
+  // helper do cadastro central) e completa razão social, contato e endereço nos campos AINDA vazios (aplicarCNPJ nunca
+  // sobrescreve o que a pessoa já digitou). CPF (PF) não consulta. A guarda do documento atual evita aplicar o retorno
+  // de uma consulta antiga se o usuário já mudou o número no meio tempo (igual ao mudarCep).
+  async function mudarDoc(v: string) {
+    setForm((f) => (f ? { ...f, cpf_cnpj: v } : f))
+    if ((form?.tipo_pessoa ?? 'PJ') === 'PF' || !cnpjCompleto(v)) { setDocMsg(null); return }
+    const dig = soDigitosCnpj(v)
+    setDocMsg('Buscando dados do CNPJ na Receita…')
+    const r = await consultarCNPJ(dig)
+    if (r.status === 'nao_encontrado') { setDocMsg('CNPJ não encontrado — preencha os dados à mão.'); return }
+    if (r.status === 'indisponivel') { setDocMsg('Consulta de CNPJ indisponível agora — preencha à mão.'); return }
+    setForm((f) => (f && soDigitosCnpj(f.cpf_cnpj) === dig ? aplicarCNPJ(f, r.dados) : f))
+    setDocMsg(`Dados da Receita: ${r.dados.razao_social || r.dados.nome_fantasia || 'cadastro encontrado'}`)
+  }
+
   // Sem oportunidade: obra avulsa do cliente. Com a oportunidade ganha: a obra nasce com o título e o endereço da venda.
   async function novaObra(c: Cliente, op?: Oportunidade) {
     const nome = window.prompt(`Nome da obra para ${nomeOf(c)}:`, op?.titulo || `Obra ${nomeOf(c)}`)
@@ -292,7 +310,7 @@ export default function ClientesPage() {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
         <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome, documento, cidade, contato…" style={{ ...inp, flex: 1, minWidth: 200 }} />
         <AjudaCampo chave="projetos.clientes.busca" />
-        <button onClick={() => { setCepMsg(null); setForm({ ...VAZIO }) }} style={btnGold}>+ Novo cliente</button>
+        <button onClick={() => { setCepMsg(null); setDocMsg(null); setForm({ ...VAZIO }) }} style={btnGold}>+ Novo cliente</button>
         <AjudaCampo chave="projetos.clientes.acao.novo" />
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
@@ -373,7 +391,7 @@ export default function ClientesPage() {
                   auditor pega a lista fechada, então os botões precisam aparecer aqui, não só no detalhe. stopPropagation
                   para o clique não alternar o card. Excluir pede confirmação (arquiva — obras e histórico preservados). */}
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', borderTop: `0.5px solid ${LINE}`, padding: '7px 14px', fontSize: 12 }}>
-                <button onClick={(e) => { e.stopPropagation(); setCepMsg(null); setForm({ ...c, tipo_pessoa: tipo, cpf_cnpj: c.cpf_cnpj || c.cnpj_cpf || '' }) }} data-testid="hub-cliente-editar" style={{ background: 'none', border: 'none', color: GOLD_D, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Editar</button>
+                <button onClick={(e) => { e.stopPropagation(); setCepMsg(null); setDocMsg(null); setForm({ ...c, tipo_pessoa: tipo, cpf_cnpj: c.cpf_cnpj || c.cnpj_cpf || '' }) }} data-testid="hub-cliente-editar" style={{ background: 'none', border: 'none', color: GOLD_D, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Editar</button>
                 <AjudaCampo chave="projetos.clientes.acao.editar" />
                 <button onClick={(e) => { e.stopPropagation(); void excluir(c) }} data-testid="hub-cliente-excluir" style={{ background: 'none', border: 'none', color: RED, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Excluir</button>
                 <AjudaCampo chave="projetos.clientes.acao.excluir" />
@@ -438,7 +456,7 @@ export default function ClientesPage() {
 
             <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center' }}>
               {(['PJ', 'PF'] as const).map((t) => (
-                <button key={t} onClick={() => setForm({ ...form, tipo_pessoa: t })} style={{ flex: 1, padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: `1px solid ${form.tipo_pessoa === t ? GOLD : LINE}`, background: form.tipo_pessoa === t ? 'rgba(200,148,26,0.10)' : '#FFF', color: form.tipo_pessoa === t ? GOLD_D : MUT }}>
+                <button key={t} onClick={() => { setDocMsg(null); setForm({ ...form, tipo_pessoa: t }) }} style={{ flex: 1, padding: '9px 0', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: `1px solid ${form.tipo_pessoa === t ? GOLD : LINE}`, background: form.tipo_pessoa === t ? 'rgba(200,148,26,0.10)' : '#FFF', color: form.tipo_pessoa === t ? GOLD_D : MUT }}>
                   {t === 'PJ' ? 'Pessoa jurídica' : 'Pessoa física'}
                 </button>
               ))}
@@ -447,12 +465,19 @@ export default function ClientesPage() {
 
             <Campo label={form.tipo_pessoa === 'PF' ? 'Nome completo *' : 'Nome fantasia *'} ajuda="projetos.clientes.nome" v={form.nome_fantasia ?? ''} on={(v) => setForm({ ...form, nome_fantasia: v })} />
             {form.tipo_pessoa === 'PJ' && <Campo label="Razão social" ajuda="projetos.clientes.razao_social" v={form.razao_social ?? ''} on={(v) => setForm({ ...form, razao_social: v })} />}
-            <Campo label={docLabel(form.tipo_pessoa ?? 'PJ')} ajuda="projetos.clientes.documento" v={form.cpf_cnpj ?? ''} on={(v) => setForm({ ...form, cpf_cnpj: v })} />
+            <Campo label={docLabel(form.tipo_pessoa ?? 'PJ')} ajuda="projetos.clientes.documento" v={form.cpf_cnpj ?? ''} on={(v) => { void mudarDoc(v) }} />
             {docInvalido(form.tipo_pessoa, form.cpf_cnpj) && (
               <div data-testid="hub-cliente-doc-invalido" style={{ fontSize: 11, color: RED, margin: '-4px 0 8px' }}>
                 {docLabel(form.tipo_pessoa ?? 'PJ')} inválido — confira os números.
               </div>
             )}
+            {/* CNPJ auto-preenche na Receita: hint discreto (PJ sem documento ainda) + feedback vivo da consulta.
+                Some quando há o aviso de documento inválido, para não empilhar mensagens no mesmo campo. */}
+            {!docInvalido(form.tipo_pessoa, form.cpf_cnpj) && (docMsg
+              ? <div data-testid="hub-cliente-doc-msg" style={{ fontSize: 11, color: MUT, margin: '-4px 0 8px' }}>{docMsg}</div>
+              : (form.tipo_pessoa ?? 'PJ') !== 'PF' && !cnpjCompleto(form.cpf_cnpj) && (
+                <div style={{ fontSize: 11, color: MUT, margin: '-4px 0 8px' }}>Digite o CNPJ completo e buscamos razão social, contato e endereço na Receita.</div>
+              ))}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 140 }}><Campo label="Telefone" ajuda="projetos.clientes.telefone" v={form.telefone ?? ''} on={(v) => setForm({ ...form, telefone: v })} /></div>
               <div style={{ flex: 1, minWidth: 140 }}><Campo label="E-mail" ajuda="projetos.clientes.email" v={form.email ?? ''} on={(v) => setForm({ ...form, email: v })} /></div>
