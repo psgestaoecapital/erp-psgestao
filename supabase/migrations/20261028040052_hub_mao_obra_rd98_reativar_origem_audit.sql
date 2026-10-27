@@ -160,3 +160,9 @@ SELECT p.c, 'perfil', f.id, 'Ajudante de obra (exemplo — inativado)', 1800, 17
   JOIN LATERAL (SELECT id FROM public.erp_funcao_mao_obra WHERE company_id = p.c AND ativo ORDER BY nome LIMIT 1) f ON true
  WHERE NOT EXISTS (SELECT 1 FROM public.erp_mao_obra_custo e
                     WHERE e.company_id = p.c AND e.tipo = 'perfil' AND e.descricao = 'Ajudante de obra (exemplo — inativado)');
+
+-- Permissões (gate check-fn-guards): a função não fica aberta ao anon nem ao PUBLIC.
+REVOKE ALL ON FUNCTION public.fn_mao_obra_ficha_encerrar(uuid, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_mao_obra_ficha_encerrar(uuid, date, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_mao_obra_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_mao_obra_listar(uuid) TO authenticated;
