@@ -584,7 +584,16 @@ export default function InsumosPage() {
       hiddenOnMobile: true,
       render: (i) => {
         if (i.variacao_pct === null || i.variacao_pct === undefined || i.variacao_pct === 0) {
-          return <span className="text-[#3D2314]/40">—</span>;
+          // Estado-vazio explicado: a variação compara o preço atual com o da compra anterior;
+          // sem um segundo preço no histórico não há o que comparar (não é erro de leitura).
+          return (
+            <span
+              className="text-[#3D2314]/40"
+              title="Sem variação: é preciso ao menos dois preços (compra anterior e atual) para comparar"
+            >
+              —
+            </span>
+          );
         }
         const positiva = i.variacao_pct > 0;
         return (
@@ -605,7 +614,16 @@ export default function InsumosPage() {
       hiddenOnMobile: true,
       render: (i) => {
         const v = vinculos[i.id];
-        if (!v) return <span className="text-xs text-[#3D2314]/40">sem ligação</span>;
+        // Sem vínculo: nunca deixar a coluna muda — oferecer a ação de ligar ali mesmo (estado-vazio com CTA).
+        if (!v) return (
+          <button
+            onClick={(e) => { e.stopPropagation(); abrirEstoque(i); }}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-[#C8941A] hover:bg-[#C8941A]/10"
+            title="Ligar este insumo a um produto do estoque do GE para puxar o custo real"
+          >
+            <Link2 size={11} /> Ligar ao estoque
+          </button>
+        );
         // Divergência: preço do catálogo (current_cost) vs custo real do estoque. >1% = alerta.
         const cat = Number(i.current_cost ?? 0);
         const est = Number(v.custo_estoque ?? 0);
