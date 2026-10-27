@@ -167,6 +167,7 @@ AS $function$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF NOT NEW.arquivada
+       AND COALESCE(NEW.enviado_por, '') NOT LIKE 'sistema ·%'
        AND NOT ( NEW.tipo = 'tarefa' AND NEW.para IN (
            'dev7claudeps','desenvolvedor_4_g','desenvolvedor_5_g','desenvolvedor_6_g',
            'code-desenvolvedor-3','gilberto-produto','gilberto-desenv',
