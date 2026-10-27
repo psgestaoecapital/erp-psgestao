@@ -43,7 +43,16 @@ CREATE INDEX IF NOT EXISTS erp_agente_mensagem_sugestao_idx ON public.erp_agente
 -- o agente de sócio passa a poder receber TAREFA (os demais sócios continuam só com aviso)
 ALTER TABLE public.erp_agente_mensagem DROP CONSTRAINT IF EXISTS erp_agente_mensagem_socio_so_aviso;
 ALTER TABLE public.erp_agente_mensagem ADD CONSTRAINT erp_agente_mensagem_socio_so_aviso
-  CHECK (tipo = 'aviso' OR para = ANY (ARRAY['gilberto-desenv','gilberto-produto','gilberto-chamados','rodrigo-code']));
+  CHECK (
+    (tipo = 'aviso')
+    OR (para = ANY (ARRAY[
+      'gilberto-desenv', 'gilberto-produto', 'gilberto-automotivo', 'gilberto-industria',
+      'gilberto-chamados', 'teste-despertador', 'desenvolvedor_4_g', 'desenvolvedor_5_g',
+      'desenvolvedor_6_g', 'auditor_pdca_g', 'dev7claudeps', 'aud8claudeps', 'rodrigo-code'
+    ]))
+    OR (de ~ '^[a-z][a-z0-9]*-chat$')
+    OR (de = 'eng_chefe')
+  );
 
 -- 3) escopo ----------------------------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn__agente_escopo_chamado_i(p_agente text, p_chamado uuid)
@@ -159,10 +168,16 @@ CREATE OR REPLACE FUNCTION public.fn_agente_mensagem_trg_acionar()
 AS $function$
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    IF NOT NEW.arquivada AND COALESCE(NEW.enviado_por, '') NOT LIKE 'sistema ·%' THEN PERFORM public.fn_agente_acionar(NEW.id); END IF;
+    IF NOT NEW.arquivada
+       AND COALESCE(NEW.enviado_por, '') NOT LIKE 'sistema ·%'
+       AND NOT ( NEW.tipo = 'tarefa' AND NEW.para IN (
+           'dev7claudeps','desenvolvedor_4_g','desenvolvedor_5_g','desenvolvedor_6_g',
+           'code-desenvolvedor-3','gilberto-produto','gilberto-desenv',
+           'gilberto-automotivo','gilberto-industria') )
+    THEN PERFORM public.fn__agente_acionar(NEW.id); END IF;
   ELSIF TG_OP = 'UPDATE' THEN
     IF NEW.requer_ok_ceo AND OLD.ok_ceo_em IS NULL AND NEW.ok_ceo_em IS NOT NULL AND NOT NEW.arquivada THEN
-      PERFORM public.fn_agente_acionar(NEW.id);
+      PERFORM public.fn__agente_acionar(NEW.id);
     END IF;
   END IF;
   RETURN NULL;
