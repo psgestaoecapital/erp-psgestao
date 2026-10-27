@@ -1,6 +1,6 @@
 'use client'
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react'
-import { ChevronLeft, ChevronRight, Clock, FileText, Link2, Pencil, Phone, Trash2, User } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock, FileText, Link2, Paperclip, Pencil, Phone, Trash2, User } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
@@ -66,6 +66,7 @@ type Card = {
   responsavel_nome?: string | null  // DELTA FC · fallback do texto legado (forward-compatible; usado se o RPC passar a enviá-lo)
   ordem: number | null
   data_prevista: string | null
+  anexos?: number  // contagem de anexos (fn_crm_pipeline) — badge no card
 }
 type Etapa = {
   etapa: string
@@ -240,6 +241,25 @@ export default function OportunidadesKanban({
   }
   const cardsPorEtapa = (etapa: string): Card[] =>
     (pipe?.etapas?.find((e) => e.etapa === etapa)?.cards ?? []).filter(cardVisivel)
+
+  // Alerta de card suspeito (caso Tryo R$ 3,5 mi): outlier = valor > 5× a mediana das abertas; duplicata = mesmo
+  // cliente com outro card de mesmo título ou mesmo valor. Calculado na tela (não grava nada), por id do card.
+  const alertas = useMemo(() => {
+    const todos = (pipe?.etapas ?? []).flatMap((e) => e.cards)
+    const valores = todos.map((c) => Number(c.valor_estimado ?? 0)).filter((v) => v > 0).sort((a, b) => a - b)
+    let mediana = 0
+    if (valores.length) { const m = Math.floor(valores.length / 2); mediana = valores.length % 2 ? valores[m] : (valores[m - 1] + valores[m]) / 2 }
+    const chNome = (c: Card) => (c.cliente || c.titulo || '').trim().toUpperCase()
+    const m = new Map<string, { outlier: boolean; duplicata: boolean }>()
+    for (const c of todos) {
+      const outlier = valores.length >= 4 && mediana > 0 && c.valor_estimado != null && c.valor_estimado > mediana * 5
+      const duplicata = todos.some((o) => o.id !== c.id && chNome(o) === chNome(c) && chNome(c) !== ''
+        && (((o.titulo ?? '').toUpperCase() === (c.titulo ?? '').toUpperCase() && (c.titulo ?? '') !== '')
+          || (c.valor_estimado != null && Number(o.valor_estimado) === c.valor_estimado)))
+      if (outlier || duplicata) m.set(c.id, { outlier, duplicata })
+    }
+    return m
+  }, [pipe])
 
   // Filtro de etapa vira "foco": mostra só a coluna escolhida (equivalência com o filtro da lista).
   const colunasVisiveis = ETAPAS_OPS.filter((e) => filtroEtapa === 'todas' || e.v === filtroEtapa)
@@ -516,11 +536,21 @@ export default function OportunidadesKanban({
                           <span style={{ fontSize: 13, fontWeight: 700, color: DOURADO, fontVariantNumeric: 'tabular-nums' }}>{brl(c.valor_estimado)}</span>
                         )}
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          {/* badge de anexo no card (antes só na ficha/detalhe): nº de anexos da oportunidade (fn_crm_pipeline) */}
+                          {(c.anexos ?? 0) > 0 && <span data-testid="card-oport-anexos" title={`${c.anexos} anexo(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11.5, color: TEXTM, fontWeight: 600 }}><Paperclip size={11} aria-hidden />{c.anexos}</span>}
                           {c.probabilidade != null && <span style={probBadge}>{c.probabilidade}%</span>}
                           {/* o "?" fica fora do clique/Enter do card (senão abriria a ficha) */}
                           <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card" /></span>
                         </span>
                       </div>
+                      {/* alerta de card suspeito (outlier/duplicata) — não bloqueia, só sinaliza para conferência (caso Tryo) */}
+                      {alertas.get(c.id) && (
+                        <div data-testid="card-oport-alerta" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, padding: '2px 8px', borderRadius: 999, background: '#FBF3E0', border: '1px solid #E6CE97', color: '#8A5A00', fontSize: 11, fontWeight: 700 }}>
+                          <AlertTriangle size={11} aria-hidden />
+                          {alertas.get(c.id)!.duplicata && alertas.get(c.id)!.outlier ? 'Conferir: duplicata e valor atípico' : alertas.get(c.id)!.duplicata ? 'Possível duplicata' : 'Valor atípico'}
+                          <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_alerta" /></span>
+                        </div>
+                      )}
                       {/* DELTA FC · responsável em TODO card: nomeResp(id) → texto legado → "Sem responsável" (nunca ocultar) */}
                       <div style={{ fontSize: 11, color: TEXTM, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                         <User size={12} aria-hidden />
