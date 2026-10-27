@@ -19,6 +19,7 @@ const STATUS: Record<string, { rotulo: string; cor: string; fundo: string }> = {
   pausada: { rotulo: 'Pausada', cor: '#6B5B4D', fundo: 'rgba(61,35,20,0.07)' },
   cancelada: { rotulo: 'Cancelada', cor: '#B91C1C', fundo: 'rgba(185,28,28,0.08)' },
 }
+const ATALHOS = [{ rota: 'cronograma', rotulo: 'Cronograma' }, { rota: 'horas', rotulo: 'Horas' }, { rota: 'linha-do-tempo', rotulo: 'Linha do tempo' }]
 const situacao = (s: string) => STATUS[s] ?? { rotulo: s, cor: GOLD, fundo: 'rgba(200,148,26,0.12)' }
 
 type ObraLinha = {
@@ -78,11 +79,11 @@ export default function CockpitEscolherObraPage() {
     })
   }, [obras, info, busca, filtroStatus])
 
-  const atrasadas = obras.filter(o => o.status === 'em_andamento' && info[o.obra_id]?.data_prevista_fim && (info[o.obra_id]!.data_prevista_fim as string) < hoje).length
+  const atrasadas = filtradas.filter(o => o.status === 'em_andamento' && info[o.obra_id]?.data_prevista_fim && (info[o.obra_id]!.data_prevista_fim as string) < hoje).length
   const resumo = [
-    { k: 'Obras', v: String(obras.length), chave: 'projetos.cockpit.kpi_obras' },
-    { k: 'Em andamento', v: String(obras.filter(o => o.status === 'em_andamento').length), chave: 'projetos.cockpit.kpi_andamento' },
-    { k: 'Margem realizada', v: brl(obras.reduce((t, o) => t + num(o.margem_realizada), 0)), chave: 'projetos.cockpit.kpi_margem' },
+    { k: 'Obras', v: filtradas.length === obras.length ? String(obras.length) : `${filtradas.length} de ${obras.length}`, chave: 'projetos.cockpit.kpi_obras' },
+    { k: 'Em andamento', v: String(filtradas.filter(o => o.status === 'em_andamento').length), chave: 'projetos.cockpit.kpi_andamento' },
+    { k: 'Margem realizada', v: brl(filtradas.reduce((t, o) => t + num(o.margem_realizada), 0)), chave: 'projetos.cockpit.kpi_margem' },
     { k: 'Com prazo vencido', v: String(atrasadas), chave: 'projetos.cockpit.kpi_atrasadas' },
   ]
 
@@ -116,6 +117,7 @@ export default function CockpitEscolherObraPage() {
             </select>
             <AjudaCampo chave="projetos.cockpit.filtro_situacao" rota={ROTA} />
           </div>
+          <div style={{ color: MUT, fontSize: 12, marginBottom: 10 }} data-testid="cockpit-contagem">Mostrando {filtradas.length} de {obras.length} obras — os indicadores acima somam exatamente as obras listadas abaixo.</div>
           {filtradas.length === 0 && <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra encontrada com esse filtro.</div>}
         </>
       )}
@@ -129,8 +131,9 @@ export default function CockpitEscolherObraPage() {
           const vencida = o.status === 'em_andamento' && !!i?.data_prevista_fim && i.data_prevista_fim < hoje
           const st = situacao(o.status)
           return (
-            <Link key={o.obra_id} href={`/dashboard/projetos/obras/${o.obra_id}/cockpit?area=hub`} data-testid="cockpit-obra-link"
-              style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px', textDecoration: 'none', color: ESP, display: 'block' }}>
+            <div key={o.obra_id} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px' }}>
+            <Link href={`/dashboard/projetos/obras/${o.obra_id}/cockpit?area=hub`} data-testid="cockpit-obra-link"
+              style={{ textDecoration: 'none', color: ESP, display: 'block' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{o.numero}</div>
                 <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: st.cor, background: st.fundo, border: `1px solid ${st.cor}`, borderRadius: 999, padding: '2px 9px' }}>{st.rotulo}</span>
@@ -149,6 +152,14 @@ export default function CockpitEscolherObraPage() {
                 Prazo: {i?.data_prevista_fim ? new Date(i.data_prevista_fim + 'T12:00:00').toLocaleDateString('pt-BR') : 'não definido'}{vencida ? ' · vencido' : ''} <AjudaCampo chave="projetos.cockpit.card_prazo" rota={ROTA} />
               </div>
             </Link>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: `1px solid ${LINE}` }} data-testid="cockpit-atalhos">
+                {ATALHOS.map(a => (
+                  <Link key={a.rota} href={`/dashboard/projetos/obras/${o.obra_id}/${a.rota}?area=hub`}
+                    style={{ fontSize: 12, fontWeight: 600, color: ESP, border: `1px solid ${LINE}`, borderRadius: 999, padding: '3px 10px', textDecoration: 'none' }}>{a.rotulo}</Link>
+                ))}
+                <AjudaCampo chave="projetos.cockpit.card_atalhos" rota={ROTA} />
+              </div>
+            </div>
           )
         })}
       </div>

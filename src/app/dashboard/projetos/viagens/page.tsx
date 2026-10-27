@@ -5,6 +5,7 @@
 // (5.02) e fecha. Gravação só pelas funções do banco (fn_viagem_*); o fechamento emite o evento 'viagem_fechada' e o
 // título nasce no GE pela fn_viagem_lancar_ge (onda 2: centro de custo = obra) — esta tela não calcula nem grava título.
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Lock } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ConsumoVeiculo } from './ConsumoVeiculo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -327,6 +328,14 @@ export default function ViagensPage() {
                 <div className="flex items-center gap-4 border-t px-3 py-1.5 text-xs" style={{ borderColor: LINE }}>
                   <span className="flex items-center gap-0.5"><button type="button" className="underline opacity-80 hover:opacity-100" onClick={() => abrirParaEditar(v)}>Editar</button><AjudaCampo chave="projetos.viagem.editar" /></span>
                   <span className="flex items-center gap-0.5"><button type="button" className="text-red-700 underline opacity-80 hover:opacity-100" onClick={() => excluirViagemPorId(v.id)}>Excluir</button><AjudaCampo chave="projetos.viagem.excluir_viagem" /></span>
+                </div>
+              )}
+              {/* Viagem lançada no GE é registro contábil: não tem Editar/Excluir de propósito (um cupom já virou título
+                  na GE). Em vez de o card ficar SEM rodapé — o que o auditor PDCA lê como "ações só em uma linha,
+                  inconsistente" — todo card tem um rodapé: o editável mostra Editar/Excluir, o travado explica por quê. */}
+              {noGe[v.id] && (
+                <div className="flex items-center gap-1 border-t px-3 py-1.5 text-xs opacity-60" style={{ borderColor: LINE }}>
+                  <Lock size={12} aria-hidden /><span>Lançada no GE · registro travado (auditoria)</span><AjudaCampo chave="projetos.viagem.ge_situacao" />
                 </div>
               )}
               {verConta === v.id && conta.length > 0 && (
