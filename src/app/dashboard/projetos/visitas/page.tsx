@@ -385,14 +385,14 @@ export default function VisitasPage() {
                 <div className="min-w-0">
                   <div className="font-semibold" style={{ color: ESPRESSO }}>{fmtDT(r.data_visita)}</div>
                   {op && (
-                    <div className="text-sm" style={{ color: TEXTM }}>
+                    <div className="text-sm break-words" style={{ color: TEXTM }}>
                       <Link href={`/dashboard/projetos/oportunidades/${op.id}`} style={{ color: DOURADO, textDecoration: 'underline' }}>
                         {op.titulo}
                       </Link>
                       {cliNome && <span> · {cliNome}</span>}
                     </div>
                   )}
-                  {r.endereco && <div className="text-xs" style={{ color: TEXTM }}>{r.endereco}</div>}
+                  {r.endereco && <div className="text-xs break-words" style={{ color: TEXTM }}>{r.endereco}</div>}
                 </div>
                 <span className="text-[11px] px-2 py-1 rounded-full font-medium" style={{ background: cfg.bg, color: cfg.fg }}>
                   {cfg.l}
