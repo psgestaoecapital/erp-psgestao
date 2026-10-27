@@ -394,7 +394,7 @@ WHERE NOT EXISTS (SELECT 1 FROM public.module_catalog WHERE id = 'projetos_frota
 INSERT INTO public.system_screens (id, area, rota, titulo, descricao_funcional, estado_real, prioridade_monitoramento, auditavel_robo,
                                    views_consumidas, rpcs_chamadas)
 SELECT 'dashboard.projetos_frota', 'hub_construcao', '/dashboard/projetos/frota', 'Controle de frota',
-       'Veículos, plano de manutenção preventiva por km e histórico. Km e consumo vêm das viagens lançadas.', 'parcial', 'normal', true,
+       'Veículos, plano de manutenção preventiva por km e histórico. Km e consumo vêm das viagens lançadas.', 'parcial', 'media', true,
        ARRAY['erp_viagem', 'erp_viagem_lancamento', 'erp_hub_frota_veiculo', 'erp_hub_frota_manutencao_plano', 'erp_hub_frota_manutencao_registro'],
        ARRAY['fn_hub_frota_indicadores', 'fn_hub_frota_veiculo_salvar', 'fn_hub_frota_veiculo_excluir', 'fn_hub_frota_veiculo_restaurar',
              'fn_hub_frota_manutencao_plano_salvar', 'fn_hub_frota_manutencao_registrar', 'fn_hub_frota_manutencao_excluir']
