@@ -537,8 +537,8 @@ export default function OportunidadesKanban({
                         )}
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                           {/* badge de anexo no card (antes só na ficha/detalhe): nº de anexos da oportunidade (fn_crm_pipeline) */}
-                          {(c.anexos ?? 0) > 0 && <span data-testid="card-oport-anexos" title={`${c.anexos} anexo(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11.5, color: TEXTM, fontWeight: 600 }}><Paperclip size={11} aria-hidden />{c.anexos}</span>}
-                          {c.probabilidade != null && <span style={probBadge}>{c.probabilidade}%</span>}
+                          {(c.anexos ?? 0) > 0 && <span data-testid="card-oport-anexos" title={`${c.anexos} anexo(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11.5, color: TEXTM, fontWeight: 600 }}><Paperclip size={11} aria-hidden />{c.anexos}<span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_anexos" /></span></span>}
+                          {c.probabilidade != null && <span style={probBadge}>{c.probabilidade}%<span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_probabilidade" /></span></span>}
                           {/* o "?" fica fora do clique/Enter do card (senão abriria a ficha) */}
                           <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card" /></span>
                         </span>

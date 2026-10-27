@@ -6,7 +6,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, FileUp, HardHat, Plus, Users, UserPlus, Link2, History, Lock, CheckCircle2, AlertTriangle, X } from "lucide-react";
+import { Download, FileUp, HardHat, Plus, Users, UserPlus, Link2, History, Lock, CheckCircle2, AlertTriangle, X, Ban, RotateCcw } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabase } from "@/lib/supabase";
 import ImportarMaoObraModal from "@/components/projetos/ImportarMaoObraModal";
@@ -246,7 +246,15 @@ export default function MaoObraPage() {
                     {pode && f.custo?.origem === "sem_dado" && <><button className="text-[12px] underline mr-2 text-[#C8941A]" data-testid="mao-obra-funcao-add-pessoas" onClick={() => { setAba("equipe"); setModal({ tipo: "ficha", modo: "perfil" }); }}><UserPlus size={12} className="inline" /> Adicionar pessoas</button><AjudaCampo chave="projetos.mao_obra.acao.novo_perfil" /></>}
                     {pode && <>
                       <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "funcao", f })}>Editar</button><AjudaCampo chave="projetos.mao_obra.acao.editar_funcao" />
-                      <button className="text-[12px] underline" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button><AjudaCampo chave="projetos.mao_obra.acao.unir_funcao" />
+                      <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button><AjudaCampo chave="projetos.mao_obra.acao.unir_funcao" />
+                      <button
+                        className={`text-[12px] underline ${f.ativo ? "text-[#791F1F]" : "text-[#2F5A1F]"}`}
+                        data-testid="mao-obra-funcao-inativar"
+                        onClick={() => {
+                          if (f.ativo && !confirm(`Inativar a função "${f.nome}"?\n\nEla sai do uso ativo (some do cálculo e dos seletores de função), mas o histórico é preservado e você pode reativar quando quiser.`)) return;
+                          void rpc("fn_mao_obra_funcao_inativar", { p_company_id: companyId, p_id: f.id, p_inativar: f.ativo }, f.ativo ? `Função ${f.nome} inativada — fora do custo ativo, histórico preservado.` : `Função ${f.nome} reativada.`);
+                        }}
+                      >{f.ativo ? <><Ban size={12} className="inline" /> Inativar</> : <><RotateCcw size={12} className="inline" /> Reativar</>}</button><AjudaCampo chave="projetos.mao_obra.acao.inativar_funcao" />
                     </>}
                   </td>
                 </tr>
