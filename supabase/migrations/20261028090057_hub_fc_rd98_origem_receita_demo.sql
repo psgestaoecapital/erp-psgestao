@@ -67,3 +67,5 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'obras_com_receita', v_n);
 END $function$;
 REVOKE ALL ON FUNCTION public.fn_demo_seed_construtora_receita(uuid) FROM PUBLIC, anon, authenticated;
+
+SELECT public.fn_demo_seed_construtora_receita('b0700000-0000-4000-a000-000000000006');
