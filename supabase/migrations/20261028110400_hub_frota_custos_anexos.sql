@@ -403,6 +403,66 @@ BEGIN
 END
 $function$;
 
+-- Veículo: salvar passa a gravar os campos novos (cadastro "Mais dados" e CRLV). Mesma assinatura da versão de #5166.
+CREATE OR REPLACE FUNCTION public.fn_hub_frota_veiculo_salvar(p_company_id uuid, p_id uuid, p_dados jsonb)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE v_id uuid; v_placa text; v_crlv text;
+BEGIN
+  PERFORM public.fn__guarda_empresa(p_company_id);
+  v_placa := upper(regexp_replace(coalesce(p_dados->>'placa', ''), '[^A-Za-z0-9]', '', 'g'));
+  IF length(v_placa) < 6 THEN RAISE EXCEPTION 'Informe a placa do veículo (ex.: ABC1D23 ou ABC1234).'; END IF;
+  v_crlv := nullif(btrim(p_dados->>'crlv_path'), '');
+  IF NOT public.fn__frota_anexo_ok(p_company_id, v_crlv) THEN RAISE EXCEPTION 'Anexo fora da pasta desta empresa.'; END IF;
+  IF p_id IS NULL THEN
+    INSERT INTO public.erp_hub_frota_veiculo (company_id, placa, modelo, marca, ano, tipo, chassi, renavam, km_inicial, observacao,
+                                              versao, cor, combustivel, cambio, potencia_cv, lugares, ncm, valor_aquisicao,
+                                              data_entrada, fornecedor_nome, crlv_path, tem_manual, tem_chave_reserva)
+    VALUES (p_company_id, v_placa,
+            nullif(btrim(p_dados->>'modelo'), ''), nullif(btrim(p_dados->>'marca'), ''),
+            nullif(p_dados->>'ano', '')::integer, coalesce(nullif(p_dados->>'tipo', ''), 'carro'),
+            nullif(btrim(p_dados->>'chassi'), ''), nullif(btrim(p_dados->>'renavam'), ''),
+            coalesce(nullif(p_dados->>'km_inicial', '')::numeric, 0), nullif(btrim(p_dados->>'observacao'), ''),
+            nullif(btrim(p_dados->>'versao'), ''), nullif(btrim(p_dados->>'cor'), ''),
+            nullif(btrim(p_dados->>'combustivel'), ''), nullif(btrim(p_dados->>'cambio'), ''),
+            nullif(p_dados->>'potencia_cv', '')::integer, nullif(p_dados->>'lugares', '')::integer,
+            nullif(btrim(p_dados->>'ncm'), ''), nullif(p_dados->>'valor_aquisicao', '')::numeric,
+            nullif(p_dados->>'data_entrada', '')::date, nullif(btrim(p_dados->>'fornecedor_nome'), ''),
+            v_crlv, coalesce((p_dados->>'tem_manual')::boolean, false), coalesce((p_dados->>'tem_chave_reserva')::boolean, false))
+    RETURNING id INTO v_id;
+    INSERT INTO audit_log_global (company_id, user_id, tabela, registro_id, acao, valor_novo)
+      VALUES (p_company_id, auth.uid(), 'erp_hub_frota_veiculo', v_id::text, 'criar', jsonb_build_object('placa', v_placa));
+  ELSE
+    UPDATE public.erp_hub_frota_veiculo SET
+      placa = v_placa, modelo = nullif(btrim(p_dados->>'modelo'), ''), marca = nullif(btrim(p_dados->>'marca'), ''),
+      ano = nullif(p_dados->>'ano', '')::integer, tipo = coalesce(nullif(p_dados->>'tipo', ''), tipo),
+      chassi = nullif(btrim(p_dados->>'chassi'), ''), renavam = nullif(btrim(p_dados->>'renavam'), ''),
+      km_inicial = coalesce(nullif(p_dados->>'km_inicial', '')::numeric, km_inicial),
+      observacao = nullif(btrim(p_dados->>'observacao'), ''),
+      versao = nullif(btrim(p_dados->>'versao'), ''), cor = nullif(btrim(p_dados->>'cor'), ''),
+      combustivel = nullif(btrim(p_dados->>'combustivel'), ''), cambio = nullif(btrim(p_dados->>'cambio'), ''),
+      potencia_cv = nullif(p_dados->>'potencia_cv', '')::integer, lugares = nullif(p_dados->>'lugares', '')::integer,
+      ncm = nullif(btrim(p_dados->>'ncm'), ''), valor_aquisicao = nullif(p_dados->>'valor_aquisicao', '')::numeric,
+      data_entrada = nullif(p_dados->>'data_entrada', '')::date, fornecedor_nome = nullif(btrim(p_dados->>'fornecedor_nome'), ''),
+      crlv_path = coalesce(v_crlv, crlv_path),
+      tem_manual = coalesce((p_dados->>'tem_manual')::boolean, tem_manual),
+      tem_chave_reserva = coalesce((p_dados->>'tem_chave_reserva')::boolean, tem_chave_reserva),
+      atualizado_em = now()
+     WHERE id = p_id AND company_id = p_company_id AND excluido_em IS NULL
+    RETURNING id INTO v_id;
+    IF v_id IS NULL THEN RAISE EXCEPTION 'Veículo não encontrado (ou já excluído).'; END IF;
+    INSERT INTO audit_log_global (company_id, user_id, tabela, registro_id, acao, valor_novo)
+      VALUES (p_company_id, auth.uid(), 'erp_hub_frota_veiculo', v_id::text, 'editar', jsonb_build_object('placa', v_placa));
+  END IF;
+  RETURN v_id;
+END
+$function$;
+REVOKE ALL ON FUNCTION public.fn_hub_frota_veiculo_salvar(uuid, uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hub_frota_veiculo_salvar(uuid, uuid, jsonb) TO authenticated, service_role;
+
 REVOKE ALL ON FUNCTION public.fn__frota_anexo_ok(uuid, text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.fn_hub_frota_custo_salvar(uuid, uuid, jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_hub_frota_custo_salvar(uuid, uuid, jsonb) TO authenticated, service_role;
@@ -460,6 +520,34 @@ SELECT * FROM (VALUES
   ('projetos.frota.cambio', '/dashboard/projetos/frota', 'Frota', 'Câmbio',
    'Manual ou automático (opcional).', 'Ficha técnica do veículo.', 'Manual', 'Confundir com o tipo de combustível.', 'hub', 943, 1, 'publicado'),
   ('projetos.frota.combustivel', '/dashboard/projetos/frota', 'Frota', 'Combustível',
-   'Diesel, gasolina, flex, etanol ou elétrico (opcional).', 'Ficha técnica do veículo.', 'Diesel', 'Escrever o tipo de óleo no campo.', 'hub', 944, 1, 'publicado')
+   'Diesel, gasolina, flex, etanol ou elétrico (opcional).', 'Ficha técnica do veículo.', 'Diesel', 'Escrever o tipo de óleo no campo.', 'hub', 944, 1, 'publicado'),
+  ('projetos.frota.versao', '/dashboard/projetos/frota', 'Frota', 'Versão',
+   'A versão ou acabamento do modelo (opcional).', 'Ficha técnica do veículo.', 'LT 1.4 Flex', 'Repetir o nome do modelo.', 'hub', 945, 1, 'publicado'),
+  ('projetos.frota.cor', '/dashboard/projetos/frota', 'Frota', 'Cor',
+   'A cor do veículo (opcional).', 'Identifica o veículo na frota.', 'Branco', 'Usar a cor do estofado.', 'hub', 946, 1, 'publicado'),
+  ('projetos.frota.potencia', '/dashboard/projetos/frota', 'Frota', 'Potência (cv)',
+   'A potência do motor em cavalos (opcional).', 'Ficha técnica do veículo.', '98', 'Digitar em kW no lugar de cv.', 'hub', 947, 1, 'publicado'),
+  ('projetos.frota.lugares', '/dashboard/projetos/frota', 'Frota', 'Lugares',
+   'Quantas pessoas cabem no veículo (opcional).', 'Ficha técnica do veículo.', '5', 'Contar o motorista duas vezes.', 'hub', 948, 1, 'publicado'),
+  ('projetos.frota.ncm', '/dashboard/projetos/frota', 'Frota', 'NCM',
+   'Código NCM do veículo para a nota fiscal (opcional).', 'Ajuda a emitir e conferir notas do veículo.', '8703.23.10', 'Digitar o código do modelo em vez do NCM.', 'hub', 949, 1, 'publicado'),
+  ('projetos.frota.fornecedor_veiculo', '/dashboard/projetos/frota', 'Frota', 'Fornecedor do veículo',
+   'De quem a empresa comprou o veículo (opcional).', 'Histórico de compra do veículo.', 'Concessionária Centro', 'Colocar o fabricante no lugar do fornecedor.', 'hub', 950, 1, 'publicado'),
+  ('projetos.frota.manual', '/dashboard/projetos/frota', 'Frota', 'Tem manual',
+   'Marque se o manual do veículo está na empresa.', 'Checklist de entrega do veículo.', 'Marcado', 'Marcar sem o manual estar guardado.', 'hub', 951, 1, 'publicado'),
+  ('projetos.frota.chave_reserva', '/dashboard/projetos/frota', 'Frota', 'Tem chave reserva',
+   'Marque se a chave reserva está na empresa.', 'Checklist de entrega do veículo.', 'Marcado', 'Marcar sem a chave estar guardada.', 'hub', 952, 1, 'publicado'),
+  ('projetos.frota.custo_total', '/dashboard/projetos/frota', 'Frota', 'Custo total da frota',
+   'Soma dos custos de manutenção, combustível e os lançados na aba Custos (sem os excluídos).', 'Mostra quanto a frota custa no período.', 'R$ 48.300,00', 'Achar que falta custo: o custo de combustível vem das viagens com abastecimento.', 'hub', 958, 1, 'publicado'),
+  ('projetos.frota.custo_descricao','/dashboard/projetos/frota', 'Frota', 'Descrição do custo',
+   'O que foi feito ou comprado (opcional).', 'Ajuda a lembrar do gasto na consulta.', 'Troca de pneus dianteiros', 'Deixar em branco quando há várias despesas diferentes.', 'hub', 953, 1, 'publicado'),
+  ('projetos.frota.custo_fornecedor', '/dashboard/projetos/frota', 'Frota', 'Fornecedor do custo',
+   'Quem cobrou o custo (opcional).', 'Histórico de fornecedores do veículo.', 'Oficina do Zé', 'Colocar o nome do motorista.', 'hub', 954, 1, 'publicado'),
+  ('projetos.frota.custo_documento', '/dashboard/projetos/frota', 'Frota', 'Número da nota ou recibo',
+   'O número do documento fiscal ou recibo (opcional).', 'Facilita achar a nota depois.', 'NF 004521', 'Digitar a chave de acesso inteira.', 'hub', 955, 1, 'publicado'),
+  ('projetos.frota.doc_valor', '/dashboard/projetos/frota', 'Frota', 'Valor do documento',
+   'Quanto custa o documento, por exemplo o valor do IPVA ou do seguro (opcional).', 'Mostra o gasto anual com o documento.', '1.250,00', 'Colocar o valor da parcela no lugar do valor total.', 'hub', 956, 1, 'publicado'),
+  ('projetos.frota.doc_renovar', '/dashboard/projetos/frota', 'Frota', 'Novo vencimento',
+   'A nova data de vencimento depois da renovação.', 'Atualiza o alerta do documento.', '30/11/2027', 'Colocar a data em que a renovação foi feita.', 'hub', 957, 1, 'publicado')
 ) AS t(chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
 WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo e WHERE e.chave = t.chave);
