@@ -206,11 +206,15 @@ export default function OportunidadesPage() {
         <span className="inline-flex items-center gap-1"><button onClick={() => setEditing(null)} style={btnNovo}>+ Nova oportunidade</button><AjudaCampo chave="projetos.oportunidades.nova" /></span>
       </header>
 
+      {/* KPIs com ESCOPO explícito e que se CRUZAM (auditor PDCA 27/10: consistência 45 — "3 ganhas" x
+          "ganhas em outubro 1" x "pipeline 194k" x "ganhas 690k" pareciam se contradizer). Cada número diz de
+          onde vem: "em aberto" = funil ativo; "ganhas no mês" aponta o total; "pipeline" = a soma das abertas
+          (= soma das colunas do Kanban). Assim as bases (mês × total × aberto) ficam visíveis e batem (RD-38). */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4" style={{ maxWidth: 640 }}>
-        <Kpi titulo="Em aberto"     valor={String(nAberto)} ajuda="projetos.oportunidades.kpi_aberto" />
-        {/* rótulo nomeia o mês — "Ganhas no mês 0" parecia erro; as ganhas da Tryo são de agosto */}
-        <Kpi titulo={`Ganhas em ${mesAtual}`} valor={String(resumo?.ganhas_mes ?? 0)} ajuda="projetos.oportunidades.kpi_ganhas_mes" />
-        <Kpi titulo="Pipeline (R$)" valor={brl(resumo?.valor_pipeline)} destaque ajuda="projetos.oportunidades.kpi_pipeline" />
+        <Kpi titulo="Em aberto"     valor={String(nAberto)} sub="no funil ativo" ajuda="projetos.oportunidades.kpi_aberto" />
+        {/* rótulo nomeia o mês — "Ganhas no mês 0" parecia erro; o subtítulo liga ao total all-time (tile Ganhas) */}
+        <Kpi titulo={`Ganhas em ${mesAtual}`} valor={String(resumo?.ganhas_mes ?? 0)} sub={`de ${nGanhas} no total`} ajuda="projetos.oportunidades.kpi_ganhas_mes" />
+        <Kpi titulo="Pipeline (R$)" valor={brl(resumo?.valor_pipeline)} sub={`soma das ${nAberto} em aberto`} destaque ajuda="projetos.oportunidades.kpi_pipeline" />
       </div>
 
       {/* Filtros herdados da antiga Lista — agora sempre visíveis (Kanban é a única visão) */}
@@ -271,11 +275,12 @@ export default function OportunidadesPage() {
   )
 }
 
-function Kpi({ titulo, valor, destaque, ajuda }: { titulo: string; valor: string; destaque?: boolean; ajuda: string }) {
+function Kpi({ titulo, valor, sub, destaque, ajuda }: { titulo: string; valor: string; sub?: string; destaque?: boolean; ajuda: string }) {
   return (
     <div className="rounded-xl p-3" style={{ background: OFFWHITE, minHeight: 76 }}>
       <div className="text-[11px] uppercase leading-tight flex items-center gap-1"><span className="opacity-60">{titulo}</span><AjudaCampo chave={ajuda} /></div>
       <div className="font-bold leading-tight" style={{ color: destaque ? DOURADO : ESPRESSO, fontSize: 18 }}>{valor}</div>
+      {sub && <div className="text-[10.5px] opacity-55 leading-tight mt-0.5">{sub}</div>}
     </div>
   )
 }

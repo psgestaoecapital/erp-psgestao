@@ -120,6 +120,8 @@ export default function OportunidadesKanban({
   // FIX (Angélica): clicar em Ganhas/Perdidas → lista das fechadas (cliente + orçamento).
   const [fechadas, setFechadas] = useState<null | { etapa: 'ganho' | 'perdido'; loading: boolean; itens: Fechada[] }>(null)
   const [nomesCliente, setNomesCliente] = useState<Record<string, string>>({})
+  // DELTA FC · obra criada ao ganhar (oportunidade_id → obra): prova na lista de Ganhas que todo ganho tem obra.
+  const [obrasGanhas, setObrasGanhas] = useState<Record<string, { id: string; numero: string }>>({})
   // F2.6 · tempo na etapa (semáforo) e quem moveu por último, por oportunidade_id.
   const [tempoMap, setTempoMap] = useState<Record<string, TempoRow>>({})
   const [quemMap, setQuemMap] = useState<Record<string, QuemRow>>({})
@@ -140,6 +142,14 @@ export default function OportunidadesKanban({
       for (const c of (cs ?? []) as { id: string; razao_social: string | null; nome_fantasia: string | null }[])
         map[c.id] = c.razao_social || c.nome_fantasia || ''
       setNomesCliente((prev) => ({ ...prev, ...map }))
+    }
+    // DELTA FC · toda oportunidade ganha tem obra vinculada: busca a obra por oportunidade_id p/ o link "Ver obra".
+    if (etapa === 'ganho' && itens.length) {
+      const opIds = itens.map((i) => i.id)
+      const { data: obs } = await supabase.from('projetos_obras').select('id, numero, oportunidade_id').in('oportunidade_id', opIds)
+      const om: Record<string, { id: string; numero: string }> = {}
+      for (const o of (obs ?? []) as { id: string; numero: string; oportunidade_id: string }[]) om[o.oportunidade_id] = { id: o.id, numero: o.numero }
+      setObrasGanhas(om)
     }
   }
   // FIX B · modal de motivo da perda (obrigatório)
@@ -237,6 +247,9 @@ export default function OportunidadesKanban({
     if (etapaAtual === novaEtapa) return
     // Perdido EXIGE motivo (FIX B) — abre o modal com a lista; a baixa só ocorre ao confirmar.
     if (novaEtapa === 'perdido') { setPerda({ cardId, etapaAtual }); setPerdaMotivo(''); setPerdaObs(''); return }
+    // DELTA FC (blueprint — defeito mais grave "ganho sem obra"): ganhar CRIA a obra vinculada
+    // automaticamente, via fn_crm_oportunidade_ganhar (idempotente). Não passa pelo move genérico.
+    if (novaEtapa === 'ganho') { await ganharCard(cardId); return }
     // ① (CEO 17/09) · arrastar para "Orçando" CRIA a linha de orçamento (envelope do PDF), com
     // confirmação e guarda se já existir. A RPC é idempotente: se a oportunidade já tem orçamento,
     // devolve o mesmo (ja_existia) em vez de criar um segundo. Abre o orçamento para anexar o PDF.
@@ -308,6 +321,40 @@ export default function OportunidadesKanban({
     }
     onMoved(`Oportunidade movida para ${labelEtapa(novaEtapa)}.`)
     // Refetch leve (resumo lateral + KPIs consistentes)
+    carregar()
+  }
+
+  // DELTA FC · GANHAR = marca 'ganho' E abre a obra vinculada numa transação (fn_crm_oportunidade_ganhar).
+  // Otimista: tira o card da coluna e soma no tile "Ganhas"; o toast nomeia a obra criada (ou a que já existia).
+  async function ganharCard(cardId: string) {
+    setMovendoId(cardId)
+    let valorCard = 0
+    setPipe((prev) => {
+      if (!prev?.etapas) return prev
+      const etapas = prev.etapas.map((e) => ({ ...e, cards: [...e.cards] }))
+      for (const e of etapas) {
+        const idx = e.cards.findIndex((c) => c.id === cardId)
+        if (idx >= 0) {
+          valorCard = Number(e.cards[idx].valor_estimado ?? 0)
+          e.cards.splice(idx, 1)
+          e.qtd = Math.max(0, e.qtd - 1)
+          e.valor_total = Math.max(0, e.valor_total - valorCard)
+        }
+      }
+      return { etapas }
+    })
+    setGanhos((g) => ({ qtd: g.qtd + 1, total: g.total + valorCard }))
+    const { data, error } = await supabase.rpc('fn_crm_oportunidade_ganhar', { p_id: cardId })
+    setMovendoId(null)
+    const j = data as { ok?: boolean; erro?: string; numero?: string; ja_existia?: boolean } | null
+    if (error || !j?.ok) {
+      onError(`Erro ao marcar como ganho: ${error?.message ?? j?.erro ?? 'falha'}`)
+      carregar() // desfaz o otimista pela verdade do banco
+      return
+    }
+    onMoved(j.ja_existia
+      ? `Oportunidade ganha — a obra ${j.numero} já estava aberta.`
+      : `Oportunidade GANHA · obra ${j.numero} criada e vinculada automaticamente.`)
     carregar()
   }
 
@@ -584,13 +631,18 @@ export default function OportunidadesKanban({
                         {fechadas.etapa === 'perdido' && it.motivo_perda && (
                           <div style={{ marginTop: 6, fontSize: 12, color: '#7A1F1F' }}>Motivo: <b>{it.motivo_perda}</b></div>
                         )}
-                        <div style={{ marginTop: 8 }}>
+                        <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                           {it.orcamento_id ? (
                             <button onClick={() => router.push(`/dashboard/orcamentos?id=${it.orcamento_id}`)}
                               style={{ ...cardActBtn, padding: '5px 12px', fontSize: 12 }}>Ver orçamento →</button>
                           ) : (
                             <span style={{ fontSize: 11.5, color: TEXTM, fontStyle: 'italic' }}>sem orçamento vinculado</span>
                           )}
+                          {/* DELTA FC · ganho sempre abre obra: link direto para o cockpit da obra vinculada. */}
+                          {fechadas.etapa === 'ganho' && (obrasGanhas[it.id]
+                            ? <button onClick={() => router.push(`/dashboard/projetos/obras/${obrasGanhas[it.id].id}/cockpit`)}
+                                style={{ ...cardActBtn, padding: '5px 12px', fontSize: 12, borderColor: '#1F5A1F', color: '#1F5A1F' }}>Ver obra {obrasGanhas[it.id].numero} →</button>
+                            : <span style={{ fontSize: 11.5, color: TEXTM, fontStyle: 'italic' }}>obra em abertura…</span>)}
                         </div>
                       </div>
                     )
@@ -628,13 +680,16 @@ const tileSt: CSSProperties = {
 const boardWrap: CSSProperties = {
   overflowX: 'auto',
   paddingBottom: 8,
+  // folga à direita para a ÚLTIMA coluna nunca encostar/cortar na borda ao rolar (auditor PDCA: "coluna cortada").
+  paddingRight: 6,
   WebkitOverflowScrolling: 'touch',
   scrollSnapType: 'x mandatory', // mobile: cada coluna "encaixa" ao rolar
 }
 const board: CSSProperties = {
   // Desktop: colunas flex ocupam a largura toda e cabem SEM scroll horizontal.
   // Mobile/estreito: minWidth por coluna força overflow → boardWrap rola (com snap).
-  display: 'flex', gap: 10, alignItems: 'stretch', width: '100%',
+  // paddingRight garante respiro depois da última coluna quando há overflow.
+  display: 'flex', gap: 10, alignItems: 'stretch', width: '100%', paddingRight: 2,
 }
 const col: CSSProperties = {
   flex: '1 1 0', minWidth: 190,
