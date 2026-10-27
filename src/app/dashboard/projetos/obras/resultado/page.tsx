@@ -4,7 +4,7 @@
 // previsto × realizado). Só leitura. 3 estados: erro / vazio (ensina) / dados. Linha "Consolidado" no fim. Excel (CSV) e PDF (impressão do navegador).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { fmtR, fmtPct } from '@/lib/psgc-tokens'
+import { fmtR, fmtPct as fmtPctBase } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -29,6 +29,8 @@ const semMedicao = (l: Linha) => receita(l) <= 0
 const margem = (l: Linha) => (semMedicao(l) ? 0 : receita(l) - custo(l))
 const pctPrevisto = (l: Linha) => (n(l.receita_prevista) > 0 ? Math.min(100, (receita(l) / n(l.receita_prevista)) * 100) : null)
 // Margem % sobre a receita realizada. Sem receita ainda → null (mostra "—"), para não dividir por zero.
+// Sem receita a margem % não existe: "N/A" ("—" parece dado que falhou ao carregar).
+const fmtPct = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? 'N/A' : fmtPctBase(v))
 const margemPct = (rec: number, marg: number) => (rec > 0 ? (marg / rec) * 100 : null)
 const cockpit = (obraId: string) => `/dashboard/projetos/obras/${obraId}/cockpit`
 

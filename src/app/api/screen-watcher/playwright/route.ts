@@ -19,6 +19,7 @@ import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpre
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 import { empresaDoPedidoRobo } from '@/lib/gold/empresaDoPedidoRobo';
 import { rotaConcreta } from '@/lib/gold/rotaConcreta';
+import { salvarMiniaturaRota } from '@/lib/gold/miniaturaRota';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -221,6 +222,8 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
         screenshot_url: path, screenshot_atualizado_em: new Date().toISOString(),
         auditavel_robo: true, motivo_nao_auditavel: null, auditabilidade_em: new Date().toISOString(),
       }).eq('id', screenId);
+      // Miniatura base64 para o aud8 ler por SELECT. Falha aqui não derruba a captura.
+      await salvarMiniaturaRota(supabase, rotaBase, page, alturaCaptura).catch((e) => console.error('[miniatura] não gravada:', e));
       try {
         visualTruth = await executarVisualTruthRules(page, screenId, rotaBase, supabase);
       } catch (vtErr) { console.error('[visual-truth] erro nao fatal:', vtErr); }
