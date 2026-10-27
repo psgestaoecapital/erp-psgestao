@@ -2,7 +2,8 @@
 // Engenharia · Take-off MANUAL (Hub Projetos). RD-26: NÃO recria o motor — liga às MESMAS RPCs/views
 // do Takeoff por IA (takeoff/page.tsx). A única diferença é a ENTRADA: aqui o ambiente é digitado à mão
 // (sem upload de DWG/planta). Fluxo em 3 passos: (1) novo take-off → (2) ambientes+áreas+serviços →
-// (3) gerar orçamento e ver o BOM/mão-de-obra sair sozinho. Zero backend novo, zero migration.
+// (3) gerar orçamento e ver o BOM/mão-de-obra sair sozinho. RD-98: lista real de take-offs, editar/excluir rastreável
+// (soft-delete) de take-off e de ambiente, e quantitativo previsto na hora (sem precisar gerar o orçamento).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Ruler, Plus, Check, Sparkles, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -32,6 +33,7 @@ const num = (v: string) => (v.trim() ? Number(v.replace(',', '.')) : null)
 type Orc = { id: string; numero: string | null; cliente_nome: string | null; status: string }
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; custo_unitario_total: number | null }
 type Planta = { id: string; nome: string; status: string; created_at: string }
+type PlantaLinha = Planta & { orcamento_id: string | null; orcamento_numero: string | null; cliente_nome: string | null; n_ambientes: number; n_prontos: number; area_total: number; servicos: string[] }
 type BaseCalc = 'area' | 'perimetro' | 'pe_direito_parede'
 type Ambiente = {
   id: string; nome: string; area_m2: number | null; perimetro_ml: number | null; pe_direito_m: number | null
@@ -52,7 +54,16 @@ export default function EngenhariaPage() {
   const [orcamentos, setOrcamentos] = useState<Orc[]>([])
   const [orcId, setOrcId] = useState('')
   const [servicos, setServicos] = useState<Servico[]>([])
-  const [plantas, setPlantas] = useState<Planta[]>([])
+  const [plantas, setPlantas] = useState<PlantaLinha[]>([])
+  const [carregouLista, setCarregouLista] = useState(false)
+  const [editar, setEditar] = useState<PlantaLinha | null>(null)
+  const [edNome, setEdNome] = useState('')
+  const [edOrc, setEdOrc] = useState('')
+  const [excluirP, setExcluirP] = useState<PlantaLinha | null>(null)
+  const [excluirA, setExcluirA] = useState<Ambiente | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [erroAcao, setErroAcao] = useState<string | null>(null)
+  const [salvandoAcao, setSalvandoAcao] = useState(false)
   const [planta, setPlanta] = useState<Planta | null>(null)
   const [ambientes, setAmbientes] = useState<Ambiente[]>([])
   const [itensGerados, setItensGerados] = useState<ItemGerado[]>([])
@@ -67,10 +78,11 @@ export default function EngenhariaPage() {
   // Catálogo (dropdowns) + orçamentos de destino + take-offs existentes p/ retomar.
   const recarregarPlantas = useCallback(async () => {
     if (!companyId) return
-    const { data } = await supabase.from('erp_obra_planta')
-      .select('id,nome,status,created_at').eq('company_id', companyId)
-      .order('created_at', { ascending: false }).limit(50)
-    setPlantas((data as Planta[]) ?? [])
+    const { data, error } = await supabase.rpc('fn_takeoff_plantas_listar', { p_company_id: companyId })
+    const j = data as { ok?: boolean; itens?: PlantaLinha[] } | null
+    if (error || !j?.ok) { setErro('Não deu para carregar os take-offs agora. Tente de novo.'); setCarregouLista(true); return }
+    setPlantas(j.itens ?? [])
+    setCarregouLista(true)
   }, [companyId])
 
   useEffect(() => {
@@ -92,13 +104,64 @@ export default function EngenhariaPage() {
   const recarregarAmbientes = useCallback(async (plantaId: string) => {
     const { data } = await supabase.from('erp_obra_planta_ambiente')
       .select('id,nome,area_m2,perimetro_ml,pe_direito_m,confirmado,servico_id,base_calculo')
-      .eq('planta_id', plantaId).order('nome')
+      .eq('planta_id', plantaId).is('deleted_at', null).order('nome')
     setAmbientes((data as Ambiente[]) ?? [])
   }, [])
 
-  const abrirPlanta = async (p: Planta) => {
+  const abrirPlanta = async (p: Planta & { orcamento_id?: string | null }) => {
     setPlanta(p); setItensGerados([]); setBom([]); setErro(null); setMsg(null)
+    if (p.orcamento_id) setOrcId(p.orcamento_id)
     await recarregarAmbientes(p.id)
+  }
+
+  // Quantitativo previsto: BOM dos serviços vinculados aos ambientes confirmados, atualizado a cada mudança (sem gerar o orçamento).
+  const servicosUsados = useMemo(
+    () => Array.from(new Set(ambientes.filter((a) => a.confirmado && a.servico_id).map((a) => a.servico_id as string))).sort().join(','),
+    [ambientes],
+  )
+  useEffect(() => {
+    let alive = true
+    if (!servicosUsados) { setBom([]); return }
+    ;(async () => {
+      const { data } = await supabase.from('v_projetos_bom_completo')
+        .select('servico_id,servico_nome,tipo,item_nome,item_categoria,quantidade,unidade,custo_unitario,custo_total')
+        .in('servico_id', servicosUsados.split(',')).order('servico_nome')
+      if (alive) setBom((data as BomRow[]) ?? [])
+    })()
+    return () => { alive = false }
+  }, [servicosUsados])
+
+  // RD-98 p2/p4 · editar o take-off e excluir (take-off ou ambiente) por soft-delete rastreável.
+  const salvarEdicao = async () => {
+    if (!editar) return
+    setSalvandoAcao(true); setErroAcao(null)
+    const { data, error } = await supabase.rpc('fn_takeoff_planta_editar', { p_planta_id: editar.id, p_nome: edNome, p_orcamento_id: edOrc || null })
+    setSalvandoAcao(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setErroAcao(j?.erro ?? error?.message ?? 'Falha ao salvar'); return }
+    if (edOrc) setOrcId(edOrc)
+    if (planta?.id === editar.id) setPlanta({ ...planta, nome: edNome.trim() || planta.nome })
+    setEditar(null); setMsg('Take-off atualizado.')
+    await recarregarPlantas()
+  }
+  const confirmarExcluir = async () => {
+    if (!excluirP && !excluirA) return
+    setSalvandoAcao(true); setErroAcao(null)
+    const { data, error } = excluirP
+      ? await supabase.rpc('fn_takeoff_planta_excluir', { p_planta_id: excluirP.id, p_motivo: motivo || null })
+      : await supabase.rpc('fn_takeoff_ambiente_excluir', { p_ambiente_id: excluirA!.id, p_motivo: motivo || null })
+    setSalvandoAcao(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setErroAcao(j?.erro ?? error?.message ?? 'Falha ao excluir'); return }
+    if (excluirP) {
+      if (planta?.id === excluirP.id) { setPlanta(null); setAmbientes([]); setItensGerados([]); setBom([]) }
+      setMsg(`Take-off “${excluirP.nome}” excluído (fica registrado na auditoria).`); setExcluirP(null)
+    } else {
+      setMsg('Ambiente excluído (fica registrado na auditoria).'); setExcluirA(null)
+      if (planta) await recarregarAmbientes(planta.id)
+    }
+    setMotivo('')
+    await recarregarPlantas()
   }
 
   // Sugere o serviço de cada ambiente sem serviço, por palavra-chave da empresa (IA sugere, humano confirma).
@@ -266,6 +329,51 @@ export default function EngenhariaPage() {
         )}
       </section>
 
+      {/* Lista real de take-offs da empresa (RD-98 p1) */}
+      <section data-testid="engenharia-lista" className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
+        <div className="p-3 border-b border-[#E7DECF] text-sm font-semibold text-[#3D2314] inline-flex items-center gap-1 w-full">
+          Take-offs da empresa ({plantas.length}) <AjudaCampo chave="projetos.engenharia.lista" rota="/dashboard/projetos/engenharia" />
+        </div>
+        {plantas.length === 0 ? (
+          <div className="p-5 text-center text-sm" style={{ color: ESP60 }}>
+            {carregouLista ? <>Nenhum take-off ainda. Use <b>+ Novo</b> para criar à mão ou envie uma planta no <a href="/dashboard/projetos/takeoff" className="underline" style={{ color: GOLD }}>Take-off por IA</a>.</> : 'Carregando…'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs" style={{ color: ESP60, background: BG }}>
+                <tr>
+                  <th className="text-left p-2">Take-off</th>
+                  <th className="text-right p-2"><span className="inline-flex items-center gap-1">Ambientes <AjudaCampo chave="projetos.engenharia.col_ambientes" rota="/dashboard/projetos/engenharia" /></span></th>
+                  <th className="text-right p-2"><span className="inline-flex items-center gap-1">Área (m²) <AjudaCampo chave="projetos.engenharia.col_area_total" rota="/dashboard/projetos/engenharia" /></span></th>
+                  <th className="text-left p-2"><span className="inline-flex items-center gap-1">Serviços <AjudaCampo chave="projetos.engenharia.col_servicos" rota="/dashboard/projetos/engenharia" /></span></th>
+                  <th className="text-left p-2"><span className="inline-flex items-center gap-1">Status <AjudaCampo chave="projetos.engenharia.col_status" rota="/dashboard/projetos/engenharia" /></span></th>
+                  <th className="text-left p-2">Orçamento</th>
+                  <th className="text-right p-2 whitespace-nowrap"><span className="inline-flex items-center gap-1">Ações <AjudaCampo chave="projetos.engenharia.col_acoes" rota="/dashboard/projetos/engenharia" /></span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {plantas.map((p) => (
+                  <tr key={p.id} data-testid="engenharia-takeoff-linha" style={{ borderTop: `1px solid ${LINE}`, background: planta?.id === p.id ? '#FBF4E4' : undefined }}>
+                    <td className="p-2 text-[#3D2314] font-medium">{p.nome}</td>
+                    <td className="p-2 text-right tabular-nums">{p.n_ambientes} <span style={{ color: ESP60 }}>({p.n_prontos} prontos)</span></td>
+                    <td className="p-2 text-right tabular-nums">{Number(p.area_total).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
+                    <td className="p-2 text-xs" style={{ color: ESP60 }}>{p.servicos?.length ? p.servicos.slice(0, 3).join(', ') + (p.servicos.length > 3 ? ` +${p.servicos.length - 3}` : '') : 'nenhum vinculado'}</td>
+                    <td className="p-2 text-xs">{p.status}</td>
+                    <td className="p-2 text-xs">{p.orcamento_numero ?? '—'}</td>
+                    <td className="p-2 text-right whitespace-nowrap text-xs font-semibold">
+                      <button type="button" data-testid="engenharia-abrir" onClick={() => void abrirPlanta(p)} disabled={busy} style={{ color: '#A57A15' }}>Abrir</button>
+                      <button type="button" data-testid="engenharia-editar" onClick={() => { setEditar(p); setEdNome(p.nome); setEdOrc(p.orcamento_id ?? '') ; setErroAcao(null) }} disabled={busy} className="ml-3" style={{ color: ESP }}>Editar</button>
+                      <button type="button" data-testid="engenharia-excluir" onClick={() => { setExcluirP(p); setMotivo(''); setErroAcao(null) }} disabled={busy} className="ml-3" style={{ color: '#B91C1C' }}>Excluir</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {msg && <div className="rounded-xl p-3 text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>{msg}</div>}
       {erro && <div className="rounded-xl p-3 text-sm flex items-start gap-2" style={{ background: '#FEE', border: '1px solid #FBB', color: '#A65A3A' }}><AlertTriangle size={14} className="mt-0.5" /> {erro}</div>}
 
@@ -292,6 +400,8 @@ export default function EngenhariaPage() {
                   <tr>
                     <th className="text-left p-2"><span className="inline-flex items-center gap-1">Nome <AjudaCampo chave="projetos.engenharia.amb_nome" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">m² <AjudaCampo chave="projetos.engenharia.amb_area" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">ml <AjudaCampo chave="projetos.engenharia.amb_perimetro" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">pé-dir. <AjudaCampo chave="projetos.engenharia.amb_pe_direito" rota="/dashboard/projetos/engenharia" /></span></th>
                     <th className="p-2"><span className="inline-flex items-center gap-1">Serviço <AjudaCampo chave="projetos.engenharia.amb_servico" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">Base <AjudaCampo chave="projetos.engenharia.amb_base" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">OK <AjudaCampo chave="projetos.engenharia.amb_ok" rota="/dashboard/projetos/engenharia" /></span></th>
+                    <th className="text-right p-2"><span className="inline-flex items-center gap-1">Qtd <AjudaCampo chave="projetos.engenharia.amb_qtd" rota="/dashboard/projetos/engenharia" /></span></th>
+                    <th className="p-2"><span className="inline-flex items-center gap-1">Excluir <AjudaCampo chave="projetos.engenharia.amb_excluir" rota="/dashboard/projetos/engenharia" /></span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -315,6 +425,8 @@ export default function EngenhariaPage() {
                         </select>
                       </td>
                       <td className="p-2 text-center"><input type="checkbox" checked={a.confirmado} onChange={(e) => atualizarAmb(a, { confirmado: e.target.checked })} /></td>
+                      <td className="p-2 text-right tabular-nums text-xs" style={{ color: ESP60 }}>{a.servico_id ? Number(qtdAmbiente(a).toFixed(2)) : '—'}</td>
+                      <td className="p-2 text-center"><button type="button" data-testid="engenharia-ambiente-excluir" onClick={() => { setExcluirA(a); setMotivo(''); setErroAcao(null) }} disabled={busy} className="text-xs font-semibold" style={{ color: '#B91C1C' }}>Excluir</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -329,14 +441,16 @@ export default function EngenhariaPage() {
         </section>
       )}
 
-      {/* Passo 3 · resultado: orçamento gerado + BOM + mão de obra */}
-      {itensGerados.length > 0 && (
-        <section className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
+      {/* Passo 3 · quantitativo previsto (na hora) + orçamento gerado */}
+      {(itensGerados.length > 0 || bom.length > 0) && (
+        <section data-testid="engenharia-quantitativo" className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
           <div className="p-3 border-b border-[#E7DECF] flex items-center gap-2">
-            <Check size={16} style={{ color: '#16A34A' }} />
-            <span className="text-sm font-semibold text-[#3D2314]">Orçamento gerado</span>
+            <Check size={16} style={{ color: itensGerados.length > 0 ? '#16A34A' : GOLD }} />
+            <span className="text-sm font-semibold text-[#3D2314]">{itensGerados.length > 0 ? 'Orçamento gerado' : 'Quantitativo previsto'}</span>
+            <AjudaCampo chave="projetos.engenharia.quantitativo" rota="/dashboard/projetos/engenharia" />
+            {itensGerados.length === 0 && <span className="text-xs" style={{ color: ESP60 }}>atualiza sozinho a cada ambiente confirmado — gere o orçamento para gravar os itens</span>}
           </div>
-          <div className="overflow-x-auto">
+          {itensGerados.length > 0 && (<div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-xs" style={{ color: ESP60, background: BG }}>
                 <tr><th className="text-left p-2">Serviço · ambiente</th><th className="text-right p-2">Qtd</th><th className="p-2">Un.</th><th className="text-right p-2">Preço un.</th><th className="text-right p-2">Subtotal</th></tr>
@@ -359,7 +473,7 @@ export default function EngenhariaPage() {
                 </tr>
               </tfoot>
             </table>
-          </div>
+          </div>)}
 
           {/* BOM / materiais + mão de obra (composição dos serviços usados) */}
           <div className="grid md:grid-cols-2 gap-0 border-t border-[#E7DECF]">
@@ -400,6 +514,41 @@ export default function EngenhariaPage() {
             </div>
           </div>
         </section>
+      )}
+
+      {editar && (
+        <div onClick={() => setEditar(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Editar take-off" data-ajuda="1" className="bg-[#FAF7F2] rounded-2xl border border-[#E7DECF] w-full max-w-md p-5">
+            <h3 className="text-lg font-semibold text-[#3D2314] mb-3">Editar take-off</h3>
+            <label className="block text-[11px] font-medium mb-1" style={{ color: ESP60 }}>Nome <AjudaCampo chave="projetos.engenharia.edit_nome" rota="/dashboard/projetos/engenharia" /></label>
+            <input className={inp} value={edNome} onChange={(e) => setEdNome(e.target.value)} data-testid="engenharia-edit-nome" data-ajuda="1" />
+            <label className="block text-[11px] font-medium mt-3 mb-1" style={{ color: ESP60 }}>Orçamento de destino <AjudaCampo chave="projetos.engenharia.edit_orcamento" rota="/dashboard/projetos/engenharia" /></label>
+            <select className={inp} value={edOrc} onChange={(e) => setEdOrc(e.target.value)} data-testid="engenharia-edit-orcamento" data-ajuda="1">
+              <option value="">— manter o atual —</option>
+              {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>)}
+            </select>
+            {erroAcao && <div role="alert" className="mt-3 rounded-lg p-2 text-xs" style={{ background: '#FEE', color: '#A65A3A' }}>{erroAcao}</div>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setEditar(null)} className="px-4 py-2 rounded-xl text-sm border border-[#E7DECF] text-[#3D2314]">Cancelar</button>
+              <button onClick={() => void salvarEdicao()} disabled={salvandoAcao || !edNome.trim()} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: (salvandoAcao || !edNome.trim()) ? 0.6 : 1 }} data-testid="engenharia-edit-salvar">{salvandoAcao ? 'Salvando…' : 'Salvar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {(excluirP || excluirA) && (
+        <div onClick={() => { setExcluirP(null); setExcluirA(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Excluir" data-ajuda="1" className="bg-[#FAF7F2] rounded-2xl border border-[#E7DECF] w-full max-w-md p-5">
+            <h3 className="text-lg font-semibold text-[#3D2314] mb-2">{excluirP ? 'Excluir take-off' : 'Excluir ambiente'}</h3>
+            <p className="text-sm" style={{ color: ESP }}>Excluir <b>{excluirP ? excluirP.nome : excluirA!.nome}</b>? Some da lista e do cálculo; o registro fica guardado com quem excluiu e quando.</p>
+            <label className="block text-[11px] font-medium mt-3 mb-1" style={{ color: ESP60 }}>Motivo <AjudaCampo chave="projetos.engenharia.excluir_motivo" rota="/dashboard/projetos/engenharia" /></label>
+            <input className={inp} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: criado em duplicidade" data-testid="engenharia-excluir-motivo" data-ajuda="1" />
+            {erroAcao && <div role="alert" className="mt-3 rounded-lg p-2 text-xs" style={{ background: '#FEE', color: '#A65A3A' }}>{erroAcao}</div>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => { setExcluirP(null); setExcluirA(null) }} className="px-4 py-2 rounded-xl text-sm border border-[#E7DECF] text-[#3D2314]">Voltar</button>
+              <button onClick={() => void confirmarExcluir()} disabled={salvandoAcao} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: '#B91C1C', opacity: salvandoAcao ? 0.6 : 1 }} data-testid="engenharia-excluir-confirmar">{salvandoAcao ? 'Excluindo…' : 'Excluir'}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {addAberto && <AmbienteModal onFechar={() => setAddAberto(false)} onSalvar={adicionarAmbiente} busy={busy} />}

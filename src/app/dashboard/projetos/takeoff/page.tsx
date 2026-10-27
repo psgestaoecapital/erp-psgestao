@@ -187,17 +187,25 @@ export default function TakeoffPage() {
   const [orcGerado, setOrcGerado] = useState(false)
   const [carregado, setCarregado] = useState(false)
   const [recentes, setRecentes] = useState<PlantaRecente[]>([])
+  const [editar, setEditar] = useState<PlantaRecente | null>(null)
+  const [edNome, setEdNome] = useState('')
+  const [edOrc, setEdOrc] = useState('')
+  const [excluirP, setExcluirP] = useState<PlantaRecente | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [erroAcao, setErroAcao] = useState<string | null>(null)
+  const [salvandoAcao, setSalvandoAcao] = useState(false)
+  const [excluirA, setExcluirA] = useState<Ambiente | null>(null)
 
   // Plantas enviadas (as 10 mais recentes) com a situação de cada uma — o usuário retoma de onde parou.
   const recarregarRecentes = useCallback(async (cid: string) => {
     const { data: ps, error } = await supabase.from('erp_obra_planta')
       .select('id,nome,status,arquivo_tipo,aps_status,created_at')
-      .eq('company_id', cid).order('created_at', { ascending: false }).limit(10)
+      .eq('company_id', cid).is('deleted_at', null).order('created_at', { ascending: false }).limit(10)
     if (error) { setErro(falhaTela(error)); return }
     const lista = (ps ?? []) as Omit<PlantaRecente, 'contagem'>[]
     const ids = lista.map((p) => p.id)
     const { data: amb } = ids.length
-      ? await supabase.from('erp_obra_planta_ambiente').select('planta_id,confirmado,servico_id').in('planta_id', ids)
+      ? await supabase.from('erp_obra_planta_ambiente').select('planta_id,confirmado,servico_id').in('planta_id', ids).is('deleted_at', null)
       : { data: [] }
     const porPlanta = new Map<string, { confirmado: boolean; servico_id: string | null }[]>()
     for (const a of (amb ?? []) as { planta_id: string; confirmado: boolean; servico_id: string | null }[]) {
@@ -237,7 +245,7 @@ export default function TakeoffPage() {
     ;(async () => {
       const { data } = await supabase.from('erp_obra_planta')
         .select('id')
-        .eq('id', plantaIdParam).eq('company_id', companyId).maybeSingle()
+        .eq('id', plantaIdParam).eq('company_id', companyId).is('deleted_at', null).maybeSingle()
       if (!alive || !data) return
       await recarregarPlanta(plantaIdParam)
       await recarregarAmbientes(plantaIdParam)
@@ -256,7 +264,7 @@ export default function TakeoffPage() {
     ;(async () => {
       const { data } = await supabase.from('erp_obra_planta')
         .select('id,aps_status,updated_at')
-        .eq('company_id', companyId).eq('orcamento_id', orcId)
+        .eq('company_id', companyId).eq('orcamento_id', orcId).is('deleted_at', null)
         .not('aps_status', 'is', null)
         .order('aps_status', { ascending: true }) // radiografado vem antes de traduzindo (ordem alfabetica)
         .order('updated_at', { ascending: false })
@@ -275,7 +283,7 @@ export default function TakeoffPage() {
   const recarregarAmbientes = useCallback(async (plantaId: string) => {
     const { data } = await supabase.from('erp_obra_planta_ambiente')
       .select('id,nome,area_m2,perimetro_ml,pe_direito_m,confianca,confirmado,servico_id,base_calculo')
-      .eq('planta_id', plantaId).order('nome')
+      .eq('planta_id', plantaId).is('deleted_at', null).order('nome')
     setAmbientes((data as Ambiente[]) ?? [])
   }, [])
 
@@ -288,6 +296,7 @@ export default function TakeoffPage() {
 
   const enviarPlanta = async (file: File, forcarNovaVersao = false) => {
     if (!companyId) return
+    if (!orcId) { setErro('Escolha o orçamento de destino antes de enviar a planta — é para onde os itens do take-off vão.'); return }
     setBusy(true); setErro(null); setMsg(null); setAmbientes([])
     try {
       const lower = file.name.toLowerCase()
@@ -553,6 +562,41 @@ export default function TakeoffPage() {
     }
   }
 
+  // RD-98 p2/p4 · editar o take-off (nome + orçamento de destino) e excluir planta/ambiente por soft-delete rastreável.
+  const salvarEdicao = async () => {
+    if (!editar || !companyId) return
+    setSalvandoAcao(true); setErroAcao(null)
+    const { data, error } = await supabase.rpc('fn_takeoff_planta_editar', { p_planta_id: editar.id, p_nome: edNome, p_orcamento_id: edOrc || null })
+    setSalvandoAcao(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setErroAcao(j?.erro ?? falhaTela(error)); return }
+    if (edOrc) setOrcId(edOrc)
+    setEditar(null); setMsg('Take-off atualizado.')
+    await recarregarRecentes(companyId)
+    if (planta?.id === editar.id) await recarregarPlanta(editar.id)
+  }
+  const confirmarExcluir = async () => {
+    if (!companyId || (!excluirP && !excluirA)) return
+    setSalvandoAcao(true); setErroAcao(null)
+    const { data, error } = excluirP
+      ? await supabase.rpc('fn_takeoff_planta_excluir', { p_planta_id: excluirP.id, p_motivo: motivo || null })
+      : await supabase.rpc('fn_takeoff_ambiente_excluir', { p_ambiente_id: excluirA!.id, p_motivo: motivo || null })
+    setSalvandoAcao(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setErroAcao(j?.erro ?? falhaTela(error)); return }
+    if (excluirP) {
+      if (planta?.id === excluirP.id) { setPlanta(null); setAmbientes([]); setOrcGerado(false) }
+      setMsg(`Take-off “${excluirP.nome}” excluído (fica registrado na auditoria).`)
+      setExcluirP(null)
+    } else {
+      setMsg('Ambiente excluído (fica registrado na auditoria).')
+      setExcluirA(null)
+      if (planta) await recarregarAmbientes(planta.id)
+    }
+    setMotivo('')
+    await recarregarRecentes(companyId)
+  }
+
   const gerarOrcamento = async () => {
     if (!companyId || !planta || !orcId) { setErro('Selecione um orcamento antes de gerar.'); return }
     const prontos = ambientes.filter((a) => a.confirmado && a.servico_id)
@@ -660,6 +704,7 @@ export default function TakeoffPage() {
                   {e.feita ? <Check size={10} /> : i + 1}
                 </span>
                 <span>{e.rotulo}</span>
+                <AjudaCampo chave={`projetos.takeoff.etapa_${e.chave}`} rota={ROTA} />
               </li>
             )
           })}
@@ -673,7 +718,7 @@ export default function TakeoffPage() {
           </div>
         )}
         <div data-ajuda="1">
-        <label className="block text-xs font-medium" style={{ color: ESP }}>Orçamento de destino <AjudaCampo chave="projetos.takeoff.orcamento_destino" rota={ROTA} /></label>
+        <label className="block text-xs font-medium" style={{ color: ESP }}>Orçamento de destino * <AjudaCampo chave="projetos.takeoff.orcamento_destino" rota={ROTA} /></label>
         <select className={inp} value={orcId} onChange={(e) => {
           const v = e.target.value
           if (v === '__novo__') { void criarOrcamentoDoTakeoff() } // não seta orcId no sentinela
@@ -690,7 +735,7 @@ export default function TakeoffPage() {
           {orcamentos.length > 0
             ? <>{orcamentos.length} orçamento(s) em rascunho, enviado ou aprovado nesta empresa. </>
             : <>Nenhum orçamento em aberto nesta empresa. </>}
-          Também dá para escolher <b>“Criar novo orçamento”</b> depois de confirmar os ambientes.
+          O destino é obrigatório para enviar a planta. Sem orçamento ainda? Escolha <b>“+ Criar novo orçamento”</b> ou abra as <Link href="/dashboard/projetos/propostas" className="underline">Propostas</Link>.
         </p>
 
         <div className="grid grid-cols-2 gap-2 pt-1">
@@ -698,11 +743,12 @@ export default function TakeoffPage() {
             <input className={inp} placeholder="Escala (ex.: 1:50) — opcional" value={escala} onChange={(e) => setEscala(e.target.value)} />
             <AjudaCampo chave="projetos.takeoff.escala" rota={ROTA} />
           </label>
-          <label className="rounded-xl border border-dashed border-[#E7DECF] bg-[#FAF7F2] p-2 text-sm text-center cursor-pointer text-[#3D2314] flex items-center justify-center gap-2">
+          <label data-testid="takeoff-enviar-planta" aria-disabled={!orcId} title={orcId ? undefined : 'Escolha o orçamento de destino primeiro'} className="rounded-xl border border-dashed border-[#E7DECF] bg-[#FAF7F2] p-2 text-sm text-center text-[#3D2314] flex items-center justify-center gap-2"
+            style={{ cursor: orcId ? 'pointer' : 'not-allowed', opacity: orcId ? 1 : 0.55 }}>
             <UploadCloud size={15} />
             <span>{planta?.nome ?? 'Enviar planta (DWG/PNG/JPG/PDF)'}</span>
             <AjudaCampo chave="projetos.takeoff.planta" rota={ROTA} />
-            <input type="file" accept=".dwg,.png,.jpg,.jpeg,.pdf" className="hidden" onChange={(e) => e.target.files && enviarPlanta(e.target.files[0])} />
+            <input type="file" accept=".dwg,.png,.jpg,.jpeg,.pdf" className="hidden" disabled={!orcId} onChange={(e) => e.target.files && enviarPlanta(e.target.files[0])} />
           </label>
         </div>
 
@@ -815,6 +861,7 @@ export default function TakeoffPage() {
                   <th className="p-2">Serviço <AjudaCampo chave="projetos.takeoff.tab_servico" rota={ROTA} /></th>
                   <th className="p-2">Base <AjudaCampo chave="projetos.takeoff.tab_base" rota={ROTA} /></th>
                   <th className="p-2">OK <AjudaCampo chave="projetos.takeoff.tab_ok" rota={ROTA} /></th>
+                  <th className="p-2">Excluir <AjudaCampo chave="projetos.takeoff.tab_excluir" rota={ROTA} /></th>
                 </tr>
               </thead>
               <tbody>
@@ -841,6 +888,7 @@ export default function TakeoffPage() {
                         </select>
                       </td>
                       <td className="p-2 text-center"><input type="checkbox" checked={a.confirmado} onChange={(e) => atualizarAmb(a, { confirmado: e.target.checked })} /></td>
+                      <td className="p-2 text-center"><button type="button" data-testid="takeoff-ambiente-excluir" onClick={() => { setExcluirA(a); setMotivo(''); setErroAcao(null) }} disabled={busy} className="text-xs font-semibold" style={{ color: RED }}>Excluir</button></td>
                     </tr>
                   )
                 })}
@@ -879,10 +927,9 @@ export default function TakeoffPage() {
               const cor = sit.tom === 'ok' ? GREEN : sit.tom === 'erro' ? RED : sit.tom === 'atencao' ? YELLOW : ESP60
               const aberta = planta?.id === p.id
               return (
-                <li key={p.id}>
+                <li key={p.id} className="flex items-center flex-wrap" style={{ background: aberta ? '#FBF4E4' : 'transparent' }}>
                   <button type="button" data-testid="takeoff-planta-recente" onClick={() => void abrirPlanta(p.id)} disabled={busy}
-                    className="w-full text-left p-3 flex items-center gap-3 flex-wrap"
-                    style={{ background: aberta ? '#FBF4E4' : 'transparent' }}>
+                    className="flex-1 min-w-0 text-left p-3 flex items-center gap-3 flex-wrap">
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm truncate" style={{ color: ESP, fontWeight: aberta ? 600 : 400 }}>{p.nome}</span>
                       <span className="block text-[11px]" style={{ color: ESP60 }}>
@@ -892,12 +939,53 @@ export default function TakeoffPage() {
                     <span data-testid="takeoff-planta-situacao" className="text-[11px] px-2 py-0.5 rounded-full font-semibold shrink-0"
                       style={{ color: cor, border: `1px solid ${cor}` }}>{sit.rotulo}</span>
                   </button>
+                  <span className="flex items-center gap-2 pr-3 shrink-0 text-xs font-semibold">
+                    <button type="button" data-testid="takeoff-planta-ver" onClick={() => void abrirPlanta(p.id)} disabled={busy} style={{ color: '#A57A15' }}>{aberta ? 'Aberta' : sit.tom === 'ok' ? 'Reabrir' : 'Ver'}</button>
+                    <button type="button" data-testid="takeoff-planta-editar" onClick={() => { setEditar(p); setEdNome(p.nome); setEdOrc(orcId) }} disabled={busy} style={{ color: ESP }}>Editar</button>
+                    <button type="button" data-testid="takeoff-planta-excluir" onClick={() => { setExcluirP(p); setMotivo(''); setErroAcao(null) }} disabled={busy} style={{ color: RED }}>Excluir</button>
+                    <AjudaCampo chave="projetos.takeoff.acoes_planta" rota={ROTA} />
+                  </span>
                 </li>
               )
             })}
           </ul>
         )}
       </section>
+
+      {editar && (
+        <div onClick={() => setEditar(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Editar take-off" data-ajuda="1" className="bg-[#FAF7F2] rounded-2xl border border-[#E7DECF] w-full max-w-md p-5">
+            <h3 className="text-lg font-semibold text-[#3D2314] mb-3">Editar take-off</h3>
+            <label className="block text-[11px] font-medium mb-1" style={{ color: ESP60 }}>Nome <AjudaCampo chave="projetos.takeoff.edit_nome" rota={ROTA} /></label>
+            <input className={inp} value={edNome} onChange={(e) => setEdNome(e.target.value)} data-testid="takeoff-edit-nome" data-ajuda="1" />
+            <label className="block text-[11px] font-medium mt-3 mb-1" style={{ color: ESP60 }}>Orçamento de destino <AjudaCampo chave="projetos.takeoff.edit_orcamento" rota={ROTA} /></label>
+            <select className={inp} value={edOrc} onChange={(e) => setEdOrc(e.target.value)} data-testid="takeoff-edit-orcamento" data-ajuda="1">
+              <option value="">— manter o atual —</option>
+              {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>)}
+            </select>
+            {erroAcao && <div role="alert" className="mt-3 rounded-lg p-2 text-xs" style={{ background: '#FEE', color: '#A65A3A' }}>{erroAcao}</div>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setEditar(null)} className="px-4 py-2 rounded-xl text-sm border border-[#E7DECF] text-[#3D2314]">Cancelar</button>
+              <button onClick={() => void salvarEdicao()} disabled={salvandoAcao || !edNome.trim()} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: (salvandoAcao || !edNome.trim()) ? 0.6 : 1 }} data-testid="takeoff-edit-salvar">{salvandoAcao ? 'Salvando…' : 'Salvar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {(excluirP || excluirA) && (
+        <div onClick={() => { setExcluirP(null); setExcluirA(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Excluir" data-ajuda="1" className="bg-[#FAF7F2] rounded-2xl border border-[#E7DECF] w-full max-w-md p-5">
+            <h3 className="text-lg font-semibold text-[#3D2314] mb-2">{excluirP ? 'Excluir take-off' : 'Excluir ambiente'}</h3>
+            <p className="text-sm" style={{ color: ESP }}>Excluir <b>{excluirP ? excluirP.nome : excluirA!.nome}</b>? Some da lista e do cálculo; o registro fica guardado com quem excluiu e quando.</p>
+            <label className="block text-[11px] font-medium mt-3 mb-1" style={{ color: ESP60 }}>Motivo <AjudaCampo chave="projetos.takeoff.excluir_motivo" rota={ROTA} /></label>
+            <input className={inp} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: planta enviada por engano" data-testid="takeoff-excluir-motivo" data-ajuda="1" />
+            {erroAcao && <div role="alert" className="mt-3 rounded-lg p-2 text-xs" style={{ background: '#FEE', color: '#A65A3A' }}>{erroAcao}</div>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => { setExcluirP(null); setExcluirA(null) }} className="px-4 py-2 rounded-xl text-sm border border-[#E7DECF] text-[#3D2314]">Voltar</button>
+              <button onClick={() => void confirmarExcluir()} disabled={salvandoAcao} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: RED, opacity: salvandoAcao ? 0.6 : 1 }} data-testid="takeoff-excluir-confirmar">{salvandoAcao ? 'Excluindo…' : 'Excluir'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {addAberto && (
         <AmbienteManualModal
