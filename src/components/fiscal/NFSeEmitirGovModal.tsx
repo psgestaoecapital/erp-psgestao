@@ -17,6 +17,7 @@ import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial } from '@
 import { aplicarRetencoesNota, calcularRetencoesFederais, MSG_EXIGE_SERVICO_NFSE, retencoesNotaDoCadastro, retencoesNotaIguais, sugerirRetencoesNota, TRIBUTOS_RETENCAO, type RetencoesNota, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 import { conferirMedicaoEscopo, brl as brlEscopo, type ItemEscopo } from '@/lib/fiscal/medicaoEscopoObra'
 import { modoObraInicial, textoBloqueioNfse } from '@/lib/fiscal/bloqueioNfseTexto'
+import { camposObraFaltando, obraPreenchidaDoOrcamento, OBRA_PREENCHIDA_SELECT, type ObraSalva } from '@/lib/fiscal/obraPreenchida'
 
 // bloqueios da porta única que são resolvidos pelo bloco de obra (não pelos outros campos).
 // obra_sem_cno saiu (CNO virou opcional); obra_endereco_incompleto é o novo — a prefeitura exige endereço.
@@ -268,6 +269,28 @@ export default function NFSeEmitirGovModal({
     const modo = modoObraInicial({ modo: obraFiscal.modo, obraSel: obraFiscal.obraSel, tocado: obraTocada }, exigeObra)
     if (modo !== obraFiscal.modo) setObraFiscal((st) => ({ ...st, modo }))
   }, [mostrarObra, exigeObra, obraTocada, obraFiscal.modo, obraFiscal.obraSel])
+  // #3862 complemento · a obra do pedido (orçamento) já vem na emissão: pré-preenche e só pede o que falta.
+  // Não desfaz o que a pessoa já mexeu (obraTocada).
+  useEffect(() => {
+    if (!aberto || !pedidoId || obraTocada) return
+    let vivo = true
+    ;(async () => {
+      const { data: orcs } = await supabase.from('erp_orcamentos')
+        .select('obra_id,obra_cno,obra_logradouro,obra_numero,obra_complemento,obra_bairro,obra_cidade,obra_uf,obra_cep,obra_codigo_ibge')
+        .eq('company_id', companyId).eq('pedido_id', pedidoId).limit(1)
+      const orc = (orcs ?? [])[0]
+      if (!vivo || !orc) return
+      let obraSalva: ObraSalva | null = null
+      if (orc.obra_id) {
+        const { data } = await supabase.from('projetos_obras').select(OBRA_PREENCHIDA_SELECT)
+          .eq('company_id', companyId).eq('id', orc.obra_id).maybeSingle()
+        obraSalva = (data ?? null) as ObraSalva | null
+      }
+      const pre = obraPreenchidaDoOrcamento(orc, obraSalva)
+      if (vivo && pre) setObraFiscal((st) => ({ ...st, ...pre, obraEnd: pre.obraEnd ?? st.obraEnd }))
+    })()
+    return () => { vivo = false }
+  }, [aberto, pedidoId, companyId, obraTocada])
 
   // #32/#35 · servico_id efetivo: o que veio do pedido/OS (prop) OU o escolhido aqui no modal.
   // issNoLocalEff idem — habilita o seletor de município e a busca de alíquota também na emissão avulsa.
@@ -1096,7 +1119,17 @@ export default function NFSeEmitirGovModal({
 
               {/* A③ · obra no reenvio de nota rejeitada por E0370 sem obra (mesmo bloco da venda) */}
               {mostrarObra && (
-                <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={(st) => { setObraTocada(true); setObraFiscal(st) }} />
+                <>
+                  <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={(st) => { setObraTocada(true); setObraFiscal(st) }} />
+                  {(() => {
+                    const falta = camposObraFaltando(obraFiscal)
+                    return (
+                      <div style={{ fontSize: 11.5, color: falta.length ? '#B45309' : '#166534' }}>
+                        {falta.length ? `Falta preencher: ${falta.join(', ')}.` : 'Obra pronta: o endereço já vem do pedido, nada a preencher.'}
+                      </div>
+                    )
+                  })()}
+                </>
               )}
 
               {/* #32 · Local da execução — quando o serviço tem ISS no local da prestação. Aparece
