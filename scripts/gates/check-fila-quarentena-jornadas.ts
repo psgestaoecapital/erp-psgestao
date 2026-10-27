@@ -29,7 +29,9 @@ if (!temFerramentas()) {
   const dir = mkdtempSync(join(tmpdir(), 'quar-'))
   const lista = join(dir, 'q.txt')
   writeFileSync(lista, `# teste\n${Q1}|2026-10-17T14:00:00Z|jordana-code|x\n${Q2}|2026-10-17T14:00:00Z|gilberto-desenv|y\n`)
-  const env = { FILA_QUARENTENA_JORNADAS: lista, SUPABASE_URL: 'http://sb.local', SUPABASE_SERVICE_ROLE_KEY: 'k' }
+  // Aceitação informativa por padrão (esteira contínua); forçamos o bloqueio para exercer a distinção da quarentena
+  // (todo spec falho em quarentena → informativa; spec novo → bloqueia), que só importa quando a aceitação bloqueia.
+  const env = { FILA_QUARENTENA_JORNADAS: lista, SUPABASE_URL: 'http://sb.local', SUPABASE_SERVICE_ROLE_KEY: 'k', FILA_ACEITACAO_BLOQUEIA: '1' }
   const rev = { n: 1, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'failure' as const }
   comFilaSimulada((rodar) => {
     let x = rodar([{ ...rev, aceitacaoSpecs: [Q1, Q2] }], false, 5000, env)

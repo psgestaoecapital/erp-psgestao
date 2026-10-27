@@ -1,6 +1,6 @@
 // Gate · Mapa da Infra (fatia 1): tabelas com RLS só equipe PS, REVOKE anon, escrita só service_role, config só PS_ADMIN.
 import { readFileSync } from 'node:fs'
-const sql = readFileSync('supabase/migrations/20261015010005_dev_infra_mapa_desenho.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261027180010_dev_infra_mapa_desenho.sql', 'utf8')
 const falhas: string[] = []
 const exige = (ok: boolean, m: string) => { if (!ok) falhas.push(m) }
 exige(/ENABLE ROW LEVEL SECURITY/.test(sql), 'RLS ligada')

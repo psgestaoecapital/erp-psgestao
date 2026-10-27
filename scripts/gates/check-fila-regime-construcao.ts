@@ -56,7 +56,7 @@ if (!temFerramentas()) {
 } else {
   const dir = mkdtempSync(join(tmpdir(), 'regime-'))
   const vazia = join(dir, 'q.txt'); writeFileSync(vazia, '# vazia\n')
-  const env = { FILA_QUARENTENA_JORNADAS: vazia, FILA_AGORA_EPOCH: dentro, FILA_REGIME_MAIN: 'sim' }
+  const env = { FILA_QUARENTENA_JORNADAS: vazia, FILA_AGORA_EPOCH: dentro, FILA_REGIME_MAIN: 'sim', FILA_ACEITACAO_BLOQUEIA: '1' }
   // PR revisada + autorizada: o que separa publicar/bloquear é SÓ o regime (a autorização do revisor confere).
   const rev = { n: 1, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'failure' as const }
   comFilaSimulada((rodar) => {

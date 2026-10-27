@@ -25,7 +25,7 @@ if (!temFerramentas()) {
 } else {
   const dir = mkdtempSync(join(tmpdir(), 'cel-'))
   const vazia = join(dir, 'q.txt'); writeFileSync(vazia, '# vazia\n')
-  const env = { FILA_QUARENTENA_JORNADAS: vazia, FILA_AGORA_EPOCH: dentro, FILA_BASELINE_MAIN_SPECS: '', FILA_CELULAR_MAIN_FALHA: '1', JANELA_ACEITACAO_REVISADA_FIM: '2026-10-16T00:00:00Z' }
+  const env = { FILA_QUARENTENA_JORNADAS: vazia, FILA_AGORA_EPOCH: dentro, FILA_BASELINE_MAIN_SPECS: '', FILA_CELULAR_MAIN_FALHA: '1', JANELA_ACEITACAO_REVISADA_FIM: '2026-10-16T00:00:00Z', FILA_ACEITACAO_BLOQUEIA: '1' }
   const rev = { n: 1, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'failure' as const }
   comFilaSimulada((rodar) => {
     let x = rodar([{ ...rev, aceitacaoSpecs: [C1, C2] }], false, 5000, env)

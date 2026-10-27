@@ -1,13 +1,18 @@
 // src/components/projetos/CatalogoTable.tsx
 // Tabela genérica para catálogos do Hub Projetos (insumos, mão de obra etc)
+// No celular (< md) a lista vira cartões (HB0 · correção 9): a 1ª coluna sem hiddenOnMobile é o título do cartão,
+// as demais visíveis viram pares rótulo/valor e as ações ficam no rodapé. No computador segue a tabela.
 
 "use client";
 
 import { ReactNode } from "react";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 export interface CatalogoColumn<T> {
   key: string;
   label: string;
+  /** chave do "?" (RD-95) do cabeçalho da coluna */
+  ajuda?: string;
   align?: "left" | "right" | "center";
   className?: string;
   hiddenOnMobile?: boolean;
@@ -33,8 +38,43 @@ export function CatalogoTable<T>({
   emptyMessage = "Nenhum item encontrado",
   actions,
 }: Props<T>) {
+  const [titulo, ...camposCartao] = columns.filter((c) => !c.hiddenOnMobile);
   return (
-    <div className="overflow-x-auto rounded-xl border border-[#3D2314]/8 bg-white shadow-sm">
+    <>
+    <div className="space-y-2 md:hidden" data-testid="catalogo-cartoes">
+      {loading && (
+        <div className="rounded-xl border border-[#3D2314]/8 bg-white px-4 py-8 text-center text-sm text-[#3D2314]/50">Carregando…</div>
+      )}
+      {!loading && rows.length === 0 && (
+        <div className="rounded-xl border border-[#3D2314]/8 bg-white px-4 py-8 text-center text-sm text-[#3D2314]/50">{emptyMessage}</div>
+      )}
+      {!loading &&
+        rows.map((row) => (
+          <div
+            key={rowKey(row)}
+            onClick={() => onRowClick?.(row)}
+            className={`rounded-xl border border-[#3D2314]/8 bg-white p-4 text-sm shadow-sm ${onRowClick ? "cursor-pointer active:bg-[#3D2314]/3" : ""}`}
+          >
+            {titulo && <div className="min-w-0 break-words font-medium text-[#3D2314]">{titulo.render(row)}</div>}
+            {camposCartao.length > 0 && (
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
+                {camposCartao.map((col) => (
+                  <div key={col.key} className="min-w-0">
+                    <dt className="text-[11px] uppercase tracking-wider text-[#3D2314]/50">{col.label}{col.ajuda && <AjudaCampo chave={col.ajuda} />}</dt>
+                    <dd className="mt-0.5 break-words">{col.render(row)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {actions && (
+              <div className="mt-3 border-t border-[#3D2314]/8 pt-2" onClick={(e) => e.stopPropagation()}>
+                {actions(row)}
+              </div>
+            )}
+          </div>
+        ))}
+    </div>
+    <div className="hidden overflow-x-auto rounded-xl border border-[#3D2314]/8 bg-white shadow-sm md:block">
       <table className="w-full text-sm">
         <thead className="bg-[#3D2314]/5 text-xs uppercase tracking-wider text-[#3D2314]/60">
           <tr>
@@ -49,7 +89,7 @@ export function CatalogoTable<T>({
                     : "text-left"
                 } ${col.hiddenOnMobile ? "hidden md:table-cell" : ""} ${col.className || ""}`}
               >
-                {col.label}
+                {col.label}{col.ajuda && <AjudaCampo chave={col.ajuda} />}
               </th>
             ))}
             {actions && (
@@ -114,5 +154,6 @@ export function CatalogoTable<T>({
         </tbody>
       </table>
     </div>
+    </>
   );
 }
