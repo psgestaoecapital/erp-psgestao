@@ -1,7 +1,8 @@
 // Gate (sessao-manual 27/10) — o roteamento do PDCA é balanceado (dev vivo + menor fila), sem nome de dev cravado.
 // Prova, por texto, na migration que define fn_pdca_dono_hub e fn_pdca_hub_tick:
 //   (1) o dono sai de fn_pdca_dono_hub (não de um CASE com nomes);
-//   (2) o dono só vem de papel 'dev_hub', não pausado, com sessão viva (renovada_em recente e não encerrada);
+//   (2) o dono só vem de papel 'dev_hub', não pausado, VIVO por atividade real recente: entrega em erp_dev_entrega,
+//       tarefa recebida/iniciada/concluída, ou lease renovado (não encerrado). A pausa vence qualquer atividade;
 //   (3) sem dev vivo, o tick não cria tarefa (conta sem_dev_vivo);
 //   (4) a dedupe checa qualquer dev_hub, para uma troca de dono entre ticks não duplicar;
 //   (5) o corpo do fn_pdca_hub_tick não tem nome de Code cravado (os nomes só aparecem na semente da tabela de papel).
@@ -27,8 +28,9 @@ const tick = trecho('fn_pdca_hub_tick')
 ok(dono.length > 0, 'fn_pdca_dono_hub definida')
 ok(/p\.papel = 'dev_hub'/.test(dono), '(2) dono só entre papel dev_hub')
 ok(/NOT p\.pausado/.test(dono), '(2) pausado fica fora')
-ok(/l\.renovada_em > now\(\) - interval '2 hours'/.test(dono) && /l\.renovada_em >= l\.iniciada_em/.test(dono),
-  '(2) sessão viva: renovada há menos de 2 h e não encerrada')
+ok(/erp_dev_entrega e[\s\S]*e\.ocorrido_em > now\(\) - interval '2 hours'/.test(dono), '(2a) vivo por entrega recente em erp_dev_entrega')
+ok(/greatest\(m\.recebida_em, m\.iniciada_em, m\.concluida_em\) > now\(\) - interval '2 hours'/.test(dono), '(2b) vivo por tarefa recebida/iniciada/concluída recente')
+ok(/l\.renovada_em > now\(\) - interval '2 hours'[\s\S]*l\.renovada_em >= l\.iniciada_em/.test(dono), '(2c) vivo por lease renovado recente e não encerrado')
 ok(/ORDER BY \(SELECT count\(\*\)[\s\S]*ASC,/.test(dono), '(1) escolhe o de menor fila (contagem de nova ascendente)')
 ok(/v_owner := public\.fn_pdca_dono_hub\(\);/.test(tick), '(1) o tick pega o dono de fn_pdca_dono_hub')
 ok(/IF v_owner IS NULL THEN[\s\S]*v_sem := v_sem \+ 1;/.test(tick), '(3) sem dev vivo: não cria, conta sem_dev_vivo')

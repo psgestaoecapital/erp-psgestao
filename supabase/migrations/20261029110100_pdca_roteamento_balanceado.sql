@@ -2,8 +2,12 @@
 --
 -- Problema: o fn_pdca_hub_tick roteava por faixa com nomes cravados. Quando um dev era pausado, as tarefas da faixa
 -- dele encalhavam. Agora o dono é escolhido na hora:
---   1) devs ELEGÍVEIS = papel 'dev_hub' em erp_agente_papel, não pausado, com sessão viva (lease renovada há menos de
---      2 h e não encerrada: renovada_em >= iniciada_em; fn_agente_sessao_encerrar grava renovada_em = now() - 1 dia).
+--   1) devs ELEGÍVEIS = papel 'dev_hub' em erp_agente_papel, NÃO pausado, e VIVO por QUALQUER sinal de atividade
+--      real das últimas 2 h (o lease sozinho dá falso-negativo: um dev pode estar produzindo com o lease parado):
+--        a) entrega em erp_dev_entrega (PR aberta, pronta, publicada ou fechada);
+--        b) tarefa recebida, iniciada ou concluída em erp_agente_mensagem;
+--        c) lease renovado recentemente e não encerrado (renovada_em >= iniciada_em; encerrar grava renovada_em - 1 dia).
+--      A pausa (pausado = true) vence qualquer atividade: é o CEO desligando de propósito.
 --   2) 0 elegíveis → não cria tarefa (o PDCA conta em "sem_dev_vivo"). Nunca manda para Code sem sessão.
 --   3) 1 elegível → manda para ele.
 --   4) 2+ elegíveis → manda para o de MENOR fila (tarefas 'nova' não arquivadas na caixa). Empate: pelo nome.
@@ -41,11 +45,22 @@ CREATE OR REPLACE FUNCTION public.fn_pdca_dono_hub()
 AS $function$
   SELECT p.agente
     FROM public.erp_agente_papel p
-    JOIN public.erp_agente_sessao_lease l ON l.agente = p.agente
    WHERE p.papel = 'dev_hub'
      AND NOT p.pausado
-     AND l.renovada_em > now() - interval '2 hours'
-     AND l.renovada_em >= l.iniciada_em
+     AND (
+       -- 1) produziu entrega recente (PR aberta, pronta, publicada ou fechada)
+       EXISTS (SELECT 1 FROM public.erp_dev_entrega e
+                WHERE e.code = p.agente AND e.ocorrido_em > now() - interval '2 hours')
+       -- 2) pegou ou respondeu tarefa recente
+       OR EXISTS (SELECT 1 FROM public.erp_agente_mensagem m
+                   WHERE m.para = p.agente
+                     AND greatest(m.recebida_em, m.iniciada_em, m.concluida_em) > now() - interval '2 hours')
+       -- 3) lease renovado recente (e não encerrado)
+       OR EXISTS (SELECT 1 FROM public.erp_agente_sessao_lease l
+                   WHERE l.agente = p.agente
+                     AND l.renovada_em > now() - interval '2 hours'
+                     AND l.renovada_em >= l.iniciada_em)
+     )
    ORDER BY (SELECT count(*) FROM public.erp_agente_mensagem m
               WHERE m.para = p.agente AND m.status = 'nova' AND coalesce(m.arquivada, false) = false) ASC,
             p.agente ASC
