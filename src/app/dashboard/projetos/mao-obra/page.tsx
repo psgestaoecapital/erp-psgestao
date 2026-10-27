@@ -27,7 +27,8 @@ type ItemEquipe = {
   vigencia_inicio: string; conferido: boolean; ativo: boolean; matricula: string | null; ajuste_por_nome?: string | null; chaves_confirmadas?: boolean;
   ficha: (Partial<FichaCusto> & Record<string, unknown>) | null; custo: { custo_mensal: number | null; custo_hora: number | null; custo_m2: number | null; custo_unidade?: number | null; unidade?: string | null; alertas?: string[] } | null;
 };
-type Lista = { pode_ver_individual: boolean; encargos: Encargos & { fonte: string; vigencia_inicio: string | null }; funcoes: Funcao[]; equipe: ItemEquipe[] };
+type Encerrada = { id: string; grupo_id: string; tipo: "pessoa" | "perfil"; nome: string; funcao: string; vinculo: string; vigencia_inicio: string; vigencia_fim: string; motivo: string | null; quantidade_pessoas: number; ajuste_por_nome: string | null };
+type Lista = { pode_ver_individual: boolean; encargos: Encargos & { fonte: string; vigencia_inicio: string | null }; funcoes: Funcao[]; equipe: ItemEquipe[]; encerradas: Encerrada[] };
 
 const brl = (v: number | null | undefined) => (v === null || v === undefined ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`);
@@ -45,10 +46,11 @@ export default function MaoObraPage() {
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const empresa = companies.find((c) => c.id === companyId);
   const [aba, setAba] = useState<"funcoes" | "equipe" | "lista">("equipe");
+  const [verEnc, setVerEnc] = useState(false);
   const [dados, setDados] = useState<Lista | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [modal, setModal] = useState<null | { tipo: "funcao"; f?: Funcao } | { tipo: "ficha"; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe } | { tipo: "encerrar"; item: ItemEquipe } | { tipo: "encargos" } | { tipo: "historico"; item: ItemEquipe } | { tipo: "unir"; f: Funcao } | { tipo: "importar" }>(null);
+  const [modal, setModal] = useState<null | { tipo: "funcao"; f?: Funcao } | { tipo: "ficha"; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe } | { tipo: "encerrar"; item: ItemEquipe } | { tipo: "restaurar"; item: Encerrada } | { tipo: "encargos" } | { tipo: "historico"; item: ItemEquipe } | { tipo: "unir"; f: Funcao } | { tipo: "importar" }>(null);
 
   const carregar = useCallback(async () => {
     if (!companyId) return;
@@ -102,9 +104,9 @@ export default function MaoObraPage() {
         <div className={`rounded-md border px-3 py-2 text-[12.5px] flex flex-wrap items-center justify-between gap-2 ${enc.provisorio ? "border-[#C8941A]/60 bg-[#FAEEDA]/60" : "border-[#3D2314]/15 bg-[#FAF7F2]"}`} data-testid="mao-obra-encargos">
           <span>
             {enc.provisorio ? <><AlertTriangle size={13} className="inline -mt-0.5 mr-1" /><b>Encargos provisórios</b> — até o contador confirmar; o custo da hora já é calculado com estes valores. </> : <><CheckCircle2 size={13} className="inline -mt-0.5 mr-1" />Encargos confirmados pelo contador. </>}<AjudaCampo chave="projetos.mao_obra.padrao.resumo" />
-            Regime {enc.regime}{enc.simples_anexo ? ` (Anexo ${enc.simples_anexo})` : ""} · encargos da folha <b>{pct(enc.encargos_folha_pct)}</b>
-            {enc.desoneracao ? ` · desoneração: ${pct(Number(enc.desoneracao_fator_folha) * 100)} do INSS patronal na folha${enc.cprb_pct ? `, CPRB ${pct(enc.cprb_pct)} sobre a receita` : ""}` : ""}
-            {" "}· 13º {pct(enc.prov_13_pct)} · férias {pct(enc.prov_ferias_pct)} · rescisão {pct(enc.prov_rescisao_pct)}
+            Regime {enc.regime}{enc.simples_anexo ? ` (Anexo ${enc.simples_anexo})` : ""}<AjudaCampo chave="projetos.mao_obra.padrao.regime" /> · encargos da folha <b>{pct(enc.encargos_folha_pct)}</b><AjudaCampo chave="projetos.mao_obra.ajuste.encargos" />
+            {enc.desoneracao ? <> · desoneração: {pct(Number(enc.desoneracao_fator_folha) * 100)} do INSS patronal na folha{enc.cprb_pct ? `, CPRB ${pct(enc.cprb_pct)} sobre a receita` : ""}<AjudaCampo chave="projetos.mao_obra.padrao.desoneracao" /></> : null}
+            {" "}· 13º {pct(enc.prov_13_pct)}<AjudaCampo chave="projetos.mao_obra.ajuste.13" /> · férias {pct(enc.prov_ferias_pct)}<AjudaCampo chave="projetos.mao_obra.ajuste.ferias" /> · rescisão {pct(enc.prov_rescisao_pct)}<AjudaCampo chave="projetos.mao_obra.ajuste.rescisao" />
           </span>
           {pode && <button className={btnSec} onClick={() => setModal({ tipo: "encargos" })} data-testid="mao-obra-encargos-editar">Configurar padrões</button>}{pode && <AjudaCampo chave="projetos.mao_obra.acao.configurar_padroes" />}
         </div>
@@ -171,6 +173,38 @@ export default function MaoObraPage() {
               ))}
             </tbody>
           </table>
+          <p className="mt-2 text-[11.5px] text-[#3D2314]/60" data-testid="mao-obra-equipe-legenda">“—” em <b>Custo mensal</b> e <b>Custo da hora</b> quer dizer <b>não se aplica</b>: MEI, PJ ou empreiteiro pago por unidade — o custo dessa pessoa aparece em <b>Por unidade</b> (R$/m², R$/metro…), não por mês ou por hora.</p>
+          {pode && dados.encerradas.length > 0 && (
+            <section className="mt-4 border-t border-[#3D2314]/10 pt-3" data-testid="mao-obra-encerradas">
+              <button className="text-[12.5px] underline text-[#3D2314]/70" onClick={() => setVerEnc((x) => !x)} data-testid="mao-obra-ver-encerradas" aria-expanded={verEnc}>
+                {verEnc ? "Ocultar" : "Ver"} encerradas ({dados.encerradas.length})
+              </button>
+              {verEnc && (
+                <div className="overflow-x-auto mt-2">
+                  <table className="w-full text-[12.5px]" data-testid="mao-obra-encerradas-tabela">
+                    <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
+                      <th className="py-2 pr-2">Nome<AjudaCampo chave="projetos.mao_obra.equipe.col_nome" /></th><th className="pr-2">Função<AjudaCampo chave="projetos.mao_obra.equipe.col_funcao" /></th><th className="pr-2">Vínculo<AjudaCampo chave="projetos.mao_obra.equipe.col_vinculo" /></th>
+                      <th className="pr-2">Encerrada em<AjudaCampo chave="projetos.mao_obra.hist.vigencia" /></th><th className="pr-2">Motivo<AjudaCampo chave="projetos.mao_obra.hist.motivo" /></th><th></th>
+                    </tr></thead>
+                    <tbody>
+                      {dados.encerradas.map((e) => (
+                        <tr key={e.id} className="border-b border-[#3D2314]/5 text-[#3D2314]/70" data-testid={`mao-obra-encerrada-${e.grupo_id}`}>
+                          <td className="py-2 pr-2">{e.nome}{e.tipo === "perfil" && <span className="ml-1 text-[11px]">· perfil × {e.quantidade_pessoas}</span>}</td>
+                          <td className="pr-2">{e.funcao}</td>
+                          <td className="pr-2 text-[11.5px]">{rotVinculo(e.vinculo)}</td>
+                          <td className="pr-2 tabular-nums">{e.vigencia_fim}</td>
+                          <td className="pr-2 text-[11.5px]">{e.motivo ?? "—"}{e.ajuste_por_nome ? <span className="block text-[10.5px] text-[#3D2314]/50">por {e.ajuste_por_nome}</span> : null}</td>
+                          <td className="text-right whitespace-nowrap">
+                            <button className="text-[12px] underline text-[#2F5A1F]" data-testid="mao-obra-restaurar" onClick={() => setModal({ tipo: "restaurar", item: e })}>Restaurar</button><AjudaCampo chave="projetos.mao_obra.acao.restaurar" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
 
@@ -220,6 +254,7 @@ export default function MaoObraPage() {
       {modal?.tipo === "unir" && <ModalUnir f={modal.f} funcoes={funcoesAtivas} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "ficha" && enc && <ModalFicha companyId={companyId} modo={modal.modo} item={modal.item} funcoes={funcoesAtivas} encargos={enc} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "encerrar" && <ModalEncerrar item={modal.item} onClose={() => setModal(null)} onSalvar={rpc} />}
+      {modal?.tipo === "restaurar" && <ModalRestaurar item={modal.item} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "encargos" && enc && <ModalEncargos companyId={companyId} enc={enc} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "historico" && <ModalHistorico item={modal.item} onClose={() => setModal(null)} />}
     </div>
@@ -747,6 +782,21 @@ function ModalEncerrar({ item, onClose, onSalvar }: { item: ItemEquipe; onClose:
       <div className="flex justify-end gap-2">
         <button className={btnSec} onClick={onClose}>Voltar</button>
         <button className={btnPri} disabled={motivo.trim().length < 3} data-testid="encerrar-confirmar" onClick={async () => { if (await onSalvar("fn_mao_obra_ficha_encerrar", { p_ficha_id: item.id, p_data: data, p_motivo: motivo }, pessoa ? `${item.nome} desligado.` : "Perfil inativado.")) onClose(); }}>{pessoa ? "Desligar" : "Inativar"}</button>
+      </div>
+    </Janela>
+  );
+}
+
+function ModalRestaurar({ item, onClose, onSalvar }: { item: Encerrada; onClose: () => void; onSalvar: Salvar }) {
+  const [motivo, setMotivo] = useState("");
+  const pessoa = item.tipo === "pessoa";
+  return (
+    <Janela titulo={pessoa ? `Restaurar ${item.nome}` : `Reativar perfil ${item.nome}`} onClose={onClose} testid="mao-obra-modal-restaurar">
+      <p className="text-[12.5px] text-[#3D2314]/70">{pessoa ? "A pessoa volta ao custo da função a partir de hoje (readmissão no cadastro compartilhado)." : "O perfil volta ao custo da função a partir de hoje."} Encerrada em {item.vigencia_fim}{item.motivo ? ` — ${item.motivo}` : ""}.</p>
+      <Campo ajuda="projetos.mao_obra.encerrar.motivo" rotulo="Motivo (opcional)"><input className={inp} value={motivo} onChange={(e) => setMotivo(e.target.value)} data-testid="restaurar-motivo" placeholder="ex.: desligamento lançado por engano" /></Campo>
+      <div className="flex justify-end gap-2">
+        <button className={btnSec} onClick={onClose}>Voltar</button>
+        <button className={btnPri} data-testid="restaurar-confirmar" onClick={async () => { if (await onSalvar("fn_mao_obra_ficha_reativar", { p_ficha_id: item.id, p_motivo: motivo || null }, pessoa ? `${item.nome} restaurado — de volta ao custo.` : "Perfil reativado.")) onClose(); }}>{pessoa ? "Restaurar" : "Reativar"}</button>
       </div>
     </Janela>
   );
