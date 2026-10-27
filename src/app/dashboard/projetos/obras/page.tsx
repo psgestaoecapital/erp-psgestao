@@ -101,7 +101,7 @@ export default function ObrasPage() {
   }
   async function restaurar(id: string) {
     const { data, error } = await supabase.rpc('fn_obra_restaurar', { p_obra_id: id })
-    const j = data as { ok?: boolean; erro?: string } | null
+    const j = data as { ok?: boolean; erro?: string; numero?: string } | null
     setDesfazer(null)
     if (error || !j?.ok) { setMsg('Erro: ' + (j?.erro ?? error?.message ?? 'falha ao restaurar')); return }
     setMsg(`Obra ${j.numero ?? ''} restaurada.`)
