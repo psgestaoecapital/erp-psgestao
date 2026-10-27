@@ -20,6 +20,10 @@ import {
 import { supabaseBrowser } from "@/lib/authFetch";
 import { BomEditor, type BomLinha } from "@/components/projetos/BomEditor";
 import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { ehUuid, erroAmigavel, MSG_ENDERECO_INVALIDO } from "@/lib/erroAmigavel";
+
+const ROTA_AJUDA = "/dashboard/projetos/catalogo/[id]";
 
 interface Servico {
   id: string;
@@ -141,6 +145,12 @@ export default function ServicoEditorPage({
   const carregar = useCallback(
     async (opts?: { soft?: boolean }) => {
       if (!id) return;
+      // id que não é uuid (ex.: o literal "[id]") nem vai ao banco: mensagem do usuário, não erro de Postgres.
+      if (!ehUuid(id)) {
+        setErro(MSG_ENDERECO_INVALIDO);
+        setLoading(false);
+        return;
+      }
       if (opts?.soft) setRecalculando(true);
       else setLoading(true);
       setErro(null);
@@ -151,14 +161,14 @@ export default function ServicoEditorPage({
           { p_servico_id: id }
         );
         if (error) throw error;
-        if (!rpcData) throw new Error("Serviço não encontrado");
+        if (!rpcData) throw { code: "P0001", message: "Serviço não encontrado ou sem acesso." };
 
         // RPC pode devolver objeto único ou array
         const raw = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-        if (!raw || !raw.servico) throw new Error("Resposta inválida do servidor");
+        if (!raw || !raw.servico) throw { code: "P0001", message: "Serviço não encontrado ou sem acesso." };
         setData(raw as ServicoCompleto);
-      } catch (e: any) {
-        setErro(e.message || "Falha ao carregar serviço");
+      } catch (e) {
+        setErro(erroAmigavel(e, "Não foi possível carregar o serviço. Tente de novo."));
       } finally {
         setLoading(false);
         setRecalculando(false);
@@ -278,16 +288,28 @@ export default function ServicoEditorPage({
   if (erro && !servico) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-20">
-        <div className="rounded-xl bg-red-50 p-5 text-sm text-red-800">
-          <p className="font-medium">Erro ao carregar serviço</p>
-          <p className="mt-1">{erro}</p>
-        </div>
-        <button
-          onClick={() => router.push("/dashboard/projetos/catalogo")}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-4 py-2 text-sm font-medium text-[#FAF7F2] hover:bg-[#3D2314]/90"
+        <div
+          data-testid="catalogo-servico-erro"
+          className="mx-auto max-w-md rounded-2xl border border-[#3D2314]/10 bg-white p-8 text-center shadow-sm"
         >
-          <ArrowLeft size={14} /> Voltar ao catálogo
-        </button>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#C8941A]/10 text-[#C8941A]">
+            <AlertTriangle size={22} />
+          </div>
+          <h1
+            className="mb-2 text-[#3D2314]"
+            style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 20, fontWeight: 400 }}
+          >
+            Não foi possível abrir este serviço
+          </h1>
+          <p className="mb-6 text-sm leading-relaxed text-[#3D2314]/60">{erro}</p>
+          <button
+            onClick={() => router.push("/dashboard/projetos/catalogo")}
+            data-testid="catalogo-servico-erro-voltar"
+            className="inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-5 py-2.5 text-sm font-medium text-[#FAF7F2] hover:bg-[#3D2314]/90"
+          >
+            <ArrowLeft size={14} /> Voltar ao catálogo
+          </button>
+        </div>
       </main>
     );
   }
@@ -339,7 +361,13 @@ export default function ServicoEditorPage({
         <div className="lg:col-span-3">
           {/* Header editável */}
           <div className="mb-5 rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center gap-2">
+            <h1 className="mb-2 text-xl font-medium text-[#3D2314] sm:text-2xl" style={{ fontFamily: "ui-serif,Georgia,serif" }}>
+              {servico.nome || "Serviço sem nome"}
+              {servico.codigo && (
+                <span className="ml-2 align-middle font-mono text-sm font-normal text-[#3D2314]/50">{servico.codigo}</span>
+              )}
+            </h1>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               {isFork && (
                 <span className="rounded-full bg-[#3D2314]/8 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#3D2314]/60">
                   biblioteca
@@ -353,9 +381,10 @@ export default function ServicoEditorPage({
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+              <div data-ajuda="projetos.catalogo.servico.codigo">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Código
+                  <AjudaCampo chave="projetos.catalogo.servico.codigo" rota={ROTA_AJUDA} />
                 </label>
                 <input
                   type="text"
@@ -365,9 +394,10 @@ export default function ServicoEditorPage({
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+              <div data-ajuda="projetos.catalogo.servico.nome" className="md:col-span-2">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Nome do serviço
+                  <AjudaCampo chave="projetos.catalogo.servico.nome" rota={ROTA_AJUDA} />
                 </label>
                 <input
                   type="text"
@@ -380,9 +410,10 @@ export default function ServicoEditorPage({
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+              <div data-ajuda="projetos.catalogo.servico.categoria">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Categoria
+                  <AjudaCampo chave="projetos.catalogo.servico.categoria" rota={ROTA_AJUDA} />
                 </label>
                 <input
                   type="text"
@@ -392,9 +423,10 @@ export default function ServicoEditorPage({
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+              <div data-ajuda="projetos.catalogo.servico.unidade">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Unidade
+                  <AjudaCampo chave="projetos.catalogo.servico.unidade" rota={ROTA_AJUDA} />
                 </label>
                 <input
                   type="text"
@@ -404,9 +436,10 @@ export default function ServicoEditorPage({
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+              <div data-ajuda="projetos.catalogo.servico.produtividade">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Produtividade /dia
+                  <AjudaCampo chave="projetos.catalogo.servico.produtividade" rota={ROTA_AJUDA} />
                 </label>
                 <input
                   type="number"
@@ -424,9 +457,10 @@ export default function ServicoEditorPage({
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+              <div data-ajuda="projetos.catalogo.servico.equipe">
+                <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                   Equipe padrão
+                  <AjudaCampo chave="projetos.catalogo.servico.equipe" rota={ROTA_AJUDA} />
                 </label>
                 <input
                   type="text"
@@ -438,9 +472,10 @@ export default function ServicoEditorPage({
               </div>
             </div>
 
-            <div className="mt-3">
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
+            <div data-ajuda="projetos.catalogo.servico.descricao" className="mt-3">
+              <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
                 Descrição
+                <AjudaCampo chave="projetos.catalogo.servico.descricao" rota={ROTA_AJUDA} />
               </label>
               <textarea
                 value={(valorAtual("descricao") as string) ?? ""}
