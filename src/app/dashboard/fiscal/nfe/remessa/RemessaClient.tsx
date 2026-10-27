@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
+import { esperaConsulta, AVISO_PROCESSANDO } from '@/lib/fiscal/consultaRetorno'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   validarNFeAvulsa, cfopNoCatalogo, formatarCfop, ufDestino, soDigitos,
@@ -25,6 +26,8 @@ interface DestPessoa {
   cnpj_cpf: string | null
   cpf_cnpj: string | null
   uf: string | null
+  ie: string | null
+  contribuinte_icms: string | null
 }
 
 interface Produto {
@@ -55,6 +58,24 @@ function resolveCompanyId(): string | null {
   const sel = localStorage.getItem('ps_empresa_sel')
   if (!sel || sel === 'consolidado' || sel.startsWith('group_')) return null
   return sel
+}
+
+// #3861 · "Corrigir e reenviar" de nota recusada: /dashboard/fiscal/nfe/remessa?reenviar=<erp_nfe_emitidas.id>
+function idReenvio(): string | null {
+  if (typeof window === 'undefined') return null
+  const id = new URLSearchParams(window.location.search).get('reenviar')
+  return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null
+}
+
+interface NotaRecusada {
+  natureza_operacao: string | null
+  finalidade: string | null
+  chave_referenciada: string | null
+  destinatario_cnpj: string | null
+  destinatario_cpf: string | null
+  valor_frete: number | string | null
+  itens: Array<{ codigo?: string; descricao?: string; quantidade?: number; valorUnitario?: number; cfop?: string; icms?: { cst?: string } }> | null
+  payload_enviado: { modalidade_frete?: number; informacoes_adicionais_contribuinte?: string } | null
 }
 
 const fmtBRL = (v: number) =>
@@ -94,12 +115,87 @@ export default function RemessaClient() {
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState<{ numero: string; chave?: string; danfeUrl?: string } | null>(null)
+  // #3861 · 'processando' na Focus NÃO é falha: nota enviada, aguardando a SEFAZ (consulta até a resposta final)
+  const [aguardando, setAguardando] = useState<{ nfeId: string; esgotou: boolean } | null>(null)
+  const [reenvioDe, setReenvioDe] = useState<string | null>(null)
+  const [reenvioInfo, setReenvioInfo] = useState<string | null>(null)
+  // destinatário da nota recusada: escolhido depois que a lista da tabela certa carrega
+  const [destPendente, setDestPendente] = useState<DestPessoa | null>(null)
 
   useEffect(() => {
     const cid = resolveCompanyId()
     if (!cid) { setErroEmpresa('Selecione uma empresa específica no trocador da TopNav.'); return }
     setCompanyId(cid)
+    setReenvioDe(idReenvio())
   }, [])
+
+  // #3861 · reenvio: preenche destinatário, itens, CFOP, CSOSN, frete e informações complementares da nota recusada.
+  // O cadastro do destinatário é lido de novo (IE/endereço atualizados) — a rota também relê tudo ao emitir.
+  useEffect(() => {
+    if (!companyId || !reenvioDe) return
+    void (async () => {
+      const { data } = await supabase
+        .from('erp_nfe_emitidas')
+        .select('natureza_operacao, finalidade, chave_referenciada, destinatario_cnpj, destinatario_cpf, valor_frete, itens, payload_enviado')
+        .eq('id', reenvioDe).eq('company_id', companyId).maybeSingle()
+      const nota = data as NotaRecusada | null
+      if (!nota) { setReenvioInfo('Não encontrei a nota recusada nesta empresa: preencha a emissão manualmente.'); return }
+      const doc = soDigitos(nota.destinatario_cnpj ?? nota.destinatario_cpf)
+      const colsDest = 'id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, uf, ie, contribuinte_icms'
+      let achado: { tabela: 'erp_clientes' | 'erp_fornecedores'; pessoa: DestPessoa } | null = null
+      for (const tabela of ['erp_clientes', 'erp_fornecedores'] as const) {
+        if (!doc) break
+        const { data: p } = await supabase.from(tabela).select(colsDest)
+          .eq('company_id', companyId).eq('cnpj_cpf', doc).eq('ativo', true).limit(1).maybeSingle()
+        if (p) { achado = { tabela, pessoa: p as DestPessoa }; break }
+      }
+      if (achado) { setDestTabela(achado.tabela); setDestPendente(achado.pessoa) }
+
+      const itensNota = nota.itens ?? []
+      const codigos = [...new Set(itensNota.map((it) => it.codigo).filter((c): c is string => !!c))]
+      const { data: prods } = codigos.length
+        ? await supabase.from('erp_produtos').select('id, codigo, nome, preco_venda')
+          .eq('company_id', companyId).eq('ativo', true).in('codigo', codigos)
+        : { data: [] as Produto[] }
+      const porCodigo = new Map(((prods ?? []) as Produto[]).map((p) => [p.codigo ?? '', p]))
+      const cfopNota = soDigitos(itensNota[0]?.cfop)
+      const faltando: string[] = []
+      const novos: ItemRem[] = []
+      for (const it of itensNota) {
+        const prod = it.codigo ? porCodigo.get(it.codigo) : undefined
+        if (!prod) { faltando.push(it.descricao ?? it.codigo ?? '?'); continue }
+        const cfopItem = soDigitos(it.cfop)
+        novos.push({
+          produtoId: prod.id,
+          produtoLabel: `${prod.codigo ? `[${prod.codigo}] ` : ''}${prod.nome}`,
+          quantidade: Number(it.quantidade ?? 1),
+          valorUnitarioOverride: Number(it.valorUnitario ?? prod.preco_venda ?? 0),
+          ...(cfopItem && cfopItem !== cfopNota ? { cfop: cfopItem } : {}),
+        })
+      }
+      setItens(novos)
+      if (cfopNota) setCfop(cfopNota)
+      if (nota.natureza_operacao) setNatureza(nota.natureza_operacao)
+      if (nota.finalidade === 'normal' || nota.finalidade === 'complementar' || nota.finalidade === 'ajuste' || nota.finalidade === 'devolucao') {
+        setFinalidade(nota.finalidade)
+      }
+      if (nota.chave_referenciada) setChaveRef(nota.chave_referenciada)
+      const csts = new Set(itensNota.map((it) => soDigitos(it.icms?.cst)).filter(Boolean))
+      // só os códigos de operação sem destaque (400/900 · 41/50/90); venda (101/102…) segue o ICMS do cadastro do produto
+      const opcoesOperacao = [...ICMS_OPCOES_SIMPLES, ...ICMS_OPCOES_NORMAL].map((o) => o.codigo)
+      if (csts.size === 1 && opcoesOperacao.includes([...csts][0])) setIcmsCodigo([...csts][0])
+      const frete = Number(nota.valor_frete ?? 0)
+      const modalidade = nota.payload_enviado?.modalidade_frete
+      if (typeof modalidade === 'number') setModalidadeFrete(modalidade)
+      if (frete > 0) setValorFrete(frete)
+      if (nota.payload_enviado?.informacoes_adicionais_contribuinte) setObservacoes(nota.payload_enviado.informacoes_adicionais_contribuinte)
+      const avisos = [
+        !achado ? 'destinatário não encontrado no cadastro (escolha abaixo)' : null,
+        faltando.length ? `item(ns) sem produto ativo com o mesmo código: ${faltando.join(', ')}` : null,
+      ].filter(Boolean)
+      setReenvioInfo(`Dados da nota recusada carregados, com o cadastro atual do destinatário. Confira, corrija e emita.${avisos.length ? ` Atenção: ${avisos.join('; ')}.` : ''}`)
+    })()
+  }, [companyId, reenvioDe])
 
   useEffect(() => {
     if (!companyId) return
@@ -128,18 +224,24 @@ export default function RemessaClient() {
 
   useEffect(() => {
     if (!companyId) return
+    let cancelado = false
     void (async () => {
       const { data } = await supabase
         .from(destTabela)
-        .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, uf')
+        .select('id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, uf, ie, contribuinte_icms')
         .eq('company_id', companyId)
         .eq('ativo', true)
         .order('razao_social')
         .limit(500)
-      setPessoas((data ?? []) as DestPessoa[])
-      setDestinatarioId('')
+      if (cancelado) return
+      const lista = (data ?? []) as DestPessoa[]
+      // reenvio: garante o destinatário da nota recusada na lista (a lista corta em 500)
+      if (destPendente && !lista.some((p) => p.id === destPendente.id)) lista.unshift(destPendente)
+      setPessoas(lista)
+      setDestinatarioId(destPendente && lista.some((p) => p.id === destPendente.id) ? destPendente.id : '')
     })()
-  }, [companyId, destTabela])
+    return () => { cancelado = true }
+  }, [companyId, destTabela, destPendente])
 
   const destinatario = pessoas.find((p) => p.id === destinatarioId)
   const ufDest = ufDestino(destinatario?.uf)
@@ -231,6 +333,7 @@ export default function RemessaClient() {
       icmsCodigo,
       simples,
       catalogo,
+      destinatario: { doc: destinatario.cnpj_cpf ?? destinatario.cpf_cnpj, ie: destinatario.ie, contribuinteIcms: destinatario.contribuinte_icms },
     })
   }, [cfop, destinatario, itens, ufEmpresa, ufDest, finalidade, chaveRef, icmsCodigo, simples, catalogo])
 
@@ -238,7 +341,34 @@ export default function RemessaClient() {
   const icmsOpcoes = simples ? ICMS_OPCOES_SIMPLES : ICMS_OPCOES_NORMAL
   const totalItens = itens.reduce((s, it) => s + (it.valorUnitarioOverride ?? 0) * it.quantidade, 0)
   const podeEnviar = !!companyId && !!destinatarioId && !!cfop && !!natureza && itens.length > 0 && !enviando
-    && !!previa && previa.erros.length === 0
+    && !aguardando && !!previa && previa.erros.length === 0
+
+  async function consultarRetorno(nfeId: string, tentativa: number) {
+    const espera = esperaConsulta(tentativa)
+    if (espera === null) { setAguardando({ nfeId, esgotou: true }); return }
+    await new Promise((r) => setTimeout(r, espera))
+    try {
+      const r = await authFetch(`/api/fiscal/nfe/consultar/${nfeId}`)
+      const json = await r.json()
+      if (json?.status === 'autorizada') {
+        setAguardando(null)
+        setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
+        return
+      }
+      if (json?.status === 'rejeitada' || json?.status === 'denegada') {
+        setAguardando(null)
+        setErro(`Nota ${json.status} pela SEFAZ: ${json.motivoRejeicao ?? 'motivo não informado'}. Use "Corrigir e reenviar" em Notas emitidas.`)
+        return
+      }
+    } catch { /* falha de rede na consulta: tenta de novo no próximo degrau */ }
+    void consultarRetorno(nfeId, tentativa + 1)
+  }
+
+  function consultarAgora() {
+    if (!aguardando) return
+    setAguardando({ nfeId: aguardando.nfeId, esgotou: false })
+    void consultarRetorno(aguardando.nfeId, 0)
+  }
 
   async function emitir() {
     if (!podeEnviar || !previa) return
@@ -257,6 +387,7 @@ export default function RemessaClient() {
           tipoId: tipoId || null,
           cfop: soDigitos(cfop),
           naturezaOperacao: natureza,
+          ...(reenvioDe ? { reenvioDe } : {}),
           finalidade,
           chaveReferenciada: soDigitos(chaveRef) || undefined,
           icmsCodigo: icmsCodigo || undefined,
@@ -272,12 +403,28 @@ export default function RemessaClient() {
         }),
       })
       const json = await resp.json()
-      if (!resp.ok || json?.ok === false) {
-        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir')
-        setEnviando(false); return
-      }
-      setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
       setEnviando(false)
+      // Só HTTP != 2xx é falha da emissão. ok=false com status 'processando' é a Focus esperando a SEFAZ (#3861).
+      if (!resp.ok) {
+        // já há nota deste destinatário esperando a SEFAZ: acompanha essa, não envia outra
+        if (json?.erro === 'nota_em_processamento' && json?.nfeId) {
+          setAguardando({ nfeId: json.nfeId, esgotou: false })
+          void consultarRetorno(json.nfeId, 0)
+          return
+        }
+        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir')
+        return
+      }
+      if (json?.status === 'autorizada') {
+        setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
+      } else if (json?.status === 'rejeitada' || json?.status === 'denegada') {
+        setErro(`Nota ${json.status} pela SEFAZ: ${json.motivoRejeicao ?? 'motivo não informado'}. Use "Corrigir e reenviar" em Notas emitidas.`)
+      } else if (json?.nfeId) {
+        setAguardando({ nfeId: json.nfeId, esgotou: false })
+        void consultarRetorno(json.nfeId, 0)
+      } else {
+        setErro(json?.mensagem ?? 'Resposta inesperada do provedor fiscal')
+      }
     } catch (e) {
       setErro((e as Error)?.message ?? 'Erro ao emitir')
       setEnviando(false)
@@ -316,6 +463,33 @@ export default function RemessaClient() {
         </span>
       </div>
 
+      {reenvioInfo && (
+        <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[12.5px] text-[#3D2314] flex items-start gap-2" data-testid="nfe-avulsa-reenvio">
+          <Info size={14} className="flex-shrink-0 mt-0.5 text-[#C8941A]" />
+          <span>{reenvioInfo}</span>
+          <AjudaCampo chave="fiscal.nfe_avulsa.emitir" />
+        </div>
+      )}
+
+      {aguardando && (
+        <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[12.5px] text-[#3D2314]" data-testid="nfe-avulsa-aguardando">
+          <div className="flex items-center gap-2 font-semibold">
+            {!aguardando.esgotou && <Loader2 size={13} className="animate-spin text-[#C8941A]" />}
+            Nota enviada, aguardando SEFAZ
+            <AjudaCampo chave="fiscal.nfe_avulsa.emitir" />
+          </div>
+          <div className="mt-1 text-[11.5px] text-[#3D2314]/80">{AVISO_PROCESSANDO}</div>
+          {aguardando.esgotou && (
+            <div className="mt-2 flex items-center gap-2">
+              <button type="button" onClick={consultarAgora} className="px-3 py-1.5 text-[11.5px] font-semibold rounded-lg border border-[#C8941A] text-[#3D2314]" data-testid="nfe-avulsa-consultar">
+                Consultar agora
+              </button>
+              <AjudaCampo chave="fiscal.nfe_avulsa.consultar" />
+            </div>
+          )}
+        </div>
+      )}
+
       {sucesso && (
         <div className="mb-4 p-3 bg-[#E7F4EC] border border-[#1B873F]/40 rounded-lg text-[12.5px] text-[#1B873F]" data-testid="nfe-avulsa-sucesso">
           ✓ NF-e nº <strong>{sucesso.numero}</strong> enviada à SEFAZ.
@@ -331,7 +505,7 @@ export default function RemessaClient() {
             <span className={rotuloCls}>Tipo de pessoa <AjudaCampo chave="fiscal.nfe_avulsa.destinatario_tipo" /></span>
             <select
               value={destTabela}
-              onChange={(e) => setDestTabela(e.target.value as 'erp_clientes' | 'erp_fornecedores')}
+              onChange={(e) => { setDestPendente(null); setDestTabela(e.target.value as 'erp_clientes' | 'erp_fornecedores') }}
               className={inputCls}
             >
               <option value="erp_clientes">Cliente</option>
@@ -606,7 +780,7 @@ export default function RemessaClient() {
           className="px-5 py-2 text-[12.5px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A77A12] disabled:opacity-50 flex items-center gap-1.5"
         >
           {enviando ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-          {enviando ? 'Emitindo…' : `Emitir NF-e${previa?.cfop ? ` · ${formatarCfop(previa.cfop)}` : ''}`}
+          {enviando ? 'Emitindo…' : aguardando ? 'Aguardando SEFAZ…' : `Emitir NF-e${previa?.cfop ? ` · ${formatarCfop(previa.cfop)}` : ''}`}
         </button>
       </div>
     </div>

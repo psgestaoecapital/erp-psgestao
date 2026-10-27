@@ -4,7 +4,7 @@
  * remessa no Simples exige CSOSN da operação (o do cadastro é o de venda, que viraria 101 com crédito, #2876),
  * CSOSN × CST pelo regime, botão "Emitir NF-e" na lista e "?" cadastrado para cada chave usada.
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { escopoCfop, validarNFeAvulsa, cfopNoCatalogo, type CfopSaida } from '../../src/lib/fiscal/nfeAvulsa'
 
 let falhas = 0
@@ -57,8 +57,11 @@ const mig = readFileSync('supabase/migrations/20261027010020_fiscal_nfe_avulsa_c
 ok(/ENABLE ROW LEVEL SECURITY/.test(mig) && /REVOKE ALL ON public\.erp_fiscal_cfop_saida FROM anon, public/.test(mig), 'catálogo com RLS e sem acesso anônimo')
 for (const cod of ['5915', '5916', '5908', '5912', '5949', '5910']) ok(mig.includes(`('${cod}'`), `catálogo traz o CFOP ${cod}`)
 const tela = readFileSync('src/app/dashboard/fiscal/nfe/remessa/RemessaClient.tsx', 'utf8')
+// chaves acrescentadas depois (ex.: "Consultar agora", #3861); acha pelo sufixo, a fila pode renumerar a versão
+const migAjuda = readdirSync('supabase/migrations').filter((f) => f.endsWith('_ajuda_nfe_avulsa_consultar.sql'))
+  .map((f) => readFileSync('supabase/migrations/' + f, 'utf8')).join('\n')
 for (const c of new Set([...tela.matchAll(/<AjudaCampo chave="([^"]+)"/g), ...lista.matchAll(/<AjudaCampo chave="(fiscal\.nfe\.[^"]+)"/g)].map((m) => m[1]))) {
-  ok(mig.includes(`'${c}'`), `"?" cadastrado: ${c}`)
+  ok(mig.includes(`'${c}'`) || migAjuda.includes(`'${c}'`), `"?" cadastrado: ${c}`)
 }
 
 if (falhas) { console.error(`\n[check-nfe-avulsa-cfop] ${falhas} falha(s) — build bloqueado.`); process.exit(1) }

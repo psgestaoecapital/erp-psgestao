@@ -28,6 +28,8 @@ interface RemessaBody {
   observacoes?: string
   modalidadeFrete?: number
   valorFrete?: number
+  // #3861 · "Corrigir e reenviar": id da nota recusada (erp_nfe_emitidas) — a nova herda o vínculo com pedido/título
+  reenvioDe?: string
 }
 
 const FINALIDADES: FinalidadeNFe[] = ['normal', 'complementar', 'ajuste', 'devolucao']
@@ -75,8 +77,32 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'remessa', endpoint: 'nfe/remessa' } })
     if (negado) return negado
 
+    // #3861 · reenvio de nota recusada (qualquer origem): só nota da MESMA empresa e que não saiu (nem autorizada nem
+    // em processamento). A nova nota herda o pedido / título a receber da recusada, para a venda continuar vinculada.
+    let vinculoReenvio: { pedido_id: string | null; erp_receber_id: string | null } | null = null
+    if (body.reenvioDe) {
+      const { data: orig } = await supabaseAdmin
+        .from('erp_nfe_emitidas')
+        .select('id, status, pedido_id, erp_receber_id')
+        .eq('id', body.reenvioDe)
+        .eq('company_id', body.companyId)
+        .maybeSingle()
+      if (!orig) {
+        return NextResponse.json({ ok: false, mensagem: 'Nota a reenviar não encontrada nesta empresa.' }, { status: 404 })
+      }
+      if (orig.status === 'autorizada' || orig.status === 'processando') {
+        return NextResponse.json({
+          ok: false,
+          mensagem: orig.status === 'autorizada'
+            ? 'Esta nota já foi autorizada: não há o que reenviar.'
+            : 'Esta nota ainda está aguardando a SEFAZ: espere a resposta antes de reenviar.',
+        }, { status: 409 })
+      }
+      vinculoReenvio = { pedido_id: orig.pedido_id ?? null, erp_receber_id: orig.erp_receber_id ?? null }
+    }
+
     // Busca o destinatario (cliente ou fornecedor)
-    const cols = 'id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, email, logradouro, numero, complemento, bairro, cidade, uf, cep'
+    const cols = 'id, razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, ie, contribuinte_icms, email, logradouro, numero, complemento, bairro, cidade, uf, cep'
 
     const { data: dest, error: errDest } = await supabaseAdmin
       .from(body.destinatarioTabela)
@@ -114,10 +140,30 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       icmsCodigo: body.icmsCodigo,
       simples,
       catalogo: (catalogo ?? []) as CfopSaida[],
+      destinatario: { doc, ie: destAny.ie as string | null, contribuinteIcms: destAny.contribuinte_icms as string | null },
     })
     if (avulsa.erros.length > 0) {
       return NextResponse.json({ ok: false, mensagem: avulsa.erros.join(' · '), erros: avulsa.erros, avisos: avulsa.avisos }, { status: 400 })
     }
+    // #3861 · não reenviar enquanto a anterior para o mesmo destinatário ainda espera a SEFAZ (evita nota duplicada)
+    const { data: pendente } = await supabaseAdmin
+      .from('erp_nfe_emitidas')
+      .select('id, numero')
+      .eq('company_id', body.companyId)
+      .eq(ehCnpj ? 'destinatario_cnpj' : 'destinatario_cpf', doc)
+      .eq('status', 'processando')
+      .gte('criado_em', new Date(Date.now() - 30 * 60_000).toISOString())
+      .limit(1)
+      .maybeSingle()
+    if (pendente) {
+      return NextResponse.json({
+        ok: false,
+        erro: 'nota_em_processamento',
+        nfeId: pendente.id,
+        mensagem: 'Já existe uma NF-e para este destinatário aguardando a SEFAZ. Espere a resposta em Notas emitidas antes de enviar outra.',
+      }, { status: 409 })
+    }
+
     const icmsCodigo = soDigitos(body.icmsCodigo)
     // ICMS escolhido para a operação (remessa não destaca imposto): sem base, alíquota nem valor
     const icmsOverride = icmsCodigo ? { csosn: icmsCodigo, base: 0, aliquota: 0, valor: 0 } : undefined
@@ -152,6 +198,9 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           cpf: !ehCnpj ? doc : undefined,
           email: destAny.email ? String(destAny.email) : undefined,
           endereco: enderecoBuilder,
+          // #3861: IE + indicador do cadastro (cliente ou fornecedor) — sem isso a SEFAZ recusava "IE não informada"
+          inscricaoEstadual: avulsa.ie?.inscricaoEstadual,
+          indicadorIE: avulsa.ie?.indicadorIE,
         },
         itens: itensBuilder,
         naturezaOperacao: body.naturezaOperacao,
@@ -221,6 +270,28 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     )
 
     await registrarTentativaEmissaoNFe(ctxEmissao, resposta, (registroId as string | null) ?? null)
+
+    // #3861 · payload EXATO enviado à Focus (sem cert/token), também na nota rejeitada — mesmo caminho da nfe/emitir.
+    // Sem isso as duas recusas da HUTSONTURBO ficaram sem payload_enviado para auditar.
+    if (!rpcErr && registroId && resposta.payloadEnviado != null) {
+      await supabaseAdmin
+        .from('erp_nfe_emitidas')
+        .update({ payload_enviado: resposta.payloadEnviado })
+        .eq('id', registroId as string)
+    }
+
+    // Reenvio: só o VÍNCULO com o pedido/título da nota recusada, gravado à parte (mesmo caminho do pedido_id na
+    // nfe/emitir). A avulsa não gera nem altera título — por isso não passa p_erp_receber_id à RPC.
+    if (!rpcErr && registroId && (vinculoReenvio?.pedido_id || vinculoReenvio?.erp_receber_id)) {
+      await supabaseAdmin
+        .from('erp_nfe_emitidas')
+        .update({
+          ...(vinculoReenvio.pedido_id ? { pedido_id: vinculoReenvio.pedido_id } : {}),
+          ...(vinculoReenvio.erp_receber_id ? { erp_receber_id: vinculoReenvio.erp_receber_id } : {}),
+        })
+        .eq('id', registroId as string)
+        .eq('company_id', body.companyId)
+    }
 
     if (rpcErr) {
       return NextResponse.json(

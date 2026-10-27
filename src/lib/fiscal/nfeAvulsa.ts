@@ -93,6 +93,8 @@ export interface EntradaAvulsa {
   icmsCodigo?: string
   simples: boolean
   catalogo: CfopSaida[]
+  // #3861 · cadastro do destinatário (cliente OU fornecedor): documento, IE e "Contribuinte ICMS"
+  destinatario?: CadastroIE
 }
 
 export interface ResultadoAvulsa {
@@ -100,6 +102,50 @@ export interface ResultadoAvulsa {
   itensCfop: string[]
   erros: string[]
   avisos: string[]
+  ie?: IEDestinatario
+}
+
+export interface CadastroIE {
+  doc?: string | null
+  ie?: string | null
+  contribuinteIcms?: string | null
+}
+
+export interface IEDestinatario {
+  inscricaoEstadual?: string
+  indicadorIE: 1 | 2 | 9
+  erro?: string
+  aviso?: string
+}
+
+// #3861 (Gean → HUTSONTURBO): a remessa não lia a IE do cadastro e a SEFAZ recusou "IE do destinatário não
+// informada". Regra única da tela e da rota: declarado no cadastro vale (contribuinte 1 / isento 2 / não contribuinte 9);
+// sem declaração, ter IE = contribuinte (1), não ter = não contribuinte (9). Contribuinte declarado sem IE barra antes
+// de enviar (a SEFAZ recusaria). Só o indicador 1 manda o número da IE (o provider não manda IE com 2/9).
+export function ieDestinatario(c: CadastroIE): IEDestinatario {
+  const ie = soDigitos(c.ie)
+  const ehCnpj = soDigitos(c.doc).length === 14
+  const declarado = ({ contribuinte: 1, isento: 2, nao_contribuinte: 9 } as Record<string, 1 | 2 | 9>)[
+    String(c.contribuinteIcms ?? '').trim().toLowerCase()
+  ]
+  if (declarado === 1 && !ie) {
+    return {
+      indicadorIE: 1,
+      erro: 'Destinatário marcado como contribuinte de ICMS sem Inscrição Estadual: informe a IE no cadastro '
+        + '(ou declare isento/não contribuinte). Sem ela a SEFAZ recusa a nota.',
+    }
+  }
+  if (declarado === 2 || declarado === 9) {
+    return {
+      indicadorIE: declarado,
+      ...(ie ? { aviso: `Cadastro com IE ${ie}, mas declarado ${declarado === 2 ? 'isento' : 'não contribuinte'}: a IE não vai na nota. Confira o campo "Contribuinte ICMS".` } : {}),
+    }
+  }
+  if (ie) return { inscricaoEstadual: ie, indicadorIE: 1 }
+  return {
+    indicadorIE: 9,
+    ...(ehCnpj ? { aviso: 'Empresa (CNPJ) sem Inscrição Estadual no cadastro: a nota vai como não contribuinte. Se ela é contribuinte de ICMS, informe a IE antes de emitir.' } : {}),
+  }
 }
 
 export function validarNFeAvulsa(e: EntradaAvulsa): ResultadoAvulsa {
@@ -151,5 +197,9 @@ export function validarNFeAvulsa(e: EntradaAvulsa): ResultadoAvulsa {
     }
   }
 
-  return { cfop: nota.cfop, itensCfop, erros, avisos }
+  const ie = e.destinatario ? ieDestinatario(e.destinatario) : undefined
+  if (ie?.erro) erros.push(ie.erro)
+  if (ie?.aviso) avisos.push(ie.aviso)
+
+  return { cfop: nota.cfop, itensCfop, erros, avisos, ...(ie ? { ie } : {}) }
 }

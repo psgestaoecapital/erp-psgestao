@@ -33,7 +33,11 @@ const trecho = tela.slice(tela.indexOf("from('erp_produtos')"), tela.indexOf("fr
 ok(trecho.includes(".eq('company_id', companyId)") && trecho.includes(".eq('ativo', true)"), 'consulta presa à empresa e a ativos')
 ok(tela.includes('filtroPrefixoProduto(termos[0])') && tela.includes('juntarResultados('), 'tela põe "começa com" antes de "contém"')
 ok(tela.includes('termosBuscaProduto(produtoBusca)') && tela.includes('filtroTermoProduto(t)'), 'tela busca no banco a cada digitação')
-ok((tela.match(/from\('erp_produtos'\)/g) ?? []).length === 1, 'uma única consulta de produtos (a da busca)')
+// #3861: além da busca, só o "Corrigir e reenviar" lê produtos — pelos códigos da nota recusada, nunca uma lista inteira
+const consultasProduto = tela.split("from('erp_produtos')").slice(1)
+ok(consultasProduto.length <= 2, 'no máximo 2 consultas de produtos (a busca e a do reenvio)')
+ok(consultasProduto.every((c) => c.slice(0, 200).includes(".eq('company_id', companyId)") && c.slice(0, 200).includes(".eq('ativo', true)") && (c.slice(0, 200).includes(".in('codigo', codigos)") || !/\.in\(/.test(c.slice(0, 200)))),
+  'toda consulta de produtos é presa à empresa e a ativos')
 
 if (falhas) { console.error(`\n${falhas} falha(s) no gate da busca de produto da NF-e avulsa`); process.exit(1) }
 console.log('\nGate busca de produto da NF-e avulsa: ok')
