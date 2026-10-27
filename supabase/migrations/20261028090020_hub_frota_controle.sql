@@ -443,6 +443,12 @@ SELECT * FROM (VALUES
    'Calculado: km percorrido nas viagens dividido pelos litros abastecidos.', 'Mostra quanto o veículo rende. Sem abastecimento lançado, não aparece.', '4,6 km/l', 'Achar que está errado: confira se os abastecimentos estão lançados na viagem.', 'hub', 924, 1, 'publicado'),
   ('projetos.frota.km_atual', '/dashboard/projetos/frota', 'Frota', 'Km atual',
    'Calculado: o maior km conhecido do veículo (viagens, abastecimentos, manutenções e km inicial).', 'É a base de todos os alertas de manutenção.', '45498 km', 'Esperar que o km mude sem lançar nenhuma viagem: o km só sobe com viagens ou manutenções.', 'hub', 925, 1, 'publicado'),
+  ('projetos.frota.data_manutencao', '/dashboard/projetos/frota', 'Frota', 'Data da manutenção',
+   'A data em que a manutenção foi feita (o padrão é hoje).', 'Ordena o histórico e mostra quando a troca aconteceu.', '15/10/2026', 'Usar a data do orçamento em vez da data da execução.', 'hub', 927, 1, 'publicado'),
+  ('projetos.frota.descricao', '/dashboard/projetos/frota', 'Frota', 'Descrição',
+   'O que foi feito, em poucas palavras (opcional).', 'Ajuda a lembrar o serviço no histórico.', 'Troca de óleo 5W30 + filtro', 'Repetir o tipo da manutenção sem detalhar o serviço.', 'hub', 928, 1, 'publicado'),
+  ('projetos.frota.motivo_exclusao', '/dashboard/projetos/frota', 'Frota', 'Motivo da exclusão',
+   'Por que o veículo ou a manutenção está sendo excluído.', 'Fica registrado na auditoria: quem excluiu, quando e por quê.', 'vendido', 'Deixar em branco: a exclusão não é aceita sem motivo.', 'hub', 929, 1, 'publicado'),
   ('projetos.frota.alerta', '/dashboard/projetos/frota', 'Frota', 'Alerta de manutenção',
    'Calculado: verde = faltam mais de 20% do intervalo; amarelo = faltam até 20%; vermelho = venceu.', 'Mostra o que precisa de atenção antes de quebrar.', 'Vermelho: troca de óleo vencida há 500 km', 'Ignorar o vermelho: ele some só quando a manutenção é registrada.', 'hub', 926, 1, 'publicado')
 ) AS t(chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
