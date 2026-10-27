@@ -8,7 +8,10 @@
 
 // CEO 24/10: o painel mostra SÓ os Codes que existem (tarefa agendada ligada: desenvolvedores, esteira, revisor, auditor PDCA)
 // mais os dos sócios (Rodrigo e Jordana). gilberto-produto, gilberto-chamados, stephany-code, andre-code e eng-chefe-auto saíram.
-export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-esteira', 'code-desenvolvedor-3', 'desenvolvedor_4_g', 'desenvolvedor_5_g', 'desenvolvedor_6_g', 'gilberto-revisor', 'auditor_pdca_g', 'rodrigo-code', 'jordana-code'] as const
+// CEO 27/10 (limpeza dos Codes): o painel mostra só os vivos. Ocultos (não apagados): gilberto-desenv, code-desenvolvedor-3,
+// desenvolvedor_5_g, desenvolvedor_6_g, gilberto-chamados, gilberto-produto, gilberto-automotivo, gilberto-industria,
+// andre-code, stephany-code, eng-chefe-auto. gilberto-revisor fica visível (autoriza PR sensível).
+export const CODES_PRINCIPAIS = ['gilberto-esteira', 'dev7claudeps', 'desenvolvedor_4_g', 'aud8claudeps', 'auditor_pdca_g', 'gilberto-revisor', 'rodrigo-code', 'jordana-code'] as const
 export const CODES_LINHA_FINAL: readonly string[] = []
 export const CODES_PAINEL: readonly string[] = [...CODES_PRINCIPAIS, ...CODES_LINHA_FINAL]
 
