@@ -70,6 +70,7 @@ export default function CalculadoraObraPage() {
   const [margem, setMargem] = useState("20");
   const [titulo, setTitulo] = useState("");
   const [historico, setHistorico] = useState<{ id: string; titulo: string; sistema: string; entradas: any; custo_total: number; preco_venda: number; margem_pct: number; criado_em: string }[]>([]);
+  const [desfazerCalc, setDesfazerCalc] = useState<string | null>(null);
   const sistemaDb = sistema === "parede" ? "parede" : sistema === "separativa" ? "parede_separativa" : sistema === "cortafogo" ? "parede_corta_fogo" : sistema === "estruturado" ? "revestimento_estruturado" : sistema === "revestimento" ? "revestimento_colado" : sistema === "aramado" ? "forro_aramado" : "forro_f530";
 
   const carregarEstoque = useCallback(async () => {
@@ -81,7 +82,7 @@ export default function CalculadoraObraPage() {
       sb.from("erp_orcamentos").select("id,numero,cliente_nome").eq("company_id", companyId).eq("status", "rascunho").order("created_at", { ascending: false }).limit(100),
     ]);
     setOrcamentos((o.data ?? []) as any);
-    const h = await sb.from("erp_calc_historico").select("id,titulo,sistema,entradas,custo_total,preco_venda,margem_pct,criado_em").eq("company_id", companyId).order("criado_em", { ascending: false }).limit(10);
+    const h = await sb.from("erp_calc_historico").select("id,titulo,sistema,entradas,custo_total,preco_venda,margem_pct,criado_em").eq("company_id", companyId).is("excluido_em", null).order("criado_em", { ascending: false }).limit(10);
     setHistorico((h.data ?? []) as any);
     setProdutos((p.data ?? []).map((x: any) => ({ id: x.id, nome: x.nome, unidade: x.unidade, custo: Number(x.preco_custo_medio) || Number(x.preco_custo) || null })));
     setVinculos(Object.fromEntries((d.data ?? []).map((x: any) => [x.chave, x.produto_id])));
@@ -155,6 +156,22 @@ export default function CalculadoraObraPage() {
     if (error) { if (!silencioso) setMsgSaida({ ok: false, texto: "Não consegui salvar o cálculo: " + error.message }); return; }
     if (!silencioso) setMsgSaida({ ok: true, texto: "Cálculo salvo no histórico." });
     void carregarEstoque();
+  }
+
+  // RD-98 p4: exclusão rastreável do cálculo salvo (soft-delete via RPC guardada; desfazer de 15 min por quem excluiu)
+  async function excluirCalculo(id: string) {
+    const sb = supabaseBrowser();
+    const { data, error } = await sb.rpc("fn_calc_historico_excluir", { p_id: id });
+    if (error || !(data as any)?.ok) { setMsgSaida({ ok: false, texto: "Não consegui excluir o cálculo." + ((data as any)?.erro ? " " + (data as any).erro : "") }); return; }
+    setDesfazerCalc(id);
+    void carregarEstoque();
+  }
+  async function desfazerExcluirCalculo() {
+    if (!desfazerCalc) return;
+    const sb = supabaseBrowser();
+    const { data } = await sb.rpc("fn_calc_historico_restaurar", { p_id: desfazerCalc });
+    if ((data as any)?.ok) { setDesfazerCalc(null); void carregarEstoque(); }
+    else setMsgSaida({ ok: false, texto: "Não consegui desfazer: " + ((data as any)?.erro ?? "tente de novo") });
   }
 
   function reabrir(h: { entradas: any }) {
@@ -349,13 +366,13 @@ export default function CalculadoraObraPage() {
                 {res.itens.map((i) => (
                   <li key={i.chave} className="py-2" data-testid={`calc-item-${i.chave}`}>
                     <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-sm text-[#3D2314]">{i.descricao}</span>
-                      <span className="whitespace-nowrap font-mono text-sm text-[#3D2314]"><b data-testid={`calc-qtd-${i.chave}`}>{i.quantidade}</b> × {i.unidadeCompra}</span>
+                      <span className="min-w-0 break-words text-sm text-[#3D2314]">{i.descricao}</span>
+                      <span className="shrink-0 whitespace-nowrap font-mono text-sm text-[#3D2314]"><b data-testid={`calc-qtd-${i.chave}`}>{i.quantidade}</b> × {i.unidadeCompra}</span>
                     </div>
                     {custoPorChave[i.chave]?.total != null && (
                       <div className="mt-0.5 flex items-baseline justify-between gap-3 text-xs text-[#3D2314]/60">
-                        <span>{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade}</span>
-                        <span className="whitespace-nowrap tabular-nums">= <b className="text-[#3D2314]">{fmtBRL(custoPorChave[i.chave].total!)}</b></span>
+                        <span className="min-w-0 break-words">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade}</span>
+                        <span className="shrink-0 whitespace-nowrap tabular-nums">= <b className="text-[#3D2314]">{fmtBRL(custoPorChave[i.chave].total!)}</b></span>
                       </div>
                     )}
                     {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
@@ -438,14 +455,24 @@ export default function CalculadoraObraPage() {
       {companyId && (
         <section className="mt-5 rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm" data-testid="calc-historico">
           <h2 className="mb-3 text-base font-medium text-[#3D2314]">Cálculos anteriores<AjudaCampo chave="projetos.calculadora.historico" rota="/dashboard/projetos/calculadora" /></h2>
+          {desfazerCalc && (
+            <div role="status" className="mb-3 flex items-center gap-2 rounded-lg border border-[#C8941A] bg-white px-3 py-2 text-sm text-[#3D2314]">
+              Cálculo excluído.<button onClick={() => void desfazerExcluirCalculo()} data-testid="calc-historico-desfazer" className="font-medium underline">Desfazer</button>
+              <AjudaCampo chave="projetos.calculadora.desfazer_calculo" rota="/dashboard/projetos/calculadora" />
+            </div>
+          )}
           {historico.length === 0 ? <p className="text-sm text-[#3D2314]/60">Nenhum cálculo salvo ainda. Use “Salvar cálculo” depois de calcular.</p> : (
             <ul className="divide-y divide-[#3D2314]/8">
               {historico.map((h) => (
-                <li key={h.id}>
-                  <button onClick={() => reabrir(h)} data-testid="calc-historico-item" className="flex w-full items-baseline justify-between gap-3 py-2.5 text-left text-sm text-[#3D2314]">
-                    <span>{h.titulo || "Sem nome"} <span className="text-xs text-[#3D2314]/50">· {new Date(h.criado_em).toLocaleDateString("pt-BR")}</span></span>
-                    <span className="font-mono text-xs">{fmtBRL(Number(h.preco_venda) || Number(h.custo_total))}</span>
+                <li key={h.id} className="flex items-baseline gap-2">
+                  <button onClick={() => reabrir(h)} data-testid="calc-historico-item" className="flex min-w-0 flex-1 items-baseline justify-between gap-3 py-2.5 text-left text-sm text-[#3D2314]">
+                    <span className="min-w-0 truncate">{h.titulo || "Sem nome"} <span className="text-xs text-[#3D2314]/50">· {new Date(h.criado_em).toLocaleDateString("pt-BR")}</span></span>
+                    <span className="shrink-0 font-mono text-xs">{fmtBRL(Number(h.preco_venda) || Number(h.custo_total))}</span>
                   </button>
+                  <span className="flex shrink-0 items-center gap-0.5">
+                    <button onClick={() => void excluirCalculo(h.id)} data-testid="calc-historico-excluir" className="text-xs text-red-700 underline opacity-80 hover:opacity-100">Excluir</button>
+                    <AjudaCampo chave="projetos.calculadora.excluir_calculo" rota="/dashboard/projetos/calculadora" />
+                  </span>
                 </li>
               ))}
             </ul>
