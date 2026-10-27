@@ -300,3 +300,15 @@ VALUES
  'Nada a preencher: avisa que a obra ainda não tem medição, nota fiscal nem pedido.',
  'Mostra "sem medição" em vez de R$ 0,00 para você não confundir falta de lançamento com resultado zero. Lance a medição da obra para ver faturado e recebido.', 'Obra recém-aprovada, sem medição', 'Achar que o sistema não calcula: falta lançar a primeira medição.', 320, '/dashboard/projetos/obras', 'projetos', 'publicado')
 ON CONFLICT (chave) DO NOTHING;
+
+-- REVOKE anon explícito nas funções recriadas (check:fn-guards); CREATE OR REPLACE já preserva os grants, aqui só fica escrito.
+REVOKE ALL ON FUNCTION public.fn_obras_listar(uuid[], text) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_obras_listar(uuid[], text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_obras_kpis(uuid[]) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_obras_kpis(uuid[]) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_obras_receita(uuid[]) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_obras_receita(uuid[]) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_obra_existe(uuid) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_obra_existe(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_obra_mudar_status(uuid, text) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_obra_mudar_status(uuid, text) TO authenticated, service_role;

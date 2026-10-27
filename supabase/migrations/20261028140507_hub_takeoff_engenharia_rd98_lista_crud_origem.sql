@@ -359,3 +359,11 @@ UPDATE public.system_screens
        rpcs_chamadas = ARRAY[]::text[],
        atualizado_em = now()
  WHERE rota = '/dashboard/projetos/takeoff/acervo';
+
+-- REVOKE anon explícito nas funções recriadas (check:fn-guards); CREATE OR REPLACE já preserva os grants, aqui só fica escrito.
+REVOKE ALL ON FUNCTION public.fn_takeoff_criar_orcamento(uuid, uuid, uuid, uuid) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_takeoff_criar_orcamento(uuid, uuid, uuid, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_takeoff_sugerir_servicos(uuid, uuid) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_takeoff_sugerir_servicos(uuid, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_takeoff_planta_procurar_por_hash(uuid, text) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_takeoff_planta_procurar_por_hash(uuid, text) TO authenticated, service_role;
