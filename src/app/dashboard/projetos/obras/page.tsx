@@ -23,7 +23,7 @@ type Obra = {
 }
 type Kpis = { em_andamento: number; concluidas: number; valor_em_andamento: number; valor_concluido: number }
 // Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita. Custo real (material + viagens) vem da v_obra_resultado.
-type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number; custo?: number }
+type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number; custo?: number; receita_view?: number }
 
 const ST: Record<string, { label: string; cor: string }> = {
   em_andamento: { label: 'Em andamento', cor: GOLD },
@@ -68,9 +68,12 @@ export default function ObrasPage() {
       // receita não derruba o board: se falhar, o cartão mostra "não deu para carregar"
       const { data: rc, error: er } = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
       // custo real (material + viagens) vem da v_obra_resultado; se falhar, o cartão mostra só a receita
-      const { data: cr } = await supabase.from('v_obra_resultado').select('obra_id,custo_material,custo_viagens').in('company_id', companyIds)
-      const custos = Object.fromEntries(((cr ?? []) as { obra_id: string; custo_material: number; custo_viagens: number }[]).map((x) => [x.obra_id, Number(x.custo_material || 0) + Number(x.custo_viagens || 0)]))
-      setReceita(er ? null : Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, { ...x, custo: custos[x.obra_id] }])))
+      const { data: cr } = await supabase.from('v_obra_resultado').select('obra_id,custo_material,custo_viagens,receita_servico,receita_material').in('company_id', companyIds)
+      const linhasRes = (cr ?? []) as { obra_id: string; custo_material: number; custo_viagens: number; receita_servico: number; receita_material: number }[]
+      const custos = Object.fromEntries(linhasRes.map((x) => [x.obra_id, Number(x.custo_material || 0) + Number(x.custo_viagens || 0)]))
+      // receita lançada fora de NFS-e (medição do escopo, venda de material ligada à obra): mesma fonte do Resultado por obra
+      const recView = Object.fromEntries(linhasRes.map((x) => [x.obra_id, Number(x.receita_servico || 0) + Number(x.receita_material || 0)]))
+      setReceita(er ? null : Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, { ...x, custo: custos[x.obra_id], receita_view: recView[x.obra_id] }])))
     } catch {
       setErro(MSG_CARREGAMENTO_FALHOU)
     } finally {
@@ -271,7 +274,7 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
     </div>
   )
   // Sem NFS-e autorizada ligada: R$ 0,00 mudo parece resultado zero; explica que falta lançar a medição.
-  const semLancamento = !!r && r.notas === 0 && Number(r.faturado || 0) === 0 && Number(r.recebido || 0) === 0
+  const semLancamento = !!r && r.notas === 0 && Number(r.faturado || 0) === 0 && Number(r.recebido || 0) === 0 && Number(r.receita_view || 0) === 0
   return (
     <div data-testid="obra-resultado" style={{ marginTop: 10, background: BG, border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px' }}>
       <div style={{ fontSize: 10.5, fontWeight: 700, color: ESP, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 2 }}>Resultado da obra<AjudaCampo chave="projetos.obras.resultado_card" /></div>
@@ -280,13 +283,13 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(80px,1fr))', gap: 8 }}>
-            {cel('Faturado', semLancamento ? 'sem medição' : fmtRc(r?.faturado ?? 0), semLancamento ? MUT : ESP, 'obra-faturado')}
+            {cel('Faturado', semLancamento ? 'sem medição' : fmtRc(Number(r?.faturado || 0) || Number(r?.receita_view || 0)), semLancamento ? MUT : ESP, 'obra-faturado')}
             {cel('Recebido', semLancamento ? 'sem medição' : fmtRc(r?.recebido ?? 0), semLancamento ? MUT : VERDE, 'obra-recebido')}
             {cel('A receber', semLancamento ? 'sem medição' : fmtRc(r?.a_receber ?? 0), semLancamento ? MUT : GOLD, 'obra-a-receber')}
             {cel('Custo', r?.custo != null ? fmtRc(r.custo) : '—', MUT, 'obra-custo')}
           </div>
           <div style={{ fontSize: 10.5, color: MUT, marginTop: 4 }} data-testid="obra-notas">
-            {r && r.notas > 0 ? `${r.notas} NFS-e autorizada(s)` : 'Nenhuma NFS-e autorizada ligada a esta obra — lance a medição para ver faturado e recebido'}{semLancamento && <AjudaCampo chave="projetos.obras.resultado_vazio" />}
+            {r && r.notas > 0 ? `${r.notas} NFS-e autorizada(s)` : r && Number(r.receita_view || 0) > 0 ? 'Receita lançada por medição/venda de material (sem NFS-e ligada)' : 'Nenhuma NFS-e autorizada ligada a esta obra — lance a medição para ver faturado e recebido'}{semLancamento && <AjudaCampo chave="projetos.obras.resultado_vazio" />}
             {r && r.notas_sem_titulo > 0 ? ` · ${r.notas_sem_titulo} sem título no financeiro (não entram no recebido)` : ''}
           </div>
         </>
