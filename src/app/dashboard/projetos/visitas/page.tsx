@@ -97,6 +97,8 @@ export default function VisitasPage() {
   const [anexosPorVisita, setAnexosPorVisita] = useState<Record<string, number>>({})
   const [anexosAberto, setAnexosAberto] = useState<string | null>(null)
   const [capturandoGps, setCapturandoGps] = useState<string | null>(null)
+  const [desfazerVisita, setDesfazerVisita] = useState<string | null>(null)
+  const [excluindoVisita, setExcluindoVisita] = useState<string | null>(null)
 
   // Quantos anexos (erp_crm_anexo, vínculo visita) cada visita tem. Falha aqui não esconde a lista: só não mostra o número.
   const contarAnexos = useCallback(async (ids: string[]) => {
@@ -115,6 +117,7 @@ export default function VisitasPage() {
       .from('erp_crm_visita')
       .select('id, company_id, oportunidade_id, data_visita, responsavel_id, responsavel_nome, status, endereco, anotacoes, gps_lat, gps_lng, fotos, audio_briefing_url, gerou_orcamento_id, created_at, erp_crm_oportunidade(id, titulo, obra_endereco, orcamento_id, erp_clientes(nome_fantasia, razao_social))')
       .eq('company_id', empresaUnica)
+      .is('deleted_at', null)
       .order('data_visita', { ascending: false, nullsFirst: false })
     if (error) setErro('Não foi possível carregar as visitas agora. Atualize a página; se persistir, avise o suporte.')
     setAgora(Date.now())
@@ -185,6 +188,24 @@ export default function VisitasPage() {
     if (!res.ok) { setToast(res.erro); return }
     setToast(res.criado ? `Orçamento ${res.numero ?? ''} CRIADO a partir da visita.` : 'Visita VINCULADA ao orçamento da oportunidade.')
     reload()
+  }
+
+  // RD-98 p4: exclusão rastreável da visita (soft-delete via RPC guardada; deleted_at + autor + audit_log;
+  // desfazer de 15 min só por quem excluiu). Nunca DELETE físico; a lista filtra deleted_at IS NULL.
+  async function excluirVisita(r: Row) {
+    if (!confirm('Excluir esta visita?\n\nEla sai da lista. Dá para desfazer por 15 minutos.')) return
+    setExcluindoVisita(r.id)
+    const { data, error } = await supabase.rpc('fn_crm_visita_excluir', { p_id: r.id })
+    setExcluindoVisita(null)
+    if (error || !(data as { ok?: boolean } | null)?.ok) { setToast(`Não consegui excluir: ${error?.message ?? (data as { erro?: string } | null)?.erro ?? 'tente de novo'}`); return }
+    setDesfazerVisita(r.id)
+    reload()
+  }
+  async function desfazerExcluirVisita() {
+    if (!desfazerVisita) return
+    const { data } = await supabase.rpc('fn_crm_visita_restaurar', { p_id: desfazerVisita })
+    if ((data as { ok?: boolean } | null)?.ok) { setDesfazerVisita(null); reload() }
+    else setToast(`Não consegui desfazer: ${(data as { erro?: string } | null)?.erro ?? 'tente de novo'}`)
   }
 
   // Registra o local da visita pelo GPS do aparelho, sem abrir o formulário. Grava pela mesma RPC do formulário,
@@ -335,6 +356,13 @@ export default function VisitasPage() {
         </div>
       )}
 
+      {desfazerVisita && (
+        <div role="status" className="mb-2 flex items-center gap-2 rounded-xl border p-3 text-sm" style={{ borderColor: DOURADO, background: '#fff' }}>
+          Visita excluída.
+          <button onClick={() => void desfazerExcluirVisita()} className="font-medium underline" data-testid="visita-desfazer">Desfazer</button>
+          <AjudaCampo chave="projetos.visitas.desfazer_exclusao" />
+        </div>
+      )}
       <div className="space-y-2">
         {filtradas.map((r) => {
           const cfg = STATUS_CFG[r.status] ?? { l: r.status, bg: OFFWHITE, fg: ESPRESSO }
@@ -357,14 +385,14 @@ export default function VisitasPage() {
                 <div className="min-w-0">
                   <div className="font-semibold" style={{ color: ESPRESSO }}>{fmtDT(r.data_visita)}</div>
                   {op && (
-                    <div className="text-sm" style={{ color: TEXTM }}>
+                    <div className="text-sm break-words" style={{ color: TEXTM }}>
                       <Link href={`/dashboard/projetos/oportunidades/${op.id}`} style={{ color: DOURADO, textDecoration: 'underline' }}>
                         {op.titulo}
                       </Link>
                       {cliNome && <span> · {cliNome}</span>}
                     </div>
                   )}
-                  {r.endereco && <div className="text-xs" style={{ color: TEXTM }}>{r.endereco}</div>}
+                  {r.endereco && <div className="text-xs break-words" style={{ color: TEXTM }}>{r.endereco}</div>}
                 </div>
                 <span className="text-[11px] px-2 py-1 rounded-full font-medium" style={{ background: cfg.bg, color: cfg.fg }}>
                   {cfg.l}
@@ -449,6 +477,12 @@ export default function VisitasPage() {
                     Abrir orçamento →
                   </Link>
                 )}
+                <span className="inline-flex items-center gap-1">
+                  <button onClick={() => excluirVisita(r)} disabled={excluindoVisita === r.id} style={btnSec} data-testid="visita-excluir">
+                    {excluindoVisita === r.id ? 'Excluindo…' : 'Excluir'}
+                  </button>
+                  <AjudaCampo chave="projetos.visitas.excluir" />
+                </span>
                 <AjudaCampo chave="projetos.visitas.acoes" />
               </div>
             </div>

@@ -228,8 +228,10 @@ export default function ClientesPage() {
 
   async function excluir(c: Cliente) {
     if (!window.confirm(`Excluir o cliente "${nomeOf(c)}"?\n\nEle sai da lista de clientes de obra (arquivado). Obras e histórico são preservados.`)) return
-    const { error } = await supabase.from('erp_clientes').update({ ativo: false }).eq('id', c.id)
-    if (error) { setErro(`Erro ao excluir: ${error.message}`); return }
+    // RD-98 p4: exclusão rastreável via RPC (soft-delete ativo=false + excluido_em/excluido_por + audit_log_global),
+    // em vez do update direto que não registrava quem/quando. A listagem segue filtrando ativo=true.
+    const { data, error } = await supabase.rpc('fn_cliente_arquivar', { p_id: c.id })
+    if (error || !(data as { ok?: boolean } | null)?.ok) { setErro(`Erro ao excluir: ${error?.message ?? (data as { erro?: string } | null)?.erro ?? 'tente de novo'}`); return }
     setOk(`EXCLUIU (arquivou) ${nomeOf(c)}`)
     if (sel2?.id === c.id) setSel2(null)
     await carregar()
