@@ -12,6 +12,8 @@ import { custearItens, sugerirVinculos, type ProdutoEstoque } from "@/lib/calcul
 import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv, listaDeCompraHtml } from "@/lib/calculadora/saida";
 import { precoComMargem } from "@/lib/calculadora/margem";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
+import { RESUMO_VALIDACAO } from "@/lib/calculadora/referencia-validacao";
+import { CheckCircle2 } from "lucide-react";
 import {
   REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, REGRAS_PAREDE_SEPARATIVA, REGRAS_PAREDE_CORTA_FOGO, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoColado, REGRAS_REVESTIMENTO_ESTRUTURADO, calcularRevestimentoEstruturado, calcularForroAramado, calcularForroF530, calcularParede, type Resultado,
 } from "@/lib/calculadora/motor";
@@ -322,6 +324,20 @@ export default function CalculadoraObraPage() {
               {custo.semCusto > 0 && <span className="ml-2 text-amber-700">{custo.semCusto} item(ns) sem custo — fora do total</span>}
             </p>
           )}
+          {/* Estado de validação das fórmulas: com as regras de referência, o cálculo é travado no build contra a suíte de
+              referência (gate check-calc-formulas). Quando a empresa edita as regras no avançado, passa a "a validar". */}
+          <div className="mb-3 flex flex-wrap items-center gap-1 text-xs" data-testid="calc-validacao">
+            {regraSalva == null ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-600/30 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800">
+                <CheckCircle2 size={13} aria-hidden />Fórmula validada contra a referência ({RESUMO_VALIDACAO.norma} · {RESUMO_VALIDACAO.total} casos)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-50 px-2 py-0.5 font-medium text-amber-800">
+                <AlertTriangle size={13} aria-hidden />Regras próprias desta empresa — a validar com o fabricante
+              </span>
+            )}
+            <AjudaCampo chave="projetos.calculadora.validacao" rota="/dashboard/projetos/calculadora" />
+          </div>
           {/* Resultado em DUAS colunas: a lista "o que comprar" (com a conta de cada item) fica à ESQUERDA, no topo da área
               visível; total (acima), margem e exportação à DIREITA (grudada no topo no desktop). No celular empilha com o
               total no topo e os itens logo abaixo. Antes a lista vinha por último e o auditor (RD-38, insight 26/10) só via
