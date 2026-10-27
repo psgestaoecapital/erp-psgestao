@@ -5,6 +5,7 @@
 // (5.02) e fecha. Gravação só pelas funções do banco (fn_viagem_*); o fechamento emite o evento 'viagem_fechada' e o
 // título nasce no GE pela fn_viagem_lancar_ge (onda 2: centro de custo = obra) — esta tela não calcula nem grava título.
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Lock } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ConsumoVeiculo } from './ConsumoVeiculo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -334,7 +335,7 @@ export default function ViagensPage() {
                   inconsistente" — todo card tem um rodapé: o editável mostra Editar/Excluir, o travado explica por quê. */}
               {noGe[v.id] && (
                 <div className="flex items-center gap-1 border-t px-3 py-1.5 text-xs opacity-60" style={{ borderColor: LINE }}>
-                  <span aria-hidden>🔒</span><span>Lançada no GE · registro travado (auditoria)</span><AjudaCampo chave="projetos.viagem.ge_situacao" />
+                  <Lock size={12} aria-hidden /><span>Lançada no GE · registro travado (auditoria)</span><AjudaCampo chave="projetos.viagem.ge_situacao" />
                 </div>
               )}
               {verConta === v.id && conta.length > 0 && (
