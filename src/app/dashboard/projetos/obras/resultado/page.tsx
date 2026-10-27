@@ -25,6 +25,9 @@ const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens) + n(l.custo
 const margem = (l: Linha) => l.margem_alocada ?? n(l.margem_realizada)
 // Margem % sobre a receita realizada. Sem receita ainda → null (mostra "—"), para não dividir por zero.
 const margemPct = (rec: number, marg: number) => (rec > 0 ? (marg / rec) * 100 : null)
+// Sem receita medida e com custo lançado: a margem negativa seria alarme falso — mostra o estado honesto.
+const semMedicao = (rec: number, cus: number) => rec <= 0 && cus > 0
+const MSG_SEM_MEDICAO = 'Sem medição'
 const cockpit = (obraId: string) => `/dashboard/projetos/obras/${obraId}/cockpit`
 
 export default function ResultadoObrasPage() {
@@ -105,6 +108,9 @@ export default function ResultadoObrasPage() {
                 {semReceitaComCusto} obra(s) com custo e ainda sem receita: lance a medição ou a venda de material para a margem aparecer.
               </p>
             )}
+            <p data-testid="resultado-prevista-explica" style={{ fontSize: 12, color: MUT, margin: '0 0 8px' }}>
+              Receita prevista é o valor contratado nos itens da obra; receita realizada só conta medição/NFS-e autorizada. A diferença é o que ainda falta medir.
+            </p>
             {visiveis.length === 0 && <p data-testid="resultado-filtro-vazio" style={{ fontSize: 13, color: MUT }}>Nenhuma obra com esse filtro. Limpe a busca ou escolha “Todas as situações”.</p>}
             <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
               <button onClick={baixarCsv} style={{ padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Baixar Excel (CSV)</button>
@@ -139,8 +145,10 @@ export default function ResultadoObrasPage() {
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
                       <td style={td}>{fmtR(n(l.custo_material))}</td><td style={td}>{fmtR(n(l.custo_viagens))}</td>
                       <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
-                      <td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
-                      <td style={{ ...td, color: cor(margem(l)) }}>{fmtPct(margemPct(receita(l), margem(l)))}</td>
+                      {semMedicao(receita(l), custo(l))
+                        ? <td colSpan={2} data-testid="resultado-sem-medicao" title="Sem medição/NFS-e lançada nesta obra: a margem fica indisponível até a primeira medição." style={{ ...td, color: MUT }}>{MSG_SEM_MEDICAO} — margem indisponível</td>
+                        : <><td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
+                          <td style={{ ...td, color: cor(margem(l)) }}>{fmtPct(margemPct(receita(l), margem(l)))}</td></>}
                       <td style={td}>{fmtR(n(l.receita_prevista))}</td><td style={td}>{fmtR(n(l.custo_previsto))}</td>
                     </tr>
                   ))}
@@ -149,8 +157,10 @@ export default function ResultadoObrasPage() {
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
                     <td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_material), 0))}</td><td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_viagens), 0))}</td>
                     <td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
-                    <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
-                    <td style={{ ...td, color: cor(total.margem) }}>{fmtPct(margemPct(total.receita, total.margem))}</td>
+                    {semMedicao(total.receita, total.custo)
+                      ? <td colSpan={2} style={{ ...td, color: MUT }}>{MSG_SEM_MEDICAO} — margem indisponível</td>
+                      : <><td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
+                        <td style={{ ...td, color: cor(total.margem) }}>{fmtPct(margemPct(total.receita, total.margem))}</td></>}
                     <td style={td}>{fmtR(total.prevista)}</td><td style={td}>{fmtR(total.custoPrev)}</td>
                   </tr>
                 </tbody>
@@ -169,6 +179,8 @@ function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra
   obraId?: string; titulo: string; receita: number; custo: number; material: number; viagens: number; maoObra: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean
 }) {
   const pct = margemPct(receita, margem)
+  const sem = semMedicao(receita, custo)
+  const avancoReceita = prevista > 0 ? Math.min(100, (receita / prevista) * 100) : 0
   const par = (rot: string, v: number, chave?: string) => (
     <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>{rot}{destaque && chave && <AjudaCampo chave={chave} />}</div>
@@ -181,11 +193,13 @@ function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra
         {obraId
           ? <Link href={cockpit(obraId)} style={{ fontWeight: 700, fontSize: 14, minWidth: 0, overflowWrap: 'anywhere', color: GOLD, textDecoration: 'none' }} title="Abrir o cockpit da obra">{titulo}</Link>
           : <span style={{ fontWeight: 700, fontSize: 14, minWidth: 0, overflowWrap: 'anywhere' }}>{titulo}</span>}
-        <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', color: margem < 0 ? VERM : VERDE }}>{fmtR(margem)}</span>
+        <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', color: sem ? MUT : margem < 0 ? VERM : VERDE }}>{sem ? '—' : fmtR(margem)}</span>
       </div>
       <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>margem{destaque && <AjudaCampo chave="projetos.resultado_obra.margem" />}</span>
-        <span style={{ color: margem < 0 ? VERM : VERDE }}>· {fmtPct(pct)}</span>
+        {sem
+          ? <span data-testid="resultado-sem-medicao">· {MSG_SEM_MEDICAO} ainda — margem indisponível</span>
+          : <span style={{ color: margem < 0 ? VERM : VERDE }}>· {fmtPct(pct)}</span>}
         {destaque && <AjudaCampo chave="projetos.resultado_obra.margem_pct" />}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginTop: 10 }}>
@@ -194,6 +208,12 @@ function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra
         {par('Mão de obra', maoObra, 'projetos.resultado_obra.mao_obra')}{par('Receita prevista', prevista, 'projetos.resultado_obra.receita_prevista')}
         {par('Custo previsto', custoPrev, 'projetos.resultado_obra.custo_previsto')}
       </div>
+      {prevista > 0 && (
+        <div data-testid="resultado-previsto-realizado" style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>Receita realizada × prevista: {avancoReceita.toFixed(0)}%{destaque && <AjudaCampo chave="projetos.resultado_obra.receita_prevista" />}</div>
+          <div style={{ height: 6, background: LINE, borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${avancoReceita}%`, height: '100%', background: GOLD }} /></div>
+        </div>
+      )}
     </div>
   )
 }
