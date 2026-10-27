@@ -236,7 +236,7 @@ export default function PainelProjetos() {
             chave="projetos.painel.kpi.pagar_aberto"
             valor={resumo ? fmtBRL(resumo.pagar_aberto) : "…"}
             vazio={!!resumo && resumo.pagar_aberto === 0}
-            vazioTexto="Nenhuma conta a pagar em aberto"
+            vazioTexto="Sem conta a pagar em aberto — abrir o Financeiro"
             href="/dashboard/financeiro/pagar"
           />
           <KpiSecundario
@@ -244,7 +244,7 @@ export default function PainelProjetos() {
             chave="projetos.painel.kpi.receber_aberto"
             valor={resumo ? fmtBRL(resumo.receber_aberto) : "…"}
             vazio={!!resumo && resumo.receber_aberto === 0}
-            vazioTexto="Nenhuma conta a receber em aberto"
+            vazioTexto="Sem conta a receber em aberto — abrir o Financeiro"
             href="/dashboard/financeiro/receber"
           />
         </div>
@@ -257,10 +257,10 @@ export default function PainelProjetos() {
           <AjudaCampo chave="projetos.painel.funil" />
         </div>
         <Link href="/dashboard/projetos/oportunidades" className="mt-3 grid grid-cols-2 gap-3 rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A] md:grid-cols-4">
-          <Numero label="Em aberto" valor={resumo ? String(resumo.funil_abertas) : "…"} testid="funil-abertas" />
-          <Numero label="Valor em aberto" valor={resumo ? fmtBRL(resumo.funil_valor_aberto) : "…"} />
-          <Numero label="Ganhas" valor={resumo ? String(resumo.funil_ganhas) : "…"} />
-          <Numero label="Perdidas" valor={resumo ? String(resumo.funil_perdidas) : "…"} />
+          <Numero label="Em aberto" valor={resumo ? String(resumo.funil_abertas) : "…"} testid="funil-abertas" ajuda="projetos.painel.funil" />
+          <Numero label="Valor em aberto" valor={resumo ? fmtBRL(resumo.funil_valor_aberto) : "…"} ajuda="projetos.painel.funil" />
+          <Numero label="Ganhas" valor={resumo ? String(resumo.funil_ganhas) : "…"} ajuda="projetos.painel.funil" />
+          <Numero label="Perdidas" valor={resumo ? String(resumo.funil_perdidas) : "…"} ajuda="projetos.painel.funil" />
         </Link>
       </section>
 
@@ -273,7 +273,7 @@ export default function PainelProjetos() {
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
           {SITUACOES.map((x) => (
             <Link key={x.s} href="/dashboard/projetos/obras" data-testid={`situacao-${x.s}`} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
-              <Numero label={x.l} valor={resumo ? String(resumo.obras_por_status[x.s] ?? 0) : "…"} />
+              <Numero label={x.l} valor={resumo ? String(resumo.obras_por_status[x.s] ?? 0) : "…"} ajuda="projetos.painel.obras_situacao" />
             </Link>
           ))}
         </div>
@@ -372,10 +372,10 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Numero({ label, valor, testid }: { label: string; valor: string; testid?: string }) {
+function Numero({ label, valor, testid, ajuda }: { label: string; valor: string; testid?: string; ajuda?: string }) {
   return (
     <div>
-      <div className="mb-1 text-xs text-[#3D2314]/50">{label}</div>
+      <div className="mb-1 flex items-center gap-1 text-xs text-[#3D2314]/50">{label}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       <div data-testid={testid} className="text-lg font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}>
         {valor}
       </div>
