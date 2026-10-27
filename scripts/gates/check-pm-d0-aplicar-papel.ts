@@ -4,7 +4,7 @@ import { resumirPrevia } from '../../src/lib/pm/papelAgencia'
 
 const falhas: string[] = []
 const ok = (c: boolean, m: string) => { if (!c) falhas.push(m) }
-const mig = readFileSync('supabase/migrations/20261007170005_pm_d0_aplicar_papel_agencia.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261028090150_pm_d0_aplicar_papel_agencia.sql', 'utf8')
 ok(mig.includes('fn_acessos_pode_gerir'), 'guarda de gestão de acessos')
 ok(/REVOKE ALL ON FUNCTION public\.fn_pm_papel_agencia_aplicar[^;]*anon/.test(mig), 'REVOKE anon na aplicar')
 ok(!/\bDELETE\b|\bTRUNCATE\b/i.test(mig.replace(/--.*$/gm, '')), 'sem DELETE/TRUNCATE')
