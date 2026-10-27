@@ -966,6 +966,25 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_iss_retido: issRetido }).eq('id', registroId)
     }
 
+    // #3862 · grava na nota o total retido e o LÍQUIDO (mesma fórmula do banco: fn_nfse_retencoes_totalizar) — antes
+    // ficavam valor_retencoes=0 / valor_liquido=NULL e o título só conseguia nascer pelo valor cheio (NFS-e 422 da FC Pisos).
+    const retTotalNota = Math.round(((retencoesCalculadas?.totalRetido ?? 0) + (issRetido > 0 ? issRetido : 0)) * 100) / 100
+    if (registroId && retTotalNota > 0 && resposta.status !== 'rejeitada') {
+      const { data: tot } = await supabaseAdmin.rpc('fn_nfse_retencoes_totalizar', {
+        p_valor_bruto: Number(nfseReq.valorServicos), p_deducoes: 0, p_desconto: 0,
+        p_iss_retido: issRetido > 0 ? issRetido : 0,
+        p_irrf: retencoesCalculadas?.valorIrrf ?? 0, p_pis: retencoesCalculadas?.valorPisRet ?? 0,
+        p_cofins: retencoesCalculadas?.valorCofinsRet ?? 0, p_csll: retencoesCalculadas?.valorCsllRet ?? 0,
+        p_inss: retencoesCalculadas?.valorCp ?? 0,
+      })
+      const t = (tot ?? null) as { retencoes_total?: number; valor_liquido?: number } | null
+      if (t && typeof t.valor_liquido === 'number') {
+        await supabaseAdmin.from('erp_nfse_emitidas')
+          .update({ valor_retencoes: t.retencoes_total ?? retTotalNota, valor_liquido: t.valor_liquido })
+          .eq('id', registroId)
+      }
+    }
+
     // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)
     if (registroId && obraIdFinal) {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ obra_id: obraIdFinal }).eq('id', registroId)
