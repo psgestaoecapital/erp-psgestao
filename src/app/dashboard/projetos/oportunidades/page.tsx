@@ -190,6 +190,14 @@ export default function OportunidadesPage() {
   const nPerdidas = rows.filter((r) => r.etapa === 'perdido').length
   const nAberto   = totalOps - nGanhas - nPerdidas
   const mesAtual  = new Date().toLocaleDateString('pt-BR', { month: 'long' })
+  // Dinheiro vindo da MESMA lista que alimenta o funil (rows): garante, por construção, que a soma dos cards
+  // visíveis = os números do topo (RD-38). O pipeline da RPC (resumo.valor_pipeline) é só conferência.
+  const ehTerminal   = (r: Row) => r.etapa === 'ganho' || r.etapa === 'perdido'
+  const somaValor    = (f: (r: Row) => boolean) => rows.filter(f).reduce((s, r) => s + Number(r.valor_estimado ?? 0), 0)
+  const valorAberto  = somaValor((r) => !ehTerminal(r))
+  const valorGanho   = somaValor((r) => r.etapa === 'ganho')
+  const valorPerdido = somaValor((r) => r.etapa === 'perdido')
+  const valorTotal   = valorAberto + valorGanho + valorPerdido
 
   return (
     <div className="px-4 py-4 w-full" style={{ color: ESPRESSO }}>
@@ -206,16 +214,19 @@ export default function OportunidadesPage() {
         <span className="inline-flex items-center gap-1"><button onClick={() => setEditing(null)} style={btnNovo}>+ Nova oportunidade</button><AjudaCampo chave="projetos.oportunidades.nova" /></span>
       </header>
 
-      {/* KPIs com ESCOPO explícito e que se CRUZAM (auditor PDCA 27/10: consistência 45 — "3 ganhas" x
-          "ganhas em outubro 1" x "pipeline 194k" x "ganhas 690k" pareciam se contradizer). Cada número diz de
-          onde vem: "em aberto" = funil ativo; "ganhas no mês" aponta o total; "pipeline" = a soma das abertas
-          (= soma das colunas do Kanban). Assim as bases (mês × total × aberto) ficam visíveis e batem (RD-38). */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4" style={{ maxWidth: 640 }}>
-        <Kpi titulo="Em aberto"     valor={String(nAberto)} sub="no funil ativo" ajuda="projetos.oportunidades.kpi_aberto" />
-        {/* rótulo nomeia o mês — "Ganhas no mês 0" parecia erro; o subtítulo liga ao total all-time (tile Ganhas) */}
-        <Kpi titulo={`Ganhas em ${mesAtual}`} valor={String(resumo?.ganhas_mes ?? 0)} sub={`de ${nGanhas} no total`} ajuda="projetos.oportunidades.kpi_ganhas_mes" />
-        <Kpi titulo="Pipeline (R$)" valor={brl(resumo?.valor_pipeline)} sub={`soma das ${nAberto} em aberto`} destaque ajuda="projetos.oportunidades.kpi_pipeline" />
+      {/* KPIs que se CRUZAM e PROVAM a conta (RD-38, auditor PDCA 27/10 cons 45: "3 ganhas" × "ganhas em outubro 1"
+          × "pipeline 194k" × "ganhas 690k" pareciam se contradizer). Agora tudo sai da MESMA lista (rows), então a
+          soma dos cards do funil = os números do topo: em aberto (pipeline) + ganhas + perdidas = total. O mês é
+          rodapé das ganhas — "1 em outubro" é recorte de "3 no total", não um número que briga com os outros. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-2" style={{ maxWidth: 760 }}>
+        <Kpi titulo="Em aberto"     valor={String(nAberto)}  sub={`pipeline ${brl(valorAberto)}`} destaque ajuda="projetos.oportunidades.kpi_aberto" />
+        <Kpi titulo="Ganhas"        valor={String(nGanhas)}  sub={`${brl(valorGanho)} · ${resumo?.ganhas_mes ?? 0} em ${mesAtual}`} ajuda="projetos.oportunidades.kpi_ganhas" />
+        <Kpi titulo="Perdidas"      valor={String(nPerdidas)} sub={brl(valorPerdido)} ajuda="projetos.oportunidades.kpi_perdidas" />
+        <Kpi titulo="Total no funil" valor={String(totalOps)} sub={brl(valorTotal)} ajuda="projetos.oportunidades.kpi_total" />
       </div>
+      <p className="text-[11px] opacity-55 mb-4" style={{ maxWidth: 760 }}>
+        Pipeline conta só as em aberto; <b>em aberto + ganhas + perdidas = total</b>. A soma das colunas do funil bate com o pipeline.
+      </p>
 
       {/* Filtros herdados da antiga Lista — agora sempre visíveis (Kanban é a única visão) */}
       <div className="flex flex-wrap gap-2 mb-3 items-center">
