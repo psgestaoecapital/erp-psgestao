@@ -7,9 +7,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
-import GraficosCodes from './GraficosCodes'
+import GraficosCodes, { ProducaoCompacta } from './GraficosCodes'
 import SaudeEsteira from './SaudeEsteira'
 import DiagnosticoEsteira from './DiagnosticoEsteira'
+import BarrasQualidadeVertical from './BarrasQualidadeVertical'
+import EvolucaoTelasHub from './EvolucaoTelasHub'
+import ProximasPublicacoes from './ProximasPublicacoes'
+import CronogramaHub from './CronogramaHub'
 import SaudeCodes from './SaudeCodes'
 import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
 import MeuCode from '@/components/dev/MeuCode'
@@ -119,7 +123,7 @@ export default function PainelCodes() {
     filaTestes: dados.filaTestes,
   }) : null), [dados, agora])
   const resumos = useMemo(
-    () => (dados ? CODES_PAINEL.map((code) => resumoCode({ code, entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, rotinas: dados.rotinas, agora })) : []),
+    () => (dados ? CODES_PRINCIPAIS.map((code) => resumoCode({ code, entregas: dados.entregas, msgs: dados.msgs, leases: dados.leases, rotinas: dados.rotinas, agora })) : []),
     [dados, agora],
   )
 
@@ -145,13 +149,26 @@ export default function PainelCodes() {
 
       {erro && <div role="alert" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 10, padding: 10, fontSize: 12, marginBottom: 10 }}>Não consegui ler os dados: {erro}</div>}
 
-      <BlocoSeguro nome="Saúde da esteira"><SaudeEsteira /></BlocoSeguro>
-      <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
-      <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
-      <BlocoSeguro nome="Gráficos"><GraficosCodes /></BlocoSeguro>
+      {/* UMA TELA DE MONITOR (CEO 24/10): faixa da esteira enxuta; linha 1 = fila viva · publicações do dia · qualidade por vertical;
+          linha 2 (logo abaixo) = resumo por Code · produzidas × publicadas por hora · saúde da esteira. Empilha no celular. */}
       {est && f && <BlocoSeguro nome="Faixa da esteira"><FaixaEsteira e={est} alerta={f.cor === 'vermelha' ? f.frase : null} agora={agora} /></BlocoSeguro>}
-      {resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}
-      {dados && <BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro>}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start" data-testid="codes-topo-3col">
+        <div style={{ minWidth: 0, maxHeight: 'min(46vh, 400px)', overflowY: 'auto' }}><BlocoSeguro nome="Próximas publicações"><ProximasPublicacoes /></BlocoSeguro></div>
+        {dados && <div style={{ minWidth: 0, maxHeight: 'min(46vh, 400px)', overflowY: 'auto' }}><BlocoSeguro nome="Publicações do dia"><LinhaDoTempo itens={dados.linhaTempo} dia={dia} setDia={trocarDia} agora={agora} /></BlocoSeguro></div>}
+        <div style={{ minWidth: 0 }}><BlocoSeguro nome="Qualidade por vertical"><BarrasQualidadeVertical altura={230} /></BlocoSeguro></div>
+      </div>
+      <div className="mt-3" data-testid="codes-evolucao-telas"><BlocoSeguro nome="Evolução das telas do Hub"><EvolucaoTelasHub /></BlocoSeguro></div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start mt-3" data-testid="codes-linha-2">
+        <div style={{ minWidth: 0 }}>{resumos.length > 0 && <BlocoSeguro nome="Resumo por Code"><ResumoPorCode itens={resumos} agora={agora} /></BlocoSeguro>}</div>
+        <div style={{ minWidth: 0 }}>{dados && <BlocoSeguro nome="Produzidas × publicadas por hora"><ProducaoCompacta entregas={dados.entregas} agora={agora} /></BlocoSeguro>}</div>
+        <div style={{ minWidth: 0 }}><BlocoSeguro nome="Saúde da esteira"><SaudeEsteira compacto /></BlocoSeguro></div>
+      </div>
+
+      {/* Detalhe e diagnóstico (abaixo da primeira tela) */}
+      <div style={{ marginTop: 12 }}><BlocoSeguro nome="Gráficos"><GraficosCodes semProducao /></BlocoSeguro></div>
+      <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
+      <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
+      <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
 
       {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
       <BlocoSeguro nome="Meu Code"><MeuCode /></BlocoSeguro>
@@ -159,15 +176,17 @@ export default function PainelCodes() {
 
       {dados && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {CODES_PRINCIPAIS.map((c) => <BlocoSeguro key={c} nome={c}><CartaoCode code={c} dados={dados} agora={agora} /></BlocoSeguro>)}
           </div>
-          <div style={{ fontSize: 12, color: TXM, fontWeight: 600, margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Revisão e Eng. Chefe</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {CODES_LINHA_FINAL.length > 0 && <>
+          <div style={{ fontSize: 12, color: TXM, fontWeight: 600, margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Outros Codes</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {CODES_LINHA_FINAL.map((c) => c === AUDITOR_CODE
               ? <BlocoSeguro key={c} nome={AUDITOR_NOME}><CartaoAuditor dados={dados} agora={agora} /></BlocoSeguro>
               : <BlocoSeguro key={c} nome={c}><CartaoCode code={c} dados={dados} agora={agora} compacto /></BlocoSeguro>)}
           </div>
+          </>}
           <BlocoSeguro nome="Conectar Claude"><ConectarClaude /></BlocoSeguro>
         </>
       )}
@@ -183,7 +202,8 @@ const COR_STATUS: Record<StatusCode, { bg: string; fg: string; ico: string; nome
   travado: { bg: VERM_BG, fg: VERM, ico: '■', nome: 'Travado', ajuda: 'Tem tarefa NOVA sem leitura há mais de 15 min e nenhuma sessão nos últimos 30 min (ou o acionamento está falhando).' },
   na_fila: { bg: '#FEF3C7', fg: '#92400E', ico: '◔', nome: 'Na fila', ajuda: 'Tem tarefa NOVA esperando há menos de 15 min (ou há sessão recente que vai lê-la).' },
   esperando: { bg: '#FEF3C7', fg: '#92400E', ico: '◐', nome: 'Esperando', ajuda: 'Sem sessão, mas tem PR em teste ou aguardando autorização.' },
-  dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão, mas sem tarefa nova sem leitura (a última sessão foi recente ou não há nada esperando); acorda ao receber mensagem (ou na próxima hora cheia, para quem tem agenda).' },
+  agendado: { bg: '#E0ECFF', fg: '#1E40AF', ico: '◇', nome: 'Agendado', ajuda: 'Tarefa agendada LIGADA: roda sozinho a cada hora (plantão) e acorda ao receber mensagem. Sem sessão ativa neste instante — não é "dormindo".' },
+  dormindo: { bg: OFF, fg: TXM, ico: '○', nome: 'Dormindo', ajuda: 'Sem sessão e sem rotina agendada: só acorda ao receber mensagem.' },
 }
 
 function FaixaEsteira({ e, alerta, agora }: { e: ReturnType<typeof esteira>; alerta: string | null; agora: Date }) {
@@ -208,39 +228,41 @@ function FaixaEsteira({ e, alerta, agora }: { e: ReturnType<typeof esteira>; ale
 
 function ResumoPorCode({ itens, agora }: { itens: ReturnType<typeof resumoCode>[]; agora: Date }) {
   return (
-    <div data-testid="codes-resumo" style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, color: TXM, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-        Resumo por Code
-        <details style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 0 }}>
+    <section data-testid="codes-resumo" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 12 }}>
+      <header style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Resumo por Code</h3>
+        <span style={{ fontSize: 11, color: TXM }}>{itens.filter((r) => r.status === 'trabalhando').length} de {itens.length} trabalhando agora</span>
+        <details style={{ fontSize: 11, color: TXM, marginLeft: 'auto' }}>
           <summary style={{ cursor: 'pointer' }} aria-label="O que significam os status">?</summary>
-          {(Object.keys(COR_STATUS) as StatusCode[]).map((k) => <div key={k}><b>{COR_STATUS[k].nome}:</b> {COR_STATUS[k].ajuda}</div>)}
-          <div><b>Plantão permanente:</b> nunca entra na fila, em "mais antiga" nem em backlog (não é concluído por desenho).</div>
-          <div><b>Fila antiga:</b> mensagens recebidas há mais de 24 h; nunca contam como Travado.</div>
+          <div style={{ position: 'absolute', zIndex: 5, background: BRANCO, border: `1px solid ${BD}`, borderRadius: 8, padding: 8, maxWidth: 320 }}>
+            {(Object.keys(COR_STATUS) as StatusCode[]).map((k) => <div key={k}><b>{COR_STATUS[k].nome}:</b> {COR_STATUS[k].ajuda}</div>)}
+            <div><b>Colunas:</b> fila = tarefas na caixa; teste = PRs abertas; hoje = PRs publicadas hoje.</div>
+            <div><b>Plantão permanente:</b> nunca entra na fila (não é concluído por desenho). <b>Fila antiga:</b> há mais de 24 h; nunca conta como Travado.</div>
+          </div>
         </details>
-      </div>
-      <div className="flex gap-2 overflow-x-auto md:grid md:grid-cols-4 md:overflow-visible" style={{ paddingBottom: 4 }}>
+      </header>
+      <div style={{ display: 'grid', gap: 4 }}>
         {itens.map((r) => {
           const s = COR_STATUS[r.status]
+          const sessao = r.status === 'agendado' && r.ultimaSessaoMin === null ? 'roda sozinho a cada hora'
+            : `última sessão ${r.status === 'trabalhando' ? 'agora' : r.ultimaSessaoMin === null ? '—' : `há ${duracao(r.ultimaSessaoMin * 60_000)}`}`
           return (
-            <a key={r.code} href={`#card-code-${r.code}`} data-testid={`resumo-${r.code}`} data-status={r.status}
+            <a key={r.code} href={`#card-code-${r.code}`} data-testid={`resumo-${r.code}`} data-status={r.status} title={`${r.fazendo} · ${sessao} · não lidas ${r.naoLidas}`}
               onClick={(ev) => { ev.preventDefault(); document.querySelector(`[data-testid="card-code-${r.code}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
-              style={{ flex: '0 0 200px', minWidth: 0, textDecoration: 'none', color: ESP, background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 10 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>{r.code === AUDITOR_CODE ? AUDITOR_NOME : r.code}</div>
-              <div data-testid={`resumo-status-${r.code}`} style={{ display: 'inline-block', margin: '4px 0', fontSize: 11, fontWeight: 700, background: s.bg, color: s.fg, border: `1px solid ${s.fg}`, borderRadius: 999, padding: '1px 8px' }}>
-                {s.ico} {s.nome}{r.desde ? ` desde ${hora(r.desde)}` : ''}
-              </div>
-              <div title={r.fazendo} style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.fazendo}</div>
-              <div style={{ fontSize: 11, color: TXM, marginTop: 4 }}>
-                última sessão {r.status === 'trabalhando' ? 'agora' : r.ultimaSessaoMin === null ? '—' : `há ${duracao(r.ultimaSessaoMin * 60_000)}`} · não lidas: {r.naoLidas}
-              </div>
-              <div style={{ fontSize: 11, color: TXM }}>
-                fila {r.fila}{r.filaAntiga > 0 ? ` (+${r.filaAntiga} fila antiga)` : ''} · em teste {r.emTeste} · hoje {r.entreguesHoje}
-              </div>
+              style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.25fr) auto minmax(0,1fr)', alignItems: 'center', gap: 8, textDecoration: 'none', color: ESP, border: `1px solid ${BD}`, borderRadius: 8, padding: '5px 8px', background: OFF }}>
+              <span style={{ fontWeight: 700, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.code}</span>
+              <span data-testid={`resumo-status-${r.code}`} style={{ fontSize: 10.5, fontWeight: 700, background: s.bg, color: s.fg, border: `1px solid ${s.fg}`, borderRadius: 999, padding: '0 7px', whiteSpace: 'nowrap' }}>
+                {s.ico} {s.nome}{r.desde ? ` ${hora(r.desde)}` : ''}
+              </span>
+              <span style={{ fontSize: 11, color: TXM, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                fila {r.fila}{r.filaAntiga > 0 ? `+${r.filaAntiga}` : ''} · teste {r.emTeste} · hoje {r.entreguesHoje}
+              </span>
             </a>
           )
         })}
       </div>
-    </div>
+      <div style={{ fontSize: 10.5, color: TXM, marginTop: 6 }}>Passe o mouse na linha: o que está fazendo e a última sessão. Clique: abre o cartão do Code.</div>
+    </section>
   )
 }
 
