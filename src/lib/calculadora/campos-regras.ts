@@ -14,6 +14,7 @@ const comuns: CampoRegra[] = [
   { caminho: 'rolofitaM', rotulo: 'Rolo de fita', unidade: 'm', ajuda: 'metros por rolo de fita' },
 ]
 export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
+  parede_separativa: [], parede_corta_fogo: [],
   parede: [
     ...comuns,
     { caminho: 'chapasPorFace', rotulo: 'Chapas por face', unidade: 'un', ajuda: 'camadas de chapa em cada face da parede' },
@@ -33,6 +34,24 @@ export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
     { caminho: 'parafusoPPA25PorM2', rotulo: 'Parafuso PPA 25', unidade: 'un/m²', ajuda: 'parafusos PPA 25 por m²' },
     { caminho: 'parafusoPFM13PorM2', rotulo: 'Parafuso PFM 13', unidade: 'un/m²', ajuda: 'parafusos PFM 13 por m²' },
   ],
+  revestimento_estruturado: [
+    ...comuns,
+    { caminho: 'rolobandaM', rotulo: 'Rolo de banda', unidade: 'm', ajuda: 'metros por rolo de banda acústica' },
+    { caminho: 'parafusoPorM2.0.6', rotulo: 'Parafuso — montante a 0,60', unidade: 'un/m²', ajuda: 'parafusos por m² com montante a cada 0,60 m' },
+    { caminho: 'parafusoPorM2.0.4', rotulo: 'Parafuso — montante a 0,40', unidade: 'un/m²', ajuda: 'parafusos por m² com montante a cada 0,40 m' },
+    { caminho: 'parafusoPorM2.0.6d', rotulo: 'Parafuso — 0,60 duplo', unidade: 'un/m²', ajuda: 'parafusos por m² com montante duplo a cada 0,60 m' },
+    { caminho: 'parafusoPorM2.0.4d', rotulo: 'Parafuso — 0,40 duplo', unidade: 'un/m²', ajuda: 'parafusos por m² com montante duplo a cada 0,40 m' },
+  ],
+  revestimento_colado: [
+    { caminho: 'perda', rotulo: 'Perda', unidade: '×', ajuda: 'multiplicador de perda aplicado às chapas' },
+    { caminho: 'areaChapa', rotulo: 'Área da chapa', unidade: 'm²', ajuda: 'área de uma chapa de gesso' },
+    { caminho: 'gessoColaKgM2', rotulo: 'Gesso cola', unidade: 'kg/m²', ajuda: 'consumo de gesso cola por m²' },
+    { caminho: 'sacoGessoColaKg', rotulo: 'Saco de gesso cola', unidade: 'kg', ajuda: 'peso da embalagem de gesso cola' },
+    { caminho: 'massaKgM2', rotulo: 'Massa', unidade: 'kg/m²', ajuda: 'consumo de massa por m²' },
+    { caminho: 'fitaMM2', rotulo: 'Fita', unidade: 'm/m²', ajuda: 'metros de fita por m²' },
+    { caminho: 'baldeKg', rotulo: 'Balde de massa', unidade: 'kg', ajuda: 'peso da embalagem de massa' },
+    { caminho: 'rolofitaM', rotulo: 'Rolo de fita', unidade: 'm', ajuda: 'metros por rolo de fita' },
+  ],
   forro_aramado: [
     ...comuns,
     { caminho: 'nervuraPorM2', rotulo: 'Nervura', unidade: 'm/m²', ajuda: 'metros de nervura por m² de forro' },
@@ -42,6 +61,8 @@ export const CAMPOS_REGRA: Record<SistemaCalc, CampoRegra[]> = {
     { caminho: 'sacoGessoColaKg', rotulo: 'Saco de gesso cola', unidade: 'kg', ajuda: 'peso da embalagem de gesso cola' },
   ],
 }
+CAMPOS_REGRA.parede_separativa = CAMPOS_REGRA.parede
+CAMPOS_REGRA.parede_corta_fogo = CAMPOS_REGRA.parede
 export const chaveAjudaRegra = (s: SistemaCalc, caminho: string) => `projetos.calculadora.regra.${s}.${caminho}`.toLowerCase()
 
 export function lerCampo(regras: Regras, caminho: string): number | undefined {

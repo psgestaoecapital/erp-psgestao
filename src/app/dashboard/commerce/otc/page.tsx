@@ -224,6 +224,7 @@ function OTCPageInner() {
   // ⑨ #90 · confirmação ao arrastar Orçamento → Pedido no Kanban (cria documento fiscal → nunca direto)
   const [confirmConv, setConfirmConv] = useState<Orcamento | null>(null)
   const [convertendo, setConvertendo] = useState(false)
+  const [erroConv, setErroConv] = useState<string | null>(null)
   // #90 · arrastar para Faturado: faturar (pedido) ou converter+faturar (orçamento), com confirmação.
   const [confirmFatura, setConfirmFatura] = useState<{ tipo: 'orcamento'; orc: Orcamento } | { tipo: 'pedido'; ped: Pedido } | null>(null)
   const [faturandoKanban, setFaturandoKanban] = useState(false)
@@ -326,9 +327,10 @@ function OTCPageInner() {
     flash('Orcamento aprovado!')
   }
 
-  async function converterEmPedido(id: string) {
+  // #3858 · devolve a mensagem de erro (em linguagem simples) para o diálogo continuar aberto e mostrá-la
+  async function converterEmPedido(id: string): Promise<string | null> {
     const { data, error } = await supabase.rpc('fn_converter_orcamento_em_pedido', { p_orcamento_id: id })
-    if (error) { flash('Erro: ' + error.message); return }
+    if (error) return erroConversao(error.message)
     const pedidoId = data as string
     flash('Pedido criado com sucesso!')
     setOrcSel(null)
@@ -336,6 +338,7 @@ function OTCPageInner() {
     // #90 · abas removidas — abre o pedido recém-criado no drawer (não troca de aba).
     const { data: ped } = await supabase.from('erp_pedidos').select('*').eq('id', pedidoId).single()
     if (ped) setPedSel(ped as Pedido)
+    return null
   }
 
   // #90 · arrastar para Faturado. Orçamento: converte e fatura (dois passos, na ordem). Pedido: fatura.
@@ -497,11 +500,14 @@ function OTCPageInner() {
         <ConfirmConverterModal
           orc={confirmConv}
           loading={convertendo}
-          onCancel={() => { if (!convertendo) setConfirmConv(null) }}
+          erro={erroConv}
+          onCancel={() => { if (!convertendo) { setConfirmConv(null); setErroConv(null) } }}
           onConfirm={async () => {
             setConvertendo(true)
-            await converterEmPedido(confirmConv.id)
+            setErroConv(null)
+            const erro = await converterEmPedido(confirmConv.id)
             setConvertendo(false)
+            if (erro) { setErroConv(erro); return }
             setConfirmConv(null)
           }}
         />
@@ -822,8 +828,15 @@ function KanbanVazio({ texto }: { texto: string }) {
   return <div style={{ fontSize: 11, color: C.espressoL, fontStyle: 'italic', padding: '10px 4px', textAlign: 'center' }}>{texto}</div>
 }
 
-function ConfirmConverterModal({ orc, loading, onCancel, onConfirm }: {
-  orc: Orcamento; loading: boolean; onCancel: () => void; onConfirm: () => void
+// #3858 · erro do banco em linguagem simples (as mensagens da função já vêm prontas; o resto ganha um texto padrão)
+function erroConversao(msg: string): string {
+  if (/duplicate key|erp_pedidos_company_id_numero_key/i.test(msg)) return 'Já existe um pedido com este número. Recarregue a tela e tente de novo.'
+  if (/permission denied|42501/i.test(msg)) return 'Você não tem acesso a esta empresa.'
+  return msg || 'Não foi possível converter o orçamento em pedido.'
+}
+
+function ConfirmConverterModal({ orc, loading, erro, onCancel, onConfirm }: {
+  orc: Orcamento; loading: boolean; erro: string | null; onCancel: () => void; onConfirm: () => void
 }) {
   return (
     <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -840,6 +853,12 @@ function ConfirmConverterModal({ orc, loading, onCancel, onConfirm }: {
             <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>Esta ação cria um documento e não é desfeita por arrastar de volta. Confirme para prosseguir.</span>
           </div>
+          {erro && (
+            <div role="alert" data-testid="erro-converter-pedido" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 8, padding: 10, fontSize: 12, color: C.red }}>
+              <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>Não foi possível converter: {erro}</span>
+            </div>
+          )}
         </div>
         <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button onClick={onCancel} disabled={loading} style={{ ...btnSec, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>Cancelar</button>

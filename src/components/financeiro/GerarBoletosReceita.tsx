@@ -10,6 +10,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { baixarBlob } from '@/lib/download/baixarArquivo'
+import { nomeDoContentDisposition, nomesUnicos } from '@/lib/download/nomeArquivo'
 import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
 
 type Provider = 'sicoob' | 'sicredi' | 'bradesco'
@@ -111,6 +113,7 @@ export default function GerarBoletosReceita({
     setBaixando(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
+      const usados: string[] = [] // #2957: dois boletos do mesmo cliente e vencimento ganham sufixo _2, _3…
       for (const it of itens) {
         if (it.status !== 'ok') continue
         try {
@@ -120,11 +123,9 @@ export default function GerarBoletosReceita({
           })
           if (!r.ok) continue
           const blob = await r.blob()
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url; a.download = `boleto-${it.id.slice(0, 8)}.pdf`
-          document.body.appendChild(a); a.click(); a.remove()
-          setTimeout(() => URL.revokeObjectURL(url), 60_000)
+          const nome = nomeDoContentDisposition(r.headers.get('content-disposition')) ?? `boleto-${it.id.slice(0, 8)}.pdf`
+          usados.push(nome)
+          baixarBlob(blob, nomesUnicos(usados)[usados.length - 1])
         } catch { /* pula o que falhar; os demais seguem */ }
       }
     } finally {

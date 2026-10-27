@@ -1,7 +1,7 @@
 // Gate (Hub HB2 fatia 4): saída da calculadora — itens do orçamento e lista de compra.
 import { calcularParede, REGRAS_PAREDE_SIMPLES_ST } from '../../src/lib/calculadora/motor'
 import { custearItens } from '../../src/lib/calculadora/depara'
-import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv } from '../../src/lib/calculadora/saida'
+import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv, listaDeCompraHtml } from '../../src/lib/calculadora/saida'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -23,5 +23,7 @@ else {
   const csv = listaDeCompraCsv(c.linhas).split('\r\n')
   ok(csv.length === r.itens.length + 1 && csv[0].startsWith('\uFEFFMaterial;Quantidade'), 'CSV: cabeçalho + uma linha por item, com BOM')
   ok(csv.some(l => l.startsWith('Chapa ST 12,5;33;chapa;40,00;1320,00')), 'CSV: chapa 33 × 40,00 = 1320,00')
+  const html = listaDeCompraHtml(c.linhas, 'Parede <A>')
+  ok(html.includes('Parede &lt;A&gt;') && html.includes('1320,00'), 'PDF: título escapado e subtotal da chapa')
 }
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }

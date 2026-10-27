@@ -4,12 +4,14 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
 import { CamposPix } from './CamposPix'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
 import GerarBoletosReceita from './GerarBoletosReceita'
 import Modal from '@/components/ui/Modal'
 import ClienteForm, { type ClienteFormInitial } from '@/components/clientes/ClienteForm'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
+import { parcelasCartao } from '@/lib/financeiro/cartaoParcelas'
 // RD-41 · padrão único de "erro de salvamento" (piloto)
 import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
 import { Campo } from '@/components/ui/feedback/Campo'
@@ -17,6 +19,9 @@ import { useSalvar } from '@/components/ui/feedback/useSalvar'
 import { estiloBordaInput, mensagemDeResultado, VERBO_SUCESSO, type ResultadoSalvar } from '@/components/ui/feedback/contratoSalvar'
 // #71 · modo edição: a mesma tela da inclusão abre o lançamento existente
 import { useEdicaoLancamento, ReplicaParcelasDialog, SituacaoEdicao, type Campos } from './edicaoLancamento'
+
+// RD-95: textos do "?" (erp_ajuda_campo) ficam na rota da tela; o formulário também abre em modal noutras telas.
+const ROTA_AJUDA = '/dashboard/financeiro/nova-receita'
 
 type Cliente = {
   id: string
@@ -130,6 +135,9 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     | { ok: true; taxa_percentual: number; valor_taxa: number; valor_liquido: number; prazo_repasse_dias: number; data_repasse: string }
     | { ok: false; erro: string }
   const [cartaoCalc, setCartaoCalc] = useState<CartaoCalc | null>(null)
+  // #3740 · venda no cartão (inclusão fora da conciliação): o cliente fica quitado e as parcelas viram títulos da
+  // operadora (fn_cartao_registrar_recebimento). Na conciliação o crédito já é o repasse → segue o caminho comum.
+  const vendaCartao = ehCartao && !editando && !origemConciliacao
 
   const [loading, setLoading] = useState(false)
   const [dupWarn, setDupWarn] = useState(false)
@@ -417,6 +425,13 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     if (!valor || parseFloat(valor) <= 0) return { campo: 'valor', banner: 'Faltou preencher: Valor' }
     if (!dataRecebimento) return { campo: 'dataRecebimento', banner: 'Faltou preencher: Quando entra na conta' }
     if (parcelas < 1 || parcelas > 60) return { campo: 'parcelas', banner: 'Parcelas devem ficar entre 1 e 60' }
+    // #3740 · venda no cartão (fora da conciliação) exige maquininha, bandeira e modalidade; débito é sempre 1x.
+    if (vendaCartao) {
+      if (!adquirenteId || !bandeira || !modalidadeCartao) return { campo: 'cartao', banner: 'Faltou preencher: maquininha, bandeira e modalidade do cartão' }
+      if (!cartaoCalc?.ok) return { campo: 'cartao', banner: 'Ainda não há taxa para essa bandeira/modalidade · cadastre em Cartões / Adquirentes' }
+      if (modalidadeCartao === 'debito' && parcelas !== 1) return { campo: 'parcelas', banner: 'Cartão de débito é sempre 1 parcela' }
+      if (parcelas > 24) return { campo: 'parcelas', banner: 'Cartão de crédito vai até 24 parcelas' }
+    }
     return null
   }
 
@@ -442,7 +457,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
 
     const hoje = new Date().toISOString().split('T')[0]
     // N ≥ 2 → v2 com o array editado (datas/valores por parcela). À vista → v1 (com trava de dup).
-    const { data, error } = parcelas >= 2
+    // #3740 · venda no cartão: UM título do cliente pelo total (as parcelas são da operadora, geradas abaixo).
+    const { data, error } = parcelas >= 2 && !vendaCartao
       ? await supabase.rpc('fn_receber_criar_com_parcelas_v2', {
           p_company_id: companyId,
           p_cliente_id: clienteId || null,
@@ -458,6 +474,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           p_parcelas: parcelasEdit.map((p, idx) => ({
             n: idx + 1, data_vencimento: p.vencimento, valor: p.valor, data_competencia: null,
           })),
+          p_forcar_dup: forcar,
         })
       : await supabase.rpc('fn_receber_criar_com_parcelas', {
           p_company_id: companyId,
@@ -467,7 +484,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           p_valor_total: parseFloat(valor),
           p_data_emissao: hoje,
           p_data_primeiro_recebimento: dataRecebimento,
-          p_total_parcelas: parcelas,
+          p_total_parcelas: vendaCartao ? 1 : parcelas,
           p_categoria: categoriaCodigo || null,
           p_numero_documento: numeroDocumento || null,
           p_forma_recebimento: formaRecebimento || null,
@@ -512,7 +529,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       patch.tipo_chave_pix = pixR ? tipoChavePix : null
       patch.chave_pix = pixR ? normalizarChavePix(tipoChavePix, chavePix) : null
       // CART-1: grava os dados do cartão + líquido projetado (a parcela mantém o BRUTO).
-      if (ehCartao && cartaoCalc?.ok) {
+      // Venda no cartão (#3740) não passa aqui: fn_cartao_registrar_recebimento grava tudo abaixo.
+      if (ehCartao && cartaoCalc?.ok && !vendaCartao) {
         patch.adquirente_id = adquirenteId
         patch.bandeira = bandeira
         patch.modalidade_cartao = modalidadeCartao
@@ -525,10 +543,24 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       if (Object.keys(patch).length) await supabase.from('erp_receber').update(patch).in('id', ids)
     }
 
+    // #3740 · venda no cartão: quita o cliente e gera um título da operadora por parcela (bruto, taxa,
+    // líquido, repasse) + a taxa em contas a pagar. Sem conta → o dinheiro entra no saldo no dia do repasse.
+    if (vendaCartao && ids.length > 0) {
+      const { data: rc, error: rcErr } = await supabase.rpc('fn_cartao_registrar_recebimento', {
+        p_company_id: companyId, p_receber_id: ids[0], p_adquirente_id: adquirenteId, p_bandeira: bandeira,
+        p_modalidade: modalidadeCartao, p_parcelas: parcelas, p_data_venda: dataRecebimento,
+      })
+      if (rcErr || !(rc as { ok?: boolean } | null)?.ok) {
+        setLoading(false)
+        setFeedback({ tipo: 'erro', texto: 'Receita CRIOU, mas não registrou o cartão. Abra o título e use "Registrar em cartão".' })
+        return
+      }
+    }
+
     // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo
     // trigger trg_baixa_por_conciliacao — NUNCA chamar fn_receber_baixar_pagamento
     // aqui, mesmo com "ja recebido" marcado. Fonte unica da baixa.
-    if (!origemConciliacao && jaRecebido && ids.length > 0 && contaBancaria) {
+    if (!origemConciliacao && !vendaCartao && jaRecebido && ids.length > 0 && contaBancaria) {
       // Baixa apenas a 1a parcela · as demais ficam 'aberto'.
       // ids[0] eh a parcela 1/N (fn_receber_criar_com_parcelas retorna na ordem).
       const primeiroId = ids[0]
@@ -644,7 +676,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             gap: 18,
           }}
         >
-          <Campo label="O que é essa receita? (opcional)" fullWidth>
+          <Campo ajuda="financeiro.receita.descricao" ajudaRota={ROTA_AJUDA} label="O que é essa receita? (opcional)" fullWidth>
             <input
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
@@ -654,7 +686,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             />
           </Campo>
 
-          <Campo label="Quanto vou receber?" obrigatorio erro={erroCampo === 'valor' ? 'Informe o valor' : null}>
+          <Campo ajuda="financeiro.receita.valor" ajudaRota={ROTA_AJUDA} label="Quanto vou receber?" obrigatorio erro={erroCampo === 'valor' ? 'Informe o valor' : null}>
             <input
               type="number"
               step="0.01"
@@ -668,7 +700,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             <small style={helperStyle}>Em reais (R$)</small>
           </Campo>
 
-          <Campo label="Quando entra na conta?" obrigatorio erro={erroCampo === 'dataRecebimento' ? 'Informe quando entra na conta' : null}>
+          <Campo ajuda="financeiro.receita.recebimento" ajudaRota={ROTA_AJUDA} label="Quando entra na conta?" obrigatorio erro={erroCampo === 'dataRecebimento' ? 'Informe quando entra na conta' : null}>
             <input
               type="date"
               value={dataRecebimento}
@@ -678,7 +710,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             />
           </Campo>
 
-          <Campo label="Data de competência (opcional)">
+          <Campo ajuda="financeiro.receita.competencia" ajudaRota={ROTA_AJUDA} label="Data de competência (opcional)">
             <input
               type="date"
               value={dataCompetencia}
@@ -691,7 +723,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </small>
           </Campo>
 
-          <Campo label="De quem você vai receber?">
+          <Campo ajuda="financeiro.receita.cliente" ajudaRota={ROTA_AJUDA} label="De quem você vai receber?">
             <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
               {/* #36: busca de cliente por CNPJ e por QUALQUER posição do nome/cidade (combobox), com CNPJ + cidade/UF ao lado. */}
               <div style={{ position: 'relative', flex: '1 1 180px', minWidth: 0 }}>
@@ -747,7 +779,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             )}
           </Campo>
 
-          <Campo label="Em qual categoria do DRE?">
+          <Campo ajuda="financeiro.receita.categoria" ajudaRota={ROTA_AJUDA} label="Em qual categoria do DRE?">
             {/* FASE-1 CATEGORIAS (07/07): combobox digitavel + criar inline. */}
             <CategoriaCombobox
               companyId={companyId}
@@ -758,7 +790,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           </Campo>
 
           {!editando && (
-          <Campo label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
+          <Campo ajuda="financeiro.receita.parcelas" ajudaRota={ROTA_AJUDA} label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
             <input
               type="number"
               min="1"
@@ -767,12 +799,12 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               onChange={(e) => { setParcelas(parseInt(e.target.value) || 1); if (erroCampo === 'parcelas') limparFeedback() }}
               style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'parcelas' ? 'x' : null) }}
             />
-            <small style={helperStyle}>1 = recebimento à vista</small>
+            <small style={helperStyle}>{vendaCartao ? 'Parcelas do cartão · cada uma vira um repasse da operadora' : '1 = recebimento à vista'}</small>
           </Campo>
           )}
 
-          {parcelas > 1 && (
-            <Campo label="Intervalo entre parcelas">
+          {parcelas > 1 && !vendaCartao && (
+            <Campo ajuda="financeiro.receita.intervalo" ajudaRota={ROTA_AJUDA} label="Intervalo entre parcelas">
               <select
                 value={intervaloDias}
                 onChange={(e) => setIntervaloDias(parseInt(e.target.value))}
@@ -787,8 +819,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </Campo>
           )}
 
-          {parcelas > 1 && (intervaloDias === 30 || intervaloDias === 60 || intervaloDias === 90) && (
-            <Campo label="Dia do vencimento (opcional)">
+          {parcelas > 1 && !vendaCartao && (intervaloDias === 30 || intervaloDias === 60 || intervaloDias === 90) && (
+            <Campo ajuda="financeiro.receita.dia_fixo" ajudaRota={ROTA_AJUDA} label="Dia do vencimento (opcional)">
               <input
                 type="number" min="1" max="31" inputMode="numeric"
                 value={diaFixo}
@@ -807,7 +839,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </Campo>
           )}
 
-          {parcelas >= 2 && (
+          {parcelas >= 2 && !vendaCartao && (
             <div style={{ gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', fontWeight: 500 }}>O valor informado é:</span>
@@ -824,16 +856,16 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               <div style={{ border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', background: '#F3ECE0' }}>
                   <div style={cellHead}>Nº</div>
-                  <div style={cellHead}>Vencimento</div>
-                  <div style={cellHead}>Valor (R$)</div>
+                  <div style={cellHead}>Vencimento <AjudaCampo chave="financeiro.receita.parcela_vencimento" rota={ROTA_AJUDA} /></div>
+                  <div style={cellHead}>Valor (R$) <AjudaCampo chave="financeiro.receita.parcela_valor" rota={ROTA_AJUDA} /></div>
                 </div>
                 {parcelasEdit.map((p, idx) => (
                   <div key={idx} style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', borderTop: '0.5px solid rgba(61,35,20,0.1)', alignItems: 'center' }}>
                     <div style={{ ...cellBody, fontWeight: 600 }}>{idx + 1}/{parcelas}</div>
-                    <div style={cellBody}>
+                    <div style={cellBody} data-ajuda="financeiro.receita.parcela_vencimento">
                       <input type="date" value={p.vencimento} onChange={(e) => editParcela(idx, 'vencimento', e.target.value)} style={inputMini} />
                     </div>
-                    <div style={cellBody}>
+                    <div style={cellBody} data-ajuda="financeiro.receita.parcela_valor">
                       <input type="number" step="0.01" min="0" value={p.valor} onChange={(e) => editParcela(idx, 'valor', e.target.value)} style={inputMini} />
                     </div>
                   </div>
@@ -853,7 +885,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </div>
           )}
 
-          <Campo label="Como você vai receber?">
+          <Campo ajuda="financeiro.receita.forma" ajudaRota={ROTA_AJUDA} label="Como você vai receber?">
             <select
               value={formaRecebimento}
               onChange={(e) => setFormaRecebimento(e.target.value)}
@@ -878,7 +910,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           )}
           {ehCartao && !editando && (
             <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, padding: '14px 16px', background: '#FBF6EC', border: '0.5px solid rgba(200,148,26,0.35)', borderRadius: 10 }}>
-              <Campo label="Adquirente (maquininha)">
+              <Campo ajuda="financeiro.receita.adquirente" ajudaRota={ROTA_AJUDA} label="Adquirente (maquininha)">
                 <select value={adquirenteId} onChange={(e) => { setAdquirenteId(e.target.value); setBandeira(''); setModalidadeCartao('') }} style={inputStyle}>
                   <option value="">— escolher —</option>
                   {adquirentes.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
@@ -890,14 +922,14 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                 )}
               </Campo>
 
-              <Campo label="Bandeira">
+              <Campo ajuda="financeiro.receita.bandeira" ajudaRota={ROTA_AJUDA} label="Bandeira">
                 <select value={bandeira} onChange={(e) => { setBandeira(e.target.value); setModalidadeCartao('') }} disabled={!adquirenteId} style={inputStyle}>
                   <option value="">— escolher —</option>
                   {bandeirasDisp.map((b) => <option key={b} value={b}>{b}</option>)}
                 </select>
               </Campo>
 
-              <Campo label="Modalidade">
+              <Campo ajuda="financeiro.receita.modalidade" ajudaRota={ROTA_AJUDA} label="Modalidade">
                 <select value={modalidadeCartao} onChange={(e) => setModalidadeCartao(e.target.value)} disabled={!bandeira} style={inputStyle}>
                   <option value="">— escolher —</option>
                   {modalidadesDisp.map((m) => <option key={m} value={m}>{rotuloModalidade(m)}</option>)}
@@ -912,8 +944,22 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                   </div>
                   <div style={{ fontSize: 12.5, color: 'rgba(61,35,20,0.7)', marginTop: 3 }}>
                     Cai em <b>{cartaoCalc.data_repasse.split('-').reverse().join('/').slice(0, 5)}</b> (D+{cartaoCalc.prazo_repasse_dias})
-                    {parcelas > 1 ? ` · por parcela: ${brl((cartaoCalc.valor_liquido || 0) / parcelas)} líquido` : ''}
+                    {parcelas > 1 && !vendaCartao ? ` · por parcela: ${brl((cartaoCalc.valor_liquido || 0) / parcelas)} líquido` : ''}
                   </div>
+                  {vendaCartao && parcelas > 1 && (
+                    <div style={{ marginTop: 8, display: 'grid', gap: 2, fontSize: 12.5, color: '#3D2314', fontVariantNumeric: 'tabular-nums' }}>
+                      {parcelasCartao(parseFloat(valor) || 0, parcelas, Number(cartaoCalc.taxa_percentual), cartaoCalc.prazo_repasse_dias, dataRecebimento).map((pc) => (
+                        <div key={pc.i}>
+                          {pc.i}/{parcelas} · cai em <b>{pc.repasse.split('-').reverse().join('/')}</b> · bruto {brl(pc.bruto)} − taxa {brl(pc.taxa)} = <b>{brl(pc.liquido)}</b>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {vendaCartao && (
+                    <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.7)', marginTop: 6 }}>
+                      Ao salvar, o cliente fica quitado e cada parcela vira um título a receber da operadora; a taxa vai para contas a pagar.
+                    </div>
+                  )}
                 </div>
               )}
               {cartaoCalc && !cartaoCalc.ok && cartaoCalc.erro === 'taxa_nao_cadastrada' && (
@@ -924,7 +970,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </div>
           )}
 
-          <Campo label="Em qual conta entra o dinheiro?">
+          <Campo ajuda="financeiro.receita.conta" ajudaRota={ROTA_AJUDA} label="Em qual conta entra o dinheiro?">
             <select
               value={contaBancaria}
               onChange={(e) => setContaBancaria(e.target.value)}
@@ -946,7 +992,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             )}
           </Campo>
 
-          <Campo label="Centro de custo (opcional)">
+          <Campo ajuda="financeiro.receita.centro_custo" ajudaRota={ROTA_AJUDA} label="Centro de custo (opcional)">
             <select
               value={centroCustoId}
               onChange={(e) => setCentroCustoId(e.target.value)}
@@ -964,7 +1010,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             )}
           </Campo>
 
-          <Campo label="Número do documento (opcional)">
+          <Campo ajuda="financeiro.receita.documento" ajudaRota={ROTA_AJUDA} label="Número do documento (opcional)">
             <input
               value={numeroDocumento}
               onChange={(e) => setNumeroDocumento(e.target.value)}
@@ -974,7 +1020,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             />
           </Campo>
 
-          <Campo label="Observação (opcional)" fullWidth>
+          <Campo ajuda="financeiro.receita.observacao" ajudaRota={ROTA_AJUDA} label="Observação (opcional)" fullWidth>
             <textarea
               value={observacao}
               onChange={(e) => setObservacao(e.target.value)}
@@ -986,13 +1032,13 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
 
           {editando && (
             <>
-              <Campo label="Juros (R$)">
+              <Campo ajuda="financeiro.receita.juros" ajudaRota={ROTA_AJUDA} label="Juros (R$)">
                 <input type="number" step="0.01" min="0" value={juros} onChange={(e) => setJuros(e.target.value)} placeholder="0,00" style={inputStyle} />
               </Campo>
-              <Campo label="Multa (R$)">
+              <Campo ajuda="financeiro.receita.multa" ajudaRota={ROTA_AJUDA} label="Multa (R$)">
                 <input type="number" step="0.01" min="0" value={multa} onChange={(e) => setMulta(e.target.value)} placeholder="0,00" style={inputStyle} />
               </Campo>
-              <Campo label="Desconto (R$)">
+              <Campo ajuda="financeiro.receita.desconto" ajudaRota={ROTA_AJUDA} label="Desconto (R$)">
                 <input type="number" step="0.01" min="0" value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" style={inputStyle} />
               </Campo>
             </>
@@ -1010,6 +1056,10 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                   </div>
                 )}
               </>
+            ) : vendaCartao ? (
+              <div style={{ background: PSGC_COLORS.amareloSoft, color: '#3D2314', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: `0.5px solid ${PSGC_COLORS.dourado}` }}>
+                Venda no cartão: o cliente já pagou. O dinheiro entra na conta no dia de cada repasse da operadora.
+              </div>
             ) : origemConciliacao ? (
               <div style={{ background: '#DCFCE7', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: '0.5px solid rgba(22,163,74,0.35)' }}>
                 🔗 Esta receita CRIOU a partir de um movimento do extrato bancário.
@@ -1024,11 +1074,12 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                   onChange={(e) => setJaRecebido(e.target.checked)}
                 />
                 {parcelas > 1 ? 'Já recebi a 1ª parcela' : 'Já recebi essa receita'}
+                <AjudaCampo chave="financeiro.receita.ja_recebido" rota={ROTA_AJUDA} />
               </label>
             )}
-            {jaRecebido && !origemConciliacao && !editando && (
+            {jaRecebido && !origemConciliacao && !editando && !vendaCartao && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
-                <Campo label="Data do recebimento" obrigatorio>
+                <Campo ajuda="financeiro.receita.data_recebimento" ajudaRota={ROTA_AJUDA} label="Data do recebimento" obrigatorio>
                   <input
                     type="date"
                     value={dataPagamento}

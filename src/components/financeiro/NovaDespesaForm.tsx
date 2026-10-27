@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
 import { CamposPix } from './CamposPix'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
@@ -15,6 +16,9 @@ import { useSalvar } from '@/components/ui/feedback/useSalvar'
 import { estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 // #71 · modo edição: a mesma tela da inclusão abre o lançamento existente
 import { useEdicaoLancamento, ReplicaParcelasDialog, SituacaoEdicao, type Campos } from './edicaoLancamento'
+
+// RD-95: textos do "?" (erp_ajuda_campo) ficam na rota da tela; o formulário também abre em modal noutras telas.
+const ROTA_AJUDA = '/dashboard/financeiro/nova-despesa'
 
 type Fornecedor = {
   id: string
@@ -162,6 +166,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   // destaque vermelho no campo (erroCampo); sucesso → toast CRIOU/ALTEROU/EXCLUIU.
   const { salvar: rpcSalvar, salvando: loading, feedback, erroCampo, limpar: limparFeedback, setFeedback, setErroCampo } = useSalvar()
   const [toast, setToast] = useState<string | null>(null)
+  // Antiduplicidade (CEO 14/10): no 23505 da trava, oferecer "lançar mesmo assim" em vez do erro genérico.
+  const [dupWarn, setDupWarn] = useState(false)
+  const [dupModo, setDupModo] = useState<'fechar' | 'nova' | 'duplicar'>('fechar')
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t) }, [toast])
 
   // ANTI-DUPLICIDADE (código de barras) — captura + alerta no REGISTRO (não bloqueia).
@@ -499,9 +506,10 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   // modo: 'fechar' = comportamento padrão (redireciona/onSucesso);
   //       'nova' = salva e limpa o form pra lançar outra; 'duplicar' = salva e MANTÉM os
   //       valores pra lançar uma parecida. (Fatia 3 · "Salvar" dropdown estilo ContaAzul.)
-  async function salvar(modo: 'fechar' | 'nova' | 'duplicar' = 'fechar') {
+  async function salvar(modo: 'fechar' | 'nova' | 'duplicar' = 'fechar', forcar = false) {
     setSalvarMenu(false)
     setToast(null)
+    setDupWarn(false)
     limparFeedback()
 
     // Validação client-side no padrão: banner + destaque no campo, antes da RPC.
@@ -559,6 +567,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             p_parcelas: parcelasEdit.map((p, idx) => ({
               n: idx + 1, data_vencimento: p.vencimento, valor: p.valor, data_competencia: null,
             })),
+            p_forcar_dup: forcar,
           })
         : supabase.rpc('fn_pagar_criar_com_parcelas', {
             p_company_id: companyId,
@@ -575,8 +584,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             p_observacao: observacao || null,
             p_intervalo_dias: intervaloDias,
             p_conta_bancaria: contaBancaria || null,
+            p_forcar_dup: forcar,
           }),
-      { acao: 'criar', label: labelSucesso },
+      { acao: 'criar', label: labelSucesso, onDuplicado: () => { setDupModo(modo); setDupWarn(true) } },
     )
     if (!ret.sucesso) return // hook já exibiu banner + destaque de campo
 
@@ -734,7 +744,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             gap: 18,
           }}
         >
-          <Campo label="O que é essa despesa? (opcional)" fullWidth>
+          <Campo ajuda="financeiro.despesa.descricao" ajudaRota={ROTA_AJUDA} label="O que é essa despesa? (opcional)" fullWidth>
             <input
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
@@ -745,7 +755,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             <small style={helperStyle}>Deixe em branco pra usar o nome automático (fornecedor — categoria).</small>
           </Campo>
 
-          <Campo label="Quanto custa?" obrigatorio erro={erroCampo === 'valor' ? 'Informe o valor' : null}>
+          <Campo ajuda="financeiro.despesa.valor" ajudaRota={ROTA_AJUDA} label="Quanto custa?" obrigatorio erro={erroCampo === 'valor' ? 'Informe o valor' : null}>
             <input
               type="number"
               step="0.01"
@@ -760,7 +770,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             <small style={helperStyle}>Em reais (R$)</small>
           </Campo>
 
-          <Campo label="Quando vence?" obrigatorio erro={erroCampo === 'dataVencimento' ? 'Informe o vencimento' : null}>
+          <Campo ajuda="financeiro.despesa.vencimento" ajudaRota={ROTA_AJUDA} label="Quando vence?" obrigatorio erro={erroCampo === 'dataVencimento' ? 'Informe o vencimento' : null}>
             <input
               type="date"
               value={dataVencimento}
@@ -770,7 +780,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             />
           </Campo>
 
-          <Campo label="Data de competência (opcional)">
+          <Campo ajuda="financeiro.despesa.competencia" ajudaRota={ROTA_AJUDA} label="Data de competência (opcional)">
             <input
               type="date"
               value={dataCompetencia}
@@ -783,7 +793,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             </small>
           </Campo>
 
-          <Campo label="Para quem você paga?">
+          <Campo ajuda="financeiro.despesa.fornecedor" ajudaRota={ROTA_AJUDA} label="Para quem você paga?">
             {fornecedores.length > 0 ? (
               <>
                 <select
@@ -834,7 +844,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             )}
           </Campo>
 
-          <Campo label="Em qual categoria do DRE?">
+          <Campo ajuda="financeiro.despesa.categoria" ajudaRota={ROTA_AJUDA} label="Em qual categoria do DRE?">
             {/* FASE-1 CATEGORIAS (07/07): combobox digitavel + criar inline.
                 Substitui <select> antigo que so listava categorias existentes.
                 Backend: fn_plano_contas_buscar + fn_plano_contas_criar_inline. */}
@@ -846,7 +856,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             />
           </Campo>
 
-          <Campo label="Centro de custo / obra">
+          <Campo ajuda="financeiro.despesa.centro_custo" ajudaRota={ROTA_AJUDA} label="Centro de custo / obra">
             <select
               data-testid="despesa-centro-custo"
               value={centroCustoId}
@@ -864,7 +874,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
           </Campo>
 
           {!editando && (
-          <Campo label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
+          <Campo ajuda="financeiro.despesa.parcelas" ajudaRota={ROTA_AJUDA} label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
             <input
               type="number"
               min="1"
@@ -878,7 +888,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
           )}
 
           {parcelas > 1 && (
-            <Campo label="Intervalo entre parcelas">
+            <Campo ajuda="financeiro.despesa.intervalo" ajudaRota={ROTA_AJUDA} label="Intervalo entre parcelas">
               <select
                 value={intervaloDias}
                 onChange={(e) => setIntervaloDias(parseInt(e.target.value))}
@@ -894,7 +904,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
           )}
 
           {parcelas > 1 && (intervaloDias === 30 || intervaloDias === 60 || intervaloDias === 90) && (
-            <Campo label="Dia do vencimento (opcional)">
+            <Campo ajuda="financeiro.despesa.dia_fixo" ajudaRota={ROTA_AJUDA} label="Dia do vencimento (opcional)">
               <input
                 type="number" min="1" max="31" inputMode="numeric"
                 value={diaFixo}
@@ -930,16 +940,16 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               <div style={{ border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', background: '#F3ECE0' }}>
                   <div style={cellHead}>Nº</div>
-                  <div style={cellHead}>Vencimento</div>
-                  <div style={cellHead}>Valor (R$)</div>
+                  <div style={cellHead}>Vencimento <AjudaCampo chave="financeiro.despesa.parcela_vencimento" rota={ROTA_AJUDA} /></div>
+                  <div style={cellHead}>Valor (R$) <AjudaCampo chave="financeiro.despesa.parcela_valor" rota={ROTA_AJUDA} /></div>
                 </div>
                 {parcelasEdit.map((p, idx) => (
                   <div key={idx} style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', borderTop: '0.5px solid rgba(61,35,20,0.1)', alignItems: 'center' }}>
                     <div style={{ ...cellBody, fontWeight: 600 }}>{idx + 1}/{parcelas}</div>
-                    <div style={cellBody}>
+                    <div style={cellBody} data-ajuda="financeiro.despesa.parcela_vencimento">
                       <input type="date" value={p.vencimento} onChange={(e) => editParcela(idx, 'vencimento', e.target.value)} style={inputMini} />
                     </div>
-                    <div style={cellBody}>
+                    <div style={cellBody} data-ajuda="financeiro.despesa.parcela_valor">
                       <input type="number" step="0.01" min="0" value={p.valor} onChange={(e) => editParcela(idx, 'valor', e.target.value)} style={inputMini} />
                     </div>
                   </div>
@@ -959,7 +969,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             </div>
           )}
 
-          <Campo label="Como você vai pagar?">
+          <Campo ajuda="financeiro.despesa.forma" ajudaRota={ROTA_AJUDA} label="Como você vai pagar?">
             <select
               value={formaPagamento}
               onChange={(e) => setFormaPagamento(e.target.value)}
@@ -976,7 +986,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             <CamposPix tipoChave={tipoChavePix} chave={chavePix} setTipoChave={setTipoChavePix} setChave={setChavePix} inputStyle={inputStyle} />
           )}
 
-          <Campo label="Em qual conta sai o dinheiro?" erro={erroCampo === 'contaBancaria' ? 'Escolha a conta do pagamento' : null}>
+          <Campo ajuda="financeiro.despesa.conta" ajudaRota={ROTA_AJUDA} label="Em qual conta sai o dinheiro?" erro={erroCampo === 'contaBancaria' ? 'Escolha a conta do pagamento' : null}>
             <select
               data-testid="despesa-conta"
               value={contaBancaria}
@@ -1007,7 +1017,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
           </Campo>
 
           {ehCartaoComFatura && parcelas <= 1 && !editando && (
-            <Campo label="Data da compra (cartão)">
+            <Campo ajuda="financeiro.despesa.data_compra" ajudaRota={ROTA_AJUDA} label="Data da compra (cartão)">
               <input
                 type="date"
                 value={dataCompra}
@@ -1022,7 +1032,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             </Campo>
           )}
 
-          <Campo label="Número do documento (opcional)">
+          <Campo ajuda="financeiro.despesa.documento" ajudaRota={ROTA_AJUDA} label="Número do documento (opcional)">
             <input
               value={numeroDocumento}
               onChange={(e) => setNumeroDocumento(e.target.value)}
@@ -1032,7 +1042,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             />
           </Campo>
 
-          <Campo label="Código de barras (boleto ou guia)" fullWidth>
+          <Campo ajuda="financeiro.despesa.codigo_barras" ajudaRota={ROTA_AJUDA} label="Código de barras (boleto ou guia)" fullWidth>
             <input
               value={codigoBarras}
               onChange={(e) => onCodigoBarrasChange(e.target.value)}
@@ -1109,7 +1119,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             </div>
           )}
 
-          <Campo label="Observação (opcional)" fullWidth>
+          <Campo ajuda="financeiro.despesa.observacao" ajudaRota={ROTA_AJUDA} label="Observação (opcional)" fullWidth>
             <textarea
               value={observacao}
               onChange={(e) => setObservacao(e.target.value)}
@@ -1121,13 +1131,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
 
           {editando && (
             <>
-              <Campo label="Juros (R$)">
+              <Campo ajuda="financeiro.despesa.juros" ajudaRota={ROTA_AJUDA} label="Juros (R$)">
                 <input type="number" step="0.01" min="0" value={juros} onChange={(e) => setJuros(e.target.value)} placeholder="0,00" style={inputStyle} />
               </Campo>
-              <Campo label="Multa (R$)">
+              <Campo ajuda="financeiro.despesa.multa" ajudaRota={ROTA_AJUDA} label="Multa (R$)">
                 <input type="number" step="0.01" min="0" value={multa} onChange={(e) => setMulta(e.target.value)} placeholder="0,00" style={inputStyle} />
               </Campo>
-              <Campo label="Desconto (R$)">
+              <Campo ajuda="financeiro.despesa.desconto" ajudaRota={ROTA_AJUDA} label="Desconto (R$)">
                 <input type="number" step="0.01" min="0" value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" style={inputStyle} />
               </Campo>
             </>
@@ -1152,12 +1162,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
                     onChange={(e) => setJaPago(e.target.checked)}
                   />
                   {parcelas > 1 ? 'Já paguei a 1ª parcela' : 'Já paguei essa despesa'}
+                  <AjudaCampo chave="financeiro.despesa.ja_pago" rota={ROTA_AJUDA} />
                 </label>
               </>
             )}
             {jaPago && !origemConciliacao && !editando && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
-                <Campo label="Data do pagamento" obrigatorio>
+                <Campo ajuda="financeiro.despesa.data_pagamento" ajudaRota={ROTA_AJUDA} label="Data do pagamento" obrigatorio>
                   <input
                     type="date"
                     value={dataPagamento}
@@ -1308,6 +1319,21 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
         </div>
       )}
 
+      {dupWarn && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 440, width: '100%', border: '1px solid #E7DED3' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314', marginBottom: 8 }}>Já existe um lançamento igual</div>
+            <div style={{ fontSize: 13, color: '#6b5444', lineHeight: 1.5, marginBottom: 16 }}>
+              Já existe uma despesa igual: <strong style={{ color: '#3D2314' }}>{descricao.trim() || montarDescricao() || '—'}</strong> · {fmtBRL(parseFloat(valor || '0') || 0)} · venc {dataVencimento ? dataVencimento.split('-').reverse().join('/') : '—'} (mesma descrição, valor e vencimento). Isso costuma ser duplicidade. Deseja lançar mesmo assim?
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDupWarn(false)} style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #E7DED3', background: '#fff', color: '#3D2314', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={() => salvar(dupModo, true)} disabled={loading} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: PSGC_COLORS.dourado, color: '#3D2314', fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1 }}>Lançar mesmo assim</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Padrão RD-41 · sucesso vira toast (CRIOU/ALTEROU/EXCLUIU), some em ~4s. */}
       {toast && (
         <div
@@ -1399,6 +1425,7 @@ function CopiarDespesaModal({ open, companyId, onClose, onUsar }: {
             placeholder="Buscar por descrição, fornecedor, categoria…"
             style={inputStyle}
           />
+          <AjudaCampo chave="financeiro.despesa.copiar_busca" rota={ROTA_AJUDA} />
           <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
             {loading ? (
               <div style={{ color: 'rgba(61,35,20,0.55)', fontSize: 12, padding: 14, textAlign: 'center' }}>Carregando últimas 20 despesas…</div>
