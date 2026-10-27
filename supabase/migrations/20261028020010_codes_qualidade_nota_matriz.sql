@@ -78,3 +78,7 @@ END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.fn_codes_qualidade_vertical() FROM PUBLIC, anon;
+
+-- Dado errado corrigido (Eng. Chefe 27/10): a calculadora foi cadastrada com area='projetos' enquanto as irmãs do Hub
+-- estão em 'hub_construcao'. Corrige a área para entrar no Hub junto. Só esta rota.
+UPDATE public.system_screens SET area = 'hub_construcao' WHERE rota = '/dashboard/projetos/calculadora' AND area = 'projetos';
