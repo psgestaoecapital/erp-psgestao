@@ -43,7 +43,13 @@ CREATE INDEX IF NOT EXISTS erp_agente_mensagem_sugestao_idx ON public.erp_agente
 -- o agente de sócio passa a poder receber TAREFA (os demais sócios continuam só com aviso)
 ALTER TABLE public.erp_agente_mensagem DROP CONSTRAINT IF EXISTS erp_agente_mensagem_socio_so_aviso;
 ALTER TABLE public.erp_agente_mensagem ADD CONSTRAINT erp_agente_mensagem_socio_so_aviso
-  CHECK (tipo = 'aviso' OR para = ANY (ARRAY['gilberto-desenv','gilberto-produto','gilberto-chamados','rodrigo-code']));
+  CHECK (tipo = 'aviso'
+         OR para = ANY (ARRAY['gilberto-desenv','gilberto-produto','gilberto-automotivo','gilberto-industria','gilberto-chamados',
+                              'teste-despertador','desenvolvedor_4_g','desenvolvedor_5_g','desenvolvedor_6_g','auditor_pdca_g',
+                              'dev7claudeps','aud8claudeps','rodrigo-code'])
+         OR de ~ '^[a-z][a-z0-9]*-chat$'
+         OR de = 'eng_chefe');   -- definição VIVA (pg_get_constraintdef 27/10) + 'rodrigo-code'; a versão anterior desta migration
+                                 -- usava uma lista antiga e falhava (23514) com as tarefas já existentes de outros agentes
 
 -- 3) escopo ----------------------------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn__agente_escopo_chamado_i(p_agente text, p_chamado uuid)
