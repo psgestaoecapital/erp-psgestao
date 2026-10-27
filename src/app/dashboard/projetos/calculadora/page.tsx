@@ -117,6 +117,30 @@ export default function CalculadoraObraPage() {
     setMsgSaida(error ? { ok: false, texto: "Não consegui enviar: " + error.message } : { ok: true, texto: `${linhas.length} itens enviados à proposta. Itens sem produto vinculado foram com preço zero para você completar lá.` });
   }
 
+  // Gerar orçamento NOVO a partir do cálculo: cria um rascunho (numero vem do trigger trg_orcamento_set_numero),
+  // joga os itens dentro e já deixa selecionado no seletor de proposta. Sem isso, em empresa sem rascunho aberto
+  // o único caminho ("Adicionar à proposta") fica morto — foi o gap da auditoria FC (26/10).
+  const [gerando, setGerando] = useState(false);
+  async function gerarOrcamento() {
+    if (!companyId || !res.ok || gerando) return;
+    setGerando(true); setMsgSaida(null);
+    try {
+      const sb = supabaseBrowser();
+      const nome = titulo.trim() || tituloLista();
+      const { data: novo, error: e1 } = await sb.from("erp_orcamentos")
+        .insert({ company_id: companyId, status: "rascunho", cliente_nome: nome })
+        .select("id,numero").single();
+      if (e1 || !novo) { setMsgSaida({ ok: false, texto: "Não consegui criar o orçamento: " + (e1?.message ?? "erro desconhecido") }); return; }
+      const linhas = itensParaOrcamento(custo.linhas, novo.id, companyId, 0);
+      const { error: e2 } = await sb.from("erp_orcamentos_itens").insert(linhas);
+      if (e2) { setMsgSaida({ ok: false, texto: `Orçamento ${novo.numero ?? ""} criado, mas não consegui enviar os itens: ${e2.message}` }); return; }
+      await salvarCalculo(novo.id, true);
+      setOrcId(novo.id);
+      await carregarEstoque();
+      setMsgSaida({ ok: true, texto: `Orçamento ${novo.numero ?? "novo"} criado com ${linhas.length} ${linhas.length === 1 ? "item" : "itens"}. Abra em Orçamentos para fechar a proposta. Itens sem produto vinculado foram com preço zero.` });
+    } finally { setGerando(false); }
+  }
+
   async function salvarCalculo(orcamentoId: string | null = null, silencioso = false) {
     if (!companyId || !res.ok) return;
     const sb = supabaseBrowser();
@@ -307,26 +331,31 @@ export default function CalculadoraObraPage() {
               <h3 className="mb-1 text-xs font-medium uppercase tracking-wider text-[#3D2314]/55">Itens e a conta de cada um</h3>
               <ul className="divide-y divide-[#3D2314]/8">
                 {res.itens.map((i) => (
-                  <li key={i.chave} className="py-2.5" data-testid={`calc-item-${i.chave}`}>
+                  <li key={i.chave} className="py-2" data-testid={`calc-item-${i.chave}`}>
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="text-sm text-[#3D2314]">{i.descricao}</span>
-                      <span className="font-mono text-sm text-[#3D2314]"><b data-testid={`calc-qtd-${i.chave}`}>{i.quantidade}</b> × {i.unidadeCompra}</span>
+                      <span className="whitespace-nowrap font-mono text-sm text-[#3D2314]"><b data-testid={`calc-qtd-${i.chave}`}>{i.quantidade}</b> × {i.unidadeCompra}</span>
                     </div>
-                    {companyId && (
-                      <label className="mt-1 flex items-center gap-2 text-xs text-[#3D2314]/60">
-                        <span className="flex items-center">Produto do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" /></span>
-                        <select value={vinculos[i.chave] ?? ""} data-testid={`calc-produto-${i.chave}`} onChange={(e) => void vincular(i.chave, e.target.value)}
-                          className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1 text-xs">
-                          <option value="">Sem vínculo</option>
-                          {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.unidade ? ` (${p.unidade})` : ""}</option>)}
-                        </select>
-                      </label>
+                    {custoPorChave[i.chave]?.total != null && (
+                      <div className="mt-0.5 flex items-baseline justify-between gap-3 text-xs text-[#3D2314]/60">
+                        <span>{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade}</span>
+                        <span className="whitespace-nowrap tabular-nums">= <b className="text-[#3D2314]">{fmtBRL(custoPorChave[i.chave].total!)}</b></span>
+                      </div>
                     )}
                     {companyId && custoPorChave[i.chave]?.aviso && <p className="mt-0.5 text-xs text-amber-700" data-testid={`calc-aviso-${i.chave}`}>{custoPorChave[i.chave].aviso}</p>}
-                    {custoPorChave[i.chave]?.total != null && <p className="mt-0.5 text-xs text-[#3D2314]/60">{fmtBRL(custoPorChave[i.chave].custoUnitario!)} × {i.quantidade} = <b>{fmtBRL(custoPorChave[i.chave].total!)}</b></p>}
                     <details className="mt-1 text-xs text-[#3D2314]/60">
-                      <summary className="cursor-pointer">ver a conta<AjudaCampo chave="projetos.calculadora.ver_conta" rota="/dashboard/projetos/calculadora" /></summary>
-                      {i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}
+                      <summary className="cursor-pointer">ver a conta e o produto<AjudaCampo chave="projetos.calculadora.ver_conta" rota="/dashboard/projetos/calculadora" /></summary>
+                      <p className="mt-1">{i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}</p>
+                      {companyId && (
+                        <label className="mt-1.5 flex items-center gap-2">
+                          <span className="flex items-center">Produto do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" /></span>
+                          <select value={vinculos[i.chave] ?? ""} data-testid={`calc-produto-${i.chave}`} onChange={(e) => void vincular(i.chave, e.target.value)}
+                            className="min-w-0 flex-1 rounded border border-[#3D2314]/12 bg-white px-2 py-1 text-xs">
+                            <option value="">Sem vínculo</option>
+                            {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.unidade ? ` (${p.unidade})` : ""}</option>)}
+                          </select>
+                        </label>
+                      )}
                     </details>
                   </li>
                 ))}
@@ -348,6 +377,11 @@ export default function CalculadoraObraPage() {
               )}
               {erroVinculo && <p className="mb-2 text-sm text-red-700">{erroVinculo}</p>}
               <div className="flex flex-col gap-2 rounded-xl bg-[#FAF7F2] p-3" data-testid="calc-saida">
+                {companyId && (
+                  <button onClick={() => void gerarOrcamento()} disabled={gerando} data-testid="calc-gerar-orcamento" className="self-start rounded-full bg-[#C8941A] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+                    {gerando ? "Gerando…" : "Gerar orçamento do cálculo"}<AjudaCampo chave="projetos.calculadora.gerar_orcamento" rota="/dashboard/projetos/calculadora" />
+                  </button>
+                )}
                 <button onClick={() => void copiarLista()} data-testid="calc-copiar-lista" className="self-start rounded-full bg-[#3D2314]/5 px-4 py-2 text-sm text-[#3D2314]">
                   Copiar lista de compra<AjudaCampo chave="projetos.calculadora.lista_compra" rota="/dashboard/projetos/calculadora" />
                 </button>
