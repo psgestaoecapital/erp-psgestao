@@ -186,6 +186,21 @@ export function issRetidoNfse(valorServico: number, tipoRetencaoIss: number | nu
   return cent((Number(valorServico) || 0) * aliq / 100)
 }
 
+// #3862 (complemento) · total retido e LÍQUIDO da nota, gravados na emissão. Mesma conta do banco
+// (fn_nfse_retencoes_totalizar): líquido = bruto − deduções − desconto − (ISS retido + federais), nunca negativo.
+// Sem isso a nota ficava com valor_retencoes = 0 e valor_liquido = NULL e o título só nascia pelo valor cheio.
+export function totalizarRetencoesNota(
+  valorBruto: number,
+  retidos: { issRetido?: number; inss?: number; irrf?: number; pis?: number; cofins?: number; csll?: number },
+  deducoes = 0,
+  descontoIncondicionado = 0,
+): { valorRetencoes: number; valorLiquido: number } {
+  const n = (v: unknown) => { const x = Number(v); return Number.isFinite(x) && x > 0 ? x : 0 }
+  const retencoes = cent(n(retidos.issRetido) + n(retidos.inss) + n(retidos.irrf) + n(retidos.pis) + n(retidos.cofins) + n(retidos.csll))
+  const liquido = cent(Math.max(0, n(valorBruto) - n(deducoes) - n(descontoIncondicionado) - retencoes))
+  return { valorRetencoes: retencoes, valorLiquido: liquido }
+}
+
 // #339 (R.R, reaberto 01/10) · retenções AJUSTADAS NA NOTA. O cadastro do serviço é o ponto de partida, mas a
 // retenção muda de tomador para tomador com o mesmo serviço (ex.: prestador do Simples faturando para outro CNPJ).
 // O modal edita uma cópia por nota; a rota aplica a MESMA cópia sobre o cadastro e faz a mesma conta

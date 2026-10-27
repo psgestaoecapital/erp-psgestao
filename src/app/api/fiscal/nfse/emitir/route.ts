@@ -13,7 +13,7 @@ import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
-import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totalizarRetencoesNota, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -964,6 +964,19 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     )
     if (registroId && issRetido > 0 && resposta.status !== 'rejeitada') {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_iss_retido: issRetido }).eq('id', registroId)
+    }
+
+    // #3862 (complemento) · grava na nota o total retido e o LÍQUIDO (ISS retido + federais). O "Gerar financeiro" e o
+    // re-preço do título do pedido partem daqui; antes ficavam valor_retencoes = 0 e valor_liquido = NULL.
+    if (registroId && resposta.status !== 'rejeitada' && (issRetido > 0 || (retencoesCalculadas?.totalRetido ?? 0) > 0)) {
+      const tot = totalizarRetencoesNota(Number(nfseReq.valorServicos), {
+        issRetido,
+        inss: retencoesCalculadas?.valorCp, irrf: retencoesCalculadas?.valorIrrf, pis: retencoesCalculadas?.valorPisRet,
+        cofins: retencoesCalculadas?.valorCofinsRet, csll: retencoesCalculadas?.valorCsllRet,
+      })
+      await supabaseAdmin.from('erp_nfse_emitidas')
+        .update({ valor_retencoes: tot.valorRetencoes, valor_liquido: tot.valorLiquido })
+        .eq('id', registroId).eq('financeiro_gerado', false)
     }
 
     // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)
