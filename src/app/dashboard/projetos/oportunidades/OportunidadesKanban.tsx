@@ -1,6 +1,6 @@
 'use client'
-import { useEffect, useState, type CSSProperties, type DragEvent } from 'react'
-import { Clock, FileText, Link2, Pencil, Phone, Trash2, User } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react'
+import { ChevronLeft, ChevronRight, Clock, FileText, Link2, Pencil, Phone, Trash2, User } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
@@ -128,6 +128,19 @@ export default function OportunidadesKanban({
   // F2.7 · orçamento vinculado por oportunidade_id.
   const [orcMap, setOrcMap] = useState<Record<string, OrcRow>>({})
   const [gerandoId, setGerandoId] = useState<string | null>(null)
+  // Affordance de rolagem horizontal (auditor PDCA: "coluna cortada / scroll não óbvio"): quando o board
+  // tem mais etapas do que cabem, aparece um degradê + seta de cada lado com conteúdo oculto; clicar rola.
+  const boardRef = useRef<HTMLDivElement>(null)
+  const [rolagem, setRolagem] = useState<{ esq: boolean; dir: boolean }>({ esq: false, dir: false })
+  const medirRolagem = useCallback(() => {
+    const el = boardRef.current
+    if (!el) return
+    setRolagem({ esq: el.scrollLeft > 2, dir: el.scrollWidth - el.clientWidth - el.scrollLeft > 2 })
+  }, [])
+  function rolar(dir: 1 | -1) {
+    const el = boardRef.current
+    if (el) el.scrollBy({ left: dir * Math.max(220, el.clientWidth * 0.8), behavior: 'smooth' })
+  }
 
   async function abrirFechadas(etapa: 'ganho' | 'perdido') {
     setFechadas({ etapa, loading: true, itens: [] })
@@ -242,6 +255,16 @@ export default function OportunidadesKanban({
     for (const et of colunasVisiveis) n += cardsPorEtapa(et.v).length
     onCount(n)
   }, [pipe, filtroEtapa, filtroResp, busca]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Recalcula o indicador de rolagem sempre que o conteúdo ou a largura mudam (dados carregados, filtro de etapa).
+  useEffect(() => {
+    medirRolagem()
+    const el = boardRef.current
+    if (!el) return
+    el.addEventListener('scroll', medirRolagem, { passive: true })
+    window.addEventListener('resize', medirRolagem)
+    return () => { el.removeEventListener('scroll', medirRolagem); window.removeEventListener('resize', medirRolagem) }
+  }, [medirRolagem, pipe, filtroEtapa])
 
   async function moverPara(cardId: string, novaEtapa: string, etapaAtual: string | null) {
     if (etapaAtual === novaEtapa) return
@@ -398,8 +421,21 @@ export default function OportunidadesKanban({
         {loading && <span className="text-xs opacity-60 self-center">Carregando…</span>}
       </div>
 
-      {/* Board com scroll horizontal mobile-first */}
-      <div style={boardWrap}>
+      {/* Board com scroll horizontal mobile-first. Degradê + seta nas bordas quando há etapa oculta (clicar rola). */}
+      <div style={{ position: 'relative' }}>
+        {rolagem.esq && (
+          <button type="button" onClick={() => rolar(-1)} aria-label="Ver etapas anteriores" style={{ ...setaRolar, left: 0 }}>
+            <ChevronLeft size={18} aria-hidden />
+          </button>
+        )}
+        {rolagem.dir && (
+          <button type="button" onClick={() => rolar(1)} aria-label="Ver mais etapas" style={{ ...setaRolar, right: 0 }}>
+            <ChevronRight size={18} aria-hidden />
+          </button>
+        )}
+        {rolagem.esq && <div aria-hidden style={{ ...fadeBorda, left: 0, background: 'linear-gradient(to right, #F4EFE7, rgba(244,239,231,0))' }} />}
+        {rolagem.dir && <div aria-hidden style={{ ...fadeBorda, right: 0, background: 'linear-gradient(to left, #F4EFE7, rgba(244,239,231,0))' }} />}
+      <div ref={boardRef} style={boardWrap}>
         <div style={board}>
           {colunasVisiveis.map((et) => {
             const cards = cardsPorEtapa(et.v)
@@ -567,6 +603,7 @@ export default function OportunidadesKanban({
           })}
         </div>
       </div>
+      </div>
 
       {perda && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onClick={() => setPerda(null)}>
@@ -691,8 +728,17 @@ const board: CSSProperties = {
   // paddingRight garante respiro depois da última coluna quando há overflow.
   display: 'flex', gap: 10, alignItems: 'stretch', width: '100%', paddingRight: 2,
 }
+const fadeBorda: CSSProperties = {
+  position: 'absolute', top: 0, bottom: 10, width: 36, pointerEvents: 'none', zIndex: 3,
+}
+const setaRolar: CSSProperties = {
+  position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 4,
+  width: 34, height: 34, borderRadius: 999, border: `1px solid ${BORDA}`, background: '#fff',
+  color: ESPRESSO, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 1px 4px rgba(61,35,20,0.18)',
+}
 const col: CSSProperties = {
-  flex: '1 1 0', minWidth: 190,
+  flex: '1 1 0', minWidth: 176,
   scrollSnapAlign: 'start',
   background: OFFWHITE,
   border: `1px solid ${BORDA}`,
