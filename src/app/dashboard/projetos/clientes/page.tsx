@@ -355,15 +355,16 @@ export default function ClientesPage() {
                     </div>
                   )}
                 </div>
+                {/* RD-95 (auditor FC 27/10): cada indicador comercial tem o SEU "?" — antes os 7 selos dividiam uma única
+                    chave de ajuda. Cada selo e seu "?" ficam juntos num inline-flex para a linha continuar legível ao quebrar. */}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} data-testid="hub-cliente-comercial">
-                  {etapa[c.id] && <span data-testid="hub-cliente-etapa" title="Etapa mais avançada do funil entre as oportunidades em aberto" style={pilula(true)}>Funil: {ETAPA_ROTULO[etapa[c.id]] ?? etapa[c.id]}</span>}
-                  {cm.abertas > 0 && <span title="Oportunidades em aberto e o valor delas" style={pilula(true)}>{cm.abertas === 1 ? '1 em aberto' : `${cm.abertas} em aberto`} · {brlCurto(cm.valorAberto)}</span>}
-                  {cm.ganhas > 0 && <span title="Oportunidades ganhas" style={pilula(true)}>{cm.ganhas === 1 ? '1 ganha' : `${cm.ganhas} ganhas`}</span>}
-                  <span title="Propostas (orçamentos) do cliente" style={pilula(cm.propostas > 0)}>{cm.propostas === 1 ? '1 proposta' : `${cm.propostas} propostas`}</span>
-                  {cm.visitas > 0 && <span title="Visitas técnicas do cliente" style={pilula(true)}>{cm.visitas === 1 ? '1 visita' : `${cm.visitas} visitas`}</span>}
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: n > 0 ? GREEN_BG : CREAM, color: n > 0 ? GREEN : MUT, whiteSpace: 'nowrap' }}>{n === 1 ? '1 obra' : `${n} obras`}</span>
-                  {semObra > 0 && <span data-testid="hub-cliente-ganha-sem-obra" title="Venda ganha que ainda não virou obra — abra a obra no detalhe" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: RED_BG, color: RED, whiteSpace: 'nowrap' }}>{semObra === 1 ? '1 ganha sem obra' : `${semObra} ganhas sem obra`}</span>}
-                  <AjudaCampo chave="projetos.clientes.comercial" />
+                  {etapa[c.id] && <span style={PILL_WRAP}><span data-testid="hub-cliente-etapa" title="Etapa mais avançada do funil entre as oportunidades em aberto" style={pilula(true)}>Funil: {ETAPA_ROTULO[etapa[c.id]] ?? etapa[c.id]}</span><AjudaCampo chave="projetos.clientes.comercial.funil" /></span>}
+                  {cm.abertas > 0 && <span style={PILL_WRAP}><span title="Oportunidades em aberto e o valor delas" style={pilula(true)}>{cm.abertas === 1 ? '1 em aberto' : `${cm.abertas} em aberto`} · {brlCurto(cm.valorAberto)}</span><AjudaCampo chave="projetos.clientes.comercial.em_aberto" /></span>}
+                  {cm.ganhas > 0 && <span style={PILL_WRAP}><span title="Oportunidades ganhas" style={pilula(true)}>{cm.ganhas === 1 ? '1 ganha' : `${cm.ganhas} ganhas`}</span><AjudaCampo chave="projetos.clientes.comercial.ganhas" /></span>}
+                  <span style={PILL_WRAP}><span title="Propostas (orçamentos) do cliente" style={pilula(cm.propostas > 0)}>{cm.propostas === 1 ? '1 proposta' : `${cm.propostas} propostas`}</span><AjudaCampo chave="projetos.clientes.comercial.propostas" /></span>
+                  {cm.visitas > 0 && <span style={PILL_WRAP}><span title="Visitas técnicas do cliente" style={pilula(true)}>{cm.visitas === 1 ? '1 visita' : `${cm.visitas} visitas`}</span><AjudaCampo chave="projetos.clientes.comercial.visitas" /></span>}
+                  <span style={PILL_WRAP}><span title="Obras do cliente" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: n > 0 ? GREEN_BG : CREAM, color: n > 0 ? GREEN : MUT, whiteSpace: 'nowrap' }}>{n === 1 ? '1 obra' : `${n} obras`}</span><AjudaCampo chave="projetos.clientes.comercial.obras" /></span>
+                  {semObra > 0 && <span style={PILL_WRAP}><span data-testid="hub-cliente-ganha-sem-obra" title="Venda ganha que ainda não virou obra — abra a obra no detalhe" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: RED_BG, color: RED, whiteSpace: 'nowrap' }}>{semObra === 1 ? '1 ganha sem obra' : `${semObra} ganhas sem obra`}</span><AjudaCampo chave="projetos.clientes.comercial.ganhas_sem_obra" /></span>}
                 </div>
                 <span style={{ color: GOLD, fontSize: 12 }}>{sel2?.id === c.id ? '▲' : '▼'}</span>
               </div>
@@ -526,6 +527,8 @@ function BlocoComercial({ ops, props, abrirObra, comObra }: { ops: Oportunidade[
   )
 }
 const pilula = (on: boolean): React.CSSProperties => ({ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: on ? 'rgba(200,148,26,0.12)' : CREAM, color: on ? GOLD_D : MUT, whiteSpace: 'nowrap' })
+// cada selo comercial anda junto do seu "?" (RD-95), sem quebrar entre o selo e a ajuda
+const PILL_WRAP: React.CSSProperties = { display: 'inline-flex', alignItems: 'center' }
 function Casca({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 16px' }}>
