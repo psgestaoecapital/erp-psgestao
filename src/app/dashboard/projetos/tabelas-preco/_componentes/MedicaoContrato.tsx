@@ -25,7 +25,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
   const [versao, setVersao] = useState(0)
   const [salvas, setSalvas] = useState<{ id: string; descricao: string; periodo_inicio: string | null; periodo_fim: string | null; total: number }[]>([])
   const carregarSalvas = useCallback(async () => {
-    const { data } = await supabase.from('erp_medicao_cliente').select('id,descricao,periodo_inicio,periodo_fim,total').eq('tabela_id', tabelaId).order('criado_em', { ascending: false }).limit(20)
+    const { data } = await supabase.from('erp_medicao_cliente').select('id,descricao,periodo_inicio,periodo_fim,total').eq('tabela_id', tabelaId).is('deleted_at', null).order('criado_em', { ascending: false }).limit(20)
     setSalvas(((data ?? []) as typeof salvas).map(x => ({ ...x, total: Number(x.total) })))
   }, [tabelaId])
   useEffect(() => { carregarSalvas() }, [carregarSalvas])
