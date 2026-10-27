@@ -45,6 +45,8 @@ export default function ObrasPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
   const [aba, setAba] = useState<'principais' | 'outras'>('principais')
+  const [busca, setBusca] = useState('')
+  const [filtroStatus, setFiltroStatus] = useState('')
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState('')
   const [obraAberta, setObraAberta] = useState<Obra | null>(null)
@@ -85,12 +87,17 @@ export default function ObrasPage() {
     void carregar()
   }
 
+  const visiveis = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    return obras.filter((o) => (!filtroStatus || o.status === filtroStatus)
+      && (!q || [o.numero, o.nome, o.cliente_nome, o.cidade].some((t) => (t ?? '').toLowerCase().includes(q))))
+  }, [obras, busca, filtroStatus])
   const grupos = useMemo(() => ({
-    em_andamento: obras.filter((o) => o.status === 'em_andamento'),
-    concluida: obras.filter((o) => o.status === 'concluida'),
-    pausada: obras.filter((o) => o.status === 'pausada'),
-    cancelada: obras.filter((o) => o.status === 'cancelada'),
-  }), [obras])
+    em_andamento: visiveis.filter((o) => o.status === 'em_andamento'),
+    concluida: visiveis.filter((o) => o.status === 'concluida'),
+    pausada: visiveis.filter((o) => o.status === 'pausada'),
+    cancelada: visiveis.filter((o) => o.status === 'cancelada'),
+  }), [visiveis])
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 18px' }}>
@@ -136,6 +143,21 @@ export default function ObrasPage() {
         ) : (
           /* ESTADO: dados */
           <>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <input data-testid="obras-busca" aria-label="Buscar obra" placeholder="Buscar por número, nome, cliente ou cidade" value={busca} onChange={(e) => setBusca(e.target.value)}
+                style={{ flex: '1 1 220px', minWidth: 0, padding: '8px 10px', fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 8, background: '#fff', color: ESP }} />
+              <AjudaCampo chave="projetos.obras.busca" />
+              <select data-testid="obras-filtro-status" aria-label="Filtrar por situação" value={filtroStatus}
+                onChange={(e) => { const v = e.target.value; setFiltroStatus(v); if (v) setAba(v === 'pausada' || v === 'cancelada' ? 'outras' : 'principais') }}
+                style={{ padding: '8px 10px', fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 8, background: '#fff', color: ESP }}>
+                <option value="">Todas as situações</option>
+                <option value="em_andamento">Em andamento</option>
+                <option value="concluida">Concluídas</option>
+                <option value="pausada">Pausadas</option>
+                <option value="cancelada">Canceladas</option>
+              </select>
+              <AjudaCampo chave="projetos.obras.filtro_status" />
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Tab ativo={aba === 'principais'} onClick={() => setAba('principais')}>Em andamento · Concluídas</Tab>
               {(grupos.pausada.length + grupos.cancelada.length > 0) && (
@@ -387,7 +409,7 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                   <thead><tr style={{ background: BG, color: MUT, textAlign: 'left' }}>
                     <th style={th}>#</th><th style={th}>Descrição</th><th style={th}>Un</th>
-                    <th style={thR}>Contratado</th><th style={thR}>Medido</th><th style={thR}>%</th><th style={thR}>A medir</th><th style={thR}>Valor contratado</th><th style={th}></th>
+                    <th style={thR}>Contratado <AjudaCampo chave="projetos.obras.escopo_contratado" /></th><th style={thR}>Medido <AjudaCampo chave="projetos.obras.escopo_medido" /></th><th style={thR}>% <AjudaCampo chave="projetos.obras.escopo_pct" /></th><th style={thR}>A medir <AjudaCampo chave="projetos.obras.escopo_a_medir" /></th><th style={thR}>Valor contratado <AjudaCampo chave="projetos.obras.escopo_valor" /></th><th style={th}></th>
                   </tr></thead>
                   <tbody>
                     {esc!.itens.map((it) => (

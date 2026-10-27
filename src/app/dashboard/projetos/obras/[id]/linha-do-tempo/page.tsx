@@ -6,6 +6,9 @@ import { Circle, ClipboardCheck, FileText, HardHat, Ruler, Target, User, type Lu
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { ehUuid, erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/projetos/obras/[id]/linha-do-tempo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A'
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -83,9 +86,9 @@ export default function LinhaDoTempoPage({ params }: { params: Promise<{ id: str
                   <div style={{ fontSize: 14, fontWeight: 700, color: ESP }}>{obra.nome || obra.numero}</div>
                   <div style={{ fontSize: 12.5, color: MUT, marginTop: 2 }}>{obra.cliente || 'Cliente não informado'} · {obra.status}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginTop: 10 }}>
-                    <Mini label="Contratado" valor={brl(obra.valor_previsto)} cor={ESP} />
-                    <Mini label="Medido" valor={brl(obra.valor_medido)} cor={VERDE} />
-                    <Mini label="Centro de custo" valor={obra.centro_custo_id ? obra.numero : '—'} cor={ESP} />
+                    <Mini label="Contratado" valor={brl(obra.valor_previsto)} cor={ESP} ajuda="projetos.linha_tempo.contratado" />
+                    <Mini label="Medido" valor={brl(obra.valor_medido)} cor={VERDE} ajuda="projetos.linha_tempo.medido" />
+                    <Mini label="Centro de custo" valor={obra.centro_custo_id ? obra.numero : '—'} cor={ESP} ajuda="projetos.linha_tempo.centro_custo" />
                   </div>
                 </div>
               )}
@@ -94,8 +97,8 @@ export default function LinhaDoTempoPage({ params }: { params: Promise<{ id: str
               {marcos.length > 0 && (
                 <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: ESP }}>Tempo por fase</span>
-                    {cicloTotal > 0 && <span style={{ fontSize: 12, color: GOLD, fontWeight: 700 }}>Ciclo total: {cicloTotal} {cicloTotal === 1 ? 'dia' : 'dias'}</span>}
+                    <span style={{ fontSize: 12, fontWeight: 700, color: ESP }}>Tempo por fase <AjudaCampo chave="projetos.linha_tempo.tempo_fase" rota={ROTA} /></span>
+                    {cicloTotal > 0 && <span style={{ fontSize: 12, color: GOLD, fontWeight: 700 }}>Ciclo total: {cicloTotal} {cicloTotal === 1 ? 'dia' : 'dias'} <AjudaCampo chave="projetos.linha_tempo.ciclo_total" rota={ROTA} /></span>}
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {marcos.map((m, i) => (
@@ -111,7 +114,8 @@ export default function LinhaDoTempoPage({ params }: { params: Promise<{ id: str
               )}
 
               {/* Filtro por fase */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+                <AjudaCampo chave="projetos.linha_tempo.filtro_fase" rota={ROTA} />
                 <ChipFase ativo={faseFiltro === 'todas'} onClick={() => setFaseFiltro('todas')}>Tudo ({eventos.length})</ChipFase>
                 {FASES.filter((f) => eventos.some((e) => e.fase === f.v)).map((f) => (
                   <ChipFase key={f.v} ativo={faseFiltro === f.v} onClick={() => setFaseFiltro(f.v)}><f.icone size={12} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {f.l}</ChipFase>
@@ -137,7 +141,7 @@ export default function LinhaDoTempoPage({ params }: { params: Promise<{ id: str
                         <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '9px 12px', flex: 1, marginBottom: 2 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                             <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700 }}>{fi.l}</span>
-                            <span style={{ fontSize: 11, color: MUT }}>{fmtDataHora(e.quando)}</span>
+                            <span style={{ fontSize: 11, color: MUT }}>{fmtDataHora(e.quando)}{i === 0 && <> <AjudaCampo chave="projetos.linha_tempo.eventos" rota={ROTA} /></>}</span>
                           </div>
                           <div style={{ fontSize: 13, color: ESP, marginTop: 3 }}>{e.descricao || e.tipo}</div>
                           <div style={{ fontSize: 11.5, color: MUT, marginTop: 3 }}><User size={11} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {e.autor}</div>
@@ -154,11 +158,11 @@ export default function LinhaDoTempoPage({ params }: { params: Promise<{ id: str
   )
 }
 
-function Mini({ label, valor, cor }: { label: string; valor: string; cor: string }) {
+function Mini({ label, valor, cor, ajuda }: { label: string; valor: string; cor: string; ajuda: string }) {
   return (
     <div style={{ background: BG, border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '8px 10px' }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: cor }}>{valor}</div>
-      <div style={{ fontSize: 10, color: MUT, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 10, color: MUT, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label} <AjudaCampo chave={ajuda} rota={ROTA} /></div>
     </div>
   )
 }

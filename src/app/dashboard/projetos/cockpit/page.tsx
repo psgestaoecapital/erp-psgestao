@@ -30,6 +30,7 @@ type ObraLinha = {
   obra_id: string; numero: string; nome: string | null; status: string
   receita_prevista: number; receita_servico: number; receita_material: number
   custo_previsto: number; custo_material: number; custo_viagens: number; margem_realizada: number
+  custo_mao_obra: number | null; custo_rateio: number | null; margem_alocada: number | null
 }
 type ObraInfo = { id: string; cliente_nome: string | null; cidade: string | null; pct_conclusao: number | null; data_prevista_fim: string | null }
 
@@ -53,8 +54,8 @@ export default function CockpitEscolherObraPage() {
     ;(async () => {
       try {
         const { data, error } = await comPrazo(
-          async () => await supabase.from('v_obra_resultado')
-            .select('obra_id,numero,nome,status,receita_prevista,receita_servico,receita_material,custo_previsto,custo_material,custo_viagens,margem_realizada')
+          async () => await supabase.from('v_obra_resultado_alocado')
+            .select('obra_id,numero,nome,status,receita_prevista,receita_servico,receita_material,custo_previsto,custo_material,custo_viagens,margem_realizada,custo_mao_obra,custo_rateio,margem_alocada')
             .in('company_id', companyIds).order('numero', { ascending: false }),
           { ms: 8000, tentativas: 1, label: 'cockpit-obras' },
         )
@@ -99,7 +100,7 @@ export default function CockpitEscolherObraPage() {
   const resumo = [
     { k: 'Obras', v: filtradas.length === obras.length ? String(obras.length) : `${filtradas.length} de ${obras.length}`, chave: 'projetos.cockpit.kpi_obras' },
     { k: 'Em andamento', v: String(filtradas.filter(o => o.status === 'em_andamento').length), chave: 'projetos.cockpit.kpi_andamento' },
-    { k: 'Margem realizada', v: brl(filtradas.filter(o => receitaDe(o) > 0).reduce((t, o) => t + num(o.margem_realizada), 0)), chave: 'projetos.cockpit.kpi_margem' },
+    { k: 'Margem realizada', v: brl(filtradas.filter(o => receitaDe(o) > 0).reduce((t, o) => t + num(o.margem_alocada ?? o.margem_realizada), 0)), chave: 'projetos.cockpit.kpi_margem' },
     { k: 'Com prazo vencido', v: String(atrasadas), chave: 'projetos.cockpit.kpi_atrasadas' },
     { k: 'Sem medição', v: String(semMedicao.length), chave: 'projetos.cockpit.kpi_sem_medicao' },
   ]
@@ -154,8 +155,8 @@ export default function CockpitEscolherObraPage() {
           const i = info[o.obra_id]
           const pct = Math.max(0, Math.min(100, num(i?.pct_conclusao)))
           const receita = num(o.receita_servico) + num(o.receita_material)
-          const custo = num(o.custo_material) + num(o.custo_viagens)
-          const margem = num(o.margem_realizada)
+          const custo = num(o.custo_material) + num(o.custo_viagens) + num(o.custo_mao_obra) + num(o.custo_rateio)
+          const margem = num(o.margem_alocada ?? o.margem_realizada)
           const temMedicao = receita > 0
           const vencida = o.status === 'em_andamento' && !!i?.data_prevista_fim && i.data_prevista_fim < hoje
           const st = situacao(o.status)
@@ -213,6 +214,6 @@ function pendencias(o: ObraLinha, vencida: boolean, temMedicao: boolean, custo: 
   const p: string[] = []
   if (vencida) p.push('Prazo vencido — replanejar')
   if (!temMedicao) p.push(custo > 0 ? 'Lançar a medição' : 'Sem custo nem medição ainda')
-  else if (num(o.margem_realizada) < 0) p.push('Margem negativa — revise custos')
+  else if (num(o.margem_alocada ?? o.margem_realizada) < 0) p.push('Margem negativa — revise custos')
   return p
 }
