@@ -1,5 +1,6 @@
 -- Vazamento 2: grava nota do matriz SEM API externa (análise feita no Max pelo aud8).
 -- Resolve FKs (modulo/area) reaproveitando a última linha da rota; reusa o run manual do dia.
+-- ci-sem-guarda: fn_matriz_registrar_nota — grava só na camada de auditoria da matriz (RD-35), sem empresa no registro (company_id fica nulo); executável só por service_role (REVOKE de PUBLIC/anon/authenticated).
 CREATE OR REPLACE FUNCTION public.fn_matriz_registrar_nota(
   p_rota text, p_score integer, p_bugs text[] DEFAULT '{}', p_recomendacoes text[] DEFAULT '{}',
   p_proximo_passo text DEFAULT NULL, p_area text DEFAULT 'hub')
