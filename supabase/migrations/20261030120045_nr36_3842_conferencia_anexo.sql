@@ -7,11 +7,13 @@
 --
 -- ADITIVA: cria uma tabela nova (nr36_conferencia_anexo) e três funções novas; não altera nenhuma tabela/função
 -- existente nem toca em dado de cliente já gravado. O arquivo em si vai para o bucket 'compliance-pausas', no mesmo
--- padrão de caminho do tenant já usado pela Importação ("<company_id>/..."): a policy nr36_pausas_insert/select já
--- cobre upload e leitura por empresa. Toca RLS (tabela nova) → via revisada (revisao-eng-chefe).
+-- padrão de caminho do tenant já usado pela Importação ("<company_id>/..."). Como o documento é dado pessoal do
+-- colaborador, o prefixo "<company_id>/conferencia/" ganha policies RESTRICTIVE (abaixo): subir e ler o arquivo exigem
+-- o MESMO papel da gravação (fn_nr36_pode_subir). O nome do arquivo leva um UUID — o CPF fica só na tabela.
+-- Toca RLS (tabela nova + policy do bucket) → via revisada (revisao-eng-chefe).
 --
--- NR-36 é área crítica: a leitura é por empresa (RLS), a gravação/remoção exige o mesmo papel que importa relatório
--- de pausa (fn_nr36_pode_subir: TST ou responsável pelo Compliance) e a remoção é soft-delete (nada some do rastro).
+-- NR-36 é área crítica: a leitura (tabela, listar e arquivo) e a gravação/remoção exigem o mesmo papel que importa relatório
+-- de pausa (fn_nr36_pode_subir: TST ou responsável pelo Compliance), a empresa continua isolada por RLS e a remoção é soft-delete (nada some do rastro).
 
 -- ── tabela: documento assinado anexado a um dia conferido ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.nr36_conferencia_anexo (
@@ -36,7 +38,7 @@ ALTER TABLE public.nr36_conferencia_anexo ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS nr36_conferencia_anexo_ler ON public.nr36_conferencia_anexo;
 CREATE POLICY nr36_conferencia_anexo_ler ON public.nr36_conferencia_anexo
   FOR SELECT TO authenticated
-  USING (public.is_admin() OR company_id IN (SELECT public.get_user_company_ids()));
+  USING (public.fn_nr36_pode_subir(company_id));
 REVOKE ALL ON public.nr36_conferencia_anexo FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.nr36_conferencia_anexo TO authenticated;
 
@@ -77,7 +79,7 @@ CREATE OR REPLACE FUNCTION public.fn_nr36_conferencia_anexo_listar(p_company_id 
 AS $function$
 DECLARE v jsonb;
 BEGIN
-  IF NOT (public.is_admin() OR p_company_id IN (SELECT public.get_user_company_ids())) THEN
+  IF NOT public.fn_nr36_pode_subir(p_company_id) THEN
     RETURN jsonb_build_object('ok', false, 'erro', 'sem_permissao', 'anexos', '[]'::jsonb);
   END IF;
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
@@ -117,6 +119,22 @@ GRANT EXECUTE ON FUNCTION public.fn_nr36_conferencia_anexo_salvar(uuid, text, da
 GRANT EXECUTE ON FUNCTION public.fn_nr36_conferencia_anexo_listar(uuid, text, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_nr36_conferencia_anexo_remover(uuid) TO authenticated;
 
+-- ── bucket compliance-pausas: o prefixo "<company_id>/conferencia/" exige o papel TST/Compliance ─────────────────────
+-- Policies RESTRICTIVE (somam-se às permissivas nr36_pausas_insert/select, que só olham a empresa). O CASE evita
+-- converter para uuid qualquer objeto de outro bucket ou de outro prefixo. Sem policy de DELETE (arquivo nunca apagado).
+DROP POLICY IF EXISTS nr36_conferencia_arquivo_insert ON storage.objects;
+CREATE POLICY nr36_conferencia_arquivo_insert ON storage.objects AS RESTRICTIVE FOR INSERT TO authenticated
+  WITH CHECK (CASE WHEN bucket_id = 'compliance-pausas' AND split_part(name, '/', 2) = 'conferencia'
+                    AND split_part(name, '/', 1) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                   THEN public.fn_nr36_pode_subir(split_part(name, '/', 1)::uuid)
+                   ELSE true END);
+DROP POLICY IF EXISTS nr36_conferencia_arquivo_select ON storage.objects;
+CREATE POLICY nr36_conferencia_arquivo_select ON storage.objects AS RESTRICTIVE FOR SELECT TO authenticated
+  USING (CASE WHEN bucket_id = 'compliance-pausas' AND split_part(name, '/', 2) = 'conferencia'
+                    AND split_part(name, '/', 1) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                   THEN public.fn_nr36_pode_subir(split_part(name, '/', 1)::uuid)
+                   ELSE true END);
+
 -- ── RD-95: ajuda "?" do novo campo ────────────────────────────────────────────────────────────────────────────────
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
 SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, v.rota, 'sst', 'publicado'
@@ -124,7 +142,7 @@ FROM (VALUES
  ('compliance.pausas.conferencia.anexo', 'Conferência', 'Documento assinado da conferência',
   'Anexe o papel que o colaborador assinou confirmando o horário da pausa ajustado neste dia (PDF ou foto).',
   'Guarda a prova de que o colaborador teve ciência do ajuste feito na conferência — exigência de rastro da NR-36. Fica anexado ao dia (colaborador + data).',
-  'Foto do formulário assinado pelo Anderson confirmando a saída às 10:12 que faltou bater.',
+  'Foto do formulário assinado pelo colaborador confirmando a saída às 10:12 que faltou bater.',
   'Anexar documento de outro dia ou de outro colaborador: o anexo fica preso ao dia que está aberto na conferência.',
   50, '/dashboard/compliance/pausas-tecnicas')
 ) AS v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem, rota)

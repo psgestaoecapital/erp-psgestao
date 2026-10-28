@@ -1429,12 +1429,18 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
     if (!f) return
     setSubindoAnexo(true); setErro('')
     try {
+      // papel conferido ANTES do upload (sem papel não sobe arquivo nenhum); o nome leva UUID — CPF é dado pessoal e fica só na tabela
+      const pode = await rpc<boolean>('fn_nr36_pode_subir', { p_company_id: companyId })
+      if (!pode) throw new Error('Só o Técnico de Segurança do Trabalho ou o responsável pelo Compliance pode anexar o documento da conferência.')
       const ext = (f.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')
-      const path = `${companyId}/conferencia/${cpf}_${data}_${Date.now()}.${ext}`
+      const path = `${companyId}/conferencia/${crypto.randomUUID()}.${ext}`
       const up = await supabase.storage.from('compliance-pausas').upload(path, f, { upsert: false, contentType: f.type || 'application/octet-stream' })
       if (up.error) throw new Error('Falha no upload: ' + up.error.message)
       const r = await rpc<{ ok: boolean; erro?: string; mensagem?: string }>('fn_nr36_conferencia_anexo_salvar', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_arquivo_path: path, p_arquivo_nome: f.name })
-      if (!r?.ok) throw new Error(r?.mensagem || r?.erro || 'Falha ao registrar o anexo.')
+      if (!r?.ok) {
+        await supabase.storage.from('compliance-pausas').remove([path]).catch(() => {}) // órfão: tenta limpar (o bucket não tem DELETE; se negado, fica sem registro)
+        throw new Error(r?.mensagem || r?.erro || 'Falha ao registrar o anexo.')
+      }
       await carregarAnexos()
     } catch (e) { setErro((e as Error).message) } finally { setSubindoAnexo(false) }
   }
