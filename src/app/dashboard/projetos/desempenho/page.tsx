@@ -2,7 +2,8 @@
 
 // Hub · Desempenho Comercial por vendedor. Tudo vem de fn_crm_desempenho (RD-38: nada fixo). Gestor vê
 // todos + ranking; vendedor vê só o seu (a RPC força o escopo por papel · Pilar 2). Blocos A-E do SPEC.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -36,6 +37,7 @@ export default function DesempenhoComercialPage() {
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
+  const alargou = useRef(false)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -48,7 +50,12 @@ export default function DesempenhoComercialPage() {
     const r = d as Resp
     if (r?.erro) { setErro(r.erro === 'sem_acesso' ? 'Sem acesso.' : r.erro); return }
     setData(r)
-  }, [companyIds, range])
+    // mês sem nenhum movimento: abre o ano uma única vez (estado vazio com zeros parece tela morta)
+    const s0 = r?.resumo
+    if (!alargou.current && periodo === 'mes' && s0 && !s0.oportunidades && !s0.ganhas_qtd && !s0.perdidas_qtd) {
+      alargou.current = true; setPeriodo('ano'); setRange(preset('ano'))
+    }
+  }, [companyIds, range, periodo])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -70,6 +77,7 @@ export default function DesempenhoComercialPage() {
           {[['mes', 'Mês'], ['tri', 'Trimestre'], ['ano', 'Ano'], ['custom', 'Personalizado']].map(([v, l]) => (
             <button key={v} onClick={() => setPreset(v)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${periodo === v ? GOLD : LINE}`, background: periodo === v ? '#FBF4E4' : '#FFF', color: periodo === v ? '#A57A15' : MUT }}>{l}</button>
           ))}
+          <AjudaCampo chave="projetos.desempenho.periodo_abas" />
           {periodo === 'custom' && (
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <input type="date" value={range.de} onChange={(e) => setRange((x) => ({ ...x, de: e.target.value }))} style={inp} />
@@ -84,23 +92,31 @@ export default function DesempenhoComercialPage() {
           <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Selecione uma empresa do Hub.</div>
         ) : (
           <>
+            {!r!.oportunidades && !r!.ganhas_qtd && !r!.perdidas_qtd && (
+              <div data-testid="desempenho-vazio" style={{ background: '#FFF', border: `0.5px dashed ${LINE}`, borderRadius: 12, padding: 16, marginBottom: 14, fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                Nenhuma oportunidade com movimento entre {range.de.split('-').reverse().join('/')} e {range.ate.split('-').reverse().join('/')}.{' '}
+                {periodo !== 'ano' && <button onClick={() => setPreset('ano')} style={{ color: ESP, fontWeight: 700, textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 13 }}>Ver o ano inteiro</button>}
+                {periodo !== 'ano' && ' ou '}
+                <Link href="/dashboard/projetos/oportunidades?area=hub" style={{ color: ESP, fontWeight: 700, textDecoration: 'underline' }}>registre uma oportunidade</Link> para alimentar este painel.
+              </div>
+            )}
             {/* Bloco A · cartões */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 16 }}>
-              <Card titulo="Conversão" valor={pct(r!.conversao_pct)} cor={corConversao(r!.conversao_pct)} sub={rotConversao(r!.conversao_pct)} />
-              <Card titulo="Ganhas" valor={String(r!.ganhas_qtd)} cor={VERDE} sub={brl(r!.ganhas_valor)} />
-              <Card titulo="Perdidas" valor={String(r!.perdidas_qtd)} cor={VERM} sub={brl(r!.perdidas_valor)} />
-              <Card titulo="Ticket médio" valor={brl(r!.ticket_medio)} cor={ESP} />
-              <Card titulo="Comissão gerada" valor={brl(r!.comissao)} cor={GOLD} />
-              <Card titulo="Pipeline aberto" valor={brl(r!.valor_pipeline)} cor={ROXO} sub={`${r!.oportunidades} oport. · ${r!.propostas} propostas`} />
-              <Card titulo="Velocidade" valor={data.velocidade_dias != null ? `${data.velocidade_dias} d` : '—'} cor={ESP} sub="média até fechar" />
+              <Card chave="projetos.desempenho.kpi_conversao" titulo="Conversão" valor={pct(r!.conversao_pct)} cor={corConversao(r!.conversao_pct)} sub={rotConversao(r!.conversao_pct)} />
+              <Card chave="projetos.desempenho.kpi_ganhas" titulo="Ganhas" valor={String(r!.ganhas_qtd)} cor={VERDE} sub={brl(r!.ganhas_valor)} />
+              <Card chave="projetos.desempenho.kpi_perdidas" titulo="Perdidas" valor={String(r!.perdidas_qtd)} cor={VERM} sub={brl(r!.perdidas_valor)} />
+              <Card chave="projetos.desempenho.kpi_ticket" titulo="Ticket médio" valor={brl(r!.ticket_medio)} cor={ESP} />
+              <Card chave="projetos.desempenho.kpi_comissao" titulo="Comissão gerada" valor={brl(r!.comissao)} cor={GOLD} />
+              <Card chave="projetos.desempenho.kpi_pipeline" titulo="Pipeline aberto" valor={brl(r!.valor_pipeline)} cor={ROXO} sub={`${r!.oportunidades} oport. · ${r!.propostas} propostas`} />
+              <Card chave="projetos.desempenho.kpi_velocidade" titulo="Velocidade" valor={data.velocidade_dias != null ? `${data.velocidade_dias} d` : '—'} cor={ESP} sub="média até fechar" />
             </div>
 
             {/* Bloco B · funil */}
-            <Secao titulo="Funil por fase">
+            <Secao titulo="Funil por fase" chave="projetos.desempenho.funil">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {data.funil.map((f) => (
                   <div key={f.etapa} style={{ display: 'grid', gridTemplateColumns: '110px 1fr auto', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 12, color: ESP, fontWeight: 600 }}>{ETAPA_LABEL[f.etapa] ?? f.etapa}</span>
+                    <span style={{ fontSize: 12, color: ESP, fontWeight: 600 }}>{ETAPA_LABEL[f.etapa] ?? f.etapa}<AjudaCampo chave={`projetos.desempenho.fase_${f.etapa}`} /></span>
                     <div style={{ background: BG, borderRadius: 6, height: 22, position: 'relative', overflow: 'hidden' }}>
                       <div style={{ width: `${(f.qtd / maxFunil) * 100}%`, height: '100%', background: f.etapa === 'ganho' ? VERDE : f.etapa === 'perdido' ? VERM : GOLD, opacity: 0.85, borderRadius: 6, minWidth: f.qtd > 0 ? 3 : 0 }} />
                     </div>
@@ -112,7 +128,7 @@ export default function DesempenhoComercialPage() {
 
             {/* Bloco C · ranking (só gestor) */}
             {data.gestor && data.ranking && (
-              <Secao titulo="Ranking de vendedores">
+              <Secao titulo="Ranking de vendedores" chave="projetos.desempenho.ranking">
                 {/* celular (< md): um cartão por vendedor, sem rolagem lateral (HB0 · correção 9) */}
                 <div className="md:hidden" data-testid="desempenho-ranking-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {data.ranking.length === 0 ? <div style={{ padding: 12, color: MUT, textAlign: 'center', fontSize: 12.5 }}>Sem dados no período.</div> :
@@ -133,7 +149,7 @@ export default function DesempenhoComercialPage() {
                   <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 12.5 }}>
                     <thead><tr style={{ color: MUT, textAlign: 'right' }}>
                       <th style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 1, textAlign: 'left', padding: '6px 8px' }}>Vendedor</th>
-                      <th style={thR}>Oport.</th><th style={thR}>Propostas</th><th style={thR}>Ganhas</th><th style={thR}>Valor ganho</th><th style={thR}>Conversão</th><th style={thR}>Ticket</th><th style={thR}>Comissão</th>
+                      <th style={thR}>Oport. <AjudaCampo chave="projetos.desempenho.rank_oport" /></th><th style={thR}>Propostas <AjudaCampo chave="projetos.desempenho.rank_propostas" /></th><th style={thR}>Ganhas <AjudaCampo chave="projetos.desempenho.rank_ganhas" /></th><th style={thR}>Valor ganho <AjudaCampo chave="projetos.desempenho.rank_valor_ganho" /></th><th style={thR}>Conversão <AjudaCampo chave="projetos.desempenho.rank_conversao_col" /></th><th style={thR}>Ticket <AjudaCampo chave="projetos.desempenho.rank_ticket_col" /></th><th style={thR}>Comissão <AjudaCampo chave="projetos.desempenho.rank_comissao_col" /></th>
                     </tr></thead>
                     <tbody>
                       {data.ranking.length === 0 ? <tr><td colSpan={8} style={{ padding: 12, color: MUT, textAlign: 'center' }}>Sem dados no período.</td></tr> :
@@ -153,7 +169,7 @@ export default function DesempenhoComercialPage() {
             )}
 
             {/* Bloco D · perdas por motivo */}
-            <Secao titulo="Por que não fechou (perdas por motivo)">
+            <Secao titulo="Por que não fechou (perdas por motivo)" chave="projetos.desempenho.perdas">
               {data.perdas.length === 0 ? <div style={{ color: MUT, fontSize: 12.5 }}>Nenhuma perda registrada no período.</div> :
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {data.perdas.map((p) => (
@@ -171,10 +187,10 @@ export default function DesempenhoComercialPage() {
   )
 }
 
-function Card({ titulo, valor, cor, sub }: { titulo: string; valor: string; cor: string; sub?: string }) {
+function Card({ chave, titulo, valor, cor, sub }: { chave: string; titulo: string; valor: string; cor: string; sub?: string }) {
   return (
     <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
-      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>{titulo}</div>
+      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>{titulo} <AjudaCampo chave={chave} /></div>
       <div style={{ fontSize: 22, fontWeight: 700, color: cor, marginTop: 2 }}>{valor}</div>
       {sub && <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>{sub}</div>}
     </div>
@@ -188,10 +204,10 @@ function Par({ rot, val }: { rot: string; val: string }) {
     </div>
   )
 }
-function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Secao({ titulo, chave, children }: { titulo: string; chave: string; children: React.ReactNode }) {
   return (
     <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginBottom: 10 }}>{titulo} <AjudaCampo chave={chave} /></div>
       {children}
     </div>
   )
