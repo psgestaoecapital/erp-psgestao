@@ -15,6 +15,7 @@ import { reguaDe, textoRegua, mmss, motivoRegua, type Regua } from '@/lib/ponto/
 import { rotuloPendente, explicaPendente } from '@/lib/ponto/motivoPendente'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { cpfValido } from '@/lib/documentos/cpf'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
@@ -1373,6 +1374,32 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
   const [novaOrigem, setNovaOrigem] = useState<OrigemAjuste | ''>('')
   const [ajusteDia, setAjusteDia] = useState<AjusteDia | null>(null)
   const [pendCiente, setPendCiente] = useState(false)
+  // #3842 (Karol · FC) · comprovante assinado do ajuste "conferido com o colaborador"
+  const [comprov, setComprov] = useState<{ tem_ajuste: boolean; conferido_colaborador: boolean; comprovante: { comprovante_url?: string | null; comprovante_nome?: string | null; comprovante_em?: string | null } } | null>(null)
+  const [anexando, setAnexando] = useState(false)
+  const temConfNasMarcas = useMemo(() => marcas.some(m => m.origem === 'manual' && m.origem_ajuste === 'conferido_colaborador'), [marcas])
+
+  const carregarComprov = useCallback(async () => {
+    try {
+      const r = await rpc<{ ok: boolean; tem_ajuste: boolean; conferido_colaborador: boolean; comprovante: Record<string, string | null> }>('fn_nr36_releitura_comprovante_ler', { p_company_id: companyId, p_cpf: cpf, p_data: data })
+      if (r?.ok) setComprov({ tem_ajuste: r.tem_ajuste, conferido_colaborador: r.conferido_colaborador, comprovante: r.comprovante || {} })
+    } catch { /* comprovante é opcional — sem a migration a tela segue igual */ }
+  }, [companyId, cpf, data])
+  useEffect(() => { void carregarComprov() }, [carregarComprov])
+
+  const anexarComprov = async (f: File | null) => {
+    if (!f) return
+    setAnexando(true); setErro('')
+    try {
+      const path = `conferencia/${companyId}/${cpf}_${data}_${Date.now()}.${(f.name.split('.').pop() || 'pdf')}`
+      const up = await supabase.storage.from('compliance-pausas').upload(path, f, { contentType: f.type || 'application/pdf', upsert: false })
+      if (up.error) throw up.error
+      const { data: pub } = supabase.storage.from('compliance-pausas').getPublicUrl(path)
+      const r = await rpc<{ ok: boolean; erro?: string; mensagem?: string }>('fn_nr36_releitura_anexar_comprovante', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_arquivo_url: pub?.publicUrl || path, p_arquivo_nome: f.name })
+      if (r && r.ok === false) throw new Error(r.mensagem || r.erro || 'Falha ao anexar.')
+      await carregarComprov()
+    } catch (e) { setErro('Falha ao anexar o comprovante: ' + (e as Error).message) } finally { setAnexando(false) }
+  }
 
   useEffect(() => {
     let vivo = true
@@ -1497,6 +1524,34 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
                   <input type="checkbox" checked={pendCiente} onChange={e => setPendCiente(e.target.checked)} data-testid="marcas-pendencia-ciente" />
                   Não sei o horário — o dia continua pendente
                 </label>
+              </div>
+            )}
+            {/* #3842 (Karol · FC) · quando o ajuste é "conferido com o colaborador", a responsável tem uma folha assinada
+                pelo colaborador confirmando o horário — anexe aqui para comprovar a ciência (NR-36). O anexo fica junto ao
+                ajuste do dia; só libera depois de salvar o ajuste (o comprovante precisa de um ajuste a que se ligar). */}
+            {(comprov?.conferido_colaborador || temConfNasMarcas || !!comprov?.comprovante?.comprovante_url) && (
+              <div style={{ marginTop: 10, background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 10, padding: 10 }} data-testid="conf-comprovante">
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, marginBottom: 4 }}>Comprovante assinado do ajuste</div>
+                <div style={{ fontSize: 12, color: C.gray, marginBottom: 8 }}>
+                  Ajuste <b>conferido com o colaborador</b>: anexe a folha que ele assinou confirmando o horário, para comprovar a ciência.
+                </div>
+                {comprov?.comprovante?.comprovante_url && (
+                  <div style={{ fontSize: 12.5, color: C.espresso, marginBottom: 8 }} data-testid="conf-comprovante-atual">
+                    <CheckCircle2 size={13} style={{ verticalAlign: 'middle', marginRight: 5, color: C.green }} />
+                    Anexado{comprov.comprovante.comprovante_em ? ` em ${new Date(comprov.comprovante.comprovante_em).toLocaleDateString('pt-BR')}` : ''}:{' '}
+                    <a href={comprov.comprovante.comprovante_url} target="_blank" rel="noreferrer" style={{ color: C.blue, fontWeight: 600 }}>{comprov.comprovante.comprovante_nome || 'ver documento'}</a>
+                  </div>
+                )}
+                {comprov?.tem_ajuste ? (
+                  <label data-ajuda="pausa-conferencia-comprovante" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: anexando ? 'wait' : 'pointer', fontSize: 12.5, color: C.espresso }}>
+                    <Upload size={13} /> {anexando ? 'Anexando…' : comprov?.comprovante?.comprovante_url ? 'Substituir comprovante' : 'Anexar comprovante'}
+                    <AjudaCampo chave="pausa-conferencia-comprovante" rota="/dashboard/compliance/pausas-tecnicas" />
+                    <input type="file" accept="application/pdf,image/*" disabled={anexando} data-testid="conf-comprovante-input" style={{ display: 'none' }}
+                      onChange={e => { void anexarComprov(e.target.files?.[0] ?? null); e.currentTarget.value = '' }} />
+                  </label>
+                ) : (
+                  <div style={{ fontSize: 12, color: C.amber }}>Salve o ajuste do dia (abaixo) para liberar o anexo do comprovante.</div>
+                )}
               </div>
             )}
           </>
