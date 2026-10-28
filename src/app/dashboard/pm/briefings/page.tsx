@@ -26,10 +26,10 @@ type Briefing = {
   id: string; company_id: string; cliente_id: string | null; titulo: string
   descricao: string | null; objetivo: string | null; publico_alvo: string | null
   referencias: string | null; tipo_servico: string | null; prioridade: string | null
-  prazo_desejado: string | null; status: string; created_at: string
+  prazo_desejado: string | null; status: string; created_at: string; fee_id?: string | null
 }
-type Form = { cliente_id: string; cliente_nome: string; titulo: string; objetivo: string; descricao: string; publico_alvo: string; referencias: string; tipo_servico: string; prazo_desejado: string }
-const VAZIO: Form = { cliente_id: '', cliente_nome: '', titulo: '', objetivo: '', descricao: '', publico_alvo: '', referencias: '', tipo_servico: '', prazo_desejado: '' }
+type Form = { cliente_id: string; cliente_nome: string; titulo: string; objetivo: string; descricao: string; publico_alvo: string; referencias: string; tipo_servico: string; prazo_desejado: string; fee_id: string }
+const VAZIO: Form = { cliente_id: '', cliente_nome: '', titulo: '', objetivo: '', descricao: '', publico_alvo: '', referencias: '', tipo_servico: '', prazo_desejado: '', fee_id: '' }
 const inp = 'w-full rounded-xl border border-[#3D2314]/15 bg-white px-3 py-2 text-[13.5px] text-[#3D2314] focus:border-[#C8941A] focus:outline-none'
 const rot = 'mb-1 flex items-center text-[12px] font-semibold text-[#3D2314]'
 const resumo = (t: string | null) => (t ?? '').replace(/[*_#>`[\]()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)
@@ -61,6 +61,38 @@ export default function BriefingsPage() {
     setLoading(false)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Vindo de P&M › Fees › "Fazer briefing" (?fee=): abre o briefing já ligado ao fee e ao cliente (CEO 28/10, V30 §00-F).
+  useEffect(() => {
+    if (!empresa) return
+    let feeId: string | null = null
+    try { feeId = new URLSearchParams(window.location.search).get('fee') } catch { return }
+    if (!feeId) return
+    void (async () => {
+      const { data: f } = await supabase.from('agency_contratos').select('id, cliente_id').eq('id', feeId).eq('company_id', empresa).maybeSingle()
+      if (!f) return
+      const fee = f as { id: string; cliente_id: string | null }
+      let nome = ''
+      if (fee.cliente_id) {
+        const { data: cl } = await supabase.from('agency_clientes').select('nome, nome_fantasia').eq('id', fee.cliente_id).maybeSingle()
+        const c = cl as { nome: string; nome_fantasia: string | null } | null
+        nome = c ? (c.nome_fantasia || c.nome) : ''
+      }
+      const mes = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+      setForm({ ...VAZIO, fee_id: fee.id, cliente_id: fee.cliente_id ?? '', cliente_nome: nome, titulo: `Briefing do fee${nome ? ` — ${nome}` : ''} · ${mes}` })
+      setEditId(null); setNovo(true)
+    })()
+  }, [empresa])
+
+  async function planejarMes(b: Briefing) {
+    if (!b.fee_id) return
+    setBusy(true)
+    const hoje = new Date(); const mes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-01`
+    const { data, error } = await supabase.rpc('fn_pm_planejamento_do_fee', { p_fee_id: b.fee_id, p_mes: mes })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string; planejamento_id?: string } | null
+    if (error || !r?.ok || !r.planejamento_id) { setToast({ texto: `Não deu para planejar: ${error?.message ?? r?.erro ?? 'erro'}.` }); return }
+    window.location.href = `/dashboard/pm/planejamento?p=${r.planejamento_id}`
+  }
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 6000); return () => clearTimeout(t) }, [toast])
 
   const kpis = useMemo(() => ({
@@ -73,7 +105,7 @@ export default function BriefingsPage() {
     setForm({
       cliente_id: b.cliente_id ?? '', cliente_nome: b.cliente_id ? (nomes[b.cliente_id] ?? '') : '', titulo: b.titulo,
       objetivo: b.objetivo ?? '', descricao: b.descricao ?? '', publico_alvo: b.publico_alvo ?? '', referencias: b.referencias ?? '',
-      tipo_servico: b.tipo_servico ?? '', prazo_desejado: b.prazo_desejado?.slice(0, 10) ?? '',
+      tipo_servico: b.tipo_servico ?? '', prazo_desejado: b.prazo_desejado?.slice(0, 10) ?? '', fee_id: b.fee_id ?? '',
     })
     setEditId(b.id); setNovo(true)
   }
@@ -88,6 +120,7 @@ export default function BriefingsPage() {
       objetivo: form.objetivo.trim() || null, descricao: form.descricao.trim() || null,
       publico_alvo: form.publico_alvo.trim() || null, referencias: form.referencias.trim() || null,
       tipo_servico: form.tipo_servico.trim() || null, prazo_desejado: form.prazo_desejado || null,
+      ...(form.fee_id ? { fee_id: form.fee_id } : {}),
     }
     const { error } = editId
       ? await supabase.from('agency_briefings').update({ ...campos, updated_at: new Date().toISOString() }).eq('id', editId).eq('company_id', empresa)
@@ -157,7 +190,9 @@ export default function BriefingsPage() {
                     </div>
                     <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${st.cls}`}>{st.l}</span>
                     <button onClick={() => abrir(b)} className="rounded-xl border border-[#3D2314]/15 px-3 py-1.5 text-[12.5px] font-medium" data-testid="briefing-abrir">Abrir</button>
-                    {b.status !== 'virou_job'
+                    {b.fee_id
+                      ? <span className="inline-flex items-center"><button disabled={busy} onClick={() => void planejarMes(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#C8941A] px-3 py-1.5 text-[12.5px] font-medium text-[#6B4A0E] disabled:opacity-40" data-testid="briefing-planejar">Planejar o mês <ArrowRight size={14} /></button><AjudaCampo chave="pm.fee.planejar" /></span>
+                      : b.status !== 'virou_job'
                       ? <button disabled={busy} onClick={() => void virarJob(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#2F5A1F] px-3 py-1.5 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="briefing-virar-job">Virar job <ArrowRight size={14} /></button>
                       : <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#2F5A1F]"><CheckCircle2 size={14} /> em produção</span>}
                   </div>
@@ -172,6 +207,11 @@ export default function BriefingsPage() {
           <div className="min-h-full w-full bg-white p-5 sm:mt-8 sm:min-h-0 sm:max-w-2xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()} data-testid="briefing-modal">
             <h2 className="mb-3 text-[19px] font-medium">{editId ? 'Briefing' : 'Novo briefing'}</h2>
             <div className="space-y-3">
+              {form.fee_id && (
+                <div className="flex items-center rounded-xl border border-[#C8941A]/40 bg-[#FFF8E8] px-3 py-2 text-[12.5px] text-[#6B4A0E]" data-testid="briefing-do-fee">
+                  Briefing do fee deste cliente — o planejamento do mês usa este briefing.<AjudaCampo chave="pm.briefing.fee" />
+                </div>
+              )}
               <ClienteBusca empresa={empresa} valorNome={form.cliente_nome} testId="briefing-cliente"
                 onEscolher={(id, nome) => setForm({ ...form, cliente_id: id, cliente_nome: nome })} onLimpar={() => setForm({ ...form, cliente_id: '', cliente_nome: '' })} />
               <label className="block"><span className={rot}>Título *<AjudaCampo chave="pm.briefing.titulo" /></span>

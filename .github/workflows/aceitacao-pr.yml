@@ -334,6 +334,7 @@ jobs:
           # na vaga (db push da PR); se a PR é renumerada pela fila/refeita/fechada, a versão fica no ledger SEM arquivo e
           # ABAIXO da maior da main — a guarda de contaminação (só vê > max) não pega e o db push aborta. Poda antes (só vaga).
           MIGR_DIR="$mmain/supabase/migrations" scripts/banco-testes/podar-orfas-ledger.sh
+          scripts/banco-testes/garantir-org-demo.sh   # 24/10: organização FIXA das DEMOs antes do push
           if ! ( cd "$mmain" && supabase db push --include-all --db-url "$TEST_DATABASE_URL" ); then
             echo "::error::sync da main na vaga ${ACEITACAO_VAGA:-?} falhou (db push) — aceitação abortada"; exit 1
           fi
@@ -341,6 +342,7 @@ jobs:
           # silêncio → vaga com sobra de PR → aceitação flaky. Traz a referência até a última migration da main (db push
           # idempotente, só migrations da main; poda órfãs do ledger dela antes). Se não conseguir, o script falha explícito.
           if ! TEST_DATABASE_URL="$REF_DATABASE_URL" MIGR_DIR="$mmain/supabase/migrations" scripts/banco-testes/podar-orfas-ledger.sh \
+             || ! TEST_DATABASE_URL="$REF_DATABASE_URL" scripts/banco-testes/garantir-org-demo.sh \
              || ! ( cd "$mmain" && supabase db push --include-all --db-url "$REF_DATABASE_URL" ); then
             echo "::warning title=Referência::não consegui sincronizar a referência (vaga 1) com a main — a reconciliação vai conferir e falhar explícito se ela estiver atrás"
           fi
@@ -378,6 +380,7 @@ jobs:
           echo "0) podando órfãos do ledger da vaga (versão sem arquivo na main, RD-52)…"
           MIGR_DIR="$mmain/supabase/migrations" scripts/banco-testes/podar-orfas-ledger.sh
           echo "1) sincronizando a vaga ${ACEITACAO_VAGA:-0} SÓ com a main (db push idempotente)…"
+          scripts/banco-testes/garantir-org-demo.sh   # 24/10: organização FIXA das DEMOs antes do push
           if ! ( cd "$mmain" && supabase db push --include-all --db-url "$TEST_DATABASE_URL" ); then
             echo "::error::banco da vaga ${ACEITACAO_VAGA:-?} não sincronizou com a main (supabase db push falhou) — aceitação abortada"; exit 1
           fi

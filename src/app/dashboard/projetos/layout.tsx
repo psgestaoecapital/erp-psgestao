@@ -4,7 +4,7 @@
 
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -23,6 +23,7 @@ import {
   BarChart3,
   Gauge,
   Calculator,
+  Route,
   type LucideIcon,
 } from "lucide-react";
 
@@ -54,6 +55,7 @@ const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras",          label: "Obras",          icon: Construction, key: "9" },
   { href: "/dashboard/projetos/obras/resultado", label: "Resultado",      icon: BarChart3,    key: "0" },
   { href: "/dashboard/projetos/cockpit",         label: "Cockpit",        icon: Gauge,        key: "" },
+  { href: "/dashboard/projetos/viagens",         label: "Viagens",        icon: Route,        key: "" },
 ];
 
 const CONFIG: Tab = {
@@ -71,6 +73,7 @@ function TabLink({ tab, isActive }: { tab: Tab; isActive: boolean }) {
     <Link
       href={tab.href}
       title={`Ctrl+${tab.key}`}
+      aria-current={isActive ? "page" : undefined}
       className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
         isActive
           ? "border-[#C8941A] bg-[#3D2314]/5 text-[#3D2314]"
@@ -81,6 +84,10 @@ function TabLink({ tab, isActive }: { tab: Tab; isActive: boolean }) {
       {tab.label}
     </Link>
   );
+}
+
+function Separator() {
+  return <div className="mx-3 h-5 w-px shrink-0 bg-[#3D2314]/15" aria-hidden />;
 }
 
 function isActiveTab(tab: Tab, pathname: string | null): boolean {
@@ -98,6 +105,13 @@ function isActiveTab(tab: Tab, pathname: string | null): boolean {
 export default function ProjetosLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const navRef = useRef<HTMLDivElement>(null);
+
+  // No celular a sub-nav rola na horizontal: leva a aba ativa para a vista (sem ela ficar cortada na borda).
+  useEffect(() => {
+    const ativa = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    ativa?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [pathname]);
 
   // Atalhos Ctrl+1..0 + Ctrl+,
   useEffect(() => {
@@ -115,10 +129,6 @@ export default function ProjetosLayout({ children }: { children: React.ReactNode
     return () => window.removeEventListener("keydown", handler);
   }, [router]);
 
-  const Separator = () => (
-    <div className="mx-3 h-5 w-px shrink-0 bg-[#3D2314]/15" aria-hidden />
-  );
-
   return (
     <div className="min-h-screen bg-[#FAF7F2]">
       {/* Breadcrumb */}
@@ -135,7 +145,12 @@ export default function ProjetosLayout({ children }: { children: React.ReactNode
       {/* Sub-nav sticky agrupada */}
       <div className="sticky top-0 z-10 border-b border-[#3D2314]/10 bg-[#FAF7F2]">
         <div className="mx-auto max-w-7xl px-6">
-          <div className="flex items-center overflow-x-auto">
+          {/* Desktop: as abas quebram em linhas (nenhuma fica cortada); celular: rolagem horizontal. */}
+          <div
+            ref={navRef}
+            data-testid="hub-subnav"
+            className="flex items-center overflow-x-auto md:flex-wrap md:overflow-visible"
+          >
             {/* Grupo Comercial */}
             <div className="flex items-center">
               {COMERCIAL.map((t) => (
@@ -162,7 +177,7 @@ export default function ProjetosLayout({ children }: { children: React.ReactNode
             </div>
 
             {/* Configurações (à direita) */}
-            <div className="ml-auto pl-3">
+            <div className="ml-auto shrink-0 pl-3">
               <TabLink tab={CONFIG} isActive={isActiveTab(CONFIG, pathname)} />
             </div>
           </div>

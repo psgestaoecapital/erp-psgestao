@@ -18,6 +18,8 @@ import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-t
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 import { empresaDoPedidoRobo } from '@/lib/gold/empresaDoPedidoRobo';
+import { rotaConcreta } from '@/lib/gold/rotaConcreta';
+import { salvarMiniaturaRota } from '@/lib/gold/miniaturaRota';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -104,7 +106,12 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
     page.on('pageerror', () => { errorsCount++; });
     page.on('console', (msg) => { if (msg.type() === 'error') errorsCount++; });
 
-    const urlAlvo = `${SAAS_BASE_URL}${rotaCompleta}`;
+    // Rota-modelo com [id] (Hub PDCA 24/10): visita um registro REAL da empresa DEMO do pedido; sem registro,
+    // não fotografa (a foto do "[id]" literal reprovava a tela por engano). O screen/foto seguem na rota-modelo.
+    const alvo = await rotaConcreta(supabase, rotaCompleta, empresaId);
+    if (alvo.tipo === 'sem_registro') throw new Error(`Rota dinâmica não fotografada: ${alvo.motivo}`);
+    const rotaVisita = alvo.rota;
+    const urlAlvo = `${SAAS_BASE_URL}${rotaVisita}`;
 
     async function ehTelaLogin(): Promise<boolean> {
       const u = page.url();
@@ -166,7 +173,7 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
 
     // CONFERE a URL final antes de fotografar (não salva tela errada).
     const finalPath = (() => { try { return (new URL(urlFinalVisitada!).pathname.replace(/\/+$/, '')) || '/'; } catch { return ''; } })();
-    const pedidoPath = rotaBase.replace(/\/+$/, '') || '/';
+    const pedidoPath = rotaVisita.split('?')[0].split('#')[0].replace(/\/+$/, '') || '/';
     rotaAlcancada = finalPath === pedidoPath || finalPath.startsWith(pedidoPath + '/');
 
     if (!rotaAlcancada) {
@@ -193,7 +200,15 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
         auditabilidade_em: new Date().toISOString(),
       }).eq('id', screenId);
     } else {
-      const buffer = await page.screenshot({ type: 'jpeg', quality: 75, fullPage: false, clip: { x: 0, y: 0, width: 1280, height: 800 } });
+      // Captura a tela INTEIRA (não só o topo 800px). O auditor reprovava por engano tudo que ficava
+      // ABAIXO da dobra — "seção cortada/truncada", "ver a conta", ações de salvar/exportar "fora da área
+      // visível" — porque só via o recorte do topo (CEO 25/10, prioridade #1: auditar a tela toda, não um
+      // pedaço). A altura vai capada (6000px) para proteger a memória do serverless em página muito longa;
+      // JPEG q75 mantém o peso baixo. Largura segue 1280 (desktop).
+      const alturaConteudo = await page.evaluate(() => Math.ceil(Math.max(
+        document.documentElement?.scrollHeight ?? 0, document.body?.scrollHeight ?? 0, 800)));
+      const alturaCaptura = Math.min(alturaConteudo, 6000);
+      const buffer = await page.screenshot({ type: 'jpeg', quality: 75, clip: { x: 0, y: 0, width: 1280, height: alturaCaptura } });
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
       const path = `${sanitizePathComponent(rotaBase)}/${ts}.jpg`;
       const { error: errUp } = await supabase.storage.from('system-screenshots').upload(path, buffer, { contentType: 'image/jpeg', upsert: false });
@@ -207,6 +222,8 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
         screenshot_url: path, screenshot_atualizado_em: new Date().toISOString(),
         auditavel_robo: true, motivo_nao_auditavel: null, auditabilidade_em: new Date().toISOString(),
       }).eq('id', screenId);
+      // Miniatura base64 para o aud8 ler por SELECT. Falha aqui não derruba a captura.
+      await salvarMiniaturaRota(supabase, rotaBase, page, alturaCaptura).catch((e) => console.error('[miniatura] não gravada:', e));
       try {
         visualTruth = await executarVisualTruthRules(page, screenId, rotaBase, supabase);
       } catch (vtErr) { console.error('[visual-truth] erro nao fatal:', vtErr); }

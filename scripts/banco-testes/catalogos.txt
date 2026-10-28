@@ -61,3 +61,13 @@ erp_ajuda_campo             # ajuda-campo-mao-obra, produtividade-cadastro-edita
 # P&M (fn_demo_seed_pm_jornada, via fn_gold_pm_seed_reparar no fn_demo_reset) grava psgc_depara com psgc_codigo '1.3' (FK
 # psgc_depara_psgc_codigo_fkey); sem o catálogo o Montar 473-477 abortou na Semente.
 psgc_contas
+
+# erp_agente_rotina (rotinas dos agentes) NÃO entra (25/10, gilberto-desenv): a #3181 a pôs aqui e o Montar 788-795
+# quebrou — o CHECK erp_agente_rotina_agente_check da produção ganhou agentes (code-desenvolvedor-3, desenvolvedor_4/5/6_g,
+# auditor_pdca_g) FORA de migration, e o banco de testes (só migrations) recusa essas linhas. Volta quando uma migration
+# alinhar o CHECK à produção (via revisada). Até lá canal-ps e agente-chamado-responder seguem com 23503 na aceitação.
+
+# Modelo de produtividade (PR A · CEO 28/10): template "Abate de bovinos" como DADO global, sem coluna de dono.
+# "Começar pelo modelo" (fn_prod_modelo_aplicar) copia estas linhas para as raias/atividades da empresa.
+prod_modelo_fluxo          # pai de prod_modelo_etapa (FK)
+prod_modelo_etapa

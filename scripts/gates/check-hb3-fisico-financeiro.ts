@@ -16,7 +16,7 @@ ok(perto(fisicoFinanceiro([t[0], { inicio: '2026-01-01', fim: '2026-01-10', perc
 const base = [{ inicio: '2026-01-11', fim: '2026-01-20', percentual: 0, inicio_base: '2026-01-01', fim_base: '2026-01-10', custo_previsto: '200' }]
 ok(perto(fisicoFinanceiro(base, '2026-01-10')!.planejadoHoje, 200), 'planejado segue a linha de base; custo vindo como texto (numeric) funciona')
 
-const mig = readFileSync('supabase/migrations/20261022150030_hb3_cronograma_fatia7_fisico_financeiro.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261023141730_hb3_cronograma_fatia7_fisico_financeiro.sql', 'utf8')
 const tela = readFileSync('src/app/dashboard/projetos/obras/[id]/cronograma/page.tsx', 'utf8')
 ok(/ADD COLUMN IF NOT EXISTS custo_previsto/.test(mig) && !/DELETE FROM|DROP /i.test(mig), 'migration aditiva (coluna nova, sem DROP/DELETE)')
 ok(mig.includes('fn__guarda_empresa(v_company)') && mig.includes('REVOKE ALL ON FUNCTION public.fn_obra_tarefa_custo_salvar'), 'função com guarda de empresa e REVOKE anon')
