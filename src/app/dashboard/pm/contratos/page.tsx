@@ -120,7 +120,17 @@ export default function ContratosPage() {
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
-          : contratos.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>Nenhum contrato de agência ainda.</div>
+          : contratos.length === 0 ? (
+            <div style={{ padding: '32px 24px', textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }} data-testid="contratos-vazio">
+              <div style={{ fontSize: 15, fontWeight: 700, color: ESPRESSO, marginBottom: 6 }}>Nenhum contrato de agência ainda</div>
+              <p style={{ fontSize: 13, maxWidth: 520, margin: '0 auto 14px', lineHeight: 1.5 }}>
+                O contrato de fee nasce na <b>Gestão Empresarial</b>. Depois de criado, ele aparece aqui para você amarrar o <b>escopo à produção</b> — é a raiz da cadeia <b>contrato → job → fee</b>, que alimenta o MRR e a margem por job.
+              </p>
+              <a href="/dashboard/contratos?tab=fee" style={{ display: 'inline-block', background: DOURADO, color: '#fff', fontSize: 12.5, fontWeight: 700, textDecoration: 'none', padding: '9px 16px', borderRadius: 8 }}>
+                🧾 Criar o primeiro contrato de fee →
+              </a>
+            </div>
+          )
           : (
             <div style={{ display: 'grid', gap: 8 }}>
               {contratos.map((c) => {
