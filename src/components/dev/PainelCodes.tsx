@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
 import GraficosCodes, { ProducaoCompacta } from './GraficosCodes'
+import AvancoVertical from './AvancoVertical'
 import SaudeEsteira from './SaudeEsteira'
 import DiagnosticoEsteira from './DiagnosticoEsteira'
 import BarrasQualidadeVertical from './BarrasQualidadeVertical'
@@ -166,6 +167,7 @@ export default function PainelCodes() {
 
       {/* Detalhe e diagnóstico (abaixo da primeira tela) */}
       <div style={{ marginTop: 12 }}><BlocoSeguro nome="Gráficos"><GraficosCodes semProducao /></BlocoSeguro></div>
+      <BlocoSeguro nome="Avanço por vertical"><AvancoVertical /></BlocoSeguro>
       <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
       <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
       <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
