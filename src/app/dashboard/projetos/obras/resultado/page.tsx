@@ -32,6 +32,14 @@ const pctPrevisto = (l: Linha) => (n(l.receita_prevista) > 0 ? Math.min(100, (re
 // Sem receita a margem % não existe: "N/A" ("—" parece dado que falhou ao carregar).
 const fmtPct = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? 'N/A' : fmtPctBase(v))
 const margemPct = (rec: number, marg: number) => (rec > 0 ? (marg / rec) * 100 : null)
+// Situação pela margem %: verde ≥ 10%, amarelo 0–10%, vermelho < 0; sem medição não classifica (cinza).
+const situacao = (l: Linha): { rot: string; cor: string } => {
+  if (semMedicao(l)) return { rot: 'Sem medição', cor: MUT }
+  const p = margemPct(receita(l), margem(l))
+  if (p == null || p < 0) return { rot: 'Margem negativa', cor: VERM }
+  return p < 10 ? { rot: 'Margem baixa', cor: '#B45309' } : { rot: 'Margem saudável', cor: VERDE }
+}
+const POR_PAGINA = 20
 const cockpit = (obraId: string) => `/dashboard/projetos/obras/${obraId}/cockpit`
 
 export default function ResultadoObrasPage() {
@@ -41,6 +49,7 @@ export default function ResultadoObrasPage() {
   const [erro, setErro] = useState('')
   const [busca, setBusca] = useState('')
   const [status, setStatus] = useState('')
+  const [pagina, setPagina] = useState(0)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -68,6 +77,9 @@ export default function ResultadoObrasPage() {
     const q = busca.trim().toLowerCase()
     return linhas.filter(l => (!status || l.status === status) && (!q || `${l.numero} ${l.nome}`.toLowerCase().includes(q)))
   }, [linhas, busca, status])
+  const totalPaginas = Math.max(1, Math.ceil(visiveis.length / POR_PAGINA))
+  const paginaAtual = Math.min(pagina, totalPaginas - 1)
+  const daPagina = useMemo(() => visiveis.slice(paginaAtual * POR_PAGINA, (paginaAtual + 1) * POR_PAGINA), [visiveis, paginaAtual])
   const semReceitaComCusto = visiveis.filter(l => semMedicao(l) && custo(l) > 0).length
 
   const total = useMemo(() => visiveis.reduce((a, l) => ({
@@ -103,9 +115,9 @@ export default function ResultadoObrasPage() {
         {!loading && !erro && linhas.length > 0 && (
           <>
             <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-              <input data-testid="resultado-busca" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar obra por número ou nome" aria-label="Buscar obra" style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8, minWidth: 220 }} />
+              <input data-testid="resultado-busca" value={busca} onChange={e => { setBusca(e.target.value); setPagina(0) }} placeholder="Buscar obra por número ou nome" aria-label="Buscar obra" style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8, minWidth: 220 }} />
               <AjudaCampo chave="projetos.resultado_obra.busca" />
-              <select data-testid="resultado-status" value={status} onChange={e => setStatus(e.target.value)} aria-label="Filtrar por situação da obra" style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8 }}>
+              <select data-testid="resultado-status" value={status} onChange={e => { setStatus(e.target.value); setPagina(0) }} aria-label="Filtrar por situação da obra" style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8 }}>
                 <option value="">Todas as situações</option>
                 {statusLista.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -125,24 +137,32 @@ export default function ResultadoObrasPage() {
             </div>
             <style>{'@media print{.no-print{display:none!important}body{background:#fff}}'}</style>
             {/* celular (< md): um cartão por obra + o consolidado, sem rolagem lateral (HB0 · correção 9). A impressão usa a tabela. */}
+            {totalPaginas > 1 && (
+              <div className="no-print" data-testid="resultado-paginacao" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, fontSize: 13 }}>
+                <button disabled={paginaAtual === 0} onClick={() => setPagina(paginaAtual - 1)} style={{ padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Anterior</button>
+                <span>Página {paginaAtual + 1} de {totalPaginas} · {visiveis.length} obras</span>
+                <button disabled={paginaAtual >= totalPaginas - 1} onClick={() => setPagina(paginaAtual + 1)} style={{ padding: '6px 12px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8 }}>Próxima</button>
+                <AjudaCampo chave="projetos.resultado_obra.paginacao" />
+              </div>
+            )}
             <div className="md:hidden no-print" data-testid="resultado-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {visiveis.map(l => (
+              {daPagina.map(l => (
                 <CartaoObra key={l.obra_id} obraId={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} material={n(l.custo_material)} viagens={n(l.custo_viagens)} maoObra={n(l.custo_mao_obra)}
-                  margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} sem={semMedicao(l)} pct={pctPrevisto(l)} />
+                  margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} sem={semMedicao(l)} pct={pctPrevisto(l)} sit={situacao(l)} />
               ))}
               <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} material={visiveis.reduce((a, l) => a + n(l.custo_material), 0)} viagens={visiveis.reduce((a, l) => a + n(l.custo_viagens), 0)} maoObra={visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0)}
                 margem={total.margem} prevista={total.prevista} custoPrev={total.custoPrev} />
             </div>
             <style>{'@media print{.resultado-tabela-wrap{display:block!important}}'}</style>
             <div className="hidden md:block resultado-tabela-wrap" style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-              <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 880, borderCollapse: 'collapse' }}>
+              <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 960, borderCollapse: 'collapse' }}>
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
                   <th style={{ ...th, ...fixa, textAlign: 'left' }}>Obra</th><th style={th}>Receita <AjudaCampo chave="projetos.resultado_obra.receita" /></th><th style={th}>Custo <AjudaCampo chave="projetos.resultado_obra.custo" /></th>
                   <th style={th}>Materiais <AjudaCampo chave="projetos.resultado_obra.custo_material" /></th><th style={th}>Viagens <AjudaCampo chave="projetos.resultado_obra.custo_viagens" /></th>
-                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
+                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Situação <AjudaCampo chave="projetos.resultado_obra.situacao" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
                 </tr></thead>
                 <tbody>
-                  {visiveis.map(l => (
+                  {daPagina.map(l => (
                     <tr key={l.obra_id} style={{ borderBottom: `1px solid ${LINE}` }}>
                       <td style={{ ...td, ...fixa, textAlign: 'left' }}>
                         <Link href={cockpit(l.obra_id)} style={{ color: GOLD, textDecoration: 'none' }} title="Abrir o cockpit da obra">{l.numero} · {l.nome}</Link>
@@ -150,6 +170,7 @@ export default function ResultadoObrasPage() {
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
                       <td style={td}>{fmtR(n(l.custo_material))}</td><td style={td}>{fmtR(n(l.custo_viagens))}</td>
                       <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
+                      <td data-testid="resultado-situacao" style={{ ...td, color: situacao(l).cor, fontWeight: 600 }}>{situacao(l).rot}</td>
                       {semMedicao(l)
                         ? <td colSpan={2} data-testid="resultado-sem-medicao" style={{ ...td, color: MUT, fontSize: 12 }}>Sem medição ainda — margem indisponível</td>
                         : <><td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
@@ -158,7 +179,7 @@ export default function ResultadoObrasPage() {
                     </tr>
                   ))}
                   <tr data-testid="resultado-consolidado" style={{ fontWeight: 700 }}>
-                    <td style={{ ...td, ...fixa, textAlign: 'left' }}>Consolidado</td>
+                    <td style={{ ...td, ...fixa, textAlign: 'left' }}>Consolidado</td><td style={td} />
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
                     <td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_material), 0))}</td><td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_viagens), 0))}</td>
                     <td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
@@ -178,8 +199,8 @@ export default function ResultadoObrasPage() {
 
 // Cartão da obra no celular: margem em destaque (verde/vermelho), realizado × previsto em pares. O "?" de cada
 // número fica no cartão Consolidado (mesmas chaves da tabela), para não repetir em cada obra.
-function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra, margem, prevista, custoPrev, destaque, sem, pct: pctPrev }: {
-  obraId?: string; titulo: string; receita: number; custo: number; material: number; viagens: number; maoObra: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean; sem?: boolean; pct?: number | null
+function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra, margem, prevista, custoPrev, destaque, sem, pct: pctPrev, sit }: {
+  obraId?: string; titulo: string; receita: number; custo: number; material: number; viagens: number; maoObra: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean; sem?: boolean; pct?: number | null; sit?: { rot: string; cor: string }
 }) {
   const pct = margemPct(receita, margem)
   const par = (rot: string, v: number, chave?: string) => (
@@ -207,6 +228,7 @@ function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra
         {par('Mão de obra', maoObra, 'projetos.resultado_obra.mao_obra')}{par('Receita prevista', prevista, 'projetos.resultado_obra.receita_prevista')}
         {par('Custo previsto', custoPrev, 'projetos.resultado_obra.custo_previsto')}
       </div>
+      {sit && <div data-testid="resultado-situacao-cartao" style={{ fontSize: 12, fontWeight: 600, color: sit.cor, marginTop: 8 }}>{sit.rot}</div>}
       {pctPrev != null && <Barra pct={pctPrev} />}
     </div>
   )
@@ -216,8 +238,11 @@ function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra
 function Barra({ pct }: { pct: number | null }) {
   if (pct == null) return null
   return (
-    <div title={`Realizado: ${pct.toFixed(0)}% do previsto`} data-testid="resultado-barra" style={{ height: 4, background: LINE, borderRadius: 2, marginTop: 4 }}>
-      <div style={{ width: `${pct}%`, height: 4, background: GOLD, borderRadius: 2 }} />
+    <div title={`Realizado: ${pct.toFixed(0)}% do previsto`} data-testid="resultado-barra" style={{ marginTop: 4 }}>
+      <div style={{ height: 4, background: LINE, borderRadius: 2 }}>
+        <div style={{ width: `${pct}%`, height: 4, background: GOLD, borderRadius: 2 }} />
+      </div>
+      <div style={{ fontSize: 10.5, color: MUT, textAlign: 'right', marginTop: 2 }}>{pct.toFixed(0)}% da receita prevista realizada</div>
     </div>
   )
 }
