@@ -77,12 +77,25 @@ export default function ApontamentoHorasPage() {
   useEffect(() => { if (!toast) return; const x = setTimeout(() => setToast(null), 3000); return () => clearTimeout(x) }, [toast])
   useEffect(() => () => { if (timer.current) clearInterval(timer.current) }, [])
 
-  const totalHorasMes = useMemo(() => linhas.reduce((s, l) => s + Number(l.horas ?? 0), 0), [linhas])
-  const custoMes = useMemo(() => linhas.reduce((s, l) => s + Number(l.custo_total ?? 0), 0), [linhas])
   // Ruído de cronômetro: lançamento com menos de ~3 min (0,05 h) — iniciar/parar sem trabalho real.
   const ehRuido = (l: Linha) => Number(l.horas ?? 0) < 0.05
   const ruidoCount = useMemo(() => linhas.filter((l) => Number(l.horas ?? 0) < 0.05).length, [linhas])
   const linhasVis = useMemo(() => (ocultarRuido ? linhas.filter((l) => Number(l.horas ?? 0) >= 0.05) : linhas), [linhas, ocultarRuido])
+  // Os totais acompanham o que está à vista: com o ruído oculto, "Horas" e "Custo" refletem só o trabalho real (RD-98).
+  const totalHorasMes = useMemo(() => linhasVis.reduce((s, l) => s + Number(l.horas ?? 0), 0), [linhasVis])
+  const custoMes = useMemo(() => linhasVis.reduce((s, l) => s + Number(l.custo_total ?? 0), 0), [linhasVis])
+  // Horas agrupadas por job nestes lançamentos: a cadeia horas → job → margem fica visível numa olhada (RD-98).
+  const porJob = useMemo(() => {
+    const m = new Map<string, { titulo: string; numero: string | null; horas: number; custo: number }>()
+    for (const l of linhasVis) {
+      const key = l.job_id ?? 'sem'
+      const job = l.job_id ? jobMap.get(l.job_id) : undefined
+      const cur = m.get(key) ?? { titulo: job?.titulo ?? 'Sem job vinculado', numero: job?.numero ?? null, horas: 0, custo: 0 }
+      cur.horas += Number(l.horas ?? 0); cur.custo += Number(l.custo_total ?? 0)
+      m.set(key, cur)
+    }
+    return Array.from(m.values()).sort((a, b) => b.horas - a.horas)
+  }, [linhasVis, jobMap])
 
   function iniciar() {
     if (!jobSel) { setToast('Escolha o job.'); return }
@@ -181,6 +194,27 @@ export default function ApontamentoHorasPage() {
           <Kpi l="Lançamentos" v={String(linhas.length)} sub={ruidoCount > 0 ? `${linhas.length - ruidoCount} reais · ${ruidoCount} de ruído` : undefined} />
         </div>
 
+        {!loading && linhasVis.length > 0 && (
+          <section data-testid="apont-por-job" style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 14, padding: '12px 14px', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>Horas por job (nestes lançamentos)</span>
+              <AjudaCampo chave="pm.apontamento.job" />
+            </div>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {porJob.map((g, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, fontSize: 13 }}>
+                  <span style={{ color: ESPRESSO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {g.titulo}{g.numero ? <span style={{ color: TEXTM, fontSize: 11 }}> · {g.numero}</span> : null}
+                  </span>
+                  <span style={{ display: 'flex', gap: 12, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                    <b>{g.horas.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}h</b>
+                    {podeVerCusto && <span style={{ color: GREEN, fontWeight: 600 }}>{brl(g.custo)}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {/* Honestidade do dado (RD-98): só horas vinculadas a um job entram na margem do job. */}
         {!loading && linhas.length > 0 && (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 8 }}>
