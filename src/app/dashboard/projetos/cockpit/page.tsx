@@ -184,7 +184,9 @@ export default function CockpitEscolherObraPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10, fontSize: 12 }}>
                 <div><div style={{ color: MUT, fontSize: 11 }}>Receita <AjudaCampo chave="projetos.cockpit.card_receita" rota={ROTA} /></div><b>{brl(receita)}</b></div>
-                <div><div style={{ color: MUT, fontSize: 11 }}>Custo <AjudaCampo chave="projetos.cockpit.card_custo" rota={ROTA} /></div><b>{brl(custo)}</b></div>
+                <div><div style={{ color: MUT, fontSize: 11 }}>Custo <AjudaCampo chave="projetos.cockpit.card_custo" rota={ROTA} /></div>{custo > 0
+                  ? <b>{brl(custo)}</b>
+                  : <b style={{ color: MUT }} title="Nenhum custo (material, viagem, mão de obra ou rateio) foi lançado nesta obra ainda — não é custo zero." data-testid="cockpit-sem-custo">Sem custo lançado</b>}</div>
                 <div><div style={{ color: MUT, fontSize: 11 }}>Margem <AjudaCampo chave="projetos.cockpit.card_margem" rota={ROTA} /></div>{temMedicao
                   ? <b style={{ color: margem < 0 ? '#B91C1C' : '#15803D' }}>{brl(margem)}</b>
                   : <b style={{ color: MUT }} title="Sem medição lançada a margem ainda não existe — não é prejuízo." data-testid="cockpit-sem-medicao">Sem medição</b>}</div>
