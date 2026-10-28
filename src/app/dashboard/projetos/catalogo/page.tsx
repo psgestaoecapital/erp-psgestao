@@ -488,8 +488,9 @@ export default function CatalogoServicosPage() {
           <p className="mt-1 text-sm text-[#3D2314]/60">
             Composição de Preço Unitário (CPU) com BDI integrado · {empresaNome}
             {config?.bdi_total_pct != null && (
-              <span className="ml-2 rounded-full bg-[#C8941A]/15 px-2 py-0.5 text-xs font-medium text-[#C8941A]">
-                BDI {config.bdi_total_pct.toFixed(2)}%
+              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[#C8941A]/15 px-2 py-0.5 text-xs font-medium text-[#C8941A]">
+                BDI {config.bdi_total_pct.toFixed(2)}% <span className="text-[#C8941A]/80">· padrão da empresa</span>
+                <AjudaCampo chave="projetos.catalogo.bdi" rota={ROTA} />
               </span>
             )}
           </p>
