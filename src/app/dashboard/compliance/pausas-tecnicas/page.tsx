@@ -15,6 +15,7 @@ import { reguaDe, textoRegua, mmss, motivoRegua, type Regua } from '@/lib/ponto/
 import { rotuloPendente, explicaPendente } from '@/lib/ponto/motivoPendente'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { cpfValido } from '@/lib/documentos/cpf'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
@@ -1376,6 +1377,8 @@ function AbaConferencia({ companyId }: { companyId: string }) {
 // #587 (CEO 02/10): a batida ORIGINAL não muda; o horário digitado diz de onde veio (catraca | conferido com o
 // colaborador) e fica numa camada à parte. Se sobrar retorno sem saída (ou saída sem retorno), só grava marcando,
 // de propósito, que não se sabe o horário — foi assim que os horários da catraca deixaram de ser gravados.
+// #3842 (Karol) · documento assinado pelo colaborador anexado ao dia conferido (prova de ciência do ajuste)
+type AnexoConf = { id: string; arquivo_url: string | null; arquivo_path: string; arquivo_nome: string | null; descricao: string | null; enviado_em: string }
 function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, onFechar, onSalvo }: { companyId: string; cpf: string; data: string; colaborador: string; marcasIniciais?: Marca[]; onFechar: () => void; onSalvo: (msg: string) => void }) {
   const [marcas, setMarcas] = useState<Marca[]>(marcasIniciais ?? [])
   // #587 · ANTES (como o dia está hoje) × DEPOIS (prévia) e justificativa obrigatória para gravar
@@ -1390,6 +1393,47 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
   const [novaOrigem, setNovaOrigem] = useState<OrigemAjuste | ''>('')
   const [ajusteDia, setAjusteDia] = useState<AjusteDia | null>(null)
   const [pendCiente, setPendCiente] = useState(false)
+  // #3842 · documento assinado do colaborador (prova de ciência do ajuste), por dia
+  const [anexos, setAnexos] = useState<AnexoConf[]>([])
+  const [anexoBusy, setAnexoBusy] = useState(false)
+  const [anexoErro, setAnexoErro] = useState('')
+
+  const carregarAnexos = useCallback(async () => {
+    try {
+      const r = await rpc<AnexoConf[] | null>('fn_nr36_conferencia_anexo_listar', { p_company_id: companyId, p_cpf: cpf, p_data: data })
+      setAnexos(Array.isArray(r) ? r : [])
+    } catch (e) {
+      // banco ainda sem a função (preview antes da migration) → trata como "sem anexos", sem quebrar a tela
+      const msg = (e as Error).message || ''
+      if (!/fn_nr36_conferencia_anexo_listar|could not find the function|schema cache|perhaps you meant|PGRST202/i.test(msg)) setAnexoErro(msg)
+      setAnexos([])
+    }
+  }, [companyId, cpf, data])
+  useEffect(() => { void carregarAnexos() }, [carregarAnexos])
+
+  async function anexarDocumento(f: File | null) {
+    if (!f) return
+    setAnexoBusy(true); setAnexoErro('')
+    try {
+      const ext = (f.name.split('.').pop() || 'pdf').toLowerCase()
+      const path = `conferencia-ajuste/${companyId}/${cpf}_${data}_${Date.now()}.${ext}`
+      const up = await supabase.storage.from('compliance-pausas').upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false })
+      if (up.error) throw up.error
+      const { data: pub } = supabase.storage.from('compliance-pausas').getPublicUrl(path)
+      const r = await rpc<{ ok: boolean; erro?: string }>('fn_nr36_conferencia_anexo_registrar', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_arquivo_path: path, p_arquivo_url: pub?.publicUrl || null, p_arquivo_nome: f.name })
+      if (r && r.ok === false) throw new Error(r.erro || 'falha ao registrar o anexo')
+      await carregarAnexos()
+    } catch (e) { setAnexoErro('Falha ao anexar o documento: ' + (e as Error).message) } finally { setAnexoBusy(false) }
+  }
+  async function removerAnexo(id: string) {
+    if (!window.confirm('Remover este documento anexado? Ele sai da lista (o arquivo enviado continua guardado).')) return
+    setAnexoBusy(true); setAnexoErro('')
+    try {
+      const r = await rpc<{ ok: boolean; erro?: string }>('fn_nr36_conferencia_anexo_remover', { p_id: id })
+      if (r && r.ok === false) throw new Error(r.erro || 'falha ao remover')
+      await carregarAnexos()
+    } catch (e) { setAnexoErro('Falha ao remover: ' + (e as Error).message) } finally { setAnexoBusy(false) }
+  }
 
   useEffect(() => {
     let vivo = true
@@ -1524,6 +1568,32 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
             <textarea value={justificativa} onChange={e => setJustificativa(e.target.value)} data-testid="marcas-justificativa" rows={2}
               placeholder="Ex.: conferido com o colaborador — esqueceu de bater a saída da 1ª pausa"
               style={{ ...inp(), width: '100%', marginTop: 4, resize: 'vertical' }} />
+          </div>
+        )}
+        {!carregando && (
+          <div style={{ marginTop: 12, background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 10, padding: 10 }} data-testid="conf-anexos">
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.gray, marginBottom: 6 }}>Documento assinado pelo colaborador</div>
+            <div style={{ fontSize: 11.5, color: C.gray, marginBottom: 8 }}>Quando o ajuste foi <b>conferido com o colaborador</b> (ele assinou um documento informando o horário da pausa que esqueceu de registrar), anexe aqui — fica como prova de ciência deste dia. PDF ou foto.</div>
+            {anexoErro && <div style={{ ...erroBox(), marginTop: 0, marginBottom: 8 }} data-testid="conf-anexo-erro">{anexoErro}</div>}
+            {anexos.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+                {anexos.map(a => (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }} data-testid={`conf-anexo-${a.id}`}>
+                    <FileText size={13} style={{ color: C.gold, flexShrink: 0 }} />
+                    {a.arquivo_url
+                      ? <a href={a.arquivo_url} target="_blank" rel="noreferrer" style={{ color: C.blue, fontWeight: 600, textDecoration: 'none' }}>{a.arquivo_nome || 'documento'}</a>
+                      : <span style={{ color: C.espresso, fontWeight: 600 }}>{a.arquivo_nome || 'documento'}</span>}
+                    <span style={{ color: C.gray }}>· {fmtDT(a.enviado_em)}</span>
+                    <button type="button" onClick={() => removerAnexo(a.id)} disabled={anexoBusy} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: C.red, fontSize: 11.5, fontWeight: 600, cursor: anexoBusy ? 'wait' : 'pointer' }}>remover</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px dashed ${C.gold}88`, borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: C.espresso, cursor: anexoBusy ? 'wait' : 'pointer' }}>
+              <AjudaCampo chave="nr36.conferencia.anexo_assinado" />
+              <Upload size={13} style={{ color: C.gold }} /> {anexoBusy ? 'Enviando…' : 'Anexar documento assinado'}
+              <input type="file" accept="application/pdf,image/*" disabled={anexoBusy} onChange={e => { const f = e.target.files?.[0] ?? null; e.target.value = ''; void anexarDocumento(f) }} style={{ display: 'none' }} data-testid="conf-anexo-input" />
+            </label>
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
