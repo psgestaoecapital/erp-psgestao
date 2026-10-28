@@ -1220,13 +1220,26 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   const fortes = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'batida_forte'), [rows])
   const fracas = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'inferencia_fraca'), [rows])
 
-  async function confirmarUm(id: string, acao: string, fimManual?: string) {
+  // #2119/#4032 (Karol) · confirmar/corrigir/desfazer NÃO reapurava — o fn_nr36_confirmar_fim_pausa só grava
+  // fim_confirmado em ind_ponto_pausa e retorna. Como o Painel (fn_nr36_apuracao_listar) e a Supervisão
+  // (fn_nr36_supervisao_casos) leem a apuração GRAVADA (nr36_pausa_apurada), o dia conferido seguia marcado como
+  // "aguardando conferência" até alguém clicar "Reapurar período" na aba Painel. Agora cada conferência reapura
+  // sozinha o(s) dia(s) tocado(s) — a mesma fn que o botão Reapurar usa, UMA chamada por ação (nunca por linha, p/
+  // não repetir o incidente 03/10 de função pesada em loop). Falha ao reapurar não derruba a conferência já gravada.
+  async function reapurar(dtIni?: string, dtFim?: string) {
+    const di = dtIni, df = dtFim ?? dtIni
+    if (!di || !df) return
+    try { await supabase.rpc('fn_nr36_apurar', { p_company_id: companyId, p_dt_ini: di, p_dt_fim: df }) }
+    catch (e) { setOkMsg('Conferência gravada. A apuração do Painel pode estar defasada — use "Reapurar período" na aba Painel.'); console.warn('reapurar pós-conferência falhou', e) }
+  }
+  async function confirmarUm(id: string, acao: string, fimManual?: string, dia?: string) {
     setBusy(true); setErro(''); setOkMsg('')
     try {
       const { data, error } = await supabase.rpc('fn_nr36_confirmar_fim_pausa', { p_pausa_id: id, p_acao: acao, p_fim_manual: fimManual ?? null })
       if (error) throw error
       const r = data as { ok?: boolean; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha ao confirmar')
+      await reapurar(dia)
       await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1240,6 +1253,9 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       if (error) throw error
       const r = data as { ok?: boolean; confirmados?: number; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha no lote')
+      // reapura uma vez o intervalo de dias das pausas confirmadas (min..max), nunca por linha
+      const dias = rows.filter(x => ids.includes(x.pausa_id)).map(x => x.data).filter(Boolean).sort()
+      if (dias.length) await reapurar(dias[0], dias[dias.length - 1])
       setOkMsg(`${r.confirmados} confirmada(s).`); await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1247,7 +1263,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
     const hhmm = window.prompt('Horário real do fim da pausa (HH:MM):')
     if (!hhmm) return
     if (!/^\d{1,2}:\d{2}$/.test(hhmm.trim())) { setErro('Horário inválido — use HH:MM.'); return }
-    await confirmarUm(id, 'corrigir', `${dataDia}T${hhmm.trim().padStart(5, '0')}:00-03:00`)
+    await confirmarUm(id, 'corrigir', `${dataDia}T${hhmm.trim().padStart(5, '0')}:00-03:00`, dataDia)
   }
   async function desfazerPeriodo() {
     const ini = window.prompt('Desfazer confirmações a partir de (AAAA-MM-DD):'); if (!ini) return
@@ -1259,6 +1275,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       if (error) throw error
       const r = data as { ok?: boolean; desfeitas?: number; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha ao desfazer')
+      await reapurar(ini, fim)
       setOkMsg(`${r.desfeitas} confirmação(ões) desfeita(s).`); await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1269,8 +1286,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   return (
     <div>
       <div style={{ marginBottom: 12 }}>
-        <div style={secTitle()}>Conferência — pausas sem hora de saída</div>
-        <div style={{ fontSize: 13, color: C.gray }}>O sistema <b>sugere</b> o fim pela batida do ponto; <b>você confirma</b>. Cada horário guarda a origem — o relatório declara o que foi confirmado pelo ponto e o que é estimativa.</div>
+        <div style={secTitle()}>Conferência do mês</div>
+        {/* #3843 (Karol) · a responsável via duas listas soltas — "revisar" (batida faltando) e "confirmar/correção"
+            (pausa sem saída) — e ao auditar o período apareciam horários/pendências que não estavam antes. As duas têm a
+            mesma finalidade (deixar o mês conferido antes de fechar), então agora ficam JUNTAS, numa ordem só: primeiro os
+            dias com batida faltando, depois as pausas sem hora de saída. Só a apresentação muda — o cálculo do dia é o mesmo. */}
+        <div style={{ fontSize: 13, color: C.gray }}>Dois tipos de item para resolver antes de fechar o mês, na mesma ordem em que aparecem abaixo: <b>1 · dias com batida faltando</b> (revisar o horário que ficou trocado) e <b>2 · pausas sem hora de saída</b> (confirmar ou corrigir o fim). O sistema <b>sugere</b> pela batida do ponto; <b>você confirma</b>, e cada horário guarda a origem — ponto ou estimativa.</div>
         {/* #256 · quando falta uma batida, os pares do relatório deslizam (retorno lido como saída) */}
         <div style={{ fontSize: 12.5, color: C.espresso, marginTop: 6 }}>Pausa de 1h ou mais, com intervalos de ~20 min entre elas? Provavelmente faltou uma batida e os horários ficaram trocados. Use <b>Saída/retorno</b> na linha para dizer o que cada horário do dia é.</div>
       </div>
@@ -1279,8 +1300,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       {okMsg && <div style={{ background: C.greenBg, color: C.green, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}><CheckCircle2 size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />{okMsg}</div>}
 
       {/* #587 · auditoria de batidas: o sistema sugere, a responsável confirma com justificativa */}
+      {/* #3843 · passo 1 do fluxo único de conferência (antes era uma lista solta no topo) */}
+      <div style={subTituloConf}>1 · Dias com batida faltando <span style={subTituloConfLeve}>revisar o horário que ficou trocado</span></div>
       <AuditoriaBatidas companyId={companyId} onRevisar={(d) => setEditor(d)} />
 
+      {/* #3843 · passo 2 do mesmo fluxo — antes vinha sem título, dando a impressão de ser outra tela */}
+      <div style={subTituloConf}>2 · Pausas sem hora de saída <span style={subTituloConfLeve}>confirmar ou corrigir o fim</span></div>
       {/* Prévia + lote separado por confiabilidade */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.blueBg, border: `1px solid ${C.blue}22`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
         <div style={{ fontSize: 13, color: C.espresso, flex: '1 1 260px' }}>
@@ -1324,12 +1349,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
                     </td>
                     <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
                       {!r.sem_saida && <>
-                      <button style={{ ...btnGhost, color: forte ? C.green : C.amber, borderColor: (forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(r.pausa_id, forte ? 'confirmar_ponto' : 'confirmar_estimativa')}>Confirmar</button>
+                      <button style={{ ...btnGhost, color: forte ? C.green : C.amber, borderColor: (forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(r.pausa_id, forte ? 'confirmar_ponto' : 'confirmar_estimativa', undefined, r.data)}>Confirmar</button>
                       <button style={{ ...btnGhost, marginRight: 4 }} onClick={() => corrigir(r.pausa_id, r.data)}>Corrigir</button>
                       </>}
                       <button style={{ ...btnGhost, marginRight: 4 }} data-testid={`conf-marcas-${r.pausa_id}`} title="Dizer se cada horário do dia é saída ou retorno da pausa"
                         onClick={() => setEditor({ cpf: r.cpf, data: r.data, colaborador: r.colaborador })}>Saída/retorno</button>
-                      <button style={btnGhost} onClick={() => confirmarUm(r.pausa_id, 'indeterminado')}>Não sei</button>
+                      <button style={btnGhost} onClick={() => confirmarUm(r.pausa_id, 'indeterminado', undefined, r.data)}>Não sei</button>
                     </td>
                   </tr>
                 )
@@ -1629,6 +1654,9 @@ function Header() {
 function Vazio({ titulo, texto, acao }: { titulo: string; texto: string; acao?: React.ReactNode }) { return <div style={{ background: '#fff', border: `1px dashed ${C.borderLt}`, borderRadius: 14, padding: '32px 20px', textAlign: 'center' }}><div style={{ fontSize: 15, fontWeight: 600, color: C.espresso }}>{titulo}</div><div style={{ fontSize: 13, color: C.gray, marginTop: 5, maxWidth: 460, marginInline: 'auto' }}>{texto}</div>{acao && <div style={{ marginTop: 14 }}>{acao}</div>}</div> }
 function Load() { return <div style={{ color: C.gray, padding: 30, textAlign: 'center', fontSize: 13 }}>Carregando…</div> }
 function secTitle(): React.CSSProperties { return { fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, color: C.espresso, margin: '0 0 8px' } }
+// #3843 · subtítulo dos dois passos do fluxo único de conferência (revisar · confirmar/corrigir)
+const subTituloConf: React.CSSProperties = { fontFamily: 'Fraunces, Georgia, serif', fontSize: 15, fontWeight: 500, color: C.espresso, margin: '16px 0 8px' }
+const subTituloConfLeve: React.CSSProperties = { fontFamily: 'inherit', fontSize: 12, fontWeight: 400, color: C.gray }
 function card(): React.CSSProperties { return { display: 'flex', gap: 12, alignItems: 'center', background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 12, padding: '12px 14px', marginBottom: 10 } }
 function th(): React.CSSProperties { return { padding: '8px 10px', fontWeight: 600, fontSize: 12 } }
 // corpo da tabela SEMPRE com cor de texto explícita (Espresso #3D2314) — sem cor, herdava um
