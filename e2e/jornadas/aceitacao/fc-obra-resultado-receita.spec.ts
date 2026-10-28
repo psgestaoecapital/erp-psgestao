@@ -91,6 +91,6 @@ test.describe('Resultado por obra — receita (FC)', () => {
     await expect(res.getByTestId('obra-a-receber')).toHaveText(/^R\$\s?0,00$/)
     // #3262: custo real no cartão (sem placeholder); obra recém-criada sem lançamento mostra '—' ou R$ 0,00
     await expect(res.getByTestId('obra-custo')).toHaveText(/^(—|R\$\s?0,00)$/)
-    await expect(res.getByTestId('obra-notas')).toHaveText('Nenhuma NFS-e autorizada ligada a esta obra')
+    await expect(res.getByTestId('obra-notas')).toHaveText('Nada faturado ainda: o resultado se preenche quando a primeira NFS-e desta obra for autorizada.')
   })
 })
