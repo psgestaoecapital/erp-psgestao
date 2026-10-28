@@ -6,8 +6,9 @@
 //   HISTÓRICO     = uploads (quem/quando/hash) + baixar original + substituir (nunca apaga — RD-30)
 //   CONFIGURAÇÃO  = regras editáveis (base legal) + elegíveis (por função/manual)
 // Realizado agora VEM do upload (ind_ponto_pausa). Dia sem planilha importada NÃO é dia sem pausa (RD-51).
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CSS_IMPRESSAO } from '@/lib/ponto/impressaoDocumento'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { frasesPausasCurtas, frasesExcesso, fraseSinal, type PausaDia, type Trecho } from '@/lib/ponto/supervisaoFrases'
@@ -1509,12 +1510,89 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
               style={{ ...inp(), width: '100%', marginTop: 4, resize: 'vertical' }} />
           </div>
         )}
+        {/* #3842 (Karol) · comprovante assinado (papel) da ciência do colaborador sobre o ajuste deste dia */}
+        {!carregando && <ComprovanteConferencia companyId={companyId} cpf={cpf} data={data} />}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
           {podeDesfazer && <BtnGhost onClick={desfazer}><span data-testid="marcas-desfazer">Desfazer a última releitura</span></BtnGhost>}
           <BtnGhost onClick={onFechar}>Fechar</BtnGhost>
           <button onClick={salvar} disabled={busy || carregando || !!invalido || bloqueadoPend || justificativa.trim().length < 10} style={btnStyle(busy || carregando || !!invalido || bloqueadoPend || justificativa.trim().length < 10)} data-testid="marcas-salvar">Confirmar e reler o dia</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// #3842 (Karol · Pausas térmicas › Conferência) · comprovante assinado (papel) da ciência do colaborador sobre o ajuste
+// do dia. Fica no editor de Saída/retorno, keyed por (cpf, data) — a mesma chave da releitura. Espelha o anexo da Ciência
+// (bucket compliance-pausas + fn_nr36_releitura_anexar/_listar). Some sozinho se o banco ainda não tem a migration (preview).
+function ComprovanteConferencia({ companyId, cpf, data }: { companyId: string; cpf: string; data: string }) {
+  type Anexo = { id: string; arquivo_path: string; arquivo_nome: string | null; criado_em: string }
+  const [anexos, setAnexos] = useState<Anexo[] | null>(null)
+  const [indisponivel, setIndisponivel] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const carregar = useCallback(async () => {
+    setErro('')
+    try {
+      const r = await rpc<Anexo[]>('fn_nr36_releitura_anexos_listar', { p_company_id: companyId, p_cpf: cpf, p_data: data })
+      setAnexos(Array.isArray(r) ? r : [])
+    } catch (e) {
+      const msg = (e as Error).message || ''
+      // banco ainda sem a função (preview antes da migration) → esconde a seção, sem travar o editor do dia
+      if (/fn_nr36_releitura_anex|could not find the function|schema cache|perhaps you meant|PGRST202/i.test(msg)) { setIndisponivel(true); return }
+      setErro(msg)
+    }
+  }, [companyId, cpf, data])
+  useEffect(() => { void carregar() }, [carregar])
+
+  async function enviar(f: File | null) {
+    if (!f) return
+    setBusy(true); setErro('')
+    try {
+      const ext = (f.name.split('.').pop() || 'pdf').toLowerCase()
+      const path = `comprovante/${companyId}/${cpf}_${data}_${Date.now()}.${ext}`
+      const up = await supabase.storage.from('compliance-pausas').upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false })
+      if (up.error) throw up.error
+      const r = await rpc<{ ok: boolean; erro?: string }>('fn_nr36_releitura_anexar', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_arquivo_path: path, p_arquivo_nome: f.name })
+      if (r && r.ok === false) throw new Error(r.erro || 'falha ao anexar')
+      await carregar()
+    } catch (e) { setErro('Falha ao anexar o comprovante: ' + (e as Error).message) } finally { setBusy(false) }
+  }
+  async function baixar(a: Anexo) {
+    const { data: d, error } = await supabase.storage.from('compliance-pausas').createSignedUrl(a.arquivo_path, 60)
+    if (error || !d?.signedUrl) { setErro('Não consegui gerar o link: ' + (error?.message || 'desconhecido')); return }
+    window.open(d.signedUrl, '_blank', 'noopener')
+  }
+
+  if (indisponivel) return null
+  return (
+    <div style={{ marginTop: 12, background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 10, padding: 10 }} data-testid="conf-comprovante">
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: C.espresso }}>
+        Comprovante assinado (papel)
+        <AjudaCampo chave="nr36.conferencia.comprovante" rota="/dashboard/compliance/pausas-tecnicas" />
+        <input ref={inputRef} type="file" accept="application/pdf,image/*" hidden disabled={busy}
+          data-testid="conf-comprovante-input"
+          onChange={e => { const f = e.target.files?.[0] || null; e.target.value = ''; void enviar(f) }} />
+      </label>
+      <div style={{ fontSize: 12, color: C.gray, margin: '4px 0 8px' }}>Quando o ajuste é <b>conferido com o colaborador</b>, anexe aqui o papel que ele assinou com o horário — a prova de que teve ciência do ajuste deste dia.</div>
+      {erro && <div style={{ ...erroBox(), marginTop: 0, marginBottom: 8 }} data-testid="conf-comprovante-erro">{erro}</div>}
+      {anexos && anexos.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }} data-testid="conf-comprovante-lista">
+          {anexos.map(a => (
+            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: C.espresso }}>
+              <FileText size={13} style={{ color: C.gray, flexShrink: 0 }} />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.arquivo_nome || a.arquivo_path.split('/').pop()}</span>
+              <span style={{ color: C.gray, fontSize: 11, flexShrink: 0 }}>{new Date(a.criado_em).toLocaleDateString('pt-BR')}</span>
+              <button type="button" onClick={() => baixar(a)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${C.borderLt}`, background: '#fff', color: C.espresso, borderRadius: 7, padding: '3px 8px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}><Download size={12} /> Baixar</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button type="button" disabled={busy} onClick={() => inputRef.current?.click()} style={btnStyle(busy)} data-testid="conf-comprovante-add">
+        <Upload size={14} /> {busy ? 'Enviando…' : (anexos && anexos.length ? 'Anexar outro' : 'Anexar comprovante')}
+      </button>
     </div>
   )
 }
