@@ -123,6 +123,13 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'numero', v_o.numero);
 END $function$;
 
+-- Leitura também é SECURITY DEFINER e recebe p_company_ids do chamador: sem REVOKE o PostgREST expõe a anon
+-- (listaria obras/KPIs de qualquer empresa, vazamento entre tenants — RD-79/RD-97). Revoga anon, mantém authenticated.
+REVOKE ALL ON FUNCTION public.fn_obras_listar(uuid[], text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_obras_kpis(uuid[])         FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obras_listar(uuid[], text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_obras_kpis(uuid[])         TO authenticated;
+
 REVOKE ALL ON FUNCTION public.fn_obra_editar(uuid, jsonb) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.fn_obra_excluir(uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_obra_editar(uuid, jsonb) TO authenticated;
