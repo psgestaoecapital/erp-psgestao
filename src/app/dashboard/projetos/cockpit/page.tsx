@@ -61,14 +61,20 @@ export default function CockpitEscolherObraPage() {
         )
         if (!vivo) return
         if (error) { setErro(error.message); return }
-        const lista = (data ?? []) as ObraLinha[]
-        if (lista.length === 1) { router.replace(`/dashboard/projetos/obras/${lista[0].obra_id}/cockpit?area=hub`); return }
-        setObras(lista)
+        let lista = (data ?? []) as ObraLinha[]
+        // obra excluída (soft-delete, deleted_at) não aparece; se a consulta de apoio falhar, mantém a lista como veio
         const ids = lista.map(o => o.obra_id)
         if (ids.length) {
-          const r = await supabase.from('projetos_obras').select('id,cliente_nome,cidade,pct_conclusao,data_prevista_fim').in('id', ids)
-          if (vivo && !r.error) setInfo(Object.fromEntries(((r.data ?? []) as ObraInfo[]).map(x => [x.id, x])))
+          const r = await supabase.from('projetos_obras').select('id,cliente_nome,cidade,pct_conclusao,data_prevista_fim').in('id', ids).is('deleted_at', null)
+          if (!vivo) return
+          if (!r.error) {
+            const vivas = Object.fromEntries(((r.data ?? []) as ObraInfo[]).map(x => [x.id, x]))
+            lista = lista.filter(o => vivas[o.obra_id])
+            setInfo(vivas)
+          }
         }
+        if (lista.length === 1) { router.replace(`/dashboard/projetos/obras/${lista[0].obra_id}/cockpit?area=hub`); return }
+        setObras(lista)
       } catch { if (vivo) setErro(MSG_CARREGAMENTO_FALHOU) } finally { if (vivo) setLoading(false) }
     })()
     return () => { vivo = false }
@@ -184,7 +190,7 @@ export default function CockpitEscolherObraPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10, fontSize: 12 }}>
                 <div><div style={{ color: MUT, fontSize: 11 }}>Receita <AjudaCampo chave="projetos.cockpit.card_receita" rota={ROTA} /></div><b>{brl(receita)}</b></div>
-                <div><div style={{ color: MUT, fontSize: 11 }}>Custo <AjudaCampo chave="projetos.cockpit.card_custo" rota={ROTA} /></div><b>{brl(custo)}</b></div>
+                <div><div style={{ color: MUT, fontSize: 11 }}>Custo <AjudaCampo chave="projetos.cockpit.card_custo" rota={ROTA} /></div>{custo > 0 ? <b>{brl(custo)}</b> : <b style={{ color: MUT }} title="Nenhum custo de material, viagem, mão de obra ou rateio foi lançado nesta obra ainda — não é custo zero." data-testid="cockpit-sem-custo">Sem custo lançado</b>}</div>
                 <div><div style={{ color: MUT, fontSize: 11 }}>Margem <AjudaCampo chave="projetos.cockpit.card_margem" rota={ROTA} /></div>{temMedicao
                   ? <b style={{ color: margem < 0 ? '#B91C1C' : '#15803D' }}>{brl(margem)}</b>
                   : <b style={{ color: MUT }} title="Sem medição lançada a margem ainda não existe — não é prejuízo." data-testid="cockpit-sem-medicao">Sem medição</b>}</div>
