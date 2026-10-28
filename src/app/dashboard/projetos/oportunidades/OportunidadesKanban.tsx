@@ -528,7 +528,9 @@ export default function OportunidadesKanban({
                           <Phone size={12} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {c.cliente_telefone}
                         </a>
                       )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6 }}>
+                      {/* #3423 · em coluna estreita (390px) o valor + badge de probabilidade cortavam; flexWrap deixa o
+                          badge descer em vez de truncar. */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6, flexWrap: 'wrap', rowGap: 4 }}>
                         {/* DELTA FC · valor DENTRO do card; nulo → estado claro ("sem valor estimado"), nunca "R$ 0,00" (parecia bug) */}
                         {c.valor_estimado == null ? (
                           <span style={{ fontSize: 11.5, color: TEXTM, fontStyle: 'italic' }}>sem valor estimado</span>
@@ -537,8 +539,8 @@ export default function OportunidadesKanban({
                         )}
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                           {/* badge de anexo no card (antes só na ficha/detalhe): nº de anexos da oportunidade (fn_crm_pipeline) */}
-                          {(c.anexos ?? 0) > 0 && <span data-testid="card-oport-anexos" title={`${c.anexos} anexo(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11.5, color: TEXTM, fontWeight: 600 }}><Paperclip size={11} aria-hidden />{c.anexos}</span>}
-                          {c.probabilidade != null && <span style={probBadge}>{c.probabilidade}%</span>}
+                          {(c.anexos ?? 0) > 0 && <span data-testid="card-oport-anexos" title={`${c.anexos} anexo(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11.5, color: TEXTM, fontWeight: 600 }}><Paperclip size={11} aria-hidden />{c.anexos}<span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_anexos" /></span></span>}
+                          {c.probabilidade != null && <span style={probBadge}>{c.probabilidade}%<span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_probabilidade" /></span></span>}
                           {/* o "?" fica fora do clique/Enter do card (senão abriria a ficha) */}
                           <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card" /></span>
                         </span>

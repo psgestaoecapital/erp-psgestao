@@ -15,9 +15,10 @@ import { reguaDe, textoRegua, mmss, motivoRegua, type Regua } from '@/lib/ponto/
 import { rotuloPendente, explicaPendente } from '@/lib/ponto/motivoPendente'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
+import { cpfValido } from '@/lib/documentos/cpf'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
-import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
+import { Timer, Snowflake, ClipboardList, ClipboardCheck, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -1107,21 +1108,37 @@ const parseDataH = (s: string): string | null => { const b = txt(s).split(' - ')
 const parseDataHoraH = (s: string): string | null => { const m = /^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(txt(s)); return m ? `${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6] ?? '00'}-03:00` : null }
 const parseDurH = (s: string): number | null => { const m = /^(\d+):(\d{2}):(\d{2})$/.exec(txt(s)); return m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : null }
 
+// #3931 · a IOPoint passou a emitir o nome do colaborador com o CPF ao lado (ex.: "ANDERSON SOUZA 123.456.789-00"
+// ou "123.456.789-00 - ANDERSON SOUZA"). Extrai o CPF — só quando os 11 dígitos formam um CPF VÁLIDO, para não
+// confundir com matrícula/PIS — e devolve o nome limpo. Assim o colaborador casa pelo CPF (não só pelo nome) e o
+// relatório, que antes rejeitava essas linhas (nome não casava), passa a ser aceito.
+const CPF_EMBUTIDO = /(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/
+function extrairCpfNome(raw: string): { cpf: string; nome: string } {
+  const s = txt(raw)
+  const m = s.match(CPF_EMBUTIDO)
+  if (m && cpfValido(m[1])) {
+    const nome = s.replace(m[1], '').replace(/[·,\-–—]+/g, ' ').replace(/\s+/g, ' ').trim()
+    return { cpf: m[1].replace(/\D/g, ''), nome: nome || s }
+  }
+  return { cpf: '', nome: s }
+}
+
 function parseHierarquico(rows: string[][]): { linhas: LinhaImport[]; descartadas: number } {
   let pessoa: string | null = null
+  let pessoaCpf = ''
   const linhas: LinhaImport[] = []
   let descartadas = 0
   for (const raw of rows) {
     const r = [...raw, '', '', '', '', '', ''].slice(0, 6)
     const c0 = txt(r[0]), c1 = txt(r[1])
-    if (c0 && c1.toLowerCase() === 'data') { pessoa = c0; continue }          // cabeçalho de bloco
+    if (c0 && c1.toLowerCase() === 'data') { const e = extrairCpfNome(c0); pessoa = e.nome; pessoaCpf = e.cpf; continue } // cabeçalho de bloco
     if (IGNORAR_H.some(p => c0.toLowerCase().startsWith(p))) continue          // ruído
     const data = parseDataH(c1)
     if (!c0 && data) {                                                        // evento
       const inicio = parseDataHoraH(r[3])
       const fim = ABERTO_H.has(txt(r[4])) ? null : parseDataHoraH(r[4])       // pausa em aberto → null (nunca zerar)
       if (!pessoa || !inicio) { descartadas++; continue }
-      linhas.push({ cpf: '', data, inicio, fim, duracao_seg: parseDurH(r[5]), tipo: 'termica_253', _nome: pessoa })
+      linhas.push({ cpf: pessoaCpf, data, inicio, fim, duracao_seg: parseDurH(r[5]), tipo: 'termica_253', _nome: pessoa })
       continue
     }
     if (c0 || c1) descartadas++
@@ -1150,8 +1167,10 @@ function parseTabular(rows: string[][]): LinhaImport[] {
   const headers = rows[0].map(norm)
   const objs = rows.slice(1).map(vals => { const o: Record<string, string> = {}; headers.forEach((h, i) => { if (h) o[h] = vals[i] ?? '' }); return o }).filter(o => Object.values(o).some(v => v))
   return objs.map(o => {
-    const cpf = pick(o, ['cpf']).replace(/\D/g, '')
-    const nome = pick(o, ['nome', 'colaborador', 'funcionario', 'func', 'nome_colaborador'])
+    // #3931 · o nome pode vir com o CPF ao lado; extrai e limpa (vale também sem coluna de CPF própria)
+    const ex = extrairCpfNome(pick(o, ['nome', 'colaborador', 'funcionario', 'func', 'nome_colaborador']))
+    const cpf = pick(o, ['cpf']).replace(/\D/g, '') || ex.cpf
+    const nome = ex.nome
     const data = toISODate(pick(o, ['data', 'dia', 'data_pausa', 'data_movto', 'competencia']))
     const inicio = toTS(data, pick(o, ['inicio', 'entrada', 'hora_inicio', 'inicio_pausa', 'ini', 'hora_entrada']))
     const fimRaw = pick(o, ['fim', 'saida', 'hora_fim', 'fim_pausa', 'hora_saida'])
@@ -1250,8 +1269,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   return (
     <div>
       <div style={{ marginBottom: 12 }}>
-        <div style={secTitle()}>Conferência — pausas sem hora de saída</div>
-        <div style={{ fontSize: 13, color: C.gray }}>O sistema <b>sugere</b> o fim pela batida do ponto; <b>você confirma</b>. Cada horário guarda a origem — o relatório declara o que foi confirmado pelo ponto e o que é estimativa.</div>
+        <div style={secTitle()}>Conferência do mês</div>
+        {/* #3843 (Karol) · a responsável via duas listas soltas — "revisar" (batida faltando) e "confirmar/correção"
+            (pausa sem saída) — e ao auditar o período apareciam horários/pendências que não estavam antes. As duas têm a
+            mesma finalidade (deixar o mês conferido antes de fechar), então agora ficam JUNTAS, numa ordem só: primeiro os
+            dias com batida faltando, depois as pausas sem hora de saída. Só a apresentação muda — o cálculo do dia é o mesmo. */}
+        <div style={{ fontSize: 13, color: C.gray }}>Dois tipos de item para resolver antes de fechar o mês, na mesma ordem em que aparecem abaixo: <b>1 · dias com batida faltando</b> (revisar o horário que ficou trocado) e <b>2 · pausas sem hora de saída</b> (confirmar ou corrigir o fim). O sistema <b>sugere</b> pela batida do ponto; <b>você confirma</b>, e cada horário guarda a origem — ponto ou estimativa.</div>
         {/* #256 · quando falta uma batida, os pares do relatório deslizam (retorno lido como saída) */}
         <div style={{ fontSize: 12.5, color: C.espresso, marginTop: 6 }}>Pausa de 1h ou mais, com intervalos de ~20 min entre elas? Provavelmente faltou uma batida e os horários ficaram trocados. Use <b>Saída/retorno</b> na linha para dizer o que cada horário do dia é.</div>
       </div>
@@ -1260,8 +1283,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       {okMsg && <div style={{ background: C.greenBg, color: C.green, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}><CheckCircle2 size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />{okMsg}</div>}
 
       {/* #587 · auditoria de batidas: o sistema sugere, a responsável confirma com justificativa */}
+      {/* #3843 · passo 1 do fluxo único de conferência (antes era uma lista solta no topo) */}
+      <div style={subTituloConf}>1 · Dias com batida faltando <span style={subTituloConfLeve}>revisar o horário que ficou trocado</span></div>
       <AuditoriaBatidas companyId={companyId} onRevisar={(d) => setEditor(d)} />
 
+      {/* #3843 · passo 2 do mesmo fluxo — antes vinha sem título, dando a impressão de ser outra tela */}
+      <div style={subTituloConf}>2 · Pausas sem hora de saída <span style={subTituloConfLeve}>confirmar ou corrigir o fim</span></div>
       {/* Prévia + lote separado por confiabilidade */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.blueBg, border: `1px solid ${C.blue}22`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
         <div style={{ fontSize: 13, color: C.espresso, flex: '1 1 260px' }}>
@@ -1610,6 +1637,9 @@ function Header() {
 function Vazio({ titulo, texto, acao }: { titulo: string; texto: string; acao?: React.ReactNode }) { return <div style={{ background: '#fff', border: `1px dashed ${C.borderLt}`, borderRadius: 14, padding: '32px 20px', textAlign: 'center' }}><div style={{ fontSize: 15, fontWeight: 600, color: C.espresso }}>{titulo}</div><div style={{ fontSize: 13, color: C.gray, marginTop: 5, maxWidth: 460, marginInline: 'auto' }}>{texto}</div>{acao && <div style={{ marginTop: 14 }}>{acao}</div>}</div> }
 function Load() { return <div style={{ color: C.gray, padding: 30, textAlign: 'center', fontSize: 13 }}>Carregando…</div> }
 function secTitle(): React.CSSProperties { return { fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, color: C.espresso, margin: '0 0 8px' } }
+// #3843 · subtítulo dos dois passos do fluxo único de conferência (revisar · confirmar/corrigir)
+const subTituloConf: React.CSSProperties = { fontFamily: 'Fraunces, Georgia, serif', fontSize: 15, fontWeight: 500, color: C.espresso, margin: '16px 0 8px' }
+const subTituloConfLeve: React.CSSProperties = { fontFamily: 'inherit', fontSize: 12, fontWeight: 400, color: C.gray }
 function card(): React.CSSProperties { return { display: 'flex', gap: 12, alignItems: 'center', background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 12, padding: '12px 14px', marginBottom: 10 } }
 function th(): React.CSSProperties { return { padding: '8px 10px', fontWeight: 600, fontSize: 12 } }
 // corpo da tabela SEMPRE com cor de texto explícita (Espresso #3D2314) — sem cor, herdava um
@@ -1877,6 +1907,9 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
   const [erro, setErro] = useState('')
   const [aberto, setAberto] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<string | null>(null)
+  // #3841 · tratar o dia aqui mesmo: abre o editor da Conferência (mostra os horários da pausa e permite o ajuste),
+  // sem precisar caçar o colaborador na aba Conferência (onde às vezes o dia nem aparece).
+  const [tratarDia, setTratarDia] = useState<{ cpf: string; data: string; nome: string } | null>(null)
   // #273 · filtrar por colaborador
   const [colab, setColab] = useState('')
   const [sinais, setSinais] = useState<SupSinal[]>([])
@@ -2005,13 +2038,13 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
             <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
               <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
-                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Três naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro) e <b>pausas faltantes</b> (há menos pausas registradas do que a jornada pedia, e nenhuma está abaixo do mínimo). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
+                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Três naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro) e <b>pausas faltantes</b> (há menos pausas registradas do que a jornada pedia, e nenhuma está abaixo do mínimo). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;). Clique em <b>Tratar</b> na linha para ver os horários do dia e fechar a pausa ou lançar o ajuste aqui mesmo (abre o editor da Conferência).
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
-                  <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Motivo</th><th style={th()}>Setor</th><th style={th()}>Jornada</th>
+                  <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Motivo</th><th style={th()}>Setor</th><th style={th()}>Jornada</th><th style={th()} data-no-print="true"></th>
                 </tr></thead>
                 <tbody>
                   {pendentesF.map((p, i) => {
@@ -2028,6 +2061,15 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
                       </td>
                       <td style={td()}>{p.setor || '—'}</td>
                       <td style={td()}>{p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}</td>
+                      <td style={td()} data-no-print="true">
+                        <button
+                          data-testid={`sup-tratar-${p.cpf}-${p.data}`}
+                          title="Ver os horários deste dia e tratar na Conferência (fechar a pausa ou ajustar o registro)"
+                          onClick={() => setTratarDia({ cpf: p.cpf, data: p.data, nome: p.nome })}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${C.gold}55`, background: '#fff', color: C.espresso, borderRadius: 7, padding: '5px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          <ClipboardCheck size={13} style={{ color: C.gold }} /> Tratar
+                        </button>
+                      </td>
                     </tr>
                     )
                   })}
@@ -2038,6 +2080,9 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
           )}
         </>
       )}
+      {tratarDia && <EditorMarcasDia companyId={companyId} cpf={tratarDia.cpf} data={tratarDia.data} colaborador={tratarDia.nome}
+        onFechar={() => setTratarDia(null)}
+        onSalvo={async () => { setTratarDia(null); await carregar() }} />}
     </div>
   )
 }

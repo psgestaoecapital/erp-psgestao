@@ -6,7 +6,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, FileUp, HardHat, Plus, Users, UserPlus, Link2, History, Lock, CheckCircle2, AlertTriangle, X } from "lucide-react";
+import { Download, FileUp, HardHat, Plus, Users, UserPlus, Link2, History, Lock, CheckCircle2, AlertTriangle, X, Ban, RotateCcw } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabase } from "@/lib/supabase";
 import ImportarMaoObraModal from "@/components/projetos/ImportarMaoObraModal";
@@ -37,6 +37,10 @@ const semCusto = (porUnidade: boolean) => (
   <span className="text-[#3D2314]/40" title={porUnidade
     ? "Não se aplica: esta pessoa é paga por unidade (R$/m², metro, ponto…). O custo dela está na coluna “Por unidade”, não por mês ou por hora."
     : "Sem custo calculado ainda — confira a ficha ou informe pelo menos um componente de remuneração."}>—</span>
+);
+// "—" explicado na coluna "Por unidade": só se aplica a quem é pago por produção (m², metro, ponto). Mensalista/horista não tem.
+const semUnidade = (
+  <span className="text-[#3D2314]/40" title="Não se aplica: paga por mês ou por hora, não por unidade (m², metro, ponto…). O custo aparece em “Custo mensal” e “Custo da hora”.">—</span>
 );
 const numBR = (s: string) => { const n = Number(String(s ?? "").replace(/\./g, "").replace(",", ".")); return Number.isFinite(n) ? n : 0 };
 const FORMAS = [{ v: "mensal", l: "Mensal" }, { v: "hora", l: "Por hora" }, { v: "producao", l: "Por produção (m², metro, ponto, peça…)" }, { v: "diaria", l: "Por diária" }];
@@ -159,7 +163,7 @@ export default function MaoObraPage() {
                   <td className="pr-2 text-right tabular-nums">{i.horas_produtivas_mes}</td>
                   <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-custo-mensal">{pode ? (i.custo?.custo_mensal != null ? brl(i.custo.custo_mensal) : semCusto(i.custo?.custo_unidade != null)) : <Lock size={12} className="inline" />}</td>
                   <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-custo-hora">{pode ? (i.custo?.custo_hora != null ? brl(i.custo.custo_hora) : semCusto(i.custo?.custo_unidade != null)) : <Lock size={12} className="inline" />}</td>
-                  <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-custo-unidade">{pode ? (i.custo?.custo_unidade != null ? `${brl(i.custo.custo_unidade)}/${i.custo.unidade === "m2" ? "m²" : i.custo.unidade ?? "un."}` : "—") : <Lock size={12} className="inline" />}</td>
+                  <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-custo-unidade">{pode ? (i.custo?.custo_unidade != null ? `${brl(i.custo.custo_unidade)}/${i.custo.unidade === "m2" ? "m²" : i.custo.unidade ?? "un."}` : semUnidade) : <Lock size={12} className="inline" />}</td>
                   <td className="pr-2">
                     {i.conferido
                       ? <span className="text-[#2F5A1F]" data-testid="mao-obra-conferido">✓ Conferido</span>
@@ -218,7 +222,7 @@ export default function MaoObraPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-funcoes">
             <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
-              <th className="py-2 pr-2">Função</th><th className="pr-2">CBO<AjudaCampo chave="projetos.mao_obra.funcoes.col_cbo" /></th><th className="pr-2">Pagamento<AjudaCampo chave="projetos.mao_obra.funcoes.col_pagamento" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.funcoes.col_custo_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.funcoes.col_unidade" /></th>
+              <th className="py-2 pr-2">Função<AjudaCampo chave="projetos.mao_obra.funcoes.col_funcao" /></th><th className="pr-2">CBO<AjudaCampo chave="projetos.mao_obra.funcoes.col_cbo" /></th><th className="pr-2">Pagamento<AjudaCampo chave="projetos.mao_obra.funcoes.col_pagamento" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.funcoes.col_custo_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.funcoes.col_unidade" /></th>
               <th className="pr-2 text-right">Salário sugerido<AjudaCampo chave="projetos.mao_obra.funcoes.col_salario_sugerido" /></th>
               <th className="pr-2">Origem<AjudaCampo chave="projetos.mao_obra.funcoes.col_origem" /></th><th className="pr-2 text-right">Pessoas conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_conferidas" /></th><th className="pr-2 text-right">Não conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_nao_conferidas" /></th><th></th>
             </tr></thead>
@@ -235,7 +239,7 @@ export default function MaoObraPage() {
                   <td className="pr-2">{f.cbo ?? "—"}</td>
                   <td className="pr-2">{rotForma(f.forma_pagamento, f.unidade_producao)}</td>
                   <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-custo">{f.custo?.origem === "sem_dado" ? <span className="text-[#3D2314]/40 font-normal" data-testid="mao-obra-funcao-sem-pessoas">sem pessoas</span> : <>{brl(f.custo?.custo_hora)}{f.custo?.custo_hora_com_he != null && f.custo.custo_hora_sem_he != null && f.custo.custo_hora_com_he !== f.custo.custo_hora_sem_he && <div className="text-[10.5px] text-[#3D2314]/60 font-normal" data-testid="mao-obra-funcao-custo-he">sem HE {brl(f.custo.custo_hora_sem_he)} · com HE {brl(f.custo.custo_hora_com_he)} · obra usa {f.custo.usa_he === "com" ? "com" : "sem"} HE</div>}</>}</td>
-                  <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-custo-unidade">{f.custo?.custo_unidade != null ? `${brl(f.custo.custo_unidade)}/${f.custo.unidade === "m2" ? "m²" : f.custo.unidade ?? "un."}` : "—"}</td>
+                  <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-custo-unidade">{f.custo?.custo_unidade != null ? `${brl(f.custo.custo_unidade)}/${f.custo.unidade === "m2" ? "m²" : f.custo.unidade ?? "un."}` : semUnidade}</td>
                   <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-funcao-salario">{f.salario_sugerido?.valor != null
                     ? <>{brl(f.salario_sugerido.valor)}<div className="text-[10.5px] text-[#3D2314]/60 font-normal">{f.salario_sugerido.origem === "media_conferida" ? `média de ${f.salario_sugerido.pessoas} conferida${f.salario_sugerido.pessoas === 1 ? "" : "s"}` : "estimado do custo/hora"}</div></>
                     : <span className="text-[#3D2314]/40" title="Aparece quando há fichas conferidas nesta função: é a média do salário-base das pessoas, para sugerir quanto oferecer numa nova contratação.">—</span>}</td>
@@ -246,7 +250,15 @@ export default function MaoObraPage() {
                     {pode && f.custo?.origem === "sem_dado" && <><button className="text-[12px] underline mr-2 text-[#C8941A]" data-testid="mao-obra-funcao-add-pessoas" onClick={() => { setAba("equipe"); setModal({ tipo: "ficha", modo: "perfil" }); }}><UserPlus size={12} className="inline" /> Adicionar pessoas</button><AjudaCampo chave="projetos.mao_obra.acao.novo_perfil" /></>}
                     {pode && <>
                       <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "funcao", f })}>Editar</button><AjudaCampo chave="projetos.mao_obra.acao.editar_funcao" />
-                      <button className="text-[12px] underline" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button><AjudaCampo chave="projetos.mao_obra.acao.unir_funcao" />
+                      <button className="text-[12px] underline mr-2" onClick={() => setModal({ tipo: "unir", f })}><Link2 size={12} className="inline" /> Unir</button><AjudaCampo chave="projetos.mao_obra.acao.unir_funcao" />
+                      <button
+                        className={`text-[12px] underline ${f.ativo ? "text-[#791F1F]" : "text-[#2F5A1F]"}`}
+                        data-testid="mao-obra-funcao-inativar"
+                        onClick={() => {
+                          if (f.ativo && !confirm(`Inativar a função "${f.nome}"?\n\nEla sai do uso ativo (some do cálculo e dos seletores de função), mas o histórico é preservado e você pode reativar quando quiser.`)) return;
+                          void rpc("fn_mao_obra_funcao_inativar", { p_company_id: companyId, p_id: f.id, p_inativar: f.ativo }, f.ativo ? `Função ${f.nome} inativada — fora do custo ativo, histórico preservado.` : `Função ${f.nome} reativada.`);
+                        }}
+                      >{f.ativo ? <><Ban size={12} className="inline" /> Inativar</> : <><RotateCcw size={12} className="inline" /> Reativar</>}</button><AjudaCampo chave="projetos.mao_obra.acao.inativar_funcao" />
                     </>}
                   </td>
                 </tr>

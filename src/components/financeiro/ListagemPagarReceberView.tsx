@@ -1450,6 +1450,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                   vencimentoISO={r.data_vencimento}
                                   cliente={clientesMap[r.id] ?? null}
                                   empresaCnpj={empresaCnpj}
+                                  pago={pago}
                                   boleto={boletoMap[r.id] ?? { status: null, nossoNumero: null, linhaDigitavel: null, codigoBarras: null, qrCode: null, url: null }}
                                   onSucesso={() => setReloadKey((k) => k + 1)}
                                 />

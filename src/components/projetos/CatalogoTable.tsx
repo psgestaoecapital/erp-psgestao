@@ -81,7 +81,7 @@ export function CatalogoTable<T>({
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`px-4 py-3 ${
+                className={`whitespace-nowrap px-3 py-3 ${
                   col.align === "right"
                     ? "text-right"
                     : col.align === "center"
@@ -95,7 +95,7 @@ export function CatalogoTable<T>({
             {actions && (
               // Ações fixada à direita (auditor 27/10: com muitas colunas a tabela rolava e a coluna de ações
               // saía da captura/da tela). Pinada, ela fica sempre visível e acessível sem rolagem horizontal.
-              <th className="sticky right-0 z-10 bg-[#F6F3F1] px-4 py-3 text-right text-xs uppercase tracking-wider text-[#3D2314]/60 shadow-[-8px_0_8px_-8px_rgba(61,35,20,0.18)]">
+              <th className="sticky right-0 z-10 whitespace-nowrap bg-[#F6F3F1] px-3 py-3 text-right text-xs uppercase tracking-wider text-[#3D2314]/60 shadow-[-8px_0_8px_-8px_rgba(61,35,20,0.18)]">
                 Ações
               </th>
             )}
@@ -132,7 +132,7 @@ export function CatalogoTable<T>({
                 {columns.map((col) => (
                   <td
                     key={col.key}
-                    className={`px-4 py-3 ${
+                    className={`px-3 py-3 ${
                       col.align === "right"
                         ? "text-right"
                         : col.align === "center"
@@ -145,7 +145,7 @@ export function CatalogoTable<T>({
                 ))}
                 {actions && (
                   <td
-                    className="sticky right-0 z-10 bg-white px-4 py-3 text-right shadow-[-8px_0_8px_-8px_rgba(61,35,20,0.18)]"
+                    className="sticky right-0 z-10 bg-white px-3 py-3 text-right shadow-[-8px_0_8px_-8px_rgba(61,35,20,0.18)]"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {actions(row)}
