@@ -5,7 +5,7 @@
 // Reusa fn_simular_montagem (que reusa fn_precificar_montagem + BOM). Tudo por empresa/linha.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, Loader2, AlertTriangle } from "lucide-react";
+import { Calculator, Loader2, AlertTriangle, Trash2 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -18,6 +18,7 @@ type PrecoM2 = {
   venda_material?: number; venda_mo?: number; subtotal_m2?: number; comissao?: number;
   custo_fixo_m2?: number; custo_fixo_origem?: string; total_m2?: number; margem_rs?: number; margem_pct?: number;
 };
+type Salva = { id: string; servico_id: string; montagem_nome: string; unidade: string | null; area: number; total_m2: number | null; total_obra: number | null; nome: string | null; created_at: string };
 type Sim = { ok: boolean; erro?: string; montagem?: string; unidade?: string; area?: number; preco_m2?: PrecoM2; total_obra?: number; quantitativo?: QuantItem[] };
 
 const brl = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
@@ -40,6 +41,18 @@ export default function SimuladorPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteId, setClienteId] = useState("");
   const [gerando, setGerando] = useState(false);
+  const [salvas, setSalvas] = useState<Salva[]>([]);
+  const [nomeSim, setNomeSim] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  const carregarSalvas = useCallback(async () => {
+    if (!companyId) return;
+    const { data } = await supabaseBrowser().rpc("fn_simulacao_listar", { p_company_id: companyId });
+    setSalvas(Array.isArray(data) ? (data as Salva[]) : []);
+  }, [companyId]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarSalvas(); }, [carregarSalvas]);
 
   // clientes da empresa (opcional no orçamento)
   useEffect(() => {
@@ -69,6 +82,8 @@ export default function SimuladorPage() {
       const j = data as { ok?: boolean; produtos?: Produto[]; linhas?: Linha[] } | null;
       if (!j?.ok) { setErro("Falha ao carregar montagens"); return; }
       setProdutos(j.produtos ?? []); setLinhas(j.linhas ?? []);
+      // abre já com uma montagem escolhida: a tela mostra quantitativo e orçamento reais, não só o estado vazio
+      setMontagemId((atual) => atual || (j.produtos ?? [])[0]?.servico_id || "");
     })();
     return () => { alive = false; };
   }, [companyId]);
@@ -100,6 +115,27 @@ export default function SimuladorPage() {
   // recalcula ao trocar montagem/metragem
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void simular(); }, [simular]);
+
+  const salvarSimulacao = async () => {
+    if (!companyId || !montagemId || !sim || salvando) return;
+    setSalvando(true); setErro(null); setAviso(null);
+    const { data, error } = await supabaseBrowser().rpc("fn_simulacao_salvar", {
+      p_company_id: companyId, p_servico_id: montagemId, p_montagem_nome: sim.montagem ?? montagemSel?.nome ?? "",
+      p_unidade: sim.unidade ?? null, p_area: sim.area ?? 0, p_total_m2: sim.preco_m2?.total_m2 ?? null,
+      p_total_obra: sim.total_obra ?? null, p_nome: nomeSim || null, p_snapshot: { preco_m2: sim.preco_m2 ?? {}, quantitativo: sim.quantitativo ?? [] },
+    });
+    setSalvando(false);
+    const j = data as { ok?: boolean; erro?: string } | null;
+    if (error || !j?.ok) { setErro(error?.message ?? j?.erro ?? "Falha ao salvar a simulação"); return; }
+    setNomeSim(""); setAviso("Simulação salva."); void carregarSalvas();
+  };
+  const reabrir = (x: Salva) => { setMontagemId(x.servico_id); setArea(String(x.area).replace(".", ",")); setFLinha(""); setAviso(`Simulação reaberta com os preços de hoje: ${x.nome || x.montagem_nome}.`); };
+  const excluirSalva = async (x: Salva) => {
+    const { data, error } = await supabaseBrowser().rpc("fn_simulacao_excluir", { p_id: x.id, p_motivo: null });
+    const j = data as { ok?: boolean; erro?: string } | null;
+    if (error || !j?.ok) { setErro(error?.message ?? j?.erro ?? "Falha ao excluir"); return; }
+    setAviso("Simulação excluída (fica registrada com autor e data)."); void carregarSalvas();
+  };
 
   const gerarOrcamento = async () => {
     if (!companyId || !montagemId || gerando) return;
@@ -157,6 +193,7 @@ export default function SimuladorPage() {
         </label>
       </section>
 
+      {aviso && <div className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800" data-testid="simulador-aviso">{aviso}</div>}
       {erro && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800"><AlertTriangle className="mb-0.5 mr-1 inline" size={15} />{erro}</div>}
 
       {!montagemId ? (
@@ -172,7 +209,7 @@ export default function SimuladorPage() {
           {/* Quantitativo */}
           <section className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
             <h2 className="mb-3 text-base font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)" }}>
-              Quantitativo de materiais <span className="text-sm text-[#3D2314]/50">· {sim.montagem} · {num(sim.area)} {sim.unidade || "m²"}</span>
+              Quantitativo de materiais <AjudaCampo chave="projetos.simulador.quantitativo" /> <span className="text-sm text-[#3D2314]/50">· {sim.montagem} · {num(sim.area)} {sim.unidade || "m²"}</span>
             </h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -236,10 +273,46 @@ export default function SimuladorPage() {
                 <AjudaCampo chave="projetos.simulador.gerar_orcamento" />
               </div>
               <p className="text-[11px] text-[#3D2314]/50">Nasce em rascunho; o valor é recalculado na hora de gerar.</p>
+              <div className="flex items-center gap-2 border-t border-[#3D2314]/10 pt-3">
+                <input value={nomeSim} onChange={(e) => setNomeSim(e.target.value)} placeholder="Nome da simulação (opcional)" aria-label="Nome da simulação" data-testid="simulador-nome" className={selCls} />
+                <AjudaCampo chave="projetos.simulador.nome_simulacao" />
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => void salvarSimulacao()} disabled={salvando} data-testid="simulador-salvar"
+                  className="flex-1 rounded-lg border border-[#3D2314]/20 bg-white px-3 py-2.5 text-sm font-medium text-[#3D2314] disabled:opacity-50">
+                  {salvando ? "Salvando…" : "Salvar simulação"}
+                </button>
+                <AjudaCampo chave="projetos.simulador.salvar" />
+              </div>
             </div>
           </section>
         </div>
       ) : null}
+
+      <section className="mt-6 rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm" data-testid="simulador-salvas">
+        <h2 className="mb-3 text-base font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)" }}>Simulações salvas <AjudaCampo chave="projetos.simulador.salvas" /></h2>
+        {salvas.length === 0 ? (
+          <p className="text-sm text-[#3D2314]/55">Nenhuma simulação salva ainda. Escolha a montagem, informe a metragem e use <b>Salvar simulação</b>.</p>
+        ) : (
+          <ul className="divide-y divide-[#3D2314]/8">
+            {salvas.map((x) => (
+              <li key={x.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-[#3D2314]">{x.nome || x.montagem_nome}</div>
+                  <div className="text-xs text-[#3D2314]/55">{x.montagem_nome} · {num(x.area)} {x.unidade || "m²"} · salvo em {new Date(x.created_at).toLocaleDateString("pt-BR")}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-semibold text-[#3D2314]">{brl(x.total_obra)}</span>
+                  <button onClick={() => reabrir(x)} className="rounded-md border border-[#3D2314]/15 px-2 py-1 text-xs text-[#3D2314]">Reabrir</button>
+                  <AjudaCampo chave="projetos.simulador.reabrir" />
+                  <button onClick={() => void excluirSalva(x)} aria-label="Excluir simulação" className="rounded-md border border-[#3D2314]/15 px-2 py-1 text-xs text-red-700"><Trash2 size={12} className="inline" /> Excluir</button>
+                  <AjudaCampo chave="projetos.simulador.excluir" />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </main>
   );
 }
