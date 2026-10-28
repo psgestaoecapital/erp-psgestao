@@ -2,6 +2,11 @@
 -- Reusa as telas e RPCs do Hub de Projetos (sem tabela nova). A seção "Logística" aparece para as empresas com o plano
 -- industrial (v15_industrial_grande), como as demais telas industriais. Nada é apagado; é cadastro (ON CONFLICT DO UPDATE).
 
+-- 0) subgrupo 'logistica' (FK module_catalog_subgrupo_fkey exige a linha em module_subgrupos; o deploy falhou sem ela)
+INSERT INTO public.module_subgrupos (id, label, ordem, ativo)
+VALUES ('logistica', 'Logística', 99, true)
+ON CONFLICT (id) DO NOTHING;
+
 -- 1) menu: duas entradas na área industrial, subgrupo 'logistica' (seção "Logística", rótulo no front)
 INSERT INTO public.module_catalog (id, nome, grupo, subgrupo, rota, icone, ordem, ativo, legacy, descricao)
 VALUES
