@@ -184,6 +184,8 @@ export default function CockpitEscolherObraPage() {
                 <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, color: st.cor, background: st.fundo, border: `1.5px solid ${st.cor}`, borderRadius: 999, padding: '2px 9px' }}>{st.rotulo}</span>
               </div>
               <div style={{ fontSize: 13, color: MUT, marginTop: 2 }}>{o.nome || 'Sem nome'}{i?.cliente_nome ? ` · ${i.cliente_nome}` : ''}</div>
+            </Link>
+              {/* Os campos com "?" (RD-95) ficam FORA do <Link>: o AjudaCampo faz preventDefault/stopPropagation; no card estreito do celular o toque no centro do link caía no "?" do Custo e abria a ajuda em vez de navegar (@pos vermelho pós #3396). O link cobre o cabeçalho (código + nome), que não tem "?", então o toque sempre abre o cockpit. */}
               <div style={{ marginTop: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUT }}><span>Avanço <AjudaCampo chave="projetos.cockpit.avanco" rota={ROTA} /></span><span>{pct.toFixed(0)}%</span></div>
                 <div style={{ height: 6, background: LINE, borderRadius: 999, marginTop: 3 }}><div style={{ width: `${pct}%`, height: '100%', background: GOLD, borderRadius: 999 }} /></div>
@@ -204,7 +206,6 @@ export default function CockpitEscolherObraPage() {
                   <AjudaCampo chave="projetos.cockpit.card_pendencias" rota={ROTA} />
                 </div>
               )}
-            </Link>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: `1px solid ${LINE}` }} data-testid="cockpit-atalhos">
                 {ATALHOS.map(a => (
                   <Link key={a.rota} href={`/dashboard/projetos/obras/${o.obra_id}/${a.rota}?area=hub`}
