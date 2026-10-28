@@ -746,7 +746,7 @@ function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSp
       <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, minWidth: 820 }}>
         <thead>
           <tr style={{ background: CREAM }}>
-            <th style={lthL}>Origem</th>
+            <th style={lthL}>Origem<AjudaCampo chave="financeiro.dre_consolidado.origem_titulo" rota={ROTA_DRE} /></th>
             <th style={lthL}>Fornecedor / Cliente</th>
             <th style={lthL}>Descrição</th>
             <th style={lthL}>Documento</th>
