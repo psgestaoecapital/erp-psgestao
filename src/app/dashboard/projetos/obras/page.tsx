@@ -5,7 +5,7 @@
 // (ensina) / dados. Linguagem da casa (CONCLUIU obra) · identidade Espresso · mobile-first.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, HardHat, Receipt, X } from 'lucide-react'
+import { AlertTriangle, HardHat, Pencil, Receipt, Trash2, X } from 'lucide-react'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
@@ -51,6 +51,8 @@ export default function ObrasPage() {
   const [busy, setBusy] = useState('')
   const [obraAberta, setObraAberta] = useState<Obra | null>(null)
   const [obraFiscal, setObraFiscal] = useState<Obra | null>(null)
+  const [obraEditar, setObraEditar] = useState<Obra | null>(null)
+  const [obraExcluir, setObraExcluir] = useState<Obra | null>(null)
   const [receita, setReceita] = useState<Record<string, Receita> | null>(null)
   // obras sem CNO/código municipal ou sem endereço: a NFS-e de construção não sai (E0370). Falha aqui não derruba o board.
   const [fiscalPend, setFiscalPend] = useState<Set<string>>(new Set())
@@ -173,13 +175,13 @@ export default function ObrasPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 14, alignItems: 'start' }}>
               {aba === 'principais' ? (
                 <>
-                  <Coluna titulo="Em andamento" cor={GOLD} obras={grupos.em_andamento} receita={receita} fiscalPend={fiscalPend} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
-                  <Coluna titulo="Concluídas" cor={VERDE} obras={grupos.concluida} receita={receita} fiscalPend={fiscalPend} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Em andamento" cor={GOLD} obras={grupos.em_andamento} receita={receita} fiscalPend={fiscalPend} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} onEditar={setObraEditar} onExcluir={setObraExcluir} />
+                  <Coluna titulo="Concluídas" cor={VERDE} obras={grupos.concluida} receita={receita} fiscalPend={fiscalPend} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} onEditar={setObraEditar} onExcluir={setObraExcluir} />
                 </>
               ) : (
                 <>
-                  <Coluna titulo="Pausadas" cor={AMBAR} obras={grupos.pausada} receita={receita} fiscalPend={fiscalPend} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
-                  <Coluna titulo="Canceladas" cor={VERM} obras={grupos.cancelada} receita={receita} fiscalPend={fiscalPend} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} />
+                  <Coluna titulo="Pausadas" cor={AMBAR} obras={grupos.pausada} receita={receita} fiscalPend={fiscalPend} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} onEditar={setObraEditar} onExcluir={setObraExcluir} />
+                  <Coluna titulo="Canceladas" cor={VERM} obras={grupos.cancelada} receita={receita} fiscalPend={fiscalPend} onStatus={mudarStatus} busy={busy} onAbrir={setObraAberta} onFiscal={setObraFiscal} onEditar={setObraEditar} onExcluir={setObraExcluir} />
                 </>
               )}
             </div>
@@ -187,12 +189,14 @@ export default function ObrasPage() {
         )}
       </div>
       {obraAberta && <EscopoModal obra={obraAberta} onClose={() => setObraAberta(null)} onChanged={() => void carregar()} />}
+      {obraEditar && <EditarObraModal obra={obraEditar} onClose={() => setObraEditar(null)} onSaved={() => { setMsg(`Obra ${obraEditar.numero} atualizada.`); void carregar() }} />}
+      {obraExcluir && <ExcluirObraModal obra={obraExcluir} onClose={() => setObraExcluir(null)} onDone={() => { setMsg(`Obra ${obraExcluir.numero} excluída (fica registrada com motivo e autor).`); void carregar() }} />}
       {obraFiscal && <FiscalObraModal obra={obraFiscal} onClose={() => setObraFiscal(null)} onSaved={() => void carregar()} />}
     </div>
   )
 }
 
-function Coluna({ titulo, cor, obras, receita, fiscalPend, onStatus, busy, onAbrir, onFiscal }: { titulo: string; cor: string; obras: Obra[]; receita: Record<string, Receita> | null; fiscalPend: Set<string>; onStatus: (o: Obra, s: string) => void; busy: string; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
+function Coluna({ titulo, cor, obras, receita, fiscalPend, onStatus, busy, onAbrir, onFiscal, onEditar, onExcluir }: { titulo: string; cor: string; obras: Obra[]; receita: Record<string, Receita> | null; fiscalPend: Set<string>; onStatus: (o: Obra, s: string) => void; busy: string; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void; onEditar: (o: Obra) => void; onExcluir: (o: Obra) => void }) {
   return (
     <div>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: cor, fontWeight: 700, marginBottom: 8 }}>{titulo} · {obras.length}</div>
@@ -204,13 +208,13 @@ function Coluna({ titulo, cor, obras, receita, fiscalPend, onStatus, busy, onAbr
               : <>Nenhuma obra {titulo.toLowerCase()} por enquanto.</>}
           </div>
         ) :
-          obras.map((o) => <ObraCard key={o.id} o={o} fiscalPend={fiscalPend.has(o.id)} receita={receita ? (receita[o.id] ?? null) : undefined} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} onFiscal={onFiscal} />)}
+          obras.map((o) => <ObraCard key={o.id} o={o} fiscalPend={fiscalPend.has(o.id)} receita={receita ? (receita[o.id] ?? null) : undefined} onStatus={onStatus} busy={busy === o.id} onAbrir={onAbrir} onFiscal={onFiscal} onEditar={onEditar} onExcluir={onExcluir} />)}
       </div>
     </div>
   )
 }
 
-function ObraCard({ o, fiscalPend, receita, onStatus, busy, onAbrir, onFiscal }: { o: Obra; fiscalPend: boolean; receita: Receita | null | undefined; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void }) {
+function ObraCard({ o, fiscalPend, receita, onStatus, busy, onAbrir, onFiscal, onEditar, onExcluir }: { o: Obra; fiscalPend: boolean; receita: Receita | null | undefined; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void; onEditar: (o: Obra) => void; onExcluir: (o: Obra) => void }) {
   const st = ST[o.status] ?? { label: o.status, cor: MUT }
   const local = [o.cidade, o.uf].filter(Boolean).join('/')
   return (
@@ -252,6 +256,12 @@ function ObraCard({ o, fiscalPend, receita, onStatus, busy, onAbrir, onFiscal }:
         <button onClick={() => onFiscal(o)} title="CNO e endereço para a NFS-e de construção (E0370)" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#fff', color: ESP }}>
           <Receipt size={12} aria-hidden style={{ display: 'inline', verticalAlign: -2, marginRight: 4 }} />Dados fiscais
         </button>
+        <button onClick={() => onEditar(o)} data-testid="obra-editar" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#fff', color: ESP }}>
+          <Pencil size={12} aria-hidden style={{ display: 'inline', verticalAlign: -2, marginRight: 4 }} />Editar<AjudaCampo chave="projetos.obras.card_editar" />
+        </button>
+        <button onClick={() => onExcluir(o)} data-testid="obra-excluir" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#fff', color: VERM }}>
+          <Trash2 size={12} aria-hidden style={{ display: 'inline', verticalAlign: -2, marginRight: 4 }} />Excluir<AjudaCampo chave="projetos.obras.card_excluir" />
+        </button>
         {(PROXIMOS[o.status] ?? []).map((p) => (
           <button key={p.s} onClick={() => onStatus(o, p.s)} disabled={busy}
             style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, cursor: busy ? 'default' : 'pointer', border: `1px solid ${LINE}`, background: p.s === 'concluida' ? '#EAF5EE' : '#FFF', color: p.s === 'cancelada' ? VERM : ESP, opacity: busy ? 0.5 : 1 }}>
@@ -268,9 +278,9 @@ function ObraCard({ o, fiscalPend, receita, onStatus, busy, onAbrir, onFiscal }:
 // dessas notas. undefined = não carregou (falha); null = obra sem nota autorizada.
 const fmtRc = (v: number) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 function ResultadoObra({ r }: { r: Receita | null | undefined }) {
-  const cel = (label: string, valor: string, cor: string, testId: string) => (
+  const cel = (label: string, valor: string, cor: string, testId: string, ajuda: string) => (
     <div>
-      <div style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>{label}</div>
+      <div style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>{label}<AjudaCampo chave={ajuda} /></div>
       <div data-testid={testId} style={{ fontSize: 12.5, fontWeight: 700, color: cor, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
     </div>
   )
@@ -282,10 +292,10 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(80px,1fr))', gap: 8 }}>
-            {cel('Faturado', fmtRc(r?.faturado ?? 0), ESP, 'obra-faturado')}
-            {cel('Recebido', fmtRc(r?.recebido ?? 0), VERDE, 'obra-recebido')}
-            {cel('A receber', fmtRc(r?.a_receber ?? 0), GOLD, 'obra-a-receber')}
-            {cel('Custo', r?.custo != null ? fmtRc(r.custo) : '—', MUT, 'obra-custo')}
+            {cel('Faturado', fmtRc(r?.faturado ?? 0), ESP, 'obra-faturado', 'projetos.obras.res_faturado')}
+            {cel('Recebido', fmtRc(r?.recebido ?? 0), VERDE, 'obra-recebido', 'projetos.obras.res_recebido')}
+            {cel('A receber', fmtRc(r?.a_receber ?? 0), GOLD, 'obra-a-receber', 'projetos.obras.res_a_receber')}
+            {cel('Custo', r?.custo != null ? fmtRc(r.custo) : '—', MUT, 'obra-custo', 'projetos.obras.res_custo')}
           </div>
           <div style={{ fontSize: 10.5, color: MUT, marginTop: 4 }} data-testid="obra-notas">
             {r && r.notas > 0 ? `${r.notas} NFS-e autorizada(s)` : 'Nada faturado ainda: o resultado se preenche quando a primeira NFS-e desta obra for autorizada.'}
@@ -531,6 +541,96 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
               </div>
             </>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+// RD-98 p2/p4 · editar a obra (todos os campos editáveis) — grava pelo fn_obra_editar, que registra no audit_log.
+function EditarObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({
+    nome: obra.nome ?? '', cliente_nome: obra.cliente_nome ?? '', cidade: obra.cidade ?? '', uf: obra.uf ?? '',
+    responsavel_nome: obra.responsavel_nome ?? '', valor_previsto: String(obra.valor_previsto ?? 0),
+    data_inicio: obra.data_inicio ?? '', data_prevista_fim: obra.data_prevista_fim ?? '', observacoes: '',
+  })
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function salvar() {
+    const valor = Number(String(f.valor_previsto).replace(/\./g, '').replace(',', '.'))
+    if (!f.nome.trim()) { setMsg('Erro: informe o nome da obra.'); return }
+    if (!Number.isFinite(valor) || valor < 0) { setMsg('Erro: valor previsto inválido.'); return }
+    setBusy(true); setMsg(null)
+    const { observacoes, ...resto } = f
+    const dados: Record<string, unknown> = { ...resto, valor_previsto: valor }
+    if (observacoes.trim()) dados.observacoes = observacoes
+    const { data, error } = await supabase.rpc('fn_obra_editar', { p_obra_id: obra.id, p_dados: dados })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (j?.erro ?? error?.message ?? 'falha ao salvar')); return }
+    onSaved(); onClose()
+  }
+  const inp: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESP, background: '#fff', width: '100%', boxSizing: 'border-box' }
+  const lbl: React.CSSProperties = { fontSize: 10.5, color: MUT, fontWeight: 600, display: 'block', marginBottom: 3 }
+  const campo = (label: string, k: keyof typeof f, ajuda: string, tipo = 'text') => (
+    <label style={{ display: 'block' }}><span style={lbl}>{label}<AjudaCampo chave={ajuda} /></span>
+      <input type={tipo} style={inp} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
+  )
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '4vh 12px', overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} data-testid="obra-editar-modal" style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 600 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '14px 14px 0 0' }}>
+          <div style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>{obra.numero} · Editar obra</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'inline-flex' }} aria-label="Fechar"><X size={18} aria-hidden /></button>
+        </div>
+        <div style={{ padding: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10 }}>
+            {campo('Nome da obra *', 'nome', 'projetos.obras.editar_nome')}
+            {campo('Cliente', 'cliente_nome', 'projetos.obras.editar_cliente')}
+            {campo('Cidade', 'cidade', 'projetos.obras.editar_cidade')}
+            {campo('UF', 'uf', 'projetos.obras.editar_uf')}
+            {campo('Responsável', 'responsavel_nome', 'projetos.obras.editar_responsavel')}
+            {campo('Valor previsto (R$)', 'valor_previsto', 'projetos.obras.editar_valor')}
+            {campo('Início', 'data_inicio', 'projetos.obras.editar_inicio', 'date')}
+            {campo('Término previsto', 'data_prevista_fim', 'projetos.obras.editar_fim', 'date')}
+          </div>
+          <label style={{ display: 'block', marginTop: 10 }}><span style={lbl}>Observação (nova)<AjudaCampo chave="projetos.obras.editar_observacoes" /></span>
+            <textarea style={{ ...inp, minHeight: 60 }} value={f.observacoes} onChange={(e) => setF({ ...f, observacoes: e.target.value })} /></label>
+          <div style={{ fontSize: 11, color: MUT, marginTop: 8 }}>Endereço fiscal (CNO, CEP) segue em <b>Dados fiscais</b>. Toda alteração fica registrada com quem mudou.</div>
+          {msg && <div style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: '8px 10px', fontSize: 12, marginTop: 12 }}>{msg}</div>}
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+            <button onClick={() => void salvar()} disabled={busy} data-testid="obra-editar-salvar" style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: GOLD, color: '#fff', fontWeight: 700, fontSize: 13, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>{busy ? 'Salvando…' : 'Salvar'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+// Exclusão rastreável: soft-delete com motivo (deleted_at/deleted_by) — nunca DELETE físico; obra com movimento é recusada.
+function ExcluirObraModal({ obra, onClose, onDone }: { obra: Obra; onClose: () => void; onDone: () => void }) {
+  const [motivo, setMotivo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  async function excluir() {
+    if (!motivo.trim()) { setMsg('Erro: informe o motivo da exclusão.'); return }
+    setBusy(true); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_obra_excluir', { p_obra_id: obra.id, p_motivo: motivo })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string; detalhe?: string } | null
+    if (error || !j?.ok) { setMsg('Erro: ' + (j?.detalhe ?? j?.erro ?? error?.message ?? 'falha ao excluir')); return }
+    onDone(); onClose()
+  }
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8vh 12px' }}>
+      <div onClick={(e) => e.stopPropagation()} data-testid="obra-excluir-modal" style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 460, padding: 18 }}>
+        <div style={{ fontWeight: 700, color: ESP, fontSize: 15 }}>Excluir a obra {obra.numero}?</div>
+        <div style={{ fontSize: 12.5, color: MUT, margin: '6px 0 10px', lineHeight: 1.5 }}>{obra.nome}. A obra sai das listas, mas fica guardada com quem excluiu, quando e o motivo. Obra com medição, nota ou custo não pode ser excluída — use <b>Cancelar</b>.</div>
+        <label style={{ display: 'block', fontSize: 10.5, color: MUT, fontWeight: 600 }}>Motivo *<AjudaCampo chave="projetos.obras.excluir_motivo" />
+          <textarea data-testid="obra-excluir-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} style={{ display: 'block', width: '100%', boxSizing: 'border-box', minHeight: 60, marginTop: 3, border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESP, background: '#fff' }} /></label>
+        {msg && <div style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: '8px 10px', fontSize: 12, marginTop: 10 }}>{msg}</div>}
+        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, cursor: 'pointer' }}>Voltar</button>
+          <button onClick={() => void excluir()} disabled={busy} data-testid="obra-excluir-confirmar" style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: VERM, color: '#fff', fontWeight: 700, fontSize: 13, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>{busy ? 'Excluindo…' : 'Excluir obra'}</button>
         </div>
       </div>
     </div>
