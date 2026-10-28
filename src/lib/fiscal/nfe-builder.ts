@@ -2,7 +2,7 @@ import type { NFeRequest, NFeProdutoItem } from './types'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
 import { enderecoComMunicipioOficial } from './municipioDestinatario'
-import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, empresaComCreditoSN, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
+import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
 
 // UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
 const UFS_BR = new Set([
@@ -52,6 +52,8 @@ export interface NFeBuilderInput {
   erpReceberId?: string
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · terceiro modo: monta a partir do pedido
   pedidoId?: string
+  // NF-e de peças da OS (modo manual): a OS de origem dá as "Observações para o cliente" das Informações Complementares
+  osId?: string
   manual?: {
     destinatario: {
       razaoSocial: string
@@ -127,6 +129,9 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   let itensInput: NFeBuilderItemInput[] = []
   let naturezaOp = 'Venda de mercadoria'
   let finalidade: 'normal' | 'complementar' | 'ajuste' | 'devolucao' = 'normal'
+  // Informações Complementares (infCpl) que vêm da origem da nota. Pedido: o campo "Observações" do pedido (o
+  // que veio do orçamento, ex.: nº da ordem de compra do cliente) — nunca as observações internas.
+  let observacoesOrigem: string | undefined
 
   if (input.pedidoId) {
     // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
@@ -175,6 +180,13 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }))
     naturezaOp = 'Venda de mercadoria'
     finalidade = 'normal'
+    const { data: ped } = await supabaseAdmin
+      .from('erp_pedidos')
+      .select('observacoes')
+      .eq('id', input.pedidoId)
+      .eq('company_id', input.companyId)
+      .maybeSingle()
+    observacoesOrigem = (ped?.observacoes ?? '').trim() || undefined
   } else if (input.erpReceberId) {
     const { data: rec } = await supabaseAdmin
       .from('erp_receber')
@@ -430,6 +442,17 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }
   })
 
+  // NF-e de peças da OS (pedido Jordana 20/10, item 5): as "Observações para o cliente" da OS vão para as Informações
+  // Complementares, como as Observações do pedido — nunca as observações internas.
+  if (input.osId && observacoesOrigem === undefined) {
+    const { data: os } = await supabaseAdmin
+      .from('erp_os')
+      .select('observacoes_cliente')
+      .eq('id', input.osId)
+      .eq('company_id', input.companyId)
+      .maybeSingle()
+    observacoesOrigem = (os?.observacoes_cliente ?? '').trim() || undefined
+  }
 
   return {
     serie: cfg?.serie_nfe_padrao ?? '1',
@@ -445,13 +468,16 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario,
     itens: itensNFe,
     chaveReferenciada: input.manual?.chaveReferenciada,
-    observacoes: empresaComCreditoSN(condCreditoSN) && aliqCreditoSN != null
+    // #2876 (ajuste Jordana 20/10): a frase do Simples ("DOCUMENTO EMITIDO POR ME OU EPP…") sai em TODA nota de
+    // emitente do Simples, com ou sem alíquota de crédito cadastrada (a NF-e nº 2 da FCR saiu sem nenhum texto e as
+    // da Gean também). A frase do crédito (art. 23) só entra quando algum item saiu 101 com vCredICMSSN.
+    observacoes: ehSimples
       ? observacoesComSimples(
-          input.manual?.observacoes,
+          input.manual?.observacoes ?? observacoesOrigem,
           itensNFe.reduce((a, i) => a + (i.icms?.creditoSN?.valor ?? 0), 0) || null,
-          aliqCreditoSN,
+          aliqCreditoSN ?? 0,
         )
-      : input.manual?.observacoes,
+      : (input.manual?.observacoes ?? observacoesOrigem),
     totais: input.manual?.totais,
   }
 }
