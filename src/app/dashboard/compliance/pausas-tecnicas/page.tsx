@@ -1107,21 +1107,38 @@ const parseDataH = (s: string): string | null => { const b = txt(s).split(' - ')
 const parseDataHoraH = (s: string): string | null => { const m = /^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(txt(s)); return m ? `${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6] ?? '00'}-03:00` : null }
 const parseDurH = (s: string): number | null => { const m = /^(\d+):(\d{2}):(\d{2})$/.exec(txt(s)); return m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : null }
 
+// #3931 · a IOPoint passou a emitir o cabeçalho do bloco com o CPF ao lado do nome
+// (ex.: "ANDERSON SILVA 123.456.789-00"). Antes, o CPF colado ao nome quebrava o
+// casamento por nome (norm não batia com o cadastro) e as pausas eram rejeitadas.
+// Aqui separamos o CPF (11 dígitos, com ou sem pontuação, sem fazer parte de um número
+// maior) do nome e o usamos direto — mais confiável que resolver pelo nome.
+const RE_CPF_EMBUTIDO = /(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)/
+function extrairCpfNome(celula: string): { nome: string; cpf: string } {
+  const cel = txt(celula)
+  const m = RE_CPF_EMBUTIDO.exec(cel)
+  if (!m) return { nome: cel, cpf: '' }
+  const cpf = m[0].replace(/\D/g, '')
+  const nome = cel.replace(m[0], ' ').replace(/[\s·–-]+/g, ' ').trim()
+  // só trata como CPF se sobrar um nome de verdade; senão, mantém a célula como estava
+  return cpf.length === 11 && /[a-zà-ú]/i.test(nome) ? { nome, cpf } : { nome: cel, cpf: '' }
+}
+
 function parseHierarquico(rows: string[][]): { linhas: LinhaImport[]; descartadas: number } {
   let pessoa: string | null = null
+  let pessoaCpf = ''
   const linhas: LinhaImport[] = []
   let descartadas = 0
   for (const raw of rows) {
     const r = [...raw, '', '', '', '', '', ''].slice(0, 6)
     const c0 = txt(r[0]), c1 = txt(r[1])
-    if (c0 && c1.toLowerCase() === 'data') { pessoa = c0; continue }          // cabeçalho de bloco
+    if (c0 && c1.toLowerCase() === 'data') { const h = extrairCpfNome(c0); pessoa = h.nome; pessoaCpf = h.cpf; continue }   // cabeçalho de bloco (nome + CPF opcional)
     if (IGNORAR_H.some(p => c0.toLowerCase().startsWith(p))) continue          // ruído
     const data = parseDataH(c1)
     if (!c0 && data) {                                                        // evento
       const inicio = parseDataHoraH(r[3])
       const fim = ABERTO_H.has(txt(r[4])) ? null : parseDataHoraH(r[4])       // pausa em aberto → null (nunca zerar)
       if (!pessoa || !inicio) { descartadas++; continue }
-      linhas.push({ cpf: '', data, inicio, fim, duracao_seg: parseDurH(r[5]), tipo: 'termica_253', _nome: pessoa })
+      linhas.push({ cpf: pessoaCpf, data, inicio, fim, duracao_seg: parseDurH(r[5]), tipo: 'termica_253', _nome: pessoa })
       continue
     }
     if (c0 || c1) descartadas++
@@ -1150,8 +1167,10 @@ function parseTabular(rows: string[][]): LinhaImport[] {
   const headers = rows[0].map(norm)
   const objs = rows.slice(1).map(vals => { const o: Record<string, string> = {}; headers.forEach((h, i) => { if (h) o[h] = vals[i] ?? '' }); return o }).filter(o => Object.values(o).some(v => v))
   return objs.map(o => {
-    const cpf = pick(o, ['cpf']).replace(/\D/g, '')
-    const nome = pick(o, ['nome', 'colaborador', 'funcionario', 'func', 'nome_colaborador'])
+    let cpf = pick(o, ['cpf']).replace(/\D/g, '')
+    let nome = pick(o, ['nome', 'colaborador', 'funcionario', 'func', 'nome_colaborador'])
+    // #3931 · CPF ao lado do nome na coluna de nome (quando não há coluna de CPF própria)
+    if (!cpf && nome) { const h = extrairCpfNome(nome); if (h.cpf) { cpf = h.cpf; nome = h.nome } }
     const data = toISODate(pick(o, ['data', 'dia', 'data_pausa', 'data_movto', 'competencia']))
     const inicio = toTS(data, pick(o, ['inicio', 'entrada', 'hora_inicio', 'inicio_pausa', 'ini', 'hora_entrada']))
     const fimRaw = pick(o, ['fim', 'saida', 'hora_fim', 'fim_pausa', 'hora_saida'])
