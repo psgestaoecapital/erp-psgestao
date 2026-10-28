@@ -230,7 +230,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   // então o mês atual esconderia parte deles e o total não bateria com o card.
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const st = new URLSearchParams(window.location.search).get('status')
+    const params = new URLSearchParams(window.location.search)
+    const st = params.get('status')
+    // #5427 · "ver na GE" da OS abre a lista já filtrada pelo nº da OS (?busca=OS-2026-0242); período largo
+    // para a receita aparecer mesmo se foi lançada em outro mês.
+    const buscaInicial = params.get('busca')?.trim()
+    if (buscaInicial) {
+      setBusca(buscaInicial.slice(0, 80))
+      setPeriodoChoice('personalizado')
+      setDataInicio(`${new Date().getFullYear() - 5}-01-01`)
+      setDataFim(fimMesAtual())
+    }
     if (st === 'vencido') {
       setStatusSel(['vencidos'])
       setPeriodoChoice('personalizado')
