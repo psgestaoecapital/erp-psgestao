@@ -15,6 +15,7 @@ import { reguaDe, textoRegua, mmss, motivoRegua, type Regua } from '@/lib/ponto/
 import { rotuloPendente, explicaPendente } from '@/lib/ponto/motivoPendente'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { cpfValido } from '@/lib/documentos/cpf'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
@@ -1390,6 +1391,8 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
   const [novaOrigem, setNovaOrigem] = useState<OrigemAjuste | ''>('')
   const [ajusteDia, setAjusteDia] = useState<AjusteDia | null>(null)
   const [pendCiente, setPendCiente] = useState(false)
+  // #3842 (Karol) · comprovante assinado pelo colaborador (opcional) — fica anexado ao ajuste do dia
+  const [comprovante, setComprovante] = useState<File | null>(null)
 
   useEffect(() => {
     let vivo = true
@@ -1433,11 +1436,28 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
     if (!window.confirm(`Reler as pausas de ${colaborador} em ${data.split('-').reverse().join('/')} com estas marcações? A leitura anterior fica guardada no histórico e dá para desfazer.`)) return
     setBusy(true); setErro('')
     try {
-      const r = await rpc<{ ok: boolean; pausas?: number; mensagem?: string; erro?: string }>('fn_nr36_reler_dia_justificado', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_marcas: marcas, p_justificativa: justificativa.trim(), p_origem: origem, p_pendencia_ciente: pendencias.length > 0 && pendCiente })
+      const r = await rpc<{ ok: boolean; pausas?: number; mensagem?: string; erro?: string; lote?: string }>('fn_nr36_reler_dia_justificado', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_marcas: marcas, p_justificativa: justificativa.trim(), p_origem: origem, p_pendencia_ciente: pendencias.length > 0 && pendCiente })
       if (!r.ok) throw new Error(r.mensagem || r.erro || 'falha ao reler o dia')
+      // #3842 · se a responsável anexou o comprovante assinado, sobe o arquivo e liga ao lote do ajuste.
+      // O dia JÁ foi corrigido: se só o anexo falhar, avisa mas não perde a correção.
+      let anexoMsg = ''
+      if (comprovante && r.lote) {
+        try {
+          const ext = (comprovante.name.split('.').pop() || 'pdf').toLowerCase()
+          const path = `conferencia/${companyId}/${cpf}_${data}_${Date.now()}.${ext}`
+          const up = await supabase.storage.from('compliance-pausas').upload(path, comprovante, { contentType: comprovante.type || 'application/octet-stream', upsert: false })
+          if (up.error) throw up.error
+          const an = await rpc<{ ok: boolean; erro?: string; mensagem?: string }>('fn_nr36_releitura_anexar', { p_company_id: companyId, p_lote: r.lote, p_arquivo_path: path, p_arquivo_nome: comprovante.name })
+          if (!an.ok) throw new Error(an.mensagem || an.erro || 'falha ao anexar')
+          anexoMsg = ' Comprovante anexado ao ajuste.'
+        } catch (ae) {
+          anexoMsg = ` (atenção: o dia foi corrigido, mas o comprovante não anexou — ${(ae as Error).message}. Reabra o dia e anexe de novo.)`
+        }
+      }
       const ci = (r as { ciencia?: { acao?: string } }).ciencia?.acao
       onSalvo(`Dia relido: ${r.pausas} pausa(s) de ${colaborador}. A leitura anterior está no histórico.`
-        + (ci === 'regerado' ? ' O documento de Ciência do mês foi atualizado com o ajuste.' : ci === 'desatualizado' ? ' A Ciência deste mês já estava assinada: ela não muda; gere uma nova versão na aba Ciência.' : ''))
+        + (ci === 'regerado' ? ' O documento de Ciência do mês foi atualizado com o ajuste.' : ci === 'desatualizado' ? ' A Ciência deste mês já estava assinada: ela não muda; gere uma nova versão na aba Ciência.' : '')
+        + anexoMsg)
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
   async function desfazer() {
@@ -1524,6 +1544,18 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
             <textarea value={justificativa} onChange={e => setJustificativa(e.target.value)} data-testid="marcas-justificativa" rows={2}
               placeholder="Ex.: conferido com o colaborador — esqueceu de bater a saída da 1ª pausa"
               style={{ ...inp(), width: '100%', marginTop: 4, resize: 'vertical' }} />
+          </div>
+        )}
+        {/* #3842 (Karol) · quando o ajuste foi conferido com o colaborador, anexar o documento que ele assinou
+            comprovando a ciência. O arquivo fica ligado a este ajuste (lote) e pode ser auditado depois. */}
+        {!carregando && (
+          <div style={{ marginTop: 10 }}>
+            <label style={{ fontSize: 12, color: C.gray }}>Comprovante do ajuste (opcional) — documento assinado pelo colaborador</label>
+            <AjudaCampo chave="compliance.pausas.conferencia.comprovante" />
+            <input type="file" accept=".pdf,image/*,application/pdf" data-testid="marcas-comprovante"
+              onChange={e => setComprovante(e.target.files?.[0] ?? null)}
+              style={{ ...inp(), width: '100%', marginTop: 4, padding: '7px 8px' }} />
+            {comprovante && <div style={{ fontSize: 11.5, color: C.espresso, marginTop: 4 }}>Vai anexar: <b>{comprovante.name}</b></div>}
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
