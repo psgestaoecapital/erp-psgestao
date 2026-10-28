@@ -1221,13 +1221,26 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   const fortes = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'batida_forte'), [rows])
   const fracas = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'inferencia_fraca'), [rows])
 
-  async function confirmarUm(id: string, acao: string, fimManual?: string) {
+  // #2119/#4032 (Karol) · confirmar/corrigir/desfazer NÃO reapurava — o fn_nr36_confirmar_fim_pausa só grava
+  // fim_confirmado em ind_ponto_pausa e retorna. Como o Painel (fn_nr36_apuracao_listar) e a Supervisão
+  // (fn_nr36_supervisao_casos) leem a apuração GRAVADA (nr36_pausa_apurada), o dia conferido seguia marcado como
+  // "aguardando conferência" até alguém clicar "Reapurar período" na aba Painel. Agora cada conferência reapura
+  // sozinha o(s) dia(s) tocado(s) — a mesma fn que o botão Reapurar usa, UMA chamada por ação (nunca por linha, p/
+  // não repetir o incidente 03/10 de função pesada em loop). Falha ao reapurar não derruba a conferência já gravada.
+  async function reapurar(dtIni?: string, dtFim?: string) {
+    const di = dtIni, df = dtFim ?? dtIni
+    if (!di || !df) return
+    try { await supabase.rpc('fn_nr36_apurar', { p_company_id: companyId, p_dt_ini: di, p_dt_fim: df }) }
+    catch (e) { setOkMsg('Conferência gravada. A apuração do Painel pode estar defasada — use "Reapurar período" na aba Painel.'); console.warn('reapurar pós-conferência falhou', e) }
+  }
+  async function confirmarUm(id: string, acao: string, fimManual?: string, dia?: string) {
     setBusy(true); setErro(''); setOkMsg('')
     try {
       const { data, error } = await supabase.rpc('fn_nr36_confirmar_fim_pausa', { p_pausa_id: id, p_acao: acao, p_fim_manual: fimManual ?? null })
       if (error) throw error
       const r = data as { ok?: boolean; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha ao confirmar')
+      await reapurar(dia)
       await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1241,6 +1254,9 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       if (error) throw error
       const r = data as { ok?: boolean; confirmados?: number; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha no lote')
+      // reapura uma vez o intervalo de dias das pausas confirmadas (min..max), nunca por linha
+      const dias = rows.filter(x => ids.includes(x.pausa_id)).map(x => x.data).filter(Boolean).sort()
+      if (dias.length) await reapurar(dias[0], dias[dias.length - 1])
       setOkMsg(`${r.confirmados} confirmada(s).`); await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1248,7 +1264,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
     const hhmm = window.prompt('Horário real do fim da pausa (HH:MM):')
     if (!hhmm) return
     if (!/^\d{1,2}:\d{2}$/.test(hhmm.trim())) { setErro('Horário inválido — use HH:MM.'); return }
-    await confirmarUm(id, 'corrigir', `${dataDia}T${hhmm.trim().padStart(5, '0')}:00-03:00`)
+    await confirmarUm(id, 'corrigir', `${dataDia}T${hhmm.trim().padStart(5, '0')}:00-03:00`, dataDia)
   }
   async function desfazerPeriodo() {
     const ini = window.prompt('Desfazer confirmações a partir de (AAAA-MM-DD):'); if (!ini) return
@@ -1260,6 +1276,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       if (error) throw error
       const r = data as { ok?: boolean; desfeitas?: number; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha ao desfazer')
+      await reapurar(ini, fim)
       setOkMsg(`${r.desfeitas} confirmação(ões) desfeita(s).`); await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1333,12 +1350,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
                     </td>
                     <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
                       {!r.sem_saida && <>
-                      <button style={{ ...btnGhost, color: forte ? C.green : C.amber, borderColor: (forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(r.pausa_id, forte ? 'confirmar_ponto' : 'confirmar_estimativa')}>Confirmar</button>
+                      <button style={{ ...btnGhost, color: forte ? C.green : C.amber, borderColor: (forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(r.pausa_id, forte ? 'confirmar_ponto' : 'confirmar_estimativa', undefined, r.data)}>Confirmar</button>
                       <button style={{ ...btnGhost, marginRight: 4 }} onClick={() => corrigir(r.pausa_id, r.data)}>Corrigir</button>
                       </>}
                       <button style={{ ...btnGhost, marginRight: 4 }} data-testid={`conf-marcas-${r.pausa_id}`} title="Dizer se cada horário do dia é saída ou retorno da pausa"
                         onClick={() => setEditor({ cpf: r.cpf, data: r.data, colaborador: r.colaborador })}>Saída/retorno</button>
-                      <button style={btnGhost} onClick={() => confirmarUm(r.pausa_id, 'indeterminado')}>Não sei</button>
+                      <button style={btnGhost} onClick={() => confirmarUm(r.pausa_id, 'indeterminado', undefined, r.data)}>Não sei</button>
                     </td>
                   </tr>
                 )
