@@ -4,7 +4,7 @@ const falhas: string[] = []
 const exige = (ok: boolean, m: string) => { if (!ok) falhas.push(m) }
 exige(existsSync('src/app/dashboard/dev/infra/page.tsx'), 'rota /dashboard/dev/infra')
 const tsx = readFileSync('src/components/dev/InfraMapa.tsx', 'utf8')
-const sql = readFileSync('supabase/migrations/20261027180011_dev_infra_mapa_tela.sql', 'utf8') + readFileSync('supabase/migrations/20261027180012_dev_infra_metas.sql', 'utf8') + readFileSync('supabase/migrations/20261027180014_dev_infra_alerta_chamados.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261029210600_dev_infra_mapa_tela.sql', 'utf8') + readFileSync('supabase/migrations/20261029210700_dev_infra_metas.sql', 'utf8') + readFileSync('supabase/migrations/20261029210900_dev_infra_alerta_chamados.sql', 'utf8')
 for (const [, k] of tsx.matchAll(/chave="([^"]+)"/g)) exige(sql.includes(`'${k}'`), `chave de ajuda sem linha no banco: ${k}`)
 exige(/fn_infra_mapa/.test(tsx) && /p_no:/.test(tsx) && /p_motivo:/.test(tsx), 'RPCs com parâmetros certos')
 exige(/fn_infra_metas/.test(tsx) && /meta_publicacoes_hora/.test(tsx), 'metas da esteira (3 prontas, 4/h)')
