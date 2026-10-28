@@ -61,10 +61,11 @@ export default function MeusTrabalhosPage() {
   const cods = useMemo(() => new Map(jobs.map((j) => [j.id, j.codigo])), [jobs]);
 
   if (!empresa) return <EmpresaNaoResolvida carregando={carregandoEmpresa} temEmpresa={companies.length > 0} tela="Meus trabalhos" />;
-  const cards: [string, number, string][] = [
-    ["Jobs ativos", ind.jobsAtivos, "jobs-ativos"], ["Jobs atrasados", ind.jobsAtrasados, "jobs-atrasados"],
-    ["Tarefas ativas", ind.tarefasAtivas, "tarefas-ativas"], ["Tarefas atrasadas", ind.tarefasAtrasadas, "tarefas-atrasadas"],
-    ["Início hoje", ind.inicioHoje, "inicio-hoje"], ["Prazo hoje", ind.prazoHoje, "prazo-hoje"],
+  // [rótulo, valor, id do testid, chave de ajuda RD-95]
+  const cards: [string, number, string, string][] = [
+    ["Jobs ativos", ind.jobsAtivos, "jobs-ativos", "pm.meus_trabalhos.ind_jobs_ativos"], ["Jobs atrasados", ind.jobsAtrasados, "jobs-atrasados", "pm.meus_trabalhos.ind_jobs_atrasados"],
+    ["Tarefas ativas", ind.tarefasAtivas, "tarefas-ativas", "pm.meus_trabalhos.ind_tarefas_ativas"], ["Tarefas atrasadas", ind.tarefasAtrasadas, "tarefas-atrasadas", "pm.meus_trabalhos.ind_tarefas_atrasadas"],
+    ["Início hoje", ind.inicioHoje, "inicio-hoje", "pm.meus_trabalhos.ind_inicio_hoje"], ["Prazo hoje", ind.prazoHoje, "prazo-hoje", "pm.meus_trabalhos.ind_prazo_hoje"],
   ];
 
   return (
@@ -80,9 +81,9 @@ export default function MeusTrabalhosPage() {
       {carregando && <div className="text-[12.5px] text-[#3D2314]/55">carregando…</div>}
 
       <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-6" data-testid="mt-indicadores">
-        {cards.map(([rot, n, id]) => (
+        {cards.map(([rot, n, id, ajuda]) => (
           <div key={id} className={`${cartao} ${n > 0 && id.includes("atrasad") ? "border-[#791F1F]/30" : ""}`} data-testid={`mt-ind-${id}`}>
-            <div className="text-[11px] text-[#3D2314]/60">{rot}</div><div className="text-[24px] font-medium">{n}</div>
+            <div className="flex items-center text-[11px] text-[#3D2314]/60">{rot}<AjudaCampo chave={ajuda} /></div><div className="text-[24px] font-medium">{n}</div>
           </div>))}
       </div>
 
@@ -117,7 +118,7 @@ export default function MeusTrabalhosPage() {
         </section>
 
         <section className={cartao} data-testid="mt-agenda">
-          <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-[#3D2314]/60">Agenda da semana</div>
+          <div className="mb-2 flex items-center text-[12px] font-semibold uppercase tracking-wider text-[#3D2314]/60">Agenda da semana<AjudaCampo chave="pm.meus_trabalhos.agenda" /></div>
           <ul className="space-y-1.5">
             {agenda.map((d) => (
               <li key={d.data} className={`rounded-lg px-2.5 py-1.5 text-[12.5px] ${d.data === hoje ? "bg-[#FAEEDA]" : "bg-[#FAF7F2]"}`} data-testid="mt-agenda-dia">
