@@ -15,8 +15,8 @@ import { nomeDoContentDisposition, nomesUnicos } from '@/lib/download/nomeArquiv
 import { resolverProviderDaConta, type ResolucaoBoleto } from '@/lib/banco/boletoPorConta'
 import { carregarRoteamentoBoleto, listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
 
-type Provider = 'sicoob' | 'sicredi' | 'bradesco'
-const EMISSORES = ['sicoob', 'sicredi', 'bradesco']
+type Provider = 'sicoob' | 'sicredi' | 'bradesco' | 'bb'
+const EMISSORES = ['sicoob', 'sicredi', 'bradesco', 'bb']
 type EstadoItem = { id: string; status: 'pendente' | 'gerando' | 'ok' | 'erro'; msg?: string }
 
 const C = {
@@ -95,7 +95,7 @@ export default function GerarBoletosReceita({
     const res = porId[id]
     const prov: string = res ? (res.ok ? res.provider : '') : provider
     const falha = res && !res.ok ? res.motivo
-      : !EMISSORES.includes(prov) ? 'A emissão de boleto pelo Banco do Brasil ainda está em implantação para esta conta.' : null
+      : !EMISSORES.includes(prov) ? 'Este banco ainda não emite boleto pelo ERP.' : null
     if (falha) {
       setItens((prev) => prev.map((it) => it.id === id ? { ...it, status: 'erro', msg: falha } : it))
       return false
