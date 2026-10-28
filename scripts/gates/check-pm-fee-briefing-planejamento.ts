@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
 
-const mig = readFileSync('supabase/migrations/20261030010100_pm_fee_briefing_planejamento.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261030130100_pm_fee_briefing_planejamento.sql', 'utf8')
 const sql = mig.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 
 ok(/ALTER TABLE public\.agency_briefings\s+ADD COLUMN IF NOT EXISTS fee_id uuid REFERENCES public\.agency_contratos\(id\) ON DELETE SET NULL/.test(sql), 'briefing ganha fee_id')
