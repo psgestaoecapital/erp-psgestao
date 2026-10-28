@@ -76,8 +76,8 @@ export default function ResultadoObrasPage() {
   }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [visiveis])
 
   const baixarCsv = () => {
-    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Margem', 'Margem %', 'Receita prevista', 'Custo previsto']
-    const rows = visiveis.map(l => { const p = margemPct(receita(l), margem(l)); return [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), margem(l), p === null ? '' : p.toFixed(1), l.receita_prevista, l.custo_previsto] })
+    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Custo fixo rateado', 'Margem', 'Margem %', 'Receita prevista', 'Custo previsto']
+    const rows = visiveis.map(l => { const p = margemPct(receita(l), margem(l)); return [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), n(l.custo_rateio), margem(l), p === null ? '' : p.toFixed(1), l.receita_prevista, l.custo_previsto] })
     const csv = [cab, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
@@ -94,7 +94,7 @@ export default function ResultadoObrasPage() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <Link href="/dashboard/projetos/obras" style={{ color: GOLD, fontSize: 13 }}>← Obras</Link>
         <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>Resultado por obra</h1>
-        <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Receita (serviço medido + material vendido) menos custo (material, viagens e mão de obra apontada), previsto × realizado.</p>
+        <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Receita (serviço medido + material vendido) menos custo (material, viagens, mão de obra apontada e custo fixo rateado), previsto × realizado.</p>
         {loading && <p data-testid="resultado-carregando">Carregando…</p>}
         {!loading && erro && <p role="alert" style={{ color: VERM }}>{erro} <button onClick={carregar}>Tentar de novo</button></p>}
         {!loading && !erro && linhas.length === 0 && (
@@ -111,6 +111,10 @@ export default function ResultadoObrasPage() {
               </select>
               <AjudaCampo chave="projetos.resultado_obra.filtro_status" />
             </div>
+            <p data-testid="resultado-contagem" style={{ fontSize: 12.5, color: MUT, margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {visiveis.length === linhas.length ? `${linhas.length} ${linhas.length === 1 ? 'obra' : 'obras'}` : `${visiveis.length} de ${linhas.length} obras`}
+              <AjudaCampo chave="projetos.resultado_obra.contagem" />
+            </p>
             {semReceitaComCusto > 0 && (
               <p data-testid="resultado-aviso-sem-receita" style={{ fontSize: 12.5, color: VERM, margin: '0 0 8px' }}>
                 {semReceitaComCusto} obra(s) com custo e ainda sem receita: lance a medição ou a venda de material para a margem aparecer.
@@ -127,19 +131,19 @@ export default function ResultadoObrasPage() {
             {/* celular (< md): um cartão por obra + o consolidado, sem rolagem lateral (HB0 · correção 9). A impressão usa a tabela. */}
             <div className="md:hidden no-print" data-testid="resultado-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {visiveis.map(l => (
-                <CartaoObra key={l.obra_id} obraId={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} material={n(l.custo_material)} viagens={n(l.custo_viagens)} maoObra={n(l.custo_mao_obra)}
+                <CartaoObra key={l.obra_id} obraId={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} material={n(l.custo_material)} viagens={n(l.custo_viagens)} maoObra={n(l.custo_mao_obra)} rateio={n(l.custo_rateio)}
                   margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} sem={semMedicao(l)} pct={pctPrevisto(l)} />
               ))}
-              <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} material={visiveis.reduce((a, l) => a + n(l.custo_material), 0)} viagens={visiveis.reduce((a, l) => a + n(l.custo_viagens), 0)} maoObra={visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0)}
+              <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} material={visiveis.reduce((a, l) => a + n(l.custo_material), 0)} viagens={visiveis.reduce((a, l) => a + n(l.custo_viagens), 0)} maoObra={visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0)} rateio={visiveis.reduce((a, l) => a + n(l.custo_rateio), 0)}
                 margem={total.margem} prevista={total.prevista} custoPrev={total.custoPrev} />
             </div>
             <style>{'@media print{.resultado-tabela-wrap{display:block!important}}'}</style>
             <div className="hidden md:block resultado-tabela-wrap" style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-              <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 880, borderCollapse: 'collapse' }}>
+              <table data-testid="resultado-tabela" style={{ width: '100%', minWidth: 960, borderCollapse: 'collapse' }}>
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
                   <th style={{ ...th, ...fixa, textAlign: 'left' }}>Obra</th><th style={th}>Receita <AjudaCampo chave="projetos.resultado_obra.receita" /></th><th style={th}>Custo <AjudaCampo chave="projetos.resultado_obra.custo" /></th>
                   <th style={th}>Materiais <AjudaCampo chave="projetos.resultado_obra.custo_material" /></th><th style={th}>Viagens <AjudaCampo chave="projetos.resultado_obra.custo_viagens" /></th>
-                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
+                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Rateio fixo <AjudaCampo chave="projetos.resultado_obra.rateio" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
                 </tr></thead>
                 <tbody>
                   {visiveis.map(l => (
@@ -149,7 +153,7 @@ export default function ResultadoObrasPage() {
                       </td>
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
                       <td style={td}>{fmtR(n(l.custo_material))}</td><td style={td}>{fmtR(n(l.custo_viagens))}</td>
-                      <td style={td}>{fmtR(n(l.custo_mao_obra))}</td>
+                      <td style={td}>{fmtR(n(l.custo_mao_obra))}</td><td style={td}>{fmtR(n(l.custo_rateio))}</td>
                       {semMedicao(l)
                         ? <td colSpan={2} data-testid="resultado-sem-medicao" style={{ ...td, color: MUT, fontSize: 12 }}>Sem medição ainda — margem indisponível</td>
                         : <><td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
@@ -162,6 +166,7 @@ export default function ResultadoObrasPage() {
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
                     <td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_material), 0))}</td><td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_viagens), 0))}</td>
                     <td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0))}</td>
+                    <td style={td}>{fmtR(visiveis.reduce((a, l) => a + n(l.custo_rateio), 0))}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtPct(margemPct(total.receita, total.margem))}</td>
                     <td style={td}>{fmtR(total.prevista)}</td><td style={td}>{fmtR(total.custoPrev)}</td>
@@ -178,8 +183,8 @@ export default function ResultadoObrasPage() {
 
 // Cartão da obra no celular: margem em destaque (verde/vermelho), realizado × previsto em pares. O "?" de cada
 // número fica no cartão Consolidado (mesmas chaves da tabela), para não repetir em cada obra.
-function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra, margem, prevista, custoPrev, destaque, sem, pct: pctPrev }: {
-  obraId?: string; titulo: string; receita: number; custo: number; material: number; viagens: number; maoObra: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean; sem?: boolean; pct?: number | null
+function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra, rateio, margem, prevista, custoPrev, destaque, sem, pct: pctPrev }: {
+  obraId?: string; titulo: string; receita: number; custo: number; material: number; viagens: number; maoObra: number; rateio: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean; sem?: boolean; pct?: number | null
 }) {
   const pct = margemPct(receita, margem)
   const par = (rot: string, v: number, chave?: string) => (
@@ -204,7 +209,7 @@ function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginTop: 10 }}>
         {par('Receita', receita, 'projetos.resultado_obra.receita')}{par('Custo', custo, 'projetos.resultado_obra.custo')}
         {par('Materiais', material, 'projetos.resultado_obra.custo_material')}{par('Viagens', viagens, 'projetos.resultado_obra.custo_viagens')}
-        {par('Mão de obra', maoObra, 'projetos.resultado_obra.mao_obra')}{par('Receita prevista', prevista, 'projetos.resultado_obra.receita_prevista')}
+        {par('Mão de obra', maoObra, 'projetos.resultado_obra.mao_obra')}{par('Rateio fixo', rateio, 'projetos.resultado_obra.rateio')}{par('Receita prevista', prevista, 'projetos.resultado_obra.receita_prevista')}
         {par('Custo previsto', custoPrev, 'projetos.resultado_obra.custo_previsto')}
       </div>
       {pctPrev != null && <Barra pct={pctPrev} />}
