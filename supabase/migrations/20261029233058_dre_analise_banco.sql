@@ -31,11 +31,19 @@ BEGIN
   ) THEN
     RETURN jsonb_build_object('ok', false, 'erro', 'Sem acesso a uma ou mais empresas do grupo'); END IF;
 
-  -- LGPD: salário é dado sensível — nomes/valores por pessoa só p/ administrador, sócio e financeiro da empresa.
+  -- LGPD: salário é dado sensível — nomes/valores por pessoa só p/ administrador, sócio e financeiro de CADA empresa pedida.
+  -- por EMPRESA: o papel privilegiado tem de valer em TODAS as empresas pedidas (financeiro de outra empresa não vê salário por nome).
   v_pode := public.is_admin()
-    OR EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role IN ('acesso_total','adm','socio','financeiro','diretor_area'))
-    OR EXISTS (SELECT 1 FROM user_scope us WHERE us.user_id = auth.uid() AND us.company_id = ANY(p_company_ids) AND us.papel_slug IN ('hub_socio','hub_financeiro'))
-    OR EXISTS (SELECT 1 FROM tenant_user_roles t WHERE t.user_id = auth.uid() AND t.company_id = ANY(p_company_ids) AND t.is_active AND t.role = 'CLIENT_OWNER');
+    OR EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role = 'acesso_total')
+    OR NOT EXISTS (
+      SELECT 1 FROM unnest(p_company_ids) x(id)
+       WHERE NOT (
+         EXISTS (SELECT 1 FROM user_companies uc WHERE uc.user_id = auth.uid() AND uc.company_id = x.id
+                   AND uc.role IN ('acesso_total','adm','admin','owner','socio','financeiro','diretor_area'))
+         OR EXISTS (SELECT 1 FROM user_scope us WHERE us.user_id = auth.uid() AND us.company_id = x.id AND us.papel_slug IN ('hub_socio','hub_financeiro'))
+         OR EXISTS (SELECT 1 FROM tenant_user_roles t WHERE t.user_id = auth.uid() AND t.company_id = x.id AND t.is_active AND t.role = 'CLIENT_OWNER')
+       )
+    );
 
   SELECT jsonb_agg(d::date ORDER BY d) INTO v_meses
     FROM generate_series(v_ini, date_trunc('month',v_fim)::date, interval '1 month') d;
