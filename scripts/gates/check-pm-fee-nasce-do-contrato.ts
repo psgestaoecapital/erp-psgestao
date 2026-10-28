@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
 
-const mig = readFileSync('supabase/migrations/20261030010000_pm_fee_nasce_do_contrato.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261030130000_pm_fee_nasce_do_contrato.sql', 'utf8')
 const sql = mig.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 
 ok(/CREATE UNIQUE INDEX IF NOT EXISTS ux_agency_contratos_erp_contrato[\s\S]*?WHERE erp_contrato_id IS NOT NULL/.test(sql), '1 fee por contrato da GE (índice único parcial)')
