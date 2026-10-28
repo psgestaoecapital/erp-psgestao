@@ -23,7 +23,7 @@ import ExportarListaButton from './ExportarListaButton'
 import GerarSegundoPlanoButton from '@/components/relatorios/GerarSegundoPlanoButton'
 import { FORMAS_PAGAMENTO } from '@/lib/financeiro/formasPagamento'
 import { motivoValido } from '@/lib/financeiro/bloqueioPagamento'
-import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
+import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, carregarContasBoleto, rotaBoletoDaConta, type BoletoProvider, type ConfigBoletoConta, type ContaBoleto } from '@/lib/banco/providersBoleto'
 
 // Campos liberados na edição em massa (Jordana #6) — todos na whitelist do fn_*_editar_completo.
 const CAMPOS_MASSA = [
@@ -209,6 +209,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [boletoMap, setBoletoMap] = useState<Record<string, BoletoEstado>>({})
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteContato>>({})
   const [provider, setProvider] = useState<'sicoob' | 'sicredi' | 'bradesco' | null>(null)
+  const [contaDoTitulo, setContaDoTitulo] = useState<Record<string, string | null>>({})   // #5404: boleto pelo banco da conta do título
+  const [contasBoleto, setContasBoleto] = useState<{ configs: ConfigBoletoConta[]; contas: Record<string, ContaBoleto> }>({ configs: [], contas: {} })
   const [providers, setProviders] = useState<BoletoProvider[]>([])   // #88: mais de um banco emitindo boleto
   const [empresaCnpj, setEmpresaCnpj] = useState<string | null>(null)
   const [capExtrato, setCapExtrato] = useState(false)
@@ -296,19 +298,20 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         .order('criado_em', { ascending: false })
         .order('id')
         .range(de, ate)),
-      selecionarTodas<{ id: string; cliente_id: string | null; boleto_status: string | null; boleto_nosso_numero: string | null; boleto_linha_digitavel: string | null; boleto_codigo_barras: string | null; boleto_qr_code: string | null; boleto_url: string | null }>((de, ate) => supabase
+      selecionarTodas<{ id: string; cliente_id: string | null; boleto_status: string | null; boleto_nosso_numero: string | null; boleto_linha_digitavel: string | null; boleto_codigo_barras: string | null; boleto_qr_code: string | null; boleto_url: string | null; conta_bancaria_id: string | null }>((de, ate) => supabase
         .from('erp_receber')
-        .select('id, cliente_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_codigo_barras, boleto_qr_code, boleto_url')
+        .select('id, cliente_id, conta_bancaria_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_codigo_barras, boleto_qr_code, boleto_url')
         .eq('company_id', companyId)
         .order('id')
         .range(de, ate)),
       listarProvidersBoleto(companyId),
+      carregarContasBoleto(companyId),
       supabase
         .from('companies')
         .select('cnpj')
         .eq('id', companyId)
         .maybeSingle(),
-    ]).then(async ([nfseRes, nfeRes, boletoRes, provRes, compRes]) => {
+    ]).then(async ([nfseRes, nfeRes, boletoRes, provRes, contasRes, compRes]) => {
       if (!alive) return
       const nfseMapNew: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'> = {}
       const nfseDocMapNew: Record<string, { pdf?: string | null; xml?: string | null; notaId?: string }> = {}
@@ -340,15 +343,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       const boletoMapNew: Record<string, BoletoEstado> = {}
       const clienteIds = new Set<string>()
       type BoletoRow = {
-        id: string; cliente_id: string | null
+        id: string; cliente_id: string | null; conta_bancaria_id: string | null
         boleto_status: string | null; boleto_nosso_numero: string | null
         boleto_linha_digitavel: string | null; boleto_codigo_barras: string | null
         boleto_qr_code: string | null
         boleto_url: string | null
       }
       const recebMap: Record<string, BoletoRow> = {}
+      const contaNovo: Record<string, string | null> = {}
       for (const row of (boletoRes.data ?? []) as BoletoRow[]) {
         recebMap[row.id] = row
+        contaNovo[row.id] = row.conta_bancaria_id
         if (row.cliente_id) clienteIds.add(row.cliente_id)
         boletoMapNew[row.id] = {
           status: row.boleto_status,
@@ -360,6 +365,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         }
       }
       setBoletoMap(boletoMapNew)
+      setContaDoTitulo(contaNovo)
+      setContasBoleto(contasRes)
 
       if (alive) { setProviders(provRes); setProvider(escolherProviderBoleto(companyId, provRes)) }
       if (alive) setEmpresaCnpj((compRes.data as { cnpj?: string | null } | null)?.cnpj ?? null)
@@ -1442,9 +1449,26 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 motivo={nfeDocMap[r.id]?.motivo ?? undefined}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
-                              {provider === 'sicoob' || provider === 'sicredi' || provider === 'bradesco' ? (
+                              {(() => {
+                                const registrado = boletoMap[r.id]?.status === 'registrado'
+                                const contaId = contaDoTitulo[r.id]
+                                // #5404: título COM conta → só o banco dela; sem conta → comportamento antigo (banco escolhido na tela)
+                                const rota = !registrado && contaId && providers.length > 0 ? rotaBoletoDaConta(contasBoleto.contas[contaId], contasBoleto.configs) : null
+                                return rota && !rota.ok ? (
+                                  <span role="alert" data-testid="boleto-sem-banco-conta" style={{ fontSize: 11, color: '#8A2D1C', maxWidth: 220 }}>{rota.aviso}</span>
+                                ) : null
+                              })()}
+                              {(() => {
+                                const contaId = contaDoTitulo[r.id]
+                                if (boletoMap[r.id]?.status !== 'registrado' && contaId && providers.length > 0 && !rotaBoletoDaConta(contasBoleto.contas[contaId], contasBoleto.configs).ok) return false
+                                return true
+                              })() && (provider === 'sicoob' || provider === 'sicredi' || provider === 'bradesco' ? (
                                 <BoletoActions
-                                  provider={provider}
+                                  provider={(() => {
+                                    const contaId = contaDoTitulo[r.id]
+                                    const rota = contaId && boletoMap[r.id]?.status !== 'registrado' ? rotaBoletoDaConta(contasBoleto.contas[contaId], contasBoleto.configs) : null
+                                    return (rota && rota.ok ? rota.provider : provider) as 'sicoob' | 'sicredi' | 'bradesco'
+                                  })()}
                                   receberId={r.id}
                                   valor={r.valor_documento}
                                   vencimentoISO={r.data_vencimento}
@@ -1461,7 +1485,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                   linhaDigitavel={boletoMap[r.id]?.linhaDigitavel ?? null}
                                   onSucesso={() => setReloadKey((k) => k + 1)}
                                 />
-                              )}
+                              ))}
                               {!pago && (
                                 <button
                                   type="button"
