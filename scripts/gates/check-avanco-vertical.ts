@@ -23,7 +23,7 @@ const comp = readFileSync('src/components/dev/AvancoVertical.tsx', 'utf8')
 ok(/supabase\.rpc\('fn_dev_avanco_vertical'\)/.test(comp) && !/\.channel\(/.test(comp), 'componente lê pela RPC com guarda e não assina canal Realtime')
 const CHAVES_AJUDA = ['mapeado', 'essencial', 'jornada', 'ondas', 'linha_tempo', 'telas', 'geral', 'tela', 'ondas_legenda']
 for (const k of CHAVES_AJUDA) ok(comp.includes(`dev.codes.avanco.${k}`), `"?" ${k}`)
-const mig = readFileSync('supabase/migrations/20261029210000_dev_avanco_vertical.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261030160000_dev_avanco_vertical.sql', 'utf8')
 for (const k of CHAVES_AJUDA) ok(mig.includes(`'dev.codes.avanco.${k}'`), `migration traz o texto do "?" ${k}`)
 ok(!/\bDROP\s+(TABLE|FUNCTION)|TRUNCATE|DELETE\s+FROM\s+(?!erp_dev_vertical_historico)/i.test(mig), 'RD-97: migration aditiva (sem DROP/TRUNCATE/DELETE fora do histórico novo)')
 ok(/ENABLE ROW LEVEL SECURITY/.test(mig) && /fn_dev_painel_pode_ver\(\)/.test(mig), 'RLS ligada e leitura só equipe PS')
