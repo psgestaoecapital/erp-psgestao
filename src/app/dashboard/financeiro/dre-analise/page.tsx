@@ -292,7 +292,7 @@ function Inner() {
                     <ResponsiveContainer>
                       <PieChart>
                         <Pie data={composicao} dataKey="valor" nameKey="nome" cx="50%" cy="50%" innerRadius={55} outerRadius={95}
-                          onClick={(d: { codigo?: string }) => d?.codigo && CHIPS.some((c) => c.key === d.codigo) && setChip(d.codigo)}>
+                          onClick={(d) => { const cod = (d as unknown as { codigo?: string })?.codigo; if (cod && CHIPS.some((c) => c.key === cod)) setChip(cod) }}>
                           {composicao.map((c, i) => <Cell key={c.codigo} fill={PALETA[i % PALETA.length]} />)}
                         </Pie>
                         <Tooltip formatter={(v) => fmtMoedaDre(Number(v))} />
