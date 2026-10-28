@@ -17,7 +17,7 @@ import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
-import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
+import { Timer, Snowflake, ClipboardList, ClipboardCheck, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -1877,6 +1877,9 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
   const [erro, setErro] = useState('')
   const [aberto, setAberto] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<string | null>(null)
+  // #3841 · tratar o dia aqui mesmo: abre o editor da Conferência (mostra os horários da pausa e permite o ajuste),
+  // sem precisar caçar o colaborador na aba Conferência (onde às vezes o dia nem aparece).
+  const [tratarDia, setTratarDia] = useState<{ cpf: string; data: string; nome: string } | null>(null)
   // #273 · filtrar por colaborador
   const [colab, setColab] = useState('')
   const [sinais, setSinais] = useState<SupSinal[]>([])
@@ -2005,13 +2008,13 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
             <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
               <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
-                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Três naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro) e <b>pausas faltantes</b> (há menos pausas registradas do que a jornada pedia, e nenhuma está abaixo do mínimo). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
+                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Três naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro) e <b>pausas faltantes</b> (há menos pausas registradas do que a jornada pedia, e nenhuma está abaixo do mínimo). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;). Clique em <b>Tratar</b> na linha para ver os horários do dia e fechar a pausa ou lançar o ajuste aqui mesmo (abre o editor da Conferência).
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
-                  <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Motivo</th><th style={th()}>Setor</th><th style={th()}>Jornada</th>
+                  <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Motivo</th><th style={th()}>Setor</th><th style={th()}>Jornada</th><th style={th()} data-no-print="true"></th>
                 </tr></thead>
                 <tbody>
                   {pendentesF.map((p, i) => {
@@ -2028,6 +2031,15 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
                       </td>
                       <td style={td()}>{p.setor || '—'}</td>
                       <td style={td()}>{p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}</td>
+                      <td style={td()} data-no-print="true">
+                        <button
+                          data-testid={`sup-tratar-${p.cpf}-${p.data}`}
+                          title="Ver os horários deste dia e tratar na Conferência (fechar a pausa ou ajustar o registro)"
+                          onClick={() => setTratarDia({ cpf: p.cpf, data: p.data, nome: p.nome })}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${C.gold}55`, background: '#fff', color: C.espresso, borderRadius: 7, padding: '5px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          <ClipboardCheck size={13} style={{ color: C.gold }} /> Tratar
+                        </button>
+                      </td>
                     </tr>
                     )
                   })}
@@ -2038,6 +2050,9 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
           )}
         </>
       )}
+      {tratarDia && <EditorMarcasDia companyId={companyId} cpf={tratarDia.cpf} data={tratarDia.data} colaborador={tratarDia.nome}
+        onFechar={() => setTratarDia(null)}
+        onSalvo={async () => { setTratarDia(null); await carregar() }} />}
     </div>
   )
 }
