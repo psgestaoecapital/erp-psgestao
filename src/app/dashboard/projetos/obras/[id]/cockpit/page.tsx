@@ -52,7 +52,10 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const custo = r ? Number(r.custo_material) + Number(r.custo_viagens) + Number(r.custo_mao_obra ?? 0) + Number(r.custo_rateio ?? 0) : 0
   const margem = r ? Number(r.margem_alocada ?? r.margem_realizada) : 0
   const margemPct = receita > 0 ? (margem / receita) * 100 : null
-  const avancoPct = r && Number(r.receita_prevista) > 0 ? Math.min(100, (Number(r.receita_servico) / Number(r.receita_prevista)) * 100) : null
+  // Avanço financeiro = receita já realizada (serviço medido + material vendido à obra) sobre a receita prevista.
+  // Usa a receita realizada total — a mesma do card "Receita realizada" — para não contradizer a própria tela quando a
+  // receita vem por venda de material (ex.: obra sem NFS-e de medição ainda lançada). Teto 100%.
+  const avancoPct = r && Number(r.receita_prevista) > 0 ? Math.min(100, (receita / Number(r.receita_prevista)) * 100) : null
   const custoPrevisto = r ? Number(r.custo_previsto) : 0
   const estouro = custoPrevisto > 0 && custo > custoPrevisto
 
@@ -60,7 +63,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     { k: 'receita', ajuda: 'projetos.cockpit.receita', l: 'Receita realizada', v: brl(receita), sub: `Serviço ${brl(r.receita_servico)} · Material ${brl(r.receita_material)}` },
     { k: 'custo', ajuda: 'projetos.cockpit.custo', l: 'Custo realizado', v: brl(custo), sub: `Material ${brl(r.custo_material)} · Viagens ${brl(r.custo_viagens)} · Mão de obra ${brl(r.custo_mao_obra)} · Rateio ${brl(r.custo_rateio)}`, cor: estouro ? VERM : undefined },
     { k: 'margem', ajuda: 'projetos.cockpit.margem', l: 'Margem', v: brl(margem), sub: margemPct == null ? 'Sem receita ainda' : `${margemPct.toFixed(1)}% da receita`, cor: margem < 0 ? VERM : VERDE },
-    { k: 'avanco', ajuda: 'projetos.cockpit.avanco', l: 'Avanço financeiro', v: avancoPct == null ? '—' : `${avancoPct.toFixed(0)}%`, sub: `Medido ${brl(r.receita_servico)} de ${brl(r.receita_prevista)}` },
+    { k: 'avanco', ajuda: 'projetos.cockpit.avanco', l: 'Avanço financeiro', v: avancoPct == null ? '—' : `${avancoPct.toFixed(0)}%`, sub: `Realizado ${brl(receita)} de ${brl(r.receita_prevista)}` },
   ] : []
 
   const pendencias: string[] = []
