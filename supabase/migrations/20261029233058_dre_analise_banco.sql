@@ -39,9 +39,8 @@ BEGIN
       SELECT 1 FROM unnest(p_company_ids) x(id)
        WHERE NOT (
          EXISTS (SELECT 1 FROM user_companies uc WHERE uc.user_id = auth.uid() AND uc.company_id = x.id
-                   AND uc.role IN ('acesso_total','adm','admin','owner','socio','financeiro','diretor_area'))
+                   AND uc.role IN ('acesso_total','adm','admin','socio','financeiro'))
          OR EXISTS (SELECT 1 FROM user_scope us WHERE us.user_id = auth.uid() AND us.company_id = x.id AND us.papel_slug IN ('hub_socio','hub_financeiro'))
-         OR EXISTS (SELECT 1 FROM tenant_user_roles t WHERE t.user_id = auth.uid() AND t.company_id = x.id AND t.is_active AND t.role = 'CLIENT_OWNER')
        )
     );
 
