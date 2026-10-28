@@ -258,7 +258,7 @@ export default function PropostasHubPage() {
                   return (
                     <tr key={l.id} style={{ borderTop: `1px solid ${LINE}`, fontSize: 13 }}>
                       <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600 }}>{l.numero ?? '—'}</td>
-                      <td style={{ padding: '8px 12px' }}>{l.cliente_nome ?? '—'}</td>
+                      <td style={{ padding: '8px 12px' }} data-testid="hub-proposta-cliente">{l.cliente_nome?.trim() || <span style={{ color: '#B45309' }}>sem cliente</span>}</td>
                       <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 220 }} data-testid="hub-proposta-origem">
                         {origErro ? '—' : !temOrigem(o) ? <span style={{ color: MUT }}>avulsa</span> : (
                           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -294,11 +294,11 @@ export default function PropostasHubPage() {
                           )
                         })()}
                       </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>{fmtR(Number(l.total ?? 0))}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 200 }} data-testid="hub-proposta-obra-situacao">
+                      <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} data-testid="hub-proposta-total">{fmtR(Number(l.total ?? 0))}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 12, minWidth: 150, maxWidth: 200, verticalAlign: 'top' }} data-testid="hub-proposta-obra-situacao">
                         {obraErro || !so ? '—' : so.tipo === 'obra' ? (
                           <Link href={`/dashboard/projetos/obras/${so.obra.id}`} data-testid="hub-proposta-obra" style={{ color: ESP, display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontWeight: 600 }}>{so.obra.numero}{so.obra.nome ? ` · ${so.obra.nome}` : ''}</span>
+                            <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{so.obra.numero}{so.obra.nome ? ` · ${so.obra.nome}` : ''}</span>
                             {so.obra.status && <span style={{ color: MUT }}>{OBRA_STATUS[so.obra.status] ?? so.obra.status}</span>}
                           </Link>
                         ) : so.tipo === 'sem_obra' ? <span data-testid="hub-proposta-sem-obra" style={{ color: '#B45309', fontWeight: 600 }}>aprovada sem obra</span>
