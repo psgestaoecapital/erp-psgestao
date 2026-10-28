@@ -29,7 +29,7 @@ for (const id of ['obra-resultado', 'obra-faturado', 'obra-recebido', 'obra-a-re
   ok(tela.includes(`'${id}'`) || tela.includes(`"${id}"`), `cartão: ${id}`)
 }
 // #3262 ligou o custo REAL (material + viagens) da v_obra_resultado; o placeholder "a partir de novembro" saiu.
-ok(/cel\('Custo', r\?\.custo != null \? fmtRc\(r\.custo\) : '—'/.test(tela), 'custo real (material + viagens) da v_obra_resultado')
+ok(/cel\('Custo', r\?\.custo != null && r\.custo > 0 \? fmtRc\(r\.custo\) : 'Sem custo lançado'/.test(tela), 'custo real (material + viagens) da v_obra_resultado')
 ok(tela.includes('<ResultadoObra r={receita} />'), 'cartão dentro da ficha (card) da obra')
 
 if (falhas) { console.error(`\n${falhas} falha(s) no resultado por obra`); process.exit(1) }
