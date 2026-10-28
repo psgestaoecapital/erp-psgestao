@@ -31,7 +31,9 @@ ok(/SELECT id INTO v_id FROM public\.projetos_obra_rdo WHERE os_id = p_os_id AND
 // RD-95: cada "?" da tela tem chave em migration
 const base = ['20261023180535_hub_os_obra.sql', '20261024180000_hb0_os_obra_apontar_horas.sql',
   // HB4 (quantidade do diário) lida pelo sufixo: a fila pode renumerar a versão
-  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_hb4_rdo_quantidade_avanco.sql'))]
+  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_hb4_rdo_quantidade_avanco.sql')),
+  // filtro por responsável (migration posterior ao HB0): mesma leitura por sufixo (renomeável pela fila)
+  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_hub_os_obra_ajuda_filtro_responsavel.sql'))]
   .map(f => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 const chaves = [...tela.matchAll(/AjudaCampo chave="([^"]+)"/g)].map(m => m[1])
 const novas = ['rdo', 'rdo_registrados', 'rdo_data', 'rdo_clima', 'rdo_praticavel', 'rdo_efetivo', 'rdo_atividades', 'rdo_ocorrencias', 'rdo_fotos', 'rdo_salvar']
