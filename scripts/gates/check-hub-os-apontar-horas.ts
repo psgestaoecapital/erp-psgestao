@@ -26,7 +26,9 @@ ok(!/\bvalor\b\s*,/.test(corpo.split('INSERT INTO public.projetos_obra_mao_obra_
 // RD-95: cada "?" da tela tem chave na migration (ou na da OS de obra)
 const base = ['20261023180535_hub_os_obra.sql', '20261024190000_hb0_os_obra_rdo.sql',
   // HB4 (quantidade do diário) lida pelo sufixo: a fila pode renumerar a versão
-  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_hb4_rdo_quantidade_avanco.sql'))]
+  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_hb4_rdo_quantidade_avanco.sql')),
+  // filtro por responsável (migration posterior ao HB0): mesma leitura por sufixo (renomeável pela fila)
+  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_hub_os_obra_ajuda_filtro_responsavel.sql'))]
   .map(f => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 const chaves = [...tela.matchAll(/AjudaCampo chave="([^"]+)"/g)].map(m => m[1])
 const novas = ['apontar', 'horas_apontadas', 'apontar_data', 'apontar_funcao', 'apontar_horas', 'apontar_custo_hora', 'apontar_lancar'].map(c => `projetos.os_obra.${c}`)

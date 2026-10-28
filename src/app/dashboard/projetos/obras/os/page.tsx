@@ -109,6 +109,12 @@ export default function OSObraPage() {
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
 
+  // Vindo do cockpit da obra ("Ordens de serviço →"): abre a lista já filtrada nesta obra (?obra=<id>).
+  useEffect(() => {
+    const o = new URLSearchParams(window.location.search).get('obra')
+    if (o) setFObra(o)
+  }, [])
+
   // etapas (cronograma) e serviços (itens contratados) da obra escolhida no formulário
   useEffect(() => {
     if (!f.obra_id) { setEtapas([]); setServicos([]); return }
