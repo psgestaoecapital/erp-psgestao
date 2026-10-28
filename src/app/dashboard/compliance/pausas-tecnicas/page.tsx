@@ -15,6 +15,7 @@ import { reguaDe, textoRegua, mmss, motivoRegua, type Regua } from '@/lib/ponto/
 import { rotuloPendente, explicaPendente } from '@/lib/ponto/motivoPendente'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { cpfValido } from '@/lib/documentos/cpf'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
@@ -1373,6 +1374,9 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
   const [novaOrigem, setNovaOrigem] = useState<OrigemAjuste | ''>('')
   const [ajusteDia, setAjusteDia] = useState<AjusteDia | null>(null)
   const [pendCiente, setPendCiente] = useState(false)
+  // #3842 (Karol) · documento assinado pelo colaborador comprovando ciência do ajuste do dia
+  const [docs, setDocs] = useState<File[]>([])
+  const [docsSalvos, setDocsSalvos] = useState<string[]>([])
 
   useEffect(() => {
     let vivo = true
@@ -1390,6 +1394,12 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
           setAjusteDia(aj); setAntes(parearMarcas(atuais)); setPodeDesfazer(!!r.pode_desfazer)
           if (!marcasIniciais) setMarcas(atuais)
         }
+        // #3842 · comprovantes já anexados numa releitura anterior deste dia (a mais recente) seguem visíveis e são
+        // carregados adiante, para não se perderem ao reler de novo (a tabela é só leitura por empresa — RLS).
+        const rj = await supabase.from('nr36_releitura_justificativa').select('comprovante_urls')
+          .eq('company_id', companyId).eq('cpf', cpf).eq('data', data).not('comprovante_urls', 'is', null)
+          .order('criado_em', { ascending: false }).limit(1).maybeSingle()
+        if (vivo && Array.isArray(rj.data?.comprovante_urls)) setDocsSalvos(rj.data!.comprovante_urls as string[])
       } catch (e) { if (vivo) setErro((e as Error).message) } finally { if (vivo) setCarregando(false) }
     })()
     return () => { vivo = false }
@@ -1416,7 +1426,17 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
     if (!window.confirm(`Reler as pausas de ${colaborador} em ${data.split('-').reverse().join('/')} com estas marcações? A leitura anterior fica guardada no histórico e dá para desfazer.`)) return
     setBusy(true); setErro('')
     try {
-      const r = await rpc<{ ok: boolean; pausas?: number; mensagem?: string; erro?: string }>('fn_nr36_reler_dia_justificado', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_marcas: marcas, p_justificativa: justificativa.trim(), p_origem: origem, p_pendencia_ciente: pendencias.length > 0 && pendCiente })
+      // #3842 · sobe os documentos assinados novos (se houver) e junta com os já anexados antes deste dia
+      const subidos: string[] = []
+      for (const file of docs) {
+        const ext = (file.name.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin'
+        const path = `${companyId}/nr36/releitura/${cpf}/${data}/${crypto.randomUUID()}.${ext}`
+        const up = await supabase.storage.from('compliance-pausas').upload(path, file, { upsert: false, contentType: file.type || 'application/octet-stream' })
+        if (up.error) { setBusy(false); setErro('Não foi possível anexar o documento assinado. Confira a conexão e tente de novo.'); return }
+        subidos.push(path)
+      }
+      const comprovantes = [...docsSalvos, ...subidos]
+      const r = await rpc<{ ok: boolean; pausas?: number; mensagem?: string; erro?: string }>('fn_nr36_reler_dia_justificado', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_marcas: marcas, p_justificativa: justificativa.trim(), p_origem: origem, p_pendencia_ciente: pendencias.length > 0 && pendCiente, p_comprovante_urls: comprovantes.length ? comprovantes : null })
       if (!r.ok) throw new Error(r.mensagem || r.erro || 'falha ao reler o dia')
       const ci = (r as { ciencia?: { acao?: string } }).ciencia?.acao
       onSalvo(`Dia relido: ${r.pausas} pausa(s) de ${colaborador}. A leitura anterior está no histórico.`
@@ -1431,6 +1451,12 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
       if (!r.ok) throw new Error(r.mensagem || r.erro || 'falha ao desfazer')
       onSalvo(`Releitura desfeita: ${colaborador} voltou à leitura anterior.`)
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
+  }
+
+  async function verDoc(path: string) {
+    const { data, error } = await supabase.storage.from('compliance-pausas').createSignedUrl(path, 600)
+    if (error || !data) { setErro('Não foi possível abrir o documento anexado.'); return }
+    window.open(data.signedUrl, '_blank', 'noopener')
   }
 
   const papelBtn = (ativo: boolean, cor: string): React.CSSProperties => ({ border: `1px solid ${ativo ? cor : C.borderLt}`, background: ativo ? cor : '#fff', color: ativo ? '#fff' : C.espresso, borderRadius: 7, padding: '4px 9px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' })
@@ -1507,6 +1533,29 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
             <textarea value={justificativa} onChange={e => setJustificativa(e.target.value)} data-testid="marcas-justificativa" rows={2}
               placeholder="Ex.: conferido com o colaborador — esqueceu de bater a saída da 1ª pausa"
               style={{ ...inp(), width: '100%', marginTop: 4, resize: 'vertical' }} />
+          </div>
+        )}
+        {/* #3842 (Karol) · quando o horário foi conferido com o colaborador (ele assina um papel confirmando), anexar
+            esse documento como prova de ciência — a auditoria da NR-36 pede o comprovante. Opcional. */}
+        {!carregando && (
+          <div style={{ marginTop: 12 }}>
+            <label style={{ display: 'block', fontSize: 12, color: C.gray }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                Documento assinado pelo colaborador (opcional)
+                <AjudaCampo chave="compliance.pausas.conferencia_comprovante" rota="/dashboard/compliance/pausas-tecnicas" />
+              </span>
+              <input type="file" accept="image/*,application/pdf" multiple capture="environment"
+                onChange={e => setDocs(Array.from(e.target.files ?? []))} data-testid="marcas-comprovante"
+                style={{ ...inp(), width: '100%', marginTop: 4, padding: 8 }} />
+            </label>
+            {docsSalvos.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '6px 0' }} data-testid="marcas-comprovantes-salvos">
+                {docsSalvos.map((p, i) => (
+                  <button key={p} type="button" onClick={() => void verDoc(p)} style={{ border: `1px solid ${C.borderLt}`, background: '#fff', color: C.espresso, borderRadius: 7, padding: '4px 9px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>Ver documento {i + 1}</button>
+                ))}
+              </div>
+            )}
+            {docs.length > 0 && <div style={{ fontSize: 11.5, color: C.gray, marginTop: 4 }}>{docs.length} arquivo(s) novo(s) a anexar ao salvar.</div>}
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
