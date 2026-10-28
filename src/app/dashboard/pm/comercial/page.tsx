@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESPRESSO = '#3D2314', OFFWHITE = '#FAF7F2', DOURADO = '#C8941A', BORDA = '#E7DED3', TEXTM = '#6b5444', GREEN = '#1F5A1F'
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -111,15 +112,15 @@ export default function HubComercialPage() {
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div> : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 10, marginBottom: 14 }}>
-              <Card titulo="Pipeline (em aberto)" valor={String(m.pipelineN)} sub={brl(m.pipelineR)} href="/dashboard/pm/leads" />
-              <Card titulo="Propostas abertas" valor={String(m.propAbertas)} sub={`${m.propAprov} aprovadas`} href="/dashboard/pm/propostas" />
-              <Card titulo="Conversão" valor={`${m.conversao}%`} sub={brl(m.emNegociacao) + ' em negociação'} href="/dashboard/pm/propostas" />
-              <Card titulo="Comissão a pagar" valor={brl(m.comAPagar)} sub={brl(m.comPrevista) + ' prevista'} href="/dashboard/pm/comissao" cor={DOURADO} />
-              <Card titulo="Novos contratos (mês)" valor={String(m.novosContratos)} sub={brl(m.novosContratosR) + '/mês'} cor={GREEN} />
+              <Card titulo="Pipeline (em aberto)" valor={String(m.pipelineN)} sub={brl(m.pipelineR)} href="/dashboard/pm/leads" ajuda="pm.comercial.kpi_pipeline" />
+              <Card titulo="Propostas abertas" valor={String(m.propAbertas)} sub={`${m.propAprov} aprovadas`} href="/dashboard/pm/propostas" ajuda="pm.comercial.kpi_propostas" />
+              <Card titulo="Conversão" valor={`${m.conversao}%`} sub={brl(m.emNegociacao) + ' em negociação'} href="/dashboard/pm/propostas" ajuda="pm.comercial.kpi_conversao" />
+              <Card titulo="Comissão a pagar" valor={brl(m.comAPagar)} sub={brl(m.comPrevista) + ' prevista'} href="/dashboard/pm/comissao" cor={DOURADO} ajuda="pm.comercial.kpi_comissao" />
+              <Card titulo="Novos contratos (mês)" valor={String(m.novosContratos)} sub={brl(m.novosContratosR) + '/mês'} cor={GREEN} ajuda="pm.comercial.kpi_contratos" />
             </div>
 
             <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, marginBottom: 10 }}>Funil de leads</div>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, marginBottom: 10, display: 'inline-flex', alignItems: 'center' }}>Funil de leads<AjudaCampo chave="pm.comercial.funil" /></div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {m.funil.map((e) => (
                   <div key={e.v} style={{ flex: '1 1 90px', minWidth: 90, background: e.cor, borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
@@ -136,15 +137,20 @@ export default function HubComercialPage() {
   )
 }
 
-function Card({ titulo, valor, sub, href, cor }: { titulo: string; valor: string; sub?: string; href?: string; cor?: string }) {
-  const inner = (
-    <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '14px 16px', height: '100%' }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{titulo}</div>
+function Card({ titulo, valor, sub, href, cor, ajuda }: { titulo: string; valor: string; sub?: string; href?: string; cor?: string; ajuda?: string }) {
+  // O "?" (RD-95) fica FORA do <Link> (botão dentro de <a> é aninhamento inválido); o valor/subtítulo seguem clicáveis.
+  const corpoClicavel = (
+    <>
       <div style={{ fontSize: 24, fontWeight: 700, color: cor ?? ESPRESSO, marginTop: 4 }}>{valor}</div>
       {sub && <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{sub}</div>}
+    </>
+  )
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '14px 16px', height: '100%' }}>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'inline-flex', alignItems: 'center' }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
+      {href ? <Link href={href} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{corpoClicavel}</Link> : corpoClicavel}
     </div>
   )
-  return href ? <Link href={href} style={{ textDecoration: 'none' }}>{inner}</Link> : inner
 }
 
 const btnPri: CSSProperties = { border: 'none', background: DOURADO, color: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 700, minHeight: 42, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }
