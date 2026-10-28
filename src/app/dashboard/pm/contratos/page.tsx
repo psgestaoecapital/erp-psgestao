@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const RED = '#7A1F1F'; const AMBER = '#8A5A08'
@@ -40,6 +41,7 @@ type RealItem = {
   criados: number; entregues: number; saldo: number | null; situacao: string
 }
 type RealState = { loading: boolean; itens: RealItem[]; jobs_sem_servico: { tipo: string; qtd: number }[]; ref: string; erro?: string }
+type Esteira = { briefings: number; planId: string | null; jobsMes: number }
 
 export default function ContratosPage() {
   const { selInfo, companyIds } = useCompanyIds()
@@ -51,6 +53,8 @@ export default function ContratosPage() {
   const [loading, setLoading] = useState(true); const [toast, setToast] = useState<string | null>(null)
   const [editEscopo, setEditEscopo] = useState<Contrato | null>(null)
   const [vincular, setVincular] = useState<Contrato | null>(null)
+  const [esteira, setEsteira] = useState<Record<string, Esteira>>({})
+  const [planejando, setPlanejando] = useState<string | null>(null)
 
   const carregar = async () => {
     if (!empresa) { setLoading(false); return }
@@ -60,10 +64,40 @@ export default function ContratosPage() {
       supabase.from('agency_servico').select('id, nome, unidade, periodicidade').eq('company_id', empresa).eq('ativo', true).order('ordem'),
       supabase.from('erp_contratos').select('id, numero, cliente_nome, valor_atual').eq('company_id', empresa).order('data_inicio', { ascending: false }),
     ])
-    setContratos((c.data ?? []) as Contrato[])
+    const lista = (c.data ?? []) as Contrato[]
+    setContratos(lista)
     setServicos((sv.data ?? []) as Servico[])
     setGeContratos((ge.data ?? []) as GeContrato[])
     setExpand({}); setLoading(false)
+    void carregarEsteira(lista.map((x) => x.contrato_id))
+  }
+
+  // Esteira do fee (CEO 28/10, V30 §00-F): Briefing → Planejamento do mês → Jobs.
+  async function carregarEsteira(ids: string[]) {
+    if (!empresa || ids.length === 0) { setEsteira({}); return }
+    const mes = ymNow(); const [y, mo] = mes.split('-').map(Number); const prox = new Date(y, mo, 1).toISOString().slice(0, 10)
+    const [br, pl, jb] = await Promise.all([
+      supabase.from('agency_briefings').select('fee_id').eq('company_id', empresa).in('fee_id', ids),
+      supabase.from('agency_planejamentos').select('id, fee_id').eq('company_id', empresa).in('fee_id', ids).eq('mes', mes).is('excluido_em', null),
+      supabase.from('agency_jobs').select('contrato_id').eq('company_id', empresa).in('contrato_id', ids).gte('created_at', mes).lt('created_at', prox).is('excluido_em', null),
+    ])
+    const e: Record<string, Esteira> = Object.fromEntries(ids.map((id) => [id, { briefings: 0, planId: null, jobsMes: 0 }]))
+    for (const r of (br.data ?? []) as { fee_id: string }[]) if (e[r.fee_id]) e[r.fee_id].briefings++
+    for (const r of (pl.data ?? []) as { id: string; fee_id: string }[]) if (e[r.fee_id]) e[r.fee_id].planId = r.id
+    for (const r of (jb.data ?? []) as { contrato_id: string }[]) if (e[r.contrato_id]) e[r.contrato_id].jobsMes++
+    setEsteira(e)
+  }
+
+  async function planejarMes(c: Contrato) {
+    setPlanejando(c.contrato_id)
+    const { data, error } = await supabase.rpc('fn_pm_planejamento_do_fee', { p_fee_id: c.contrato_id, p_mes: ymNow() })
+    setPlanejando(null)
+    const r = data as { ok?: boolean; erro?: string; planejamento_id?: string; itens?: number; ja_existia?: boolean } | null
+    if (error || !r?.ok || !r.planejamento_id) {
+      const motivo: Record<string, string> = { fee_sem_cliente: 'o fee não tem cliente da Gestão Empresarial', fee_nao_ativo: 'o fee não está ativo', planejamento_de_outro_fee: 'já existe um planejamento deste cliente no mês ligado a outro fee' }
+      setToast(`Não deu para planejar: ${motivo[r?.erro ?? ''] ?? error?.message ?? r?.erro ?? 'erro'}.`); return
+    }
+    window.location.href = `/dashboard/pm/planejamento?p=${r.planejamento_id}`
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3500); return () => clearTimeout(t) }, [toast])
@@ -104,9 +138,9 @@ export default function ContratosPage() {
     <div style={{ background: OFFWHITE, minHeight: '100vh', padding: '24px 18px', color: ESPRESSO }}>
       <div style={{ maxWidth: 1050, margin: '0 auto' }}>
         <header style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>💰 P&amp;M · Contratos</div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Contratos</h1>
-          <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>O contrato oficial vive na Gestão Empresarial. Aqui você amarra o escopo à produção: contratado × realizado por serviço e por mês.</p>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>💰 P&amp;M · Fees</div>
+          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Fees</h1>
+          <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Cada contrato ativo na Gestão Empresarial vira um fee: o resumo do que foi contratado. A produção de cada fee segue <b>Briefing → Planejamento do mês → Jobs</b>, e aqui você vê o contratado × realizado por serviço.</p>
           {/* #59 PDOIS parte 2: atalho para solicitar/elaborar contratos de fee (fluxo na GE) */}
           <a href="/dashboard/contratos?tab=fee" style={{ display: 'inline-block', marginTop: 10, background: DOURADO, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none', padding: '8px 14px', borderRadius: 8 }}>
             🧾 Solicitar / elaborar contrato de fee →
@@ -161,6 +195,32 @@ export default function ContratosPage() {
                         : c.status === 'suspenso' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Reativar</button>
                         : c.status === 'rascunho' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Ativar</button> : null}
                     </div>
+
+                    {c.status === 'ativo' && (() => {
+                      const es = esteira[c.contrato_id] ?? { briefings: 0, planId: null, jobsMes: 0 }
+                      const passo: CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 10px', borderRadius: 10, border: `1px solid ${BORDA}`, background: OFFWHITE }
+                      const feito = (v: boolean) => <span style={{ fontWeight: 700, color: v ? GREEN : TEXTM }}>{v ? '✓' : '○'}</span>
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center' }} data-testid="fee-esteira">
+                          <div style={passo}>
+                            {feito(es.briefings > 0)} <b>1 · Briefing</b><AjudaCampo chave="pm.fee.briefing" />
+                            <a href={`/dashboard/pm/briefings?fee=${c.contrato_id}`} style={{ color: DOURADO, fontWeight: 700, textDecoration: 'none', marginLeft: 4 }} data-testid="fee-fazer-briefing">{es.briefings > 0 ? `ver (${es.briefings})` : 'Fazer briefing →'}</a>
+                          </div>
+                          <span style={{ color: TEXTM }}>→</span>
+                          <div style={passo}>
+                            {feito(!!es.planId)} <b>2 · Planejamento de {rotuloMes(ymNow())}</b><AjudaCampo chave="pm.fee.planejamento" />
+                            {es.planId
+                              ? <a href={`/dashboard/pm/planejamento?p=${es.planId}`} style={{ color: DOURADO, fontWeight: 700, textDecoration: 'none', marginLeft: 4 }} data-testid="fee-abrir-planejamento">abrir →</a>
+                              : <button disabled={planejando === c.contrato_id} onClick={() => void planejarMes(c)} style={{ ...btnOk, marginLeft: 4, padding: '3px 10px', fontSize: 11.5 }} data-testid="fee-planejar">{planejando === c.contrato_id ? 'Planejando…' : 'Planejar o mês'}</button>}
+                          </div>
+                          <span style={{ color: TEXTM }}>→</span>
+                          <div style={passo}>
+                            {feito(es.jobsMes > 0)} <b>3 · Jobs do mês</b><AjudaCampo chave="pm.fee.jobs" />
+                            <button onClick={() => toggle(c.contrato_id)} style={{ border: 'none', background: 'none', color: DOURADO, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginLeft: 4 }} data-testid="fee-jobs-mes">{es.jobsMes} {es.jobsMes === 1 ? 'job' : 'jobs'} · ver contratado × realizado</button>
+                          </div>
+                        </div>
+                      )
+                    })()}
 
                     {exp && (
                       <div style={{ marginTop: 10, borderTop: `1px solid ${BORDA}`, paddingTop: 10 }}>
