@@ -1,5 +1,5 @@
 -- Produtividade · Mapa do fluxo — ajustes do revisor na A (#3404) e menu da tela (#3405). Code: dev7claudeps. Aditiva/segurança.
--- 1) prod_modelo_* (modelos globais): sem policy USING(true) e sem GRANT SELECT — leitura só pelas RPCs (SECURITY DEFINER).
+-- 1) prod_modelo_* (modelos globais): sem policy permissiva e sem GRANT SELECT — leitura só pelas RPCs (SECURITY DEFINER).
 -- 2) fn_prod_fluxo_salvar / fn_prod_modelo_aplicar: planta e setor têm de ser da mesma empresa.
 -- 3) fn_prod_mapa_completo: o JOIN de setor filtra a empresa.
 -- 4) Menu: Indústria › Produtividade › "Mapa do fluxo" (primeira posição), module_catalog + plan_modules + system_screens.
