@@ -528,7 +528,9 @@ export default function OportunidadesKanban({
                           <Phone size={12} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {c.cliente_telefone}
                         </a>
                       )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6 }}>
+                      {/* #3423 · em coluna estreita (390px) o valor + badge de probabilidade cortavam; flexWrap deixa o
+                          badge descer em vez de truncar. */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6, flexWrap: 'wrap', rowGap: 4 }}>
                         {/* DELTA FC · valor DENTRO do card; nulo → estado claro ("sem valor estimado"), nunca "R$ 0,00" (parecia bug) */}
                         {c.valor_estimado == null ? (
                           <span style={{ fontSize: 11.5, color: TEXTM, fontStyle: 'italic' }}>sem valor estimado</span>
