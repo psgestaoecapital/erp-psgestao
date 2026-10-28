@@ -63,6 +63,8 @@ REVOKE ALL ON FUNCTION public.fn_dev_mais_vazio() FROM PUBLIC, anon, authenticat
 GRANT EXECUTE ON FUNCTION public.fn_dev_mais_vazio() TO service_role;
 
 -- 3) O roteador. Roda como cron/serviço (auth.uid() nulo); usuário logado é recusado.
+--    A devolução é SOFT: a tarefa do dev parado é ARQUIVADA (não apagada) e o chamado continua ABERTO (status intacto),
+--    só volta ao grupo (agente = NULL). Tarefa de dev vivo e recente nunca é arquivada.
 -- ci-sem-guarda: fn_chamados_rotear — só cron/serviço (recusa auth.uid() não nulo, EXECUTE só service_role); grava fila interna de agentes (erp_agente_mensagem) e só marca sugestoes.agente/em_atendimento_desde/ultimo_movimento; não altera texto, status nem dado de empresa de cliente.
 CREATE OR REPLACE FUNCTION public.fn_chamados_rotear(p_limite integer DEFAULT 10)
 RETURNS jsonb
@@ -152,8 +154,8 @@ BEGIN
       'Chamado aberto que ninguém trabalha (roteador, decisão do CEO 28/10).' || E'\n'
       || 'Chamado: #' || c.numero || ' (id ' || c.id || ')' || E'\n'
       || 'Rota: ' || coalesce(c.rota, '—') || E'\n'
-      || 'Título: ' || coalesce(c.titulo, '—') || E'\n'
-      || 'Descrição: ' || coalesce(c.descricao, '—') || E'\n\n'
+      || 'Área: ' || coalesce(c.area, '—') || ' · Prioridade: ' || coalesce(c.prioridade::text, '—') || E'\n'
+      || '(LGPD: título e descrição do cliente NÃO são copiados para a fila; leia pelo id em sugestoes.)' || E'\n\n'
       || 'Regras: PR pequena, com "Code: ' || v_dev || '" no corpo. A resposta ao cliente só sai por '
       || 'fn_agente_chamado_responder, com OK do CEO. Não conclua esta tarefa antes de resolver o chamado.',
       false, 'eng_chefe');
