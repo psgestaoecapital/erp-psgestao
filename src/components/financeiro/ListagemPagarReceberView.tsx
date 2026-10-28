@@ -366,7 +366,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       setBoletoMap(boletoMapNew)
       if (alive) {
         const cm: Record<string, string | null> = {}
-        for (const row of boletoRes) cm[row.id] = row.conta_bancaria_id
+        for (const row of (boletoRes.data ?? [])) cm[row.id] = row.conta_bancaria_id
         setContaIdMap(cm); setRotBoleto(rotRes)
       }
 
