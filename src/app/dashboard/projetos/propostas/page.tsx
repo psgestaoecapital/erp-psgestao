@@ -55,6 +55,11 @@ export default function PropostasHubPage() {
   const [obras, setObras] = useState<Record<string, SituacaoObra>>({})
   const [obraErro, setObraErro] = useState(false)
   const [bdiPadrao, setBdiPadrao] = useState<Record<string, number | null>>({})
+  const [excluir, setExcluir] = useState<Proposta | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [excluindo, setExcluindo] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [msgErro, setMsgErro] = useState('')
 
   // Origem: oportunidades e plantas ligadas às propostas; depois as visitas (diretas ou da oportunidade). Falha → coluna avisa.
   const carregarOrigem = useCallback(async (ids: string[]) => {
@@ -79,7 +84,7 @@ export default function PropostasHubPage() {
     try {
       const { data, error } = await comPrazo(
         async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra')
-          .in('company_id', companyIds).order('data_emissao', { ascending: false }).limit(100),
+          .in('company_id', companyIds).is('deleted_at', null).order('data_emissao', { ascending: false }).limit(100),
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
       if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as propostas.')); return }
@@ -122,6 +127,19 @@ export default function PropostasHubPage() {
   }, [companyIds, carregarOrigem])
   useEffect(() => { carregar() }, [carregar])
 
+  // Só proposta que não virou negócio pode sair (o banco confere de novo)
+  const podeExcluir = (l: Proposta) => ['rascunho', 'enviado', 'visualizado', 'recusado', 'expirado'].includes(l.status) && !l.obra_id
+  async function confirmarExclusao() {
+    if (!excluir) return
+    if (motivo.trim().length < 3) { setMsgErro('Informe o motivo da exclusão.'); return }
+    setExcluindo(true); setMsgErro('')
+    const { error } = await supabase.rpc('fn_proposta_excluir', { p_orcamento_id: excluir.id, p_motivo: motivo })
+    setExcluindo(false)
+    if (error) { setMsgErro(erroAmigavel(error, 'Não foi possível excluir a proposta.')); return }
+    setMsg(`Proposta ${excluir.numero ?? ''} excluída (fica guardada na auditoria).`)
+    setExcluir(null); setMotivo(''); void carregar()
+  }
+
   const vis = useMemo(() => {
     const b = busca.trim().toLowerCase()
     return linhas.filter(l => (filtro === 'todos' || l.status === filtro)
@@ -151,6 +169,24 @@ export default function PropostasHubPage() {
         <Link href="/dashboard/orcamentos" style={{ background: GOLD, color: '#fff', padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>+ Nova proposta</Link>
       </div>
 
+      {msg && <div role="status" style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#EAF5EE', color: '#16A34A', border: `0.5px solid ${LINE}` }}>{msg}</div>}
+      {excluir && (
+        <div onClick={() => setExcluir(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8vh 12px' }}>
+          <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Excluir proposta" style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 460, padding: 18 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Excluir proposta {excluir.numero}</div>
+            <div style={{ fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>Sai da lista, mas não é apagada: ficam registrados quem excluiu, quando e o motivo.</div>
+            <label style={{ display: 'block', marginTop: 10 }}>
+              <span style={{ fontSize: 11, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2, marginBottom: 3 }}>Motivo da exclusão<AjudaCampo chave="projetos.propostas.motivo_exclusao" /></span>
+              <input data-testid="hub-proposta-excluir-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: proposta em duplicidade" style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 8 }} />
+            </label>
+            {msgErro && <div role="alert" style={{ color: '#B91C1C', fontSize: 12.5, marginTop: 8 }}>{msgErro}</div>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+              <button onClick={() => setExcluir(null)} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', fontSize: 12.5, cursor: 'pointer' }}>Cancelar</button>
+              <button data-testid="hub-proposta-excluir-confirmar" onClick={() => void confirmarExclusao()} disabled={excluindo} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#B91C1C', color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', opacity: excluindo ? 0.6 : 1 }}>{excluindo ? 'Excluindo…' : 'Excluir proposta'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {erro ? (
         <div role="alert" style={{ marginTop: 16, padding: 14, border: '1px solid #B91C1C', borderRadius: 10, color: '#B91C1C', fontSize: 13 }}>
           {erro} <button onClick={carregar} style={{ marginLeft: 8, textDecoration: 'underline', background: 'none', border: 0, color: 'inherit', cursor: 'pointer' }}>Tentar de novo</button>
@@ -245,7 +281,7 @@ export default function PropostasHubPage() {
                 <th style={{ padding: '8px 12px', textAlign: 'right' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>BDI <AjudaCampo chave="projetos.propostas.bdi" /></span></th>
                 <th style={{ padding: '8px 12px', textAlign: 'right' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Total <AjudaCampo chave="projetos.propostas.col_total" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Obra <AjudaCampo chave="projetos.propostas.obra" /></span></th>
-                <th style={{ padding: '8px 12px' }} />
+                <th style={{ padding: '8px 12px', position: 'sticky', right: 0, background: '#fff', boxShadow: `-1px 0 0 ${LINE}` }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ações <AjudaCampo chave="projetos.propostas.acoes" /></span></th>
               </tr></thead>
               <tbody>
                 {vis.map(l => {
@@ -305,8 +341,15 @@ export default function PropostasHubPage() {
                           : so.tipo === 'nao_e_obra' ? <span style={{ color: MUT }}>não é obra</span>
                           : <span style={{ color: MUT }}>vira obra ao aprovar</span>}
                       </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', right: 0, background: '#fff', boxShadow: `-1px 0 0 ${LINE}` }}>
                         <Link href={`/dashboard/orcamentos?id=${l.id}`} data-testid="hub-proposta-abrir" style={{ color: GOLD, fontWeight: 600, fontSize: 12 }}>Abrir</Link>
+                        <AjudaCampo chave="projetos.propostas.editar" />
+                        {podeExcluir(l) && (
+                          <>
+                            <button data-testid="hub-proposta-excluir" onClick={() => { setExcluir(l); setMotivo(''); setMsgErro('') }} style={{ marginLeft: 10, color: '#B91C1C', fontWeight: 600, fontSize: 12, background: 'none', border: 0, cursor: 'pointer', padding: 0 }}>Excluir</button>
+                            <AjudaCampo chave="projetos.propostas.excluir" />
+                          </>
+                        )}
                       </td>
                     </tr>
                   )
