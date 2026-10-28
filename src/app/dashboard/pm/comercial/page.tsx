@@ -10,11 +10,19 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 const ESPRESSO = '#3D2314', OFFWHITE = '#FAF7F2', DOURADO = '#C8941A', BORDA = '#E7DED3', TEXTM = '#6b5444', GREEN = '#1F5A1F'
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-const ETAPAS: { v: string; l: string; cor: string }[] = [
-  { v: 'novo', l: 'Novo', cor: '#F0E9DE' }, { v: 'atendimento', l: 'Atendimento', cor: '#FFF3D6' },
-  { v: 'reuniao_agendada', l: 'Reunião', cor: '#FCE9C2' }, { v: 'entendimento', l: 'Entendimento', cor: '#FAD18A' },
-  { v: 'proposta', l: 'Proposta', cor: '#F4B860' }, { v: 'negociacao', l: 'Negociação', cor: '#E8A93A' },
-  { v: 'ganho', l: 'Ganho', cor: '#DCEFD7' }, { v: 'perdido', l: 'Perdido', cor: '#F4D6D6' },
+// O funil é CONFIGURÁVEL por empresa (funil_etapa) — a mesma fonte do quadro de Leads
+// (fn_funil_etapas_listar). A lista fixa antiga ('novo', 'atendimento', 'reuniao_agendada'…)
+// não batia com as chaves reais ('novo_atendimento', 'reuniao'…), então o maior estágio do
+// funil aparecia zerado. Carregamos as etapas reais; o fallback abaixo usa as chaves canônicas.
+const TIPO_FUNIL = 'leads'
+type Etapa = { chave: string; rotulo: string; ordem: number; cor: string | null; tipo_etapa: string }
+const ETAPAS_FALLBACK: Etapa[] = [
+  { chave: 'novo_atendimento', rotulo: 'Novo atendimento', ordem: 10, cor: '#F0E9DE', tipo_etapa: 'normal' },
+  { chave: 'reuniao', rotulo: 'Reunião', ordem: 20, cor: '#FCE9C2', tipo_etapa: 'normal' },
+  { chave: 'proposta', rotulo: 'Proposta', ordem: 30, cor: '#F4B860', tipo_etapa: 'normal' },
+  { chave: 'negociacao', rotulo: 'Negociação', ordem: 40, cor: '#E8A93A', tipo_etapa: 'normal' },
+  { chave: 'ganho', rotulo: 'Ganho', ordem: 50, cor: '#DCEFD7', tipo_etapa: 'ganho' },
+  { chave: 'perdido', rotulo: 'Perdido', ordem: 60, cor: '#F4D6D6', tipo_etapa: 'perda' },
 ]
 
 type Lead = { etapa: string; valor_estimado: number | null }
@@ -29,6 +37,7 @@ export default function HubComercialPage() {
   const [props, setProps] = useState<Prop[]>([])
   const [coms, setComs] = useState<Com[]>([])
   const [ctrs, setCtrs] = useState<Ctr[]>([])
+  const [etapas, setEtapas] = useState<Etapa[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -37,24 +46,30 @@ export default function HubComercialPage() {
     let alive = true
     void (async () => {
       setLoading(true); setErro(null)
-      const [l, p, c, ct] = await Promise.all([
+      const [l, p, c, ct, fe] = await Promise.all([
         supabase.from('agency_leads').select('etapa, valor_estimado').eq('company_id', empresa),
         supabase.from('agency_propostas').select('status, valor_final').eq('company_id', empresa),
         supabase.from('agency_comissao').select('status, valor_comissao').eq('company_id', empresa),
         supabase.from('erp_contratos').select('created_at, valor_mensal').eq('company_id', empresa).eq('tipo', 'agencia_pm'),
+        supabase.rpc('fn_funil_etapas_listar', { p_company_id: empresa, p_tipo_funil: TIPO_FUNIL }),
       ])
       if (!alive) return
       const err = l.error || p.error || c.error || ct.error
       if (err) { setErro(err.message); setLoading(false); return }
       setLeads((l.data ?? []) as Lead[]); setProps((p.data ?? []) as Prop[])
-      setComs((c.data ?? []) as Com[]); setCtrs((ct.data ?? []) as Ctr[]); setLoading(false)
+      setComs((c.data ?? []) as Com[]); setCtrs((ct.data ?? []) as Ctr[])
+      // Funil é enriquecimento: se não carregar, o fallback canônico cobre (não derruba a tela).
+      setEtapas(((fe.data ?? []) as Etapa[]).slice().sort((a, b) => a.ordem - b.ordem))
+      setLoading(false)
     })()
     return () => { alive = false }
   }, [empresa])
 
   const m = useMemo(() => {
-    const emAberto = leads.filter((x) => !['ganho', 'perdido'].includes(x.etapa))
-    const funil = ETAPAS.map((e) => ({ ...e, n: leads.filter((l) => l.etapa === e.v).length }))
+    const et = etapas.length ? etapas : ETAPAS_FALLBACK
+    const fechadas = new Set(et.filter((e) => e.tipo_etapa !== 'normal').map((e) => e.chave))
+    const emAberto = leads.filter((x) => !fechadas.has(x.etapa))
+    const funil = et.map((e) => ({ v: e.chave, l: e.rotulo, cor: e.cor ?? OFFWHITE, n: leads.filter((l) => l.etapa === e.chave).length }))
     const propAbertas = props.filter((x) => ['rascunho', 'enviada'].includes(x.status))
     const propAprov = props.filter((x) => x.status === 'aprovada')
     const conversao = props.length > 0 ? Math.round((propAprov.length / props.length) * 100) : 0
@@ -73,7 +88,7 @@ export default function HubComercialPage() {
       novosContratos: novosMes.length,
       novosContratosR: novosMes.reduce((s, c) => s + Number(c.valor_mensal ?? 0), 0),
     }
-  }, [leads, props, coms, ctrs])
+  }, [leads, props, coms, ctrs, etapas])
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
