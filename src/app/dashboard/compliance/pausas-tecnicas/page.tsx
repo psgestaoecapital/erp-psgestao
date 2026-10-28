@@ -1552,7 +1552,10 @@ function ComprovanteConferencia({ companyId, cpf, data }: { companyId: string; c
     setBusy(true); setErro('')
     try {
       const ext = (f.name.split('.').pop() || 'pdf').toLowerCase()
-      const path = `comprovante/${companyId}/${cpf}_${data}_${Date.now()}.${ext}`
+      // LGPD: o nome do objeto no Storage não leva CPF nem data (dado pessoal) — só a pasta da empresa (RLS do Storage)
+      // + um id aleatório. A ligação com o dia fica na linha RLS-protegida de nr36_releitura_anexo (company_id, cpf, data).
+      const rnd = (globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`)
+      const path = `comprovante/${companyId}/${rnd}.${ext}`
       const up = await supabase.storage.from('compliance-pausas').upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false })
       if (up.error) throw up.error
       const r = await rpc<{ ok: boolean; erro?: string }>('fn_nr36_releitura_anexar', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_arquivo_path: path, p_arquivo_nome: f.name })
