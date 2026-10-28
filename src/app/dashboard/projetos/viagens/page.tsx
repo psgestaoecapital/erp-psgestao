@@ -32,8 +32,9 @@ const campo = 'w-full rounded-lg border px-2 py-1.5 text-sm'
 const vazio = (obra: string, ini: string): LancamentoForm => ({ tipo: 'despesa', data: ini, fornecedor_nome: '', categoria: '', forma_pagamento: 'dinheiro', valor: '', obra_id: obra, pago_colaborador: true, litros: '', hodometro: '', tanque_cheio: true })
 
 export default function ViagensPage() {
-  const { companyIds } = useCompanyIds()
-  const empresa = companyIds?.[0] ?? null
+  // Empresa ESCOLHIDA no topo (não a primeira da lista): usuário com várias empresas via a da tela, como na Frota.
+  const { sel } = useCompanyIds()
+  const empresa = sel && !sel.startsWith('group_') && sel !== 'consolidado' ? sel : null
   const [viagens, setViagens] = useState<Viagem[]>([])
   const [obras, setObras] = useState<Obra[]>([])
   const [cats, setCats] = useState<Cat[]>([])
