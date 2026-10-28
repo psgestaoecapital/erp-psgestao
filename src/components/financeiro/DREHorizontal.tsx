@@ -697,9 +697,9 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime, colunas }: {
 // ── 3º nível (CEO 14/10): LANÇAMENTOS de uma conta no período (só leitura), em qualquer intervalo de meses.
 // Soma dos lançamentos fecha com a linha do DRE (reconciliação); três datas lado a lado; SEM competência em vermelho.
 type LancItem = {
-  id: string; pessoa: string; descricao: string | null; documento: string | null;
+  id: string; origem?: string; pessoa: string; descricao: string | null; documento: string | null;
   data_competencia: string | null; data_vencimento: string | null; data_pagamento: string | null;
-  valor: number; status: string | null; sem_competencia: boolean
+  valor: number; valor_exibido?: number; status: string | null; sem_competencia: boolean
 }
 type LancResult = {
   ok: boolean; erro?: string; conta_nome: string; is_receita: boolean; fonte: string; regime: string;
@@ -737,16 +737,17 @@ function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSp
   if (erro) return linhaMsg(erro, RED)
   if (!d) return linhaMsg('Sem dados.', MUT)
 
-  const rotuloPessoa = d.is_receita ? 'Cliente' : 'Fornecedor'
   const diff = Math.round((d.total - (d.dre_periodo ?? 0)) * 100) / 100
   const cel = (x: LancItem) => x.sem_competencia ? '#FCEBEB' : '#FFF'
+  const valExib = (x: LancItem) => x.valor_exibido ?? x.valor
 
   const tabela = (itens: LancItem[], vazio: string) => (
     <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8, background: '#FFF' }}>
-      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, minWidth: 760 }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, minWidth: 820 }}>
         <thead>
           <tr style={{ background: CREAM }}>
-            <th style={lthL}>{rotuloPessoa}</th>
+            <th style={lthL}>Origem</th>
+            <th style={lthL}>Fornecedor / Cliente</th>
             <th style={lthL}>Descrição</th>
             <th style={lthL}>Documento</th>
             <th style={lthC}>Competência<AjudaCampo chave="financeiro.dre_consolidado.data_competencia" rota={ROTA_DRE} /></th>
@@ -758,9 +759,10 @@ function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSp
         </thead>
         <tbody>
           {itens.length === 0 ? (
-            <tr><td colSpan={8} style={{ padding: '10px 12px', color: MUT }}>{vazio}</td></tr>
+            <tr><td colSpan={9} style={{ padding: '10px 12px', color: MUT }}>{vazio}</td></tr>
           ) : itens.map((x) => (
             <tr key={x.id} style={{ borderTop: `0.5px solid ${LINE}`, background: cel(x) }}>
+              <td style={ltd}>{x.origem === 'a receber' ? 'A receber' : x.origem === 'a pagar' ? 'A pagar' : '—'}</td>
               <td style={ltd} title={x.pessoa}>{x.pessoa}</td>
               <td style={ltd} title={x.descricao ?? ''}>{x.descricao ?? '—'}</td>
               <td style={ltd}>{x.documento ?? '—'}</td>
@@ -771,7 +773,7 @@ function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSp
               </td>
               <td style={ltdC}>{fmtData(x.data_vencimento)}</td>
               <td style={ltdC}>{fmtData(x.data_pagamento)}</td>
-              <td style={{ ...ltd, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: 600 }}>{cheio(x.valor)}</td>
+              <td style={{ ...ltd, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: 600, color: valExib(x) < 0 ? COR_VALOR_NEGATIVO : ESP }}>{cheio(valExib(x))}</td>
               <td style={ltd}>{x.status ?? '—'}</td>
             </tr>
           ))}
@@ -789,7 +791,7 @@ function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSp
             <AjudaCampo chave="financeiro.dre_consolidado.drill_lancamentos" rota={ROTA_DRE} />
             {Math.abs(diff) < 0.01
               ? <span style={{ color: GREEN, marginLeft: 6, fontWeight: 700 }}>✓ fecha com o DRE</span>
-              : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ difere do DRE ({cheio(d.dre_periodo ?? 0)}) em {cheio(diff)} — há título fora do de-para</span>}
+              : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ não bate com o DRE ({cheio(d.dre_periodo ?? 0)}): diferença de {cheio(diff)}. Revise títulos sem categoria ou sem a data do regime, ou recalcule o DRE.</span>}
           </div>
           {tabela(d.lancamentos, 'Nenhum lançamento desta conta no período.')}
           {d.orfaos.length > 0 && (
