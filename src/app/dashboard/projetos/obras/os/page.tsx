@@ -56,6 +56,7 @@ export default function OSObraPage() {
   const [erro, setErro] = useState('')
   const [fObra, setFObra] = useState('')
   const [fStatus, setFStatus] = useState<'andamento' | 'concluida' | 'cancelada' | 'todas'>('andamento')
+  const [fResp, setFResp] = useState('')
   const [aberto, setAberto] = useState(false)
   const [f, setF] = useState({ ...VAZIO })
   const [etapas, setEtapas] = useState<Etapa[]>([])
@@ -108,6 +109,12 @@ export default function OSObraPage() {
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
 
+  // Vindo do cockpit da obra ("Ordens de serviço →"): abre a lista já filtrada nesta obra (?obra=<id>).
+  useEffect(() => {
+    const o = new URLSearchParams(window.location.search).get('obra')
+    if (o) setFObra(o)
+  }, [])
+
   // etapas (cronograma) e serviços (itens contratados) da obra escolhida no formulário
   useEffect(() => {
     if (!f.obra_id) { setEtapas([]); setServicos([]); return }
@@ -119,8 +126,10 @@ export default function OSObraPage() {
     return () => { vivo = false }
   }, [f.obra_id])
 
-  const visiveis = useMemo(() => lista.filter(o => (!fObra || o.obra_id === fObra) && (
-    fStatus === 'todas' || (fStatus === 'andamento' ? (o.status === 'aberta' || o.status === 'em_execucao') : o.status === fStatus))), [lista, fObra, fStatus])
+  // Responsáveis que aparecem nas OS carregadas — alimenta o filtro por responsável (quem toca a OS no canteiro).
+  const responsaveis = useMemo(() => Array.from(new Set(lista.map(o => o.responsavel).filter((x): x is string => !!x))).sort((a, b) => a.localeCompare(b, 'pt-BR')), [lista])
+  const visiveis = useMemo(() => lista.filter(o => (!fObra || o.obra_id === fObra) && (!fResp || o.responsavel === fResp) && (
+    fStatus === 'todas' || (fStatus === 'andamento' ? (o.status === 'aberta' || o.status === 'em_execucao') : o.status === fStatus))), [lista, fObra, fStatus, fResp])
 
   // obra de OS em edição pode já ter saído da lista (concluída): entra só no formulário
   const obrasForm = useMemo(() => {
@@ -250,6 +259,15 @@ export default function OSObraPage() {
               <option value="todas">Todas</option>
             </select>
           </label>
+          {responsaveis.length > 0 && (
+            <label style={lab}>
+              <span style={rot}>Responsável <AjudaCampo chave="projetos.os_obra.filtro_responsavel" /></span>
+              <select value={fResp} onChange={e => setFResp(e.target.value)} style={inp} data-testid="os-obra-filtro-responsavel">
+                <option value="">Todos os responsáveis</option>
+                {responsaveis.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button type="button" onClick={novo} style={{ ...btn(ESP, '#fff'), flex: 1 }} data-testid="os-obra-nova">+ Nova OS</button>
             <AjudaCampo chave="projetos.os_obra.nova" />
@@ -321,7 +339,7 @@ export default function OSObraPage() {
         {!loading && visiveis.length > 0 && (
           <>
             <div style={{ ...rot, fontSize: 13, color: MUT, margin: '0 0 8px' }}>
-              {visiveis.length} OS · Avançar a OS <AjudaCampo chave="projetos.os_obra.acoes" />
+              {visiveis.length === lista.length ? `${lista.length} OS` : `mostrando ${visiveis.length} de ${lista.length} OS`} · Avançar a OS <AjudaCampo chave="projetos.os_obra.acoes" />
             </div>
             <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))' }} data-testid="os-obra-lista">
               {visiveis.map(o => {

@@ -921,8 +921,11 @@ export default function InsumosPage() {
             </label>
             <ul className="mb-4 divide-y divide-[#3D2314]/8 rounded-lg border border-[#3D2314]/8">
               {buscandoGE && <li className="p-3 text-sm text-[#3D2314]/60">Buscando…</li>}
+              {!buscandoGE && buscaGE.trim().length < 2 && produtosGE.length === 0 && (
+                <li className="p-3 text-sm text-[#3D2314]/60">Digite o nome ou o código de um produto do estoque do GE para ligar. Se o estoque ainda não tem produtos cadastrados, cadastre-os no GE (Estoque) — o custo real virá de lá.</li>
+              )}
               {!buscandoGE && buscaGE.trim().length >= 2 && produtosGE.length === 0 && (
-                <li className="p-3 text-sm text-[#3D2314]/60">Nenhum produto encontrado no estoque.</li>
+                <li className="p-3 text-sm text-[#3D2314]/60">Nenhum produto do estoque bate com esse termo. Confira o cadastro no GE (Estoque) ou tente outro nome/código.</li>
               )}
               {produtosGE.map((p) => (
                 <li key={p.id}>

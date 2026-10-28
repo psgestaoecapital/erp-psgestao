@@ -54,6 +54,20 @@ const fmtDT = (s: string | null) =>
 type Filtro = 'todas' | 'agendada' | 'realizada' | 'cancelada' | 'proximas' | 'atrasadas' | 'mes' | 'sem_orcamento'
 const DIA = 86_400_000
 
+// Estado-vazio honesto por recorte: diz o que aquele filtro não encontrou (e enquadra o "bom" como bom), em vez do genérico.
+const MSG_VAZIO: Record<Filtro, string> = {
+  todas: 'Nenhuma visita encontrada.',
+  agendada: 'Nenhuma visita agendada no momento.',
+  realizada: 'Nenhuma visita realizada ainda.',
+  cancelada: 'Nenhuma visita cancelada.',
+  proximas: 'Nenhuma visita nos próximos 7 dias.',
+  atrasadas: 'Nenhuma visita passou da data — está tudo em dia.',
+  mes: 'Nenhuma visita realizada neste mês ainda.',
+  sem_orcamento: 'Toda visita realizada já virou orçamento — nenhuma pendente.',
+}
+const vazioRecorte = (f: Filtro, temBusca: boolean) =>
+  temBusca ? 'Nenhuma visita bate com a busca. Limpe a busca ou mude o filtro.' : (MSG_VAZIO[f] ?? 'Nenhuma visita neste recorte.')
+
 // Orçamento da visita: o gerado a partir dela ou, na falta, o da oportunidade (mesma regra da ficha da oportunidade).
 const orcamentoDa = (r: Row) => r.gerou_orcamento_id ?? r.erp_crm_oportunidade?.orcamento_id ?? null
 const atrasada = (r: Row, agora: number) => r.status === 'agendada' && !!r.data_visita && new Date(r.data_visita).getTime() < agora
@@ -351,7 +365,12 @@ export default function VisitasPage() {
               <p className="text-sm opacity-70">Clique em &ldquo;+ Nova visita&rdquo; para registrar.</p>
             </>
           ) : (
-            <p className="font-medium">Nenhuma visita neste recorte. Mude o filtro ou limpe a busca.</p>
+            <>
+              <p className="font-medium" data-testid="visitas-vazio-recorte">{vazioRecorte(filtroStatus, !!busca.trim())}</p>
+              {filtroStatus !== 'todas' && (
+                <button onClick={() => setFiltroStatus('todas')} className="text-sm underline mt-1" style={{ color: DOURADO }}>Ver todas as visitas</button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -383,16 +402,14 @@ export default function VisitasPage() {
             >
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
-                  <div className="font-semibold" style={{ color: ESPRESSO }}>{fmtDT(r.data_visita)}</div>
-                  {op && (
-                    <div className="text-sm break-words" style={{ color: TEXTM }}>
-                      <Link href={`/dashboard/projetos/oportunidades/${op.id}`} style={{ color: DOURADO, textDecoration: 'underline' }}>
-                        {op.titulo}
-                      </Link>
-                      {cliNome && <span> · {cliNome}</span>}
-                    </div>
-                  )}
-                  {r.endereco && <div className="text-xs break-words" style={{ color: TEXTM }}>{r.endereco}</div>}
+                  <div className="font-semibold break-words leading-snug" style={{ color: ESPRESSO }}>
+                    {cliNome ?? op?.titulo ?? 'Visita avulsa'}
+                  </div>
+                  {op && cliNome && <div className="text-sm break-words" style={{ color: TEXTM }}>{op.titulo}</div>}
+                  <div className="text-xs mt-0.5 break-words" style={{ color: TEXTM }}>
+                    {fmtDT(r.data_visita)}
+                    {r.endereco && <> · {r.endereco}</>}
+                  </div>
                 </div>
                 <span className="text-[11px] px-2 py-1 rounded-full font-medium" style={{ background: cfg.bg, color: cfg.fg }}>
                   {cfg.l}

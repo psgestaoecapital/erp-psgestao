@@ -61,14 +61,20 @@ export default function CockpitEscolherObraPage() {
         )
         if (!vivo) return
         if (error) { setErro(error.message); return }
-        const lista = (data ?? []) as ObraLinha[]
-        if (lista.length === 1) { router.replace(`/dashboard/projetos/obras/${lista[0].obra_id}/cockpit?area=hub`); return }
-        setObras(lista)
+        let lista = (data ?? []) as ObraLinha[]
+        // obra excluída (soft-delete, deleted_at) não aparece; se a consulta de apoio falhar, mantém a lista como veio
         const ids = lista.map(o => o.obra_id)
         if (ids.length) {
-          const r = await supabase.from('projetos_obras').select('id,cliente_nome,cidade,pct_conclusao,data_prevista_fim').in('id', ids)
-          if (vivo && !r.error) setInfo(Object.fromEntries(((r.data ?? []) as ObraInfo[]).map(x => [x.id, x])))
+          const r = await supabase.from('projetos_obras').select('id,cliente_nome,cidade,pct_conclusao,data_prevista_fim').in('id', ids).is('deleted_at', null)
+          if (!vivo) return
+          if (!r.error) {
+            const vivas = Object.fromEntries(((r.data ?? []) as ObraInfo[]).map(x => [x.id, x]))
+            lista = lista.filter(o => vivas[o.obra_id])
+            setInfo(vivas)
+          }
         }
+        if (lista.length === 1) { router.replace(`/dashboard/projetos/obras/${lista[0].obra_id}/cockpit?area=hub`); return }
+        setObras(lista)
       } catch { if (vivo) setErro(MSG_CARREGAMENTO_FALHOU) } finally { if (vivo) setLoading(false) }
     })()
     return () => { vivo = false }
@@ -107,12 +113,21 @@ export default function CockpitEscolherObraPage() {
 
   return (
     <div style={{ background: BG, padding: '20px 24px', color: ESP }} data-testid="cockpit-escolher">
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Cockpit da obra <AjudaCampo chave="projetos.cockpit.escolher_obra" rota={ROTA} /></h1>
-      <p style={{ color: MUT, fontSize: 13, margin: '4px 0 16px' }}>Veja avanço, custo, margem e prazo de todas as obras e abra o cockpit completo de uma delas.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Cockpit da obra <AjudaCampo chave="projetos.cockpit.escolher_obra" rota={ROTA} /></h1>
+          <p style={{ color: MUT, fontSize: 13, margin: '4px 0 16px' }}>Veja avanço, custo, margem e prazo de todas as obras e abra o cockpit completo de uma delas.</p>
+        </div>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Link href="/dashboard/projetos/obras/nova?area=hub" data-testid="cockpit-nova-obra"
+            style={{ background: ESP, color: BG, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>+ Nova obra</Link>
+          <AjudaCampo chave="projetos.cockpit.nova_obra" rota={ROTA} />
+        </span>
+      </div>
       {loading && <div style={{ color: MUT }}>Carregando…</div>}
       {erro && <div style={{ background: '#FBEAEA', color: '#B91C1C', borderRadius: 8, padding: '8px 10px', fontSize: 13 }}>{erro}</div>}
       {!loading && !erro && obras.length === 0 && (
-        <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra ainda. Aprove um orçamento para criar a primeira obra em <Link href="/dashboard/projetos/obras?area=hub" style={{ color: ESP, textDecoration: 'underline' }}>Obras</Link>.</div>
+        <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra ainda. Crie uma agora em <Link href="/dashboard/projetos/obras/nova?area=hub" style={{ color: ESP, textDecoration: 'underline' }}>Nova obra</Link> ou aprove um orçamento em <Link href="/dashboard/projetos/obras?area=hub" style={{ color: ESP, textDecoration: 'underline' }}>Obras</Link>.</div>
       )}
       {obras.length > 0 && (
         <>
@@ -169,13 +184,15 @@ export default function CockpitEscolherObraPage() {
                 <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, color: st.cor, background: st.fundo, border: `1.5px solid ${st.cor}`, borderRadius: 999, padding: '2px 9px' }}>{st.rotulo}</span>
               </div>
               <div style={{ fontSize: 13, color: MUT, marginTop: 2 }}>{o.nome || 'Sem nome'}{i?.cliente_nome ? ` · ${i.cliente_nome}` : ''}</div>
+            </Link>
+              {/* Os campos com "?" (RD-95) ficam FORA do <Link>: o AjudaCampo faz preventDefault/stopPropagation; no card estreito do celular o toque no centro do link caía no "?" do Custo e abria a ajuda em vez de navegar (@pos vermelho pós #3396). O link cobre o cabeçalho (código + nome), que não tem "?", então o toque sempre abre o cockpit. */}
               <div style={{ marginTop: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUT }}><span>Avanço <AjudaCampo chave="projetos.cockpit.avanco" rota={ROTA} /></span><span>{pct.toFixed(0)}%</span></div>
                 <div style={{ height: 6, background: LINE, borderRadius: 999, marginTop: 3 }}><div style={{ width: `${pct}%`, height: '100%', background: GOLD, borderRadius: 999 }} /></div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 10, fontSize: 12 }}>
                 <div><div style={{ color: MUT, fontSize: 11 }}>Receita <AjudaCampo chave="projetos.cockpit.card_receita" rota={ROTA} /></div><b>{brl(receita)}</b></div>
-                <div><div style={{ color: MUT, fontSize: 11 }}>Custo <AjudaCampo chave="projetos.cockpit.card_custo" rota={ROTA} /></div><b>{brl(custo)}</b></div>
+                <div><div style={{ color: MUT, fontSize: 11 }}>Custo <AjudaCampo chave="projetos.cockpit.card_custo" rota={ROTA} /></div>{custo > 0 ? <b>{brl(custo)}</b> : <b style={{ color: MUT }} title="Nenhum custo de material, viagem, mão de obra ou rateio foi lançado nesta obra ainda — não é custo zero." data-testid="cockpit-sem-custo">Sem custo lançado</b>}</div>
                 <div><div style={{ color: MUT, fontSize: 11 }}>Margem <AjudaCampo chave="projetos.cockpit.card_margem" rota={ROTA} /></div>{temMedicao
                   ? <b style={{ color: margem < 0 ? '#B91C1C' : '#15803D' }}>{brl(margem)}</b>
                   : <b style={{ color: MUT }} title="Sem medição lançada a margem ainda não existe — não é prejuízo." data-testid="cockpit-sem-medicao">Sem medição</b>}</div>
@@ -189,7 +206,6 @@ export default function CockpitEscolherObraPage() {
                   <AjudaCampo chave="projetos.cockpit.card_pendencias" rota={ROTA} />
                 </div>
               )}
-            </Link>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: `1px solid ${LINE}` }} data-testid="cockpit-atalhos">
                 {ATALHOS.map(a => (
                   <Link key={a.rota} href={`/dashboard/projetos/obras/${o.obra_id}/${a.rota}?area=hub`}
