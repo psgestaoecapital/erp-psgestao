@@ -15,6 +15,7 @@ import { reguaDe, textoRegua, mmss, motivoRegua, type Regua } from '@/lib/ponto/
 import { rotuloPendente, explicaPendente } from '@/lib/ponto/motivoPendente'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
+import { cpfValido } from '@/lib/documentos/cpf'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
 import { Timer, Snowflake, ClipboardList, ClipboardCheck, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
@@ -1107,21 +1108,37 @@ const parseDataH = (s: string): string | null => { const b = txt(s).split(' - ')
 const parseDataHoraH = (s: string): string | null => { const m = /^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(txt(s)); return m ? `${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6] ?? '00'}-03:00` : null }
 const parseDurH = (s: string): number | null => { const m = /^(\d+):(\d{2}):(\d{2})$/.exec(txt(s)); return m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : null }
 
+// #3931 · a IOPoint passou a emitir o nome do colaborador com o CPF ao lado (ex.: "ANDERSON SOUZA 123.456.789-00"
+// ou "123.456.789-00 - ANDERSON SOUZA"). Extrai o CPF — só quando os 11 dígitos formam um CPF VÁLIDO, para não
+// confundir com matrícula/PIS — e devolve o nome limpo. Assim o colaborador casa pelo CPF (não só pelo nome) e o
+// relatório, que antes rejeitava essas linhas (nome não casava), passa a ser aceito.
+const CPF_EMBUTIDO = /(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/
+function extrairCpfNome(raw: string): { cpf: string; nome: string } {
+  const s = txt(raw)
+  const m = s.match(CPF_EMBUTIDO)
+  if (m && cpfValido(m[1])) {
+    const nome = s.replace(m[1], '').replace(/[·,\-–—]+/g, ' ').replace(/\s+/g, ' ').trim()
+    return { cpf: m[1].replace(/\D/g, ''), nome: nome || s }
+  }
+  return { cpf: '', nome: s }
+}
+
 function parseHierarquico(rows: string[][]): { linhas: LinhaImport[]; descartadas: number } {
   let pessoa: string | null = null
+  let pessoaCpf = ''
   const linhas: LinhaImport[] = []
   let descartadas = 0
   for (const raw of rows) {
     const r = [...raw, '', '', '', '', '', ''].slice(0, 6)
     const c0 = txt(r[0]), c1 = txt(r[1])
-    if (c0 && c1.toLowerCase() === 'data') { pessoa = c0; continue }          // cabeçalho de bloco
+    if (c0 && c1.toLowerCase() === 'data') { const e = extrairCpfNome(c0); pessoa = e.nome; pessoaCpf = e.cpf; continue } // cabeçalho de bloco
     if (IGNORAR_H.some(p => c0.toLowerCase().startsWith(p))) continue          // ruído
     const data = parseDataH(c1)
     if (!c0 && data) {                                                        // evento
       const inicio = parseDataHoraH(r[3])
       const fim = ABERTO_H.has(txt(r[4])) ? null : parseDataHoraH(r[4])       // pausa em aberto → null (nunca zerar)
       if (!pessoa || !inicio) { descartadas++; continue }
-      linhas.push({ cpf: '', data, inicio, fim, duracao_seg: parseDurH(r[5]), tipo: 'termica_253', _nome: pessoa })
+      linhas.push({ cpf: pessoaCpf, data, inicio, fim, duracao_seg: parseDurH(r[5]), tipo: 'termica_253', _nome: pessoa })
       continue
     }
     if (c0 || c1) descartadas++
@@ -1150,8 +1167,10 @@ function parseTabular(rows: string[][]): LinhaImport[] {
   const headers = rows[0].map(norm)
   const objs = rows.slice(1).map(vals => { const o: Record<string, string> = {}; headers.forEach((h, i) => { if (h) o[h] = vals[i] ?? '' }); return o }).filter(o => Object.values(o).some(v => v))
   return objs.map(o => {
-    const cpf = pick(o, ['cpf']).replace(/\D/g, '')
-    const nome = pick(o, ['nome', 'colaborador', 'funcionario', 'func', 'nome_colaborador'])
+    // #3931 · o nome pode vir com o CPF ao lado; extrai e limpa (vale também sem coluna de CPF própria)
+    const ex = extrairCpfNome(pick(o, ['nome', 'colaborador', 'funcionario', 'func', 'nome_colaborador']))
+    const cpf = pick(o, ['cpf']).replace(/\D/g, '') || ex.cpf
+    const nome = ex.nome
     const data = toISODate(pick(o, ['data', 'dia', 'data_pausa', 'data_movto', 'competencia']))
     const inicio = toTS(data, pick(o, ['inicio', 'entrada', 'hora_inicio', 'inicio_pausa', 'ini', 'hora_entrada']))
     const fimRaw = pick(o, ['fim', 'saida', 'hora_fim', 'fim_pausa', 'hora_saida'])
