@@ -19,10 +19,14 @@ type Resultado = {
   custo_material: number; custo_viagens: number; margem_realizada: number
   custo_mao_obra: number; custo_rateio: number; margem_alocada: number
 }
+// Contexto da obra (avanço físico, prazo, cliente) — vem de projetos_obras, não da view de resultado financeiro.
+type ObraInfo = { pct_conclusao: number | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null }
+type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null }
 
 export default function CockpitObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [r, setR] = useState<Resultado | null>(null)
+  const [info, setInfo] = useState<ObraInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -45,6 +49,10 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
       return
     }
     setR(data as Resultado)
+    // Contexto da obra (avanço físico, prazo, cliente) — leitura separada de projetos_obras; se falhar, os cards
+    // financeiros seguem aparecendo (não trava a tela).
+    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_prevista_fim,cliente_nome,cidade').eq('id', id).maybeSingle()
+    if (oi) setInfo(oi as ObraInfo)
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -52,15 +60,30 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const custo = r ? Number(r.custo_material) + Number(r.custo_viagens) + Number(r.custo_mao_obra ?? 0) + Number(r.custo_rateio ?? 0) : 0
   const margem = r ? Number(r.margem_alocada ?? r.margem_realizada) : 0
   const margemPct = receita > 0 ? (margem / receita) * 100 : null
-  const avancoPct = r && Number(r.receita_prevista) > 0 ? Math.min(100, (Number(r.receita_servico) / Number(r.receita_prevista)) * 100) : null
+  // Avanço financeiro = receita já realizada (serviço medido + material vendido à obra) sobre a receita prevista.
+  // Usa a receita realizada total — a mesma do card "Receita realizada" — para não contradizer a própria tela quando a
+  // receita vem por venda de material (ex.: obra sem NFS-e de medição ainda lançada). Teto 100%.
+  const avancoPct = r && Number(r.receita_prevista) > 0 ? Math.min(100, (receita / Number(r.receita_prevista)) * 100) : null
   const custoPrevisto = r ? Number(r.custo_previsto) : 0
   const estouro = custoPrevisto > 0 && custo > custoPrevisto
+  // Avanço físico = execução em campo (pct_conclusao do cronograma/medição). Distinto do avanço financeiro (receita realizada).
+  const fisicoPct = info && info.pct_conclusao != null ? Math.max(0, Math.min(100, Number(info.pct_conclusao))) : null
+  // Prazo: dias até a data prevista de término; vencido só vale enquanto a obra não foi concluída.
+  const hoje = new Date().toISOString().slice(0, 10)
+  const prazo = info?.data_prevista_fim ?? null
+  const prazoVencido = !!prazo && prazo < hoje && r?.status === 'em_andamento'
+  const prazoBR = prazo ? new Date(prazo + 'T12:00:00').toLocaleDateString('pt-BR') : null
+  const diasRestantes = prazo ? Math.round((new Date(prazo + 'T12:00:00').getTime() - new Date(hoje + 'T12:00:00').getTime()) / 86400000) : null
+  const prazoSub = prazo == null ? 'Sem data prevista'
+    : prazoVencido ? 'Vencido' : diasRestantes === 0 ? 'Entrega hoje' : (diasRestantes ?? 0) > 0 ? `Faltam ${diasRestantes} dia(s)` : `${Math.abs(diasRestantes ?? 0)} dia(s) atrás`
 
-  const cards = r ? [
+  const cards: Card[] = r ? [
     { k: 'receita', ajuda: 'projetos.cockpit.receita', l: 'Receita realizada', v: brl(receita), sub: `Serviço ${brl(r.receita_servico)} · Material ${brl(r.receita_material)}` },
     { k: 'custo', ajuda: 'projetos.cockpit.custo', l: 'Custo realizado', v: brl(custo), sub: `Material ${brl(r.custo_material)} · Viagens ${brl(r.custo_viagens)} · Mão de obra ${brl(r.custo_mao_obra)} · Rateio ${brl(r.custo_rateio)}`, cor: estouro ? VERM : undefined },
     { k: 'margem', ajuda: 'projetos.cockpit.margem', l: 'Margem', v: brl(margem), sub: margemPct == null ? 'Sem receita ainda' : `${margemPct.toFixed(1)}% da receita`, cor: margem < 0 ? VERM : VERDE },
-    { k: 'avanco', ajuda: 'projetos.cockpit.avanco', l: 'Avanço financeiro', v: avancoPct == null ? '—' : `${avancoPct.toFixed(0)}%`, sub: `Medido ${brl(r.receita_servico)} de ${brl(r.receita_prevista)}` },
+    { k: 'avanco_fisico', ajuda: 'projetos.cockpit.avanco_fisico', l: 'Avanço físico', v: fisicoPct == null ? '—' : `${fisicoPct.toFixed(0)}%`, sub: fisicoPct == null ? 'Lance o % no cronograma' : 'Execução em campo', bar: fisicoPct },
+    { k: 'avanco', ajuda: 'projetos.cockpit.avanco', l: 'Avanço financeiro', v: avancoPct == null ? '—' : `${avancoPct.toFixed(0)}%`, sub: `Realizado ${brl(receita)} de ${brl(r.receita_prevista)}`, bar: avancoPct },
+    { k: 'prazo', ajuda: 'projetos.cockpit.prazo', l: 'Prazo', v: prazoBR ?? '—', sub: prazoSub, cor: prazoVencido ? VERM : undefined },
   ] : []
 
   const pendencias: string[] = []
@@ -68,6 +91,13 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     if (Number(r.receita_prevista) === 0) pendencias.push('Obra sem itens contratados — cadastre o orçamento para medir o avanço.')
     if (estouro) pendencias.push(`Custo realizado acima do previsto (${brl(custo)} de ${brl(custoPrevisto)}).`)
     if (margem < 0) pendencias.push('Margem negativa — revise custos lançados.')
+    if (prazoVencido) pendencias.push(`Prazo vencido em ${prazoBR} — replaneje a entrega ou ajuste a data.`)
+    // Desvio físico × financeiro: alerta só quando a diferença é relevante (≥ 15 pontos) e há os dois números.
+    if (fisicoPct != null && avancoPct != null && Math.abs(fisicoPct - avancoPct) >= 15) {
+      pendencias.push(fisicoPct > avancoPct
+        ? `Execução à frente do faturamento (físico ${fisicoPct.toFixed(0)}% × financeiro ${avancoPct.toFixed(0)}%) — há medição a lançar.`
+        : `Faturamento à frente da execução (financeiro ${avancoPct.toFixed(0)}% × físico ${fisicoPct.toFixed(0)}%) — confira o avanço em campo.`)
+    }
   }
 
   return (
@@ -75,9 +105,13 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
       <div style={{ maxWidth: 820, margin: '0 auto' }} data-testid="hub-cockpit-obra">
         <Link href="/dashboard/projetos/obras?area=hub" style={{ fontSize: 12, color: GOLD, textDecoration: 'none', fontWeight: 600 }}>← Obras</Link>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 8 }}>Hub · Obra</div>
-        <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, color: ESP, margin: '2px 0 12px' }}>
+        <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, color: ESP, margin: '2px 0 2px' }}>
           Cockpit {r ? `· ${r.numero}${r.nome ? ` — ${r.nome}` : ''}` : ''}
         </h1>
+        {r && (info?.cliente_nome || info?.cidade) && (
+          <div style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>{[info?.cliente_nome, info?.cidade].filter(Boolean).join(' · ')}</div>
+        )}
+        {r && !(info?.cliente_nome || info?.cidade) && <div style={{ margin: '0 0 12px' }} />}
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div>
           : erro ? (
             <div data-testid="cockpit-erro" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 14, padding: '32px 24px', textAlign: 'center', maxWidth: 440, margin: '20px auto 0' }}>
@@ -93,6 +127,11 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                   <div key={c.k} data-testid={`cockpit-${c.k}`} style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
                     <div style={{ fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>{c.l} <AjudaCampo chave={c.ajuda} rota={ROTA} /></div>
                     <div style={{ fontSize: 22, fontWeight: 700, color: c.cor ?? ESP, margin: '4px 0' }}>{c.v}</div>
+                    {c.bar != null && (
+                      <div style={{ height: 6, background: LINE, borderRadius: 999, margin: '2px 0 6px' }}>
+                        <div style={{ width: `${Math.max(0, Math.min(100, c.bar))}%`, height: '100%', background: GOLD, borderRadius: 999 }} />
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: MUT }}>{c.sub}</div>
                   </div>
                 ))}

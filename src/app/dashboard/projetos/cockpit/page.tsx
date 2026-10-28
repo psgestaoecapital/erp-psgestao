@@ -107,12 +107,21 @@ export default function CockpitEscolherObraPage() {
 
   return (
     <div style={{ background: BG, padding: '20px 24px', color: ESP }} data-testid="cockpit-escolher">
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Cockpit da obra <AjudaCampo chave="projetos.cockpit.escolher_obra" rota={ROTA} /></h1>
-      <p style={{ color: MUT, fontSize: 13, margin: '4px 0 16px' }}>Veja avanço, custo, margem e prazo de todas as obras e abra o cockpit completo de uma delas.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Cockpit da obra <AjudaCampo chave="projetos.cockpit.escolher_obra" rota={ROTA} /></h1>
+          <p style={{ color: MUT, fontSize: 13, margin: '4px 0 16px' }}>Veja avanço, custo, margem e prazo de todas as obras e abra o cockpit completo de uma delas.</p>
+        </div>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Link href="/dashboard/projetos/obras/nova?area=hub" data-testid="cockpit-nova-obra"
+            style={{ background: ESP, color: BG, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>+ Nova obra</Link>
+          <AjudaCampo chave="projetos.cockpit.nova_obra" rota={ROTA} />
+        </span>
+      </div>
       {loading && <div style={{ color: MUT }}>Carregando…</div>}
       {erro && <div style={{ background: '#FBEAEA', color: '#B91C1C', borderRadius: 8, padding: '8px 10px', fontSize: 13 }}>{erro}</div>}
       {!loading && !erro && obras.length === 0 && (
-        <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra ainda. Aprove um orçamento para criar a primeira obra em <Link href="/dashboard/projetos/obras?area=hub" style={{ color: ESP, textDecoration: 'underline' }}>Obras</Link>.</div>
+        <div style={{ color: MUT, fontSize: 14 }}>Nenhuma obra ainda. Crie uma agora em <Link href="/dashboard/projetos/obras/nova?area=hub" style={{ color: ESP, textDecoration: 'underline' }}>Nova obra</Link> ou aprove um orçamento em <Link href="/dashboard/projetos/obras?area=hub" style={{ color: ESP, textDecoration: 'underline' }}>Obras</Link>.</div>
       )}
       {obras.length > 0 && (
         <>
