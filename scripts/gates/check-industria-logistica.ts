@@ -16,7 +16,7 @@ let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 const ler = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8') : '')
 
-const MIG = 'supabase/migrations/20261029200100_industria_logistica_frota_viagens.sql'
+const MIG = 'supabase/migrations/20261029220100_industria_logistica_frota_viagens.sql'
 const ROTA_FROTA = 'src/app/dashboard/industrial/logistica/frota/page.tsx'
 const ROTA_VIAGENS = 'src/app/dashboard/industrial/logistica/viagens/page.tsx'
 const HUB_FROTA = 'src/app/dashboard/projetos/frota/page.tsx'
