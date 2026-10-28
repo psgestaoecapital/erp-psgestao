@@ -40,6 +40,8 @@ interface ProviderConfig {
   agencia: string | null
   agencia_dv: string | null
   carteira: string | null
+  variacao_carteira?: string | null   // #5404: BB Cobrança v2 (por ambiente)
+  modalidade?: number | null
   cap_boleto: boolean | null
   boleto_responsavel: boolean | null   // #1673: banco responsável pelos boletos da empresa
   cap_extrato: boolean | null
@@ -203,7 +205,7 @@ export default function ConexoesBancariasPage() {
     setLoading(true); setErro(null)
     const [cfgRes, contasRes, testesRes, catRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
-        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, boleto_responsavel, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, juros_pct, multa_pct, dias_multa, dias_juros, instrucao_linha1, instrucao_linha2, instrucao_linha3, instrucao_linha4, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, variacao_carteira, modalidade, cap_boleto, boleto_responsavel, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, juros_pct, multa_pct, dias_multa, dias_juros, instrucao_linha1, instrucao_linha2, instrucao_linha3, instrucao_linha4, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
         .eq('company_id', empresaUnica)
         .order('provider'),
       supabase.from('erp_banco_contas')
@@ -739,16 +741,23 @@ function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
     cooperativa: cfg.cooperativa ?? '', agencia: cfg.agencia ?? '', agencia_dv: cfg.agencia_dv ?? '',
     posto: cfg.posto ?? '', conta: cfg.conta ?? '', codigo_beneficiario: cfg.codigo_beneficiario ?? '',
     convenio: cfg.convenio ?? '', carteira: cfg.carteira ?? '',
+    variacao_carteira: cfg.variacao_carteira ?? '', modalidade: cfg.modalidade ? String(cfg.modalidade) : '',
   })
+  const ehBb = cfg.provider.includes('bb')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }))
 
   async function salvar() {
     setSalvando(true); setErro(null)
-    const { data, error } = await supabase.rpc('fn_banco_config_salvar_cnab', {
-      p_company_id: companyId, p_config_id: cfg.id, p_dados: f,
-    })
+    // BB (#5404): convênio/carteira/variação/modalidade da linha DESTE ambiente (nunca toca o outro); carteira só o número.
+    let { data, error } = await supabase.rpc('fn_banco_config_salvar_cnab', { p_company_id: companyId, p_config_id: cfg.id, p_dados: f })
+    if (!error && (data as { ok?: boolean })?.ok !== false && ehBb) {
+      ;({ data, error } = await supabase.rpc('fn_banco_config_salvar_bb_cobranca', {
+        p_company_id: companyId, p_config_id: cfg.id, p_convenio: f.convenio, p_carteira: f.carteira,
+        p_variacao: f.variacao_carteira, p_modalidade: f.modalidade ? Number(f.modalidade) : null,
+      }))
+    }
     setSalvando(false)
     if (error || (data as { ok?: boolean })?.ok === false) { setErro(error?.message || (data as { erro?: string })?.erro || 'falha ao salvar'); return }
     onSucesso()
@@ -771,6 +780,12 @@ function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
         <div style={{ fontSize: 12, color: ESP60, margin: '2px 0 14px' }}>
           Ambiente <b style={{ textTransform: 'uppercase' }}>{cfg.ambiente}</b> · identidade do arquivo de remessa. As credenciais (Vault) não são tocadas aqui.
         </div>
+        {ehBb && (
+          <div data-testid="bb-ambiente-em-uso" style={{ margin: '-6px 0 12px', padding: '8px 10px', borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+            background: cfg.ambiente === 'producao' ? '#FEE2E2' : '#FEF3C7', color: cfg.ambiente === 'producao' ? '#991B1B' : '#92400E' }}>
+            {cfg.ambiente === 'producao' ? 'PRODUÇÃO — o boleto emitido é REAL.' : 'HOMOLOGAÇÃO — o boleto emitido é só de TESTE.'} <AjudaCampo chave="banco.ambiente_em_uso" />
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {campo('cooperativa', 'Cooperativa')}
           {campo('posto', 'Posto')}
@@ -779,7 +794,21 @@ function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
           {campo('conta', 'Conta')}
           {campo('codigo_beneficiario', 'Código do beneficiário')}
           {campo('convenio', 'Convênio', 'O código que o banco exige no arquivo CNAB (confira no internet banking do banco).', true)}
-          {campo('carteira', 'Carteira')}
+          {campo('carteira', 'Carteira', ehBb ? 'Só o número (ex.: 17). A variação vai no campo ao lado.' : undefined)}
+          {ehBb && (
+            <>
+              <div>
+                <label style={lbl}>Variação da carteira <AjudaCampo chave="banco.bb_variacao" /></label>
+                <input style={inp} value={f.variacao_carteira} onChange={(e) => set('variacao_carteira', e.target.value)} placeholder="ex.: 35" />
+              </div>
+              <div>
+                <label style={lbl}>Modalidade <AjudaCampo chave="banco.bb_modalidade" /></label>
+                <select style={inp} value={f.modalidade} onChange={(e) => set('modalidade', e.target.value)}>
+                  <option value="">—</option><option value="1">1 - Simples</option><option value="4">4 - Vinculada</option>
+                </select>
+              </div>
+            </>
+          )}
         </div>
         {erro && <div style={{ marginTop: 10, fontSize: 12.5, color: '#B91C1C' }}>❌ {erro}</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
@@ -1110,7 +1139,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </Field>
           )}
           {banco.campos.includes('carteira') && (
-            <Field label="Carteira / variação" ajuda="banco.carteira" hint="Ex.: 17 / 35 (carteira e variação do convênio). Só é preciso para emitir boleto.">
+            <Field label="Carteira / variação" ajuda="banco.carteira" hint="Ex.: 17 (só o número da carteira; a variação e a modalidade ficam em Dados CNAB). Só é preciso para emitir boleto.">
               <input name="ps_carteira_nofill" autoComplete="off" value={carteira} onChange={(e) => setCarteira(e.target.value)} style={inp} placeholder="ex.: 17/35" />
             </Field>
           )}

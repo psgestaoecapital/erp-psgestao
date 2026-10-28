@@ -209,7 +209,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [nfeDocMap, setNfeDocMap] = useState<Record<string, { danfe?: string | null; xml?: string | null; numero?: string | null; motivo?: string | null }>>({})
   const [boletoMap, setBoletoMap] = useState<Record<string, BoletoEstado>>({})
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteContato>>({})
-  const [provider, setProvider] = useState<'sicoob' | 'sicredi' | 'bradesco' | null>(null)
+  const [provider, setProvider] = useState<'sicoob' | 'sicredi' | 'bradesco' | 'bb' | null>(null)
   const [rotBoleto, setRotBoleto] = useState<RoteamentoBoleto | null>(null)   // #5404: banco do boleto = banco da conta do título
   const [contaIdMap, setContaIdMap] = useState<Record<string, string | null>>({})
   const [providers, setProviders] = useState<BoletoProvider[]>([])   // #88: mais de um banco emitindo boleto
@@ -1456,8 +1456,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 const res = rotBoleto ? resolverProviderDaConta(rotBoleto, contaIdMap[r.id]) : null
                                 if (res && !res.ok) return <span data-testid="boleto-sem-conta" title={res.motivo} style={{ fontSize: 11, color: '#B45309' }}>{res.motivo}</span>
                                 const provT = res?.ok ? res.provider : provider
-                                if (provT === 'bb') return <span data-testid="boleto-bb-implantacao" style={{ fontSize: 11, color: '#B45309' }}>Boleto do Banco do Brasil em implantação.</span>
-                                return provT === 'sicoob' || provT === 'sicredi' || provT === 'bradesco' ? (
+                                return provT === 'sicoob' || provT === 'sicredi' || provT === 'bradesco' || provT === 'bb' ? (
                                   <BoletoActions
                                     provider={provT}
                                     receberId={r.id}
