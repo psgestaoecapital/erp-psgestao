@@ -4,10 +4,10 @@
 import { supabase } from '@/lib/supabase'
 import type { ConfigBoletoBanco, ContaBoleto, RoteamentoBoleto } from './boletoPorConta'
 
-export type BoletoProvider = 'sicoob' | 'sicredi' | 'bradesco'
-export const NOME_BANCO: Record<BoletoProvider, string> = { sicoob: 'Sicoob', sicredi: 'Sicredi', bradesco: 'Bradesco' }
+export type BoletoProvider = 'sicoob' | 'sicredi' | 'bradesco' | 'bb'
+export const NOME_BANCO: Record<BoletoProvider, string> = { sicoob: 'Sicoob', sicredi: 'Sicredi', bradesco: 'Bradesco', bb: 'Banco do Brasil' }
 
-const valido = (p: string): p is BoletoProvider => p === 'sicoob' || p === 'sicredi' || p === 'bradesco'
+const valido = (p: string): p is BoletoProvider => p === 'sicoob' || p === 'sicredi' || p === 'bradesco' || p === 'bb'
 const chave = (companyId: string) => `ps_boleto_banco:${companyId}`
 
 // #1673: banco marcado como RESPONSÁVEL pelos boletos da empresa (Conexões Bancárias) — vence a escolha lembrada.
