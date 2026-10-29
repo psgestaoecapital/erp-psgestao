@@ -106,7 +106,7 @@ VALUES
   '01/09/2026 a 30/09/2026 para ver só as notas de setembro',
   'Deixar um período antigo preenchido e estranhar que as notas novas não aparecem.', 14,
   '/dashboard/compras/documentos-recebidos', 'gestao_empresarial', 'publicado'),
- ('compras.docs_recebidos.carregar_mais', 'Carregar mais notas',
+ ('compras.docs_recebidos.carregar_mais', 'Documentos recebidos', 'Carregar mais notas',
   'Clique para trazer as próximas notas da lista.',
   'A tela carrega 100 notas por vez; este botão traz mais sem perder a busca e os filtros.',
   'Mostrando 100 de 618 → clique e passa a mostrar 200 de 618',
