@@ -38,6 +38,19 @@ type Obter = {
   convite?: { email: string | null; status: string; criado_em: string; expira_em: string | null; usado_em: string | null; expirado: boolean } | null
 }
 
+// Campos numéricos digitados em pt-BR ("0,65"): vão ao banco com ponto e reabrem com vírgula.
+const CAMPOS_NUM = ['pis_pct', 'cofins_pct', 'irpj_pct', 'irpj_presuncao_pct', 'csll_pct', 'csll_presuncao_pct',
+  'icms_saida_pct', 'icms_reducao_base_pct', 'encargos_pct', 'coaf_limite_especie']
+function numParaBanco(v: unknown): unknown {
+  if (typeof v !== 'string') return v
+  const t = v.trim()
+  if (!t) return t
+  return (t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t)
+}
+function numParaTela(v: unknown): unknown {
+  return v === null || v === undefined || v === '' ? v : String(v).replace('.', ',')
+}
+
 export default function FiscalPage() {
   const { selInfo, sel } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && sel ? sel : null
@@ -61,7 +74,9 @@ export default function FiscalPage() {
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Falha ao carregar o perfil.'); setCarregando(false); return }
     setErro(null); setObter(r)
     const e = r.editavel
-    setF(e ? { ...e } : {})
+    const base: Record<string, unknown> = e ? { ...e } : {}
+    CAMPOS_NUM.forEach((k) => { if (k in base) base[k] = numParaTela(base[k]) })
+    setF(base)
     const m: Record<string, Op> = {}
     OPS.forEach((o) => { m[o] = (e?.operacoes ?? []).find((x) => x.operacao === o) ?? { operacao: o } })
     setOps(m); setCarregando(false)
@@ -77,9 +92,12 @@ export default function FiscalPage() {
   async function salvar(): Promise<string | null> {
     if (!companyId) return null
     setBusy(true); setErro(null)
-    const dados = { ...f, justificativas: { icms_saida_regra: { base_legal: f.icms_saida_base_legal ?? null } } }
+    const num: Record<string, unknown> = {}
+    CAMPOS_NUM.forEach((k) => { if (k in f) num[k] = numParaBanco(f[k]) })
+    const dados = { ...f, ...num, justificativas: { icms_saida_regra: { base_legal: f.icms_saida_base_legal ?? null } } }
     const opsArr = OPS.map((o) => ops[o]).filter((x) => x && (x.cfop_dentro_uf || x.cfop_fora_uf || x.cst_ou_csosn || x.emite_nota_entrada
       || x.cst_icms || x.cbenef || x.reducao_base_icms_pct || x.reducao_base_icms_base_legal || x.ibs_cbs_cst || x.ibs_cbs_cclasstrib || x.inf_complementar_texto || x.natureza_operacao))
+      .map((x) => ({ ...x, reducao_base_icms_pct: numParaBanco(x.reducao_base_icms_pct) }))
     const { data } = await supabase.rpc('fn_veic_perfil_fiscal_salvar', { p_company_id: companyId, p_dados: dados, p_operacoes: opsArr, p_por: 'empresa', p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; perfil_id?: string } | null
@@ -246,7 +264,7 @@ export default function FiscalPage() {
                 <MiniCampo l="CST/CSOSN" v={ops[o]?.cst_ou_csosn} onC={(x) => setOp(o, 'cst_ou_csosn', x)} />
                 <MiniCampo l="CST ICMS" v={ops[o]?.cst_icms} onC={(x) => setOp(o, 'cst_icms', x)} />
                 <MiniCampo l="cBenef" v={ops[o]?.cbenef} onC={(x) => setOp(o, 'cbenef', x)} />
-                <MiniCampo l="Redução base ICMS (%)" v={ops[o]?.reducao_base_icms_pct == null ? '' : String(ops[o]?.reducao_base_icms_pct)} onC={(x) => setOp(o, 'reducao_base_icms_pct', x)} />
+                <MiniCampo l="Redução base ICMS (%)" v={ops[o]?.reducao_base_icms_pct == null ? '' : String(ops[o]?.reducao_base_icms_pct).replace('.', ',')} onC={(x) => setOp(o, 'reducao_base_icms_pct', x)} />
                 <MiniCampo l="IBS/CBS CST" v={ops[o]?.ibs_cbs_cst} onC={(x) => setOp(o, 'ibs_cbs_cst', x)} />
                 <MiniCampo l="IBS/CBS cClassTrib" v={ops[o]?.ibs_cbs_cclasstrib} onC={(x) => setOp(o, 'ibs_cbs_cclasstrib', x)} />
               </div>
