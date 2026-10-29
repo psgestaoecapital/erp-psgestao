@@ -244,6 +244,11 @@ REVOKE ALL ON FUNCTION public.fn_com_vendedor_acesso_salvar(uuid, text, uuid) FR
 GRANT EXECUTE ON FUNCTION public.fn_com_vendedor_acesso_salvar(uuid, text, uuid) TO authenticated;
 
 -- Menu (todas as empresas que vendem produto; a trava de dados é a RPC) e telas (RD-50).
+-- Pai da FK module_catalog_subgrupo_fkey (deploy-migrations vermelho 29/10: 23503, subgrupo 'comercial' inexistente).
+INSERT INTO public.module_subgrupos (id, label, ativo, ordem)
+VALUES ('comercial', 'Comercial', true, 99)
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO public.module_catalog (id, nome, grupo, icone, rota, ordem, ativo, descricao, is_shared, subgrupo, rbac_isento, rbac_isento_motivo, so_ps)
 VALUES ('comercial_meu_painel', 'Meu painel de vendas', 'industrial', 'BarChart3', '/dashboard/comercial/meu-painel', 190, true,
         'BI comercial em cascata: cada vendedor vê só a própria venda; supervisor a equipe; diretoria tudo.', true, 'comercial', true,
