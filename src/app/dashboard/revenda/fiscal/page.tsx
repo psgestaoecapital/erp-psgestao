@@ -61,7 +61,7 @@ export default function FiscalPage() {
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Falha ao carregar o perfil.'); setCarregando(false); return }
     setErro(null); setObter(r)
     const e = r.editavel
-    setF(e ? { ...e } : {})
+    setF(e ? normNum({ ...e } as Record<string, unknown>, paraVirgula) : {})
     const m: Record<string, Op> = {}
     OPS.forEach((o) => { m[o] = (e?.operacoes ?? []).find((x) => x.operacao === o) ?? { operacao: o } })
     setOps(m); setCarregando(false)
@@ -77,8 +77,8 @@ export default function FiscalPage() {
   async function salvar(): Promise<string | null> {
     if (!companyId) return null
     setBusy(true); setErro(null)
-    const dados = { ...f, justificativas: { icms_saida_regra: { base_legal: f.icms_saida_base_legal ?? null } } }
-    const opsArr = OPS.map((o) => ops[o]).filter((x) => x && (x.cfop_dentro_uf || x.cfop_fora_uf || x.cst_ou_csosn || x.emite_nota_entrada
+    const dados = { ...normNum(f, paraPonto), justificativas: { icms_saida_regra: { base_legal: f.icms_saida_base_legal ?? null } } }
+    const opsArr = OPS.map((o) => ops[o] && normNum(ops[o] as Record<string, unknown>, paraPonto) as Op).filter((x) => x && (x.cfop_dentro_uf || x.cfop_fora_uf || x.cst_ou_csosn || x.emite_nota_entrada
       || x.cst_icms || x.cbenef || x.reducao_base_icms_pct || x.reducao_base_icms_base_legal || x.ibs_cbs_cst || x.ibs_cbs_cclasstrib || x.inf_complementar_texto || x.natureza_operacao))
     const { data } = await supabase.rpc('fn_veic_perfil_fiscal_salvar', { p_company_id: companyId, p_dados: dados, p_operacoes: opsArr, p_por: 'empresa', p_user: await userId() })
     setBusy(false)
@@ -246,7 +246,7 @@ export default function FiscalPage() {
                 <MiniCampo l="CST/CSOSN" v={ops[o]?.cst_ou_csosn} onC={(x) => setOp(o, 'cst_ou_csosn', x)} />
                 <MiniCampo l="CST ICMS" v={ops[o]?.cst_icms} onC={(x) => setOp(o, 'cst_icms', x)} />
                 <MiniCampo l="cBenef" v={ops[o]?.cbenef} onC={(x) => setOp(o, 'cbenef', x)} />
-                <MiniCampo l="Redução base ICMS (%)" v={ops[o]?.reducao_base_icms_pct == null ? '' : String(ops[o]?.reducao_base_icms_pct)} onC={(x) => setOp(o, 'reducao_base_icms_pct', x)} />
+                <MiniCampo l="Redução base ICMS (%)" v={ops[o]?.reducao_base_icms_pct == null ? '' : paraVirgula(ops[o]?.reducao_base_icms_pct) as string} onC={(x) => setOp(o, 'reducao_base_icms_pct', x)} />
                 <MiniCampo l="IBS/CBS CST" v={ops[o]?.ibs_cbs_cst} onC={(x) => setOp(o, 'ibs_cbs_cst', x)} />
                 <MiniCampo l="IBS/CBS cClassTrib" v={ops[o]?.ibs_cbs_cclasstrib} onC={(x) => setOp(o, 'ibs_cbs_cclasstrib', x)} />
               </div>
@@ -319,6 +319,15 @@ function Bloco({ titulo, hint, children }: { titulo: string; hint?: string; chil
       <div style={{ marginTop: hint ? 0 : 8, display: 'grid', gap: 8 }}>{children}</div>
     </div>
   )
+}
+// Percentuais/valores digitados com vírgula (0,65) viram ponto (0.65) antes de ir ao banco; ao reabrir, voltam com vírgula.
+const NUM_KEYS = ['pis_pct', 'cofins_pct', 'irpj_pct', 'irpj_presuncao_pct', 'csll_pct', 'csll_presuncao_pct', 'icms_saida_pct', 'icms_reducao_base_pct', 'encargos_pct', 'coaf_limite_especie', 'reducao_base_icms_pct']
+const paraPonto = (v: unknown) => (typeof v === 'string' ? v.trim().replace(',', '.') : v)
+const paraVirgula = (v: unknown) => (v == null || v === '' ? v : String(v).replace('.', ','))
+function normNum<T extends Record<string, unknown>>(o: T, fn: (v: unknown) => unknown): T {
+  const r: Record<string, unknown> = { ...o }
+  NUM_KEYS.forEach((k) => { if (k in r) r[k] = fn(r[k]) })
+  return r as T
 }
 function Campo({ l, v, onC, full }: { l: string; v?: string; onC: (v: string) => void; full?: boolean }) {
   return (
