@@ -129,7 +129,8 @@ export default function OSMecanicoPage() {
     const { data, error } = await supabase.rpc('fn_oficina_os_listar', {
       p_company_id: companyIdAtiva,
       p_excluidas: verExcluidas,
-      p_limit: 200,
+      // Chamado #5440: a lista e a busca rodam no cliente, então carrega TODAS as OS da empresa (antes cortava em 200).
+      p_limit: 5000,
     })
     const r = data as { ok?: boolean; erro?: string; itens?: OSRow[] } | null
     if (error || r?.ok === false) setErro(error?.message || r?.erro || 'Falha ao carregar OS')

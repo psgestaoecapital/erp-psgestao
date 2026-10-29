@@ -233,8 +233,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   // então o mês atual esconderia parte deles e o total não bateria com o card.
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const st = new URLSearchParams(window.location.search).get('status')
-    if (st === 'vencido') {
+    const qs = new URLSearchParams(window.location.search)
+    const st = qs.get('status')
+    // Chamado #5427 · "Faturada - ver na GE" (OS) chega com ?busca=<nº da OS>: abre a busca já preenchida e o período
+    // largo (a OS pode ter parcelas fora do mês atual). Limpar o campo volta a lista ao normal.
+    const buscaUrl = (qs.get('busca') ?? '').trim().slice(0, 80)
+    if (buscaUrl) {
+      const ano = new Date().getFullYear()
+      setBusca(buscaUrl)
+      setPeriodoChoice('personalizado')
+      setDataInicio(`${ano - 5}-01-01`)
+      setDataFim(`${ano + 5}-12-31`)
+    } else if (st === 'vencido') {
       setStatusSel(['vencidos'])
       setPeriodoChoice('personalizado')
       setDataInicio(`${new Date().getFullYear() - 5}-01-01`)
