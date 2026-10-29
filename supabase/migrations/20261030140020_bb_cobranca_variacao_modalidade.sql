@@ -69,3 +69,9 @@ BEGIN
   IF v_id IS NULL THEN RETURN jsonb_build_object('ok', false, 'erro','config_nao_encontrada'); END IF;
   RETURN jsonb_build_object('ok', true, 'id', v_id);
 END $function$;
+
+-- Guarda de funções (check-fn-guards): formaliza o estado atual dos grants (sem mudar comportamento).
+REVOKE ALL ON FUNCTION public.fn_banco_obter_credencial(uuid, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_banco_obter_credencial(uuid, text, text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_banco_config_salvar_cnab(uuid, uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_banco_config_salvar_cnab(uuid, uuid, jsonb) TO authenticated, service_role;
