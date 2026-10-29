@@ -20,7 +20,7 @@ type Resultado = {
   custo_mao_obra: number; custo_rateio: number; margem_alocada: number
 }
 // Contexto da obra (avanço físico, prazo, cliente) — vem de projetos_obras, não da view de resultado financeiro.
-type ObraInfo = { pct_conclusao: number | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null }
+type ObraInfo = { pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null }
 type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null }
 
 export default function CockpitObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -51,7 +51,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     setR(data as Resultado)
     // Contexto da obra (avanço físico, prazo, cliente) — leitura separada de projetos_obras; se falhar, os cards
     // financeiros seguem aparecendo (não trava a tela).
-    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_prevista_fim,cliente_nome,cidade').eq('id', id).maybeSingle()
+    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade').eq('id', id).maybeSingle()
     if (oi) setInfo(oi as ObraInfo)
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
@@ -77,6 +77,25 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const prazoSub = prazo == null ? 'Sem data prevista'
     : prazoVencido ? 'Vencido' : diasRestantes === 0 ? 'Entrega hoje' : (diasRestantes ?? 0) > 0 ? `Faltam ${diasRestantes} dia(s)` : `${Math.abs(diasRestantes ?? 0)} dia(s) atrás`
 
+  // Indicadores de desempenho (só com os dados que a obra já tem; sem base, mostra "—" e explica no "?").
+  // IDP = avanço físico ÷ tempo decorrido do prazo; IDC = custo previsto proporcional ao físico ÷ custo realizado.
+  const inicio = info?.data_inicio ?? null
+  const dur = inicio && prazo ? (new Date(prazo + 'T12:00:00').getTime() - new Date(inicio + 'T12:00:00').getTime()) / 86400000 : 0
+  const decor = inicio ? (new Date(hoje + 'T12:00:00').getTime() - new Date(inicio + 'T12:00:00').getTime()) / 86400000 : 0
+  const tempoPct = dur > 0 && decor > 0 ? Math.min(100, (decor / dur) * 100) : null
+  const idp = fisicoPct != null && tempoPct != null ? fisicoPct / tempoPct : null
+  const idc = fisicoPct != null && custoPrevisto > 0 && custo > 0 ? (custoPrevisto * fisicoPct / 100) / custo : null
+  const burn = decor > 0 && custo > 0 ? custo / decor : null
+  const corIdx = (x: number | null) => x == null ? undefined : x >= 1 ? VERDE : x >= 0.9 ? GOLD : VERM
+  const subIdx = (x: number | null, bom: string, mau: string, falta: string) => x == null ? falta : x >= 1 ? bom : mau
+  const compCusto = r ? [
+    { k: 'material', l: 'Material', v: Number(r.custo_material) }, { k: 'viagens', l: 'Viagens', v: Number(r.custo_viagens) },
+    { k: 'mao_obra', l: 'Mão de obra', v: Number(r.custo_mao_obra ?? 0) }, { k: 'rateio', l: 'Rateio', v: Number(r.custo_rateio ?? 0) },
+  ] : []
+  const compReceita = r ? [
+    { k: 'servico', l: 'Serviço', v: Number(r.receita_servico) }, { k: 'material', l: 'Material', v: Number(r.receita_material) },
+  ] : []
+
   const cards: Card[] = r ? [
     { k: 'receita', ajuda: 'projetos.cockpit.receita', l: 'Receita realizada', v: brl(receita), sub: `Serviço ${brl(r.receita_servico)} · Material ${brl(r.receita_material)}` },
     { k: 'custo', ajuda: 'projetos.cockpit.custo', l: 'Custo realizado', v: brl(custo), sub: `Material ${brl(r.custo_material)} · Viagens ${brl(r.custo_viagens)} · Mão de obra ${brl(r.custo_mao_obra)} · Rateio ${brl(r.custo_rateio)}`, cor: estouro ? VERM : undefined },
@@ -84,6 +103,9 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     { k: 'avanco_fisico', ajuda: 'projetos.cockpit.avanco_fisico', l: 'Avanço físico', v: fisicoPct == null ? '—' : `${fisicoPct.toFixed(0)}%`, sub: fisicoPct == null ? 'Lance o % no cronograma' : 'Execução em campo', bar: fisicoPct },
     { k: 'avanco', ajuda: 'projetos.cockpit.avanco', l: 'Avanço financeiro', v: avancoPct == null ? '—' : `${avancoPct.toFixed(0)}%`, sub: `Realizado ${brl(receita)} de ${brl(r.receita_prevista)}`, bar: avancoPct },
     { k: 'prazo', ajuda: 'projetos.cockpit.prazo', l: 'Prazo', v: prazoBR ?? '—', sub: prazoSub, cor: prazoVencido ? VERM : undefined },
+    { k: 'idp', ajuda: 'projetos.cockpit.idp', l: 'Ritmo (IDP)', v: idp == null ? '—' : idp.toFixed(2), sub: subIdx(idp, 'No ritmo ou à frente do prazo', 'Atrás do ritmo previsto', 'Informe início, prazo e % físico'), cor: corIdx(idp) },
+    { k: 'idc', ajuda: 'projetos.cockpit.idc', l: 'Eficiência de custo (IDC)', v: idc == null ? '—' : idc.toFixed(2), sub: subIdx(idc, 'Custo dentro do esperado', 'Gastando mais que o executado', 'Precisa de custo previsto e % físico'), cor: corIdx(idc) },
+    { k: 'burn', ajuda: 'projetos.cockpit.burn', l: 'Gasto por dia', v: burn == null ? '—' : brl(burn), sub: burn == null ? 'Sem custo ou data de início' : 'Custo realizado ÷ dias de obra' },
   ] : []
 
   const pendencias: string[] = []
@@ -133,6 +155,19 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                       </div>
                     )}
                     <div style={{ fontSize: 11, color: MUT }}>{c.sub}</div>
+                  </div>
+                ))}
+              </div>
+              <div data-testid="cockpit-composicao" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10, marginBottom: 14 }}>
+                {([['custo', 'Composição do custo', compCusto, custo, 'projetos.cockpit.comp_custo'], ['receita', 'Composição da receita', compReceita, receita, 'projetos.cockpit.comp_receita']] as const).map(([k, tit, itens, tot, aj]) => (
+                  <div key={k} data-testid={`cockpit-comp-${k}`} style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 8 }}>{tit} <AjudaCampo chave={aj} rota={ROTA} /></div>
+                    {tot <= 0 ? <div style={{ fontSize: 12, color: MUT }}>Nada lançado ainda.</div> : itens.map((i) => (
+                      <div key={i.k} style={{ marginBottom: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: ESP }}><span>{i.l}</span><span>{brl(i.v)} · {((i.v / tot) * 100).toFixed(0)}%</span></div>
+                        <div style={{ height: 5, background: LINE, borderRadius: 999 }}><div style={{ width: `${Math.max(0, Math.min(100, (i.v / tot) * 100))}%`, height: '100%', background: GOLD, borderRadius: 999 }} /></div>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
