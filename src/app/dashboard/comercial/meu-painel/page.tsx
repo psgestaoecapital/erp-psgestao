@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { Lock } from 'lucide-react'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80', ok: '#1a8f63', warn: '#b07a12', bad: '#C0392B', bg2: '#F0ECE3' }
 const ROTA = '/dashboard/comercial/meu-painel'
@@ -93,7 +94,7 @@ export default function MeuPainelVendas() {
           <div>
             <div style={{ fontSize: 12, color: C.m }}>Comercial · Meu painel de vendas</div>
             <h1 style={{ margin: 0, fontSize: 'clamp(20px, 4vw, 28px)', fontFamily: 'Georgia, serif', fontWeight: 400 }}>{p?.ok ? nomeNo : 'Meu painel de vendas'}</h1>
-            {p?.ok && p.escopo.restrito && <div style={{ fontSize: 12, color: C.m }}>🔒 Você vê somente os seus dados{p.nos.length > 1 ? ' e os da sua equipe' : ''}.</div>}
+            {p?.ok && p.escopo.restrito && <div style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}><Lock size={13} strokeWidth={1.5} /> Você vê somente os seus dados{p.nos.length > 1 ? ' e os da sua equipe' : ''}.</div>}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             {p?.ok && p.nos.length > 1 && (

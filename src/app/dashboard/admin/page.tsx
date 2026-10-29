@@ -628,7 +628,7 @@ export default function AdminPage(){
       </a>
       <a href="/dashboard/admin/vendedores" style={{display:"flex",justifyContent:"space-between",alignItems:"center",textDecoration:"none",
         background:GO+"14",border:`1px solid ${GO}40`,borderRadius:10,padding:"12px 16px",marginBottom:14}}>
-        <span style={{fontSize:13,color:TX}}><b style={{color:GO}}>📈 Vendedores</b> — libere o Meu painel de vendas: cada vendedor vê só os dados dele.</span>
+        <span style={{fontSize:13,color:TX}}><b style={{color:GO}}>Vendedores</b> — libere o Meu painel de vendas: cada vendedor vê só os dados dele.</span>
         <span style={{fontSize:13,fontWeight:700,color:GO}}>Abrir →</span>
       </a>
       {isPS&&(
