@@ -1115,7 +1115,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         {faturada ? (
           // §2.5 · mostra o estado e LEVA à GE (alterar o título é ação da GE, não da OS — fronteira [→GE])
           <>
-            <a href="/dashboard/financeiro/receber" data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
+            <a href={os.numero ? `/dashboard/financeiro/receber?busca=${encodeURIComponent(os.numero)}` : '/dashboard/financeiro/receber'} data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
               style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
               ✓ Faturada · ver na GE →
             </a>
