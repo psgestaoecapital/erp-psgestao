@@ -33,7 +33,7 @@ const STATUS: Record<string, { cor: string; label: string }> = {
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
 
-type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null }
+type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; pdf_anexo_path: string | null; pdf_url: string | null }
 
 const OBRA_STATUS: Record<string, string> = { em_andamento: 'em andamento', pausada: 'pausada', concluida: 'concluída', cancelada: 'cancelada' }
 
@@ -59,6 +59,7 @@ export default function PropostasHubPage() {
   const [motivo, setMotivo] = useState('')
   const [excluindo, setExcluindo] = useState(false)
   const [msg, setMsg] = useState('')
+  const [pagina, setPagina] = useState(0)
   const [msgErro, setMsgErro] = useState('')
 
   // Origem: oportunidades e plantas ligadas às propostas; depois as visitas (diretas ou da oportunidade). Falha → coluna avisa.
@@ -83,7 +84,7 @@ export default function PropostasHubPage() {
     setLoading(true); setErro('')
     try {
       const { data, error } = await comPrazo(
-        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra')
+        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,pdf_anexo_path,pdf_url')
           .in('company_id', companyIds).is('deleted_at', null).order('data_emissao', { ascending: false }).limit(100),
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
@@ -145,6 +146,10 @@ export default function PropostasHubPage() {
     return linhas.filter(l => (filtro === 'todos' || l.status === filtro)
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b)))
   }, [linhas, busca, filtro])
+  const POR_PAGINA = 25
+  const totalPaginas = Math.max(1, Math.ceil(vis.length / POR_PAGINA))
+  const paginaAtual = Math.min(pagina, totalPaginas - 1)
+  const visPagina = useMemo(() => vis.slice(paginaAtual * POR_PAGINA, (paginaAtual + 1) * POR_PAGINA), [vis, paginaAtual])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
   const comOrigem = useMemo(() => linhas.filter(l => temOrigem(orig[l.id])).length, [linhas, orig])
   const gObra = useMemo(() => ganhasComObra(obras, linhas), [obras, linhas])
@@ -257,12 +262,12 @@ export default function PropostasHubPage() {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             <div style={{ flex: '1 1 220px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por número ou cliente"
+              <input value={busca} onChange={e => { setBusca(e.target.value); setPagina(0) }} placeholder="Buscar por número ou cliente"
                 style={{ flex: 1, padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
               <AjudaCampo chave="projetos.propostas.busca" />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <select value={filtro} onChange={e => setFiltro(e.target.value)} style={{ padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
+              <select value={filtro} onChange={e => { setFiltro(e.target.value); setPagina(0) }} style={{ padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
                 <option value="todos">Todos os status</option>
                 {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
@@ -284,7 +289,7 @@ export default function PropostasHubPage() {
                 <th style={{ padding: '8px 12px', position: 'sticky', right: 0, background: '#fff', boxShadow: `-1px 0 0 ${LINE}` }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ações <AjudaCampo chave="projetos.propostas.acoes" /></span></th>
               </tr></thead>
               <tbody>
-                {vis.map(l => {
+                {visPagina.map(l => {
                   const st = STATUS[l.status] ?? { cor: MUT, label: l.status }
                   const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
@@ -293,7 +298,10 @@ export default function PropostasHubPage() {
                   const so = obras[l.id]
                   return (
                     <tr key={l.id} style={{ borderTop: `1px solid ${LINE}`, fontSize: 13 }}>
-                      <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600 }}>{l.numero ?? '—'}</td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600, whiteSpace: 'nowrap' }}><span>{l.numero ?? '—'}</span>
+                        {(l.versao ?? 1) > 1 && <span data-testid="hub-proposta-versao" title="Esta proposta já teve revisões; abra para ver o que mudou" style={{ marginLeft: 6, fontSize: 11, color: ESP, background: '#F3EBDC', borderRadius: 6, padding: '1px 6px' }}>v{l.versao}</span>}
+                        {(l.pdf_anexo_path || l.pdf_url) && <span data-testid="hub-proposta-pdf" title="Tem PDF anexado" style={{ marginLeft: 6, fontSize: 11, color: '#16A34A', background: '#EAF5EE', borderRadius: 6, padding: '1px 6px' }}>PDF</span>}
+                      </td>
                       <td style={{ padding: '8px 12px' }}>{l.cliente_nome ?? '—'}</td>
                       <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 220 }} data-testid="hub-proposta-origem">
                         {origErro ? '—' : !temOrigem(o) ? <span style={{ color: MUT }}>avulsa</span> : (
@@ -344,6 +352,8 @@ export default function PropostasHubPage() {
                       <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', right: 0, background: '#fff', boxShadow: `-1px 0 0 ${LINE}` }}>
                         <Link href={`/dashboard/orcamentos?id=${l.id}`} data-testid="hub-proposta-abrir" style={{ color: GOLD, fontWeight: 600, fontSize: 12 }}>Abrir</Link>
                         <AjudaCampo chave="projetos.propostas.editar" />
+                        <Link href="/dashboard/projetos/calculadora" data-testid="hub-proposta-calculadora" style={{ marginLeft: 10, color: ESP, fontSize: 12 }}>Calcular</Link>
+                        <AjudaCampo chave="projetos.propostas.calcular" />
                         {podeExcluir(l) && (
                           <>
                             <button data-testid="hub-proposta-excluir" onClick={() => { setExcluir(l); setMotivo(''); setMsgErro('') }} style={{ marginLeft: 10, color: '#B91C1C', fontWeight: 600, fontSize: 12, background: 'none', border: 0, cursor: 'pointer', padding: 0 }}>Excluir</button>
@@ -358,6 +368,13 @@ export default function PropostasHubPage() {
               </tbody>
             </table>
           </div>
+          {vis.length > POR_PAGINA && (
+            <div data-testid="hub-propostas-paginacao" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 10, fontSize: 12.5 }}>
+              <button disabled={paginaAtual === 0} onClick={() => setPagina(paginaAtual - 1)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', cursor: 'pointer' }}>Anterior</button>
+              <span>Página {paginaAtual + 1} de {totalPaginas} · {vis.length} propostas <AjudaCampo chave="projetos.propostas.paginacao" /></span>
+              <button disabled={paginaAtual >= totalPaginas - 1} onClick={() => setPagina(paginaAtual + 1)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', cursor: 'pointer' }}>Próxima</button>
+            </div>
+          )}
         </>
       )}
     </div>
