@@ -94,7 +94,7 @@ export default function TabelasPrecoPage() {
     }
     setMsg(`${gravadas} faixa(s) importada(s).`); setPlanilha(''); setRev(r => r + 1)
   }
-  const excluirFaixa = async (id: string) => { if (window.confirm('Excluir esta faixa?')) await salvar('fn_tabela_preco_faixa_excluir', { p_id: id }, 'Faixa excluída.') }
+  const excluirFaixa = async (id: string) => { if (window.confirm('Excluir esta faixa do contrato? Ela sai do cálculo, do orçamento e do saldo. A exclusão é rastreável (fica o registro de quem excluiu e quando).')) await salvar('fn_tabela_preco_faixa_excluir', { p_id: id }, 'Faixa excluída.') }
 
   const carregarTabelas = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -117,7 +117,13 @@ export default function TabelasPrecoPage() {
     let vivo = true
     ;(async () => {
       const [i, c, k] = await Promise.all([
-        supabase.from('erp_tabela_preco_item').select('id,servico_ref,servico_nome,unidade,faixa_de,faixa_ate,preco_base,adicional').eq('tabela_id', tabelaId).order('servico_nome').order('faixa_de'),
+        (async () => {
+          // Faixas excluídas (soft-delete rastreável) saem da lista, do cálculo e do orçamento.
+          const base = () => supabase.from('erp_tabela_preco_item').select('id,servico_ref,servico_nome,unidade,faixa_de,faixa_ate,preco_base,adicional').eq('tabela_id', tabelaId).order('servico_nome').order('faixa_de')
+          const r = await base().is('deleted_at', null)
+          // Ambiente ainda sem a coluna deleted_at (preview antes da migração): lê sem o filtro para não quebrar a tela.
+          return r.error && /deleted_at/i.test(r.error.message ?? '') ? await base() : r
+        })(),
         supabase.from('erp_tabela_preco_condicao').select('condicao,percentual').eq('tabela_id', tabelaId).order('condicao'),
         supabase.from('erp_tabela_preco_codigo').select('servico_ref,condicao,codigo_externo,preco_fixo').eq('tabela_id', tabelaId),
       ])
@@ -230,17 +236,25 @@ export default function TabelasPrecoPage() {
               </select></label>
             <label><span style={rot}>Custo da CPU por unidade (opcional) <AjudaCampo chave="hub.tabela_preco.custo" /></span>
               <input data-testid="tp-custo" inputMode="decimal" style={campo} value={custo} onChange={e => setCusto(e.target.value)} placeholder={cpuCatalogo != null ? `catálogo: ${fmtR(cpuCatalogo)}` : 'para ver a margem'} /></label>
-            {(semCodigo.length > 0 || codigoOrfao.length > 0) && (
-              <div role="status" data-testid="tp-depara-aviso" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12, fontSize: 13 }}>
-                <b>Conferir o de-para com o cliente <AjudaCampo chave="hub.tabela_preco.depara" /></b>
-                {semCodigo.length > 0 && <div>Serviço sem código no cliente: {semCodigo.map(s => s.servico_nome).join(', ')}.</div>}
-                {codigoOrfao.length > 0 && <div>Código sem serviço na tabela: {codigoOrfao.join(', ')}.</div>}
-              </div>
-            )}
-            <div data-testid="tp-precedencia" style={{ fontSize: 13, background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12 }}>
-              <b>Qual preço vale: <span data-testid="tp-prec-origem">{prec.rotulo}</span> <AjudaCampo chave="hub.tabela_preco.precedencia" /></b>
-              <div data-testid="tp-prec-motivo">{prec.motivo}</div>
-              <div style={{ color: MUT, marginTop: 4 }}>Ordem: contrato do cliente → tabela do cliente → tabela padrão.</div>
+            {/* Resposta primeiro (auditor FC 27/10 — "resultado cortado/ausente": a captura da auditoria parava antes do
+                preço, no fim de um formulário longo). O preço, a faixa, o turno, o total e a margem vêm LOGO abaixo dos
+                campos; as caixas explicativas (memória de cálculo, qual preço vale, de-para) seguem depois. Mesmos
+                data-testid de sempre, para não quebrar a aceitação (HB2). */}
+            <div data-testid="tp-resultado" style={{ background: preco == null ? BG : '#FBF8F0', borderRadius: 12, padding: 16, border: `1px solid ${preco == null ? LINE : GOLD}` }}>
+              {preco == null ? <b>Sem faixa para essa quantidade.</b> : (<>
+                <div style={{ fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700, marginBottom: 2 }}>Preço calculado</div>
+                <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.1 }} data-testid="tp-preco">{fmtPreco(preco)} <span style={{ fontSize: 14, fontWeight: 400, color: MUT }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: '#FFF', border: `1px solid ${GOLD}`, color: ESP }}>Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: '#FFF', border: `1px solid ${LINE}`, color: MUT }}>{condSel === 'normal' ? 'Condição normal' : condSel}{cond?.preco_fixo != null ? ' · preço fixo' : cond?.percentual ? ` · +${cond.percentual}%` : ''}</span>
+                  <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 999, background: '#FFF', border: `1px solid ${LINE}`, color: MUT }}>base {fmtPreco(faixa!.preco_base)}</span>
+                  {codigo ? <span style={{ fontSize: 12, padding: '3px 10px', borderRadius: 999, background: '#FFF', border: `1px solid ${LINE}`, color: MUT }}>cód. cliente {codigo}</span> : null}
+                </div>
+                <div style={{ fontSize: 15, marginTop: 10 }} data-testid="tp-total">{q > 0 ? <>Total: <b style={{ fontSize: 18 }}>{fmtR(preco * q)}</b> <span style={{ color: MUT, fontSize: 13 }}>({q} × {fmtPreco(preco)})</span></> : <>Informe a quantidade para ver o total</>}</div>
+                {margem != null
+                  ? <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-margem">Margem sobre o custo: <b style={{ color: margem >= 0 ? OKV : '#B91C1C' }}>{(margem * 100).toFixed(1)}%</b></div>
+                  : <div style={{ fontSize: 13, marginTop: 6, color: MUT }} data-testid="tp-margem-vazio">Informe o custo da CPU acima para ver a margem contra o preço.</div>}
+              </>)}
             </div>
             {preco != null && q > 0 && (
               <div data-testid="tp-simulador" style={{ fontSize: 14, background: '#fff', border: `1px dashed ${GOLD}`, borderRadius: 10, padding: 12 }}>
@@ -248,17 +262,18 @@ export default function TabelasPrecoPage() {
                 {q} {servicos.find(s => s.servico_ref === servico)?.unidade} de {servicos.find(s => s.servico_ref === servico)?.servico_nome} · {condSel === 'normal' ? 'condição normal' : condSel} · faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} → {fmtPreco(preco)} por unidade = <b>{fmtR(preco * q)}</b>
               </div>
             )}
-            <div data-testid="tp-resultado" style={{ background: BG, borderRadius: 10, padding: 14, border: `1px solid ${LINE}` }}>
-              {preco == null ? <b>Sem faixa para essa quantidade.</b> : (<>
-                <div style={{ fontSize: 26, fontWeight: 700 }} data-testid="tp-preco">{fmtPreco(preco)} <span style={{ fontSize: 14, fontWeight: 400 }}>por {servicos.find(s => s.servico_ref === servico)?.unidade}</span></div>
-                <div style={{ fontSize: 13, color: MUT, marginTop: 4 }}>
-                  Faixa {faixa!.faixa_de}–{faixa!.faixa_ate ?? 'em diante'} · preço base {fmtPreco(faixa!.preco_base)}
-                  {cond?.preco_fixo != null ? ' · preço fixo da condição' : cond?.percentual ? ` · adicional +${cond.percentual}%` : ''}
-                </div>
-                <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-total">{q > 0 ? <>Total: <b>{fmtR(preco * q)}</b></> : <>Informe a quantidade para ver o total</>}{codigo ? <> · código no cliente: <b>{codigo}</b></> : null}</div>
-                {margem != null && <div style={{ fontSize: 14, marginTop: 6 }} data-testid="tp-margem">Margem sobre o custo: <b>{(margem * 100).toFixed(1)}%</b></div>}
-              </>)}
+            <div data-testid="tp-precedencia" style={{ fontSize: 13, background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12 }}>
+              <b>Qual preço vale: <span data-testid="tp-prec-origem">{prec.rotulo}</span> <AjudaCampo chave="hub.tabela_preco.precedencia" /></b>
+              <div data-testid="tp-prec-motivo">{prec.motivo}</div>
+              <div style={{ color: MUT, marginTop: 4 }}>Ordem: contrato do cliente → tabela do cliente → tabela padrão.</div>
             </div>
+            {(semCodigo.length > 0 || codigoOrfao.length > 0) && (
+              <div role="status" data-testid="tp-depara-aviso" style={{ background: '#FFF7E0', border: `1px solid ${GOLD}`, borderRadius: 10, padding: 12, fontSize: 13 }}>
+                <b>Conferir o de-para com o cliente <AjudaCampo chave="hub.tabela_preco.depara" /></b>
+                {semCodigo.length > 0 && <div>Serviço sem código no cliente: {semCodigo.map(s => s.servico_nome).join(', ')}.</div>}
+                {codigoOrfao.length > 0 && <div>Código sem serviço na tabela: {codigoOrfao.join(', ')}.</div>}
+              </div>
+            )}
           </div>
         )}
         {!loading && !erro && !podeGravar && (
@@ -300,6 +315,7 @@ export default function TabelasPrecoPage() {
                             <span style={{ display: 'flex', gap: 10 }}>
                               <button type="button" onClick={() => setFm(x => ({ ...x, ref: f.servico_ref, nome: f.servico_nome, un: f.unidade, de: String(f.faixa_de), ate: f.faixa_ate == null ? '' : String(f.faixa_ate), preco: String(f.preco_base).replace('.', ',') }))} style={{ color: GOLD, background: 'none', border: 'none', cursor: 'pointer' }}>Copiar</button>
                               <button type="button" onClick={() => excluirFaixa(f.id)} style={{ color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer' }}>Excluir</button>
+                              <AjudaCampo chave="hub.tabela_preco.faixa_excluir" />
                             </span>
                           </div>
                         ))}
@@ -365,7 +381,7 @@ export default function TabelasPrecoPage() {
             <h2 style={{ fontSize: 17, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>Contrato completo <AjudaCampo chave="hub.tabela_preco.contrato" /></h2>
             {/* celular (390px): grade compacta para as 5 colunas (até domingo_feriado) caberem sem cortar; a faixa fica fixa na rolagem */}
             <style>{'@media (max-width:480px){.tp-grade{min-width:0!important;font-size:12px!important}.tp-grade th,.tp-grade td{padding:6px 2px!important}.tp-grade th{white-space:normal!important;font-size:11px!important}.tp-grade td button{padding:6px 2px!important;font-size:12px!important}}.tp-grade th:first-child,.tp-grade td:first-child{position:sticky;left:0;background:#fff}'}</style>
-            <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>Preço por unidade em cada faixa e condição. Toque num preço para levá-lo à calculadora.</p>
+            <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>Preço por unidade em cada faixa<AjudaCampo chave="hub.tabela_preco.contrato_col_faixa" /> e condição<AjudaCampo chave="hub.tabela_preco.contrato_col_condicao" />. Toque num preço para levá-lo à calculadora.</p>
             {servicos.map(s => {
               const fs = itens.filter(i => i.servico_ref === s.servico_ref).sort((a, b) => a.faixa_de - b.faixa_de)
               return (

@@ -248,7 +248,9 @@ export default function OportunidadesPage() {
         />
         <AjudaCampo chave="projetos.oportunidades.busca" />
         {loading && <span className="text-xs opacity-60">Carregando…</span>}
-        <span className="text-xs opacity-60 ml-auto inline-flex items-center gap-1">{countKanban} oportunidade(s)<AjudaCampo chave="projetos.oportunidades.contagem_filtro" /></span>
+        {/* #3423 · "mostrando N" (o que o funil exibe agora), nunca "N oportunidade(s)": com filtro/colunas
+            operacionais o número do board é menor que o total do topo — dizer "mostrando" tira a falsa contradição (RD-97). */}
+        <span className="text-xs opacity-60 ml-auto inline-flex items-center gap-1">mostrando {countKanban}{(filtroEtapa !== 'todas' || filtroResp !== 'todos' || busca.trim() !== '') ? ` de ${totalOps}` : ''}<AjudaCampo chave="projetos.oportunidades.contagem_filtro" /></span>
       </div>
 
       <OportunidadesKanban

@@ -40,8 +40,41 @@ interface Servico {
   qtd_insumos: number | null;
   qtd_mo: number | null;
   is_publico: boolean | null;
-  fork_from_publico_id: string | null;
+  // Origem do dado (RD-98 pilar 3): de onde veio este serviço.
+  // source_type vem da view v_projetos_servicos_catalogo: 'fork' (copiado da biblioteca
+  // pública), 'demo' (semeado para demonstração) ou 'manual' (criado pela própria empresa).
+  source_type: string | null;
+  source_ref: string | null;
+  foi_forkado: boolean | null;
   ativo: boolean | null;
+}
+
+type OrigemInfo = { label: string; cls: string; titulo: string };
+
+// Traduz source_type num selo visível e honesto de origem (RD-98). Antes a tela lia um
+// campo inexistente (fork_from_publico_id), então nenhum selo de origem aparecia.
+function origemDoServico(s: Servico): OrigemInfo {
+  switch (s.source_type) {
+    case "fork":
+      return {
+        label: "Biblioteca",
+        cls: "bg-[#3D2314]/8 text-[#3D2314]/70",
+        titulo: "Copiado da biblioteca pública de serviços (base SINAPI/TCPO/PS). Edite para virar um serviço próprio da empresa.",
+      };
+    case "demo":
+      return {
+        label: "Demonstração",
+        cls: "bg-amber-100 text-amber-800",
+        titulo: "Serviço de demonstração (dado semeado para você testar). Substitua pelos serviços reais da sua empresa.",
+      };
+    case "manual":
+    default:
+      return {
+        label: "Próprio",
+        cls: "bg-emerald-100 text-emerald-800",
+        titulo: "Serviço criado pela sua empresa, com composição e preço próprios.",
+      };
+  }
 }
 
 interface ConfigBdi {
@@ -69,7 +102,7 @@ export default function CatalogoServicosPage() {
 
   const [busca, setBusca] = useState("");
   const [filtroCat, setFiltroCat] = useState("");
-  const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork">("todos");
+  const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork" | "demo">("todos");
   const [filtroStatus, setFiltroStatus] = useState<"ativo" | "inativo" | "todos">("ativo");
   const [apenasComBom, setApenasComBom] = useState(false);
 
@@ -127,8 +160,13 @@ export default function CatalogoServicosPage() {
     return servicos.filter((s) => {
       if (filtroStatus === "ativo" && s.ativo === false) return false;
       if (filtroStatus === "inativo" && s.ativo !== false) return false;
-      if (filtroOrigem === "fork" && !s.fork_from_publico_id) return false;
-      if (filtroOrigem === "manual" && s.fork_from_publico_id) return false;
+      // Filtro de origem pelo source_type real da view (manual = próprio, fork = biblioteca, demo = demonstração).
+      if (filtroOrigem !== "todos") {
+        const st = s.source_type || "manual";
+        if (filtroOrigem === "manual" && st !== "manual") return false;
+        if (filtroOrigem === "fork" && st !== "fork") return false;
+        if (filtroOrigem === "demo" && st !== "demo") return false;
+      }
       if (filtroCat && s.categoria !== filtroCat) return false;
       if (apenasComBom && (s.qtd_itens_bom ?? 0) === 0) return false;
       if (busca) {
@@ -289,11 +327,6 @@ export default function CatalogoServicosPage() {
         <div>
           <div className="font-medium text-[#3D2314]">{s.nome}</div>
           <div className="mt-0.5 flex flex-wrap gap-1">
-            {s.fork_from_publico_id && (
-              <span className="rounded-full bg-[#3D2314]/8 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#3D2314]/60">
-                biblioteca
-              </span>
-            )}
             {(s.custo_unitario_total ?? 0) === 0 && (s.qtd_itens_bom ?? 0) > 0 && (
               <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-800">
                 Sem CPU
@@ -328,6 +361,22 @@ export default function CatalogoServicosPage() {
       ajuda: "projetos.catalogo.col_unidade",
       hiddenOnMobile: true,
       render: (s) => <span className="text-[#3D2314]/70">{s.unidade || "—"}</span>,
+    },
+    {
+      key: "origem",
+      label: "Origem",
+      ajuda: "projetos.catalogo.col_origem",
+      render: (s) => {
+        const o = origemDoServico(s);
+        return (
+          <span
+            title={o.titulo}
+            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${o.cls}`}
+          >
+            {o.label}
+          </span>
+        );
+      },
     },
     {
       key: "bom",
@@ -439,8 +488,9 @@ export default function CatalogoServicosPage() {
           <p className="mt-1 text-sm text-[#3D2314]/60">
             Composição de Preço Unitário (CPU) com BDI integrado · {empresaNome}
             {config?.bdi_total_pct != null && (
-              <span className="ml-2 rounded-full bg-[#C8941A]/15 px-2 py-0.5 text-xs font-medium text-[#C8941A]">
-                BDI {config.bdi_total_pct.toFixed(2)}%
+              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[#C8941A]/15 px-2 py-0.5 text-xs font-medium text-[#C8941A]">
+                BDI {config.bdi_total_pct.toFixed(2)}% <span className="text-[#C8941A]/80">· padrão da empresa</span>
+                <AjudaCampo chave="projetos.catalogo.bdi" rota={ROTA} />
               </span>
             )}
           </p>
@@ -531,8 +581,9 @@ export default function CatalogoServicosPage() {
                 className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
               >
                 <option value="todos">Todas</option>
-                <option value="manual">Manual</option>
+                <option value="manual">Próprio</option>
                 <option value="fork">Biblioteca</option>
+                <option value="demo">Demonstração</option>
               </select>
             </div>
             <div data-ajuda="projetos.catalogo.filtro_status">

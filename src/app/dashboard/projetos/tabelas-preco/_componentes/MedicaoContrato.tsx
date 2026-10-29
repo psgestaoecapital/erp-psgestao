@@ -10,6 +10,9 @@ import { SaldoContrato } from './SaldoContrato'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 const fmtR = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+// Data sempre em dd/mm/aaaa (o seletor nativo <input type="date"> segue a língua do navegador e,
+// num navegador em inglês, mostra mm/dd — o eco abaixo deixa o formato BR explícito).
+const fmtData = (iso: string) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString('pt-BR') : '')
 
 type Linha = { servico_ref: string; quantidade: string; condicao: string }
 type Res = { ok: boolean; erro?: string; servico_ref?: string; quantidade: number; faixa_de?: number; faixa_ate?: number | null; condicao?: string; preco_unitario?: number; total?: number; codigo_externo?: string | null; unidade?: string }
@@ -25,7 +28,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
   const [versao, setVersao] = useState(0)
   const [salvas, setSalvas] = useState<{ id: string; descricao: string; periodo_inicio: string | null; periodo_fim: string | null; total: number }[]>([])
   const carregarSalvas = useCallback(async () => {
-    const { data } = await supabase.from('erp_medicao_cliente').select('id,descricao,periodo_inicio,periodo_fim,total').eq('tabela_id', tabelaId).order('criado_em', { ascending: false }).limit(20)
+    const { data } = await supabase.from('erp_medicao_cliente').select('id,descricao,periodo_inicio,periodo_fim,total').eq('tabela_id', tabelaId).is('deleted_at', null).order('criado_em', { ascending: false }).limit(20)
     setSalvas(((data ?? []) as typeof salvas).map(x => ({ ...x, total: Number(x.total) })))
   }, [tabelaId])
   useEffect(() => { carregarSalvas() }, [carregarSalvas])
@@ -109,7 +112,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
     <>
     <section data-testid="tp-medicao" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16, display: 'grid', gap: 12 }}>
       <h2 style={{ fontSize: 17, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>Medição ao cliente <AjudaCampo chave="hub.tabela_preco.medicao" /></h2>
-      <p style={{ fontSize: 13, color: MUT, margin: 0 }}>Informe o que foi medido no período: o preço sai pela faixa e pelo regime do contrato, com o código do cliente.</p>
+      <p style={{ fontSize: 13, color: MUT, margin: 0, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>Informe o que foi medido no período: o preço sai pela faixa e pelo regime do contrato, com o código do cliente.<AjudaCampo chave="hub.tabela_preco.medicao_colunas" /></p>
       {linhas.map((l, i) => (
         <div key={i} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8 }}>
           <label style={{ fontSize: 12, color: MUT }}>Serviço <AjudaCampo chave="hub.tabela_preco.servico" />
@@ -135,7 +138,10 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
           <div style={{ display: 'flex', gap: 6 }}>
             <input type="date" aria-label="Início do período" style={campo} value={ini} onChange={e => setIni(e.target.value)} />
             <input type="date" aria-label="Fim do período" style={campo} value={fim} onChange={e => setFim(e.target.value)} />
-          </div></label>
+          </div>
+          <span data-testid="med-periodo-br" style={{ fontSize: 11, color: MUT, display: 'block', marginTop: 3 }}>
+            {ini || fim ? `${fmtData(ini) || '—'} a ${fmtData(fim) || '—'}` : 'Formato dd/mm/aaaa'}
+          </span></label>
       </div>
       {podeGravar && <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <button type="button" data-testid="med-salvar" onClick={gravar} style={{ minHeight: 44, padding: '0 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: '#fff', color: ESP, fontWeight: 700 }}>Salvar medição</button>
