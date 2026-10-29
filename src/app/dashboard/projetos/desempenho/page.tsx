@@ -20,7 +20,7 @@ type RankRow = { responsavel_id: string | null; responsavel_nome: string; oportu
 type Perda = { motivo: string; qtd: number; valor: number }
 type Resp = { gestor: boolean; de: string; ate: string; vendedor: string | null; resumo: Resumo; funil: FunilEtapa[]; ranking: RankRow[] | null; perdas: Perda[]; velocidade_dias: number | null; erro?: string }
 
-const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_feita: 'Visita', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
+const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_agendada: 'Visita agendada', visita_feita: 'Visita feita', orcando: 'Orçando', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
 const corConversao = (v: number | null) => (v == null ? MUT : v >= 40 ? VERDE : v >= 20 ? AMBAR : VERM)
 const rotConversao = (v: number | null) => (v == null ? '—' : v >= 40 ? 'alta' : v >= 20 ? 'média' : 'baixa')
 
@@ -40,7 +40,9 @@ export default function DesempenhoComercialPage() {
   const [erro, setErro] = useState('')
   // Abertura sem clique (RD-98): se o mês corrente não tem nada fechado, a 1ª carga já escolhe o menor período
   // maior com dado (trimestre → ano → 12 meses) e avisa. Roda uma vez por abertura da tela.
-  const autoFeito = useRef(false)
+  // Chave = conjunto de empresas: se a empresa chega depois (ou muda), a abertura sem clique roda de novo
+  // para ela — antes o 1º disparo com lista de empresas ainda incompleta gastava a única chance.
+  const autoFeito = useRef('')
   const [nota, setNota] = useState('')
 
   const buscar = useCallback(async (de: string, ate: string) => {
@@ -55,8 +57,9 @@ export default function DesempenhoComercialPage() {
     if (error) { setLoading(false); setErro(error.message); return }
     if (r0?.erro) { setLoading(false); setErro(r0.erro === 'sem_acesso' ? 'Sem acesso.' : r0.erro); return }
     const fechados = (x: Resp | null) => (x?.resumo?.ganhas_qtd ?? 0) + (x?.resumo?.perdidas_qtd ?? 0)
-    if (!autoFeito.current && periodo === 'mes') {
-      autoFeito.current = true
+    const chave = [...companyIds].sort().join(',')
+    if (autoFeito.current !== chave && periodo === 'mes') {
+      autoFeito.current = chave
       if (fechados(r0) === 0) {
         const h = new Date(), h12 = new Date(h); h12.setFullYear(h.getFullYear() - 1)
         const cands: [string, string, { de: string; ate: string }][] = [
