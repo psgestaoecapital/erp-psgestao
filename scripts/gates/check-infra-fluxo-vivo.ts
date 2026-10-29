@@ -4,13 +4,16 @@
 //     conta (Code pausado não "volta" quando a fila publica a PR dele) — e só lista robô (cron) ATIVO;
 //  3) guarda fn_dev_painel_pode_ver, nada aberto a anônimo, nenhuma função existente recriada, nada apagado;
 //  4) a aba existe na Central com rota própria e "?" (RD-95) com as chaves cadastradas na migration.
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { falhas++; console.error('✗', m) } }
 
 const comp = readFileSync('src/components/dev/FluxoVivo.tsx', 'utf8')
-const mig = readFileSync('supabase/migrations/20261030180000_dev_fluxo_ao_vivo.sql', 'utf8')
+// acha a migration pelo nome (sem a versão), para a fila poder renumerar sozinha sem quebrar o gate
+const arqMig = readdirSync('supabase/migrations').filter((f) => f.endsWith('_dev_fluxo_ao_vivo.sql'))
+if (arqMig.length !== 1) { console.error(`✗ esperava 1 migration *_dev_fluxo_ao_vivo.sql, achei ${arqMig.length}`); process.exit(1) }
+const mig = readFileSync(`supabase/migrations/${arqMig[0]}`, 'utf8')
 const sql = mig.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 const central = readFileSync('src/app/dashboard/dev/page.tsx', 'utf8')
 
