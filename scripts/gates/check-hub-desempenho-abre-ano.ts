@@ -10,7 +10,7 @@ ok(src.includes('periodoVazio(r?.resumo)') && src.includes("setPeriodo('ano')") 
 ok(src.includes('escolheuPeriodo') && (src.match(/escolheuPeriodo\.current = true/g) ?? []).length >= 4, 'escolha manual do período nunca é sobrescrita (e só tenta uma vez)')
 ok(src.includes('data-testid="desempenho-aberto-no-ano"'), 'aviso "mostrando o ano porque o mês está vazio"')
 ok(src.includes('data-testid="desempenho-vazio"'), 'estado vazio honesto continua para quando nem o ano tem dado')
-ok(/<AjudaCampo chave="projetos\.desempenho\.periodo" \/>\s*<\/div>/.test(src), '"?" do período fica visível em todos os presets')
+ok(src.includes("{periodo !== 'custom' && <AjudaCampo chave=\"projetos.desempenho.periodo\" />}"), '"?" do período visível nos presets (e junto de cada data no personalizado)')
 const mig = readdirSync('supabase/migrations').find((f) => f.includes('hub_desempenho_rd98_origem_dado'))
 ok(!!mig && /fn_crm_desempenho/.test(readFileSync(`supabase/migrations/${mig}`, 'utf8')), 'origem do dado (RD-98 p3) em system_screens')
 if (falhas) { console.error(`\ncheck-hub-desempenho-abre-ano: ${falhas} falha(s)`); process.exit(1) }

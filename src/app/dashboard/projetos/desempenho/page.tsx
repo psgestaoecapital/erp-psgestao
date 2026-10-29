@@ -87,11 +87,11 @@ export default function DesempenhoComercialPage() {
           ))}
           {periodo === 'custom' && (
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input type="date" value={range.de} onChange={(e) => { escolheuPeriodo.current = true; setRange((x) => ({ ...x, de: e.target.value })) }} style={inp} />
-              <input type="date" value={range.ate} onChange={(e) => { escolheuPeriodo.current = true; setRange((x) => ({ ...x, ate: e.target.value })) }} style={inp} />
+              <input type="date" value={range.de} onChange={(e) => { escolheuPeriodo.current = true; setRange((x) => ({ ...x, de: e.target.value })) }} style={inp} /><AjudaCampo chave="projetos.desempenho.periodo" />
+              <input type="date" value={range.ate} onChange={(e) => { escolheuPeriodo.current = true; setRange((x) => ({ ...x, ate: e.target.value })) }} style={inp} /><AjudaCampo chave="projetos.desempenho.periodo" />
             </span>
           )}
-          <AjudaCampo chave="projetos.desempenho.periodo" />
+          {periodo !== 'custom' && <AjudaCampo chave="projetos.desempenho.periodo" />}
         </div>
 
         {erro && <div style={{ padding: '10px 14px', borderRadius: 8, background: '#FBEAEA', color: VERM, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
