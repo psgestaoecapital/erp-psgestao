@@ -11,7 +11,9 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', AMBAR = '#B45309', VERM = '#B91C1C', ROXO = '#8B5CF6'
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const pct = (v: number | null) => (v == null ? '—' : `${v}%`)
-const iso = (d: Date) => d.toISOString().slice(0, 10)
+const p2 = (n: number) => String(n).padStart(2, '0')
+// data local (toISOString voltava um dia em fuso a leste de UTC e o mês corrente perdia o dia 1)
+const iso = (d: Date) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
 const dataBR = (s: string) => (/^\d{4}-\d{2}-\d{2}$/.test(s) ? s.split('-').reverse().join('/') : s)
 
 type Resumo = { oportunidades: number; valor_pipeline: number; propostas: number; ganhas_qtd: number; ganhas_valor: number; perdidas_qtd: number; perdidas_valor: number; ticket_medio: number; comissao: number; conversao_pct: number | null }
@@ -20,7 +22,7 @@ type RankRow = { responsavel_id: string | null; responsavel_nome: string; oportu
 type Perda = { motivo: string; qtd: number; valor: number }
 type Resp = { gestor: boolean; de: string; ate: string; vendedor: string | null; resumo: Resumo; funil: FunilEtapa[]; ranking: RankRow[] | null; perdas: Perda[]; velocidade_dias: number | null; erro?: string }
 
-const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_feita: 'Visita', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
+const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_feita: 'Visita', orcando: 'Orçando', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
 const corConversao = (v: number | null) => (v == null ? MUT : v >= 40 ? VERDE : v >= 20 ? AMBAR : VERM)
 const rotConversao = (v: number | null) => (v == null ? '—' : v >= 40 ? 'alta' : v >= 20 ? 'média' : 'baixa')
 
