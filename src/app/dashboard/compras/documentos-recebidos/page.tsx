@@ -33,6 +33,7 @@ interface Linha {
   qtd_duplicatas: number
   situacao?: string
   xml_tentativas?: number
+  concluida_em?: string | null
 }
 
 interface ListaResp {
@@ -101,6 +102,12 @@ export default function DocumentosRecebidosPage() {
   // #1692 · abas: a tela abre na fila de trabalho; nota concluída sai dela e vai para "Concluídas"
   const [aba, setAba] = useState<'a_concluir' | 'concluidas' | 'todas'>('a_concluir')
   const [busca, setBusca] = useState('')
+  // #5579 · busca e período rodam no servidor (a lista não é mais cortada nas N mais recentes)
+  const [buscaAplicada, setBuscaAplicada] = useState('')
+  const [dataIni, setDataIni] = useState('')
+  const [dataFim, setDataFim] = useState('')
+  const [totalServidor, setTotalServidor] = useState(0)
+  const [carregandoMais, setCarregandoMais] = useState(false)
   // Habilitacao DF-e por empresa · RPC valida cert A1 + token no vault + admin
   const [habilitado, setHabilitado] = useState<boolean | null>(null)
   const [habilitando, setHabilitando] = useState(false)
@@ -121,30 +128,39 @@ export default function DocumentosRecebidosPage() {
 
   // #1692 · silencioso = recarga depois de uma ação na nota: NÃO troca a lista pelo "Carregando…"
   // (isso desmontava a nota aberta e a tela pulava para o meio a cada clique)
-  async function carregar(silencioso = false) {
+  const PAGINA = 100
+  async function carregar(silencioso = false, anexar = false) {
     if (!empresaUnica) return
-    if (!silencioso) setLoading(true)
+    if (anexar) setCarregandoMais(true)
+    else if (!silencioso) setLoading(true)
     setErro(null)
+    // silencioso (recarga após ação) mantém o que já está na tela: pede de novo tudo o que estava carregado
+    const offset = anexar ? lista.length : 0
+    const limite = anexar ? PAGINA : Math.max(PAGINA, silencioso ? lista.length : 0)
     const { data, error } = await supabase.rpc('fn_nfe_recebidas_listar', {
       p_company_id: empresaUnica,
       p_status: filtroStatus === 'todos' ? null : filtroStatus,
-      // #1692 · aba "Concluídas" pede só as concluídas ao servidor (não fica presa às 200 mais recentes)
-      p_situacao: aba === 'concluidas' ? 'concluida' : null,
-      p_limit: 200,
+      // #1692/#5579 · a aba vai ao servidor: "a concluir" e "Concluídas" não ficam presas às mais recentes
+      p_situacao: aba === 'concluidas' ? 'concluida' : aba === 'a_concluir' ? 'a_concluir' : null,
+      p_busca: buscaAplicada.trim() || null,
+      p_data_ini: dataIni || null,
+      p_data_fim: dataFim || null,
+      p_limit: limite,
+      p_offset: offset,
     })
-    if (!silencioso) setLoading(false)
+    if (anexar) setCarregandoMais(false)
+    else if (!silencioso) setLoading(false)
     if (error) { setErro(error.message); return }
     const r = data as ListaResp
     if (!r.ok) { setErro(r.erro ?? 'Erro ao carregar'); return }
-    setLista(r.itens ?? [])
-    // E1 · concluida_em das notas listadas (selo + filtro)
-    const ids = (r.itens ?? []).map((x) => x.id)
-    if (ids.length > 0) {
-      const { data: cc } = await supabase.from('erp_nfe_recebidas').select('id, concluida_em').in('id', ids)
-      const m: Record<string, string | null> = {}
-      for (const row of (cc ?? []) as { id: string; concluida_em: string | null }[]) m[row.id] = row.concluida_em
-      setConcluidas(m)
-    } else setConcluidas({})
+    const itens = r.itens ?? []
+    setTotalServidor(r.total ?? itens.length)
+    setLista((ant) => (anexar ? [...ant, ...itens.filter((x) => !ant.some((a) => a.id === x.id))] : itens))
+    setConcluidas((ant) => {
+      const m: Record<string, string | null> = anexar ? { ...ant } : {}
+      for (const x of itens) m[x.id] = x.concluida_em ?? null
+      return m
+    })
   }
 
   // NFE-F0 · E2 · baixar o XML da nota (nome {chave}.xml)
@@ -200,7 +216,13 @@ export default function DocumentosRecebidosPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void carregar()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empresaUnica, filtroStatus, aba])
+  }, [empresaUnica, filtroStatus, aba, buscaAplicada, dataIni, dataFim])
+
+  // busca no servidor com atraso curto (não dispara a cada tecla)
+  useEffect(() => {
+    const t = setTimeout(() => setBuscaAplicada(busca), 350)
+    return () => clearTimeout(t)
+  }, [busca])
 
   async function toggleAutoCiencia(novo: boolean) {
     if (!empresaUnica) return
@@ -452,19 +474,12 @@ export default function DocumentosRecebidosPage() {
     }
   }
 
+  // #5579 · o servidor já filtra aba, busca e período; aqui só some a nota que acabou de mudar de aba (recarga silenciosa pendente)
   const filtrada = useMemo(() => {
-    const q = busca.trim().toLowerCase()
-    let base = lista
-    // E1 · "a concluir" = ainda não concluída nem recusada (a fila de trabalho da Jordana) · #1692 aba "Concluídas"
-    if (aba === 'a_concluir') base = base.filter((n) => !concluidas[n.id] && n.status !== 'ignorada')
-    else if (aba === 'concluidas') base = base.filter((n) => !!concluidas[n.id])
-    if (!q) return base
-    return base.filter((n) =>
-      (n.fornecedor ?? '').toLowerCase().includes(q) ||
-      (n.cnpj ?? '').includes(q.replace(/\D/g, '')) ||
-      (n.chave_acesso ?? '').includes(q.replace(/\D/g, ''))
-    )
-  }, [lista, busca, aba, concluidas])
+    if (aba === 'a_concluir') return lista.filter((n) => !concluidas[n.id] && n.status !== 'ignorada')
+    if (aba === 'concluidas') return lista.filter((n) => !!concluidas[n.id])
+    return lista
+  }, [lista, aba, concluidas])
 
   if (!empresaUnica) {
     return (
@@ -605,10 +620,16 @@ export default function DocumentosRecebidosPage() {
               type="text"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por fornecedor, CNPJ ou chave..."
+              placeholder="Buscar por número, fornecedor, CNPJ ou chave..." data-testid="nfe-busca"
               className="flex-1 text-[13px] outline-none bg-transparent text-[#3D2314] min-w-[200px]"
             />
             <AjudaCampo chave="compras.docs_recebidos.busca" />
+            <input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} aria-label="Emitidas desde"
+              className="text-[12px] bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[#3D2314]" />
+            <span className="text-[12px] text-[#3D2314]/55">até</span>
+            <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} aria-label="Emitidas até"
+              className="text-[12px] bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[#3D2314]" />
+            <AjudaCampo chave="compras.docs_recebidos.periodo" />
             <select
               value={filtroStatus}
               onChange={(e) => setFiltroStatus(e.target.value)}
@@ -644,11 +665,11 @@ export default function DocumentosRecebidosPage() {
             <div className="px-6 py-16 text-center">
               <FileText size={36} className="mx-auto mb-3 text-[#3D2314]/30" />
               <div className="text-[14px] text-[#3D2314] font-medium mb-1">
-                {lista.length === 0 ? 'Nenhuma nota recebida ainda'
-                  : aba === 'a_concluir' && !busca.trim() ? 'Nenhuma nota a concluir — as concluídas estão na aba "Concluídas"'
+                {lista.length === 0 && !buscaAplicada.trim() && !dataIni && !dataFim && aba === 'todas' ? 'Nenhuma nota recebida ainda'
+                  : aba === 'a_concluir' && !buscaAplicada.trim() && !dataIni && !dataFim ? 'Nenhuma nota a concluir — as concluídas estão na aba "Concluídas"'
                   : 'Nenhuma nota para o filtro atual'}
               </div>
-              {lista.length === 0 && (
+              {lista.length === 0 && !buscaAplicada.trim() && !dataIni && !dataFim && aba === 'todas' && (
                 <div className="text-[12px] text-[#3D2314]/65 max-w-md mx-auto">
                   Confirme a habilitação fiscal (certificado + token + Recebimento de NFes na Focus).{' '}
                   <a href="/dashboard/configuracoes/fiscal" className="underline text-[#BA7517] font-medium">
@@ -850,6 +871,17 @@ export default function DocumentosRecebidosPage() {
                   </div>
                 )
               })}
+              <div className="px-4 py-3 flex items-center justify-center gap-3 text-[12px] text-[#3D2314]/65">
+                <span data-testid="nfe-contagem">Mostrando {lista.length} de {totalServidor}</span>
+                {lista.length < totalServidor && (
+                  <button type="button" onClick={() => void carregar(false, true)} disabled={carregandoMais}
+                    data-testid="nfe-carregar-mais"
+                    className="px-3 py-1.5 rounded-md border border-[#3D2314]/20 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-60">
+                    {carregandoMais ? 'Carregando…' : 'Carregar mais'}
+                  </button>
+                )}
+                <AjudaCampo chave="compras.docs_recebidos.carregar_mais" />
+              </div>
             </div>
           )}
         </div>
