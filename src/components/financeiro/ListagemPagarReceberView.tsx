@@ -23,7 +23,8 @@ import ExportarListaButton from './ExportarListaButton'
 import GerarSegundoPlanoButton from '@/components/relatorios/GerarSegundoPlanoButton'
 import { FORMAS_PAGAMENTO } from '@/lib/financeiro/formasPagamento'
 import { motivoValido } from '@/lib/financeiro/bloqueioPagamento'
-import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
+import { resolverProviderDaConta, type RoteamentoBoleto } from '@/lib/banco/boletoPorConta'
+import { carregarRoteamentoBoleto, listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
 
 // Campos liberados na edição em massa (Jordana #6) — todos na whitelist do fn_*_editar_completo.
 const CAMPOS_MASSA = [
@@ -209,6 +210,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [boletoMap, setBoletoMap] = useState<Record<string, BoletoEstado>>({})
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteContato>>({})
   const [provider, setProvider] = useState<'sicoob' | 'sicredi' | 'bradesco' | null>(null)
+  const [rotBoleto, setRotBoleto] = useState<RoteamentoBoleto | null>(null)   // #5404: banco do boleto = banco da conta do título
+  const [contaIdMap, setContaIdMap] = useState<Record<string, string | null>>({})
   const [providers, setProviders] = useState<BoletoProvider[]>([])   // #88: mais de um banco emitindo boleto
   const [empresaCnpj, setEmpresaCnpj] = useState<string | null>(null)
   const [capExtrato, setCapExtrato] = useState(false)
@@ -230,8 +233,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   // então o mês atual esconderia parte deles e o total não bateria com o card.
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const st = new URLSearchParams(window.location.search).get('status')
-    if (st === 'vencido') {
+    const qs = new URLSearchParams(window.location.search)
+    const st = qs.get('status')
+    // Chamado #5427 · "Faturada - ver na GE" (OS) chega com ?busca=<nº da OS>: abre a busca já preenchida e o período
+    // largo (a OS pode ter parcelas fora do mês atual). Limpar o campo volta a lista ao normal.
+    const buscaUrl = (qs.get('busca') ?? '').trim().slice(0, 80)
+    if (buscaUrl) {
+      const ano = new Date().getFullYear()
+      setBusca(buscaUrl)
+      setPeriodoChoice('personalizado')
+      setDataInicio(`${ano - 5}-01-01`)
+      setDataFim(`${ano + 5}-12-31`)
+    } else if (st === 'vencido') {
       setStatusSel(['vencidos'])
       setPeriodoChoice('personalizado')
       setDataInicio(`${new Date().getFullYear() - 5}-01-01`)
@@ -296,19 +309,20 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         .order('criado_em', { ascending: false })
         .order('id')
         .range(de, ate)),
-      selecionarTodas<{ id: string; cliente_id: string | null; boleto_status: string | null; boleto_nosso_numero: string | null; boleto_linha_digitavel: string | null; boleto_codigo_barras: string | null; boleto_qr_code: string | null; boleto_url: string | null }>((de, ate) => supabase
+      selecionarTodas<{ id: string; cliente_id: string | null; boleto_status: string | null; boleto_nosso_numero: string | null; boleto_linha_digitavel: string | null; boleto_codigo_barras: string | null; boleto_qr_code: string | null; boleto_url: string | null; conta_bancaria_id: string | null }>((de, ate) => supabase
         .from('erp_receber')
-        .select('id, cliente_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_codigo_barras, boleto_qr_code, boleto_url')
+        .select('id, cliente_id, conta_bancaria_id, boleto_status, boleto_nosso_numero, boleto_linha_digitavel, boleto_codigo_barras, boleto_qr_code, boleto_url')
         .eq('company_id', companyId)
         .order('id')
         .range(de, ate)),
       listarProvidersBoleto(companyId),
+      carregarRoteamentoBoleto(companyId),
       supabase
         .from('companies')
         .select('cnpj')
         .eq('id', companyId)
         .maybeSingle(),
-    ]).then(async ([nfseRes, nfeRes, boletoRes, provRes, compRes]) => {
+    ]).then(async ([nfseRes, nfeRes, boletoRes, provRes, rotRes, compRes]) => {
       if (!alive) return
       const nfseMapNew: Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'> = {}
       const nfseDocMapNew: Record<string, { pdf?: string | null; xml?: string | null; notaId?: string }> = {}
@@ -360,6 +374,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         }
       }
       setBoletoMap(boletoMapNew)
+      if (alive) {
+        const cm: Record<string, string | null> = {}
+        for (const row of (boletoRes.data ?? [])) cm[row.id] = row.conta_bancaria_id
+        setContaIdMap(cm); setRotBoleto(rotRes)
+      }
 
       if (alive) { setProviders(provRes); setProvider(escolherProviderBoleto(companyId, provRes)) }
       if (alive) setEmpresaCnpj((compRes.data as { cnpj?: string | null } | null)?.cnpj ?? null)
@@ -1442,26 +1461,33 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 motivo={nfeDocMap[r.id]?.motivo ?? undefined}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
-                              {provider === 'sicoob' || provider === 'sicredi' || provider === 'bradesco' ? (
-                                <BoletoActions
-                                  provider={provider}
-                                  receberId={r.id}
-                                  valor={r.valor_documento}
-                                  vencimentoISO={r.data_vencimento}
-                                  cliente={clientesMap[r.id] ?? null}
-                                  empresaCnpj={empresaCnpj}
-                                  pago={pago}
-                                  boleto={boletoMap[r.id] ?? { status: null, nossoNumero: null, linhaDigitavel: null, codigoBarras: null, qrCode: null, url: null }}
-                                  onSucesso={() => setReloadKey((k) => k + 1)}
-                                />
-                              ) : (
-                                <GerarBoletoButton
-                                  receberId={r.id}
-                                  jaTemBoleto={boletoMap[r.id]?.status === 'registrado'}
-                                  linhaDigitavel={boletoMap[r.id]?.linhaDigitavel ?? null}
-                                  onSucesso={() => setReloadKey((k) => k + 1)}
-                                />
-                              )}
+                              {(() => {
+                                // #5404: o boleto sai pelo banco da CONTA do título; conta sem boleto → mensagem, nunca outro banco
+                                const res = rotBoleto ? resolverProviderDaConta(rotBoleto, contaIdMap[r.id]) : null
+                                if (res && !res.ok) return <span data-testid="boleto-sem-conta" title={res.motivo} style={{ fontSize: 11, color: '#B45309' }}>{res.motivo}</span>
+                                const provT = res?.ok ? res.provider : provider
+                                if (provT === 'bb') return <span data-testid="boleto-bb-implantacao" style={{ fontSize: 11, color: '#B45309' }}>Boleto do Banco do Brasil em implantação.</span>
+                                return provT === 'sicoob' || provT === 'sicredi' || provT === 'bradesco' ? (
+                                  <BoletoActions
+                                    provider={provT}
+                                    receberId={r.id}
+                                    valor={r.valor_documento}
+                                    vencimentoISO={r.data_vencimento}
+                                    cliente={clientesMap[r.id] ?? null}
+                                    empresaCnpj={empresaCnpj}
+                                    pago={pago}
+                                    boleto={boletoMap[r.id] ?? { status: null, nossoNumero: null, linhaDigitavel: null, codigoBarras: null, qrCode: null, url: null }}
+                                    onSucesso={() => setReloadKey((k) => k + 1)}
+                                  />
+                                ) : (
+                                  <GerarBoletoButton
+                                    receberId={r.id}
+                                    jaTemBoleto={boletoMap[r.id]?.status === 'registrado'}
+                                    linhaDigitavel={boletoMap[r.id]?.linhaDigitavel ?? null}
+                                    onSucesso={() => setReloadKey((k) => k + 1)}
+                                  />
+                                )
+                              })()}
                               {!pago && (
                                 <button
                                   type="button"

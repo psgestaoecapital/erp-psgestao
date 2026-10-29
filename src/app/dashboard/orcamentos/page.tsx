@@ -55,6 +55,7 @@ type Orcamento = {
   hash_publico:string; visualizado_em:string; qtd_visualizacoes:number;
   pedido_id:string; convertido_em:string;
   orcamentista_id?:string|null; orcamentista_nome?:string|null; // #3270/#3271 · quem elabora o orçamento
+  eh_permuta?:boolean|null; permuta_percentual?:number|null; // #5165 · condição de permuta
   eh_obra?:boolean|null; // #82③ · este orçamento é de obra? controla criação automática da obra no Hub
   created_at:string; updated_at:string;
   itens?:ItemOrc[];
@@ -534,6 +535,9 @@ export default function OrcamentosPage(){
       observacoes:form.observacoes,texto_proposta:form.texto_proposta,
       // #82③ · este orçamento é de obra? controla a criação automática da obra no Hub (trigger condicional)
       eh_obra:form.eh_obra??null,
+      // #5165 · condição de permuta (percentual só vale quando marcada)
+      eh_permuta:!!form.eh_permuta,
+      permuta_percentual:form.eh_permuta?(form.permuta_percentual===null||form.permuta_percentual===undefined||(form.permuta_percentual as unknown)===''?null:Math.min(100,Math.max(0,Number(form.permuta_percentual)||0))):null,
     };
 
     let orcId=editing?.id;
@@ -851,6 +855,22 @@ export default function OrcamentosPage(){
               </label>
             </div>
           )}
+
+          {/* #5165 · condição de permuta */}
+          <div style={{background:BG3,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <label htmlFor="orc-eh-permuta" style={{fontSize:11.5,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+              <input type="checkbox" id="orc-eh-permuta" data-testid="orc-eh-permuta" checked={!!form.eh_permuta} onChange={e=>setForm({...form,eh_permuta:e.target.checked,permuta_percentual:e.target.checked?form.permuta_percentual:null})}/>
+              <b>Condição de permuta</b>
+            </label>
+            <AjudaCampo chave="orcamentos.campo.eh_permuta" rota="/dashboard/orcamentos"/>
+            {form.eh_permuta && (
+              <label style={{fontSize:11.5,display:"flex",alignItems:"center",gap:6}}>
+                Percentual de permuta (%)
+                <input type="number" min={0} max={100} step="0.01" data-testid="orc-permuta-pct" value={form.permuta_percentual??''} onChange={e=>setForm({...form,permuta_percentual:e.target.value===''?null:Number(e.target.value)})} style={{...inp,width:90}}/>
+                <AjudaCampo chave="orcamentos.campo.permuta_percentual" rota="/dashboard/orcamentos"/>
+              </label>
+            )}
+          </div>
 
           {/* Itens */}
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>

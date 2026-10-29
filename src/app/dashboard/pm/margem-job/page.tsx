@@ -111,10 +111,10 @@ export default function MargemJobPage() {
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 6 }}>
-          <Kpi l="Valor total" v={brl(tot.valor)} />
-          <Kpi l="Custo total" v={brl(tot.custo)} />
-          <Kpi l="Lucro" v={brl(tot.lucro)} cor={tot.lucro >= 0 ? GREEN : RED} />
-          <Kpi l="Margem geral" v={`${tot.margem.toFixed(1)}%`} cor={tot.margem >= 50 ? GREEN : tot.margem >= 25 ? YELLOW : RED} />
+          <Kpi l="Valor total" v={brl(tot.valor)} ajuda="pm.margem.kpi_valor" />
+          <Kpi l="Custo total" v={brl(tot.custo)} ajuda="pm.margem.kpi_custo" />
+          <Kpi l="Lucro" v={brl(tot.lucro)} cor={tot.lucro >= 0 ? GREEN : RED} ajuda="pm.margem.kpi_lucro" />
+          <Kpi l="Margem geral" v={`${tot.margem.toFixed(1)}%`} cor={tot.margem >= 50 ? GREEN : tot.margem >= 25 ? YELLOW : RED} ajuda="pm.margem.kpi_margem" />
         </div>
         {(tot.semCustoHora + tot.semCusto) > 0 && (
           <div style={{ fontSize: 12, color: TEXTM, marginBottom: 14 }} data-testid="margem-fora-do-total">
@@ -162,7 +162,7 @@ export default function MargemJobPage() {
           ) : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 620 }}>
-                <thead style={{ background: OFFWHITE }}><tr><Th>Job</Th><Th>Cliente</Th><Th>Valor</Th><Th>Custo</Th><Th>Lucro</Th><Th>Margem</Th></tr></thead>
+                <thead style={{ background: OFFWHITE }}><tr><Th>Job</Th><Th>Cliente</Th><Th>Valor</Th><Th>Custo</Th><Th>Lucro</Th><Th><span style={{ display: 'inline-flex', alignItems: 'center' }}>Margem<AjudaCampo chave="pm.margem.grupo" /></span></Th></tr></thead>
                 <tbody>
                   {linhas.map((l) => (
                     <tr key={l.j.id} style={{ borderTop: `1px solid ${BORDA}` }} data-testid={`margem-job-${l.j.id}`}>
@@ -192,9 +192,9 @@ export default function MargemJobPage() {
   )
 }
 
-function Kpi({ l, v, cor }: { l: string; v: string; cor?: string }) {
+function Kpi({ l, v, cor, ajuda }: { l: string; v: string; cor?: string; ajuda?: string }) {
   return <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'inline-flex', alignItems: 'center' }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
     <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? ESPRESSO, marginTop: 2 }}>{v}</div>
   </div>
 }
