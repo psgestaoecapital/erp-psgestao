@@ -68,3 +68,15 @@ export function situacaoPlanta(p: PlantaTakeoff, c: ContagemAmbientes): { rotulo
   if (c.total === 0) return { rotulo: 'Sem ambientes', tom: 'atencao' }
   return { rotulo: `${c.prontos} de ${c.total} prontos`, tom: 'atencao' }
 }
+
+// Progresso de UMA planta da lista (etapa X de 6), pela mesma regra das etapas da tela. "Escolher orçamento" conta como
+// feita quando a planta já tem orçamento de destino. Sem rede.
+export function progressoPlanta(
+  p: PlantaTakeoff & { orcamento_id: string | null },
+  ambientes: AmbienteTakeoff[],
+): { atual: number; total: number; rotulo: string; concluido: boolean } {
+  const etapas = etapasTakeoff({ planta: p, ambientes, orcamentoEscolhido: !!p.orcamento_id, orcamentoGerado: false })
+  const atual = etapaAtual(etapas)
+  const concluido = atual >= etapas.length
+  return { atual: concluido ? etapas.length : atual + 1, total: etapas.length, rotulo: concluido ? 'Concluído' : etapas[atual].rotulo, concluido }
+}
