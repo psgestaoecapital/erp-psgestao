@@ -14,6 +14,11 @@ const arq = readdirSync('supabase/migrations').filter((f) => f.endsWith('_comerc
 if (arq.length !== 1) { console.error(`✗ esperava 1 migration *_comercial_bi_meu_painel.sql, achei ${arq.length}`); process.exit(1) }
 const mig = readFileSync(`supabase/migrations/${arq[0]}`, 'utf8')
 const sql = mig.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+// Painel completo (CEO 29/10, "ficou pobre"): recria a MESMA fn_bi_comercial_painel com mais blocos — a guarda
+// tem de continuar idêntica na versão viva (a última migration que a define).
+const arqC = readdirSync('supabase/migrations').filter((f) => f.endsWith('_comercial_bi_painel_completo.sql'))
+const migC = arqC.length ? readFileSync(`supabase/migrations/${arqC[0]}`, 'utf8') : ''
+const sqlC = migC.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 const tela = readFileSync('src/app/dashboard/comercial/meu-painel/page.tsx', 'utf8')
 const adm = readFileSync('src/app/dashboard/admin/vendedores/page.tsx', 'utf8')
 
@@ -33,13 +38,21 @@ for (const f of ['fn_bi_comercial_painel(uuid, text, date, date)', 'fn_com_vende
   ok(new RegExp(`REVOKE ALL ON FUNCTION public\\.${f.replace(/[()]/g, '\\$&')} FROM PUBLIC, anon`).test(sql), `nada aberto a anônimo: ${f}`)
 }
 ok(!/\bDELETE\s+FROM\b|\bDROP\s+(?:TABLE|FUNCTION|COLUMN)\b|\bTRUNCATE\b/i.test(sql), 'nada apagado')
+if (sqlC) {
+  ok(!UUID.test(sqlC), 'painel completo: nenhuma empresa fixa')
+  ok(/IF v_uid IS NULL THEN RAISE EXCEPTION/.test(sqlC) && /p_company_id IN \(SELECT public\.get_user_company_ids\(\)\)/.test(sqlC), 'painel completo: mesma exigência de usuário e empresa')
+  ok(/IF v_vinculo IS NOT NULL THEN\s+v_raiz := v_vinculo;/.test(sqlC) && /CASE WHEN p_no IS NOT NULL AND p_no IN \(SELECT no FROM perm\) THEN p_no ELSE v_raiz END/.test(sqlC) && /'sem_vinculo_vendedor'/.test(sqlC), 'painel completo: mesma trava de vínculo')
+  ok(/REVOKE ALL ON FUNCTION public\.fn_bi_comercial_painel\(uuid, text, date, date\) FROM PUBLIC, anon/.test(sqlC), 'painel completo: nada aberto a anônimo')
+  ok(!/\bDELETE\s+FROM\b|\bDROP\s+(?:TABLE|FUNCTION|COLUMN)\b|\bTRUNCATE\b/i.test(sqlC), 'painel completo: nada apagado')
+  ok([...sqlC.matchAll(/CREATE OR REPLACE FUNCTION public\.([a-z0-9_]+)/g)].every((m) => m[1] === 'fn_bi_comercial_painel'), 'painel completo: só recria a própria porta do painel')
+}
 const novas = ['fn_com_venda_item', 'fn_com_equipe', 'fn_bi_comercial_painel', 'fn_com_vendedor_acesso_pode', 'fn_com_vendedor_acesso_listar', 'fn_com_vendedor_acesso_salvar']
 const recriadas = [...sql.matchAll(/CREATE OR REPLACE FUNCTION public\.([a-z0-9_]+)/g)].map((m) => m[1])
 ok(recriadas.every((n) => novas.includes(n)), 'só funções novas')
 for (const [nome, txt] of [['meu-painel', tela], ['vendedores', adm]] as const) {
   const chaves = [...txt.matchAll(/AjudaCampo chave="([^"]+)"/g)].map((m) => m[1])
   ok(chaves.length > 0, `"?" na tela ${nome}`)
-  for (const k of new Set(chaves)) ok(mig.includes(`('${k}',`), `chave de ajuda cadastrada: ${k}`)
+  for (const k of new Set(chaves)) ok(mig.includes(`('${k}',`) || migC.includes(`('${k}',`), `chave de ajuda cadastrada: ${k}`)
 }
 
 if (falhas) { console.error(`\n${falhas} falha(s) — Meu painel de vendas`); process.exit(1) }
