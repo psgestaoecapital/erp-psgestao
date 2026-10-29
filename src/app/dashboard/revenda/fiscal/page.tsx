@@ -98,10 +98,11 @@ export default function FiscalPage() {
     const opsArr = OPS.map((o) => ops[o]).filter((x) => x && (x.cfop_dentro_uf || x.cfop_fora_uf || x.cst_ou_csosn || x.emite_nota_entrada
       || x.cst_icms || x.cbenef || x.reducao_base_icms_pct || x.reducao_base_icms_base_legal || x.ibs_cbs_cst || x.ibs_cbs_cclasstrib || x.inf_complementar_texto || x.natureza_operacao))
       .map((x) => ({ ...x, reducao_base_icms_pct: numParaBanco(x.reducao_base_icms_pct) }))
-    const { data } = await supabase.rpc('fn_veic_perfil_fiscal_salvar', { p_company_id: companyId, p_dados: dados, p_operacoes: opsArr, p_por: 'empresa', p_user: await userId() })
+    const { data, error: rpcErro } = await supabase.rpc('fn_veic_perfil_fiscal_salvar', { p_company_id: companyId, p_dados: dados, p_operacoes: opsArr, p_por: 'empresa', p_user: await userId() })
     setBusy(false)
+    if (rpcErro) { setErro(`Falha ao salvar: ${rpcErro.message}`); return null }
     const r = data as { ok?: boolean; erro?: string; perfil_id?: string } | null
-    if (!r?.ok) { setErro(r?.erro || 'Falha ao salvar.'); return null }
+    if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao salvar.')); return null }
     setMsg('Rascunho salvo.'); await carregar(); return r.perfil_id ?? null
   }
   async function enviar() {
