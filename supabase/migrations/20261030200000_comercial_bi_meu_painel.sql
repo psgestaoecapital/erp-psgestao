@@ -246,7 +246,7 @@ GRANT EXECUTE ON FUNCTION public.fn_com_vendedor_acesso_salvar(uuid, text, uuid)
 -- Menu (todas as empresas que vendem produto; a trava de dados é a RPC) e telas (RD-50).
 INSERT INTO public.module_catalog (id, nome, grupo, icone, rota, ordem, ativo, descricao, is_shared, subgrupo, rbac_isento, rbac_isento_motivo, so_ps)
 VALUES ('comercial_meu_painel', 'Meu painel de vendas', 'industrial', 'BarChart3', '/dashboard/comercial/meu-painel', 190, true,
-        'BI comercial em cascata: cada vendedor vê só a própria venda; supervisor a equipe; diretoria tudo.', true, 'comercial', true,
+        'BI comercial em cascata: cada vendedor vê só a própria venda; supervisor a equipe; diretoria tudo.', true, 'vendas', true,
         'Dados travados pela fn_bi_comercial_painel (vínculo do usuário com o código de vendedor).', false)
 ON CONFLICT (id) DO NOTHING;
 
