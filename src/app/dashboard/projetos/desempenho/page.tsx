@@ -2,7 +2,7 @@
 
 // Hub · Desempenho Comercial por vendedor. Tudo vem de fn_crm_desempenho (RD-38: nada fixo). Gestor vê
 // todos + ranking; vendedor vê só o seu (a RPC força o escopo por papel · Pilar 2). Blocos A-E do SPEC.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -24,6 +24,9 @@ const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita
 const corConversao = (v: number | null) => (v == null ? MUT : v >= 40 ? VERDE : v >= 20 ? AMBAR : VERM)
 const rotConversao = (v: number | null) => (v == null ? '—' : v >= 40 ? 'alta' : v >= 20 ? 'média' : 'baixa')
 
+// Período sem nenhum registro (nem pipeline aberto): a tela parece quebrada se mostrar só zeros (RD-98).
+const periodoVazio = (r: Resumo | undefined) => !!r && r.oportunidades === 0 && r.propostas === 0 && r.ganhas_qtd === 0 && r.perdidas_qtd === 0 && r.valor_pipeline === 0
+
 function preset(p: string): { de: string; ate: string } {
   const h = new Date()
   if (p === 'mes') return { de: iso(new Date(h.getFullYear(), h.getMonth(), 1)), ate: iso(new Date(h.getFullYear(), h.getMonth() + 1, 0)) }
@@ -38,6 +41,10 @@ export default function DesempenhoComercialPage() {
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
+  // Abertura sem clicar em nada: se o mês corrente vem vazio, a tela já abre no ano (uma vez só, e nunca depois
+  // que o usuário escolhe um período) e avisa por que está mostrando o ano.
+  const escolheuPeriodo = useRef(false)
+  const [abriuAno, setAbriuAno] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -50,16 +57,20 @@ export default function DesempenhoComercialPage() {
     const r = d as Resp
     if (r?.erro) { setErro(r.erro === 'sem_acesso' ? 'Sem acesso.' : r.erro); return }
     setData(r)
+    if (!escolheuPeriodo.current && periodoVazio(r?.resumo)) {
+      escolheuPeriodo.current = true
+      setPeriodo('ano'); setRange(preset('ano')); setAbriuAno(true)
+    }
   }, [companyIds, range])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
-  const setPreset = (p: string) => { setPeriodo(p); if (p !== 'custom') setRange(preset(p)) }
+  const setPreset = (p: string) => { escolheuPeriodo.current = true; setAbriuAno(false); setPeriodo(p); if (p !== 'custom') setRange(preset(p)) }
 
   const r = data?.resumo
   const maxFunil = useMemo(() => Math.max(1, ...(data?.funil ?? []).map((f) => f.qtd)), [data])
   // período sem nenhum registro → aviso honesto em vez de parede de zeros (RD-98)
-  const vazio = !!r && r.oportunidades === 0 && r.propostas === 0 && r.ganhas_qtd === 0 && r.perdidas_qtd === 0 && r.valor_pipeline === 0
+  const vazio = periodoVazio(r)
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 18px' }}>
@@ -76,11 +87,11 @@ export default function DesempenhoComercialPage() {
           ))}
           {periodo === 'custom' && (
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input type="date" value={range.de} onChange={(e) => setRange((x) => ({ ...x, de: e.target.value }))} style={inp} />
-              <input type="date" value={range.ate} onChange={(e) => setRange((x) => ({ ...x, ate: e.target.value }))} style={inp} />
-              <AjudaCampo chave="projetos.desempenho.periodo" />
+              <input type="date" value={range.de} onChange={(e) => { escolheuPeriodo.current = true; setRange((x) => ({ ...x, de: e.target.value })) }} style={inp} />
+              <input type="date" value={range.ate} onChange={(e) => { escolheuPeriodo.current = true; setRange((x) => ({ ...x, ate: e.target.value })) }} style={inp} />
             </span>
           )}
+          <AjudaCampo chave="projetos.desempenho.periodo" />
         </div>
 
         {erro && <div style={{ padding: '10px 14px', borderRadius: 8, background: '#FBEAEA', color: VERM, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
@@ -91,6 +102,11 @@ export default function DesempenhoComercialPage() {
             {/* Estado vazio honesto (RD-98): quando não há nenhum registro no período, os KPIs abaixo ficam todos em
                 zero. Sem este aviso, a tela parece quebrada. Explica que zero é ausência de dados (não erro) e oferece
                 o próximo passo — abrir Oportunidades ou ampliar o período. */}
+            {abriuAno && !vazio && (
+              <div data-testid="desempenho-aberto-no-ano" style={{ background: '#FBF4E4', border: `1px solid ${GOLD}`, borderRadius: 10, padding: '9px 14px', marginBottom: 14, fontSize: 12.5, color: ESP }}>
+                Mostrando o <b>ano</b> ({dataBR(range.de)} a {dataBR(range.ate)}) porque o mês corrente ainda não tem registros. Escolha “Mês” acima para ver só o mês.
+              </div>
+            )}
             {vazio && (
               <div data-testid="desempenho-vazio" style={{ background: '#FBF4E4', border: `1px solid ${GOLD}`, borderRadius: 12, padding: '16px 18px', marginBottom: 16 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: ESP }}>Nenhuma oportunidade neste período</div>
