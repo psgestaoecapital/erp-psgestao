@@ -51,3 +51,7 @@ BEGIN
   ORDER BY p.data, p.cpf, p.inicio
   LIMIT p_limite;
 END $function$;
+
+-- Mesmos grants da versão viva (authenticated + service_role; nada a anon/PUBLIC) — check_fn_guards.
+REVOKE ALL ON FUNCTION public.fn_nr36_pausas_pendentes_listar(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_pausas_pendentes_listar(uuid, integer) TO authenticated, service_role;
