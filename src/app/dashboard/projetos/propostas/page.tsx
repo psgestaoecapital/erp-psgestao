@@ -60,6 +60,7 @@ export default function PropostasHubPage() {
   const [excluindo, setExcluindo] = useState(false)
   const [msg, setMsg] = useState('')
   const [msgErro, setMsgErro] = useState('')
+  const [limite, setLimite] = useState(25)
 
   // Origem: oportunidades e plantas ligadas às propostas; depois as visitas (diretas ou da oportunidade). Falha → coluna avisa.
   const carregarOrigem = useCallback(async (ids: string[]) => {
@@ -145,6 +146,7 @@ export default function PropostasHubPage() {
     return linhas.filter(l => (filtro === 'todos' || l.status === filtro)
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b)))
   }, [linhas, busca, filtro])
+  useEffect(() => { setLimite(25) }, [busca, filtro])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
   const comOrigem = useMemo(() => linhas.filter(l => temOrigem(orig[l.id])).length, [linhas, orig])
   const gObra = useMemo(() => ganhasComObra(obras, linhas), [obras, linhas])
@@ -284,7 +286,7 @@ export default function PropostasHubPage() {
                 <th style={{ padding: '8px 12px', position: 'sticky', right: 0, background: '#fff', boxShadow: `-1px 0 0 ${LINE}` }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ações <AjudaCampo chave="projetos.propostas.acoes" /></span></th>
               </tr></thead>
               <tbody>
-                {vis.map(l => {
+                {vis.slice(0, limite).map(l => {
                   const st = STATUS[l.status] ?? { cor: MUT, label: l.status }
                   const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
@@ -344,6 +346,8 @@ export default function PropostasHubPage() {
                       <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', right: 0, background: '#fff', boxShadow: `-1px 0 0 ${LINE}` }}>
                         <Link href={`/dashboard/orcamentos?id=${l.id}`} data-testid="hub-proposta-abrir" style={{ color: GOLD, fontWeight: 600, fontSize: 12 }}>Abrir</Link>
                         <AjudaCampo chave="projetos.propostas.editar" />
+                        <Link href="/dashboard/projetos/calculadora" data-testid="hub-proposta-calculadora" style={{ marginLeft: 10, color: ESP, fontWeight: 600, fontSize: 12 }}>Calculadora</Link>
+                        <AjudaCampo chave="projetos.propostas.atalho_calculadora" />
                         {podeExcluir(l) && (
                           <>
                             <button data-testid="hub-proposta-excluir" onClick={() => { setExcluir(l); setMotivo(''); setMsgErro('') }} style={{ marginLeft: 10, color: '#B91C1C', fontWeight: 600, fontSize: 12, background: 'none', border: 0, cursor: 'pointer', padding: 0 }}>Excluir</button>
@@ -358,6 +362,13 @@ export default function PropostasHubPage() {
               </tbody>
             </table>
           </div>
+          {vis.length > limite && (
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: MUT }}>
+              Mostrando {limite} de {vis.length}
+              <button type="button" data-testid="hub-propostas-mostrar-mais" onClick={() => setLimite(n => n + 25)} style={{ border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, color: ESP, cursor: 'pointer', minHeight: 36 }}>Mostrar mais 25</button>
+              <AjudaCampo chave="projetos.propostas.mostrar_mais" />
+            </div>
+          )}
         </>
       )}
     </div>
