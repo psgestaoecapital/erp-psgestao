@@ -20,7 +20,7 @@ type RankRow = { responsavel_id: string | null; responsavel_nome: string; oportu
 type Perda = { motivo: string; qtd: number; valor: number }
 type Resp = { gestor: boolean; de: string; ate: string; vendedor: string | null; resumo: Resumo; funil: FunilEtapa[]; ranking: RankRow[] | null; perdas: Perda[]; velocidade_dias: number | null; erro?: string }
 
-const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_feita: 'Visita', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
+const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_agendada: 'Visita agendada', visita_feita: 'Visita feita', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
 const corConversao = (v: number | null) => (v == null ? MUT : v >= 40 ? VERDE : v >= 20 ? AMBAR : VERM)
 const rotConversao = (v: number | null) => (v == null ? '—' : v >= 40 ? 'alta' : v >= 20 ? 'média' : 'baixa')
 
@@ -121,7 +121,7 @@ export default function DesempenhoComercialPage() {
                 <div style={{ fontSize: 14, fontWeight: 700, color: ESP }}>Nenhuma oportunidade neste período</div>
                 <div style={{ fontSize: 12.5, color: MUT, marginTop: 4, lineHeight: 1.5 }}>
                   Os indicadores abaixo ficam zerados porque não há oportunidades, propostas ou vendas registradas entre{' '}
-                  <b style={{ color: ESP }}>{dataBR(range.de)}</b> e <b style={{ color: ESP }}>{dataBR(range.ate)}</b>. Isso não é um erro da tela — é a ausência de registros no período.
+                  <b style={{ color: ESP }}>{dataBR(range.de)}</b> e <b style={{ color: ESP }}>{dataBR(range.ate)}</b>. Isso não é um erro da tela — é a ausência de registros no período.{!data.gestor && ' Seu perfil mostra só as oportunidades em que você é o responsável.'}
                 </div>
                 <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <Link href="/dashboard/projetos/oportunidades" style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, background: GOLD, color: '#FFF', textDecoration: 'none' }}>Ver oportunidades</Link>
