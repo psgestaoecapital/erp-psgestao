@@ -33,7 +33,9 @@ const STATUS: Record<string, { cor: string; label: string }> = {
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
 
-type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null }
+type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; orcamento_origem_id: string | null; pdf_anexo_path: string | null }
+
+const POR_PAGINA = 25, LIMITE = 100
 
 const OBRA_STATUS: Record<string, string> = { em_andamento: 'em andamento', pausada: 'pausada', concluida: 'concluída', cancelada: 'cancelada' }
 
@@ -58,6 +60,8 @@ export default function PropostasHubPage() {
   const [excluir, setExcluir] = useState<Proposta | null>(null)
   const [motivo, setMotivo] = useState('')
   const [excluindo, setExcluindo] = useState(false)
+  const [totalBanco, setTotalBanco] = useState(0)
+  const [mostrar, setMostrar] = useState(POR_PAGINA)
   const [msg, setMsg] = useState('')
   const [msgErro, setMsgErro] = useState('')
 
@@ -82,14 +86,14 @@ export default function PropostasHubPage() {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
     try {
-      const { data, error } = await comPrazo(
-        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra')
-          .in('company_id', companyIds).is('deleted_at', null).order('data_emissao', { ascending: false }).limit(100),
+      const { data, error, count } = await comPrazo(
+        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,orcamento_origem_id,pdf_anexo_path', { count: 'exact' })
+          .in('company_id', companyIds).is('deleted_at', null).order('data_emissao', { ascending: false }).limit(LIMITE),
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
       if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as propostas.')); return }
       const ls = (data ?? []) as Proposta[]
-      setLinhas(ls)
+      setLinhas(ls); setTotalBanco(typeof count === 'number' ? count : ls.length); setMostrar(POR_PAGINA)
       // Composição: uma consulta só para os itens da lista. Se falhar, a lista segue e a coluna avisa (sem inventar número).
       setCompErro(false); setComp({})
       if (ls.length) {
@@ -146,6 +150,9 @@ export default function PropostasHubPage() {
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b)))
   }, [linhas, busca, filtro])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
+  const numeroPorId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l.numero])) as Record<string, string | null>, [linhas])
+  const comPdf = useMemo(() => linhas.filter(l => !!l.pdf_anexo_path).length, [linhas])
+  const revisoes = useMemo(() => linhas.filter(l => (l.versao ?? 1) > 1 || !!l.orcamento_origem_id).length, [linhas])
   const comOrigem = useMemo(() => linhas.filter(l => temOrigem(orig[l.id])).length, [linhas, orig])
   const gObra = useMemo(() => ganhasComObra(obras, linhas), [obras, linhas])
   const bdiConta = useMemo(() => {
@@ -238,6 +245,16 @@ export default function PropostasHubPage() {
               <div data-testid="hub-propostas-bdi-no-padrao" style={{ fontSize: 18, fontWeight: 700 }}>{compErro || !bdiConta.comparaveis ? '—' : `${bdiConta.noPadrao} de ${bdiConta.comparaveis}`}</div>
               <div style={{ fontSize: 12, color: MUT }}>{compErro ? 'itens indisponíveis agora' : !bdiConta.comparaveis ? 'configure o BDI padrão em Configurações' : bdiConta.noPadrao < bdiConta.comparaveis ? `${bdiConta.comparaveis - bdiConta.noPadrao} abaixo do BDI padrão` : 'nenhuma abaixo do BDI padrão'}</div>
             </div>
+            <div style={card}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Com PDF anexo <AjudaCampo chave="projetos.propostas.com_pdf" /></div>
+              <div data-testid="hub-propostas-com-pdf" style={{ fontSize: 18, fontWeight: 700 }}>{comPdf} de {r.total}</div>
+              <div style={{ fontSize: 12, color: MUT }}>propostas com o PDF guardado</div>
+            </div>
+            <div style={card}>
+              <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>Revisões <AjudaCampo chave="projetos.propostas.revisoes" /></div>
+              <div data-testid="hub-propostas-revisoes" style={{ fontSize: 18, fontWeight: 700 }}>{revisoes}</div>
+              <div style={{ fontSize: 12, color: MUT }}>propostas que são nova versão de outra</div>
+            </div>
           </div>
           <div style={{ marginTop: 16 }}>
             <div style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -247,7 +264,7 @@ export default function PropostasHubPage() {
               {Object.entries(STATUS).filter(([k]) => r.porStatus[k]).map(([k, v]) => {
                 const ativo = filtro === k
                 return (
-                  <button key={k} type="button" data-testid="hub-propostas-funil-etapa" aria-pressed={ativo} onClick={() => setFiltro(ativo ? 'todos' : k)}
+                  <button key={k} type="button" data-testid="hub-propostas-funil-etapa" aria-pressed={ativo} onClick={() => { setFiltro(ativo ? 'todos' : k); setMostrar(POR_PAGINA) }}
                     style={{ border: `1px solid ${ativo ? v.cor : LINE}`, background: ativo ? `${v.cor}14` : '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 12, color: ESP, cursor: 'pointer', minHeight: 36 }}>
                     <span style={{ color: v.cor, fontWeight: 700 }}>{v.label}</span> · {r.porStatus[k].n} · {fmtR(r.porStatus[k].valor)}
                   </button>
@@ -255,14 +272,15 @@ export default function PropostasHubPage() {
               })}
             </div>
           </div>
+          {totalBanco > linhas.length && <div role="status" data-testid="hub-propostas-truncado" style={{ marginTop: 12, fontSize: 12, color: '#B45309' }}>Mostrando as {linhas.length} mais recentes de {totalBanco} propostas — os indicadores valem para estas.</div>}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             <div style={{ flex: '1 1 220px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por número ou cliente"
+              <input value={busca} onChange={e => { setBusca(e.target.value); setMostrar(POR_PAGINA) }} placeholder="Buscar por número ou cliente"
                 style={{ flex: 1, padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
               <AjudaCampo chave="projetos.propostas.busca" />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <select value={filtro} onChange={e => setFiltro(e.target.value)} style={{ padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
+              <select value={filtro} onChange={e => { setFiltro(e.target.value); setMostrar(POR_PAGINA) }} style={{ padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
                 <option value="todos">Todos os status</option>
                 {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
@@ -270,9 +288,9 @@ export default function PropostasHubPage() {
             </div>
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-            <table style={{ width: '100%', minWidth: 1120, borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 1220, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left', fontSize: 12, color: MUT }}>
-                <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Número <AjudaCampo chave="projetos.propostas.col_numero" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Cliente <AjudaCampo chave="projetos.propostas.col_cliente" /></span></th>
+                <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Número <AjudaCampo chave="projetos.propostas.col_numero" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Versão <AjudaCampo chave="projetos.propostas.versao" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Cliente <AjudaCampo chave="projetos.propostas.col_cliente" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Origem <AjudaCampo chave="projetos.propostas.origem" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Status <AjudaCampo chave="projetos.propostas.col_status" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Emissão <AjudaCampo chave="projetos.propostas.col_emissao" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Validade <AjudaCampo chave="projetos.propostas.validade" /></span></th>
@@ -284,7 +302,7 @@ export default function PropostasHubPage() {
                 <th style={{ padding: '8px 12px', position: 'sticky', right: 0, background: '#fff', boxShadow: `-1px 0 0 ${LINE}` }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ações <AjudaCampo chave="projetos.propostas.acoes" /></span></th>
               </tr></thead>
               <tbody>
-                {vis.map(l => {
+                {vis.slice(0, mostrar).map(l => {
                   const st = STATUS[l.status] ?? { cor: MUT, label: l.status }
                   const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
@@ -294,6 +312,11 @@ export default function PropostasHubPage() {
                   return (
                     <tr key={l.id} style={{ borderTop: `1px solid ${LINE}`, fontSize: 13 }}>
                       <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600 }}>{l.numero ?? '—'}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 12 }} data-testid="hub-proposta-versao">
+                        <span style={{ fontWeight: 600 }}>v{l.versao ?? 1}</span>
+                        {l.orcamento_origem_id && <span style={{ display: 'block', color: MUT }}>revisão de {numeroPorId[l.orcamento_origem_id] ?? 'proposta anterior'}</span>}
+                        {l.pdf_anexo_path && <span data-testid="hub-proposta-pdf" style={{ display: 'block', color: '#16A34A' }}>PDF anexo</span>}
+                      </td>
                       <td style={{ padding: '8px 12px' }}>{l.cliente_nome ?? '—'}</td>
                       <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 220 }} data-testid="hub-proposta-origem">
                         {origErro ? '—' : !temOrigem(o) ? <span style={{ color: MUT }}>avulsa</span> : (
@@ -344,6 +367,8 @@ export default function PropostasHubPage() {
                       <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', right: 0, background: '#fff', boxShadow: `-1px 0 0 ${LINE}` }}>
                         <Link href={`/dashboard/orcamentos?id=${l.id}`} data-testid="hub-proposta-abrir" style={{ color: GOLD, fontWeight: 600, fontSize: 12 }}>Abrir</Link>
                         <AjudaCampo chave="projetos.propostas.editar" />
+                        <Link href="/dashboard/projetos/calculadora" data-testid="hub-proposta-calculadora" style={{ marginLeft: 10, color: ESP, fontWeight: 600, fontSize: 12 }}>Calculadora</Link>
+                        <AjudaCampo chave="projetos.propostas.calculadora" />
                         {podeExcluir(l) && (
                           <>
                             <button data-testid="hub-proposta-excluir" onClick={() => { setExcluir(l); setMotivo(''); setMsgErro('') }} style={{ marginLeft: 10, color: '#B91C1C', fontWeight: 600, fontSize: 12, background: 'none', border: 0, cursor: 'pointer', padding: 0 }}>Excluir</button>
@@ -354,10 +379,18 @@ export default function PropostasHubPage() {
                     </tr>
                   )
                 })}
-                {vis.length === 0 && <tr><td colSpan={12} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
+                {vis.length === 0 && <tr><td colSpan={13} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
               </tbody>
             </table>
           </div>
+          {vis.length > mostrar && (
+            <div style={{ marginTop: 12, textAlign: 'center' }}>
+              <button type="button" data-testid="hub-propostas-mostrar-mais" onClick={() => setMostrar(m => m + POR_PAGINA)} style={{ padding: '8px 18px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', color: ESP }}>
+                Mostrar mais ({vis.length - mostrar} restantes)
+              </button>
+              <AjudaCampo chave="projetos.propostas.mostrar_mais" />
+            </div>
+          )}
         </>
       )}
     </div>
