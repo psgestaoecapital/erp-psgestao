@@ -48,3 +48,6 @@ REVOKE ALL ON FUNCTION public.fn_tela_auditada_ok_marcar(text, text, numeric, te
 REVOKE ALL ON FUNCTION public.fn_tela_auditada_ok_limpar(text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_tela_auditada_ok_marcar(text, text, numeric, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_tela_auditada_ok_limpar(text, text) TO service_role;
+
+-- ci-sem-guarda: fn_tela_auditada_ok_marcar — system_screens é catálogo global (sem empresa); EXECUTE só service_role (REVOKE PUBLIC/anon/authenticated). p_nota/p_por são ferramenta interna do auditor (service_role), não evidência de usuário.
+-- ci-sem-guarda: fn_tela_auditada_ok_limpar — system_screens é catálogo global (sem empresa); EXECUTE só service_role (REVOKE PUBLIC/anon/authenticated).

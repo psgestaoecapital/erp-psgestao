@@ -1,7 +1,7 @@
 // Etiqueta auditada_ok (CEO 29/10): checagem estática da migration aditiva.
 import { readFileSync } from 'node:fs'
 
-const sql = readFileSync('supabase/migrations/20261030180000_tela_auditada_ok.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261030190000_tela_auditada_ok.sql', 'utf8')
 const erros: string[] = []
 const exige = (re: RegExp, msg: string) => { if (!re.test(sql)) erros.push(msg) }
 
