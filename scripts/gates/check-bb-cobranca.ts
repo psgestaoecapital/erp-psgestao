@@ -52,7 +52,7 @@ const lis = readFileSync('src/components/financeiro/ListagemPagarReceberView.tsx
 ok(!lis.includes('boleto-bb-implantacao') && lis.includes("provT === 'bb'"), 'Listagem: BB emite (sem mensagem "em implantação")')
 const pg = readFileSync('src/app/dashboard/financeiro/conexoes-bancarias/page.tsx', 'utf8')
 ok(pg.includes('variacao_carteira') && pg.includes('modalidade_boleto') && pg.includes('banco-homolog-aviso') && pg.includes('banco-ambiente'), 'Conexões: variação, modalidade e ambiente em destaque')
-const mig = readFileSync('supabase/migrations/20261030140020_bb_cobranca_variacao_modalidade.sql', 'utf8')
+const mig = readFileSync('supabase/migrations/20261030220020_bb_cobranca_variacao_modalidade.sql', 'utf8')
 ok(mig.includes('ADD COLUMN IF NOT EXISTS variacao_carteira') && mig.includes("'variacao_carteira', c.variacao_carteira") && mig.includes("p_dados->>'modalidade_boleto'"), 'migration: colunas + credencial + salvar CNAB')
 ok(!/\b(DELETE|DROP|TRUNCATE)\b/i.test(mig), 'migration aditiva (sem DELETE/DROP/TRUNCATE)')
 
