@@ -456,6 +456,11 @@ export default function RemessaPagamentoPage() {
         setImpProgresso(`${feitos} de ${itens.length}`)
       }
       const total = somarRespostasRetorno(resps)
+      // #4909: marca a(s) remessa(s) do arquivo como "retorno importado" (a RPC de conciliação só baixa os títulos)
+      const listas: Array<Array<{ item_id?: string }> | undefined> = [total.casados, total.agendados, total.rejeitados, total.ja_pagos, total.nao_reconhecidos]
+      const itemIds = listas
+        .flatMap((l) => (l ?? []).map((d) => d.item_id)).filter((x): x is string => !!x)
+      if (itemIds.length) await supabase.rpc('fn_remessa_retorno_marcar', { p_company_id: companyId, p_item_ids: itemIds, p_arquivo_nome: impArquivo || null })
       setImpResumo(total); setImpConfirmado(true); void carregarTitulosDoRetorno(total)
       void carregar()
     } catch (e) {

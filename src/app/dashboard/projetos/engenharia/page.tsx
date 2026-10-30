@@ -68,7 +68,7 @@ export default function EngenhariaPage() {
   const recarregarPlantas = useCallback(async () => {
     if (!companyId) return
     const { data } = await supabase.from('erp_obra_planta')
-      .select('id,nome,status,created_at').eq('company_id', companyId)
+      .select('id,nome,status,created_at').eq('company_id', companyId).is('deleted_at', null)
       .order('created_at', { ascending: false }).limit(50)
     setPlantas((data as Planta[]) ?? [])
   }, [companyId])
