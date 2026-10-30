@@ -6,7 +6,9 @@ import { join } from 'node:path'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const mig = readFileSync('supabase/migrations/20261031020045_watcher_secret_para_o_cofre.sql', 'utf8')
+const migArq = readdirSync('supabase/migrations').filter((f) => f.endsWith('_watcher_secret_para_o_cofre.sql'))
+if (migArq.length !== 1) throw new Error(`esperava 1 migration *_watcher_secret_para_o_cofre.sql, achei ${migArq.length}`)
+const mig = readFileSync(join('supabase/migrations', migArq[0]), 'utf8')
 ok(/REVOKE ALL ON FUNCTION public\.fn_watcher_secret\(\) FROM PUBLIC, anon, authenticated/.test(mig), 'fn_watcher_secret não é executável por anon/authenticated')
 ok(/vault\.decrypted_secrets WHERE name = 'screen_watcher_secret'/.test(mig), 'lê do cofre screen_watcher_secret')
 ok(!/'x-watcher-secret'\s*,\s*'[A-Za-z0-9]/.test(mig.replace(/\$re\$[\s\S]*?\$re\$/g, '')), 'migration não carrega valor do segredo')
