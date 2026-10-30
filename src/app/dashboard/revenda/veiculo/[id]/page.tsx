@@ -416,8 +416,14 @@ const moedaMascara = (s: string): string => {
   return (Number(d) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 const moedaNum = (s: string): number | null => parseNumBR(String(s).replace(/[R$\s.]/g, '').replace(',', '.'))
-function InputMoeda({ value, onChange, placeholder, style }: { value: string; onChange: (v: string) => void; placeholder: string; style?: React.CSSProperties }) {
-  return <input value={value} onChange={(e) => onChange(moedaMascara(e.target.value))} placeholder={placeholder} inputMode="numeric" style={style} />
+function InputMoeda({ value, onChange, placeholder, style, ajuda }: { value: string; onChange: (v: string) => void; placeholder: string; style?: React.CSSProperties; ajuda: string }) {
+  const { gridColumn, ...resto } = style ?? {}
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, gridColumn }}>
+      <input value={value} onChange={(e) => onChange(moedaMascara(e.target.value))} placeholder={placeholder} inputMode="numeric" style={{ ...resto, flex: 1, minWidth: 0 }} />
+      <AjudaCampo chave={ajuda} rota="/dashboard/revenda/veiculo" />
+    </div>
+  )
 }
 
 // #5678 — cliente da venda vem do cadastro do GE (erp_clientes): nome ou CPF/CNPJ.
@@ -431,7 +437,10 @@ function ClienteVendaBusca({ companyId, nome, onNome, onEscolher, invalido }: { 
   }, [nome, aberto, companyId])
   return (
     <div style={{ position: 'relative' }}>
-      <input value={nome} onChange={(e) => { onNome(e.target.value); onEscolher(null); setAberto(true) }} onFocus={() => setAberto(true)} placeholder="cliente * (nome ou CPF/CNPJ)" data-testid="venda-cliente" style={{ ...inp, width: '100%', ...estiloBordaInput(invalido ? 'x' : null) }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <input value={nome} onChange={(e) => { onNome(e.target.value); onEscolher(null); setAberto(true) }} onFocus={() => setAberto(true)} placeholder="cliente * (nome ou CPF/CNPJ)" data-testid="venda-cliente" style={{ ...inp, flex: 1, minWidth: 0, ...estiloBordaInput(invalido ? 'x' : null) }} />
+        <AjudaCampo chave="revenda.venda.cliente" rota="/dashboard/revenda/veiculo" />
+      </div>
       {aberto && lista.length > 0 && (
         <div style={{ position: 'absolute', left: 0, right: 0, zIndex: 5, background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, maxHeight: 220, overflowY: 'auto', boxShadow: '0 6px 18px rgba(0,0,0,0.15)' }}>
           {lista.map((c) => (
