@@ -18,7 +18,8 @@ import { supabase } from '@/lib/supabase'
 import { cpfValido } from '@/lib/documentos/cpf'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
-import { Timer, Snowflake, ClipboardList, ClipboardCheck, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { Timer, Snowflake, ClipboardList, ClipboardCheck, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature, Paperclip, X } from 'lucide-react'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -1390,6 +1391,9 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
   const [novaOrigem, setNovaOrigem] = useState<OrigemAjuste | ''>('')
   const [ajusteDia, setAjusteDia] = useState<AjusteDia | null>(null)
   const [pendCiente, setPendCiente] = useState(false)
+  // #3842 (Karol) · documento assinado que comprova a ciência do colaborador sobre o ajuste deste dia
+  const [anexos, setAnexos] = useState<{ id: string; arquivo_path: string; arquivo_nome: string; enviado_em: string }[]>([])
+  const [subindoAnexo, setSubindoAnexo] = useState(false)
 
   useEffect(() => {
     let vivo = true
@@ -1411,6 +1415,48 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
     })()
     return () => { vivo = false }
   }, [companyId, cpf, data, marcasIniciais])
+
+  // #3842 · anexos (documento assinado) deste dia conferido
+  const carregarAnexos = useCallback(async () => {
+    try {
+      const r = await rpc<{ ok: boolean; anexos?: typeof anexos }>('fn_nr36_conferencia_anexo_listar', { p_company_id: companyId, p_cpf: cpf, p_data: data })
+      setAnexos(r?.anexos ?? [])
+    } catch { /* lista some sem travar o editor */ }
+  }, [companyId, cpf, data])
+  useEffect(() => { void carregarAnexos() }, [carregarAnexos])
+
+  async function subirAnexo(f: File | null) {
+    if (!f) return
+    setSubindoAnexo(true); setErro('')
+    try {
+      // papel conferido ANTES do upload (sem papel não sobe arquivo nenhum); o nome leva UUID — CPF é dado pessoal e fica só na tabela
+      const pode = await rpc<boolean>('fn_nr36_pode_subir', { p_company_id: companyId })
+      if (!pode) throw new Error('Só o Técnico de Segurança do Trabalho ou o responsável pelo Compliance pode anexar o documento da conferência.')
+      const ext = (f.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const path = `${companyId}/conferencia/${crypto.randomUUID()}.${ext}`
+      const up = await supabase.storage.from('compliance-pausas').upload(path, f, { upsert: false, contentType: f.type || 'application/octet-stream' })
+      if (up.error) throw new Error('Falha no upload: ' + up.error.message)
+      const r = await rpc<{ ok: boolean; erro?: string; mensagem?: string }>('fn_nr36_conferencia_anexo_salvar', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_arquivo_path: path, p_arquivo_nome: f.name })
+      if (!r?.ok) {
+        await supabase.storage.from('compliance-pausas').remove([path]).catch(() => {}) // órfão: tenta limpar (o bucket não tem DELETE; se negado, fica sem registro)
+        throw new Error(r?.mensagem || r?.erro || 'Falha ao registrar o anexo.')
+      }
+      await carregarAnexos()
+    } catch (e) { setErro((e as Error).message) } finally { setSubindoAnexo(false) }
+  }
+  async function verAnexo(path: string) {
+    const { data: s } = await supabase.storage.from('compliance-pausas').createSignedUrl(path, 60)
+    if (s?.signedUrl) window.open(s.signedUrl, '_blank', 'noopener,noreferrer')
+  }
+  async function removerAnexo(id: string) {
+    if (!window.confirm('Remover este documento anexado? O registro fica no histórico (soft-delete).')) return
+    setSubindoAnexo(true); setErro('')
+    try {
+      const r = await rpc<{ ok: boolean; erro?: string; mensagem?: string }>('fn_nr36_conferencia_anexo_remover', { p_id: id })
+      if (!r?.ok) throw new Error(r?.mensagem || r?.erro || 'Falha ao remover.')
+      await carregarAnexos()
+    } catch (e) { setErro((e as Error).message) } finally { setSubindoAnexo(false) }
+  }
 
   const previa = useMemo(() => parearMarcas(marcas), [marcas])
   const invalido = useMemo(() => (marcas.length ? validarMarcas(marcas) : 'Nenhuma marcação neste dia.'), [marcas])
@@ -1524,6 +1570,32 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
             <textarea value={justificativa} onChange={e => setJustificativa(e.target.value)} data-testid="marcas-justificativa" rows={2}
               placeholder="Ex.: conferido com o colaborador — esqueceu de bater a saída da 1ª pausa"
               style={{ ...inp(), width: '100%', marginTop: 4, resize: 'vertical' }} />
+          </div>
+        )}
+        {!carregando && (
+          <div style={{ marginTop: 12, background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 10, padding: 10 }} data-testid="conf-anexo">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: C.gray }}>
+              <Paperclip size={13} /> Documento assinado da conferência
+              <AjudaCampo chave="compliance.pausas.conferencia.anexo" rota="/dashboard/compliance/pausas-tecnicas" />
+              <span data-testid="conf-anexo-botao" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: C.espresso, border: `1px solid ${C.gold}`, borderRadius: 7, padding: '4px 9px', cursor: subindoAnexo ? 'wait' : 'pointer', opacity: subindoAnexo ? 0.6 : 1 }}>
+                <Upload size={13} /> {subindoAnexo ? 'Enviando…' : 'Anexar documento'}
+                <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} disabled={subindoAnexo}
+                  onChange={e => { void subirAnexo(e.target.files?.[0] || null); e.target.value = '' }} />
+              </span>
+            </label>
+            <div style={{ fontSize: 11.5, color: C.gray, marginTop: 6 }}>Quando o horário foi conferido com o colaborador (ele assinou o papel), anexe aqui a prova da ciência (PDF ou foto). Fica preso a este dia.</div>
+            {anexos.length > 0 && (
+              <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+                {anexos.map(a => (
+                  <li key={a.id} data-testid={`conf-anexo-item-${a.id}`} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
+                    <FileText size={13} style={{ color: C.gray, flexShrink: 0 }} />
+                    <button type="button" onClick={() => verAnexo(a.arquivo_path)} style={{ background: 'none', border: 'none', padding: 0, color: C.blue, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', flex: 1, textDecoration: 'underline' }}>{a.arquivo_nome}</button>
+                    <span style={{ fontSize: 11, color: C.gray }}>{new Date(a.enviado_em).toLocaleDateString('pt-BR')}</span>
+                    <button type="button" aria-label="Remover anexo" disabled={subindoAnexo} onClick={() => removerAnexo(a.id)} style={{ background: 'none', border: 'none', padding: 2, color: C.red, cursor: 'pointer' }}><X size={14} /></button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
 import { temConectorExtrato } from '@/lib/banco/extratoConector'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
@@ -527,7 +528,11 @@ export default function InboxPage() {
       const hash = `${text.length}-${movimentos[0]?.id_externo ?? ''}-${movimentos[movimentos.length - 1]?.id_externo ?? ''}`
       // Saldo Bancário: extrai o saldo de fechamento (LEDGERBAL) do OFX e deixa o backend gravá-lo
       // na MESMA transação do lote (ponto único de escrita, RD-65). Sem LEDGERBAL → segue sem saldo.
+      // #3952: a data do saldo é o FIM do dia a que ele se refere (nunca antes do último movimento do arquivo).
       const saldo = parseSaldoFechamento(text)
+      // #4969: DTASOF zerado (Bradesco "00000000") → último movimento ou DTEND; sem valor/data válidos → aviso, não grava.
+      const saldoDataRef = saldo.presente ? dataReferenciaSaldoOFX(saldo.dtasof_bruto, movimentos.map((m) => m.data_transacao), dtendDoOFX(text)) : null
+      const saldoLedgerOk = saldo.presente && saldoOFXValido(saldo.valor, saldoDataRef)
       // Fallback do saldo pela linha "SALDO ANTERIOR/DO DIA": só quando NÃO há LEDGERBAL (este tem
       // prioridade). Pega a linha de saldo mais recente do arquivo (>= mantém a última em empate de
       // data). O valor volta ao sinal contábil (débito → negativo). origem 'ofx_saldo_linha'.
@@ -549,8 +554,8 @@ export default function InboxPage() {
         p_storage_path: null,
         p_movimentos: movimentos,
         p_conta_bancaria_id: contaImportId,
-        p_saldo_fechamento: saldo.presente ? saldo.valor : (saldoLinha ? saldoLinha.valor : null),
-        p_saldo_data: saldo.presente ? saldo.dataISO : (saldoLinha ? saldoLinha.dataISO : null),
+        p_saldo_fechamento: saldo.presente ? (saldoLedgerOk ? saldo.valor : null) : (saldoLinha ? saldoLinha.valor : null),
+        p_saldo_data: saldo.presente ? (saldoLedgerOk ? saldoDataRef : null) : (saldoLinha ? saldoLinha.dataISO : null),
         p_saldo_bruto: saldo.presente
           ? { balamt_bruto: saldo.balamt_bruto, dtasof_bruto: saldo.dtasof_bruto, origem: 'ofx' }
           : (saldoLinha ? { origem: 'ofx_saldo_linha', descricao_linha: saldoLinha.descricao } : null),
@@ -566,17 +571,19 @@ export default function InboxPage() {
       // Linha de saldo do banco: gravado, mantido (leitura mais antiga) ou não veio no arquivo.
       // Valor/data efetivos: LEDGERBAL quando presente, senão a linha "SALDO ANTERIOR/DO DIA".
       const saldoValor = saldo.presente ? saldo.valor : (saldoLinha ? saldoLinha.valor : null)
-      const saldoDataISO = saldo.presente ? saldo.dataISO : (saldoLinha ? saldoLinha.dataISO : null)
+      const saldoDataISO = saldo.presente ? saldoDataRef : (saldoLinha ? saldoLinha.dataISO : null)
       let linhaSaldo = ''
       if (!temSaldo) {
         linhaSaldo = '\nEste arquivo não trouxe o saldo do banco.'
+      } else if (saldo.presente && !saldoLedgerOk) {
+        linhaSaldo = `\n${AVISO_SALDO_INVALIDO}`
       } else if (r.saldo?.gravado === false && r.saldo?.motivo === 'leitura_mais_antiga') {
         linhaSaldo = '\nSaldo mais antigo que o já registrado — mantido.'
       } else if (r.saldo?.ok && saldoValor != null) {
-        const dia = saldoDataISO ? new Date(saldoDataISO).toLocaleDateString('pt-BR') : '—'
+        const dia = saldoDataISO ? rotuloDataSaldo(saldoDataISO) : '—'
         const val = saldoValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
         const fonte = saldo.presente ? '' : ' (linha de saldo do extrato)'
-        linhaSaldo = `\nSaldo do banco em ${dia}: ${val}${fonte}`
+        linhaSaldo = `\nSaldo do banco (${dia}): ${val}${fonte}`
       }
       alert((r.mensagem ?? (novos === 0
         ? `Nenhum lançamento novo — todos os ${r.total_recebidos ?? movimentos.length} já estavam no sistema.`
