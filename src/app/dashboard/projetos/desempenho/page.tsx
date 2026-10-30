@@ -18,9 +18,9 @@ type Resumo = { oportunidades: number; valor_pipeline: number; propostas: number
 type FunilEtapa = { etapa: string; qtd: number; valor: number }
 type RankRow = { responsavel_id: string | null; responsavel_nome: string; oportunidades: number; propostas: number; ganhas: number; ganhas_valor: number; ticket: number; comissao: number; conversao_pct: number | null }
 type Perda = { motivo: string; qtd: number; valor: number }
-type Resp = { gestor: boolean; de: string; ate: string; vendedor: string | null; resumo: Resumo; funil: FunilEtapa[]; ranking: RankRow[] | null; perdas: Perda[]; velocidade_dias: number | null; erro?: string }
+type Resp = { gestor: boolean; de: string; ate: string; vendedor: string | null; resumo: Resumo; funil: FunilEtapa[]; ranking: RankRow[] | null; perdas: Perda[]; velocidade_dias: number | null; sem_responsavel_qtd?: number; erro?: string }
 
-const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_feita: 'Visita', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
+const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_agendada: 'Visita agendada', visita_feita: 'Visita feita', orcando: 'Orçando', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
 const corConversao = (v: number | null) => (v == null ? MUT : v >= 40 ? VERDE : v >= 20 ? AMBAR : VERM)
 const rotConversao = (v: number | null) => (v == null ? '—' : v >= 40 ? 'alta' : v >= 20 ? 'média' : 'baixa')
 
@@ -83,6 +83,7 @@ export default function DesempenhoComercialPage() {
   const r = data?.resumo
   const maxFunil = useMemo(() => Math.max(1, ...(data?.funil ?? []).map((f) => f.qtd)), [data])
   // período sem nenhum registro → aviso honesto em vez de parede de zeros (RD-98)
+  const semDono = !data?.gestor ? (data?.sem_responsavel_qtd ?? 0) : 0
   const vazio = !!r && r.oportunidades === 0 && r.propostas === 0 && r.ganhas_qtd === 0 && r.perdidas_qtd === 0 && r.valor_pipeline === 0
 
   return (
@@ -127,6 +128,12 @@ export default function DesempenhoComercialPage() {
                   <Link href="/dashboard/projetos/oportunidades" style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, background: GOLD, color: '#FFF', textDecoration: 'none' }}>Ver oportunidades</Link>
                   {periodo !== 'ano' && <button onClick={() => setPreset('ano')} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, border: `1px solid ${GOLD}`, background: '#FFF', color: '#A57A15', cursor: 'pointer' }}>Ampliar para o ano</button>}
                 </div>
+              </div>
+            )}
+
+            {semDono > 0 && (
+              <div data-testid="desempenho-sem-responsavel" style={{ padding: '9px 14px', borderRadius: 8, background: '#FBF4E4', border: `1px solid ${GOLD}`, color: ESP, fontSize: 12.5, marginBottom: 12 }}>
+                Você vê só as oportunidades em seu nome. Há <b>{semDono}</b> {semDono === 1 ? 'oportunidade' : 'oportunidades'} da empresa ainda sem responsável — peça a um gestor para atribuí-las em <Link href="/dashboard/projetos/oportunidades" style={{ color: '#A57A15', fontWeight: 700 }}>Oportunidades</Link>.
               </div>
             )}
 
