@@ -23,7 +23,7 @@ ALTER TABLE public.m16_insumos
 CREATE INDEX IF NOT EXISTS idx_m16_insumos_produto_id ON public.m16_insumos (produto_id) WHERE produto_id IS NOT NULL;
 
 -- A lista não mostra serviço excluído (mesmas colunas de antes; só o filtro muda).
-CREATE OR REPLACE VIEW public.v_projetos_servicos_catalogo AS
+CREATE OR REPLACE VIEW public.v_projetos_servicos_catalogo WITH (security_invoker = true) AS
  SELECT id, company_id, codigo, nome, descricao, unidade, categoria, custo_material, custo_mao_obra, custo_equipamento,
         custo_unitario_total, produtividade_unidade_dia, equipe_padrao, is_publico, forked_from, source_type, source_ref,
         versao, versao_anterior_id, ativo, observacoes, created_at, updated_at,
