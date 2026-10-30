@@ -144,6 +144,17 @@ export default function PropostasHubPage() {
     setExcluir(null); setMotivo(''); void carregar()
   }
 
+  // Aprovada sem obra → um toque gera a obra (o banco confere empresa, situação e duplicidade)
+  const [gerando, setGerando] = useState<string | null>(null)
+  async function gerarObra(l: Proposta) {
+    setGerando(l.id); setMsg(''); setMsgErro('')
+    const { data, error } = await supabase.rpc('fn_proposta_gerar_obra', { p_orcamento_id: l.id })
+    setGerando(null)
+    if (error) { setMsgErro(erroAmigavel(error, 'Não foi possível gerar a obra.')); return }
+    setMsg(`Obra ${(data as { obra_numero?: string } | null)?.obra_numero ?? ''} criada a partir da proposta ${l.numero ?? ''}.`)
+    void carregar()
+  }
+
   const vis = useMemo(() => {
     const b = busca.trim().toLowerCase()
     return linhas.filter(l => (filtro === 'todos' || l.status === filtro)
@@ -177,6 +188,7 @@ export default function PropostasHubPage() {
       </div>
 
       {msg && <div role="status" style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#EAF5EE', color: '#16A34A', border: `0.5px solid ${LINE}` }}>{msg}</div>}
+      {msgErro && !excluir && <div role="alert" style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#FDECEC', color: '#B91C1C', border: `0.5px solid ${LINE}` }}>{msgErro}</div>}
       {excluir && (
         <div onClick={() => setExcluir(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8vh 12px' }}>
           <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Excluir proposta" style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 460, padding: 18 }}>
@@ -369,6 +381,12 @@ export default function PropostasHubPage() {
                         <AjudaCampo chave="projetos.propostas.editar" />
                         <Link href="/dashboard/projetos/calculadora" data-testid="hub-proposta-calculadora" style={{ marginLeft: 10, color: ESP, fontWeight: 600, fontSize: 12 }}>Calculadora</Link>
                         <AjudaCampo chave="projetos.propostas.calculadora" />
+                        {so?.tipo === 'sem_obra' && (
+                          <>
+                            <button data-testid="hub-proposta-gerar-obra" disabled={gerando === l.id} onClick={() => void gerarObra(l)} style={{ marginLeft: 10, color: '#16A34A', fontWeight: 700, fontSize: 12, background: 'none', border: 0, cursor: 'pointer', padding: 0, opacity: gerando === l.id ? 0.6 : 1 }}>{gerando === l.id ? 'Gerando…' : 'Gerar obra'}</button>
+                            <AjudaCampo chave="projetos.propostas.gerar_obra" />
+                          </>
+                        )}
                         {podeExcluir(l) && (
                           <>
                             <button data-testid="hub-proposta-excluir" onClick={() => { setExcluir(l); setMotivo(''); setMsgErro('') }} style={{ marginLeft: 10, color: '#B91C1C', fontWeight: 600, fontSize: 12, background: 'none', border: 0, cursor: 'pointer', padding: 0 }}>Excluir</button>
