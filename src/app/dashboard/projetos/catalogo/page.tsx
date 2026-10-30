@@ -900,7 +900,8 @@ export default function CatalogoServicosPage() {
             <p className="mt-1 text-sm text-[#3D2314]/60">
               O serviço sai da lista, mas nada é apagado: ficam registrados quem excluiu, quando e o motivo.
             </p>
-            <label className="mb-1 mt-4 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
+            <div data-ajuda="projetos.catalogo.motivo_exclusao" className="mt-4">
+            <label className="mb-1 flex items-center text-xs uppercase tracking-wider text-[#3D2314]/60">
               Motivo da exclusão
               <AjudaCampo chave="projetos.catalogo.motivo_exclusao" rota={ROTA} />
             </label>
@@ -913,6 +914,7 @@ export default function CatalogoServicosPage() {
               placeholder="Ex.: criado em duplicidade"
               className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-sm !text-[#3D2314] focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20"
             />
+            </div>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
                 onClick={() => setExcluindo(null)}
@@ -990,7 +992,7 @@ export default function CatalogoServicosPage() {
                     )}
                   </div>
                   {escolhendo === i.insumo_id && (
-                    <div className="mt-3 border-t border-[#3D2314]/8 pt-3">
+                    <div className="mt-3 border-t border-[#3D2314]/8 pt-3" data-ajuda="projetos.catalogo.ligar_estoque">
                       <input
                         type="text"
                         autoFocus
