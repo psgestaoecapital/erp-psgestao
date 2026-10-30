@@ -58,6 +58,8 @@ REVOKE ALL ON FUNCTION public.fn_takeoff_planta_excluir(uuid, text) FROM PUBLIC,
 REVOKE ALL ON FUNCTION public.fn_takeoff_planta_editar(uuid, text, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_takeoff_planta_excluir(uuid, text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_takeoff_planta_editar(uuid, text, uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_takeoff_planta_procurar_por_hash(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_takeoff_planta_procurar_por_hash(uuid, text) TO authenticated, service_role;
 
 -- Reuso por hash ignora planta excluída (senão reenviar o mesmo arquivo "ressuscitaria" a planta apagada).
 CREATE OR REPLACE FUNCTION public.fn_takeoff_planta_procurar_por_hash(p_company_id uuid, p_arquivo_hash text)
