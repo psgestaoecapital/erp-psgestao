@@ -3,7 +3,7 @@
 // Do produtor ao abate: compra de gado por produtor, cidade e categoria, preço da arroba, abate animal a animal,
 // carcaça média e horas do abate. GENÉRICO: lê só a fn_bi_planta_abate (o tradutor por ERP de origem fica no banco).
 // Mesmo padrão visual do Meu painel de vendas. Celular e notebook. Restrito à direção (a porta decide).
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -131,13 +131,27 @@ export default function BiPlanta() {
     const d = new Date(hoje); d.setDate(d.getDate() - (Number(per) - 1)); return { de: iso(d), ate }
   }, [per])
 
+  // Só a última requisição vale: troca rápida de filtro não deixa resposta velha sobrescrever a nova.
+  // AbortError ("Lock broken by another request with the 'steal' option") é cancelamento do refresh
+  // de sessão, não falha do painel: re-tenta uma vez em vez de quebrar a tela (bug 30/10).
+  const seq = useRef(0)
   const carregar = useCallback(async () => {
     if (!empresa) return
+    const minha = ++seq.current
     setCarregando(true); setErro(null)
-    const { data, error } = await supabase.rpc('fn_bi_planta_abate', { p_company_id: empresa, p_sexo: sexo || null, p_cidade: cidade || null, p_de: intervalo.de, p_ate: intervalo.ate })
+    const args = { p_company_id: empresa, p_sexo: sexo || null, p_cidade: cidade || null, p_de: intervalo.de, p_ate: intervalo.ate }
+    const abortou = (e: unknown) => { const m = e as { name?: string; message?: string } | null; return m?.name === 'AbortError' || /AbortError|Lock broken/i.test(m?.message ?? '') }
+    let res: { data: unknown; error: { message: string; name?: string } | null } | null = null
+    for (let t = 0; t < 3; t++) {
+      try { res = await supabase.rpc('fn_bi_planta_abate', args) } catch (e) { if (!abortou(e)) { res = { data: null, error: { message: e instanceof Error ? e.message : 'Falha ao carregar' } }; break }; res = null }
+      if (res && !(res.error && abortou(res.error))) break
+      await new Promise((ok) => setTimeout(ok, 400 * (t + 1)))
+    }
+    if (minha !== seq.current) return
     setCarregando(false)
-    if (error) { setErro(error.message); setP(null); return }
-    setP(data as Painel)
+    if (!res || (res.error && abortou(res.error))) return
+    if (res.error) { setErro(res.error.message); setP(null); return }
+    setP(res.data as Painel)
   }, [empresa, sexo, cidade, intervalo])
   useEffect(() => { void carregar() }, [carregar])
 
