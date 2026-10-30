@@ -20,7 +20,7 @@ type RankRow = { responsavel_id: string | null; responsavel_nome: string; oportu
 type Perda = { motivo: string; qtd: number; valor: number }
 type Resp = { gestor: boolean; de: string; ate: string; vendedor: string | null; resumo: Resumo; funil: FunilEtapa[]; ranking: RankRow[] | null; perdas: Perda[]; velocidade_dias: number | null; erro?: string }
 
-const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_feita: 'Visita', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
+const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_agendada: 'Visita agendada', visita_feita: 'Visita feita', orcando: 'Orçando', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
 const corConversao = (v: number | null) => (v == null ? MUT : v >= 40 ? VERDE : v >= 20 ? AMBAR : VERM)
 const rotConversao = (v: number | null) => (v == null ? '—' : v >= 40 ? 'alta' : v >= 20 ? 'média' : 'baixa')
 
