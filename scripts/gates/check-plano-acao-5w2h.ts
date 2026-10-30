@@ -13,7 +13,7 @@ import { atrasada, pendente, vencendo, diasParaPrazo } from '../../src/lib/plano
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
 
-const sql = readFileSync(join(__dirname, '../../supabase/migrations/20261028030105_plano_acao_5w2h.sql'), 'utf8').replace(/--[^\n]*/g, '')
+const sql = readFileSync(join(__dirname, '../../supabase/migrations/20261031001015_plano_acao_5w2h.sql'), 'utf8').replace(/--[^\n]*/g, '')
 for (const t of ['erp_pa_rotina', 'erp_pa_acao', 'erp_pa_historico']) {
   ok(new RegExp(`ALTER TABLE public\\.${t} ENABLE ROW LEVEL SECURITY`).test(sql), `${t}: RLS ligada`)
   ok(new RegExp(`CREATE POLICY \\w+ ON public\\.${t} FOR SELECT[\\s\\S]*?user_company_ids`).test(sql), `${t}: leitura por empresa`)
