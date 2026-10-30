@@ -71,7 +71,7 @@ export default function PropostasHubPage() {
     try {
       const [o, p] = await Promise.all([
         comPrazo(async () => await supabase.from('erp_crm_oportunidade').select('id,titulo,orcamento_id').in('orcamento_id', ids).is('deleted_at', null), { ...op, label: 'propostas_hub_oport' }),
-        comPrazo(async () => await supabase.from('erp_obra_planta').select('id,nome,orcamento_id').in('orcamento_id', ids), { ...op, label: 'propostas_hub_plantas' }),
+        comPrazo(async () => await supabase.from('erp_obra_planta').select('id,nome,orcamento_id').in('orcamento_id', ids).is('deleted_at', null), { ...op, label: 'propostas_hub_plantas' }),
       ])
       if (o.error || p.error) { setOrigErro(true); return }
       const ops = (o.data ?? []) as OportunidadeVinculo[]

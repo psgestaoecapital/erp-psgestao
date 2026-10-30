@@ -17,7 +17,7 @@ const falhaTela = (e: unknown) => (e instanceof AvisoTela ? e.message : erroAmig
 
 type PlantaRecente = {
   id: string; nome: string; status: string; arquivo_tipo: string | null; aps_status: string | null
-  created_at: string; contagem: ContagemAmbientes
+  created_at: string; orcamento_id: string | null; contagem: ContagemAmbientes
 }
 
 // padrao ps_empresa_sel com polling (mesmo das outras telas verticais)
@@ -191,8 +191,8 @@ export default function TakeoffPage() {
   // Plantas enviadas (as 10 mais recentes) com a situação de cada uma — o usuário retoma de onde parou.
   const recarregarRecentes = useCallback(async (cid: string) => {
     const { data: ps, error } = await supabase.from('erp_obra_planta')
-      .select('id,nome,status,arquivo_tipo,aps_status,created_at')
-      .eq('company_id', cid).order('created_at', { ascending: false }).limit(10)
+      .select('id,nome,status,arquivo_tipo,aps_status,created_at,orcamento_id')
+      .eq('company_id', cid).is('deleted_at', null).order('created_at', { ascending: false }).limit(10)
     if (error) { setErro(falhaTela(error)); return }
     const lista = (ps ?? []) as Omit<PlantaRecente, 'contagem'>[]
     const ids = lista.map((p) => p.id)
@@ -230,6 +230,20 @@ export default function TakeoffPage() {
     await recarregarAmbientes(id)
   }
 
+  // Exclusão lógica (RD-98): a RPC marca deleted_at + quem excluiu + audit_log_global; nunca DELETE físico.
+  const excluirPlanta = async (p: PlantaRecente) => {
+    if (typeof window !== 'undefined' && !window.confirm(`Excluir a planta "${p.nome}"? Ela sai da lista, mas o registro fica guardado.`)) return
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_takeoff_planta_excluir', { p_planta_id: p.id })
+      if (error) throw error
+      if (!(data as { ok?: boolean } | null)?.ok) throw new AvisoTela('Não foi possível excluir a planta. Atualize a tela e tente de novo.')
+      if (planta?.id === p.id) { setPlanta(null); setAmbientes([]) }
+      setMsg('Planta excluída.')
+      if (companyId) await recarregarRecentes(companyId)
+    } catch (e) { setErro(falhaTela(e)) } finally { setBusy(false) }
+  }
+
   // Se veio ?planta_id=... (vindo do acervo), carrega essa planta direto.
   useEffect(() => {
     if (!companyId || !plantaIdParam) return
@@ -256,7 +270,7 @@ export default function TakeoffPage() {
     ;(async () => {
       const { data } = await supabase.from('erp_obra_planta')
         .select('id,aps_status,updated_at')
-        .eq('company_id', companyId).eq('orcamento_id', orcId)
+        .eq('company_id', companyId).eq('orcamento_id', orcId).is('deleted_at', null)
         .not('aps_status', 'is', null)
         .order('aps_status', { ascending: true }) // radiografado vem antes de traduzindo (ordem alfabetica)
         .order('updated_at', { ascending: false })
@@ -892,6 +906,16 @@ export default function TakeoffPage() {
                     <span data-testid="takeoff-planta-situacao" className="text-[11px] px-2 py-0.5 rounded-full font-semibold shrink-0"
                       style={{ color: cor, border: `1px solid ${cor}` }}>{sit.rotulo}</span>
                   </button>
+                  <div className="px-3 pb-3 flex items-center gap-2 flex-wrap">
+                    {p.orcamento_id ? (
+                      <Link href={`/dashboard/projetos/propostas?orcamento_id=${p.orcamento_id}`} data-testid="takeoff-planta-ver-orcamento"
+                        className="text-xs underline" style={{ color: ESP }}>Ver orçamento</Link>
+                    ) : <span className="text-xs" style={{ color: ESP60 }}>Sem orçamento</span>}
+                    <AjudaCampo chave="projetos.takeoff.planta_ver_orcamento" rota={ROTA} />
+                    <button type="button" data-testid="takeoff-planta-excluir" onClick={() => void excluirPlanta(p)} disabled={busy}
+                      className="text-xs underline ml-3" style={{ color: RED }}>Excluir</button>
+                    <AjudaCampo chave="projetos.takeoff.planta_excluir" rota={ROTA} />
+                  </div>
                 </li>
               )
             })}
