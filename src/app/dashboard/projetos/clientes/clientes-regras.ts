@@ -37,7 +37,9 @@ export const temContato = (c: { telefone?: string | null; celular?: string | nul
 // montado na tela a partir de 3 consultas (oportunidades, propostas, visitas) — sem uma consulta por cliente.
 export const ETAPAS_FECHADAS = new Set(['ganho', 'perdido'])
 export type OpLinha = { id: string; cliente_id: string | null; etapa: string | null; valor_estimado: number | null; valor_proposta: number | null }
-export type OrcLinha = { cliente_id: string | null }
+export type OrcLinha = { cliente_id: string | null; status?: string | null; total?: number | null }
+// Proposta em aberto = ainda negociando com o cliente (não convertida em obra nem cancelada).
+export const STATUS_PROPOSTA_ABERTA = new Set(['rascunho', 'enviado', 'aberta', 'aberto', 'negociacao'])
 export type VisitaLinha = { oportunidade_id: string | null }
 export type Comercial = { abertas: number; valorAberto: number; ganhas: number; propostas: number; visitas: number }
 
@@ -56,7 +58,13 @@ export function comercialPorCliente(ops: OpLinha[], orcs: OrcLinha[], visitas: V
     if (o.etapa === 'ganho') c.ganhas++
     else if (!ETAPAS_FECHADAS.has(o.etapa ?? '')) { c.abertas++; c.valorAberto += valorOportunidade(o) }
   }
-  for (const x of orcs) if (x.cliente_id) de(x.cliente_id).propostas++
+  for (const x of orcs) {
+    if (!x.cliente_id) continue
+    const c = de(x.cliente_id)
+    c.propostas++
+    // "Em negociação" soma também as propostas abertas do cliente (antes só contava oportunidades com valor).
+    if (STATUS_PROPOSTA_ABERTA.has(x.status ?? '')) c.valorAberto += Number(x.total ?? 0) || 0
+  }
   for (const v of visitas) {
     const cli = v.oportunidade_id ? clienteDaOp.get(v.oportunidade_id) : undefined
     if (cli) de(cli).visitas++
