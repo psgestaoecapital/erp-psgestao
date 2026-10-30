@@ -1,7 +1,7 @@
 // Gate (CEO 30/09 · Diego/FC: resultado por obra — versão receita). Roda no build, sem rede. Confere as regras de
 // negócio na migration e o cartão na ficha da obra: faturado = só NFS-e AUTORIZADA ligada à obra; recebido = baixas
 // dos títulos dessas notas (sem as excluídas; cancelado/excluído fora); guarda por empresa; fechada ao anon; e a tela
-// mostra Faturado / Recebido / A receber / Custo "a partir de novembro" sem derrubar o board se a receita falhar.
+// mostra Faturado / Recebido / A receber / Custo real (material + viagens, v_obra_resultado) sem derrubar o board se a receita falhar.
 import { readFileSync } from 'node:fs'
 
 let falhas = 0
@@ -28,7 +28,8 @@ ok(/setReceita\(er \? null :/.test(tela), 'falha na receita não derruba o board
 for (const id of ['obra-resultado', 'obra-faturado', 'obra-recebido', 'obra-a-receber', 'obra-custo', 'obra-notas']) {
   ok(tela.includes(`'${id}'`) || tela.includes(`"${id}"`), `cartão: ${id}`)
 }
-ok(tela.includes("cel('Custo', 'a partir de novembro'"), 'custo aparece como "a partir de novembro"')
+// #3262 ligou o custo REAL (material + viagens) da v_obra_resultado; o placeholder "a partir de novembro" saiu.
+ok(/cel\('Custo', r\?\.custo != null && r\.custo > 0 \? fmtRc\(r\.custo\) : 'Sem custo lançado'/.test(tela), 'custo real (material + viagens) da v_obra_resultado')
 ok(tela.includes('<ResultadoObra r={receita} />'), 'cartão dentro da ficha (card) da obra')
 
 if (falhas) { console.error(`\n${falhas} falha(s) no resultado por obra`); process.exit(1) }

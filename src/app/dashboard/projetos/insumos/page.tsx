@@ -4,13 +4,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Package, Pencil, Trash2, TrendingUp, Upload, Plus, Search } from "lucide-react";
+import { Package, Pencil, Trash2, TrendingUp, Upload, Plus, Search, Link2, RotateCcw, AlertTriangle } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
 import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/CatalogoTable";
 import { CatalogoForm, type FormField } from "@/components/projetos/CatalogoForm";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 interface Insumo {
   id: string;
@@ -30,6 +31,28 @@ interface Insumo {
   ncm?: string | null;
   especificacao_tecnica?: string | null;
   observacoes?: string | null;
+  deleted_at?: string | null;
+}
+
+// Vínculo do insumo com o produto do estoque do GE integrado (RD-35): o custo vem do estoque.
+interface VinculoGE {
+  insumo_id: string;
+  produto_id: string;
+  usar_maior_custo: boolean;
+  produto_codigo: string | null;
+  produto_nome: string | null;
+  saldo: number | null;
+  custo_estoque: number | null;
+}
+
+interface ProdutoGE {
+  id: string;
+  codigo: string | null;
+  nome: string;
+  unidade: string | null;
+  estoque_atual: number | null;
+  custo_medio: number | null;
+  ultimo_custo: number | null;
 }
 
 interface Categoria {
@@ -71,7 +94,7 @@ export default function InsumosPage() {
   // Filtros
   const [busca, setBusca] = useState("");
   const [filtroCat, setFiltroCat] = useState("");
-  const [filtroStatus, setFiltroStatus] = useState<"ativo" | "inativo" | "todos">("ativo");
+  const [filtroStatus, setFiltroStatus] = useState<"ativo" | "inativo" | "todos" | "excluido">("ativo");
   const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork">("todos");
 
   // Form drawer
@@ -88,6 +111,15 @@ export default function InsumosPage() {
 
   // Importar
   const [importando, setImportando] = useState(false);
+
+  // Estoque GE
+  const [vinculos, setVinculos] = useState<Record<string, VinculoGE>>({});
+  const [modalGE, setModalGE] = useState<Insumo | null>(null);
+  const [buscaGE, setBuscaGE] = useState("");
+  const [produtosGE, setProdutosGE] = useState<ProdutoGE[]>([]);
+  const [buscandoGE, setBuscandoGE] = useState(false);
+  const [maiorCusto, setMaiorCusto] = useState(false);
+  const [ligando, setLigando] = useState(false);
 
   const carregar = useCallback(async () => {
     if (!companyId) {
@@ -117,8 +149,19 @@ export default function InsumosPage() {
         // categorias é nice-to-have; sem ela ainda funciona
         console.warn("Categorias:", catR.error);
       }
-      setInsumos((insR.data as Insumo[]) || []);
+      // A view expõe `status` ('ativo'/'inativo') e `forked_from`; a tela usa `ativo` e `fork_from_publico_id`.
+      setInsumos(((insR.data as any[]) || []).map((r) => ({
+        ...r,
+        ativo: r.status !== "inativo",
+        fork_from_publico_id: r.forked_from ?? null,
+        deleted_at: r.deleted_at ?? null,
+      })) as Insumo[]);
       setCategorias((catR.data as Categoria[]) || []);
+      // Vínculos com o estoque do GE: complemento — se falhar, a lista segue sem a coluna preenchida.
+      const vinR = await supabase.rpc("fn_hub_insumo_vinculos", { p_company_id: companyId });
+      const mapa: Record<string, VinculoGE> = {};
+      for (const v of ((vinR.data as any)?.vinculos as VinculoGE[]) || []) mapa[v.insumo_id] = v;
+      setVinculos(mapa);
     } catch (e: any) {
       setErro(e.message || "Falha ao carregar insumos");
     } finally {
@@ -133,8 +176,15 @@ export default function InsumosPage() {
   // Filtros aplicados
   const filtrados = useMemo(() => {
     return insumos.filter((i) => {
-      if (filtroStatus === "ativo" && i.ativo === false) return false;
-      if (filtroStatus === "inativo" && i.ativo !== false) return false;
+      const excluido = !!i.deleted_at;
+      // A aba "Excluídos" mostra só os excluídos; os demais filtros nunca mostram excluídos.
+      if (filtroStatus === "excluido") {
+        if (!excluido) return false;
+      } else {
+        if (excluido) return false;
+        if (filtroStatus === "ativo" && i.ativo === false) return false;
+        if (filtroStatus === "inativo" && i.ativo !== false) return false;
+      }
       if (filtroOrigem === "fork" && !i.fork_from_publico_id) return false;
       if (filtroOrigem === "manual" && i.fork_from_publico_id) return false;
       if (filtroCat && i.category !== filtroCat) return false;
@@ -191,7 +241,8 @@ export default function InsumosPage() {
         ncm: values.ncm || null,
         especificacao_tecnica: values.especificacao_tecnica || null,
         observacoes: values.observacoes || null,
-        ativo: values.ativo !== false,
+        // m16_insumos não tem coluna `ativo`: o estado vive em `status`.
+        status: values.ativo !== false ? "ativo" : "inativo",
       };
 
       if (drawerInicial?.id) {
@@ -217,7 +268,7 @@ export default function InsumosPage() {
   }
 
   async function deletar(i: Insumo) {
-    if (!confirm(`Deletar insumo "${i.name}"?`)) return;
+    if (!confirm(`Excluir o insumo "${i.name}"? Ele sai da lista, mas pode ser restaurado depois (filtro Status → Excluídos).`)) return;
     try {
       const supabase = supabaseBrowser();
       const { data, error } = await supabase.rpc("fn_projetos_deletar_insumo", {
@@ -225,11 +276,31 @@ export default function InsumosPage() {
       });
       if (error) throw error;
       if (data && data.success === false) {
-        setErro(data.error || "Insumo não pode ser deletado");
+        setErro(data.error || "Insumo não pode ser excluído");
         setTimeout(() => setErro(null), 5000);
         return;
       }
-      setAviso(`Insumo "${i.name}" removido`);
+      setAviso(`Insumo "${i.name}" excluído (pode restaurar no filtro Excluídos)`);
+      setTimeout(() => setAviso(null), 5000);
+      await carregar();
+    } catch (e: any) {
+      setErro(e.message);
+    }
+  }
+
+  async function restaurar(i: Insumo) {
+    try {
+      const supabase = supabaseBrowser();
+      const { data, error } = await supabase.rpc("fn_projetos_restaurar_insumo", {
+        p_insumo_id: i.id,
+      });
+      if (error) throw error;
+      if (data && data.success === false) {
+        setErro(data.error || "Insumo não pôde ser restaurado");
+        setTimeout(() => setErro(null), 5000);
+        return;
+      }
+      setAviso(`Insumo "${i.name}" restaurado`);
       setTimeout(() => setAviso(null), 4000);
       await carregar();
     } catch (e: any) {
@@ -257,6 +328,92 @@ export default function InsumosPage() {
       setErro(e.message);
     } finally {
       setSalvandoPreco(false);
+    }
+  }
+
+  // Busca (com atraso) de produtos do estoque para ligar ao insumo.
+  useEffect(() => {
+    if (!modalGE) return;
+    const q = buscaGE.trim();
+    if (q.length < 2) {
+      setProdutosGE([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setBuscandoGE(true);
+      try {
+        const { data, error } = await supabaseBrowser().rpc("fn_hub_insumo_buscar_produtos", {
+          p_insumo_id: modalGE.id,
+          p_busca: q,
+          p_limite: 20,
+        });
+        if (error) throw error;
+        setProdutosGE(((data as any)?.produtos as ProdutoGE[]) || []);
+      } catch (e: any) {
+        setErro(e.message);
+      } finally {
+        setBuscandoGE(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [buscaGE, modalGE]);
+
+  function abrirEstoque(i: Insumo) {
+    setModalGE(i);
+    setBuscaGE("");
+    setProdutosGE([]);
+    setMaiorCusto(vinculos[i.id]?.usar_maior_custo ?? false);
+  }
+
+  // Liga o insumo ao produto e traz o custo real do estoque para o catálogo (recalcula os serviços que o usam).
+  async function ligarProduto(p: ProdutoGE) {
+    if (!modalGE) return;
+    setLigando(true);
+    try {
+      const supabase = supabaseBrowser();
+      const vin = await supabase.rpc("fn_hub_insumo_vincular", {
+        p_insumo_id: modalGE.id,
+        p_produto_id: p.id,
+        p_usar_maior_custo: maiorCusto,
+      });
+      if (vin.error) throw vin.error;
+      if ((vin.data as any)?.ok === false) throw new Error((vin.data as any).erro || "Não foi possível ligar");
+      const cus = await supabase.rpc("fn_hub_insumo_custo", { p_insumo_id: modalGE.id });
+      if (cus.error) throw cus.error;
+      const custo = Number((cus.data as any)?.custo);
+      if (Number.isFinite(custo) && custo > 0 && custo !== Number(modalGE.current_cost ?? 0)) {
+        const up = await supabase.rpc("fn_projetos_atualizar_preco_insumo", {
+          p_insumo_id: modalGE.id,
+          p_novo_preco: custo,
+          p_data_compra: new Date().toISOString().slice(0, 10),
+        });
+        if (up.error) throw up.error;
+      }
+      setAviso(`"${modalGE.name}" ligado ao estoque: ${p.nome}`);
+      setTimeout(() => setAviso(null), 5000);
+      setModalGE(null);
+      await carregar();
+    } catch (e: any) {
+      setErro(e.message);
+    } finally {
+      setLigando(false);
+    }
+  }
+
+  async function desligarProduto() {
+    if (!modalGE) return;
+    setLigando(true);
+    try {
+      const { error } = await supabaseBrowser().rpc("fn_hub_insumo_desvincular", { p_insumo_id: modalGE.id });
+      if (error) throw error;
+      setAviso(`"${modalGE.name}" desligado do estoque (mantém o último custo)`);
+      setTimeout(() => setAviso(null), 5000);
+      setModalGE(null);
+      await carregar();
+    } catch (e: any) {
+      setErro(e.message);
+    } finally {
+      setLigando(false);
     }
   }
 
@@ -303,9 +460,10 @@ export default function InsumosPage() {
 
   // Schema do form
   const formFields: FormField[] = [
-    { key: "erp_code", label: "Código", type: "text", required: true, placeholder: "INS-1" },
+    { key: "erp_code", ajuda: "projetos.insumos.form.codigo", label: "Código", type: "text", required: true, placeholder: "INS-1" },
     {
       key: "unit",
+      ajuda: "projetos.insumos.form.unidade",
       label: "Unidade",
       type: "select",
       required: true,
@@ -313,6 +471,7 @@ export default function InsumosPage() {
     },
     {
       key: "name",
+      ajuda: "projetos.insumos.form.nome",
       label: "Nome",
       type: "text",
       required: true,
@@ -321,33 +480,38 @@ export default function InsumosPage() {
     },
     {
       key: "category",
+      ajuda: "projetos.insumos.form.categoria",
       label: "Categoria",
       type: "select",
       options: categorias.map((c) => ({ value: c.codigo, label: c.nome })),
     },
     {
       key: "current_cost",
+      ajuda: "projetos.insumos.form.custo",
       label: "Custo atual (R$)",
       type: "number",
       step: "0.01",
       min: 0,
     },
-    { key: "supplier", label: "Fornecedor", type: "text", placeholder: "Nome do fornecedor" },
-    { key: "ncm", label: "NCM", type: "text", placeholder: "00000000" },
+    { key: "supplier", ajuda: "projetos.insumos.form.fornecedor", label: "Fornecedor", type: "text", placeholder: "Nome do fornecedor" },
+    { key: "ncm", ajuda: "projetos.insumos.form.ncm", label: "NCM", type: "text", placeholder: "00000000" },
     {
       key: "especificacao_tecnica",
+      ajuda: "projetos.insumos.form.especificacao",
       label: "Especificação técnica",
       type: "textarea",
       fullWidth: true,
     },
     {
       key: "observacoes",
+      ajuda: "projetos.insumos.form.observacoes",
       label: "Observações",
       type: "textarea",
       fullWidth: true,
     },
     {
       key: "ativo",
+      ajuda: "projetos.insumos.form.status",
       label: "Status",
       type: "radio",
       options: [
@@ -361,6 +525,7 @@ export default function InsumosPage() {
     {
       key: "code",
       label: "Código",
+      ajuda: "projetos.insumos.col_code",
       hiddenOnMobile: true,
       render: (i) => (
         <span className="font-mono text-xs text-[#3D2314]/70">{i.erp_code || "—"}</span>
@@ -369,6 +534,7 @@ export default function InsumosPage() {
     {
       key: "name",
       label: "Nome",
+      ajuda: "projetos.insumos.col_name",
       render: (i) => (
         <div>
           <div className="font-medium text-[#3D2314]">{i.name}</div>
@@ -383,6 +549,7 @@ export default function InsumosPage() {
     {
       key: "category",
       label: "Categoria",
+      ajuda: "projetos.insumos.col_category",
       hiddenOnMobile: true,
       render: (i) =>
         i.category ? (
@@ -396,12 +563,14 @@ export default function InsumosPage() {
     {
       key: "unit",
       label: "Un",
+      ajuda: "projetos.insumos.col_unit",
       hiddenOnMobile: true,
       render: (i) => <span className="text-[#3D2314]/70">{i.unit || "—"}</span>,
     },
     {
       key: "current_cost",
       label: "Preço",
+      ajuda: "projetos.insumos.col_current_cost",
       align: "right",
       render: (i) => (
         <span className="font-mono text-[#3D2314]">{fmtBRL(i.current_cost)}</span>
@@ -410,11 +579,21 @@ export default function InsumosPage() {
     {
       key: "variacao",
       label: "Variação",
+      ajuda: "projetos.insumos.col_variacao",
       align: "right",
       hiddenOnMobile: true,
       render: (i) => {
         if (i.variacao_pct === null || i.variacao_pct === undefined || i.variacao_pct === 0) {
-          return <span className="text-[#3D2314]/40">—</span>;
+          // Estado-vazio explicado: a variação compara o preço atual com o da compra anterior;
+          // sem um segundo preço no histórico não há o que comparar (não é erro de leitura).
+          return (
+            <span
+              className="text-[#3D2314]/40"
+              title="Sem variação: é preciso ao menos dois preços (compra anterior e atual) para comparar"
+            >
+              —
+            </span>
+          );
         }
         const positiva = i.variacao_pct > 0;
         return (
@@ -429,8 +608,46 @@ export default function InsumosPage() {
       },
     },
     {
+      key: "estoque",
+      label: "Estoque (GE)",
+      ajuda: "projetos.insumos.estoque",
+      hiddenOnMobile: true,
+      render: (i) => {
+        const v = vinculos[i.id];
+        // Sem vínculo: nunca deixar a coluna muda — oferecer a ação de ligar ali mesmo (estado-vazio com CTA).
+        if (!v) return (
+          <button
+            onClick={(e) => { e.stopPropagation(); abrirEstoque(i); }}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-[#C8941A] hover:bg-[#C8941A]/10"
+            title="Ligar este insumo a um produto do estoque do GE para puxar o custo real"
+          >
+            <Link2 size={11} /> Ligar ao estoque
+          </button>
+        );
+        // Divergência: preço do catálogo (current_cost) vs custo real do estoque. >1% = alerta.
+        const cat = Number(i.current_cost ?? 0);
+        const est = Number(v.custo_estoque ?? 0);
+        const diverge = cat > 0 && est > 0 && Math.abs(cat - est) / est > 0.01;
+        const difPct = est > 0 ? ((cat - est) / est) * 100 : 0;
+        return (
+          <div className="text-xs">
+            <div className="font-medium text-[#3D2314]">{v.produto_codigo ? `${v.produto_codigo} · ` : ""}{v.produto_nome}</div>
+            <div className="text-[#3D2314]/60">saldo {v.saldo ?? 0} · custo {fmtBRL(v.custo_estoque)}</div>
+            {diverge && (
+              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                <AlertTriangle size={11} />
+                catálogo {difPct > 0 ? "+" : ""}{difPct.toFixed(1)}%
+                <AjudaCampo chave="projetos.insumos.divergencia" />
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       key: "uso",
       label: "Em uso",
+      ajuda: "projetos.insumos.col_uso",
       align: "center",
       render: (i) => (
         <span
@@ -446,8 +663,29 @@ export default function InsumosPage() {
     },
   ];
 
-  const acoes = (i: Insumo) => (
+  const acoes = (i: Insumo) =>
+    i.deleted_at ? (
+      <div className="flex items-center justify-end gap-1">
+        <button
+          onClick={() => restaurar(i)}
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-emerald-700 hover:bg-emerald-50"
+          title="Restaurar insumo"
+        >
+          <RotateCcw size={14} />
+          <span className="text-xs font-medium">Restaurar</span>
+        </button>
+        <AjudaCampo chave="projetos.insumos.restaurar" alinhar="fim" />
+      </div>
+    ) : (
     <div className="flex items-center justify-end gap-1">
+      <button
+        onClick={() => abrirEstoque(i)}
+        className={`rounded-lg p-1.5 hover:bg-[#3D2314]/5 hover:text-[#3D2314] ${vinculos[i.id] ? "text-emerald-700" : "text-[#3D2314]/60"}`}
+        title={vinculos[i.id] ? "Trocar produto do estoque" : "Ligar ao estoque"}
+      >
+        <Link2 size={14} />
+      </button>
+      <AjudaCampo chave="projetos.insumos.estoque" />
       <button
         onClick={() => {
           setModalPreco(i);
@@ -469,7 +707,7 @@ export default function InsumosPage() {
         onClick={() => deletar(i)}
         disabled={(i.qtd_servicos_uso ?? 0) > 0}
         className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-        title={(i.qtd_servicos_uso ?? 0) > 0 ? "Em uso, não pode deletar" : "Deletar"}
+        title={(i.qtd_servicos_uso ?? 0) > 0 ? "Em uso, não pode excluir" : "Excluir"}
       >
         <Trash2 size={14} />
       </button>
@@ -480,7 +718,7 @@ export default function InsumosPage() {
   const empresaNome = empresa?.nome_fantasia || empresa?.razao_social || "—";
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8">
+    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       {/* Header */}
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -503,6 +741,7 @@ export default function InsumosPage() {
             <Upload size={14} />
             {importando ? "Importando…" : "Importar biblioteca"}
           </button>
+          <AjudaCampo chave="projetos.insumos.importar" alinhar="fim" />
           <button
             onClick={abrirNovo}
             className="inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-4 py-2 text-sm font-medium text-[#FAF7F2] hover:bg-[#3D2314]/90"
@@ -510,6 +749,7 @@ export default function InsumosPage() {
             <Plus size={14} />
             Novo insumo
           </button>
+          <AjudaCampo chave="projetos.insumos.novo" alinhar="fim" />
         </div>
       </header>
 
@@ -533,11 +773,11 @@ export default function InsumosPage() {
         <>
           {/* Toolbar */}
           <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-[#3D2314]/8 bg-white p-4 shadow-sm md:grid-cols-4">
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-                Buscar
-              </label>
-              <div className="relative">
+            <label className="block md:col-span-2">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Buscar <AjudaCampo chave="projetos.insumos.busca" />
+              </span>
+              <span className="relative block">
                 <Search
                   size={14}
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-[#3D2314]/40"
@@ -549,12 +789,12 @@ export default function InsumosPage() {
                   placeholder="Nome, código ou fornecedor…"
                   className="w-full rounded-lg border border-[#3D2314]/12 bg-white py-2 pl-9 pr-3 text-sm focus:border-[#C8941A] focus:outline-none"
                 />
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-                Categoria
-              </label>
+              </span>
+            </label>
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Categoria <AjudaCampo chave="projetos.insumos.filtro_categoria" />
+              </span>
               <select
                 value={filtroCat}
                 onChange={(e) => setFiltroCat(e.target.value)}
@@ -567,12 +807,12 @@ export default function InsumosPage() {
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
             <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-                  Status
-                </label>
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Status <AjudaCampo chave="projetos.insumos.filtro_status" />
+                </span>
                 <select
                   value={filtroStatus}
                   onChange={(e) => setFiltroStatus(e.target.value as any)}
@@ -581,12 +821,13 @@ export default function InsumosPage() {
                   <option value="ativo">Ativos</option>
                   <option value="inativo">Inativos</option>
                   <option value="todos">Todos</option>
+                  <option value="excluido">Excluídos</option>
                 </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-                  Origem
-                </label>
+              </label>
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                  Origem <AjudaCampo chave="projetos.insumos.filtro_origem" />
+                </span>
                 <select
                   value={filtroOrigem}
                   onChange={(e) => setFiltroOrigem(e.target.value as any)}
@@ -596,7 +837,7 @@ export default function InsumosPage() {
                   <option value="manual">Manual</option>
                   <option value="fork">Biblioteca</option>
                 </select>
-              </div>
+              </label>
             </div>
           </div>
 
@@ -645,6 +886,83 @@ export default function InsumosPage() {
         />
       )}
 
+      {/* Modal estoque GE */}
+      {modalGE && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-[#3D2314]/60 p-0 sm:items-center sm:p-4"
+          onClick={() => setModalGE(null)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-1 text-lg font-semibold text-[#3D2314]">Ligar ao estoque</h3>
+            <p className="mb-4 text-sm text-[#3D2314]/60">
+              {modalGE.name}
+              {vinculos[modalGE.id] ? ` · hoje: ${vinculos[modalGE.id].produto_nome}` : " · sem ligação"}
+            </p>
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Buscar produto do estoque <AjudaCampo chave="projetos.insumos.estoque_busca" />
+              </span>
+              <input
+                type="text"
+                autoFocus
+                value={buscaGE}
+                onChange={(e) => setBuscaGE(e.target.value)}
+                placeholder="Nome ou código do produto…"
+                className="mb-3 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+              />
+            </label>
+            <label className="mb-3 flex items-center gap-2 text-sm text-[#3D2314]">
+              <input type="checkbox" checked={maiorCusto} onChange={(e) => setMaiorCusto(e.target.checked)} />
+              Usar o maior custo (médio × última compra)
+              <AjudaCampo chave="projetos.insumos.estoque_maior" />
+            </label>
+            <ul className="mb-4 divide-y divide-[#3D2314]/8 rounded-lg border border-[#3D2314]/8">
+              {buscandoGE && <li className="p-3 text-sm text-[#3D2314]/60">Buscando…</li>}
+              {!buscandoGE && buscaGE.trim().length < 2 && produtosGE.length === 0 && (
+                <li className="p-3 text-sm text-[#3D2314]/60">Digite o nome ou o código de um produto do estoque do GE para ligar. Se o estoque ainda não tem produtos cadastrados, cadastre-os no GE (Estoque) — o custo real virá de lá.</li>
+              )}
+              {!buscandoGE && buscaGE.trim().length >= 2 && produtosGE.length === 0 && (
+                <li className="p-3 text-sm text-[#3D2314]/60">Nenhum produto do estoque bate com esse termo. Confira o cadastro no GE (Estoque) ou tente outro nome/código.</li>
+              )}
+              {produtosGE.map((p) => (
+                <li key={p.id}>
+                  <button
+                    disabled={ligando}
+                    onClick={() => ligarProduto(p)}
+                    className="flex w-full items-center justify-between gap-3 p-3 text-left hover:bg-[#FAF7F2] disabled:opacity-50"
+                  >
+                    <span>
+                      <span className="block text-sm font-medium text-[#3D2314]">{p.nome}</span>
+                      <span className="block text-xs text-[#3D2314]/60">
+                        {p.codigo || "sem código"} · saldo {p.estoque_atual ?? 0} {p.unidade || ""}
+                      </span>
+                    </span>
+                    <span className="font-mono text-sm text-[#3D2314]">{fmtBRL(p.custo_medio)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2">
+              <button onClick={() => setModalGE(null)} className="flex-1 rounded-lg bg-[#FAF7F2] py-2 text-sm text-[#3D2314]">
+                Fechar
+              </button>
+              {vinculos[modalGE.id] && (
+                <button
+                  onClick={desligarProduto}
+                  disabled={ligando}
+                  className="flex-1 rounded-lg border border-red-200 py-2 text-sm text-red-700 disabled:opacity-50"
+                >
+                  Desligar
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal preço */}
       {modalPreco && (
         <div
@@ -662,27 +980,31 @@ export default function InsumosPage() {
               {modalPreco.name} · atual {fmtBRL(modalPreco.current_cost)}
             </p>
 
-            <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-              Novo preço (R$)
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Novo preço (R$) <AjudaCampo chave="projetos.insumos.preco_novo" />
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                min={0}
+                value={novoPreco}
+                onChange={(e) => setNovoPreco(e.target.value)}
+                className="mb-3 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+              />
             </label>
-            <input
-              type="number"
-              step="0.01"
-              min={0}
-              value={novoPreco}
-              onChange={(e) => setNovoPreco(e.target.value)}
-              className="mb-3 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
-            />
 
-            <label className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-              Data da compra
+            <label className="block">
+              <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+                Data da compra <AjudaCampo chave="projetos.insumos.preco_data" />
+              </span>
+              <input
+                type="date"
+                value={dataCompra}
+                onChange={(e) => setDataCompra(e.target.value)}
+                className="mb-4 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+              />
             </label>
-            <input
-              type="date"
-              value={dataCompra}
-              onChange={(e) => setDataCompra(e.target.value)}
-              className="mb-4 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
-            />
 
             <p className="mb-4 rounded-lg bg-[#C8941A]/10 p-3 text-xs text-[#3D2314]/70">
               Atualizar este preço dispara recálculo automático dos serviços que usam este insumo.

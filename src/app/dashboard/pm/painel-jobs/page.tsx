@@ -9,6 +9,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer,
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
 import {
   CABECALHO_FLUXO, SITUACOES, contarFiltroPainel, filtrarJobs, graficos, indicadores, legado, limparFiltroPainel, linhaParaArray, linhasFluxo, resumoParaIA,
@@ -91,7 +92,7 @@ export default function PainelJobsPage() {
       const [j, r, h, cl, gr, ca, sv, eq] = await Promise.all([
         supabase.from("agency_jobs").select("id, numero, titulo, status, prioridade, cliente_id, campanha_id, responsavel_id, servico_id, tipo, data_inicio, data_prazo, data_entrega, created_at, updated_at, rodada_ajuste, horas_estimadas, horas_realizadas").eq("company_id", empresa).is("excluido_em", null).limit(5000),
         supabase.from("agency_job_rodadas").select("job_id, motivo").eq("company_id", empresa).limit(20000),
-        supabase.from("agency_timesheet").select("user_id, cliente_id, horas").eq("company_id", empresa).limit(50000),
+        supabase.from("agency_timesheet").select("user_id, cliente_id, horas, job_id").eq("company_id", empresa).limit(50000),
         supabase.from("agency_clientes").select("id, nome, nome_fantasia, grupo_id").eq("company_id", empresa).limit(2000),
         supabase.from("agency_grupos_clientes").select("id, nome").eq("company_id", empresa),
         supabase.from("agency_campanhas").select("id, nome").eq("company_id", empresa).is("excluido_em", null),
@@ -122,9 +123,9 @@ export default function PainelJobsPage() {
   const visiveis = useMemo(() => filtrarJobs(jobs, filtro, nomes), [jobs, filtro, nomes]);
   const ids = useMemo(() => new Set(visiveis.map((j) => j.id)), [visiveis]);
   const rodadasVis = useMemo(() => rodadas.filter((r) => ids.has(r.job_id)), [rodadas, ids]);
-  const ind = useMemo(() => indicadores(visiveis, rodadasVis), [visiveis, rodadasVis]);
+  const ind = useMemo(() => indicadores(visiveis, rodadasVis, horas), [visiveis, rodadasVis, horas]);
   const gr = useMemo(() => graficos(visiveis, rodadasVis, horas, nomes), [visiveis, rodadasVis, horas, nomes]);
-  const fluxo = useMemo(() => linhasFluxo(visiveis, rodadasVis, nomes), [visiveis, rodadasVis, nomes]);
+  const fluxo = useMemo(() => linhasFluxo(visiveis, rodadasVis, nomes, horas), [visiveis, rodadasVis, nomes, horas]);
   const nLegado = useMemo(() => jobs.filter((j) => legado(j)).length, [jobs]);
   const nFiltros = contarFiltroPainel(filtro);
 
@@ -181,13 +182,13 @@ export default function PainelJobsPage() {
 
   if (!empresa) return <EmpresaNaoResolvida carregando={carregandoEmpresa} temEmpresa={companies.length > 0} tela="o Painel de Jobs" />;
 
-  const cartoes: { r: string; v: string; d?: string }[] = [
-    { r: "Total de jobs", v: fmt(ind.total) },
-    { r: "Alterações", v: fmt(ind.alteracoes), d: `média ${fmt(ind.mediaAlteracoes)} por job` },
-    { r: "Realizado / estimado", v: ind.realizadoSobreEstimado === null ? "—" : `${fmt(ind.realizadoSobreEstimado)}%`, d: `${fmt(ind.realizado)} h de ${fmt(ind.estimado)} h` },
-    { r: "Dias da conclusão", v: fmt(ind.diasConclusao), d: "média dos concluídos" },
-    { r: "Dias de atraso", v: fmt(ind.diasAtraso), d: "média dos abertos vencidos" },
-    { r: "Média de alterações", v: fmt(ind.mediaAlteracoes), d: "por job" },
+  const cartoes: { r: string; v: string; d?: string; a: string }[] = [
+    { r: "Total de jobs", v: fmt(ind.total), a: "pm.painel_jobs.ind_total" },
+    { r: "Alterações", v: fmt(ind.alteracoes), d: `média ${fmt(ind.mediaAlteracoes)} por job`, a: "pm.painel_jobs.ind_alteracoes" },
+    { r: "Realizado / estimado", v: ind.realizadoSobreEstimado === null ? "—" : `${fmt(ind.realizadoSobreEstimado)}%`, d: `${fmt(ind.realizado)} h de ${fmt(ind.estimado)} h`, a: "pm.painel_jobs.ind_realizado_estimado" },
+    { r: "Dias da conclusão", v: fmt(ind.diasConclusao), d: "média dos concluídos", a: "pm.painel_jobs.ind_dias_conclusao" },
+    { r: "Dias de atraso", v: fmt(ind.diasAtraso), d: "média dos abertos vencidos", a: "pm.painel_jobs.ind_dias_atraso" },
+    { r: "Média de alterações", v: fmt(ind.mediaAlteracoes), d: "por job", a: "pm.painel_jobs.ind_media_alteracoes" },
   ];
 
   return (
@@ -272,7 +273,7 @@ export default function PainelJobsPage() {
             <section className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-6">
               {cartoes.map((c) => (
                 <div key={c.r} className={cartao}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#3D2314]/60">{c.r}</div>
+                  <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-[#3D2314]/60">{c.r}<AjudaCampo chave={c.a} /></div>
                   <div className="mt-1 text-[24px] font-bold">{c.v}</div>
                   {c.d && <div className="text-[11px] text-[#6b5444]">{c.d}</div>}
                 </div>

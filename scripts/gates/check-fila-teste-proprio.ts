@@ -26,7 +26,7 @@ ok(/proprios=\$\(comm -12 <\(pos_specs_falhos "\$acc_run"\) <\(pr_specs_proprios
 ok(/echo "vermelho:spec da própria PR falhando: /.test(sh), 'spec da própria PR falhando → vermelho (não publica)')
 ok(/pr_specs_proprios\(\)/.test(sh) && /pulls\/\$1\/files/.test(sh) && /grep -E '\^e2e\/\.\*\\\.spec\\\.ts\$'/.test(sh),
   'pr_specs_proprios: e2e/*.spec.ts criados/alterados pela PR (não removidos)')
-ok(/c=\$\(estado_checks "\$sha" "\$via" "\$so_docs" "\$n"\)/.test(sh), 'o laço passa o número da PR ($n) para estado_checks')
+ok(/c=\$\(estado_checks "\$sha" "\$via" "\$so_docs" "\$n"( "\$regime_disp")?\)/.test(sh), 'o laço passa o número da PR ($n) para estado_checks')
 // Parte 2: acionamento automático do autor
 ok(/acionar_autor_pos\(\)/.test(sh) && /rest\/v1\/erp_dev_entrega\?pr_numero=eq\.\$pr/.test(sh)
   && /rpc\/fn_agente_mensagem_enviar/.test(sh) && /p_de:"eng_chefe"/.test(sh) && /p_tipo:"tarefa"/.test(sh),
@@ -72,11 +72,12 @@ if (!temFerramentas()) {
       '(c) @pos com falha NOVA → aciona o Code autor (jordana-code) com o spec, via fn_agente_mensagem_enviar')
     ok(!merges(x.escritas).includes(2), '(c) a PR com migration não publica enquanto o @pos tem falha nova')
 
-    // (d) FORA da janela: a mesma aceitação vermelha (mesmo só com spec alheio) bloqueia pela REGRA NORMAL
+    // (d) COM BLOQUEIO FORÇADO: a mesma aceitação vermelha (mesmo só com spec alheio) bloqueia pela REGRA NORMAL
+    // (aceitação informativa é o padrão de produção; FILA_ACEITACAO_BLOQUEIA=1 exerce o caminho de bloqueio).
     x = rodar([{ n: 1, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'failure',
-      aceitacaoSpecs: [ALHEIO], specsProprios: [PROPRIO] }], false, 5000, { FILA_POS_BASELINE: BASE }) // sem FILA_AGORA_EPOCH → padrão pós-janela
+      aceitacaoSpecs: [ALHEIO], specsProprios: [PROPRIO] }], false, 5000, { FILA_POS_BASELINE: BASE, FILA_ACEITACAO_BLOQUEIA: '1' })
     ok(merges(x.escritas).length === 0 && /check vermelho: aceitacao|vermelho:aceitação/.test(x.log.replace(/\n/g, ' ')),
-      '(d) fora da janela: aceitação vermelha bloqueia pela regra normal (não pela regra do teste próprio)')
+      '(d) bloqueio forçado: aceitação vermelha bloqueia pela regra normal (não pela regra do teste próprio)')
   })
 }
 

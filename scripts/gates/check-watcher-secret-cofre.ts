@@ -9,7 +9,7 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 const mig = readFileSync('supabase/migrations/20261017230000_watcher_secret_para_o_cofre.sql', 'utf8')
 ok(/REVOKE ALL ON FUNCTION public\.fn_watcher_secret\(\) FROM PUBLIC, anon, authenticated/.test(mig), 'fn_watcher_secret não é executável por anon/authenticated')
 ok(/vault\.decrypted_secrets WHERE name = 'screen_watcher_secret'/.test(mig), 'lê do cofre screen_watcher_secret')
-ok(!/'x-watcher-secret'\s*,\s*'[A-Za-z0-9]/.test(mig.replace(/\$re\$.*?\$re\$/gs, '')), 'migration não carrega valor do segredo')
+ok(!/'x-watcher-secret'\s*,\s*'[A-Za-z0-9]/.test(mig.replace(/\$re\$[\s\S]*?\$re\$/g, '')), 'migration não carrega valor do segredo')
 
 const edges = ['auditoria-gold-jornada', 'sugestao-analisar']
 for (const e of edges) {
