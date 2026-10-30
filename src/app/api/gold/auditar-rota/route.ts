@@ -15,6 +15,7 @@ import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 import { classificarEstadoConteudo, estadoNaoEhBug } from '@/lib/gold/estadoConteudo';
+import { watcherSecretValido } from '@/lib/watcherSecret'
 import {
   EMPRESA_BOT_OFICINA, EMPRESA_BOT_PM, empresaBotDaRota, verticalDaRota,
 } from '@/lib/gold/empresaBotDaRota';
@@ -46,9 +47,7 @@ interface BotaoRow {
 }
 
 export async function POST(req: Request) {
-  const expected = process.env.WATCHER_SECRET;
-  const got = req.headers.get('x-watcher-secret');
-  if (!expected || got !== expected) {
+  if (!watcherSecretValido(req.headers.get('x-watcher-secret'))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

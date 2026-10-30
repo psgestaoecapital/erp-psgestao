@@ -63,6 +63,7 @@ export default function AcervoTakeoffPage() {
       .from('erp_obra_planta')
       .select('id,nome,aps_status,analisado_em,aps_traduzido_em,updated_at,arquivo_tipo,orcamento_id,projeto_nome,cliente_nome,aps_diagnostico')
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .in('aps_status', ['radiografado', 'traduzindo'])
       .order('analisado_em', { ascending: false, nullsFirst: false })
       .then(({ data, error }) => {

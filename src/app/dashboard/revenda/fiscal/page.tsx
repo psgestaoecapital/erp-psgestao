@@ -63,6 +63,11 @@ export default function FiscalPage() {
     setErro(null); setObter(r)
     const e = r.editavel
     const base: Record<string, unknown> = e ? { ...e } : {}
+    if (e?.id) {
+      // #5622 · o obter não devolve o NCM padrão; lê direto do perfil (RLS por empresa)
+      const { data: nc } = await supabase.from('veic_perfil_fiscal').select('ncm_padrao').eq('id', e.id).maybeSingle()
+      base.ncm_padrao = (nc as { ncm_padrao?: string | null } | null)?.ncm_padrao ?? ''
+    }
     CAMPOS_NUM.forEach((k) => { if (k in base) base[k] = numParaTela(base[k]) })
     setF(base)
     const m: Record<string, Op> = {}
@@ -236,6 +241,7 @@ export default function FiscalPage() {
         <Toggle l="Provisiona garantia" v={!!f.garantia_provisao} onC={(x) => set('garantia_provisao', x)} />
         <Sel l="Base da comissão" v={f.comissao_base as string} onC={(x) => set('comissao_base', x)} opts={[['','—'],['preco','Preço'],['lucro','Lucro']]} />
         <Campo l="Encargos (%)" v={f.encargos_pct as string} onC={(x) => set('encargos_pct', x)} />
+        <Campo l="NCM padrão (8 dígitos)" v={f.ncm_padrao as string} onC={(x) => set('ncm_padrao', x)} />
         <Campo l="Responsável COAF" v={f.coaf_responsavel as string} onC={(x) => set('coaf_responsavel', x)} />
         <Campo l="Limite de espécie (COAF)" v={f.coaf_limite_especie as string} onC={(x) => set('coaf_limite_especie', x)} />
         <Campo l="Tratamento na reforma tributária" v={f.reforma_tratamento as string} onC={(x) => set('reforma_tratamento', x)} full />
