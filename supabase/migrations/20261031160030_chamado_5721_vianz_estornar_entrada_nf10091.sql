@@ -45,7 +45,9 @@ BEGIN
     ('erp_estoque_movimentacoes', m.id, c_company, to_jsonb(m)),
     ('erp_produtos', pr.id, c_company, jsonb_build_object('estoque_atual', pr.estoque_atual, 'preco_custo_medio', pr.preco_custo_medio)),
     ('erp_nfe_recebidas_itens', n.id, c_company,
-       (SELECT COALESCE(jsonb_agg(to_jsonb(i)), '[]'::jsonb) FROM erp_nfe_recebidas_itens i WHERE i.nfe_recebida_id = n.id));
+       (SELECT COALESCE(jsonb_agg(to_jsonb(i)), '[]'::jsonb) FROM erp_nfe_recebidas_itens i WHERE i.nfe_recebida_id = n.id)),
+    ('erp_nfe_recebidas_duplicatas', n.id, c_company,
+       (SELECT COALESCE(jsonb_agg(to_jsonb(d)), '[]'::jsonb) FROM erp_nfe_recebidas_duplicatas d WHERE d.nfe_recebida_id = n.id));
 
   -- 1) estoque: movimento de saída de estorno (com rastro e motivo)
   PERFORM fn_movimentar_estoque(
@@ -59,6 +61,12 @@ BEGIN
   -- 2) título a pagar
   UPDATE erp_pagar SET status = 'cancelado', updated_at = now(),
          observacoes = COALESCE(observacoes,'') || ' | Cancelado: estorno da entrada NF-e 10091, mercadoria veio errada (chamado #5721)'
+   WHERE id = c_pagar AND company_id = c_company;
+
+  -- 2b) duplicata da nota deixa de apontar para o título cancelado; libera as chaves do título cancelado para um novo lançamento
+  UPDATE erp_nfe_recebidas_duplicatas SET pagar_id = NULL
+   WHERE nfe_recebida_id = c_nota AND company_id = c_company AND pagar_id = c_pagar;
+  UPDATE erp_pagar SET import_hash = import_hash || ':estornado', ref_externa_id = ref_externa_id || ':estornado'
    WHERE id = c_pagar AND company_id = c_company;
 
   -- 3) itens e nota voltam ao estado anterior
