@@ -11,6 +11,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { supabase } from '@/lib/supabase'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { buscarClientesErp, nomeErp, type ErpCliente } from '@/components/pm/ClienteBusca'
+import { parseNumBR } from '@/lib/num'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -347,9 +349,9 @@ function Inner() {
   )
 }
 
-function Modal({ titulo, children, onClose }: { titulo: string; children: React.ReactNode; onClose: () => void }) {
+function Modal({ titulo, children, onClose, fecharFora = true }: { titulo: string; children: React.ReactNode; onClose: () => void; fecharFora?: boolean }) {
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
+    <div onClick={fecharFora ? onClose : undefined} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 12, padding: 18, width: 'min(560px,100%)', maxHeight: '92vh', overflowY: 'auto' }}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>{titulo}</div>
         {children}
@@ -407,7 +409,54 @@ function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { comp
   )
 }
 
+// #5678 — dinheiro digitado: mostra "R$ 100.000,00" enquanto digita; guarda só o número (parseNumBR aceita vírgula e ponto).
+const moedaMascara = (s: string): string => {
+  const d = s.replace(/\D/g, '')
+  if (!d) return ''
+  return (Number(d) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+const moedaNum = (s: string): number | null => parseNumBR(String(s).replace(/[R$\s.]/g, '').replace(',', '.'))
+function InputMoeda({ value, onChange, placeholder, style, ajuda }: { value: string; onChange: (v: string) => void; placeholder: string; style?: React.CSSProperties; ajuda: string }) {
+  const { gridColumn, ...resto } = style ?? {}
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, gridColumn }}>
+      <input value={value} onChange={(e) => onChange(moedaMascara(e.target.value))} placeholder={placeholder} inputMode="numeric" style={{ ...resto, flex: 1, minWidth: 0 }} />
+      <AjudaCampo chave={ajuda} rota="/dashboard/revenda/veiculo" />
+    </div>
+  )
+}
+
+// #5678 — cliente da venda vem do cadastro do GE (erp_clientes): nome ou CPF/CNPJ.
+function ClienteVendaBusca({ companyId, nome, onNome, onEscolher, invalido }: { companyId: string; nome: string; onNome: (v: string) => void; onEscolher: (c: ErpCliente | null) => void; invalido: boolean }) {
+  const [lista, setLista] = useState<ErpCliente[]>([])
+  const [aberto, setAberto] = useState(false)
+  useEffect(() => {
+    if (!aberto || nome.trim().length < 2) { setLista([]); return }
+    const t = setTimeout(() => { void buscarClientesErp(companyId, nome).then(setLista) }, 220)
+    return () => clearTimeout(t)
+  }, [nome, aberto, companyId])
+  return (
+    <div style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <input value={nome} onChange={(e) => { onNome(e.target.value); onEscolher(null); setAberto(true) }} onFocus={() => setAberto(true)} placeholder="cliente * (nome ou CPF/CNPJ)" data-testid="venda-cliente" style={{ ...inp, flex: 1, minWidth: 0, ...estiloBordaInput(invalido ? 'x' : null) }} />
+        <AjudaCampo chave="revenda.venda.cliente" rota="/dashboard/revenda/veiculo" />
+      </div>
+      {aberto && lista.length > 0 && (
+        <div style={{ position: 'absolute', left: 0, right: 0, zIndex: 5, background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, maxHeight: 220, overflowY: 'auto', boxShadow: '0 6px 18px rgba(0,0,0,0.15)' }}>
+          {lista.map((c) => (
+            <button key={c.id} type="button" data-testid="venda-cliente-opcao" onClick={() => { onEscolher(c); onNome(nomeErp(c)); setAberto(false) }} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13 }}>
+              <b>{nomeErp(c)}</b>
+              <span style={{ display: 'block', fontSize: 11.5, color: C.espL }}>{[c.cpf_cnpj || c.cnpj_cpf, c.cidade].filter(Boolean).join(' · ')}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; custoTotal: number; margemAlvo: number; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
+  const [clienteSel, setClienteSel] = useState<ErpCliente | null>(null)
   const [f, setF] = useState({ cliente_nome: '', vendedor_nome: '', valor_venda: '', valor_entrada: '', valor_financiado: '', banco_nome: '', retorno_banco: '' })
   const [troca, setTroca] = useState({ on: false, chassi: '', modelo: '', valor_troca: '', valor_avaliacao: '' })
   const [busy, setBusy] = useState(false)
@@ -415,7 +464,7 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
   const [campo, setCampo] = useState<string | null>(null)
   // Simulador ao vivo (§3.2): o vendedor vê as duas margens recalcularem ANTES de fechar — o momento
   // em que a decisão ainda pode mudar. Mesma conta da fn_veic_venda_composicao, só que client-side.
-  const n = (s: string): number => Number(String(s).replace(',', '.')) || 0
+  const n = (s: string): number => moedaNum(s) ?? 0
   const vendaN = n(f.valor_venda)
   const retornoN = n(f.retorno_banco)
   const trocaValPreenchido = troca.on && troca.valor_troca.trim() !== ''
@@ -428,8 +477,8 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
   const pct = (m: number): number | null => custoTotal > 0 ? Math.round((m / custoTotal * 100) * 100) / 100 : null
   const realPct = pct(margemReal)
   const abaixoMeta = realPct != null && realPct < margemAlvo
-  const descontoEmbutido = (Number(troca.valor_troca) || 0) - (Number(troca.valor_avaliacao) || 0)
-  const vvNum = Number(String(f.valor_venda).replace(',', '.'))
+  const descontoEmbutido = (n(troca.valor_troca)) - (n(troca.valor_avaliacao))
+  const vvNum = moedaNum(f.valor_venda) ?? NaN
   const vvOk = f.valor_venda.trim() !== '' && Number.isFinite(vvNum) && vvNum > 0
   const podeEnviar = !!f.cliente_nome.trim() && vvOk && !busy
   async function salvar() {
@@ -439,16 +488,16 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
     setBusy(true)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const recebimentos: { tipo: string; devedor: string; valor: number }[] = []
-    if (Number(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: Number(f.valor_entrada) })
-    if (Number(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: Number(f.valor_financiado) })
-    if (Number(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: Number(f.retorno_banco) })
+    if (n(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: n(f.valor_entrada) })
+    if (n(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: n(f.valor_financiado) })
+    if (n(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: n(f.retorno_banco) })
     // sem entrada/financiamento explícitos: à vista, o cliente deve o valor da venda
-    if (recebimentos.length === 0 && Number(f.valor_venda) > 0) recebimentos.push({ tipo: 'parcela', devedor: 'cliente', valor: Number(f.valor_venda) })
+    if (recebimentos.length === 0 && n(f.valor_venda) > 0) recebimentos.push({ tipo: 'parcela', devedor: 'cliente', valor: n(f.valor_venda) })
     const { data, error } = await supabase.rpc('fn_veic_venda_registrar', {
       p_company_id: companyId, p_veiculo_id: veiculoId,
-      p_venda: { cliente_nome: f.cliente_nome.trim() || null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? Number(f.valor_venda) : null, valor_entrada: f.valor_entrada ? Number(f.valor_entrada) : null, valor_financiado: f.valor_financiado ? Number(f.valor_financiado) : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: f.retorno_banco ? Number(f.retorno_banco) : null },
+      p_venda: { cliente_nome: f.cliente_nome.trim() || null, cliente_id: clienteSel?.id ?? null, cliente_doc: clienteSel ? (clienteSel.cpf_cnpj || clienteSel.cnpj_cpf || null) : null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? n(f.valor_venda) : null, valor_entrada: f.valor_entrada ? n(f.valor_entrada) : null, valor_financiado: f.valor_financiado ? n(f.valor_financiado) : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: f.retorno_banco ? n(f.retorno_banco) : null },
       p_recebimentos: recebimentos,
-      p_troca: troca.on ? { chassi: troca.chassi.trim() || null, modelo: troca.modelo.trim() || null, valor_troca: troca.valor_troca ? Number(troca.valor_troca) : null, valor_avaliacao: troca.valor_avaliacao ? Number(troca.valor_avaliacao) : null } : null,
+      p_troca: troca.on ? { chassi: troca.chassi.trim() || null, modelo: troca.modelo.trim() || null, valor_troca: troca.valor_troca ? n(troca.valor_troca) : null, valor_avaliacao: troca.valor_avaliacao ? n(troca.valor_avaliacao) : null } : null,
       p_user: user?.id ?? null,
     })
     setBusy(false)
@@ -460,20 +509,20 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
     onSaved()
   }
   return (
-    <Modal titulo="Registrar venda" onClose={onClose}>
+    <Modal titulo="Registrar venda" onClose={onClose} fecharFora={false}>
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <input value={f.cliente_nome} onChange={(e) => setF({ ...f, cliente_nome: e.target.value })} placeholder="cliente *" style={{ ...inp, ...estiloBordaInput(campo === 'cliente_nome' ? 'x' : null) }} />
+        <ClienteVendaBusca companyId={companyId} nome={f.cliente_nome} onNome={(v) => setF((x) => ({ ...x, cliente_nome: v }))} onEscolher={setClienteSel} invalido={campo === 'cliente_nome'} />
         <input value={f.vendedor_nome} onChange={(e) => setF({ ...f, vendedor_nome: e.target.value })} placeholder="vendedor" style={inp} />
-        <input value={f.valor_venda} onChange={(e) => setF({ ...f, valor_venda: e.target.value })} placeholder="valor da venda *" inputMode="decimal" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
+        <InputMoeda value={f.valor_venda} onChange={(v) => setF({ ...f, valor_venda: v })} placeholder="valor da venda *" ajuda="revenda.venda.valor_venda" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
       </div>
 
       <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Pagamento</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <input value={f.valor_entrada} onChange={(e) => setF({ ...f, valor_entrada: e.target.value })} placeholder="entrada (cliente)" style={inp} />
-        <input value={f.valor_financiado} onChange={(e) => setF({ ...f, valor_financiado: e.target.value })} placeholder="financiado (banco)" style={inp} />
+        <InputMoeda value={f.valor_entrada} onChange={(v) => setF({ ...f, valor_entrada: v })} placeholder="entrada (cliente)" ajuda="revenda.venda.entrada" style={inp} />
+        <InputMoeda value={f.valor_financiado} onChange={(v) => setF({ ...f, valor_financiado: v })} placeholder="financiado (banco)" ajuda="revenda.venda.financiado" style={inp} />
         <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
-        <input value={f.retorno_banco} onChange={(e) => setF({ ...f, retorno_banco: e.target.value })} placeholder="retorno do banco (receita)" style={inp} />
+        <InputMoeda value={f.retorno_banco} onChange={(v) => setF({ ...f, retorno_banco: v })} placeholder="retorno do banco (receita)" ajuda="revenda.venda.retorno_banco" style={inp} />
       </div>
       <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo.</div>
 
@@ -485,12 +534,12 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <input value={troca.chassi} onChange={(e) => setTroca({ ...troca, chassi: e.target.value })} placeholder="chassi do usado (p/ entrar no estoque)" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'troca_chassi' ? 'x' : null) }} />
             <input value={troca.modelo} onChange={(e) => setTroca({ ...troca, modelo: e.target.value })} placeholder="modelo" style={{ ...inp, gridColumn: '1 / -1' }} />
-            <input value={troca.valor_troca} onChange={(e) => setTroca({ ...troca, valor_troca: e.target.value })} placeholder="valor dado na troca" style={inp} />
-            <input value={troca.valor_avaliacao} onChange={(e) => setTroca({ ...troca, valor_avaliacao: e.target.value })} placeholder="valor de avaliação (quanto vale)" style={inp} />
+            <InputMoeda value={troca.valor_troca} onChange={(x) => setTroca({ ...troca, valor_troca: x })} placeholder="valor dado na troca" ajuda="revenda.venda.valor_troca" style={inp} />
+            <InputMoeda value={troca.valor_avaliacao} onChange={(x) => setTroca({ ...troca, valor_avaliacao: x })} placeholder="valor de avaliação (quanto vale)" ajuda="revenda.venda.valor_avaliacao" style={inp} />
           </div>
           <div style={{ fontSize: 11.5, color: descontoEmbutido > 0 ? C.amber : C.espL, marginTop: 6 }}>
             {descontoEmbutido > 0
-              ? `Desconto embutido na venda: ${brl(descontoEmbutido)}. O usado entra no estoque pelo valor de avaliação (${brl(Number(troca.valor_avaliacao) || 0)}), não pelo valor dado — assim as duas margens ficam certas.`
+              ? `Desconto embutido na venda: ${brl(descontoEmbutido)}. O usado entra no estoque pelo valor de avaliação (${brl(n(troca.valor_avaliacao))}), não pelo valor dado — assim as duas margens ficam certas.`
               : 'O usado entra no estoque pelo valor de avaliação. Se o valor dado for maior, a diferença vira desconto embutido na venda.'}
           </div>
         </div>
