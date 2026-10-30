@@ -18,9 +18,12 @@ export type BbAmbiente = 'producao' | 'homologacao'
 // Escopo de LEITURA do extrato — o teste de conexão usa este (nunca escopo que escreve).
 export const BB_SCOPE_EXTRATO = 'extrato-info'
 
-export const BB_HOSTS: Record<BbAmbiente, { oauth: string; extratos: string }> = {
-  producao: { oauth: 'oauth.bb.com.br', extratos: 'api-extratos.bb.com.br' },
-  homologacao: { oauth: 'oauth.hm.bb.com.br', extratos: 'api.hm.bb.com.br' },
+// Escopos da Cobrança v2 (#5404): registrar/baixar boleto e consultar. Ver cobranca.ts.
+export const BB_SCOPE_COBRANCA = 'cobrancas.boletos-info cobrancas.boletos-requisicao'
+
+export const BB_HOSTS: Record<BbAmbiente, { oauth: string; extratos: string; cobranca: string }> = {
+  producao: { oauth: 'oauth.bb.com.br', extratos: 'api-extratos.bb.com.br', cobranca: 'api.bb.com.br' },
+  homologacao: { oauth: 'oauth.hm.bb.com.br', extratos: 'api.hm.bb.com.br', cobranca: 'api.hm.bb.com.br' },
 }
 
 export type BbCredencial = {

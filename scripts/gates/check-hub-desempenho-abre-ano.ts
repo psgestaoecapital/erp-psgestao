@@ -6,9 +6,9 @@ let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
 const src = readFileSync('src/app/dashboard/projetos/desempenho/page.tsx', 'utf8')
-ok(src.includes('periodoVazio(r?.resumo)') && src.includes("setPeriodo('ano')") && src.includes("setRange(preset('ano'))"), 'mês vazio → carregar() troca para o ano sozinho')
-ok(src.includes('escolheuPeriodo') && (src.match(/escolheuPeriodo\.current = true/g) ?? []).length >= 4, 'escolha manual do período nunca é sobrescrita (e só tenta uma vez)')
-ok(src.includes('data-testid="desempenho-aberto-no-ano"'), 'aviso "mostrando o ano porque o mês está vazio"')
+ok(src.includes('autoFeito') && src.includes("['ano', 'o ano', preset('ano')]"), 'mês sem venda fechada → carregar() amplia o período sozinho (trimestre → ano → 12 meses)')
+ok(src.includes('autoFeito.current = true') && src.includes("periodo === 'mes'"), 'a abertura automática roda uma vez e só enquanto o período é o mês padrão')
+ok(src.includes('data-testid="desempenho-auto-periodo"'), 'aviso "mostrando outro período porque o mês está sem vendas"')
 ok(src.includes('data-testid="desempenho-vazio"'), 'estado vazio honesto continua para quando nem o ano tem dado')
 ok(src.includes("{periodo !== 'custom' && <AjudaCampo chave=\"projetos.desempenho.periodo\" />}"), '"?" do período visível nos presets (e junto de cada data no personalizado)')
 const mig = readdirSync('supabase/migrations').find((f) => f.includes('hub_desempenho_rd98_origem_dado'))

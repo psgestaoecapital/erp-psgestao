@@ -41,31 +41,47 @@ export default function DesempenhoComercialPage() {
   const [data, setData] = useState<Resp | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
-  // Abertura sem clicar em nada: se o mês corrente vem vazio, a tela já abre no ano (uma vez só, e nunca depois
-  // que o usuário escolhe um período) e avisa por que está mostrando o ano.
-  const escolheuPeriodo = useRef(false)
-  const [abriuAno, setAbriuAno] = useState(false)
+  // Abertura sem clique (RD-98): se o mês corrente não tem nada fechado, a 1ª carga já escolhe o menor período
+  // maior com dado (trimestre → ano → 12 meses) e avisa. Roda uma vez por abertura da tela.
+  const autoFeito = useRef(false)
+  const [nota, setNota] = useState('')
+
+  const buscar = useCallback(async (de: string, ate: string) => {
+    const { data: d, error } = await supabase.rpc('fn_crm_desempenho', { p_company_ids: companyIds, p_de: de, p_ate: ate, p_vendedor: null })
+    return { r: d as Resp | null, error }
+  }, [companyIds])
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
-    const { data: d, error } = await supabase.rpc('fn_crm_desempenho', {
-      p_company_ids: companyIds, p_de: range.de, p_ate: range.ate, p_vendedor: null,
-    })
-    setLoading(false)
-    if (error) { setErro(error.message); return }
-    const r = d as Resp
-    if (r?.erro) { setErro(r.erro === 'sem_acesso' ? 'Sem acesso.' : r.erro); return }
-    setData(r)
-    if (!escolheuPeriodo.current && periodoVazio(r?.resumo)) {
-      escolheuPeriodo.current = true
-      setPeriodo('ano'); setRange(preset('ano')); setAbriuAno(true)
+    const { r: r0, error } = await buscar(range.de, range.ate)
+    if (error) { setLoading(false); setErro(error.message); return }
+    if (r0?.erro) { setLoading(false); setErro(r0.erro === 'sem_acesso' ? 'Sem acesso.' : r0.erro); return }
+    const fechados = (x: Resp | null) => (x?.resumo?.ganhas_qtd ?? 0) + (x?.resumo?.perdidas_qtd ?? 0)
+    if (!autoFeito.current && periodo === 'mes') {
+      autoFeito.current = true
+      if (fechados(r0) === 0) {
+        const h = new Date(), h12 = new Date(h); h12.setFullYear(h.getFullYear() - 1)
+        const cands: [string, string, { de: string; ate: string }][] = [
+          ['tri', 'o trimestre', preset('tri')], ['ano', 'o ano', preset('ano')], ['custom', 'os últimos 12 meses', { de: iso(h12), ate: iso(h) }],
+        ]
+        for (const [per, rot, rg] of cands) {
+          const { r } = await buscar(rg.de, rg.ate)
+          if (r && !r.erro && fechados(r) > 0) {
+            setNota(`Mostrando ${rot} (${dataBR(rg.de)} a ${dataBR(rg.ate)}) porque o mês atual ainda não tem vendas fechadas.`)
+            setPeriodo(per); setRange(rg); setData(r); setLoading(false)
+            return
+          }
+        }
+      }
     }
-  }, [companyIds, range])
+    setLoading(false)
+    setData(r0)
+  }, [companyIds, range, periodo, buscar])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
-  const setPreset = (p: string) => { escolheuPeriodo.current = true; setAbriuAno(false); setPeriodo(p); if (p !== 'custom') setRange(preset(p)) }
+  const setPreset = (p: string) => { setNota(''); setPeriodo(p); if (p !== 'custom') setRange(preset(p)) }
 
   const r = data?.resumo
   const maxFunil = useMemo(() => Math.max(1, ...(data?.funil ?? []).map((f) => f.qtd)), [data])
@@ -87,13 +103,14 @@ export default function DesempenhoComercialPage() {
           ))}
           {periodo === 'custom' && (
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input type="date" value={range.de} onChange={(e) => { escolheuPeriodo.current = true; setRange((x) => ({ ...x, de: e.target.value })) }} style={inp} /><AjudaCampo chave="projetos.desempenho.periodo" />
-              <input type="date" value={range.ate} onChange={(e) => { escolheuPeriodo.current = true; setRange((x) => ({ ...x, ate: e.target.value })) }} style={inp} /><AjudaCampo chave="projetos.desempenho.periodo" />
+              <input type="date" value={range.de} onChange={(e) => { setRange((x) => ({ ...x, de: e.target.value })) }} style={inp} /><AjudaCampo chave="projetos.desempenho.periodo" />
+              <input type="date" value={range.ate} onChange={(e) => { setRange((x) => ({ ...x, ate: e.target.value })) }} style={inp} /><AjudaCampo chave="projetos.desempenho.periodo" />
             </span>
           )}
           {periodo !== 'custom' && <AjudaCampo chave="projetos.desempenho.periodo" />}
         </div>
 
+        {nota && <div data-testid="desempenho-auto-periodo" style={{ padding: '9px 14px', borderRadius: 8, background: '#FBF4E4', border: `1px solid ${GOLD}`, color: ESP, fontSize: 12.5, marginBottom: 12 }}>{nota}</div>}
         {erro && <div style={{ padding: '10px 14px', borderRadius: 8, background: '#FBEAEA', color: VERM, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div> : !data ? (
           <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Selecione uma empresa do Hub.</div>
@@ -102,11 +119,6 @@ export default function DesempenhoComercialPage() {
             {/* Estado vazio honesto (RD-98): quando não há nenhum registro no período, os KPIs abaixo ficam todos em
                 zero. Sem este aviso, a tela parece quebrada. Explica que zero é ausência de dados (não erro) e oferece
                 o próximo passo — abrir Oportunidades ou ampliar o período. */}
-            {abriuAno && !vazio && (
-              <div data-testid="desempenho-aberto-no-ano" style={{ background: '#FBF4E4', border: `1px solid ${GOLD}`, borderRadius: 10, padding: '9px 14px', marginBottom: 14, fontSize: 12.5, color: ESP }}>
-                Mostrando o <b>ano</b> ({dataBR(range.de)} a {dataBR(range.ate)}) porque o mês corrente ainda não tem registros. Escolha “Mês” acima para ver só o mês.
-              </div>
-            )}
             {vazio && (
               <div data-testid="desempenho-vazio" style={{ background: '#FBF4E4', border: `1px solid ${GOLD}`, borderRadius: 12, padding: '16px 18px', marginBottom: 16 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: ESP }}>Nenhuma oportunidade neste período</div>

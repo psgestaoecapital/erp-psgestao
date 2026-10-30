@@ -40,6 +40,8 @@ interface ProviderConfig {
   agencia: string | null
   agencia_dv: string | null
   carteira: string | null
+  variacao_carteira: string | null   // #5404 BB: variação da carteira (por ambiente)
+  modalidade_boleto: string | null   // #5404 BB: 1 simples · 4 vinculada
   cap_boleto: boolean | null
   boleto_responsavel: boolean | null   // #1673: banco responsável pelos boletos da empresa
   cap_extrato: boolean | null
@@ -203,7 +205,7 @@ export default function ConexoesBancariasPage() {
     setLoading(true); setErro(null)
     const [cfgRes, contasRes, testesRes, catRes] = await Promise.all([
       supabase.from('erp_banco_provider_config')
-        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, cap_boleto, boleto_responsavel, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, juros_pct, multa_pct, dias_multa, dias_juros, instrucao_linha1, instrucao_linha2, instrucao_linha3, instrucao_linha4, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
+        .select('id, company_id, provider, ambiente, client_id, cooperativa, conta, codigo_beneficiario, posto, convenio, agencia, agencia_dv, carteira, variacao_carteira, modalidade_boleto, cap_boleto, boleto_responsavel, cap_extrato, cap_pagamento, ativo, ultimo_sync_em, ultimo_sync_status, banco_conta_id, estado_conexao, cert_expira_em, juros_pct, multa_pct, dias_multa, dias_juros, instrucao_linha1, instrucao_linha2, instrucao_linha3, instrucao_linha4, client_secret_vault_id, cert_vault_id, cert_senha_vault_id, api_key_vault_id')
         .eq('company_id', empresaUnica)
         .order('provider'),
       supabase.from('erp_banco_contas')
@@ -558,8 +560,9 @@ export default function ConexoesBancariasPage() {
                       <div style={{ flex: 1, minWidth: 200 }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
                           <strong style={{ color: ESP, fontSize: 14 }}>{bancoInfo?.nome ?? cfg.provider}</strong>
-                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: BG, color: ESP60, textTransform: 'uppercase' }}>
-                            {cfg.ambiente}
+                          <span data-testid="banco-ambiente" title={cfg.ambiente === 'homologacao' ? 'Ambiente de TESTE: o boleto emitido aqui não é uma cobrança real.' : undefined}
+                            style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: cfg.ambiente === 'homologacao' ? '#FEF3E2' : BG, color: cfg.ambiente === 'homologacao' ? '#B45309' : ESP60, fontWeight: cfg.ambiente === 'homologacao' ? 700 : 400, textTransform: 'uppercase' }}>
+                            {cfg.ambiente === 'homologacao' ? 'homologação · teste' : cfg.ambiente}
                           </span>
                           <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: est.fundo, color: est.cor }}>
                             {est.texto}
@@ -739,6 +742,7 @@ function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
     cooperativa: cfg.cooperativa ?? '', agencia: cfg.agencia ?? '', agencia_dv: cfg.agencia_dv ?? '',
     posto: cfg.posto ?? '', conta: cfg.conta ?? '', codigo_beneficiario: cfg.codigo_beneficiario ?? '',
     convenio: cfg.convenio ?? '', carteira: cfg.carteira ?? '',
+    variacao_carteira: cfg.variacao_carteira ?? '', modalidade_boleto: cfg.modalidade_boleto ?? '',
   })
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -756,9 +760,9 @@ function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
 
   const inp: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '7px 9px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 13, background: '#fff', color: ESP }
   const lbl: React.CSSProperties = { fontSize: 11, color: ESP60, display: 'block', marginBottom: 3 }
-  const campo = (k: keyof typeof f, label: string, dica?: string, largo?: boolean) => (
+  const campo = (k: keyof typeof f, label: string, dica?: string, largo?: boolean, ajuda?: string) => (
     <div style={largo ? { gridColumn: '1 / -1' } : undefined}>
-      <label style={lbl}>{label}</label>
+      <label style={lbl}>{label}{ajuda && <> <AjudaCampo chave={ajuda} /></>}</label>
       <input style={inp} value={f[k]} onChange={(e) => set(k, e.target.value)} />
       {dica && <span style={{ fontSize: 10, color: ESP60 }}>{dica}</span>}
     </div>
@@ -771,6 +775,11 @@ function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
         <div style={{ fontSize: 12, color: ESP60, margin: '2px 0 14px' }}>
           Ambiente <b style={{ textTransform: 'uppercase' }}>{cfg.ambiente}</b> · identidade do arquivo de remessa. As credenciais (Vault) não são tocadas aqui.
         </div>
+        {cfg.ambiente === 'homologacao' && (
+          <div data-testid="banco-homolog-aviso" style={{ fontSize: 12, color: '#B45309', background: '#FEF3E2', borderRadius: 6, padding: '6px 9px', margin: '-6px 0 12px' }}>
+            Homologação: estes dados valem só para os boletos de TESTE. Os dados de produção ficam na linha de produção, sem se misturar.
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {campo('cooperativa', 'Cooperativa')}
           {campo('posto', 'Posto')}
@@ -779,7 +788,18 @@ function CnabModal({ companyId, cfg, bancoNome, onClose, onSucesso }: {
           {campo('conta', 'Conta')}
           {campo('codigo_beneficiario', 'Código do beneficiário')}
           {campo('convenio', 'Convênio', 'O código que o banco exige no arquivo CNAB (confira no internet banking do banco).', true)}
-          {campo('carteira', 'Carteira')}
+          {campo('carteira', 'Carteira', cfg.provider === 'bb' ? 'Só o número (ex.: 17), sem dígito ou texto.' : undefined, false, cfg.provider === 'bb' ? 'banco.carteira_numero' : undefined)}
+          {cfg.provider === 'bb' && campo('variacao_carteira', 'Variação da carteira', 'Ex.: 35 (teste) · a de produção vem do contrato.', false, 'banco.variacao_carteira')}
+          {cfg.provider === 'bb' && (
+            <div>
+              <label style={lbl}>Modalidade do boleto <AjudaCampo chave="banco.modalidade_boleto" /></label>
+              <select style={inp} value={f.modalidade_boleto} onChange={(e) => set('modalidade_boleto', e.target.value)}>
+                <option value="">1 · Simples (padrão)</option>
+                <option value="1">1 · Simples</option>
+                <option value="4">4 · Vinculada</option>
+              </select>
+            </div>
+          )}
         </div>
         {erro && <div style={{ marginTop: 10, fontSize: 12.5, color: '#B91C1C' }}>❌ {erro}</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
@@ -1110,7 +1130,7 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </Field>
           )}
           {banco.campos.includes('carteira') && (
-            <Field label="Carteira / variação" ajuda="banco.carteira" hint="Ex.: 17 / 35 (carteira e variação do convênio). Só é preciso para emitir boleto.">
+            <Field label="Carteira / variação" ajuda="banco.carteira" hint="Ex.: 17 / 35 (carteira e variação do convênio). No BB, a variação e a modalidade ficam também em Dados CNAB. Só é preciso para emitir boleto.">
               <input name="ps_carteira_nofill" autoComplete="off" value={carteira} onChange={(e) => setCarteira(e.target.value)} style={inp} placeholder="ex.: 17/35" />
             </Field>
           )}
