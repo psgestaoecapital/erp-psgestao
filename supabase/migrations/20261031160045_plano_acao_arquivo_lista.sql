@@ -84,6 +84,8 @@ BEGIN
   RETURN jsonb_build_object('ok',true,'abertas',v_abertas,'em_andamento',v_andamento,'atrasadas',v_atrasadas,
     'concluidas_mes',v_concluidas_mes,'pct_no_prazo',v_pct);
 END $function$;
+REVOKE ALL ON FUNCTION public.fn_plano_acao_resumo(uuid, uuid) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_resumo(uuid, uuid) TO authenticated;
 
 -- "?" (RD-95) dos controles novos.
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
