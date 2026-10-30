@@ -379,6 +379,7 @@ export default function CalculadoraObraPage() {
                     <details className="mt-1 text-xs text-[#3D2314]/60">
                       <summary className="cursor-pointer">ver a conta e o produto<AjudaCampo chave="projetos.calculadora.ver_conta" rota="/dashboard/projetos/calculadora" /></summary>
                       <p className="mt-1">{i.conta} = {fmt(i.quantidadeBruta)} → compra {i.quantidade}</p>
+                      {i.equivalente && <p className="mt-1" data-testid={`calc-equiv-${i.chave}`}>{i.equivalente}</p>}
                       {companyId && (
                         <label className="mt-1.5 flex items-center gap-2">
                           <span className="flex items-center">Produto do estoque<AjudaCampo chave="projetos.calculadora.produto" rota="/dashboard/projetos/calculadora" /></span>
