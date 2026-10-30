@@ -303,9 +303,9 @@ export default function ClientesPage() {
       {/* Resumo */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 14 }}>
         <Indicador rotulo="Clientes ativos" valor={loading ? '…' : String(resumo.total)} ajuda="projetos.clientes.kpi.total" />
-        <Indicador rotulo="Com obra" valor={loading ? '…' : String(resumo.comObra)} ajuda="projetos.clientes.kpi.com_obra" />
+        <Indicador rotulo="Com obra" valor={loading ? '…' : String(resumo.comObra)} ajuda="projetos.clientes.kpi.com_obra" dica={!loading && resumo.total > 0 && resumo.comObra === 0 ? 'Nenhum cliente com obra vinculada — abra um cliente e crie a obra' : undefined} />
         <Indicador rotulo="Cadastro incompleto" valor={loading ? '…' : String(resumo.incompletos)} ajuda="projetos.clientes.kpi.incompletos" alerta={!loading && resumo.incompletos > 0} />
-        <Indicador rotulo="Em negociação" valor={loading ? '…' : brlCurto(resumo.emAberto)} ajuda="projetos.clientes.kpi.em_aberto" />
+        <Indicador rotulo="Em negociação" valor={loading ? '…' : brlCurto(resumo.emAberto)} ajuda="projetos.clientes.kpi.em_aberto" dica={!loading && resumo.emAberto === 0 ? 'Sem proposta ou oportunidade em aberto neste recorte' : 'Propostas e oportunidades em aberto'} />
       </div>
 
       {/* Toolbar */}
@@ -568,11 +568,12 @@ function Casca({ children }: { children: React.ReactNode }) {
     </div>
   )
 }
-function Indicador({ rotulo, valor, ajuda, alerta }: { rotulo: string; valor: string; ajuda: string; alerta?: boolean }) {
+function Indicador({ rotulo, valor, ajuda, alerta, dica }: { rotulo: string; valor: string; ajuda: string; alerta?: boolean; dica?: string }) {
   return (
     <div style={{ background: '#FFF', border: `0.5px solid ${alerta ? RED + '55' : LINE}`, borderRadius: 10, padding: '10px 14px' }}>
       <div style={{ fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 4 }}>{rotulo} <AjudaCampo chave={ajuda} /></div>
       <div style={{ fontSize: 22, fontWeight: 700, color: alerta ? RED : ESP, marginTop: 2 }}>{valor}</div>
+      {dica && <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>{dica}</div>}
     </div>
   )
 }
