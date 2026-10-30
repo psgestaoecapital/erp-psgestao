@@ -514,15 +514,15 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <ClienteVendaBusca companyId={companyId} nome={f.cliente_nome} onNome={(v) => setF((x) => ({ ...x, cliente_nome: v }))} onEscolher={setClienteSel} invalido={campo === 'cliente_nome'} />
         <input value={f.vendedor_nome} onChange={(e) => setF({ ...f, vendedor_nome: e.target.value })} placeholder="vendedor" style={inp} />
-        <InputMoeda value={f.valor_venda} onChange={(v) => setF({ ...f, valor_venda: v })} placeholder="valor da venda *" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
+        <InputMoeda value={f.valor_venda} onChange={(v) => setF({ ...f, valor_venda: v })} placeholder="valor da venda *" ajuda="revenda.venda.valor_venda" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
       </div>
 
       <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Pagamento</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <InputMoeda value={f.valor_entrada} onChange={(v) => setF({ ...f, valor_entrada: v })} placeholder="entrada (cliente)" style={inp} />
-        <InputMoeda value={f.valor_financiado} onChange={(v) => setF({ ...f, valor_financiado: v })} placeholder="financiado (banco)" style={inp} />
+        <InputMoeda value={f.valor_entrada} onChange={(v) => setF({ ...f, valor_entrada: v })} placeholder="entrada (cliente)" ajuda="revenda.venda.entrada" style={inp} />
+        <InputMoeda value={f.valor_financiado} onChange={(v) => setF({ ...f, valor_financiado: v })} placeholder="financiado (banco)" ajuda="revenda.venda.financiado" style={inp} />
         <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
-        <InputMoeda value={f.retorno_banco} onChange={(v) => setF({ ...f, retorno_banco: v })} placeholder="retorno do banco (receita)" style={inp} />
+        <InputMoeda value={f.retorno_banco} onChange={(v) => setF({ ...f, retorno_banco: v })} placeholder="retorno do banco (receita)" ajuda="revenda.venda.retorno_banco" style={inp} />
       </div>
       <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo.</div>
 
@@ -534,8 +534,8 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <input value={troca.chassi} onChange={(e) => setTroca({ ...troca, chassi: e.target.value })} placeholder="chassi do usado (p/ entrar no estoque)" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'troca_chassi' ? 'x' : null) }} />
             <input value={troca.modelo} onChange={(e) => setTroca({ ...troca, modelo: e.target.value })} placeholder="modelo" style={{ ...inp, gridColumn: '1 / -1' }} />
-            <InputMoeda value={troca.valor_troca} onChange={(x) => setTroca({ ...troca, valor_troca: x })} placeholder="valor dado na troca" style={inp} />
-            <InputMoeda value={troca.valor_avaliacao} onChange={(x) => setTroca({ ...troca, valor_avaliacao: x })} placeholder="valor de avaliação (quanto vale)" style={inp} />
+            <InputMoeda value={troca.valor_troca} onChange={(x) => setTroca({ ...troca, valor_troca: x })} placeholder="valor dado na troca" ajuda="revenda.venda.valor_troca" style={inp} />
+            <InputMoeda value={troca.valor_avaliacao} onChange={(x) => setTroca({ ...troca, valor_avaliacao: x })} placeholder="valor de avaliação (quanto vale)" ajuda="revenda.venda.valor_avaliacao" style={inp} />
           </div>
           <div style={{ fontSize: 11.5, color: descontoEmbutido > 0 ? C.amber : C.espL, marginTop: 6 }}>
             {descontoEmbutido > 0
