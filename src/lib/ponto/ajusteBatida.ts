@@ -57,11 +57,13 @@ export function linhaPausaDoc(p: PausaDoc, aj?: AjusteDia | null): LinhaDoc {
   }
 }
 
-// Linha do dia no documento: as batidas originais do relógio e o que foi desconsiderado na releitura.
+// Linha do dia no documento: as batidas originais do relógio e, se houve horário desconsiderado na releitura, só o
+// aviso de que houve ajuste (chamado #5712: o horário ignorado não aparece no relatório; a lista fica no banco/auditoria).
 export function notaDiaDoc(aj?: AjusteDia | null): string | null {
   if (!aj || (!aj.ajustes.length && !aj.desconsideradas.length)) return null
-  const partes = [`Batidas originais do relógio: ${aj.originais.join(', ') || '—'}`]
-  if (aj.desconsideradas.length) partes.push(`desconsideradas na conferência: ${aj.desconsideradas.join(', ')}`)
+  const visiveis = aj.originais.filter(h => !aj.desconsideradas.includes(h))
+  const partes = [`Batidas originais do relógio: ${visiveis.join(', ') || '—'}`]
+  if (aj.desconsideradas.length) partes.push('ajuste realizado na conferência')
   return partes.join(' · ')
 }
 
