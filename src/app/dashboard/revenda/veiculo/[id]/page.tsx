@@ -1276,6 +1276,8 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     observacao: v.observacao ?? '',
     // R7b (Tela 5): tipo do veículo — também alimenta a sugestão de NCM
     tipo: v.tipo ?? '',
+    // #5671: valor de aquisição editável (custo da compra)
+    valor_aquisicao: v.valor_aquisicao == null ? '' : String(v.valor_aquisicao),
     // item 2c-c: fiscal do veículo
     valor_fipe: vf.valor_fipe == null ? '' : String(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
   })
@@ -1374,6 +1376,10 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         <SimNao id="campo-tem_chave_reserva" rotulo="chave reserva" valor={f.tem_chave_reserva} onC={(x) => setF({ ...f, tem_chave_reserva: x })} />
         {F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}
         {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <input id="campo-valor_aquisicao" value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} inputMode="decimal" placeholder="aquisição (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_aquisicao' ? 'x' : null) }} />
+          <AjudaCampo chave="revenda.veiculo.valor_aquisicao" rota="/dashboard/revenda/veiculo" />
+        </label>
         <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
       </div>
       {pareceAno(f.modelo) && (
