@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS prod_fluxo (id uuid PRIMARY KEY, company_id uuid, nom
 CREATE TABLE IF NOT EXISTS prod_fluxo_etapa (id uuid PRIMARY KEY, fluxo_id uuid, posto_id uuid, ordem int, nome text, tipo text, unidade text, tempo_ciclo_seg numeric, pessoas int, deleted_at timestamptz);
 CREATE TABLE IF NOT EXISTS prod_produto (id uuid PRIMARY KEY, codigo text, nome text);
 CREATE TABLE IF NOT EXISTS prod_estrutura (id uuid DEFAULT gen_random_uuid(), company_id uuid, fluxo_id uuid, produto_id uuid, tipo_saida text, rendimento_padrao_pct numeric, ativo boolean DEFAULT true);
-\i supabase/migrations/20261030020058_prod_posto_custo_rateio_banco.sql
-\i supabase/migrations/20261030020058_prod_posto_custo_rateio_banco.sql
+\i supabase/migrations/20261031000058_prod_posto_custo_rateio_banco.sql
+\i supabase/migrations/20261031000058_prod_posto_custo_rateio_banco.sql
 
 BEGIN;
 SET LOCAL t.emp = '00000000-0000-0000-0000-00000000000a';
