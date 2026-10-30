@@ -24,6 +24,9 @@ const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita
 const corConversao = (v: number | null) => (v == null ? MUT : v >= 40 ? VERDE : v >= 20 ? AMBAR : VERM)
 const rotConversao = (v: number | null) => (v == null ? '—' : v >= 40 ? 'alta' : v >= 20 ? 'média' : 'baixa')
 
+// Período sem nenhum registro (nem pipeline aberto): a tela parece quebrada se mostrar só zeros (RD-98).
+const periodoVazio = (r: Resumo | undefined) => !!r && r.oportunidades === 0 && r.propostas === 0 && r.ganhas_qtd === 0 && r.perdidas_qtd === 0 && r.valor_pipeline === 0
+
 function preset(p: string): { de: string; ate: string } {
   const h = new Date()
   if (p === 'mes') return { de: iso(new Date(h.getFullYear(), h.getMonth(), 1)), ate: iso(new Date(h.getFullYear(), h.getMonth() + 1, 0)) }
@@ -83,7 +86,7 @@ export default function DesempenhoComercialPage() {
   const r = data?.resumo
   const maxFunil = useMemo(() => Math.max(1, ...(data?.funil ?? []).map((f) => f.qtd)), [data])
   // período sem nenhum registro → aviso honesto em vez de parede de zeros (RD-98)
-  const vazio = !!r && r.oportunidades === 0 && r.propostas === 0 && r.ganhas_qtd === 0 && r.perdidas_qtd === 0 && r.valor_pipeline === 0
+  const vazio = periodoVazio(r)
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 18px' }}>
@@ -100,11 +103,11 @@ export default function DesempenhoComercialPage() {
           ))}
           {periodo === 'custom' && (
             <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input type="date" value={range.de} onChange={(e) => setRange((x) => ({ ...x, de: e.target.value }))} style={inp} />
-              <input type="date" value={range.ate} onChange={(e) => setRange((x) => ({ ...x, ate: e.target.value }))} style={inp} />
-              <AjudaCampo chave="projetos.desempenho.periodo" />
+              <input type="date" value={range.de} onChange={(e) => { setRange((x) => ({ ...x, de: e.target.value })) }} style={inp} /><AjudaCampo chave="projetos.desempenho.periodo" />
+              <input type="date" value={range.ate} onChange={(e) => { setRange((x) => ({ ...x, ate: e.target.value })) }} style={inp} /><AjudaCampo chave="projetos.desempenho.periodo" />
             </span>
           )}
+          {periodo !== 'custom' && <AjudaCampo chave="projetos.desempenho.periodo" />}
         </div>
 
         {nota && <div data-testid="desempenho-auto-periodo" style={{ padding: '9px 14px', borderRadius: 8, background: '#FBF4E4', border: `1px solid ${GOLD}`, color: ESP, fontSize: 12.5, marginBottom: 12 }}>{nota}</div>}
