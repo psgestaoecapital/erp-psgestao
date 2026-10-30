@@ -21,6 +21,7 @@ import { comPrazo } from "@/lib/comPrazo";
 import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/CatalogoTable";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
 
 const ROTA = "/dashboard/projetos/catalogo";
 
@@ -110,6 +111,8 @@ export default function CatalogoServicosPage() {
   const [criando, setCriando] = useState(false);
 
   // HB0 item 5 (CEO): clicar em "Novo serviço" NÃO grava mais em branco — abre o modal e só grava no "Criar serviço".
+  // Detalhe da composição (material, mão de obra, equipamento, impostos e margem) aberto pelo selo de BOM, sem sair da tela.
+  const [bomDe, setBomDe] = useState<Servico | null>(null);
   const [novoAberto, setNovoAberto] = useState(false);
   const [novo, setNovo] = useState({ nome: "", codigo: "", categoria: "", unidade: "m²" });
 
@@ -392,17 +395,17 @@ export default function CatalogoServicosPage() {
             </span>
           );
         }
-        if (q < 3) {
-          return (
-            <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
-              BOM mínimo · {q} ite{q !== 1 ? "ns" : "m"}
-            </span>
-          );
-        }
+        const cls = q < 3 ? "bg-yellow-100 text-yellow-800" : "bg-emerald-100 text-emerald-800";
+        const txt = q < 3 ? `BOM mínimo · ${q} ite${q !== 1 ? "ns" : "m"}` : `${q} itens`;
         return (
-          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-            {q} itens
-          </span>
+          <button
+            type="button"
+            onClick={() => setBomDe(s)}
+            title="Ver a composição deste serviço"
+            className={`rounded-full px-2 py-0.5 text-xs font-medium underline-offset-2 hover:underline ${cls}`}
+          >
+            {txt}
+          </button>
         );
       },
     },
@@ -726,6 +729,39 @@ export default function CatalogoServicosPage() {
                 {criando ? "Criando…" : "Criar serviço"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {bomDe && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+          onClick={() => setBomDe(null)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-t-2xl bg-[#FAF7F2] p-4 sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-medium text-[#3D2314]">{bomDe.nome}</h2>
+                <p className="text-xs text-[#3D2314]/60">Composição do preço unitário · {bomDe.codigo || "sem código"}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBomDe(null)}
+                className="rounded-lg px-3 py-1.5 text-sm text-[#3D2314]/70 hover:bg-[#3D2314]/5"
+              >
+                Fechar
+              </button>
+            </div>
+            <ComposicaoCpu servicoId={bomDe.id} companyId={bomDe.company_id} />
+            <button
+              type="button"
+              onClick={() => router.push(`/dashboard/projetos/catalogo/${bomDe.id}`)}
+              className="mt-4 rounded-lg bg-[#3D2314] px-4 py-2 text-sm font-medium text-[#FAF7F2]"
+            >
+              Editar composição
+            </button>
           </div>
         </div>
       )}
