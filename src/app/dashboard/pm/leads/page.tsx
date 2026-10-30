@@ -254,8 +254,14 @@ export default function LeadsPage() {
     total: filtrados.length,
     emAberto: filtrados.filter((l) => !fechadas.has(l.etapa)).length,
     ganhos: filtrados.filter((l) => ganhoChaves.has(l.etapa)).length,
-    pipeline: filtrados.filter((l) => !fechadas.has(l.etapa)).reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0),
-  }), [filtrados, fechadas, ganhoChaves])
+    // Valor do lead = estimado; sem estimado, cai no maior valor de proposta viva (não recusada) ligada a ele.
+    pipeline: filtrados.filter((l) => !fechadas.has(l.etapa)).reduce((s, l) => {
+      const est = Number(l.valor_estimado ?? 0)
+      if (est > 0) return s + est
+      const props = (propMap[l.id] ?? []).filter((p) => p.status !== 'recusada' && p.status !== 'rejeitada' && p.status !== 'cancelada')
+      return s + props.reduce((m, p) => Math.max(m, Number(p.valor_total ?? 0)), 0)
+    }, 0),
+  }), [filtrados, fechadas, ganhoChaves, propMap])
 
   // ── autocomplete de cliente (GE) ────────────────────────────────────────────
   const buscarClientes = useCallback(async (t: string) => {
