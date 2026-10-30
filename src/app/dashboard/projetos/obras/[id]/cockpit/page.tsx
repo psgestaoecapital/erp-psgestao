@@ -20,8 +20,9 @@ type Resultado = {
   custo_mao_obra: number; custo_rateio: number; margem_alocada: number
 }
 // Contexto da obra (avanço físico, prazo, cliente) — vem de projetos_obras, não da view de resultado financeiro.
-type ObraInfo = { pct_conclusao: number | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null }
-type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null }
+type ObraInfo = { pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null }
+type Linha = { k: string; ajuda: string; l: string; v: number }
+type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null; linhas?: Linha[] }
 
 export default function CockpitObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -51,7 +52,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     setR(data as Resultado)
     // Contexto da obra (avanço físico, prazo, cliente) — leitura separada de projetos_obras; se falhar, os cards
     // financeiros seguem aparecendo (não trava a tela).
-    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_prevista_fim,cliente_nome,cidade').eq('id', id).maybeSingle()
+    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade').eq('id', id).maybeSingle()
     if (oi) setInfo(oi as ObraInfo)
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
@@ -77,10 +78,31 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const prazoSub = prazo == null ? 'Sem data prevista'
     : prazoVencido ? 'Vencido' : diasRestantes === 0 ? 'Entrega hoje' : (diasRestantes ?? 0) > 0 ? `Faltam ${diasRestantes} dia(s)` : `${Math.abs(diasRestantes ?? 0)} dia(s) atrás`
 
+  // Indicadores de valor agregado (só com os dois lados do dado): valor ganho = avanço físico × custo previsto.
+  // IDC = valor ganho ÷ custo realizado (>1 gastando menos que o executado); IDP = avanço físico ÷ tempo decorrido (cronograma linear).
+  const inicio = info?.data_inicio ?? null
+  const idc = fisicoPct != null && custoPrevisto > 0 && custo > 0 ? (fisicoPct / 100 * custoPrevisto) / custo : null
+  const prazoTotal = inicio && prazo ? Math.round((new Date(prazo + 'T12:00:00').getTime() - new Date(inicio + 'T12:00:00').getTime()) / 86400000) : 0
+  const decorridos = inicio ? Math.round((new Date(hoje + 'T12:00:00').getTime() - new Date(inicio + 'T12:00:00').getTime()) / 86400000) : 0
+  const tempoPct = prazoTotal > 0 && decorridos > 0 ? Math.min(100, decorridos / prazoTotal * 100) : null
+  const idp = fisicoPct != null && tempoPct != null ? fisicoPct / tempoPct : null
+  const burn = decorridos > 0 && custo > 0 ? custo / decorridos : null
+  const indicadores = [
+    { k: 'idc', ajuda: 'projetos.cockpit.idc', l: 'IDC · custo', v: idc == null ? '—' : idc.toFixed(2), sub: idc == null ? 'Precisa de avanço físico, custo previsto e custo lançado' : idc >= 1 ? 'Executando dentro do custo' : 'Custo acima do executado', cor: idc == null ? undefined : idc >= 1 ? VERDE : VERM },
+    { k: 'idp', ajuda: 'projetos.cockpit.idp', l: 'IDP · prazo', v: idp == null ? '—' : idp.toFixed(2), sub: idp == null ? 'Precisa de data de início, data prevista e avanço físico' : idp >= 1 ? 'No ritmo ou adiantada' : 'Ritmo abaixo do planejado', cor: idp == null ? undefined : idp >= 1 ? VERDE : VERM },
+    { k: 'burn', ajuda: 'projetos.cockpit.burn_rate', l: 'Gasto por dia', v: burn == null ? '—' : brl(burn), sub: burn == null ? 'Precisa de data de início e custo lançado' : `${decorridos} dia(s) desde o início` },
+  ]
+
   const cards: Card[] = r ? [
-    { k: 'receita', ajuda: 'projetos.cockpit.receita', l: 'Receita realizada', v: brl(receita), sub: `Serviço ${brl(r.receita_servico)} · Material ${brl(r.receita_material)}` },
-    { k: 'custo', ajuda: 'projetos.cockpit.custo', l: 'Custo realizado', v: brl(custo), sub: `Material ${brl(r.custo_material)} · Viagens ${brl(r.custo_viagens)} · Mão de obra ${brl(r.custo_mao_obra)} · Rateio ${brl(r.custo_rateio)}`, cor: estouro ? VERM : undefined },
-    { k: 'margem', ajuda: 'projetos.cockpit.margem', l: 'Margem', v: brl(margem), sub: margemPct == null ? 'Sem receita ainda' : `${margemPct.toFixed(1)}% da receita`, cor: margem < 0 ? VERM : VERDE },
+    { k: 'receita', ajuda: 'projetos.cockpit.receita', l: 'Receita realizada', v: brl(receita), sub: receita > 0 ? 'Medido e vendido na obra' : 'Nenhuma medição lançada ainda', linhas: [
+      { k: 'serv', ajuda: 'projetos.cockpit.receita_servico', l: 'Serviço medido', v: Number(r.receita_servico) },
+      { k: 'mat', ajuda: 'projetos.cockpit.receita_material', l: 'Material vendido', v: Number(r.receita_material) }] },
+    { k: 'custo', ajuda: 'projetos.cockpit.custo', l: 'Custo realizado', v: brl(custo), sub: custoPrevisto > 0 ? `Previsto ${brl(custoPrevisto)}` : 'Sem custo previsto', cor: estouro ? VERM : undefined, linhas: [
+      { k: 'mat', ajuda: 'projetos.cockpit.custo_material', l: 'Material', v: Number(r.custo_material) },
+      { k: 'via', ajuda: 'projetos.cockpit.custo_viagens', l: 'Viagens', v: Number(r.custo_viagens) },
+      { k: 'mo', ajuda: 'projetos.cockpit.custo_mao_obra', l: 'Mão de obra', v: Number(r.custo_mao_obra ?? 0) },
+      { k: 'rat', ajuda: 'projetos.cockpit.custo_rateio', l: 'Rateio', v: Number(r.custo_rateio ?? 0) }] },
+    { k: 'margem', ajuda: 'projetos.cockpit.margem', l: 'Margem', v: brl(margem), sub: margemPct == null ? (custo > 0 ? 'Custo lançado, mas sem medição: a margem fica negativa até medir' : 'Sem receita ainda') : `${margemPct.toFixed(1)}% da receita`, cor: margem < 0 ? VERM : VERDE },
     { k: 'avanco_fisico', ajuda: 'projetos.cockpit.avanco_fisico', l: 'Avanço físico', v: fisicoPct == null ? '—' : `${fisicoPct.toFixed(0)}%`, sub: fisicoPct == null ? 'Lance o % no cronograma' : 'Execução em campo', bar: fisicoPct },
     { k: 'avanco', ajuda: 'projetos.cockpit.avanco', l: 'Avanço financeiro', v: avancoPct == null ? '—' : `${avancoPct.toFixed(0)}%`, sub: `Realizado ${brl(receita)} de ${brl(r.receita_prevista)}`, bar: avancoPct },
     { k: 'prazo', ajuda: 'projetos.cockpit.prazo', l: 'Prazo', v: prazoBR ?? '—', sub: prazoSub, cor: prazoVencido ? VERM : undefined },
@@ -90,7 +112,9 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   if (r) {
     if (Number(r.receita_prevista) === 0) pendencias.push('Obra sem itens contratados — cadastre o orçamento para medir o avanço.')
     if (estouro) pendencias.push(`Custo realizado acima do previsto (${brl(custo)} de ${brl(custoPrevisto)}).`)
-    if (margem < 0) pendencias.push('Margem negativa — revise custos lançados.')
+    if (margem < 0) pendencias.push(receita === 0
+      ? 'Margem negativa porque há custo lançado e nenhuma medição — lance a medição da obra.'
+      : 'Margem negativa — o custo lançado superou a receita medida; revise custos.')
     if (prazoVencido) pendencias.push(`Prazo vencido em ${prazoBR} — replaneje a entrega ou ajuste a data.`)
     // Desvio físico × financeiro: alerta só quando a diferença é relevante (≥ 15 pontos) e há os dois números.
     if (fisicoPct != null && avancoPct != null && Math.abs(fisicoPct - avancoPct) >= 15) {
@@ -133,8 +157,31 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                       </div>
                     )}
                     <div style={{ fontSize: 11, color: MUT }}>{c.sub}</div>
+                    {c.linhas && (
+                      <div style={{ marginTop: 8, borderTop: `0.5px solid ${LINE}`, paddingTop: 6 }}>
+                        {c.linhas.map((l) => (
+                          <div key={l.k} data-testid={`cockpit-${c.k}-${l.k}`} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUT, padding: '2px 0' }}>
+                            <span>{l.l} <AjudaCampo chave={l.ajuda} rota={ROTA} /></span><span>{brl(l.v)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 14 }}>
+                {indicadores.map((c) => (
+                  <div key={c.k} data-testid={`cockpit-${c.k}`} style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
+                    <div style={{ fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>{c.l} <AjudaCampo chave={c.ajuda} rota={ROTA} /></div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: c.cor ?? ESP, margin: '4px 0' }}>{c.v}</div>
+                    <div style={{ fontSize: 11, color: MUT }}>{c.sub}</div>
+                  </div>
+                ))}
+                <div data-testid="cockpit-curva-s" style={{ background: '#fff', border: `0.5px dashed ${LINE}`, borderRadius: 12, padding: 14 }}>
+                  <div style={{ fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>Curva S <AjudaCampo chave="projetos.cockpit.curva_s" rota={ROTA} /></div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP, margin: '6px 0' }}>Em construção</div>
+                  <div style={{ fontSize: 11, color: MUT }}>Previsto × realizado acumulado entra quando o cronograma tiver medições mensais.</div>
+                </div>
               </div>
               <div data-testid="cockpit-pendencias" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 6 }}>Pendências do dia <AjudaCampo chave="projetos.cockpit.pendencias" rota={ROTA} /></div>
