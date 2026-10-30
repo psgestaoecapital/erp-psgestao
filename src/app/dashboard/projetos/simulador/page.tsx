@@ -114,7 +114,7 @@ export default function SimuladorPage() {
     setCalculando(false);
     if (error) { setErro(error.message); setSim(null); return; }
     const j = data as Sim;
-    if (!j?.ok) { setErro(j?.erro ?? "Falha ao simular"); setSim(null); return; }
+    if (!j?.ok) { setErro(j?.erro === "sem_config_precificacao" ? "Esta empresa ainda não tem as premissas de precificação (margens, impostos, folha). Configure a precificação para calcular o orçamento." : (j?.erro ?? "Falha ao simular")); setSim(null); return; }
     setSim(j);
   }, [companyId, montagemId, area, montagemSel]);
 
@@ -203,7 +203,7 @@ export default function SimuladorPage() {
       </section>
 
       {msg && <div data-testid="simulador-msg" className="mb-4 rounded-lg bg-[#FBF4E4] p-3 text-sm text-[#3D2314]">{msg}</div>}
-      {erro && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800"><AlertTriangle className="mb-0.5 mr-1 inline" size={15} />{erro}</div>}
+      {erro && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800"><AlertTriangle className="mb-0.5 mr-1 inline" size={15} />{erro}{erro.startsWith("Esta empresa ainda não tem as premissas") && <> <a href="/dashboard/projetos/configuracoes" className="font-semibold underline">Configurar precificação</a></>}</div>}
 
       {!montagemId ? (
         <div className="rounded-2xl border border-dashed border-[#3D2314]/20 bg-[#FAF7F2] p-12 text-center text-sm text-[#3D2314]/60">
