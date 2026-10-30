@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { nomeUsuario } from '@/lib/usuarioLabel'
 import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { TarefasLeadModal, MinhasTarefasModal, SELECT_TAREFA, tipoTarefa, quando, atrasada, whatsappHref, type Tarefa } from '@/components/pm/TarefasLead'
 
 const ESPRESSO = '#3D2314'
@@ -430,10 +431,10 @@ export default function LeadsPage() {
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Leads" v={String(kpis.total)} />
-          <Kpi l="Em aberto" v={String(kpis.emAberto)} />
-          <Kpi l="Ganhos" v={String(kpis.ganhos)} />
-          <Kpi l="Pipeline" v={brl(kpis.pipeline)} />
+          <Kpi l="Leads" v={String(kpis.total)} ajuda="pm.leads.kpi_total" />
+          <Kpi l="Em aberto" v={String(kpis.emAberto)} ajuda="pm.leads.kpi_em_aberto" />
+          <Kpi l="Ganhos" v={String(kpis.ganhos)} ajuda="pm.leads.kpi_ganhos" />
+          <Kpi l="Pipeline" v={brl(kpis.pipeline)} ajuda="pm.leads.kpi_pipeline" />
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
@@ -1109,10 +1110,12 @@ function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
   )
 }
 
-function Kpi({ l, v }: { l: string; v: string }) {
+function Kpi({ l, v, ajuda }: { l: string; v: string; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {l}{ajuda && <AjudaCampo chave={ajuda} />}
+      </div>
       <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
     </div>
   )
