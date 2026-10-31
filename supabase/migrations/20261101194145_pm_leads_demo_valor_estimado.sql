@@ -13,6 +13,7 @@
 -- Nenhuma tabela/coluna nova; nenhum dado de cliente real tocado (só company-bot DEMO).
 -- Code: desenvolvedor_4_g
 
+-- ci-sem-guarda: fn_gold_pm_seed_reparar só grava na empresa-bot DEMO fixa (b0700000-0000-4000-a000-000000000002); recusa qualquer outro p_company_id com so_empresa_bot. Sem empresa de cliente a guardar (check-fn-guards regra 4 grava_sem_guarda_empresa).
 CREATE OR REPLACE FUNCTION public.fn_gold_pm_seed_reparar(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -140,3 +141,8 @@ UPDATE public.agency_leads
    AND deleted_at IS NULL
    AND nome = 'Maria Teste'
    AND empresa LIKE 'E2E %';
+
+-- check-fn-guards regra 1 (revoke_anon): SECURITY DEFINER exige REVOKE explícito no arquivo.
+-- CREATE OR REPLACE preserva a ACL viva ({postgres,service_role}); as linhas abaixo só a refletem.
+REVOKE ALL ON FUNCTION public.fn_gold_pm_seed_reparar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_gold_pm_seed_reparar(uuid) TO postgres, service_role;
