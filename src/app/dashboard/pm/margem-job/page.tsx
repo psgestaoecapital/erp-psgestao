@@ -90,7 +90,7 @@ export default function MargemJobPage() {
       <div style={{ maxWidth: 1000, margin: '0 auto' }}>
         <header style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>🏭 P&amp;M · Produção</div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Margem por Job</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0', display: 'inline-flex', alignItems: 'center' }}>Margem por Job<AjudaCampo chave="pm.margem.tela" /></h1>
           <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Valor − custo (horas apontadas × custo/hora). Custo estimado quando não há apontamento.</p>
         </header>
 
@@ -137,7 +137,7 @@ export default function MargemJobPage() {
           : dim !== 'job' ? (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 620 }}>
-                <thead style={{ background: OFFWHITE }}><tr><Th>{DIMENSOES.find((d) => d.v === dim)?.l}</Th><Th>Jobs</Th><Th>Valor</Th><Th>Custo</Th><Th>Lucro</Th><Th><span style={{ display: 'inline-flex', alignItems: 'center' }}>Margem<AjudaCampo chave="pm.margem.grupo" /></span></Th></tr></thead>
+                <thead style={{ background: OFFWHITE }}><tr><Th chave="pm.margem.col_dimensao">{DIMENSOES.find((d) => d.v === dim)?.l}</Th><Th chave="pm.margem.col_jobs">Jobs</Th><Th chave="pm.margem.col_valor">Valor</Th><Th chave="pm.margem.col_custo">Custo</Th><Th chave="pm.margem.col_lucro">Lucro</Th><Th chave="pm.margem.grupo">Margem</Th></tr></thead>
                 <tbody>
                   {grupos.map((g) => {
                     const tom = g.margem == null ? TEXTM : g.margem >= 50 ? GREEN : g.margem >= 25 ? YELLOW : RED
@@ -162,7 +162,7 @@ export default function MargemJobPage() {
           ) : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 620 }}>
-                <thead style={{ background: OFFWHITE }}><tr><Th>Job</Th><Th>Cliente</Th><Th>Valor</Th><Th>Custo</Th><Th>Lucro</Th><Th><span style={{ display: 'inline-flex', alignItems: 'center' }}>Margem<AjudaCampo chave="pm.margem.grupo" /></span></Th></tr></thead>
+                <thead style={{ background: OFFWHITE }}><tr><Th chave="pm.margem.col_job">Job</Th><Th chave="pm.margem.col_cliente">Cliente</Th><Th chave="pm.margem.col_valor">Valor</Th><Th chave="pm.margem.col_custo">Custo</Th><Th chave="pm.margem.col_lucro">Lucro</Th><Th chave="pm.margem.grupo">Margem</Th></tr></thead>
                 <tbody>
                   {linhas.map((l) => (
                     <tr key={l.j.id} style={{ borderTop: `1px solid ${BORDA}` }} data-testid={`margem-job-${l.j.id}`}>
@@ -198,5 +198,5 @@ function Kpi({ l, v, cor, ajuda }: { l: string; v: string; cor?: string; ajuda?:
     <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? ESPRESSO, marginTop: 2 }}>{v}</div>
   </div>
 }
-function Th({ children }: { children?: React.ReactNode }) { return <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: TEXTM }}>{children}</th> }
+function Th({ children, chave }: { children?: React.ReactNode; chave?: string }) { return <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: TEXTM }}>{chave ? <span style={{ display: 'inline-flex', alignItems: 'center' }}>{children}<AjudaCampo chave={chave} /></span> : children}</th> }
 function Td({ children, style, colSpan }: { children?: React.ReactNode; style?: CSSProperties; colSpan?: number }) { return <td colSpan={colSpan} style={{ padding: '8px 12px', color: ESPRESSO, ...style }}>{children}</td> }
