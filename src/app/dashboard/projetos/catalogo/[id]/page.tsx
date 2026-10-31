@@ -134,6 +134,8 @@ export default function ServicoEditorPage({
   const [loading, setLoading] = useState(true);
   const [recalculando, setRecalculando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // Código de referência do erro de abertura (id da URL): ajuda o suporte a localizar o registro.
+  const [refErro, setRefErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   // Sinal p/ a tabela CPU recarregar quando o BOM muda (a CPU lê de fn_servico_composicao_detalhe).
   const [cpuReload, setCpuReload] = useState(0);
@@ -148,12 +150,14 @@ export default function ServicoEditorPage({
       // id que não é uuid (ex.: o literal "[id]") nem vai ao banco: mensagem do usuário, não erro de Postgres.
       if (!ehUuid(id)) {
         setErro(MSG_ENDERECO_INVALIDO);
+        setRefErro(String(id));
         setLoading(false);
         return;
       }
       if (opts?.soft) setRecalculando(true);
       else setLoading(true);
       setErro(null);
+      setRefErro(null);
       try {
         const supabase = supabaseBrowser();
         const { data: rpcData, error } = await supabase.rpc(
@@ -161,11 +165,17 @@ export default function ServicoEditorPage({
           { p_servico_id: id }
         );
         if (error) throw error;
-        if (!rpcData) throw { code: "P0001", message: "Serviço não encontrado ou sem acesso." };
 
-        // RPC pode devolver objeto único ou array
-        const raw = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-        if (!raw || !raw.servico) throw { code: "P0001", message: "Serviço não encontrado ou sem acesso." };
+        // RPC pode devolver objeto único ou array; quando o serviço não existe ela devolve { error: '...' }.
+        const raw = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as
+          | (Partial<ServicoCompleto> & { error?: string })
+          | null;
+        if (!raw || raw.error || !raw.servico) {
+          // Serviço inexistente/removido (RPC é SECURITY DEFINER: se não voltou, o id não existe mais).
+          // Mensagem específica — não é "sem acesso" genérico — e guarda o código de referência p/ o suporte.
+          setRefErro(id);
+          throw { code: "P0001", message: "Este serviço não existe mais ou foi removido do catálogo. Volte à lista e abra um serviço atual." };
+        }
         setData(raw as ServicoCompleto);
       } catch (e) {
         setErro(erroAmigavel(e, "Não foi possível carregar o serviço. Tente de novo."));
@@ -301,7 +311,15 @@ export default function ServicoEditorPage({
           >
             Não foi possível abrir este serviço
           </h1>
-          <p className="mb-6 text-sm leading-relaxed text-[#3D2314]/60">{erro}</p>
+          <p className="mb-4 text-sm leading-relaxed text-[#3D2314]/60">{erro}</p>
+          {refErro && (
+            <p
+              data-testid="catalogo-servico-erro-ref"
+              className="mb-6 font-mono text-xs text-[#3D2314]/40"
+            >
+              Código de referência: {refErro}
+            </p>
+          )}
           <button
             onClick={() => router.push("/dashboard/projetos/catalogo")}
             data-testid="catalogo-servico-erro-voltar"

@@ -4,6 +4,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const RED = '#7A1F1F'
@@ -44,7 +45,7 @@ export default function AprovacaoPage() {
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
         <header style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>🏭 P&amp;M · Produção</div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Aprovação do cliente</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Aprovação do cliente<AjudaCampo chave="pm.aprovacao.tela" rota="/dashboard/pm/aprovacao" /></h1>
           <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Jobs em conferência aguardando o OK. Aprovar publica; reprovar volta pra produção.</p>
         </header>
 
@@ -58,8 +59,14 @@ export default function AprovacaoPage() {
                     <div style={{ fontWeight: 700 }}>{j.titulo}</div>
                     <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{nomeCli(j.cliente_id)} · {brl(Number(j.valor_job ?? 0))}{j.data_prazo ? ` · prazo ${j.data_prazo}` : ''}</div>
                   </div>
-                  <button disabled={busy} onClick={() => decidir(j, true)} style={btnOk}>✓ Aprovar</button>
-                  <button disabled={busy} onClick={() => decidir(j, false)} style={btnNo}>↩ Reprovar</button>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <button disabled={busy} onClick={() => decidir(j, true)} style={btnOk}>✓ Aprovar</button>
+                    <AjudaCampo chave="pm.aprovacao.acao_aprovar" rota="/dashboard/pm/aprovacao" />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <button disabled={busy} onClick={() => decidir(j, false)} style={btnNo}>↩ Reprovar</button>
+                    <AjudaCampo chave="pm.aprovacao.acao_reprovar" rota="/dashboard/pm/aprovacao" />
+                  </div>
                 </div>
               ))}
             </div>

@@ -1,16 +1,46 @@
 'use client'
 // PORTFOLIO (P&M). Jobs publicados (entregas concluídas) por cliente/período. Galeria simples.
 // Escopo por company_id (RD-45). Tema Espresso.
+// Capa real da entrega: usa a 1ª imagem de agency_jobs.arquivos quando houver (fallback para o ícone por tipo).
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-type Job = { id: string; titulo: string; tipo: string | null; valor_job: number | null; cliente_id: string | null; data_entrega: string | null; data_prazo: string | null }
+type Arquivo = { url?: string | null; nome?: string | null }
+type Job = { id: string; titulo: string; tipo: string | null; valor_job: number | null; cliente_id: string | null; data_entrega: string | null; data_prazo: string | null; arquivos: Arquivo[] | null }
 type Cli = { id: string; nome: string; nome_fantasia: string | null }
+
+const IMG_RE = /\.(png|jpe?g|webp|gif|svg|avif)(\?|#|$)/i
+const emojiTipo = (tipo: string | null) => (tipo === 'design' ? '🎨' : tipo === 'video' ? '🎬' : '📣')
+// 1ª imagem anexada ao job (por extensão do nome ou da url); null quando não há.
+function capaDoJob(j: Job): string | null {
+  const arr = Array.isArray(j.arquivos) ? j.arquivos : []
+  for (const a of arr) {
+    const u = (a?.url ?? '').trim(); const n = (a?.nome ?? '').trim()
+    if (u && (IMG_RE.test(n) || IMG_RE.test(u))) return u
+  }
+  return null
+}
+
+function Capa({ job }: { job: Job }) {
+  const [erro, setErro] = useState(false)
+  const url = capaDoJob(job)
+  const base: CSSProperties = { height: 120, background: 'linear-gradient(135deg,#F2EBDF,#E7DED3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34 }
+  if (url && !erro) {
+    return (
+      <div style={base}>
+        <img src={url} alt={`Capa da entrega: ${job.titulo}`} loading="lazy" referrerPolicy="no-referrer"
+          onError={() => setErro(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+      </div>
+    )
+  }
+  return <div style={base} aria-label="Entrega sem imagem de capa; ícone por tipo" title="Sem imagem de capa">{emojiTipo(job.tipo)}</div>
+}
 
 export default function PortfolioPage() {
   const { selInfo, companyIds } = useCompanyIds()
@@ -22,7 +52,7 @@ export default function PortfolioPage() {
     if (!empresa) { setLoading(false); return }
     setLoading(true)
     Promise.all([
-      supabase.from('agency_jobs').select('id, titulo, tipo, valor_job, cliente_id, data_entrega, data_prazo').eq('company_id', empresa).in('status', ['publicado', 'concluida']).order('data_prazo', { ascending: false }),
+      supabase.from('agency_jobs').select('id, titulo, tipo, valor_job, cliente_id, data_entrega, data_prazo, arquivos').eq('company_id', empresa).in('status', ['publicado', 'concluida']).order('data_prazo', { ascending: false }),
       supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa),
     ]).then(([j, c]) => { setJobs((j.data ?? []) as Job[]); setClientes((c.data ?? []) as Cli[]); setLoading(false) })
   }, [empresa])
@@ -41,29 +71,36 @@ export default function PortfolioPage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Portfolio</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Entregas publicadas por cliente.</p>
           </div>
-          <select value={fCli} onChange={(e) => setFCli(e.target.value)} style={inp}>
-            <option value="todos">Todos os clientes</option>
-            {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome_fantasia ?? c.nome}</option>)}
-          </select>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <select aria-label="Filtrar por cliente" value={fCli} onChange={(e) => setFCli(e.target.value)} style={inp}>
+              <option value="todos">Todos os clientes</option>
+              {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome_fantasia ?? c.nome}</option>)}
+            </select>
+            <AjudaCampo chave="pm.portfolio.filtro_cliente" />
+          </div>
         </header>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
           : filtrados.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>Sem entregas publicadas ainda.</div>
           : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px,1fr))', gap: 12 }}>
-              {filtrados.map((j) => (
-                <div key={j.id} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, overflow: 'hidden' }}>
-                  <div style={{ height: 120, background: 'linear-gradient(135deg,#F2EBDF,#E7DED3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34 }}>
-                    {j.tipo === 'design' ? '🎨' : j.tipo === 'video' ? '🎬' : '📣'}
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '0 0 8px', fontSize: 12, color: TEXTM }}>
+                <span>{filtrados.length} {filtrados.length === 1 ? 'entrega' : 'entregas'}</span>
+                <AjudaCampo chave="pm.portfolio.card" />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px,1fr))', gap: 12 }}>
+                {filtrados.map((j) => (
+                  <div key={j.id} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, overflow: 'hidden' }}>
+                    <Capa job={j} />
+                    <div style={{ padding: '10px 12px' }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{j.titulo}</div>
+                      <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{nomeCli(j.cliente_id)}{j.valor_job ? ` · ${brl(Number(j.valor_job))}` : ''}</div>
+                      {(j.data_entrega ?? j.data_prazo) && <div style={{ fontSize: 11, color: TEXTM, marginTop: 2 }}>publicado {j.data_entrega ?? j.data_prazo}</div>}
+                    </div>
                   </div>
-                  <div style={{ padding: '10px 12px' }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{j.titulo}</div>
-                    <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{nomeCli(j.cliente_id)}{j.valor_job ? ` · ${brl(Number(j.valor_job))}` : ''}</div>
-                    {(j.data_entrega ?? j.data_prazo) && <div style={{ fontSize: 11, color: TEXTM, marginTop: 2 }}>publicado {j.data_entrega ?? j.data_prazo}</div>}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           )}
       </div>
     </div>
