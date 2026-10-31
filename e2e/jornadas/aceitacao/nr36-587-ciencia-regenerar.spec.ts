@@ -104,11 +104,17 @@ test.describe('NR-36: regenerar ciências pendentes (#587)', () => {
   test('pendente ganha nova versão com motivo; fechado a usuário logado; segunda rodada não muda nada', { tag: '@pos-migration' }, async () => {
     await importar()
     await robo('fn_nr36_apurar', { p_company_id: DEMO_SST, p_dt_ini: DIA, p_dt_fim: DIA, p_cpf: cpf })
+    // #2119 (CEO 31/10): o 16/09 do Leonel (3 de 4 pausas, todas conformes) agora nasce 'conforme' — a falta estimada
+    // fica só sinalizada à parte, não é mais pendente_confirmacao. Este teste exercita a REGENERAÇÃO, que compara o
+    // snapshot gravado na ciência com a apuração atual: para haver o que regenerar, o snapshot "antigo" precisa
+    // diferir do estado para o qual o dia vai depois. Simulamos o estado antigo pendente ANTES de gerar (um caso
+    // que segue pendente no veredito novo), e a linha seguinte traz o dia a 'conforme' — a mudança que dispara v2.
+    await dbPatch('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`, { status: 'pendente_confirmacao' })
     const g = await robo<{ ok: boolean }>('fn_nr36_ciencia_gerar', { p_company_id: DEMO_SST, p_competencia: competencia(), p_cpf: cpf })
     expect(g.ok).toBe(true)
     const v1 = await ciencia()
     expect(v1.status).toBe('pendente')
-    // apuração "antiga" por baixo da ciência pendente: o dia volta a conforme
+    // apuração "antiga" (pendente) por baixo da ciência pendente volta a conforme (#2119) — é essa transição que regenera
     await dbPatch('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`, { status: 'conforme' })
     const rel = await regenerar()
     expect(rel.ok).toBe(true)
