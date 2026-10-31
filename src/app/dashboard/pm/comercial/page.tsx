@@ -1,7 +1,9 @@
 'use client'
 // HUB COMERCIAL (P&M) · dashboard de entrada do comercial. Lê agency_leads / agency_propostas /
-// agency_comissao + erp_contratos (novos contratos da agência no mês), tudo escopado por company_id
+// agency_comissao + agency_contratos (novos contratos da agência no mês), tudo escopado por company_id
 // (Pilar 2). Só leitura + atalhos. Reusa o tema Espresso das telas do bloco.
+// FONTE: "Novos contratos (mês)" lê agency_contratos (tabela nativa P&M). Antes lia erp_contratos
+// (tipo='agencia_pm'), que o fluxo da agência nunca popula → card ficava zerado (falso-zero, RD-98 p1).
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -29,7 +31,7 @@ const ETAPAS_FALLBACK: Etapa[] = [
 type Lead = { etapa: string; valor_estimado: number | null }
 type Prop = { status: string; valor_final: number | null }
 type Com = { status: string; valor_comissao: number | null }
-type Ctr = { created_at: string; valor_mensal: number | null }
+type Ctr = { data_inicio: string | null; tipo: string | null; fee_mensal: number | null; valor_projeto: number | null }
 
 export default function HubComercialPage() {
   const { selInfo, companyIds } = useCompanyIds()
@@ -51,7 +53,7 @@ export default function HubComercialPage() {
         supabase.from('agency_leads').select('etapa, valor_estimado').eq('company_id', empresa),
         supabase.from('agency_propostas').select('status, valor_final').eq('company_id', empresa),
         supabase.from('agency_comissao').select('status, valor_comissao').eq('company_id', empresa),
-        supabase.from('erp_contratos').select('created_at, valor_mensal').eq('company_id', empresa).eq('tipo', 'agencia_pm'),
+        supabase.from('agency_contratos').select('data_inicio, tipo, fee_mensal, valor_projeto').eq('company_id', empresa).eq('status', 'ativo'),
         supabase.rpc('fn_funil_etapas_listar', { p_company_id: empresa, p_tipo_funil: TIPO_FUNIL }),
       ])
       if (!alive) return
@@ -74,8 +76,11 @@ export default function HubComercialPage() {
     const propAbertas = props.filter((x) => ['rascunho', 'enviada'].includes(x.status))
     const propAprov = props.filter((x) => x.status === 'aprovada')
     const conversao = props.length > 0 ? Math.round((propAprov.length / props.length) * 100) : 0
-    const ini = new Date(); ini.setDate(1); ini.setHours(0, 0, 0, 0)
-    const novosMes = ctrs.filter((x) => new Date(x.created_at) >= ini)
+    // "Novos no mês" = contratos cujo início (data_inicio) cai no mês corrente. Compara por ano-mês
+    // (prefixo YYYY-MM) para não sofrer com fuso na virada do dia 1.
+    const now = new Date(); const curYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const valorContrato = (c: Ctr) => Number((c.tipo === 'projeto' ? c.valor_projeto : c.fee_mensal) ?? 0)
+    const novosMes = ctrs.filter((x) => (x.data_inicio ?? '').slice(0, 7) === curYM)
     return {
       pipelineN: emAberto.length,
       pipelineR: emAberto.reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0),
@@ -87,7 +92,7 @@ export default function HubComercialPage() {
       comPrevista: coms.filter((c) => c.status === 'prevista').reduce((s, c) => s + Number(c.valor_comissao ?? 0), 0),
       comAPagar: coms.filter((c) => c.status === 'a_pagar').reduce((s, c) => s + Number(c.valor_comissao ?? 0), 0),
       novosContratos: novosMes.length,
-      novosContratosR: novosMes.reduce((s, c) => s + Number(c.valor_mensal ?? 0), 0),
+      novosContratosR: novosMes.reduce((s, c) => s + valorContrato(c), 0),
     }
   }, [leads, props, coms, ctrs, etapas])
 
