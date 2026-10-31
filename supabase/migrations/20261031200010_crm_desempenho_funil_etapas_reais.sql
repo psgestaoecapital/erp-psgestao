@@ -63,3 +63,8 @@ BEGIN
   RETURN jsonb_build_object('gestor', v_gestor, 'de', p_de, 'ate', p_ate, 'vendedor', v_vend,
     'resumo', v_resumo, 'funil', v_funil, 'ranking', v_ranking, 'perdas', v_perdas, 'velocidade_dias', v_veloc);
 END; $function$;
+
+-- Guarda RD-30 / check_fn_guards (regra 1): SECURITY DEFINER recriada exige REVOKE anon no arquivo.
+-- Espelha o ACL vivo (authenticated, service_role; sem anon) — CREATE OR REPLACE preserva o ACL, isto só o declara.
+REVOKE ALL ON FUNCTION public.fn_crm_desempenho(uuid[], date, date, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_crm_desempenho(uuid[], date, date, uuid) TO authenticated, service_role;
