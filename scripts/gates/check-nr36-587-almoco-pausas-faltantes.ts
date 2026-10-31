@@ -22,7 +22,7 @@ ok(/v_jornada_min - COALESCE\(v_pausas_min,0\) - v_almoco_min/.test(mig587), '(a
 ok(/status = ''pendente''/.test(mig587) && /nr36_ciencia_mensal_historico/.test(mig587) && /versao := OLD\.versao \+ 1/.test(mig587), 'ciência: só a pendente é regenerada; versão anterior vai ao histórico')
 
 // (b) #2119: na versão VIGENTE do núcleo, a falta estimada NÃO é mais pendente — vira conforme + sinal à parte.
-const mig2119 = readFileSync('supabase/migrations/20261101142558_nr36_pausas_faltantes_conforme_sinal_2119.sql', 'utf8')
+const mig2119 = readFileSync('supabase/migrations/20261101170010_nr36_pausas_faltantes_conforme_sinal_2119.sql', 'utf8')
 ok(/CREATE OR REPLACE FUNCTION public\.fn_nr36_apurar_nucleo/.test(mig2119), '#2119 reescreve o núcleo da apuração')
 ok(!/WHEN v_almoco_on AND v_realizado < v_devido THEN 'pendente_confirmacao'/.test(mig2119), '(b) a linha que mandava pausa faltante para pendente foi REMOVIDA')
 ok(/WHEN v_insuf > 0 THEN 'desvio'/.test(mig2119) && /ELSE 'conforme' END/.test(mig2119), '(b) desvio só por pausa insuficiente; o resto (falta estimada) é conforme')
