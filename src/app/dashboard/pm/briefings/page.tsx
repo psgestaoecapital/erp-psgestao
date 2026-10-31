@@ -170,13 +170,13 @@ export default function BriefingsPage() {
             <h1 className="text-[26px] font-medium leading-tight">Briefings</h1>
             <p className="text-[13px] text-[#3D2314]/60">O pedido do cliente, registrado do jeito certo — e transformado em job com um toque.</p>
           </div>
-          <button onClick={() => setNovo(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-[#3D2314] px-4 py-2.5 text-[13.5px] font-medium text-white shadow-sm hover:bg-[#3D2314]/90" data-testid="briefing-novo"><Plus size={15} /> Novo briefing</button>
+          <span className="inline-flex items-center"><button onClick={() => setNovo(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-[#3D2314] px-4 py-2.5 text-[13.5px] font-medium text-white shadow-sm hover:bg-[#3D2314]/90" data-testid="briefing-novo"><Plus size={15} /> Novo briefing</button><AjudaCampo chave="pm.briefing.novo" /></span>
         </header>
 
         <div className="mb-4 grid grid-cols-3 gap-2">
-          {[['Briefings', kpis.total], ['Pendentes', kpis.pendentes], ['Viraram job', kpis.viraramJob]].map(([l, v]) => (
-            <div key={l as string} className="rounded-2xl border border-[#3D2314]/10 bg-white px-4 py-3">
-              <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[#3D2314]/55">{l}</div>
+          {([['Briefings', kpis.total, 'pm.briefing.kpi_total'], ['Pendentes', kpis.pendentes, 'pm.briefing.kpi_pendentes'], ['Viraram job', kpis.viraramJob, 'pm.briefing.kpi_viraram_job']] as [string, number, string][]).map(([l, v, chave]) => (
+            <div key={l} className="rounded-2xl border border-[#3D2314]/10 bg-white px-4 py-3">
+              <div className="flex items-center text-[10.5px] font-semibold uppercase tracking-wider text-[#3D2314]/55">{l}<AjudaCampo chave={chave} /></div>
               <div className="text-[22px] font-medium">{v}</div>
             </div>
           ))}
@@ -201,11 +201,11 @@ export default function BriefingsPage() {
                       {b.prazo_desejado && <div className="mt-0.5 text-[11.5px] text-[#3D2314]/50">prazo desejado {b.prazo_desejado.split('-').reverse().join('/')}</div>}
                     </div>
                     <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${st.cls}`}>{st.l}</span>
-                    <button onClick={() => abrir(b)} className="rounded-xl border border-[#3D2314]/15 px-3 py-1.5 text-[12.5px] font-medium" data-testid="briefing-abrir">Abrir</button>
+                    <span className="inline-flex items-center"><button onClick={() => abrir(b)} className="rounded-xl border border-[#3D2314]/15 px-3 py-1.5 text-[12.5px] font-medium" data-testid="briefing-abrir">Abrir</button><AjudaCampo chave="pm.briefing.abrir" /></span>
                     {b.fee_id
                       ? <span className="inline-flex items-center"><button disabled={busy} onClick={() => void planejarMes(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#C8941A] px-3 py-1.5 text-[12.5px] font-medium text-[#6B4A0E] disabled:opacity-40" data-testid="briefing-planejar">Planejar o mês <ArrowRight size={14} /></button><AjudaCampo chave="pm.fee.planejar" /></span>
                       : b.status !== 'virou_job'
-                      ? <button disabled={busy} onClick={() => void virarJob(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#2F5A1F] px-3 py-1.5 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="briefing-virar-job">Virar job <ArrowRight size={14} /></button>
+                      ? <span className="inline-flex items-center"><button disabled={busy} onClick={() => void virarJob(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#2F5A1F] px-3 py-1.5 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="briefing-virar-job">Virar job <ArrowRight size={14} /></button><AjudaCampo chave="pm.briefing.virar_job" /></span>
                       : <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#2F5A1F]"><CheckCircle2 size={14} /> em produção</span>}
                     <span className="inline-flex items-center">
                       <button disabled={busy} onClick={() => void excluir(b)} title="Excluir briefing" aria-label="Excluir briefing" className="inline-flex items-center gap-1 rounded-xl border border-[#8A2B2B]/30 px-3 py-1.5 text-[12.5px] font-medium text-[#8A2B2B] disabled:opacity-40" data-testid="briefing-excluir"><Trash2 size={14} /> Excluir</button>
