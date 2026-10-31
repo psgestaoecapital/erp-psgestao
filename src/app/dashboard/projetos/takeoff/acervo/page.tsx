@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, FileText, CheckCircle2, Loader2, UploadCloud, Search } from 'lucide-react'
+import { ArrowLeft, FileText, CheckCircle2, Loader2, UploadCloud, Search, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -77,6 +77,21 @@ export default function AcervoTakeoffPage() {
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<'todas' | Estado>('todas')
   const [pagina, setPagina] = useState(1)
+  const [excluindo, setExcluindo] = useState<string | null>(null)
+
+  // Excluir planta do acervo: exclusão rastreável (soft-delete + quem + motivo + audit_log) pela RPC
+  // fn_takeoff_planta_excluir, que também barra planta já confirmada (virou orçamento). A lista já filtra
+  // deleted_at IS NULL, então basta remover o item localmente ao confirmar.
+  const excluir = async (p: PlantaAcervo) => {
+    const motivo = window.prompt(`Excluir a planta "${p.nome}"? Ela vai para a lixeira e fica auditável (quem, quando e por quê). Informe o motivo da exclusão:`)
+    if (motivo === null) return
+    if (motivo.trim().length < 3) { setErro('Informe o motivo da exclusão (mínimo 3 letras).'); return }
+    setExcluindo(p.id); setErro(null)
+    const { error } = await supabase.rpc('fn_takeoff_planta_excluir', { p_planta_id: p.id, p_motivo: motivo.trim() })
+    setExcluindo(null)
+    if (error) { setErro(error.message); return }
+    setPlantas((prev) => prev.filter((x) => x.id !== p.id))
+  }
 
   useEffect(() => {
     if (!companyId) return
@@ -203,45 +218,55 @@ export default function AcervoTakeoffPage() {
             const nLayers = Array.isArray(p.aps_diagnostico?.layers) ? p.aps_diagnostico!.layers!.length : null
             const nViews = p.aps_diagnostico?.total_views
             return (
-              <Link
-                key={p.id}
-                href={`/dashboard/projetos/takeoff?planta_id=${p.id}`}
-                style={{
-                  background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12,
-                  padding: 14, textDecoration: 'none', display: 'flex', gap: 12, alignItems: 'flex-start',
-                }}
-              >
-                <div style={{
-                  width: 36, height: 36, borderRadius: 8, background: cor.bg,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: cor.fg, flexShrink: 0,
-                }}>
-                  {feito ? <CheckCircle2 size={18} /> : est === 'processando' ? <Loader2 size={18} /> : <FileText size={18} />}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, color: ESP, fontWeight: 600 }}>
-                    <FileText size={12} style={{ verticalAlign: '-2px', marginRight: 6, color: GOLD }} />
-                    {p.nome}
+              <div key={p.id} style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 12, opacity: excluindo === p.id ? 0.5 : 1 }}>
+                <Link
+                  href={`/dashboard/projetos/takeoff?planta_id=${p.id}`}
+                  style={{ padding: 14, textDecoration: 'none', display: 'flex', gap: 12, alignItems: 'flex-start' }}
+                >
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 8, background: cor.bg,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: cor.fg, flexShrink: 0,
+                  }}>
+                    {feito ? <CheckCircle2 size={18} /> : est === 'processando' ? <Loader2 size={18} /> : <FileText size={18} />}
                   </div>
-                  <div style={{ fontSize: 11, color: ESP60, marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    <span>{ROTULO[est]}{dt ? ` · ${new Date(dt).toLocaleString('pt-BR')}` : ''}</span>
-                    {p.arquivo_tipo && <span>· {p.arquivo_tipo.toUpperCase()}</span>}
-                    {nObj !== undefined && <span>· {nObj} objetos</span>}
-                    {nLayers !== null && <span>· {nLayers} layers</span>}
-                    {nViews !== undefined && <span>· {nViews} views</span>}
-                    {p.orcamento_id && <span>· tem orçamento</span>}
-                  </div>
-                  {(p.projeto_nome || p.cliente_nome) && (
-                    <div style={{ fontSize: 11, color: ESP60, marginTop: 2 }}>
-                      {p.projeto_nome && <span>{p.projeto_nome}</span>}
-                      {p.projeto_nome && p.cliente_nome && <span> · </span>}
-                      {p.cliente_nome && <span>{p.cliente_nome}</span>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, color: ESP, fontWeight: 600 }}>
+                      <FileText size={12} style={{ verticalAlign: '-2px', marginRight: 6, color: GOLD }} />
+                      {p.nome}
                     </div>
-                  )}
+                    <div style={{ fontSize: 11, color: ESP60, marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <span>{ROTULO[est]}{dt ? ` · ${new Date(dt).toLocaleString('pt-BR')}` : ''}</span>
+                      {p.arquivo_tipo && <span>· {p.arquivo_tipo.toUpperCase()}</span>}
+                      {nObj !== undefined && <span>· {nObj} objetos</span>}
+                      {nLayers !== null && <span>· {nLayers} layers</span>}
+                      {nViews !== undefined && <span>· {nViews} views</span>}
+                      {p.orcamento_id && <span>· tem orçamento</span>}
+                    </div>
+                    {(p.projeto_nome || p.cliente_nome) && (
+                      <div style={{ fontSize: 11, color: ESP60, marginTop: 2 }}>
+                        {p.projeto_nome && <span>{p.projeto_nome}</span>}
+                        {p.projeto_nome && p.cliente_nome && <span> · </span>}
+                        {p.cliente_nome && <span>{p.cliente_nome}</span>}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10, color: cor.fg, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    {ROTULO[est]}
+                  </div>
+                </Link>
+                <div style={{ borderTop: `0.5px solid ${LINE}`, padding: '7px 14px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 2 }}>
+                  <button
+                    type="button"
+                    disabled={excluindo === p.id}
+                    onClick={() => void excluir(p)}
+                    data-testid="acervo-excluir"
+                    style={{ background: 'transparent', border: 'none', color: '#B91C1C', fontSize: 12, fontWeight: 600, cursor: excluindo === p.id ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, minHeight: 32 }}
+                  >
+                    <Trash2 size={13} /> {excluindo === p.id ? 'Excluindo…' : 'Excluir'}
+                  </button>
+                  <AjudaCampo chave="hub.takeoff.acervo.excluir" />
                 </div>
-                <div style={{ fontSize: 10, color: cor.fg, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-                  {ROTULO[est]}
-                </div>
-              </Link>
+              </div>
             )
           })}
         </div>
