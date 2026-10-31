@@ -50,8 +50,10 @@ export default function HubComercialPage() {
     void (async () => {
       setLoading(true); setErro(null)
       const [l, p, c, ct, fe] = await Promise.all([
-        supabase.from('agency_leads').select('etapa, valor_estimado').eq('company_id', empresa),
-        supabase.from('agency_propostas').select('status, valor_final').eq('company_id', empresa),
+        // RD-98 pilar 1 (falso-dado): ignora registros soft-deletados. Sem o filtro, KPIs/funil contavam
+        // leads/propostas excluídos (ex.: 3270 leads com só 8 vivos, 910 propostas com só 3 vivas na DEMO).
+        supabase.from('agency_leads').select('etapa, valor_estimado').eq('company_id', empresa).is('deleted_at', null),
+        supabase.from('agency_propostas').select('status, valor_final').eq('company_id', empresa).is('deleted_at', null),
         supabase.from('agency_comissao').select('status, valor_comissao').eq('company_id', empresa),
         supabase.from('agency_contratos').select('data_inicio, tipo, fee_mensal, valor_projeto').eq('company_id', empresa).eq('status', 'ativo'),
         supabase.rpc('fn_funil_etapas_listar', { p_company_id: empresa, p_tipo_funil: TIPO_FUNIL }),
@@ -107,9 +109,10 @@ export default function HubComercialPage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Hub Comercial</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Pipeline, propostas, comissão e novos contratos — num lugar só.</p>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Link href="/dashboard/pm/leads" style={btnGhost}>+ Novo lead</Link>
-            <Link href="/dashboard/pm/propostas" style={btnPri}>+ Nova proposta</Link>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* "?" (RD-95) fica FORA do <Link> (botão dentro de <a> é aninhamento inválido). */}
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}><Link href="/dashboard/pm/leads" style={btnGhost}>+ Novo lead</Link><AjudaCampo chave="pm.comercial.btn_novo_lead" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}><Link href="/dashboard/pm/propostas" style={btnPri}>+ Nova proposta</Link><AjudaCampo chave="pm.comercial.btn_nova_proposta" /></span>
           </div>
         </header>
 
