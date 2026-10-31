@@ -20,7 +20,7 @@ type RankRow = { responsavel_id: string | null; responsavel_nome: string; oportu
 type Perda = { motivo: string; qtd: number; valor: number }
 type Resp = { gestor: boolean; de: string; ate: string; vendedor: string | null; resumo: Resumo; funil: FunilEtapa[]; ranking: RankRow[] | null; perdas: Perda[]; velocidade_dias: number | null; erro?: string }
 
-const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_feita: 'Visita', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
+const ETAPA_LABEL: Record<string, string> = { prospeccao: 'Prospecção', visita_agendada: 'Visita agendada', visita_feita: 'Visita feita', orcando: 'Orçando', proposta_enviada: 'Proposta', negociacao: 'Negociação', ganho: 'Ganho', perdido: 'Perdido' }
 const corConversao = (v: number | null) => (v == null ? MUT : v >= 40 ? VERDE : v >= 20 ? AMBAR : VERM)
 const rotConversao = (v: number | null) => (v == null ? '—' : v >= 40 ? 'alta' : v >= 20 ? 'média' : 'baixa')
 
@@ -44,6 +44,7 @@ export default function DesempenhoComercialPage() {
   // Abertura sem clique (RD-98): se o mês corrente não tem nada fechado, a 1ª carga já escolhe o menor período
   // maior com dado (trimestre → ano → 12 meses) e avisa. Roda uma vez por abertura da tela.
   const autoFeito = useRef(false)
+  const seq = useRef(0) // só a última chamada pinta: respostas atrasadas (companyIds muda após o 1º render) não zeram a tela
   const [nota, setNota] = useState('')
 
   const buscar = useCallback(async (de: string, ate: string) => {
@@ -53,13 +54,14 @@ export default function DesempenhoComercialPage() {
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
+    const meu = ++seq.current
     setLoading(true); setErro('')
     const { r: r0, error } = await buscar(range.de, range.ate)
+    if (meu !== seq.current) return
     if (error) { setLoading(false); setErro(error.message); return }
     if (r0?.erro) { setLoading(false); setErro(r0.erro === 'sem_acesso' ? 'Sem acesso.' : r0.erro); return }
     const fechados = (x: Resp | null) => (x?.resumo?.ganhas_qtd ?? 0) + (x?.resumo?.perdidas_qtd ?? 0)
     if (!autoFeito.current && periodo === 'mes') {
-      autoFeito.current = true
       if (fechados(r0) === 0) {
         const h = new Date(), h12 = new Date(h); h12.setFullYear(h.getFullYear() - 1)
         const cands: [string, string, { de: string; ate: string }][] = [
@@ -67,14 +69,17 @@ export default function DesempenhoComercialPage() {
         ]
         for (const [per, rot, rg] of cands) {
           const { r } = await buscar(rg.de, rg.ate)
+          if (meu !== seq.current) return
           if (r && !r.erro && fechados(r) > 0) {
             setNota(`Mostrando ${rot} (${dataBR(rg.de)} a ${dataBR(rg.ate)}) porque o mês atual ainda não tem vendas fechadas.`)
+            autoFeito.current = true
             setPeriodo(per); setRange(rg); setData(r); setLoading(false)
             return
           }
         }
       }
     }
+    autoFeito.current = true
     setLoading(false)
     setData(r0)
   }, [companyIds, range, periodo, buscar])
