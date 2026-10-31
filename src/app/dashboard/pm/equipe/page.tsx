@@ -104,8 +104,8 @@ export default function EquipePage() {
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Membros ativos" v={String(kpis.total)} />
-          <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} />
+          <Kpi l="Membros ativos" v={String(kpis.total)} ajuda="pm.equipe.kpi_membros_ativos" />
+          <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} ajuda="pm.equipe.kpi_custo_medio" />
         </div>
 
         <CargaEquipe empresa={empresa} versao={versao} />
@@ -179,10 +179,10 @@ export default function EquipePage() {
   )
 }
 
-function Kpi({ l, v }: { l: string; v: string }) {
+function Kpi({ l, v, ajuda }: { l: string; v: string; ajuda: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center' }}>{l}<AjudaCampo chave={ajuda} /></div>
       <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
     </div>
   )
