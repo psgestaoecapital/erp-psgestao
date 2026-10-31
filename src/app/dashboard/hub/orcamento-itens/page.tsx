@@ -113,10 +113,13 @@ export default function OrcamentoItensPage() {
     <main className="mx-auto max-w-4xl p-4 md:p-8" data-testid="hub-orcamento-itens">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-semibold text-[#C8941A]">Itens do orçamento</h1>
-        <Link href="/dashboard/orcamentos" data-testid="orc-novo-orcamento"
-          className="inline-flex items-center gap-1 rounded-lg border border-[#3D2314] px-3 py-1.5 text-[14px] text-[#3D2314] hover:bg-[#3D2314] hover:text-white">
-          Novo orçamento <AjudaCampo chave="hub.orcamento_itens.novo_orcamento" rota={ROTA} />
-        </Link>
+        <span className="inline-flex items-center gap-1">
+          <Link href="/dashboard/orcamentos" data-testid="orc-novo-orcamento"
+            className="inline-flex items-center gap-1 rounded-lg border border-[#3D2314] px-3 py-1.5 text-[14px] text-[#3D2314] hover:bg-[#3D2314] hover:text-white">
+            Novo orçamento
+          </Link>
+          <AjudaCampo chave="hub.orcamento_itens.novo_orcamento" rota={ROTA} />
+        </span>
       </div>
       <label className={`${lbl} mt-4`}>
         <span className="flex items-center gap-1">Orçamento <AjudaCampo chave="hub.orcamento_itens.orcamento" rota={ROTA} /></span>
