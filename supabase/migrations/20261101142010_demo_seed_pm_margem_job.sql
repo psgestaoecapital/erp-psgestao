@@ -160,6 +160,10 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
 
+-- Espelha a ACL viva de fn_demo_reset (só service_role; anon/authenticated/PUBLIC já sem EXECUTE) para o gate check_fn_guards.
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_demo_reset(uuid) TO service_role;
+
 -- Irriga a DEMO P&M agora (idempotente), para o auditor reauditar logo após o deploy-migrations.
 DO $$
 BEGIN
