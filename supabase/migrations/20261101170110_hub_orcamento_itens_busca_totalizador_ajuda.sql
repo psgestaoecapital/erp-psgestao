@@ -26,5 +26,6 @@ VALUES
    'Nada a preencher: é um atalho.',
    'Abre a tela de Orçamentos para criar um orçamento novo. Depois de criado, ele aparece no seletor do topo desta tela para você lançar os itens.',
    'Sem orçamento ainda nesta empresa? Toque em "Novo orçamento", crie o orçamento e volte para lançar os itens.',
+   'O orçamento novo só aparece no seletor depois de salvo: se não o vir, recarregue a tela.',
    22, '/dashboard/hub/orcamento-itens', 'hub', 'publicado')
 ON CONFLICT (chave) DO NOTHING;
