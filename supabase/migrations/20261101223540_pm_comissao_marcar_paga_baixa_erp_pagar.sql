@@ -52,3 +52,8 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'valor', COALESCE(v_c.valor_comissao, 0), 'pagar_baixado', v_pagar_baixado);
 END $function$;
+
+-- Guarda de função (RD-52 / check-fn-guards): SECURITY DEFINER acessível só a quem está logado.
+-- CREATE OR REPLACE preserva grants, mas a régua exige o REVOKE anon explícito na migration nova.
+REVOKE EXECUTE ON FUNCTION public.fn_agency_comissao_marcar_paga(uuid) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_agency_comissao_marcar_paga(uuid) TO authenticated;
