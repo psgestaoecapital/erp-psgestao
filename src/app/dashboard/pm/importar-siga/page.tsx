@@ -4,10 +4,10 @@
 // antigos), quantos ficam de fora e por quê; o banco confere de novo (já existe, cliente e responsável não achados);
 // 4) importar. Nada é gravado sem a prévia; rodar de novo não duplica. Todo campo tem o "?".
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import * as XLSX from "xlsx";
-import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft, History } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -15,6 +15,7 @@ import { CAMPOS, MOTIVO_TEXTO, adivinharMapa, ehCsv, selecionar, textoCsv, type 
 
 type Conferencia = { ok: boolean; erro?: string; mensagem?: string; total: number; novos: number; ja_existem: number; gravados: number;
   clientes_nao_encontrados: string[] | null; responsaveis_nao_encontrados: string[] | null; pecas_nao_encontradas: string[] | null };
+type ImportHist = { id: string; criado_em: string; arquivo: string | null; total: number; novos: number; ja_existem: number; gravados: number };
 const card = "rounded-2xl border border-[#3D2314]/10 bg-white p-4";
 const hojeSP = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 
@@ -29,6 +30,16 @@ export default function ImportarSigaPage() {
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [feito, setFeito] = useState<number | null>(null);
+  const [historico, setHistorico] = useState<ImportHist[]>([]);
+
+  const carregarHistorico = useCallback(async () => {
+    if (!empresa) { setHistorico([]); return; }
+    const { data } = await supabase.from("agency_siga_importacao")
+      .select("id, criado_em, arquivo, total, novos, ja_existem, gravados")
+      .eq("company_id", empresa).order("criado_em", { ascending: false }).limit(20);
+    setHistorico((data ?? []) as ImportHist[]);
+  }, [empresa]);
+  useEffect(() => { void carregarHistorico(); }, [carregarHistorico]);
 
   async function ler(f: File) {
     setErro(null); setConf(null); setFeito(null);
@@ -64,7 +75,15 @@ export default function ImportarSigaPage() {
     const r = data as Conferencia | null;
     if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível conferir."); return; }
     setConf(r);
-    if (gravar) setFeito(r.gravados);
+    if (gravar) {
+      setFeito(r.gravados);
+      // Histórico com rastro (RD-98): registra a importação concluída (RLS por empresa; criado_por = auth.uid()).
+      await supabase.from("agency_siga_importacao").insert({
+        company_id: empresa, arquivo: arquivo || null,
+        total: r.total, novos: r.novos, ja_existem: r.ja_existem, gravados: r.gravados,
+      });
+      void carregarHistorico();
+    }
   }
 
   if (!empresa) return <div className="p-6 text-[13px] text-[#3D2314]/70">Escolha uma empresa no seletor.</div>;
@@ -142,9 +161,34 @@ export default function ImportarSigaPage() {
             )}
             <div className="mt-3 flex flex-wrap gap-2">
               <button className="rounded-xl border border-[#3D2314]/15 bg-white px-4 py-2 text-[13px] disabled:opacity-40" disabled={ocupado || !sel.entra.length} onClick={() => void chamar(false)} data-testid="siga-conferir">Conferir no sistema</button>
-              <button className="rounded-xl bg-[#3D2314] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-40" disabled={ocupado || !conf || !conf.novos || feito != null} onClick={() => void chamar(true)} data-testid="siga-importar">
-                {conf ? `Importar ${conf.novos} job(s)` : "Importar"}
-              </button>
+              <span className="inline-flex items-center">
+                <button className="rounded-xl bg-[#3D2314] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-40" disabled={ocupado || !conf || !conf.novos || feito != null} onClick={() => void chamar(true)} data-testid="siga-importar">
+                  {conf ? `Importar ${conf.novos} job(s)` : "Importar"}
+                </button>
+                <AjudaCampo chave="pm.siga.importar" />
+              </span>
+            </div>
+          </section>
+        )}
+
+        {!!historico.length && (
+          <section className={card} data-testid="siga-historico">
+            <div className="mb-2 flex items-center text-[12px] font-semibold"><History size={14} className="mr-1" /> Histórico de importações<AjudaCampo chave="pm.siga.historico" /></div>
+            <div className="overflow-x-auto rounded-xl border border-[#3D2314]/10">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-[#FAF7F2] text-left text-[11px] uppercase tracking-wider text-[#3D2314]/55"><tr><th className="px-2 py-1.5">Quando</th><th className="px-2">Arquivo</th><th className="px-2">Conferidos</th><th className="px-2">Já existiam</th><th className="px-2">Importados</th></tr></thead>
+                <tbody>
+                  {historico.map((h) => (
+                    <tr key={h.id} className="border-t border-[#3D2314]/6" data-testid="siga-hist-item">
+                      <td className="px-2 py-1">{new Date(h.criado_em).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
+                      <td className="px-2">{h.arquivo ?? "—"}</td>
+                      <td className="px-2">{h.total}</td>
+                      <td className="px-2">{h.ja_existem}</td>
+                      <td className="px-2 font-medium text-[#2F5A1F]">{h.gravados}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </section>
         )}
