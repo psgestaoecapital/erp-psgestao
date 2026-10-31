@@ -89,7 +89,8 @@ export default function InstalarApp({
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 16 }
 
   return (
-    <div style={{ background: BG, minHeight: '100%', color: ESP }} className="p-4 sm:p-6">
+    <div style={{ background: BG, minHeight: '100%', color: ESP }} className="p-4 sm:p-6 pb-28 sm:pb-10" data-testid="instalar-app">
+      {/* pb-28: no celular a barra inferior do app cobria o fim da página (instruções/versão cortadas) */}
       <div className="max-w-2xl mx-auto space-y-5">
         <header>
           <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: GOLD }}>📲 PS Gestão · App</div>
@@ -122,7 +123,7 @@ export default function InstalarApp({
         {/* QR */}
         <section style={card} className="p-5 flex flex-col items-center text-center">
           {qr
-            ? <img src={qr} alt="QR Code do app" width={220} height={220} style={{ width: 220, height: 220 }} />
+            ? <img src={qr} alt={`QR Code que abre ${APP_URL}`} data-testid="instalar-app-qr" width={220} height={220} style={{ width: 220, height: 220 }} />
             : <div style={{ width: 220, height: 220, background: BG, borderRadius: 12 }} />}
           <div className="text-sm font-semibold mt-3 flex items-center gap-1" style={{ color: ESP }}>
             Aponte a câmera do celular{ajuda && <AjudaCampo chave={ajuda.qr} />}
