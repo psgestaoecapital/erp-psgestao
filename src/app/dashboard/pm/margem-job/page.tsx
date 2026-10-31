@@ -13,6 +13,9 @@ import { carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const YELLOW = '#7A5A0F'; const RED = '#7A1F1F'
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+// Perda maior que o próprio valor do job (margem <= -100%) vira rótulo "Prejuízo" em vez de um
+// número extremo tipo -2042% (auditoria P&M 31/10). O lucro em R$ (negativo) segue mostrado ao lado.
+const fmtMargem = (m: number) => (m <= -100 ? 'Prejuízo' : `${m.toFixed(1)}%`)
 
 type Job = { id: string; titulo: string; numero: string | null; valor_job: number | null; custo_estimado: number | null; status: string; cliente_id: string | null; servico_id: string | null; fee_id: string | null; contrato_id: string | null }
 type Nome = { id: string; nome: string }
@@ -151,7 +154,7 @@ export default function MargemJobPage() {
                           <Td>{brl(g.valor)}</Td>
                           <Td>{brl(g.custo)}</Td>
                           <Td style={{ color: g.lucro >= 0 ? GREEN : RED, fontWeight: 700 }}>{brl(g.lucro)}</Td>
-                          <Td><span style={{ fontWeight: 700, color: tom }}>● {g.margem.toFixed(1)}%</span></Td>
+                          <Td><span style={{ fontWeight: 700, color: tom }}>● {fmtMargem(g.margem)}</span></Td>
                         </>)}
                       </tr>
                     )
@@ -172,7 +175,7 @@ export default function MargemJobPage() {
                       {l.situacao === 'ok' ? (<>
                         <Td>{brl(l.custo)}{l.estimado && <span style={{ fontSize: 10, color: TEXTM }}> (est.)</span>}</Td>
                         <Td style={{ color: (l.lucro ?? 0) >= 0 ? GREEN : RED, fontWeight: 700 }}>{brl(l.lucro ?? 0)}</Td>
-                        <Td><span style={{ fontWeight: 700, color: l.tom }}>● {(l.margem ?? 0).toFixed(1)}%</span></Td>
+                        <Td><span style={{ fontWeight: 700, color: l.tom }}>● {fmtMargem(l.margem ?? 0)}</span></Td>
                       </>) : l.situacao === 'sem_custo_hora' ? (
                         <Td colSpan={3} style={{ color: YELLOW }}>
                           <a href={ROTA_CUSTO_HORA} style={{ color: YELLOW, fontWeight: 700 }}>Cadastre o custo da hora da equipe</a>
