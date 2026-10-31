@@ -6,7 +6,7 @@
 // 48h → 930 análises pagas, ~US$75/US$150 do mês), porque o disparo real aciona a IA (fn_auditor_disparar). NENHUM teste
 // pode consumir API paga. Agora valida o conserto em DRY-RUN (p_dry_run): a troca de empresa e a rota são conferidas sem
 // acionar a IA e sem gravar resultado (zero custo, request_id_insight jamais criado). Depende da migration do dry-run
-// (20261101170335) e da 20261001230000 → @pos-migration.
+// (auditor_matriz_disparar_dry_run) e da de base do auditor → @pos-migration.
 
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, registrarJornada, rpc } from '../../support/api'
