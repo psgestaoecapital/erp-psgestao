@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { Receipt } from 'lucide-react'
 
 const ESPRESSO = '#3D2314'
@@ -380,10 +381,10 @@ export default function PropostasPage() {
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Propostas" v={String(kpis.total)} />
-          <Kpi l="Pendentes" v={String(kpis.pendentes)} />
-          <Kpi l="Aprovadas" v={String(kpis.aprovadas)} />
-          <Kpi l="Valor aprovado" v={brl(kpis.valorAprovado)} />
+          <Kpi l="Propostas" v={String(kpis.total)} chave="pm.propostas.kpi_total" />
+          <Kpi l="Pendentes" v={String(kpis.pendentes)} chave="pm.propostas.kpi_pendentes" />
+          <Kpi l="Aprovadas" v={String(kpis.aprovadas)} chave="pm.propostas.kpi_aprovadas" />
+          <Kpi l="Valor aprovado" v={brl(kpis.valorAprovado)} chave="pm.propostas.kpi_valor_aprovado" />
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
@@ -454,10 +455,10 @@ export default function PropostasPage() {
 
             <ClienteField value={fCliente} onChange={(id) => setFCliente(id)} empresa={empresa} setToast={setToast} nomeLead={fLeadNome} />
 
-            <label style={lbl}>Título *<input style={inp} value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder="Ex.: Gestão de redes + tráfego" /></label>
+            <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Título *<AjudaCampo chave="pm.propostas.titulo" /></span><input style={inp} value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder="Ex.: Gestão de redes + tráfego" /></label>
 
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Itens do orçamento</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Itens do orçamento<AjudaCampo chave="pm.propostas.itens" /></span>
               <div style={{ display: 'flex', gap: 6 }}>
                 {catalogo.length > 0 && <button onClick={() => { setCatSel(new Set()); setCatBusca(''); setCatOpen(true) }} style={btnGanhar}>+ Do catálogo</button>}
                 <button onClick={addItem} style={btnSec}>+ Item avulso</button>
@@ -554,8 +555,8 @@ export default function PropostasPage() {
             })()}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
-              <label style={lbl}>Desconto (R$)<input style={inp} type="number" min={0} step="0.01" value={fDesconto} onChange={(e) => setFDesconto(e.target.value)} placeholder="0" /></label>
-              <label style={lbl}>Condição
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Desconto (R$)<AjudaCampo chave="pm.propostas.desconto" /></span><input style={inp} type="number" min={0} step="0.01" value={fDesconto} onChange={(e) => setFDesconto(e.target.value)} placeholder="0" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Condição<AjudaCampo chave="pm.propostas.condicao" /></span>
                 <select style={inp} value={fCondicao} onChange={(e) => setFCondicao(e.target.value)}>
                   <option>Mensal</option><option>Projeto (à vista)</option><option>Projeto (parcelado)</option>
                 </select>
@@ -569,7 +570,7 @@ export default function PropostasPage() {
               <Row l="Valor final" v={brl(valorFinal)} big />
             </div>
 
-            <label style={lbl}>Observações<textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={fObs} onChange={(e) => setFObs(e.target.value)} /></label>
+            <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Observações<AjudaCampo chave="pm.propostas.observacoes" /></span><textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={fObs} onChange={(e) => setFObs(e.target.value)} /></label>
 
             {/* ANEXO-1/2 · anexos com descrição. Proposta nova (editId null) → modo staging (anexa antes de salvar). */}
             {empresa && <AnexosCard ref={anexosRef} companyId={empresa} vinculoTipo="proposta" vinculoId={editId} />}
@@ -592,9 +593,9 @@ export default function PropostasPage() {
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0' }}>Contrato (fee recorrente)</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <label style={lbl}>Fee mensal (R$)<input style={inp} type="number" value={aprForm.fee} onChange={(e) => setAprForm({ ...aprForm, fee: e.target.value })} placeholder="0 = sem contrato" /></label>
-              <label style={lbl}>Dia venc.<input style={inp} type="number" min={1} max={28} value={aprForm.dia} onChange={(e) => setAprForm({ ...aprForm, dia: e.target.value })} /></label>
-              <label style={lbl}>Periodicidade
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fee mensal (R$)<AjudaCampo chave="pm.propostas.fee" /></span><input style={inp} type="number" value={aprForm.fee} onChange={(e) => setAprForm({ ...aprForm, fee: e.target.value })} placeholder="0 = sem contrato" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Dia venc.<AjudaCampo chave="pm.propostas.dia_venc" /></span><input style={inp} type="number" min={1} max={28} value={aprForm.dia} onChange={(e) => setAprForm({ ...aprForm, dia: e.target.value })} /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Periodicidade<AjudaCampo chave="pm.propostas.periodicidade" /></span>
                 <select style={inp} value={aprForm.periodicidade} onChange={(e) => setAprForm({ ...aprForm, periodicidade: e.target.value })}>
                   <option value="mensal">Mensal</option><option value="trimestral">Trimestral</option><option value="anual">Anual</option>
                 </select>
@@ -603,13 +604,13 @@ export default function PropostasPage() {
             <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Fee 0 → aprova sem contrato recorrente (ex.: projeto avulso). A comissão ainda é gerada.</div>
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px' }}>Comissão do comercial</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <label style={lbl}>Percentual (%)<input style={inp} type="number" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
-              <label style={lbl}>Base
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Percentual (%)<AjudaCampo chave="pm.propostas.comissao_pct" /></span><input style={inp} type="number" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Base<AjudaCampo chave="pm.propostas.comissao_base" /></span>
                 <select style={inp} value={aprForm.comBase} onChange={(e) => setAprForm({ ...aprForm, comBase: e.target.value })}>
                   <option value="fee">Fee mensal</option><option value="contrato">Valor da proposta</option>
                 </select>
               </label>
-              <label style={lbl}>Tipo
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Tipo<AjudaCampo chave="pm.propostas.comissao_tipo" /></span>
                 <select style={inp} value={aprForm.comTipo} onChange={(e) => setAprForm({ ...aprForm, comTipo: e.target.value })}>
                   <option value="unica">Única</option><option value="recorrente">Recorrente</option>
                 </select>
@@ -685,7 +686,7 @@ function ClienteField({ value, onChange, empresa, setToast, nomeLead }: {
 
   return (
     <div style={{ position: 'relative' }}>
-      <label style={lbl}>Cliente (cadastro GE)
+      <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cliente (cadastro GE)<AjudaCampo chave="pm.propostas.cliente" /></span>
         {value ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <div style={{ ...inp, flex: 1, display: 'flex', alignItems: 'center' }}>{nomeSel || 'Cliente selecionado'}</div>
@@ -738,10 +739,12 @@ function Row({ l, v, big }: { l: string; v: string; big?: boolean }) {
   )
 }
 
-function Kpi({ l, v }: { l: string; v: string }) {
+function Kpi({ l, v, chave }: { l: string; v: string; chave?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {l}{chave ? <AjudaCampo chave={chave} /> : null}
+      </div>
       <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
     </div>
   )
