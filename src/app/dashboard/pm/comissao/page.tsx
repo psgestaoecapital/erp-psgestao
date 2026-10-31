@@ -68,7 +68,13 @@ export default function ComissaoPage() {
     setToast('Comissão APROVADA → a pagar (lançada no financeiro).'); void carregar()
   }
   async function marcarPaga(c: Comissao) {
-    await supabase.from('agency_comissao').update({ status: 'paga' }).eq('id', c.id)
+    if (!confirm('Marcar esta comissão como PAGA? Fica registrado quem marcou e quando.')) return
+    setBusy(true)
+    // fn_agency_comissao_marcar_paga: RPC com guarda (empresa) + rastro (paga_em/paga_por + audit_log_global).
+    const { data, error } = await supabase.rpc('fn_agency_comissao_marcar_paga', { p_comissao_id: c.id })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
     setToast('Comissão marcada como PAGA.'); void carregar()
   }
 
@@ -114,7 +120,7 @@ export default function ComissaoPage() {
                         <Td><span style={{ fontSize: 11, fontWeight: 700, background: cfg.cor, padding: '2px 8px', borderRadius: 999 }}>{cfg.l}</span></Td>
                         <Td>
                           {c.status === 'prevista' && <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={() => aprovar(c)} style={btnOk}>Aprovar → a pagar</button><AjudaCampo chave="pm.comissao.acao_aprovar" rota={ROTA} /></span>}
-                          {c.status === 'a_pagar' && <span style={{ display: 'inline-flex', alignItems: 'center' }}><button onClick={() => marcarPaga(c)} style={btnOk}>Marcar paga</button><AjudaCampo chave="pm.comissao.acao_marcar_paga" rota={ROTA} /></span>}
+                          {c.status === 'a_pagar' && <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={() => marcarPaga(c)} style={btnOk}>Marcar paga</button><AjudaCampo chave="pm.comissao.acao_marcar_paga" rota={ROTA} /></span>}
                         </Td>
                       </tr>
                     )
