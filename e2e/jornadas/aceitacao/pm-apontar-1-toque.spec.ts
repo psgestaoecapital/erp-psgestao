@@ -24,7 +24,7 @@ test.describe('P&M — apontar horas em 1 toque', () => {
   })
 
   test('link com ?job= abre com o job e "+30 min" grava 0,5 h em 1 toque', { tag: '@pos-migration' }, async ({ page }) => {
-    const [job] = await dbSelect<{ id: string }>('agency_jobs', `company_id=eq.${DEMO_PM}&select=id&order=created_at.desc&limit=1`)
+    const [job] = await dbSelect<{ id: string }>('agency_jobs', `company_id=eq.${DEMO_PM}&excluido_em=is.null&select=id&order=created_at.desc&limit=1`)
     expect(job, 'a demo da Agência tem job').toBeTruthy()
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_PM)
     const antes = new Date(Date.now() - 5_000).toISOString()

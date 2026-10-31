@@ -8,7 +8,7 @@
 //    o job ligado (agency_jobs.briefing_id) mostra esse briefing formatado.
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { FileText, Plus, ArrowRight, CheckCircle2 } from 'lucide-react'
+import { FileText, Plus, ArrowRight, CheckCircle2, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -50,7 +50,8 @@ export default function BriefingsPage() {
   const carregar = async () => {
     if (!empresa) { setBriefings([]); setLoading(false); return }
     setLoading(true)
-    const { data } = await supabase.from('agency_briefings').select('*').eq('company_id', empresa).order('created_at', { ascending: false })
+    // Só briefings não excluídos (RD-98 p4: exclusão rastreável via soft-delete, filtra excluido_em IS NULL).
+    const { data } = await supabase.from('agency_briefings').select('*').eq('company_id', empresa).is('excluido_em', null).order('created_at', { ascending: false })
     const lista = (data ?? []) as Briefing[]
     setBriefings(lista)
     const ids = [...new Set(lista.map((b) => b.cliente_id).filter(Boolean))] as string[]
@@ -147,6 +148,17 @@ export default function BriefingsPage() {
     void carregar()
   }
 
+  async function excluir(b: Briefing) {
+    if (!empresa) return
+    if (!confirm(`Excluir o briefing "${b.titulo}"? Fica registrado quem excluiu e quando (reversível pela auditoria).`)) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_agency_briefing_excluir', { p_id: b.id })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setToast({ texto: `Não deu para excluir: ${error?.message ?? r?.erro ?? 'erro'}.` }); return }
+    setToast({ texto: 'Briefing excluído.' }); void carregar()
+  }
+
   if (!empresa) return <div className="min-h-screen bg-[#FAF7F2] p-8 text-[13px] text-[#3D2314]/70">Selecione uma empresa no topo.</div>
 
   return (
@@ -195,6 +207,10 @@ export default function BriefingsPage() {
                       : b.status !== 'virou_job'
                       ? <button disabled={busy} onClick={() => void virarJob(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#2F5A1F] px-3 py-1.5 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="briefing-virar-job">Virar job <ArrowRight size={14} /></button>
                       : <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#2F5A1F]"><CheckCircle2 size={14} /> em produção</span>}
+                    <span className="inline-flex items-center">
+                      <button disabled={busy} onClick={() => void excluir(b)} title="Excluir briefing" aria-label="Excluir briefing" className="inline-flex items-center gap-1 rounded-xl border border-[#8A2B2B]/30 px-3 py-1.5 text-[12.5px] font-medium text-[#8A2B2B] disabled:opacity-40" data-testid="briefing-excluir"><Trash2 size={14} /> Excluir</button>
+                      <AjudaCampo chave="pm.briefing.excluir" />
+                    </span>
                   </div>
                 )
               })}
