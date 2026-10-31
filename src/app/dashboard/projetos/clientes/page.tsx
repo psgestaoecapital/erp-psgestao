@@ -94,6 +94,7 @@ export default function ClientesPage() {
   const [ops, setOps] = useState<Oportunidade[]>([])
   const [props, setProps] = useState<PropostaCli[]>([])
   const [comercial, setComercial] = useState<Record<string, Comercial>>({})
+  const [orcSemItens, setOrcSemItens] = useState<Record<string, number>>({})
   const [etapa, setEtapa] = useState<Record<string, string>>({})
   const [cepMsg, setCepMsg] = useState<string | null>(null)
   const [docMsg, setDocMsg] = useState<string | null>(null)
@@ -145,6 +146,10 @@ export default function ClientesPage() {
     const orcL = (rOrc.data ?? []) as PropostaCli[]
     setOps(opsL); setProps(orcL); setEtapa(etapaPorCliente(opsL))
     setComercial(comercialPorCliente(opsL, orcL, (rVis.data ?? []) as { oportunidade_id: string | null }[]))
+    // Indicador "orçamento sem itens" por cliente (trava crítica do blueprint: orçamento sem item não tem custo/preço).
+    // Uma consulta agregada set-based por empresa (fn_clientes_orcamentos_sem_itens, SECURITY INVOKER — respeita RLS).
+    const { data: osi } = await supabase.rpc('fn_clientes_orcamentos_sem_itens', { p_company: empresaUnica })
+    setOrcSemItens(Object.fromEntries(((osi ?? []) as { cliente_id: string; sem_itens: number }[]).map((r) => [r.cliente_id, Number(r.sem_itens)])))
     setLoading(false)
   }, [empresaUnica])
 
@@ -341,6 +346,7 @@ export default function ClientesPage() {
             const tipo = tipoOf(c)
             const n = nObras[c.id] ?? 0
             const cm = comercial[c.id] ?? SEM_COMERCIAL
+            const semItens = orcSemItens[c.id] ?? 0
             const contato = [c.telefone || c.celular, c.email].filter(Boolean).join(' · ')
             const semObra = ganhasSemObra(cm.ganhas, n)
             const rc = resultado[c.id]
@@ -382,6 +388,7 @@ export default function ClientesPage() {
                   {cm.abertas > 0 && <span style={PILL_WRAP}><span title="Oportunidades em aberto e o valor delas" style={pilula(true)}>{cm.abertas === 1 ? '1 em aberto' : `${cm.abertas} em aberto`} · {brlCurto(cm.valorAberto)}</span><AjudaCampo chave="projetos.clientes.comercial.em_aberto" /></span>}
                   {cm.ganhas > 0 && <span style={PILL_WRAP}><span title="Oportunidades ganhas" style={pilula(true)}>{cm.ganhas === 1 ? '1 ganha' : `${cm.ganhas} ganhas`}</span><AjudaCampo chave="projetos.clientes.comercial.ganhas" /></span>}
                   <span style={PILL_WRAP}><span title="Propostas (orçamentos) do cliente" style={pilula(cm.propostas > 0)}>{cm.propostas === 1 ? '1 proposta' : `${cm.propostas} propostas`}</span><AjudaCampo chave="projetos.clientes.comercial.propostas" /></span>
+                  {semItens > 0 && <span style={PILL_WRAP}><span data-testid="hub-cliente-orc-sem-itens" title="Orçamentos do cliente ainda sem itens lançados — trava a jornada (sem item não há custo/preço). Abra Propostas para completar." style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: RED_BG, color: RED, whiteSpace: 'nowrap' }}>{semItens === 1 ? '1 orçamento sem itens' : `${semItens} orçamentos sem itens`}</span><AjudaCampo chave="projetos.clientes.comercial.orcamentos_sem_itens" /></span>}
                   {cm.visitas > 0 && <span style={PILL_WRAP}><span title="Visitas técnicas do cliente" style={pilula(true)}>{cm.visitas === 1 ? '1 visita' : `${cm.visitas} visitas`}</span><AjudaCampo chave="projetos.clientes.comercial.visitas" /></span>}
                   <span style={PILL_WRAP}><span title="Obras do cliente" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: n > 0 ? GREEN_BG : CREAM, color: n > 0 ? GREEN : MUT, whiteSpace: 'nowrap' }}>{n === 1 ? '1 obra' : `${n} obras`}</span><AjudaCampo chave="projetos.clientes.comercial.obras" /></span>
                   {semObra > 0 && <span style={PILL_WRAP}><span data-testid="hub-cliente-ganha-sem-obra" title="Venda ganha que ainda não virou obra — abra a obra no detalhe" style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: RED_BG, color: RED, whiteSpace: 'nowrap' }}>{semObra === 1 ? '1 ganha sem obra' : `${semObra} ganhas sem obra`}</span><AjudaCampo chave="projetos.clientes.comercial.ganhas_sem_obra" /></span>}
