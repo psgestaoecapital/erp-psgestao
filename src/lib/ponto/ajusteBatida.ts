@@ -42,12 +42,10 @@ export function linhaPausaDoc(p: PausaDoc, aj?: AjusteDia | null): LinhaDoc {
   }
   const de = p.de || '—'
   const as = ajusteDe(aj, p.de, 'saida'); const ar = ajusteDe(aj, p.ate, 'retorno')
-  if (as) notas.push(`saída ${p.de} ${rotuloAjuste(as)}`)
-  if (ar) notas.push(`retorno ${p.ate} ${rotuloAjuste(ar)}`)
-  if (aj && (as || ar)) {
-    const originais = [p.de, p.ate].filter((h): h is string => !!h && aj.originais.includes(h))
-    if (originais.length) notas.push(`original do relógio: ${originais.join(' e ')}`)
-  }
+  // #5712/#5686 (Frioeste/NR-36 · Karol): no relatório de ciência que o colaborador assina, a pausa ajustada
+  // mostra SÓ que houve ajuste na conferência — sem o dia/hora do ajuste, sem quem fez e sem o horário original
+  // do relógio. Esses detalhes continuam na Auditoria e no formulário de ajuste assinado que é anexado à parte.
+  if (as || ar) notas.push('horário ajustado na conferência')
   if (!p.ate) return { texto: `${de} → sem registro de retorno`, tom: 'alerta', sufixo: '', notas }
   switch (p.fim_origem) {
     case 'estimado': return { texto: `${de} → ~${p.ate}`, tom: 'estimado', sufixo: ' (estimado)', notas }

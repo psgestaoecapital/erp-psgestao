@@ -22,6 +22,9 @@ const VERM = '#B23B3B'
 const CARD: React.CSSProperties = { background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }
 const ROTA = '/dashboard/industrial/plano-acao'
 
+// Busca acento- e caixa-insensível (#5405): "Marcelo" acha "Márcelo/MARCELO".
+const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
 type Status = 'aberta' | 'em_andamento' | 'concluida' | 'cancelada'
 type Prioridade = 'alta' | 'media' | 'baixa'
 type Origem = 'reuniao' | 'indicador' | 'auditoria' | 'chamado' | 'outro'
@@ -153,7 +156,9 @@ export default function PlanoAcaoPage() {
   }, [planos])
 
   const filtrados = useMemo(() => {
-    const q = busca.trim().toLowerCase()
+    // #5405 (Frioeste): busca acento-insensível (ex.: "Marcelo" acha "Márcelo") e cobre todos os campos
+    // visíveis do cartão/tabela — antes só casava em campos ocultos e o resultado parecia "sem o nome em nenhuma célula".
+    const q = norm(busca.trim())
     return planos.filter((p) => {
       if (fStatus && p.status !== fStatus) return false
       if (fResp && (p.responsavel_nome?.trim() ?? '') !== fResp) return false
@@ -162,7 +167,7 @@ export default function PlanoAcaoPage() {
       if (fOrigem && p.origem !== fOrigem) return false
       if (soAtrasadas && !p.atrasada) return false
       if (q) {
-        const alvo = `${p.codigo} ${p.titulo} ${p.o_que ?? ''} ${p.responsavel_nome ?? ''}`.toLowerCase()
+        const alvo = norm(`${p.codigo} ${p.titulo} ${p.o_que ?? ''} ${p.responsavel_nome ?? ''} ${p.setor_nome ?? ''} ${p.onde ?? ''}`)
         if (!alvo.includes(q)) return false
       }
       return true
@@ -696,6 +701,9 @@ function CardAcao({ p, arrastando, onArrastar, onEditar, onStatus, onConcluir, o
         <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: PRIORIDADE_COR[p.prioridade], fontWeight: 700 }}>{PRIORIDADE_ROTULO[p.prioridade]}</span>
       </div>
       <button type="button" onClick={onEditar} style={{ all: 'unset', display: 'block', boxSizing: 'border-box', width: '100%', cursor: 'pointer', fontSize: 14, fontWeight: 600, color: ESP, lineHeight: 1.45, whiteSpace: 'normal', overflowWrap: 'anywhere', textAlign: 'left' }}>{p.titulo}</button>
+      {p.o_que && norm(p.o_que) !== norm(p.titulo) && (
+        <div style={{ fontSize: 12, lineHeight: 1.45, color: MUT, overflowWrap: 'anywhere' }}>{p.o_que}</div>
+      )}
       <div style={{ fontSize: 12, lineHeight: 1.5, color: MUT, display: 'flex', alignItems: 'center', gap: '2px 6px', flexWrap: 'wrap', overflowWrap: 'anywhere' }}>
         {(p.setor_nome || p.onde) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><MapPin size={12} strokeWidth={1.5} /> {p.setor_nome || p.onde} ·</span>}
         {p.responsavel_nome ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><User size={12} strokeWidth={1.5} /> {p.responsavel_nome}</span> : <span style={{ color: VERM }}>sem responsável</span>}
@@ -772,7 +780,10 @@ function TabelaAcoes({ planos, onEditar }: { planos: Plano[]; onEditar: (p: Plan
           {linhas.map((p) => (
             <tr key={p.id} data-testid="plano-linha" data-codigo={p.codigo} style={{ opacity: p.arquivada ? 0.6 : 1 }}>
               <td style={{ ...td, whiteSpace: 'nowrap', color: MUT, fontWeight: 600 }}>{p.codigo}</td>
-              <td style={td}><button type="button" onClick={() => onEditar(p)} style={{ all: 'unset', cursor: 'pointer', fontWeight: 600, color: ESP, lineHeight: 1.45 }}>{p.titulo}</button></td>
+              <td style={td}>
+                <button type="button" onClick={() => onEditar(p)} style={{ all: 'unset', cursor: 'pointer', fontWeight: 600, color: ESP, lineHeight: 1.45 }}>{p.titulo}</button>
+                {p.o_que && norm(p.o_que) !== norm(p.titulo) && <div style={{ fontSize: 12, color: MUT, lineHeight: 1.4, marginTop: 2 }}>{p.o_que}</div>}
+              </td>
               <td style={td}>{p.por_que || '—'}</td>
               <td style={td}>{p.responsavel_nome || <span style={{ color: VERM }}>sem responsável</span>}</td>
               <td style={td}>{p.setor_nome || p.onde || '—'}</td>
