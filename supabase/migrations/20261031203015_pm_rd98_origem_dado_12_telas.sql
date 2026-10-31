@@ -96,3 +96,19 @@ SET views_consumidas = ARRAY['agency_config_opcao','agency_equipe','agency_servi
 WHERE rota = '/dashboard/pm/servicos'
   AND coalesce(array_length(views_consumidas,1),0) = 0
   AND coalesce(array_length(rpcs_chamadas,1),0) = 0;
+
+-- /dashboard/pm/comissao
+UPDATE public.system_screens
+SET views_consumidas = ARRAY['agency_comissao','agency_jobs']::text[],
+    rpcs_chamadas    = ARRAY['fn_agency_comissao_aprovar']::text[],
+    atualizado_em    = now()
+WHERE rota = '/dashboard/pm/comissao'
+  AND coalesce(array_length(views_consumidas,1),0) = 0
+  AND coalesce(array_length(rpcs_chamadas,1),0) = 0;
+
+-- /dashboard/pm/importar-siga (só RPC — a tela importa via função, não lê view direto)
+UPDATE public.system_screens
+SET rpcs_chamadas    = ARRAY['fn_pm_importar_jobs_siga']::text[],
+    atualizado_em    = now()
+WHERE rota = '/dashboard/pm/importar-siga'
+  AND coalesce(array_length(rpcs_chamadas,1),0) = 0;
