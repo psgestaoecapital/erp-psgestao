@@ -3,6 +3,7 @@
 // Escopo por company_id (RD-45). Tema Espresso.
 // Capa real da entrega: usa a 1ª imagem de agency_jobs.arquivos quando houver (fallback para o ícone por tipo).
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -17,6 +18,14 @@ type Cli = { id: string; nome: string; nome_fantasia: string | null }
 
 const IMG_RE = /\.(png|jpe?g|webp|gif|svg|avif)(\?|#|$)/i
 const emojiTipo = (tipo: string | null) => (tipo === 'design' ? '🎨' : tipo === 'video' ? '🎬' : '📣')
+const rotuloTipo = (tipo: string | null) => (tipo === 'design' ? 'Design' : tipo === 'video' ? 'Vídeo' : 'Campanha')
+// Paleta da capa gerada por tipo (tema Espresso com acento próprio por tipo — design PS, RD-96).
+const capaTema = (tipo: string | null) =>
+  tipo === 'design' ? { a: '#4A2E63', b: '#7A4FA0', ac: '#ECDCFB' }
+  : tipo === 'video' ? { a: '#16324C', b: '#2E6AA6', ac: '#D4E7FB' }
+  : { a: '#3D2314', b: '#8A5A1E', ac: '#F3E2C2' }
+// Variação sutil do ângulo do gradiente por job (0..20), para dois cards do mesmo tipo não ficarem idênticos.
+function anguloJob(id: string): number { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 21; return 110 + h }
 // 1ª imagem anexada ao job (por extensão do nome ou da url); null quando não há.
 function capaDoJob(j: Job): string | null {
   const arr = Array.isArray(j.arquivos) ? j.arquivos : []
@@ -30,16 +39,25 @@ function capaDoJob(j: Job): string | null {
 function Capa({ job }: { job: Job }) {
   const [erro, setErro] = useState(false)
   const url = capaDoJob(job)
-  const base: CSSProperties = { height: 120, background: 'linear-gradient(135deg,#F2EBDF,#E7DED3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 34 }
+  const wrap: CSSProperties = { position: 'relative', height: 132, overflow: 'hidden' }
   if (url && !erro) {
     return (
-      <div style={base}>
+      <div style={wrap}>
         <img src={url} alt={`Capa da entrega: ${job.titulo}`} loading="lazy" referrerPolicy="no-referrer"
           onError={() => setErro(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
       </div>
     )
   }
-  return <div style={base} aria-label="Entrega sem imagem de capa; ícone por tipo" title="Sem imagem de capa">{emojiTipo(job.tipo)}</div>
+  // Capa gerada (sem imagem anexada): gradiente + ícone grande + selo do tipo — vitrine com cara boa já no DEMO.
+  const t = capaTema(job.tipo)
+  return (
+    <div style={{ ...wrap, background: `linear-gradient(${anguloJob(job.id)}deg, ${t.a}, ${t.b})` }}
+      aria-label={`Entrega sem imagem anexada — capa gerada (${rotuloTipo(job.tipo)})`} title="Capa gerada — anexe a imagem da entrega no job para usá-la aqui">
+      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 90% at 82% 14%, rgba(255,255,255,.20), transparent 55%)' }} />
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 46, textShadow: '0 2px 10px rgba(0,0,0,.28)' }}>{emojiTipo(job.tipo)}</div>
+      <span style={{ position: 'absolute', top: 8, left: 8, fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: t.a, background: t.ac, padding: '3px 8px', borderRadius: 999 }}>{rotuloTipo(job.tipo)}</span>
+    </div>
+  )
 }
 
 export default function PortfolioPage() {
@@ -84,20 +102,27 @@ export default function PortfolioPage() {
           : filtrados.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>Sem entregas publicadas ainda.</div>
           : (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '0 0 8px', fontSize: 12, color: TEXTM }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '0 0 8px', fontSize: 12, color: TEXTM, flexWrap: 'wrap' }}>
                 <span>{filtrados.length} {filtrados.length === 1 ? 'entrega' : 'entregas'}</span>
-                <AjudaCampo chave="pm.portfolio.card" />
+                <AjudaCampo chave="pm.portfolio.contador" />
+                <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  Prévia da entrega
+                  <AjudaCampo chave="pm.portfolio.capa" />
+                </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px,1fr))', gap: 12 }}>
                 {filtrados.map((j) => (
-                  <div key={j.id} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, overflow: 'hidden' }}>
+                  <Link key={j.id} href={`/dashboard/pm/pauta?job=${j.id}`} title={`Abrir o job: ${j.titulo}`}
+                    aria-label={`Abrir o job ${j.titulo}`}
+                    style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, overflow: 'hidden', display: 'block', color: 'inherit', textDecoration: 'none' }}>
                     <Capa job={j} />
                     <div style={{ padding: '10px 12px' }}>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{j.titulo}</div>
                       <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{nomeCli(j.cliente_id)}{j.valor_job ? ` · ${brl(Number(j.valor_job))}` : ''}</div>
                       {(j.data_entrega ?? j.data_prazo) && <div style={{ fontSize: 11, color: TEXTM, marginTop: 2 }}>publicado {j.data_entrega ?? j.data_prazo}</div>}
+                      <div style={{ fontSize: 11, color: DOURADO, fontWeight: 600, marginTop: 6 }}>Abrir job →</div>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </>

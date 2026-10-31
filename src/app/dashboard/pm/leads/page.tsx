@@ -473,6 +473,13 @@ export default function LeadsPage() {
               Nenhuma etapa configurada. <button onClick={() => setCfgOpen(true)} style={{ ...btnSec, display: 'inline-block', marginLeft: 6 }}>Configurar funil</button>
             </div>
           ) : (
+          <>
+          {/* RD-95: o quadro é dinâmico (colunas = etapas do funil) e os cards repetem as mesmas ações — o "?"
+              fica no cabeçalho do quadro (explica colunas e ações uma vez), em vez de poluir cada card (RD-99). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '0 2px 8px', fontSize: 11.5, color: TEXTM }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Colunas = etapas do funil<AjudaCampo chave="pm.leads.kanban_colunas" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Ações do card<AjudaCampo chave="pm.leads.kanban_acoes" /></span>
+          </div>
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
             {etapas.map((col) => {
               const items = filtrados.filter((l) => l.etapa === col.chave)
@@ -602,6 +609,7 @@ export default function LeadsPage() {
               )
             })}
           </div>
+          </>
         )}
       </div>
 

@@ -44,6 +44,7 @@ export interface Produto {
   estoque_minimo?: number | null
   estoque_maximo?: number | null
   prazo_entrega_dias?: number | null
+  fornecedor_padrao_nome?: string | null
   unidade_compra?: string | null
   fator_conversao?: number | null
   controla_lote?: boolean | null
@@ -92,6 +93,7 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
   const [estMin, setEstMin] = useState(base?.estoque_minimo != null ? String(base.estoque_minimo) : '')
   const [estMax, setEstMax] = useState(base?.estoque_maximo != null ? String(base.estoque_maximo) : '')
   const [prazoEntrega, setPrazoEntrega] = useState(base?.prazo_entrega_dias != null ? String(base.prazo_entrega_dias) : '')
+  const [fornecedorPadrao, setFornecedorPadrao] = useState(base?.fornecedor_padrao_nome ?? '')
   const [unidadeCompra, setUnidadeCompra] = useState(base?.unidade_compra ?? '')
   const [fatorConv, setFatorConv] = useState(base?.fator_conversao != null ? String(base.fator_conversao) : '')
   const [controlaLote, setControlaLote] = useState(!!base?.controla_lote)
@@ -165,6 +167,7 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
         estoque_minimo: numOuNulo(estMin),
         estoque_maximo: numOuNulo(estMax),
         prazo_entrega_dias: prazoEntrega.trim() === '' ? null : parseInt(prazoEntrega.replace(/\D/g, ''), 10) || 0,
+        fornecedor_padrao_nome: fornecedorPadrao.trim() || null,
         unidade_compra: unidadeCompra.trim() || null,
         fator_conversao: numOuNulo(fatorConv),
         controla_lote: controlaLote,
@@ -293,6 +296,10 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
                 <div>
                   <Campo label="Estoque máximo" value={estMax} onChange={setEstMax} placeholder="teto para comprar" testId="produto-estoque-maximo" />
                   <AjudaCampo chave="cadastros.produtos.estoque_maximo" />
+                </div>
+                <div>
+                  <Campo label="Fornecedor padrão" value={fornecedorPadrao} onChange={setFornecedorPadrao} placeholder="quem costuma vender este item" testId="produto-fornecedor-padrao" />
+                  <AjudaCampo chave="cadastros.produtos.fornecedor_padrao" />
                 </div>
                 <div>
                   <Campo label="Unidade de compra" value={unidadeCompra} onChange={setUnidadeCompra} placeholder="ex: CX · FD" testId="produto-unidade-compra" />

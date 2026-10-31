@@ -386,7 +386,7 @@ export default function OSObraPage() {
                       {o.equipe && <><dt style={{ color: MUT }}>Equipe</dt><dd style={{ margin: 0 }}>{o.equipe}</dd></>}
                       {o.responsavel && <><dt style={{ color: MUT }}>Responsável</dt><dd style={{ margin: 0 }}>{o.responsavel}</dd></>}
                       {o.data_prevista && <><dt style={{ color: MUT }}>Para</dt><dd style={{ margin: 0, color: atrasada ? VERM : ESP, fontWeight: atrasada ? 700 : 400 }}>{dataBR(o.data_prevista)}{atrasada ? ' · atrasada' : ''}</dd></>}
-                      {o.prioridade !== 'normal' && <><dt style={{ color: MUT }}>Prioridade</dt><dd style={{ margin: 0, color: o.prioridade === 'urgente' ? VERM : ESP }}>{PRIORIDADES.find(p => p[0] === o.prioridade)?.[1]}</dd></>}
+                      <><dt style={{ color: MUT }}>Prioridade</dt><dd style={{ margin: 0, color: o.prioridade === 'urgente' ? VERM : o.prioridade === 'alta' ? '#92400E' : ESP, fontWeight: (o.prioridade === 'urgente' || o.prioridade === 'alta') ? 700 : 400 }}>{PRIORIDADES.find(p => p[0] === o.prioridade)?.[1]}</dd></>
                       {horasOS[o.id] && <><dt style={{ ...rot, color: MUT }}>Horas <AjudaCampo chave="projetos.os_obra.horas_apontadas" /></dt>
                         <dd style={{ margin: 0, fontWeight: 600 }} data-testid="os-obra-horas-total">{horasOS[o.id].horas.toLocaleString('pt-BR')} h · {brl(horasOS[o.id].valor)}</dd></>}
                       {diarios.length > 0 && <><dt style={{ ...rot, color: MUT }}>Diários <AjudaCampo chave="projetos.os_obra.rdo_registrados" /></dt>
@@ -440,7 +440,7 @@ export default function OSObraPage() {
                         </div>
                       </form>
                     )}
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                    {o.status !== 'concluida' && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
                       {o.status === 'aberta' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'em_execucao')} style={btn(GOLD, ESP)} data-testid="os-obra-iniciar">Iniciar</button>}
                       {o.status === 'em_execucao' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'concluida')} style={btn(VERDE, '#fff')} data-testid="os-obra-concluir">Concluir</button>}
                       {(o.status === 'aberta' || o.status === 'em_execucao') && <span style={rot}><button type="button" disabled={!!ocupado} onClick={() => abrirHoras(o)} style={btn('#fff', ESP)} data-testid="os-obra-apontar">Apontar horas</button><AjudaCampo chave="projetos.os_obra.apontar" /></span>}
@@ -449,7 +449,7 @@ export default function OSObraPage() {
                       {(o.status === 'aberta' || o.status === 'em_execucao') && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'cancelada')} style={btn('#fff', VERM)}>Cancelar</button>}
                       {o.status === 'cancelada' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'aberta')} style={btn('#fff', ESP)}>Reabrir</button>}
                       {o.status === 'cancelada' && <button type="button" disabled={!!ocupado} onClick={() => excluir(o)} style={btn('#fff', VERM)}>Excluir</button>}
-                    </div>
+                    </div>}
                   </article>
                 )
               })}
