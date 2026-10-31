@@ -4,6 +4,9 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/pm/comissao'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'
@@ -65,7 +68,13 @@ export default function ComissaoPage() {
     setToast('Comissão APROVADA → a pagar (lançada no financeiro).'); void carregar()
   }
   async function marcarPaga(c: Comissao) {
-    await supabase.from('agency_comissao').update({ status: 'paga' }).eq('id', c.id)
+    if (!confirm('Marcar esta comissão como PAGA? Fica registrado quem marcou e quando.')) return
+    setBusy(true)
+    // fn_agency_comissao_marcar_paga: RPC com guarda (empresa) + rastro (paga_em/paga_por + audit_log_global).
+    const { data, error } = await supabase.rpc('fn_agency_comissao_marcar_paga', { p_comissao_id: c.id })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
     setToast('Comissão marcada como PAGA.'); void carregar()
   }
 
@@ -77,16 +86,19 @@ export default function ComissaoPage() {
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>💰 P&amp;M · Financeiro</div>
-            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Comissão</h1>
+            <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Comissão<AjudaCampo chave="pm.comissao.tela" rota={ROTA} /></h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Por vendedor/competência. Aprovar lança no contas a pagar (erp_pagar).</p>
           </div>
-          <button disabled={busy} onClick={fechar} style={btnPri}>Fechar previstas</button>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <button disabled={busy} onClick={fechar} style={btnPri}>Fechar previstas</button>
+            <AjudaCampo chave="pm.comissao.acao_fechar_previstas" rota={ROTA} />
+          </div>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Prevista" v={brl(kpis.prevista)} />
-          <Kpi l="A pagar" v={brl(kpis.aPagar)} cor={DOURADO} />
-          <Kpi l="Paga" v={brl(kpis.paga)} cor={GREEN} />
+          <Kpi l="Prevista" v={brl(kpis.prevista)} chave="pm.comissao.kpi_prevista" />
+          <Kpi l="A pagar" v={brl(kpis.aPagar)} cor={DOURADO} chave="pm.comissao.kpi_a_pagar" />
+          <Kpi l="Paga" v={brl(kpis.paga)} cor={GREEN} chave="pm.comissao.kpi_paga" />
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
@@ -94,7 +106,7 @@ export default function ComissaoPage() {
           : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 620 }}>
-                <thead style={{ background: OFFWHITE }}><tr><Th>Competência</Th><Th>Job</Th><Th>Base</Th><Th>%</Th><Th>Comissão</Th><Th>Status</Th><Th></Th></tr></thead>
+                <thead style={{ background: OFFWHITE }}><tr><Th chave="pm.comissao.col_competencia">Competência</Th><Th chave="pm.comissao.col_job">Job</Th><Th chave="pm.comissao.col_base">Base</Th><Th chave="pm.comissao.col_percentual">%</Th><Th chave="pm.comissao.col_comissao">Comissão</Th><Th chave="pm.comissao.col_status">Status</Th><Th></Th></tr></thead>
                 <tbody>
                   {comissoes.map((c) => {
                     const cfg = stCfg(c.status)
@@ -107,8 +119,8 @@ export default function ComissaoPage() {
                         <Td style={{ fontWeight: 700 }}>{brl(Number(c.valor_comissao ?? 0))}</Td>
                         <Td><span style={{ fontSize: 11, fontWeight: 700, background: cfg.cor, padding: '2px 8px', borderRadius: 999 }}>{cfg.l}</span></Td>
                         <Td>
-                          {c.status === 'prevista' && <button disabled={busy} onClick={() => aprovar(c)} style={btnOk}>Aprovar → a pagar</button>}
-                          {c.status === 'a_pagar' && <button onClick={() => marcarPaga(c)} style={btnOk}>Marcar paga</button>}
+                          {c.status === 'prevista' && <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={() => aprovar(c)} style={btnOk}>Aprovar → a pagar</button><AjudaCampo chave="pm.comissao.acao_aprovar" rota={ROTA} /></span>}
+                          {c.status === 'a_pagar' && <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={() => marcarPaga(c)} style={btnOk}>Marcar paga</button><AjudaCampo chave="pm.comissao.acao_marcar_paga" rota={ROTA} /></span>}
                         </Td>
                       </tr>
                     )
@@ -126,13 +138,13 @@ export default function ComissaoPage() {
   )
 }
 
-function Kpi({ l, v, cor }: { l: string; v: string; cor?: string }) {
+function Kpi({ l, v, cor, chave }: { l: string; v: string; cor?: string; chave?: string }) {
   return <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}{chave && <AjudaCampo chave={chave} rota={ROTA} />}</div>
     <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? ESPRESSO, marginTop: 2 }}>{v}</div>
   </div>
 }
-function Th({ children }: { children?: React.ReactNode }) { return <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: TEXTM }}>{children}</th> }
+function Th({ children, chave }: { children?: React.ReactNode; chave?: string }) { return <th style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: TEXTM }}>{children}{chave && <AjudaCampo chave={chave} rota={ROTA} />}</th> }
 function Td({ children, style }: { children?: React.ReactNode; style?: CSSProperties }) { return <td style={{ padding: '8px 12px', color: ESPRESSO, ...style }}>{children}</td> }
 const btnPri: CSSProperties = { border: 'none', background: DOURADO, color: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 700, minHeight: 42 }
 const btnOk: CSSProperties = { border: `1px solid ${GREEN}`, color: GREEN, background: '#fff', borderRadius: 8, padding: '5px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600, minHeight: 36 }

@@ -331,16 +331,26 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
         <div style={{ fontSize: 11, fontWeight: 700, color: TEXTM, marginBottom: 6 }}>Adicionar item</div>
         {erro && <div style={{ background: '#F9E4E4', color: RED, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginBottom: 8 }}>{erro}</div>}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <select value={novo.servico_id} onChange={(e) => pickServico(e.target.value)} style={{ ...inp, gridColumn: '1 / -1' }}>
-            <option value="">— serviço do catálogo (de-para) —</option>
-            {servicos.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
-          </select>
-          <input value={novo.tipo_servico} onChange={(e) => setNovo({ ...novo, tipo_servico: e.target.value })} placeholder="nome do item (do contrato) *" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'tipo_servico' ? 'x' : null) }} />
-          <input value={novo.quantidade_contratada} onChange={(e) => setNovo({ ...novo, quantidade_contratada: e.target.value })} placeholder="quantidade (vazio = sem limite)" inputMode="numeric" style={{ ...inp, ...estiloBordaInput(campo === 'quantidade_contratada' ? 'x' : null) }} />
-          <input value={novo.unidade} onChange={(e) => setNovo({ ...novo, unidade: e.target.value })} placeholder="unidade (post, vídeo…)" style={inp} />
-          <select value={novo.periodicidade} onChange={(e) => setNovo({ ...novo, periodicidade: e.target.value })} style={{ ...inp, gridColumn: '1 / -1' }}>
-            {PERIODICIDADES.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
+          <label style={{ ...campoLbl, gridColumn: '1 / -1' }}>
+            <select value={novo.servico_id} onChange={(e) => pickServico(e.target.value)} style={{ ...inp, flex: 1 }}>
+              <option value="">— serviço do catálogo (de-para) —</option>
+              {servicos.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select><AjudaCampo chave="pm.contratos.escopo_servico_catalogo" />
+          </label>
+          <label style={{ ...campoLbl, gridColumn: '1 / -1' }}>
+            <input value={novo.tipo_servico} onChange={(e) => setNovo({ ...novo, tipo_servico: e.target.value })} placeholder="nome do item (do contrato) *" style={{ ...inp, flex: 1, ...estiloBordaInput(campo === 'tipo_servico' ? 'x' : null) }} /><AjudaCampo chave="pm.contratos.escopo_nome_item" />
+          </label>
+          <label style={campoLbl}>
+            <input value={novo.quantidade_contratada} onChange={(e) => setNovo({ ...novo, quantidade_contratada: e.target.value })} placeholder="quantidade (vazio = sem limite)" inputMode="numeric" style={{ ...inp, flex: 1, ...estiloBordaInput(campo === 'quantidade_contratada' ? 'x' : null) }} /><AjudaCampo chave="pm.contratos.escopo_quantidade" />
+          </label>
+          <label style={campoLbl}>
+            <input value={novo.unidade} onChange={(e) => setNovo({ ...novo, unidade: e.target.value })} placeholder="unidade (post, vídeo…)" style={{ ...inp, flex: 1 }} /><AjudaCampo chave="pm.contratos.escopo_unidade" />
+          </label>
+          <label style={{ ...campoLbl, gridColumn: '1 / -1' }}>
+            <select value={novo.periodicidade} onChange={(e) => setNovo({ ...novo, periodicidade: e.target.value })} style={{ ...inp, flex: 1 }}>
+              {PERIODICIDADES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select><AjudaCampo chave="pm.contratos.escopo_periodicidade" />
+          </label>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
           <button disabled={busy || !novo.tipo_servico.trim()} onClick={() => void salvar()} style={{ ...btnOk, background: busy || !novo.tipo_servico.trim() ? '#ccc' : DOURADO, color: '#fff', border: 'none', fontWeight: 700 }}>{busy ? 'Salvando…' : '+ Adicionar item'}</button>
@@ -371,10 +381,12 @@ function VincularModal({ contrato, geContratos, onClose, onDone, onToast }: { co
         <div style={{ fontSize: 12.5, color: AMBER, background: '#FFF6E5', borderRadius: 8, padding: '10px 12px' }}>Não há contrato da GE para esta empresa ainda. Crie o contrato na Gestão Empresarial primeiro — é ele que carrega o PDF e o faturamento.</div>
       ) : (
         <>
-          <select value={sel} onChange={(e) => setSel(e.target.value)} style={{ ...inp, width: '100%' }}>
-            <option value="">— contrato da GE —</option>
-            {geContratos.map((g) => <option key={g.id} value={g.id}>{g.numero ? `${g.numero} · ` : ''}{g.cliente_nome ?? '—'}{g.valor_atual ? ` · ${brl(g.valor_atual)}/mês` : ''}</option>)}
-          </select>
+          <label style={campoLbl}>
+            <select value={sel} onChange={(e) => setSel(e.target.value)} style={{ ...inp, flex: 1 }}>
+              <option value="">— contrato da GE —</option>
+              {geContratos.map((g) => <option key={g.id} value={g.id}>{g.numero ? `${g.numero} · ` : ''}{g.cliente_nome ?? '—'}{g.valor_atual ? ` · ${brl(g.valor_atual)}/mês` : ''}</option>)}
+            </select><AjudaCampo chave="pm.contratos.vincular_contrato_ge" />
+          </label>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
             <button onClick={onClose} style={btnSec}>Cancelar</button>
             <button disabled={busy || !sel} onClick={() => void vincular()} style={{ ...btnOk, background: busy || !sel ? '#ccc' : DOURADO, color: '#fff', border: 'none' }}>{busy ? 'Vinculando…' : 'Vincular'}</button>
@@ -401,6 +413,7 @@ function Kpi({ l, v, cor }: { l: string; v: string; cor?: string }) {
     <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? ESPRESSO, marginTop: 2 }}>{v}</div>
   </div>
 }
+const campoLbl: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4 }
 const btnSec: CSSProperties = { border: `1px solid ${BORDA}`, color: ESPRESSO, background: '#fff', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', minHeight: 40 }
 const btnOk: CSSProperties = { border: `1px solid ${GREEN}`, color: GREEN, background: '#fff', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 600, minHeight: 40 }
 const arrow: CSSProperties = { border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO, borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }
