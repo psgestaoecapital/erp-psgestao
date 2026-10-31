@@ -146,3 +146,10 @@ BEGIN
   RETURN jsonb_build_object('empty_state', false, 'receita_12m', v_12m,
     'margem_clientes', v_margem, 'top_clientes', v_top, 'alertas', v_alertas);
 END $function$;
+
+-- Gate check-fn-guards (regra 1): CREATE OR REPLACE de função SECURITY DEFINER exige REVOKE anon
+-- no mesmo arquivo. As 3 já tinham grant só p/ authenticated/postgres/service_role (anon nunca teve,
+-- provado no dado 31/10); estes REVOKE são no-op de segurança (não removem authenticated) e satisfazem o gate.
+REVOKE ALL ON FUNCTION public.fn_pm_bi_kpis(uuid[]) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_pm_bi_indicadores(uuid[]) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_pm_bi_series(uuid[]) FROM PUBLIC, anon;
