@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', TEXTM = '#6b5444', GREEN = '#1F5A1F', RED = '#7A1F1F'
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -314,21 +315,21 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClos
               <div style={{ fontSize: 10.5, color: TEXTM }}>Altere os campos abaixo e salve para reagendar este mesmo evento.</div>
             </div>
           )}
-          <label style={lbl}>Título<input value={titulo} onChange={(e) => setTitulo(e.target.value)} style={inp} placeholder="Ex.: Reunião com cliente" /></label>
+          <label style={lbl}><span style={rot}>Título<AjudaCampo chave="pm.agenda.evento_titulo" /></span><input value={titulo} onChange={(e) => setTitulo(e.target.value)} style={inp} placeholder="Ex.: Reunião com cliente" /></label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-            <label style={lbl}>Data<input type="date" value={data} onChange={(e) => setData(e.target.value)} style={inp} /></label>
-            <label style={lbl}>Início<input type="time" value={hIni} onChange={(e) => setHIni(e.target.value)} style={inp} /></label>
-            <label style={lbl}>Fim<input type="time" value={hFim} onChange={(e) => setHFim(e.target.value)} style={inp} /></label>
+            <label style={lbl}><span style={rot}>Data<AjudaCampo chave="pm.agenda.evento_data" /></span><input type="date" value={data} onChange={(e) => setData(e.target.value)} style={inp} /></label>
+            <label style={lbl}><span style={rot}>Início<AjudaCampo chave="pm.agenda.evento_inicio" /></span><input type="time" value={hIni} onChange={(e) => setHIni(e.target.value)} style={inp} /></label>
+            <label style={lbl}><span style={rot}>Fim<AjudaCampo chave="pm.agenda.evento_fim" /></span><input type="time" value={hFim} onChange={(e) => setHFim(e.target.value)} style={inp} /></label>
           </div>
-          <label style={lbl}>Vincular lead (opcional)
+          <label style={lbl}><span style={rot}>Vincular lead (opcional)<AjudaCampo chave="pm.agenda.evento_lead" /></span>
             <select value={leadId} onChange={(e) => setLeadId(e.target.value)} style={inp}>
               <option value="">— sem lead —</option>
               {leads.map((l) => <option key={l.id} value={l.id}>{l.empresa || l.nome}</option>)}
             </select>
           </label>
-          <label style={lbl}>Local (endereço, sala ou &quot;Online&quot;)<input value={local} onChange={(e) => setLocal(e.target.value)} style={inp} placeholder="Online / Sala 2 / Rua X" /></label>
-          <label style={lbl}>Link da reunião (Meet/Zoom — opcional)<input value={link} onChange={(e) => setLink(e.target.value)} style={{ ...inp, borderColor: linkOk ? LINE : RED }} placeholder="https://meet.google.com/..." /></label>
-          <label style={lbl}>Observação<input value={obs} onChange={(e) => setObs(e.target.value)} style={inp} /></label>
+          <label style={lbl}><span style={rot}>Local (endereço, sala ou &quot;Online&quot;)<AjudaCampo chave="pm.agenda.evento_local" /></span><input value={local} onChange={(e) => setLocal(e.target.value)} style={inp} placeholder="Online / Sala 2 / Rua X" /></label>
+          <label style={lbl}><span style={rot}>Link da reunião (Meet/Zoom — opcional)<AjudaCampo chave="pm.agenda.evento_link" /></span><input value={link} onChange={(e) => setLink(e.target.value)} style={{ ...inp, borderColor: linkOk ? LINE : RED }} placeholder="https://meet.google.com/..." /></label>
+          <label style={lbl}><span style={rot}>Observação<AjudaCampo chave="pm.agenda.evento_obs" /></span><input value={obs} onChange={(e) => setObs(e.target.value)} style={inp} /></label>
           {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12 }}>{erro}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button onClick={onClose} style={{ background: 'transparent', color: ESP, border: `1px solid ${LINE}`, padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
@@ -340,4 +341,5 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClos
   )
 }
 const lbl: React.CSSProperties = { fontSize: 11, color: TEXTM, fontWeight: 600, display: 'flex', flexDirection: 'column', gap: 4 }
+const rot: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
 const inp: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 6, padding: '8px 10px', fontSize: 13, color: ESP, background: '#fff', fontFamily: 'inherit' }
