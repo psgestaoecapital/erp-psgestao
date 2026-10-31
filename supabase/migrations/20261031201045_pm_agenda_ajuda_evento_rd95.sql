@@ -1,0 +1,57 @@
+-- RD-95 (CEO 08/10): "?" em todo campo do formulário de evento da Agenda Comercial (P&M) · /dashboard/pm/agenda.
+-- A tela abria o modal "Novo evento"/"Evento" (título, data, horários, lead, local, link, observação) sem nenhum "?".
+-- Aditivo: só texto em erp_ajuda_campo (sem tabela nova, sem RLS, sem dado de cliente). Idempotente (ON CONFLICT chave).
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, 'Agenda · Evento', v.rotulo, v.o, v.p, v.e, v.x, v.ordem, '/dashboard/pm/agenda', 'pm', 'publicado'
+FROM (VALUES
+ ('pm.agenda.evento_titulo', 'Título',
+  'Escreva em poucas palavras o que é o compromisso. É o texto que aparece no card do dia/semana/mês.',
+  'Identifica o evento na agenda de relance, sem precisar abri-lo.',
+  'Reunião de proposta — Construtora Alfa.',
+  'Deixar em branco: o sistema não salva o evento sem título.',
+  1),
+ ('pm.agenda.evento_data', 'Data',
+  'Escolha o dia do compromisso. Vem preenchido com o dia que você clicou; pode trocar.',
+  'Posiciona o evento no dia certo da agenda e nos avisos.',
+  '15/11/2026.',
+  'Marcar um dia que já passou: o evento entra no passado e some das visões de hoje em diante.',
+  2),
+ ('pm.agenda.evento_inicio', 'Início',
+  'Hora em que o compromisso começa (formato 24h).',
+  'Ordena os eventos do dia pela hora e mostra o horário no card.',
+  '09:00.',
+  'Deixar o início depois do fim: o horário fica invertido no card.',
+  3),
+ ('pm.agenda.evento_fim', 'Fim',
+  'Hora prevista para terminar (formato 24h).',
+  'Mostra a duração no card e ajuda a não marcar dois eventos no mesmo horário.',
+  '10:00.',
+  'Repetir a hora de início no fim: o evento aparece sem duração.',
+  4),
+ ('pm.agenda.evento_lead', 'Vincular lead',
+  'Opcional. Escolha o lead do CRM relacionado a este compromisso. Deixe em "sem lead" se não houver.',
+  'Liga o evento ao card do lead (botão "Abrir card do lead") e leva o cliente do lead para o evento.',
+  'Reunião agendada com o lead "Padaria Central": selecione-o aqui.',
+  'Esquecer de vincular: o evento não mostra o atalho para o card do lead.',
+  5),
+ ('pm.agenda.evento_local', 'Local',
+  'Onde o compromisso acontece: endereço, sala, ou "Online" quando for por vídeo.',
+  'Deixa claro para a equipe para onde ir (ou que é remoto) sem precisar perguntar.',
+  'Sala 2 · ou · Online.',
+  'Pôr só "Online" sem o link da reunião no campo seguinte.',
+  6),
+ ('pm.agenda.evento_link', 'Link da reunião',
+  'Opcional. Cole o link do Meet/Zoom/Teams. Precisa começar com http:// ou https://.',
+  'Cria o botão "Entrar na reunião" no card e no evento, para abrir a chamada em um clique.',
+  'https://meet.google.com/abc-defg-hij.',
+  'Colar o link sem http:// na frente: o sistema não aceita e não cria o botão.',
+  7),
+ ('pm.agenda.evento_obs', 'Observação',
+  'Opcional. Anote detalhes úteis: pauta, o que levar, quem participa.',
+  'Guarda o combinado junto do evento, para consultar na hora.',
+  'Levar a proposta impressa e a tabela de preços.',
+  'Escrever dado sensível que não deva ficar visível para toda a equipe do evento.',
+  8)
+) AS v(chave, rotulo, o, p, e, x, ordem)
+WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'erp_ajuda_campo')
+ON CONFLICT (chave) DO NOTHING;
