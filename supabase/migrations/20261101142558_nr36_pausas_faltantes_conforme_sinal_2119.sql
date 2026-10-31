@@ -27,6 +27,12 @@
 -- 'pendente_confirmacao' (cai no ELSE 'conforme'); o detalhe->'nao_realizada_estimado' já é gravado,
 -- preservando o sinal. SECURITY DEFINER mantido; sem anon (service_role, igual ao estado atual).
 
+-- ci-sem-guarda: fn_nr36_apurar_nucleo — escape consciente do check:fn-guards (regra 4). O núcleo roda como
+-- SERVIÇO: é REVOKE de PUBLIC/anon/authenticated e GRANT só a service_role (ver abaixo), e só é chamado por
+-- (a) fn_nr36_reapurar_servico — inclusive dentro desta migration, SEM usuário logado — e (b) pelas RPCs do
+-- Painel (fn_nr36_apurar/_apuracao_listar), que conferem a empresa via fn_nr36_assert(auth.uid()) ANTES de
+-- chamar o núcleo. Pôr fn__guarda_empresa aqui EXIGE auth.uid() e QUEBRARIA a reapuração (migration/serviço) e
+-- o próprio Painel. A conferência de empresa fica na borda (RPCs + GRANT), não no núcleo de serviço.
 CREATE OR REPLACE FUNCTION public.fn_nr36_apurar_nucleo(p_company_id uuid, p_dt_ini date, p_dt_fim date, p_cpf text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -172,7 +178,7 @@ BEGIN
   RETURN jsonb_build_object('ok',true,'linhas',v_linhas);
 END $function$;
 
-REVOKE ALL ON FUNCTION public.fn_nr36_apurar_nucleo(uuid,date,date,text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_nr36_apurar_nucleo(uuid,date,date,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_nr36_apurar_nucleo(uuid,date,date,text) TO service_role;
 
 -- Reapuração dirigida (CEO 31/10) — a mudança da regra NÃO altera linhas já apuradas; por isso a PR
