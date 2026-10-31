@@ -635,7 +635,7 @@ function AbaImportar({ companyId }: { companyId: string }) {
   const [alertaEleg, setAlertaEleg] = useState<{ matched: number; naoEleg: number } | null>(null)
   const [parseErro, setParseErro] = useState('')
   const [busy, setBusy] = useState(false)
-  const [resultado, setResultado] = useState<{ lidas: number; aceitas: number; rejeitadas: number; rejeitadas_detalhe: Rejeitada[] } | null>(null)
+  const [resultado, setResultado] = useState<{ lidas: number; aceitas: number; rejeitadas: number; duplicadas: number; rejeitadas_detalhe: Rejeitada[] } | null>(null)
   const [erro, setErro] = useState('')
 
   useEffect(() => { (async () => {
@@ -702,10 +702,10 @@ function AbaImportar({ companyId }: { companyId: string }) {
         p_bytes: file.size, p_mime: file.type || null, p_periodo_ini: datas[0] || null, p_periodo_fim: datas[datas.length - 1] || null,
       })
       if (!reg.ok || !reg.upload_id) throw new Error(reg.mensagem || reg.erro || 'Falha ao registrar o upload.')
-      const proc = await rpc<{ ok: boolean; lidas: number; aceitas: number; rejeitadas: number; rejeitadas_detalhe: Rejeitada[]; erro?: string; mensagem?: string }>('fn_nr36_upload_processar', { p_upload_id: reg.upload_id, p_linhas: payload })
+      const proc = await rpc<{ ok: boolean; lidas: number; aceitas: number; rejeitadas: number; duplicadas?: number; rejeitadas_detalhe: Rejeitada[]; erro?: string; mensagem?: string }>('fn_nr36_upload_processar', { p_upload_id: reg.upload_id, p_linhas: payload })
       // #107: zero linha aceita = importação FALHOU (nunca "processado" calado) — mensagem clara para quem enviou
       if (!proc.ok) throw new Error(proc.mensagem || proc.erro || 'Falha ao processar as linhas.')
-      setResultado({ lidas: proc.lidas, aceitas: proc.aceitas, rejeitadas: proc.rejeitadas, rejeitadas_detalhe: proc.rejeitadas_detalhe || [] })
+      setResultado({ lidas: proc.lidas, aceitas: proc.aceitas, rejeitadas: proc.rejeitadas, duplicadas: proc.duplicadas ?? 0, rejeitadas_detalhe: proc.rejeitadas_detalhe || [] })
       setFile(null); setLinhas([])
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -780,9 +780,13 @@ function AbaImportar({ companyId }: { companyId: string }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle2 size={18} style={{ color: C.green }} /><b style={{ color: C.espresso }}>Importação concluída</b></div>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13 }}>Lidas: <b>{resultado.lidas}</b></span>
-            <span style={{ fontSize: 13, color: C.green }}>Aceitas: <b>{resultado.aceitas}</b></span>
+            <span style={{ fontSize: 13, color: C.green }}>Novas: <b>{resultado.aceitas}</b></span>
+            {resultado.duplicadas > 0 && <span style={{ fontSize: 13, color: C.gray }}>Já no sistema: <b>{resultado.duplicadas}</b></span>}
             <span style={{ fontSize: 13, color: resultado.rejeitadas > 0 ? C.red : C.gray }}>Rejeitadas: <b>{resultado.rejeitadas}</b></span>
           </div>
+          {resultado.duplicadas > 0 && (
+            <div style={{ fontSize: 12.5, color: C.gray }}>Reimportação: as <b>{resultado.duplicadas}</b> pausa(s) que já estavam no sistema foram mantidas (nada duplicou); só as faltantes entraram.</div>
+          )}
           {resultado.rejeitadas_detalhe.length > 0 && (
             <div style={{ overflowX: 'auto', border: `1px solid ${C.borderLt}`, borderRadius: 8 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>

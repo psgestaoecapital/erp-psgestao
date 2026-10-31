@@ -5,6 +5,9 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/pm/cobranca'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'
@@ -40,13 +43,13 @@ export default function CobrancaPage() {
       <div style={{ maxWidth: 1000, margin: '0 auto' }}>
         <header style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>💰 P&amp;M · Financeiro</div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Cobrança / Fee</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Cobrança / Fee<AjudaCampo chave="pm.cobranca.tela" rota={ROTA} /></h1>
           <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0', textTransform: 'capitalize' }}>Mensalidades recorrentes a cobrar · {mesL}</p>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Contratos a cobrar" v={String(contratos.length)} />
-          <Kpi l="Total do mês (MRR)" v={brl(mrr)} cor={DOURADO} />
+          <Kpi l="Contratos a cobrar" v={String(contratos.length)} chave="pm.cobranca.kpi_contratos" />
+          <Kpi l="Total do mês (MRR)" v={brl(mrr)} cor={DOURADO} chave="pm.cobranca.kpi_mrr" />
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
@@ -60,9 +63,12 @@ export default function CobrancaPage() {
                     <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>vencimento dia {c.dia_vencimento ?? '—'}</div>
                   </div>
                   <div style={{ fontWeight: 700, minWidth: 100, textAlign: 'right' }}>{brl(Number(c.fee_mensal ?? 0))}</div>
-                  <span title="Gera cobrança na GE (Asaas) — habilitado após a régua financeira (RD-53)"
-                    style={{ fontSize: 11, color: c.lancamento_id ? GREEN : TEXTM, border: `1px dashed ${BORDA}`, borderRadius: 8, padding: '4px 8px' }}>
-                    {c.lancamento_id ? '→ cobrança emitida ✓' : '→ emitir cobrança (após régua)'}
+                  <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    <span title="Gera cobrança na GE (Asaas) — habilitado após a régua financeira (RD-53)"
+                      style={{ fontSize: 11, color: c.lancamento_id ? GREEN : TEXTM, border: `1px dashed ${BORDA}`, borderRadius: 8, padding: '4px 8px' }}>
+                      {c.lancamento_id ? '→ cobrança emitida ✓' : '→ emitir cobrança (após régua)'}
+                    </span>
+                    <AjudaCampo chave="pm.cobranca.indicador_cobranca" rota={ROTA} />
                   </span>
                 </div>
               ))}
@@ -76,9 +82,9 @@ export default function CobrancaPage() {
     </div>
   )
 }
-function Kpi({ l, v, cor }: { l: string; v: string; cor?: string }) {
+function Kpi({ l, v, cor, chave }: { l: string; v: string; cor?: string; chave?: string }) {
   return <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}{chave && <AjudaCampo chave={chave} rota={ROTA} />}</div>
     <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? ESPRESSO, marginTop: 2 }}>{v}</div>
   </div>
 }

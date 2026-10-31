@@ -44,7 +44,7 @@ type Resumo = {
   total_veiculos: number; veiculos_vencidos: number; consumo_medio_frota: number | null;
   documentos_vencidos: number; custo_total_frota: number; custo_por_km_frota: number | null;
 };
-type Registro = { id: string; tipo: string; data: string; km_na_manutencao: number; valor: number | null; fornecedor: string | null; descricao: string | null };
+type Registro = { id: string; tipo: string; data: string; km_na_manutencao: number; valor: number | null; fornecedor: string | null; descricao: string | null; anexo_path: string | null };
 type Custo = {
   id: string; categoria: string; descricao: string | null; valor: number; fornecedor_nome: string | null; data_custo: string;
   documento: string | null; anexo_path: string | null; entra_base_fiscal: boolean;
@@ -434,7 +434,7 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
 
         {aba === "custos" && veic && <AbaCustos companyId={companyId} veiculo={veic} />}
         {aba === "documentos" && veic && <AbaDocumentos companyId={companyId} veiculo={veic} onFeito={onSalvo} />}
-        {aba === "manutencoes" && veic && <AbaManutencoes veiculo={veic} />}
+        {aba === "manutencoes" && veic && <AbaManutencoes companyId={companyId} veiculo={veic} />}
       </div>
     </div>
   );
@@ -710,25 +710,35 @@ function LinhaDoc({ d, onFeito }: { d: Doc; onFeito: () => void }) {
   );
 }
 
-function AbaManutencoes({ veiculo }: { veiculo: Veiculo }) {
+function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Veiculo }) {
   const [lista, setLista] = useState<Registro[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [r, setR] = useState({ tipo: veiculo.planos[0]?.tipo ?? "", data: "", km: "", valor: "", fornecedor: "", descricao: "" });
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [enviando, setEnviando] = useState(false);
 
   const carregar = useCallback(async () => {
     const { data } = await supabase.from("erp_hub_frota_manutencao_registro")
-      .select("id, tipo, data, km_na_manutencao, valor, fornecedor, descricao")
+      .select("id, tipo, data, km_na_manutencao, valor, fornecedor, descricao, anexo_path")
       .eq("veiculo_id", veiculo.id).is("excluido_em", null).order("data", { ascending: false });
     setLista((data ?? []) as Registro[]);
   }, [veiculo.id]);
   useEffect(() => { void carregar(); }, [carregar]);
 
   async function registrar() {
-    setErro(null);
-    const { error } = await supabase.rpc("fn_hub_frota_manutencao_registrar", { p_veiculo_id: veiculo.id, p_dados: r });
-    if (error) { setErro(error.message); return; }
-    setR({ ...r, data: "", km: "", valor: "", fornecedor: "", descricao: "" });
-    void carregar();
+    setErro(null); setEnviando(true);
+    try {
+      const anexo = arquivo ? await enviarAnexo(companyId, `frota/${veiculo.id}`, arquivo) : null;
+      const { error } = await supabase.rpc("fn_hub_frota_manutencao_registrar", { p_veiculo_id: veiculo.id, p_dados: { ...r, anexo_path: anexo } });
+      if (error) { setErro(error.message); return; }
+      setR({ ...r, data: "", km: "", valor: "", fornecedor: "", descricao: "" });
+      setArquivo(null);
+      void carregar();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Não foi possível registrar a manutenção.");
+    } finally {
+      setEnviando(false);
+    }
   }
 
   async function excluir(id: string) {
@@ -750,9 +760,12 @@ function AbaManutencoes({ veiculo }: { veiculo: Veiculo }) {
           <Campo rotulo="Valor (opcional)"><AjudaCampo chave="projetos.frota.valor" rota={ROTA} /><input aria-label="Valor" inputMode="decimal" className={inp} value={r.valor} onChange={(e) => setR({ ...r, valor: e.target.value })} /></Campo>
           <Campo rotulo="Fornecedor (opcional)"><AjudaCampo chave="projetos.frota.fornecedor" rota={ROTA} /><input aria-label="Fornecedor" className={inp} value={r.fornecedor} onChange={(e) => setR({ ...r, fornecedor: e.target.value })} /></Campo>
           <Campo rotulo="Descrição (opcional)"><AjudaCampo chave="projetos.frota.descricao" rota={ROTA} /><input aria-label="Descrição" className={inp} value={r.descricao} onChange={(e) => setR({ ...r, descricao: e.target.value })} /></Campo>
+          <Campo rotulo="Anexo (nota ou laudo)"><AjudaCampo chave="projetos.frota.manutencao_anexo" rota={ROTA} />
+            <input aria-label="Anexo da manutenção" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="text-xs" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
+          </Campo>
         </div>
         {erro && <div role="alert" className="mt-2 text-xs text-red-700">{erro}</div>}
-        <button onClick={registrar} className="mt-3 rounded-lg px-4 py-2 text-sm font-semibold text-white" style={{ background: ESP }}>Registrar</button>
+        <button onClick={registrar} disabled={enviando} className="mt-3 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ background: ESP }}>{enviando ? "Salvando…" : "Registrar"}</button>
       </div>
 
       <div>
@@ -764,6 +777,7 @@ function AbaManutencoes({ veiculo }: { veiculo: Veiculo }) {
               <div>
                 <div className="font-semibold">{x.tipo} · {x.data.split("-").reverse().join("/")}</div>
                 <div style={{ color: TXM }}>{num(x.km_na_manutencao)} km{x.fornecedor ? ` · ${x.fornecedor}` : ""}{x.valor != null ? ` · R$ ${Number(x.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}</div>
+                {x.anexo_path && <button onClick={() => abrirAnexo(x.anexo_path as string)} className="mt-1 underline" style={{ color: ESP }}>Abrir anexo</button>}
               </div>
               <button onClick={() => excluir(x.id)} className="text-[11px] underline" style={{ color: TXM }}>Excluir</button>
             </div>
