@@ -2,7 +2,7 @@
 // Só leitura de chamados reais + mensagens de TESTE arquivadas (nunca recebem OK; nada é postado em chamado, nada é acionado).
 
 import { test, expect } from '../../support/fixtures'
-import { rpc, dbInsert, dbPatch, dbSelect, registrarJornada } from '../../support/api'
+import { rpc, dbInsert, dbPatch, dbDelete, dbSelect, registrarJornada } from '../../support/api'
 
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 type Resp = { ok?: boolean; erro?: string; dono?: string }
@@ -14,7 +14,14 @@ test.describe('Escopo de agente de sócio e OK do sócio', () => {
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-agente-socio-escopo', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
-  test.afterAll(async () => { for (const id of criadas) await dbPatch('erp_agente_mensagem', `id=eq.${id}`, { arquivada: true }) })
+  // Não poluir caixas reais (eng_chefe 31/10): apaga DE VEZ as mensagens de teste criadas, sempre
+  // (afterAll roda mesmo quando o teste falha). Arquivar não bastava — elas ficavam abertas na caixa
+  // dos Codes reais (rodrigo-code, gilberto-chamados) e precisavam ser fechadas à mão.
+  test.afterAll(async () => {
+    for (const id of criadas) {
+      try { await dbDelete('erp_agente_mensagem', `id=eq.${id}`) } catch { /* limpeza best-effort */ }
+    }
+  })
   test.beforeAll(async () => {
     const e = await dbSelect<{ socio_user_id: string; ativo: boolean }>('erp_agente_escopo', 'agente=eq.rodrigo-code&select=socio_user_id,ativo')
     expect(e.length, 'rodrigo-code tem escopo').toBe(1)
@@ -51,8 +58,10 @@ test.describe('Escopo de agente de sócio e OK do sócio', () => {
     const rod = await msg('rodrigo-code')
     const r2 = await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: rod, p_sugestao_id: meu.id, p_texto: 'x' })
     expect(r2.erro, 'sem OK do sócio').toBe('sem_ok_do_socio')
-    // o pedido de OK exige mensagem viva (fn_agente_pedir_ok_socio recusa arquivada); a arquivada é limpa no afterAll
-    const pedido = await msg('rodrigo-code', { arquivada: false })
+    // o pedido de OK exige mensagem viva (fn_agente_pedir_ok_socio recusa arquivada); apagada no afterAll.
+    // enviado_por 'sistema ·' faz o gatilho de acionamento (trg_agente_mensagem_acionar) NÃO acordar o
+    // rodrigo-code real por esta mensagem de teste — fn_agente_pedir_ok_socio ignora enviado_por.
+    const pedido = await msg('rodrigo-code', { arquivada: false, enviado_por: `sistema · aceitacao-e2e ${RUN}` })
     // com pedido mas sem decisão, continua barrado; fora do escopo também
     expect((await rpc<Resp>('fn_agente_pedir_ok_socio', { p_mensagem_id: pedido, p_agente: 'rodrigo-code', p_texto: 'x' })).ok).toBe(true)
     expect((await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: pedido, p_sugestao_id: meu.id, p_texto: 'x' })).erro).toBe('sem_ok_do_socio')
