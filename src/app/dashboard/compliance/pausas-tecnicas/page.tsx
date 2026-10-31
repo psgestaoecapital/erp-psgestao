@@ -1944,7 +1944,7 @@ type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null;
 // #92 · dia aguardando confirmação (pausa sem hora de saída). Natureza DIFERENTE do desvio: não
 // está provado — o supervisor pergunta ao colaborador o que houve; a responsável fecha na aba
 // Conferência. NUNCA é desvio no escuro (RD-38).
-type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; pausas_devidas?: number | null; pausas_realizadas?: number | null; almoco_min?: number | null; jornada: { entrada: string | null; saida: string | null } | null }
+type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; pausas_devidas?: number | null; pausas_realizadas?: number | null; almoco_min?: number | null; jornada: { entrada: string | null; saida: string | null } | null; pausas?: Array<{ inicio: string; fim: string | null; min: number | null }> | null }
 
 const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
 // FATO, não julgamento (RH). Descreve o que aconteceu; a causa é a conversa.
@@ -2149,7 +2149,13 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
                         {explica && <div data-testid="pendente-explica" style={{ fontSize: 11, color: C.gray, marginTop: 4, maxWidth: 320, lineHeight: 1.4 }}>{explica}</div>}
                       </td>
                       <td style={td()}>{p.setor || '—'}</td>
-                      <td style={td()}>{p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}</td>
+                      <td style={td()}>
+                        {p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}
+                        {/* #3841 · mostra os horários das pausas que o colaborador realmente fez no dia */}
+                        {p.pausas && p.pausas.length > 0
+                          ? <div style={{ fontSize: 11, color: C.gray, marginTop: 4 }} data-testid="sup-pendente-pausas">Pausas feitas: {p.pausas.map((x) => `${x.inicio}${x.fim ? `–${x.fim}` : '–?'}${x.min != null ? ` (${x.min} min)` : ''}`).join(' · ')}</div>
+                          : <div style={{ fontSize: 11, color: C.gray, marginTop: 4 }} data-testid="sup-pendente-pausas">Pausas feitas: nenhuma registrada no dia</div>}
+                      </td>
                       <td style={td()} data-no-print="true">
                         <button
                           data-testid={`sup-tratar-${p.cpf}-${p.data}`}
