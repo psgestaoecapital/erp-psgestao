@@ -42,7 +42,7 @@ export default function ApontamentoHorasPage() {
     if (!empresa) { setLoading(false); return }
     setLoading(true)
     const [j, e, t, c] = await Promise.all([
-      supabase.from('agency_jobs').select('id, titulo, numero').eq('company_id', empresa).order('created_at', { ascending: false }),
+      supabase.from('agency_jobs').select('id, titulo, numero').eq('company_id', empresa).is('excluido_em', null).order('created_at', { ascending: false }),
       supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
       supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, user_id, etapa_tipo').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
       carregarCustosEquipe(supabase, empresa),
