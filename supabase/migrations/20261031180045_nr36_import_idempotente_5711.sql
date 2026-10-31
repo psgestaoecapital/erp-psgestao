@@ -79,3 +79,8 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'lidas', v_lidas, 'aceitas', v_aceitas, 'rejeitadas', v_rej, 'duplicadas', v_dup,
     'periodo', jsonb_build_object('inicio', v_pmin, 'fim', v_pmax), 'rejeitadas_detalhe', v_rejd);
 END $function$;
+
+-- Régua check_fn_guards (Regra 1): formaliza no arquivo a ACL viva da função
+-- (em produção já é {authenticated, service_role}; anon/PUBLIC sem EXECUTE). Sem mudança de runtime.
+REVOKE ALL ON FUNCTION public.fn_nr36_upload_processar(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_upload_processar(uuid, jsonb) TO authenticated, service_role;
