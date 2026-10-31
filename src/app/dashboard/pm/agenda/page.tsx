@@ -291,6 +291,26 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClos
     onSaved()
   }
 
+  // RD-98 pilar 4 · exclusão RASTREÁVEL exposta na tela: soft-delete por fn_agendamento_excluir (marca
+  // excluido_em/excluido_por/excluido_motivo; a listagem já filtra excluido_em IS NULL). Reversível pela auditoria.
+  async function excluir() {
+    if (!ag) return
+    if (!window.confirm('Excluir este evento da agenda? Ele sai da lista (exclusão rastreável: guarda quem excluiu e quando, e pode ser revertida pela auditoria). Confirmar?')) return
+    setBusy(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_agendamento_excluir', { p_id: ag.id, p_motivo: null })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      setErro(error?.message
+        ?? (r?.erro === 'ja_virou_os' ? 'Este evento já virou uma Ordem de Serviço — não pode ser excluído pela agenda; trate pela OS.'
+          : r?.erro === 'sem_acesso' ? 'Você não tem acesso a este evento.'
+          : r?.erro === 'agendamento_nao_encontrado' ? 'Evento não encontrado (pode já ter sido excluído).'
+          : r?.erro ?? 'Não foi possível excluir o evento.'))
+      return
+    }
+    onSaved()
+  }
+
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '40px 14px', zIndex: 60, overflowY: 'auto' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 12, width: '100%', maxWidth: 460 }}>
@@ -331,9 +351,17 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClos
           <label style={lbl}><span style={rot}>Link da reunião (Meet/Zoom — opcional)<AjudaCampo chave="pm.agenda.evento_link" /></span><input value={link} onChange={(e) => setLink(e.target.value)} style={{ ...inp, borderColor: linkOk ? LINE : RED }} placeholder="https://meet.google.com/..." /></label>
           <label style={lbl}><span style={rot}>Observação<AjudaCampo chave="pm.agenda.evento_obs" /></span><input value={obs} onChange={(e) => setObs(e.target.value)} style={inp} /></label>
           {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12 }}>{erro}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button onClick={onClose} style={{ background: 'transparent', color: ESP, border: `1px solid ${LINE}`, padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
-            <button onClick={() => void salvar()} disabled={busy} style={{ background: GOLD, color: '#fff', border: 'none', padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{busy ? 'Salvando…' : 'Salvar'}</button>
+          <div style={{ display: 'flex', justifyContent: ag ? 'space-between' : 'flex-end', gap: 8, alignItems: 'center' }}>
+            {ag && (
+              <span style={rot}>
+                <button onClick={() => void excluir()} disabled={busy} data-testid="agenda-evento-excluir" style={{ background: 'transparent', color: RED, border: `1px solid ${RED}`, padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.6 : 1 }}>🗑️ Excluir</button>
+                <AjudaCampo chave="pm.agenda.evento_excluir" />
+              </span>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={onClose} style={{ background: 'transparent', color: ESP, border: `1px solid ${LINE}`, padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={() => void salvar()} disabled={busy} style={{ background: GOLD, color: '#fff', border: 'none', padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{busy ? 'Salvando…' : 'Salvar'}</button>
+            </div>
           </div>
         </div>
       </div>
