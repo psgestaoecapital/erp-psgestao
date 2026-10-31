@@ -3,6 +3,7 @@
 // Escopo por company_id (RD-45). Tema Espresso.
 // Capa real da entrega: usa a 1ª imagem de agency_jobs.arquivos quando houver (fallback para o ícone por tipo).
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -90,14 +91,17 @@ export default function PortfolioPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px,1fr))', gap: 12 }}>
                 {filtrados.map((j) => (
-                  <div key={j.id} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, overflow: 'hidden' }}>
+                  <Link key={j.id} href={`/dashboard/pm/pauta?job=${j.id}`} title={`Abrir o job: ${j.titulo}`}
+                    aria-label={`Abrir o job ${j.titulo}`}
+                    style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, overflow: 'hidden', display: 'block', color: 'inherit', textDecoration: 'none' }}>
                     <Capa job={j} />
                     <div style={{ padding: '10px 12px' }}>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{j.titulo}</div>
                       <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{nomeCli(j.cliente_id)}{j.valor_job ? ` · ${brl(Number(j.valor_job))}` : ''}</div>
                       {(j.data_entrega ?? j.data_prazo) && <div style={{ fontSize: 11, color: TEXTM, marginTop: 2 }}>publicado {j.data_entrega ?? j.data_prazo}</div>}
+                      <div style={{ fontSize: 11, color: DOURADO, fontWeight: 600, marginTop: 6 }}>Abrir job →</div>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </>
