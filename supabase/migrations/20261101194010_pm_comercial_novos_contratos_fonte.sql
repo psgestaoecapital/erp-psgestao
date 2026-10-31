@@ -104,6 +104,10 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'jobs_irrigados', v_jobs, 'fees', v_fees, 'jobs_ligados_fee', v_lig, 'novo_mes', v_novo);
 END $function$;
 
+-- Guarda da função (RD-52 regra 1): service-only, chamada pelo fn_demo_reset como service_role. Sem rota pública.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_pm_margem(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_pm_margem(uuid) TO service_role;
+
 -- ── (B) Aplica o bloco (D) AGORA no DEMO (sem re-rodar a irrigação pesada de jobs) ──
 DO $$
 DECLARE v_demo uuid := 'b0700000-0000-4000-a000-000000000002';
