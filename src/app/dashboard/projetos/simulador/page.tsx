@@ -24,6 +24,18 @@ type Sim = { ok: boolean; erro?: string; montagem?: string; unidade?: string; ar
 const brl = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const num = (v: number | null | undefined, d = 2) => (v == null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: d }));
 
+// RD-95/96: o motor de precificação devolve chaves cruas (ex.: "sem_config_precificacao").
+// Nunca mostramos a chave ao usuário — traduzimos para texto claro; chave desconhecida cai no texto padrão.
+const CHAVE_SEM_CONFIG = "sem_config_precificacao";
+const MSG_ERRO: Record<string, string> = {
+  sem_config_precificacao: "Esta empresa ainda não tem as premissas de precificação (margens, impostos, folha e meta de produção). Configure a precificação para calcular o orçamento.",
+  sem_preco: "Esta montagem não tem preço calculado — complete a composição antes de gerar o orçamento.",
+  metragem_invalida: "Informe uma metragem maior que zero.",
+  sem_acesso: "Você não tem acesso a esta empresa.",
+  sem_montagem: "Escolha uma montagem para simular.",
+};
+const traduzErro = (chave: string | null | undefined, padrao: string) => (chave && MSG_ERRO[chave]) || padrao;
+
 export default function SimuladorPage() {
   const { sel } = useCompanyIds();
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
@@ -38,6 +50,7 @@ export default function SimuladorPage() {
   const [loadingCat, setLoadingCat] = useState(true);
   const [calculando, setCalculando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [faltaConfig, setFaltaConfig] = useState(false);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [clienteId, setClienteId] = useState("");
   const [gerando, setGerando] = useState(false);
@@ -105,7 +118,7 @@ export default function SimuladorPage() {
   const simular = useCallback(async () => {
     if (!companyId || !montagemId) { setSim(null); return; }
     const areaNum = Number((area || "0").replace(",", ".")) || 0;
-    setCalculando(true); setErro(null);
+    setCalculando(true); setErro(null); setFaltaConfig(false);
     const supabase = supabaseBrowser();
     const { data, error } = await supabase.rpc("fn_simular_montagem", {
       p_servico_id: montagemId, p_company_id: companyId,
@@ -114,7 +127,10 @@ export default function SimuladorPage() {
     setCalculando(false);
     if (error) { setErro(error.message); setSim(null); return; }
     const j = data as Sim;
-    if (!j?.ok) { setErro(j?.erro === "sem_config_precificacao" ? "Esta empresa ainda não tem as premissas de precificação (margens, impostos, folha). Configure a precificação para calcular o orçamento." : (j?.erro ?? "Falha ao simular")); setSim(null); return; }
+    if (!j?.ok) {
+      setFaltaConfig(j?.erro === CHAVE_SEM_CONFIG);
+      setErro(traduzErro(j?.erro, "Não foi possível simular esta montagem.")); setSim(null); return;
+    }
     setSim(j);
   }, [companyId, montagemId, area, montagemSel]);
 
@@ -125,7 +141,7 @@ export default function SimuladorPage() {
   const gerarOrcamento = async () => {
     if (!companyId || !montagemId || gerando) return;
     const areaNum = Number((area || "0").replace(",", ".")) || 0;
-    setGerando(true); setErro(null);
+    setGerando(true); setErro(null); setFaltaConfig(false);
     const { data, error } = await supabaseBrowser().rpc("fn_simulador_gerar_orcamento", {
       p_servico_id: montagemId, p_company_id: companyId, p_business_line_id: montagemSel?.business_line_id ?? null,
       p_area: areaNum, p_cliente_id: clienteId || null, p_oportunidade_id: null,
@@ -133,8 +149,8 @@ export default function SimuladorPage() {
     setGerando(false);
     const j = data as { ok?: boolean; erro?: string } | null;
     if (error || !j?.ok) {
-      const msgs: Record<string, string> = { sem_preco: "Esta montagem não tem preço calculado — complete a composição antes de gerar o orçamento.", metragem_invalida: "Informe uma metragem maior que zero." };
-      setErro(error?.message ?? msgs[j?.erro ?? ""] ?? j?.erro ?? "Falha ao gerar o orçamento");
+      setFaltaConfig(j?.erro === CHAVE_SEM_CONFIG);
+      setErro(error?.message ?? traduzErro(j?.erro, "Não foi possível gerar o orçamento."));
       return;
     }
     router.push("/dashboard/orcamentos");
@@ -203,7 +219,7 @@ export default function SimuladorPage() {
       </section>
 
       {msg && <div data-testid="simulador-msg" className="mb-4 rounded-lg bg-[#FBF4E4] p-3 text-sm text-[#3D2314]">{msg}</div>}
-      {erro && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800"><AlertTriangle className="mb-0.5 mr-1 inline" size={15} />{erro}{erro.startsWith("Esta empresa ainda não tem as premissas") && <> <a href="/dashboard/projetos/configuracoes" className="font-semibold underline">Configurar precificação</a></>}</div>}
+      {erro && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800"><AlertTriangle className="mb-0.5 mr-1 inline" size={15} />{erro}{faltaConfig && <> <a href="/dashboard/projetos/configuracoes" className="font-semibold underline">Configurar precificação</a></>}</div>}
 
       {!montagemId ? (
         <div className="rounded-2xl border border-dashed border-[#3D2314]/20 bg-[#FAF7F2] p-12 text-center text-sm text-[#3D2314]/60">

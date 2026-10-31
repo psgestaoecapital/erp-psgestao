@@ -45,7 +45,11 @@ export default function MeusTrabalhosPage() {
     const ids = itens.map((i) => i.id);
     const [ini, ta] = await Promise.all([
       ids.length ? supabase.from("agency_jobs").select("id, data_inicio").in("id", ids) : Promise.resolve({ data: [] as { id: string; data_inicio: string | null }[] }),
-      uid ? supabase.from("agency_tarefas").select("id, job_id, titulo, status, data_prazo, data_inicio").eq("company_id", empresa).eq("responsavel_id", uid).limit(500) : Promise.resolve({ data: [] }),
+      // #5440: antes carregava 500 linhas SEM ordem e de QUALQUER status, filtrando o "ativo" só no cliente — com
+      // muitas tarefas o corte de 500 engolia parte das ativas e os indicadores "destoavam" (ex.: 250 em vez do total
+      // real). Agora traz só as ATIVAS (as fechadas não entram em nenhum indicador nem na agenda), ordenadas por prazo,
+      // com teto folgado. O filtro continua batendo com o ativo() da lib no cliente.
+      uid ? supabase.from("agency_tarefas").select("id, job_id, titulo, status, data_prazo, data_inicio").eq("company_id", empresa).eq("responsavel_id", uid).not("status", "in", '("concluida","concluido","publicado","cancelado","cancelada")').order("data_prazo", { ascending: true, nullsFirst: false }).limit(5000) : Promise.resolve({ data: [] }),
     ]);
     const inicio = new Map(((ini.data ?? []) as { id: string; data_inicio: string | null }[]).map((r) => [r.id, r.data_inicio]));
     setJobs(itens.map((i) => ({ id: i.id, codigo: i.codigo, titulo: i.titulo, cliente: i.cliente, status: i.status, data_prazo: i.data_prazo, data_inicio: inicio.get(i.id) ?? null, atrasado: i.atrasado })));
