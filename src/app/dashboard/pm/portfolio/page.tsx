@@ -52,7 +52,7 @@ export default function PortfolioPage() {
     if (!empresa) { setLoading(false); return }
     setLoading(true)
     Promise.all([
-      supabase.from('agency_jobs').select('id, titulo, tipo, valor_job, cliente_id, data_entrega, data_prazo, arquivos').eq('company_id', empresa).in('status', ['publicado', 'concluida']).order('data_prazo', { ascending: false }),
+      supabase.from('agency_jobs').select('id, titulo, tipo, valor_job, cliente_id, data_entrega, data_prazo, arquivos').eq('company_id', empresa).in('status', ['publicado', 'concluida']).is('excluido_em', null).order('data_prazo', { ascending: false }),
       supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa),
     ]).then(([j, c]) => { setJobs((j.data ?? []) as Job[]); setClientes((c.data ?? []) as Cli[]); setLoading(false) })
   }, [empresa])
