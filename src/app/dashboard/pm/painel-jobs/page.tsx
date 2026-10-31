@@ -238,27 +238,27 @@ export default function PainelJobsPage() {
               ))}
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div><label className={rotulo}>Cliente</label><Multi valor={rascunho.clientes} opcoes={listas.clientes} onChange={(v) => set("clientes", v)} /></div>
-              <div><label className={rotulo}>Grupo de clientes</label><Multi valor={rascunho.grupos} opcoes={listas.grupos} onChange={(v) => set("grupos", v)} /></div>
-              <div><label className={rotulo}>Campanha</label><Multi valor={rascunho.campanhas} opcoes={listas.campanhas} onChange={(v) => set("campanhas", v)} /></div>
-              <div><label className={rotulo}>Responsável</label><Multi valor={rascunho.responsaveis} opcoes={listas.responsaveis} onChange={(v) => set("responsaveis", v)} /></div>
-              <div><label className={rotulo}>Peça / serviço</label><Multi valor={rascunho.servicos} opcoes={listas.servicos} onChange={(v) => set("servicos", v)} /></div>
-              <div><label className={rotulo}>Situação</label><Multi valor={rascunho.status} opcoes={SITUACOES.map((s) => ({ id: s.v, nome: s.l }))} onChange={(v) => set("status", v)} /></div>
-              <div><label className={rotulo}>Prioridade</label><Multi valor={rascunho.prioridades} opcoes={["baixa", "media", "alta", "urgente"].map((p) => ({ id: p, nome: p }))} onChange={(v) => set("prioridades", v)} /></div>
-              <div><label className={rotulo}>Título contém</label><input className={campo} value={rascunho.titulo ?? ""} onChange={(e) => set("titulo", e.target.value)} /></div>
-              <div><label className={rotulo}>Código do job</label><input className={campo} value={rascunho.codigo ?? ""} onChange={(e) => set("codigo", e.target.value)} /></div>
-              <div><label className={rotulo}>Data de</label>
+              <div><label className={rotulo}>Cliente<AjudaCampo chave="pm.painel_jobs.filtro_cliente" /></label><Multi valor={rascunho.clientes} opcoes={listas.clientes} onChange={(v) => set("clientes", v)} /></div>
+              <div><label className={rotulo}>Grupo de clientes<AjudaCampo chave="pm.painel_jobs.filtro_grupo" /></label><Multi valor={rascunho.grupos} opcoes={listas.grupos} onChange={(v) => set("grupos", v)} /></div>
+              <div><label className={rotulo}>Campanha<AjudaCampo chave="pm.painel_jobs.filtro_campanha" /></label><Multi valor={rascunho.campanhas} opcoes={listas.campanhas} onChange={(v) => set("campanhas", v)} /></div>
+              <div><label className={rotulo}>Responsável<AjudaCampo chave="pm.painel_jobs.filtro_responsavel" /></label><Multi valor={rascunho.responsaveis} opcoes={listas.responsaveis} onChange={(v) => set("responsaveis", v)} /></div>
+              <div><label className={rotulo}>Peça / serviço<AjudaCampo chave="pm.painel_jobs.filtro_servico" /></label><Multi valor={rascunho.servicos} opcoes={listas.servicos} onChange={(v) => set("servicos", v)} /></div>
+              <div><label className={rotulo}>Situação<AjudaCampo chave="pm.painel_jobs.filtro_situacao" /></label><Multi valor={rascunho.status} opcoes={SITUACOES.map((s) => ({ id: s.v, nome: s.l }))} onChange={(v) => set("status", v)} /></div>
+              <div><label className={rotulo}>Prioridade<AjudaCampo chave="pm.painel_jobs.filtro_prioridade" /></label><Multi valor={rascunho.prioridades} opcoes={["baixa", "media", "alta", "urgente"].map((p) => ({ id: p, nome: p }))} onChange={(v) => set("prioridades", v)} /></div>
+              <div><label className={rotulo}>Título contém<AjudaCampo chave="pm.painel_jobs.filtro_titulo" /><input className={campo} value={rascunho.titulo ?? ""} onChange={(e) => set("titulo", e.target.value)} /></label></div>
+              <div><label className={rotulo}>Código do job<AjudaCampo chave="pm.painel_jobs.filtro_codigo" /><input className={campo} value={rascunho.codigo ?? ""} onChange={(e) => set("codigo", e.target.value)} /></label></div>
+              <div><label className={rotulo}>Data de<AjudaCampo chave="pm.painel_jobs.filtro_data_tipo" />
                 <select className={campo} value={rascunho.data_tipo ?? "prazo"} onChange={(e) => set("data_tipo", e.target.value as FiltroPainel["data_tipo"])}>
                   <option value="prazo">Prazo</option><option value="criacao">Criação</option><option value="entrega">Entrega</option>
-                </select></div>
-              <div><label className={rotulo}>De</label><input type="date" className={campo} value={rascunho.data_de ?? ""} onChange={(e) => set("data_de", e.target.value)} /></div>
-              <div><label className={rotulo}>Até</label><input type="date" className={campo} value={rascunho.data_ate ?? ""} onChange={(e) => set("data_ate", e.target.value)} /></div>
-              <div><label className={rotulo}>Atrasados</label>
+                </select></label></div>
+              <div><label className={rotulo}>De<AjudaCampo chave="pm.painel_jobs.filtro_data_de" /><input type="date" className={campo} value={rascunho.data_de ?? ""} onChange={(e) => set("data_de", e.target.value)} /></label></div>
+              <div><label className={rotulo}>Até<AjudaCampo chave="pm.painel_jobs.filtro_data_ate" /><input type="date" className={campo} value={rascunho.data_ate ?? ""} onChange={(e) => set("data_ate", e.target.value)} /></label></div>
+              <div><label className={rotulo}>Atrasados<AjudaCampo chave="pm.painel_jobs.filtro_atrasados" />
                 <select className={campo} value={rascunho.atrasados ?? ""} onChange={(e) => set("atrasados", (e.target.value || undefined) as FiltroPainel["atrasados"])}>
                   <option value="">Todos</option><option value="sim">Só atrasados</option><option value="nao">Sem atraso</option>
-                </select></div>
+                </select></label></div>
             </div>
-            <label className="mt-3 flex items-center gap-2 text-[12px] text-[#6b5444]"><input type="checkbox" checked={!!rascunho.incluir_legado} onChange={(e) => set("incluir_legado", e.target.checked)} /> Incluir encerrados (legado: parados há mais de 180 dias)</label>
+            <label className="mt-3 flex items-center gap-2 text-[12px] text-[#6b5444]"><input type="checkbox" checked={!!rascunho.incluir_legado} onChange={(e) => set("incluir_legado", e.target.checked)} /> Incluir encerrados (legado: parados há mais de 180 dias)<AjudaCampo chave="pm.painel_jobs.filtro_incluir_legado" /></label>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button onClick={aplicar} className="min-h-[40px] rounded-lg bg-[#3D2314] px-4 text-[13px] text-white">Aplicar</button>
               <button onClick={limpar} className="min-h-[40px] rounded-lg border border-[#E7DED3] px-4 text-[13px]">Limpar</button>
