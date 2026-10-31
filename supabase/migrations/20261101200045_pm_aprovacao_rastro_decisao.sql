@@ -48,3 +48,8 @@ BEGIN
   RETURN jsonb_build_object('ok',true,'status',p_status);
 END;
 $function$;
+
+-- check-fn-guards regra 1 (revoke_anon): SECURITY DEFINER exige REVOKE explícito no arquivo.
+-- CREATE OR REPLACE preserva a ACL viva ({postgres,authenticated,service_role}); as linhas abaixo só a refletem.
+REVOKE ALL ON FUNCTION public.fn_pm_job_mover_status(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_job_mover_status(uuid, text) TO authenticated, service_role;
