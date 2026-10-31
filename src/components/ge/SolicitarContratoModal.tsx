@@ -319,11 +319,9 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                   <textarea style={{ ...inp, minHeight: 56, fontFamily: 'inherit' }} value={escopo} onChange={(e) => setEscopo(e.target.value)} placeholder={modo === 'proposta' ? 'Os itens da proposta' : 'Um por linha'} />
                 </Campo>
                 <div style={gradeContrato}>
-                  {modo === 'manual' && (
-                    <Campo label="Código identificador (automático)" chave="pm.solicitar_contrato.codigo" ajuda>
-                      <input style={inp} value="" readOnly disabled placeholder="Gerado automaticamente ao solicitar (CI-ano-nº)" />
-                    </Campo>
-                  )}
+                  <Campo label="Código identificador (automático)" chave="pm.solicitar_contrato.codigo" ajuda>
+                    <input style={inp} value="" readOnly disabled placeholder="Gerado automaticamente ao solicitar (ex.: CTR-2026-0001)" />
+                  </Campo>
                   <Campo label="Valor (por parcela)" chave="pm.solicitar_contrato.valor" ajuda>
                     <input style={inp} inputMode="decimal" value={valorMensal} onChange={(e) => setValorMensal(e.target.value)} placeholder={modo === 'proposta' ? 'Somado dos itens da proposta' : '0,00'} />
                     {modo === 'proposta' && valorMensal ? daProposta : null}
