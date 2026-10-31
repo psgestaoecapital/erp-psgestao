@@ -16,6 +16,10 @@
 CREATE INDEX IF NOT EXISTS idx_agency_timesheet_job ON public.agency_timesheet (job_id) WHERE job_id IS NOT NULL;
 
 -- (2) recomputa o realizado de UM job a partir do timesheet --------------------------------------------------------
+-- ci-sem-guarda: fn_agency_job_horas_recalc — recomputa APENAS o campo DERIVADO horas_realizadas do job a partir do
+--   próprio timesheet; é chamada SÓ pelo gatilho trg_agency_timesheet_horas (REVOKE de PUBLIC/anon/authenticated, nenhum
+--   cliente a invoca). A mutação da agency_timesheet que dispara o gatilho já é guardada por RLS (company_id); não há
+--   caminho para recomputar o job de outra empresa, e não se grava dado primário de cliente.
 CREATE OR REPLACE FUNCTION public.fn_agency_job_horas_recalc(p_job_id uuid)
  RETURNS void
  LANGUAGE plpgsql
