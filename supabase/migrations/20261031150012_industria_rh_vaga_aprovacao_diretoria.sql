@@ -36,6 +36,7 @@ AS $$ SELECT role FROM public.user_companies WHERE user_id = auth.uid() AND comp
 REVOKE ALL ON FUNCTION public.fn_rh_vaga_papel(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_rh_vaga_papel(uuid) TO authenticated, service_role;
 
+-- ci-sem-guarda: fn_rh_vaga_abrir — guarda por fn_rh_vaga_papel(p_company_id) (papel do auth.uid() na empresa via user_companies) + escopo por p_company_id
 CREATE OR REPLACE FUNCTION public.fn_rh_vaga_abrir(
   p_company_id uuid, p_setor_id uuid, p_cargo_id uuid, p_quantidade integer, p_custo_estimado numeric, p_justificativa text)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -57,6 +58,7 @@ BEGIN
 END $$;
 
 -- só DIRETORIA decide; o solicitante nunca decide a própria vaga
+-- ci-sem-guarda: fn_rh_vaga_decidir — guarda por fn_rh_vaga_papel(v.company_id) (só diretoria da empresa da vaga; FOR UPDATE na linha, solicitante não decide a própria)
 CREATE OR REPLACE FUNCTION public.fn_rh_vaga_decidir(p_vaga_id uuid, p_aprovar boolean, p_motivo text)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $$
@@ -81,6 +83,7 @@ BEGIN
 END $$;
 
 -- cancelamento lógico (nunca DELETE): quem abriu ou a diretoria, só enquanto solicitada
+-- ci-sem-guarda: fn_rh_vaga_cancelar — guarda por fn_rh_vaga_papel(v.company_id) (autor da vaga ou diretoria da empresa; FOR UPDATE na linha)
 CREATE OR REPLACE FUNCTION public.fn_rh_vaga_cancelar(p_vaga_id uuid, p_motivo text)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $$
