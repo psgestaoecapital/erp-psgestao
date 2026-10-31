@@ -37,10 +37,10 @@ function Multi({ valor, opcoes, onChange }: { valor?: string[]; opcoes: Nome[]; 
   );
 }
 
-function GraficoBarras({ titulo, dados, cor = "#3D2314" }: { titulo: string; dados: Barra[]; cor?: string }) {
+function GraficoBarras({ titulo, dados, cor = "#3D2314", ajuda }: { titulo: string; dados: Barra[]; cor?: string; ajuda?: string }) {
   return (
     <div className={cartao}>
-      <h3 className="mb-2 text-[13px] font-semibold text-[#3D2314]">{titulo}</h3>
+      <h3 className="mb-2 flex items-center gap-1 text-[13px] font-semibold text-[#3D2314]">{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</h3>
       {dados.length === 0 ? <p className="py-8 text-center text-[12px] text-[#6b5444]">Sem dados no filtro.</p> : (
         <div style={{ height: Math.max(160, dados.length * 28 + 30) }}>
           <ResponsiveContainer width="100%" height="100%">
@@ -200,11 +200,15 @@ export default function PainelJobsPage() {
             <h1 className="flex items-center gap-2 text-[26px] font-bold"><BarChart3 size={24} /> Painel de Jobs</h1>
             <p className="text-[13px] text-[#6b5444]">{ind.total} jobs no filtro{nLegado > 0 && !filtro.incluir_legado ? ` · ${nLegado} encerrados (legado) fora dos números` : ""}</p>
           </div>
-          <div className="flex flex-wrap gap-2 print:hidden">
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
             <button onClick={() => setFiltroAberto((v) => !v)} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><Filter size={14} /> Filtro{nFiltros ? ` (${nFiltros})` : ""}</button>
+            <AjudaCampo chave="pm.painel_jobs.acao_filtro" />
             <button onClick={excel} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><FileSpreadsheet size={14} /> Excel</button>
+            <AjudaCampo chave="pm.painel_jobs.acao_excel" />
             <button onClick={pdf} disabled={gerandoPdf} data-testid="painel-pdf" className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px] disabled:opacity-50"><FileDown size={14} /> {gerandoPdf ? "Gerando…" : "PDF"}</button>
+            <AjudaCampo chave="pm.painel_jobs.acao_pdf" />
             <button onClick={gerarInsights} disabled={gerando || ind.total === 0} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-[#3D2314] px-3 text-[13px] text-white disabled:opacity-50"><Sparkles size={14} /> {gerando ? "Analisando…" : "Insights com IA"}</button>
+            <AjudaCampo chave="pm.painel_jobs.acao_insights" />
           </div>
         </header>
 
@@ -290,9 +294,9 @@ export default function PainelJobsPage() {
             )}
 
             <section className="grid gap-3 lg:grid-cols-2">
-              <GraficoBarras titulo="Peças (por serviço)" dados={gr.pecas} />
+              <GraficoBarras titulo="Peças (por serviço)" dados={gr.pecas} ajuda="pm.painel_jobs.graf_pecas" />
               <div className={cartao}>
-                <h3 className="mb-2 text-[13px] font-semibold">Classificação (situação dos jobs)</h3>
+                <h3 className="mb-2 flex items-center gap-1 text-[13px] font-semibold">Classificação (situação dos jobs)<AjudaCampo chave="pm.painel_jobs.graf_classificacao" /></h3>
                 {gr.classificacao.length === 0 ? <p className="py-8 text-center text-[12px] text-[#6b5444]">Sem dados no filtro.</p> : (
                   <div style={{ height: 220 }}>
                     <ResponsiveContainer width="100%" height="100%">
@@ -302,10 +306,10 @@ export default function PainelJobsPage() {
                   </div>
                 )}
               </div>
-              <GraficoBarras titulo="Motivos de alteração" dados={gr.motivos} cor="#C8941A" />
-              <GraficoBarras titulo="Clientes com mais alterações" dados={gr.clientesAlteracoes} cor="#a35a4b" />
+              <GraficoBarras titulo="Motivos de alteração" dados={gr.motivos} cor="#C8941A" ajuda="pm.painel_jobs.graf_motivos" />
+              <GraficoBarras titulo="Clientes com mais alterações" dados={gr.clientesAlteracoes} cor="#a35a4b" ajuda="pm.painel_jobs.graf_clientes_alteracoes" />
               <div className={cartao}>
-                <h3 className="mb-2 text-[13px] font-semibold">Jobs × alterações por cliente</h3>
+                <h3 className="mb-2 flex items-center gap-1 text-[13px] font-semibold">Jobs × alterações por cliente<AjudaCampo chave="pm.painel_jobs.graf_dispersao" /></h3>
                 {gr.dispersao.length === 0 ? <p className="py-8 text-center text-[12px] text-[#6b5444]">Sem dados no filtro.</p> : (
                   <div style={{ height: 240 }}>
                     <ResponsiveContainer width="100%" height="100%">
@@ -321,13 +325,13 @@ export default function PainelJobsPage() {
                   </div>
                 )}
               </div>
-              <GraficoBarras titulo="Jobs por responsável" dados={gr.porResponsavel} />
-              <GraficoBarras titulo="Horas por colaborador" dados={gr.horasColaborador} cor="#5b7a6a" />
-              <GraficoBarras titulo="Horas por cliente" dados={gr.horasCliente} cor="#4f6d8a" />
+              <GraficoBarras titulo="Jobs por responsável" dados={gr.porResponsavel} ajuda="pm.painel_jobs.graf_por_responsavel" />
+              <GraficoBarras titulo="Horas por colaborador" dados={gr.horasColaborador} cor="#5b7a6a" ajuda="pm.painel_jobs.graf_horas_colaborador" />
+              <GraficoBarras titulo="Horas por cliente" dados={gr.horasCliente} cor="#4f6d8a" ajuda="pm.painel_jobs.graf_horas_cliente" />
             </section>
 
             <section className={cartao + " mt-4 overflow-x-auto"}>
-              <h3 className="mb-2 text-[13px] font-semibold">Fluxo de trabalho</h3>
+              <h3 className="mb-2 flex items-center gap-1 text-[13px] font-semibold">Fluxo de trabalho<AjudaCampo chave="pm.painel_jobs.tabela_fluxo" /></h3>
               {fluxo.length === 0 ? <p className="py-6 text-center text-[12px] text-[#6b5444]">Nenhum job no filtro.</p> : (
                 <table className="w-full text-left text-[12px]">
                   <thead><tr className="text-[#6b5444]">{CABECALHO_FLUXO.map((h) => <th key={h} className="px-2 py-1 font-semibold">{h}</th>)}</tr></thead>
