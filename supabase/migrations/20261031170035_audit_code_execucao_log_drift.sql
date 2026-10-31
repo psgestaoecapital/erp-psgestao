@@ -1,5 +1,7 @@
 -- Drift da camada de auditoria dos Codes: objetos criados em produção via MCP, agora versionados (idempotente).
 -- Code: code-desenvolvedor-3
+-- ci-sem-guarda: fn_code_log_execucao — infra interna de log de execução dos Codes; sem company_id; REVOKE anon/authenticated, EXECUTE só service_role
+-- ci-sem-guarda: fn_vigia_desencalhar_em_andamento — infra interna de orquestração (desencalhe de mensagem de dev); sem company_id; EXECUTE só service_role
 
 CREATE TABLE IF NOT EXISTS public.erp_code_execucao_log (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
