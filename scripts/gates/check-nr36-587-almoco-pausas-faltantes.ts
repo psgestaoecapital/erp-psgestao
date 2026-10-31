@@ -3,7 +3,7 @@
 // realizada (estimativa), o dia é CONFORME com a falta SINALIZADA à parte — não "aguardando confirmação"
 // (#2119, supera a parte de #587 que mandava para pendente). Roda no build, sem rede. A prova no dado (casos
 // do Leonel) está no spec e2e @pos-migration; aqui travamos a forma.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { rotuloPendente, explicaPendente } from '../../src/lib/ponto/motivoPendente'
 
 let falhas = 0
@@ -22,7 +22,12 @@ ok(/v_jornada_min - COALESCE\(v_pausas_min,0\) - v_almoco_min/.test(mig587), '(a
 ok(/status = ''pendente''/.test(mig587) && /nr36_ciencia_mensal_historico/.test(mig587) && /versao := OLD\.versao \+ 1/.test(mig587), 'ciência: só a pendente é regenerada; versão anterior vai ao histórico')
 
 // (b) #2119: na versão VIGENTE do núcleo, a falta estimada NÃO é mais pendente — vira conforme + sinal à parte.
-const mig2119 = readFileSync('supabase/migrations/20261101170010_nr36_pausas_faltantes_conforme_sinal_2119.sql', 'utf8')
+// Resolve a migration por sufixo (não por versão fixa) — assim a renumeração automática da fila
+// (quando a versão fica abaixo da main) NÃO exige editar este gate: ele acompanha o arquivo.
+const migDir = 'supabase/migrations'
+const mig2119Nome = readdirSync(migDir).find((f) => /_nr36_pausas_faltantes_conforme_sinal_2119\.sql$/.test(f))
+ok(!!mig2119Nome, '#2119: migration encontrada em supabase/migrations')
+const mig2119 = mig2119Nome ? readFileSync(`${migDir}/${mig2119Nome}`, 'utf8') : ''
 ok(/CREATE OR REPLACE FUNCTION public\.fn_nr36_apurar_nucleo/.test(mig2119), '#2119 reescreve o núcleo da apuração')
 ok(!/WHEN v_almoco_on AND v_realizado < v_devido THEN 'pendente_confirmacao'/.test(mig2119), '(b) a linha que mandava pausa faltante para pendente foi REMOVIDA')
 ok(/WHEN v_insuf > 0 THEN 'desvio'/.test(mig2119) && /ELSE 'conforme' END/.test(mig2119), '(b) desvio só por pausa insuficiente; o resto (falta estimada) é conforme')
