@@ -142,6 +142,14 @@ function AbaFunil({ empresa }: { empresa: string | null }) {
     <Card>
       <div style={{ fontSize: 13, color: ESP, fontWeight: 700, marginBottom: 4 }}>Etapas do funil de leads</div>
       <div style={{ fontSize: 12, color: MUT, marginBottom: 6 }}>Renomeie e ajuste cor/ordem. <strong>A chave interna não muda</strong> — é o que garante que nenhum lead se perca ao renomear.</div>
+      {etapas.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 70px auto auto', gap: 8, padding: '0 10px', marginBottom: 2, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: MUT, fontFamily: 'monospace' }}>chave</span>
+          <span style={lblS}>Nome da etapa<AjudaCampo chave="pm.config.funil_rotulo" /></span>
+          <span style={lblS}>Cor<AjudaCampo chave="pm.config.funil_cor" /></span>
+          <span style={{ ...lblS, gridColumn: '4 / 6' }}>Situação / salvar<AjudaCampo chave="pm.config.funil_situacao" /></span>
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {etapas.map((e) => (
           <div key={e.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 70px auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
@@ -209,11 +217,13 @@ function AbaListas({ empresa }: { empresa: string | null }) {
 
   return (
     <Card>
+      <span style={{ ...lblS, marginBottom: 6 }}>Tipo de lista<AjudaCampo chave="pm.config.listas_tipo" /></span>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
         {LISTAS.map((l) => (
           <button key={l.id} type="button" onClick={() => setLista(l.id)} style={{ fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${lista === l.id ? GOLD : LINE}`, background: lista === l.id ? '#FFF8E7' : '#FFF', color: ESP }}>{l.label}</button>
         ))}
       </div>
+      {rows.length > 0 && <span style={{ ...lblS, marginBottom: 6 }}>Opção (texto · ativa/oculta · remover)<AjudaCampo chave="pm.config.listas_rotulo" /></span>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map((o) => (
           <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '7px 10px' }}>
@@ -224,8 +234,11 @@ function AbaListas({ empresa }: { empresa: string | null }) {
         ))}
         {rows.length === 0 && <div style={{ fontSize: 12.5, color: MUT }}>Nenhuma opção nesta lista ainda.</div>}
       </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <input value={novoRot} onChange={(e) => setNovoRot(e.target.value)} placeholder="Nova opção…" style={inp} onKeyDown={(e) => { if (e.key === 'Enter') void adicionar() }} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+        <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input value={novoRot} onChange={(e) => setNovoRot(e.target.value)} placeholder="Nova opção…" style={inp} onKeyDown={(e) => { if (e.key === 'Enter') void adicionar() }} />
+          <AjudaCampo chave="pm.config.listas_nova" />
+        </label>
         <button type="button" disabled={busy || !novoRot.trim()} onClick={() => void adicionar()} style={btnPrim(busy || !novoRot.trim())}>Adicionar</button>
       </div>
       <Msg m={msg} />
@@ -301,6 +314,7 @@ function AbaComissao({ empresa }: { empresa: string | null }) {
     <Card>
       <div style={{ fontSize: 13, color: ESP, fontWeight: 700, marginBottom: 4 }}>Comissões geradas</div>
       <div style={{ fontSize: 12, color: MUT, marginBottom: 12 }}>Comissões que já foram lançadas nas propostas aprovadas. O modelo de regra de comissão (sobre valor × margem, por vendedor × serviço) ainda não está definido — quando estiver, vira cadastro aqui.</div>
+      {rows.length > 0 && <span style={{ ...lblS, marginBottom: 8 }}>Comissão gerada<AjudaCampo chave="pm.config.comissao_item" /></span>}
       {carregou && rows.length === 0 && <div style={{ fontSize: 12.5, color: MUT }}>Nenhuma comissão gerada ainda.</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map((c) => (

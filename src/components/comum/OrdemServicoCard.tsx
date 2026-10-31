@@ -1145,15 +1145,23 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           !os.pedido_id ? (
             // OS avulsa (oficina): abre o lançamento de receita COMPLETO (forma de pagamento, parcelas),
             // pré-preenchido com cliente e valor da OS — chamado #20 §2.4. Não emite NF.
-            <button
-              type="button"
-              onClick={() => setReceitaAberta(true)}
-              data-testid="os-faturar"
-              title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
-              style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
-            >
-              💰 Gerar Financeiro
-            </button>
+            // Chamado #5435 (Gean): a marcação "NF fora da OS" tira a OS da pendência de NF (nfPendente não
+            // exige faturamento). Antes só aparecia na OS já faturada; agora a OS pronta/entregue também pode
+            // ser marcada — quando a nota foi emitida por fora, sem precisar gerar financeiro nem informar
+            // os códigos de estoque dos itens. O selo mostra a situação atual da NF.
+            <>
+              <OSNotasFiscaisSelo osId={os.id} companyId={os.company_id} />
+              <OSNFForaDaOS osId={os.id} companyId={os.company_id} />
+              <button
+                type="button"
+                onClick={() => setReceitaAberta(true)}
+                data-testid="os-faturar"
+                title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
+                style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
+              >
+                💰 Gerar Financeiro
+              </button>
+            </>
           ) : (
             // OS via pedido: o financeiro vem das parcelas do pedido (fn_os_faturar → fn_faturar)
             <button

@@ -104,11 +104,13 @@ test.describe('NR-36: regenerar ciências pendentes (#587)', () => {
   test('pendente ganha nova versão com motivo; fechado a usuário logado; segunda rodada não muda nada', { tag: '@pos-migration' }, async () => {
     await importar()
     await robo('fn_nr36_apurar', { p_company_id: DEMO_SST, p_dt_ini: DIA, p_dt_fim: DIA, p_cpf: cpf })
+    // apuração "antiga" (regra antes de #3586: pausa estimada faltante = pendente_confirmacao) por baixo da ciência pendente
+    await dbPatch('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`, { status: 'pendente_confirmacao' })
     const g = await robo<{ ok: boolean }>('fn_nr36_ciencia_gerar', { p_company_id: DEMO_SST, p_competencia: competencia(), p_cpf: cpf })
     expect(g.ok).toBe(true)
     const v1 = await ciencia()
     expect(v1.status).toBe('pendente')
-    // apuração "antiga" por baixo da ciência pendente: o dia volta a conforme
+    // reapuração pela regra nova: o dia volta a conforme (com o sinal da pausa estimada)
     await dbPatch('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`, { status: 'conforme' })
     const rel = await regenerar()
     expect(rel.ok).toBe(true)

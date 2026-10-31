@@ -97,6 +97,8 @@ export default function MeusTrabalhosPage() {
             {ABAS.map((a) => (
               <button key={a.id} role="tab" aria-selected={modo === a.id} onClick={() => setModo(a.id)} data-testid={`mt-aba-${a.id}`}
                 className={`rounded-lg px-3 py-1.5 text-[12.5px] ${modo === a.id ? "bg-[#3D2314] text-white" : "border border-[#3D2314]/15 bg-white"}`}>{a.rotulo}</button>))}
+            <AjudaCampo chave="pm.meus_trabalhos.agrupar" />
+            <span className="inline-flex items-center text-[11.5px] text-[#3D2314]/60">situação<AjudaCampo chave="pm.meus_trabalhos.situacao" /></span>
             <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-[#3D2314]/60"><Play size={11} fill="currentColor" /> aponta horas <AjudaCampo chave="pm.meus_trabalhos.apontar" /></span>
           </div>
           {!grupos.length && !carregando && !erro && (
