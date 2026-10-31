@@ -173,9 +173,11 @@ export default function PlanejamentoPage() {
     if (!aberto) return;
     if (!confirm(`Mandar "${aberto.titulo}" para a lixeira? Os posts vão junto; os jobs já criados continuam na pauta.`)) return;
     setBusy(true);
-    const { error } = await supabase.from("agency_planejamentos").update({ excluido_em: new Date().toISOString() }).eq("id", aberto.id);
+    // RD-98 p4: exclusão rastreável — RPC grava excluido_por + audit_log (antes era UPDATE direto só com excluido_em).
+    const { data, error } = await supabase.rpc("fn_pm_planejamento_excluir", { p_id: aberto.id });
     setBusy(false);
-    if (error) { setToast({ texto: mensagemErro(error) }); return; }
+    const r = data as { ok?: boolean; erro?: string } | null;
+    if (error || !r?.ok) { setToast({ texto: error ? mensagemErro(error) : (r?.erro || "Não foi possível excluir.") }); return; }
     fechar(); setToast({ texto: "Planejamento na lixeira." }); void carregar();
   }
 
@@ -203,8 +205,10 @@ export default function PlanejamentoPage() {
 
   async function lixeiraPost(post: Post) {
     if (!confirm(`Mandar o post "${post.assunto}" para a lixeira?${post.job_id ? " O job dele continua na pauta." : ""}`)) return;
-    const { error } = await supabase.from("agency_posts").update({ excluido_em: new Date().toISOString() }).eq("id", post.id);
-    if (error) { setToast({ texto: mensagemErro(error) }); return; }
+    // RD-98 p4: exclusão rastreável — RPC grava excluido_por + audit_log.
+    const { data, error } = await supabase.rpc("fn_pm_post_excluir", { p_id: post.id });
+    const r = data as { ok?: boolean; erro?: string } | null;
+    if (error || !r?.ok) { setToast({ texto: error ? mensagemErro(error) : (r?.erro || "Não foi possível excluir.") }); return; }
     if (aberto) await carregarPosts(aberto.id);
     void carregar();
   }
