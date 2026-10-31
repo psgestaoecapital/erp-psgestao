@@ -59,3 +59,7 @@ BEGIN
     'dado_bate_banco', i.bate_com_banco, 'features_faltando', to_jsonb(i.features_faltando),
     'gold', g.veredito_final, 'gaps', to_jsonb(v_gaps), 'analisado_em', i.analisado_em);
 END; $function$;
+
+-- função SECURITY DEFINER só de LEITURA (lê scores/veredito das telas); fechada a quem não está logado.
+REVOKE ALL ON FUNCTION public.fn_auditor_tela_completo(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_auditor_tela_completo(text) TO authenticated, service_role;
