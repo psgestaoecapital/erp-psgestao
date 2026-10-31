@@ -110,6 +110,9 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', p_id, 'numero', v_v.numero);
 END $function$;
 
+REVOKE ALL ON FUNCTION public.fn_viagem_salvar(uuid, uuid, jsonb) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.fn_viagem_salvar(uuid, uuid, jsonb) TO authenticated, service_role;
+
 -- 3) fn_viagem_lancamento_salvar — herda o vínculo da viagem. Viagem de carga ⇒ lançamento sem obra, com a carga da viagem.
 CREATE OR REPLACE FUNCTION public.fn_viagem_lancamento_salvar(p_viagem_id uuid, p_id uuid, p_dados jsonb)
  RETURNS jsonb
@@ -188,6 +191,9 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', v_id);
 END $function$;
 
+REVOKE ALL ON FUNCTION public.fn_viagem_lancamento_salvar(uuid, uuid, jsonb) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.fn_viagem_lancamento_salvar(uuid, uuid, jsonb) TO authenticated, service_role;
+
 -- 4) fn_viagem_cargas_disponiveis — leitura: lista as cargas do período para o seletor da Indústria.
 --    Usa o tradutor genérico fn_com_venda_item (nunca ATAK direto na tela). Guarda de empresa obrigatória.
 CREATE OR REPLACE FUNCTION public.fn_viagem_cargas_disponiveis(p_company_id uuid, p_de date, p_ate date)
@@ -227,7 +233,7 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'cargas', v_res);
 END $function$;
 
-REVOKE ALL ON FUNCTION public.fn_viagem_cargas_disponiveis(uuid, date, date) FROM public;
+REVOKE ALL ON FUNCTION public.fn_viagem_cargas_disponiveis(uuid, date, date) FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.fn_viagem_cargas_disponiveis(uuid, date, date) TO authenticated, service_role;
 
 -- 5) RD-95: "?" da tela da Indústria (usado na Parte 2). Chave nova = linha nova aqui (idempotente).
