@@ -24,6 +24,15 @@ type Sim = { ok: boolean; erro?: string; montagem?: string; unidade?: string; ar
 const brl = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const num = (v: number | null | undefined, d = 2) => (v == null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: d }));
 
+// Nunca expor a chave crua do motor ao usuário (RD-95/96): traduz para texto claro.
+const MSG_ERRO: Record<string, string> = {
+  sem_config_precificacao: "Esta empresa ainda não tem a precificação configurada (margens, impostos, custo de mão de obra e meta de produção). Configure a precificação da empresa para calcular o quantitativo e o orçamento das camadas.",
+  sem_preco: "Esta montagem não tem preço calculado — complete a composição antes de gerar o orçamento.",
+  metragem_invalida: "Informe uma metragem maior que zero.",
+};
+const traduzErro = (chave: string | null | undefined, padrao: string) =>
+  (chave && MSG_ERRO[chave]) ? MSG_ERRO[chave] : (chave || padrao);
+
 export default function SimuladorPage() {
   const { sel } = useCompanyIds();
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
@@ -110,7 +119,7 @@ export default function SimuladorPage() {
     setCalculando(false);
     if (error) { setErro(error.message); setSim(null); return; }
     const j = data as Sim;
-    if (!j?.ok) { setErro(j?.erro ?? "Falha ao simular"); setSim(null); return; }
+    if (!j?.ok) { setErro(traduzErro(j?.erro, "Falha ao simular")); setSim(null); return; }
     setSim(j);
   }, [companyId, montagemId, area, montagemSel]);
 
@@ -129,8 +138,7 @@ export default function SimuladorPage() {
     setGerando(false);
     const j = data as { ok?: boolean; erro?: string } | null;
     if (error || !j?.ok) {
-      const msgs: Record<string, string> = { sem_preco: "Esta montagem não tem preço calculado — complete a composição antes de gerar o orçamento.", metragem_invalida: "Informe uma metragem maior que zero." };
-      setErro(error?.message ?? msgs[j?.erro ?? ""] ?? j?.erro ?? "Falha ao gerar o orçamento");
+      setErro(error?.message ?? traduzErro(j?.erro, "Falha ao gerar o orçamento"));
       return;
     }
     router.push("/dashboard/orcamentos");
