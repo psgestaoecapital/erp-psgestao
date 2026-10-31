@@ -41,3 +41,8 @@ DECLARE v jsonb; BEGIN
   WHERE ap.company_id=p_company_id AND ap.status='pendente_confirmacao' AND ap.data BETWEEN p_dt_ini AND p_dt_fim;
   RETURN jsonb_build_object('ok',true,'pendentes',v);
 END $function$;
+
+-- Régua check_fn_guards (Regra 1): REVOKE anon na função SECURITY DEFINER (read-only, STABLE).
+-- Espelha a ACL viva em produção ({authenticated, service_role}; anon/PUBLIC sem EXECUTE). Sem mudança de runtime.
+REVOKE ALL ON FUNCTION public.fn_nr36_supervisao_pendentes(uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_supervisao_pendentes(uuid, date, date) TO authenticated, service_role;
