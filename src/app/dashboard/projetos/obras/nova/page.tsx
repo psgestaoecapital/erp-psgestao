@@ -13,6 +13,7 @@ import CepEndereco from '@/components/comum/CepEndereco'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
 const campo = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${LINE}`, fontSize: 14, background: '#fff', color: ESP, boxSizing: 'border-box' as const }
+const campoErro = { ...campo, border: `1px solid ${VERM}`, background: '#FFF7F7' }
 
 type ClienteOpt = { id: string; nome: string; cpf_cnpj: string | null }
 
@@ -27,6 +28,12 @@ export default function NovaObraPage() {
   const [end, setEnd] = useState({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: '', codigo_ibge_municipio: '' })
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState('')
+  const [tentou, setTentou] = useState(false)
+
+  // Validação visual (RD-98/RD-99): a obra precisa de ao menos UM identificador — cliente, nome OU endereço.
+  // Depois da 1ª tentativa de salvar sem nenhum, os campos ficam em vermelho e o aviso aparece ao lado deles.
+  const faltaIdentificar = !cliente.trim() && !nome.trim() && !end.logradouro.trim()
+  const marcar = tentou && faltaIdentificar
 
   // Busca de cliente no cadastro da empresa (mesmo padrão do Funil de Oportunidades): some ao escolher.
   useEffect(() => {
@@ -50,8 +57,8 @@ export default function NovaObraPage() {
 
   const salvar = async () => {
     if (!companyId) { setErro('Selecione uma empresa.'); return }
-    if (!cliente.trim() && !nome.trim() && !end.logradouro.trim()) { setErro('Informe o cliente, o nome ou o endereço da obra.'); return }
-    setBusy(true); setErro('')
+    if (faltaIdentificar) { setTentou(true); setErro('Informe o cliente, o nome ou o endereço da obra.'); return }
+    setBusy(true); setErro(''); setTentou(false)
     const { data, error } = await supabase.rpc('fn_hub_criar_obra_rapida', {
       p_company_id: companyId, p_cliente_id: clienteId, p_cliente_nome: cliente.trim() || null, p_nome: nome.trim() || null,
       p_logradouro: end.logradouro || null, p_numero: end.numero || null, p_bairro: end.bairro || null, p_cidade: end.cidade || null,
@@ -70,7 +77,7 @@ export default function NovaObraPage() {
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, color: ESP, margin: '2px 0 14px' }}>Nova obra</h1>
         <div style={{ display: 'grid', gap: 10 }}>
           <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT, position: 'relative' }}><span>Cliente<AjudaCampo chave="projetos.obra_nova.cliente" /></span>
-          <input data-testid="nova-obra-cliente" style={campo} placeholder="Busque no cadastro ou digite um novo" value={cliente}
+          <input data-testid="nova-obra-cliente" style={marcar ? campoErro : campo} aria-invalid={marcar || undefined} placeholder="Busque no cadastro ou digite um novo" value={cliente}
             autoComplete="off" onChange={(e) => limparCliente(e.target.value)} />
           {clienteId && <span data-testid="nova-obra-cliente-ligado" style={{ fontSize: 11, color: '#3B5A1E' }}>✓ ligado ao cliente do cadastro</span>}
           {cliOpts.length > 0 && (
@@ -85,8 +92,9 @@ export default function NovaObraPage() {
           )}
           </label>
           <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Nome da obra<AjudaCampo chave="projetos.obra_nova.nome" /></span>
-          <input data-testid="nova-obra-nome" style={campo} placeholder="Nome da obra (opcional — usa o endereço)" value={nome} onChange={(e) => setNome(e.target.value)} /></label>
+          <input data-testid="nova-obra-nome" style={marcar ? campoErro : campo} aria-invalid={marcar || undefined} placeholder="Nome da obra (opcional — usa o endereço)" value={nome} onChange={(e) => setNome(e.target.value)} /></label>
           <CepEndereco value={end} onChange={(p) => setEnd((s) => ({ ...s, ...p }))} ajuda="projetos.obra_nova.endereco" />
+          {marcar && <div data-testid="nova-obra-obrigatorio" style={{ fontSize: 12, color: VERM, fontWeight: 600 }}>Preencha ao menos um destes: cliente, nome ou endereço.</div>}
           {erro && <div role="alert" data-testid="nova-obra-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 10, fontSize: 13 }}>{erro}</div>}
           {/* RD-99: o botão de criar fica SEMPRE visível (sticky no rodapé), sem precisar rolar até o fim do formulário. */}
           <div style={{ position: 'sticky', bottom: 0, zIndex: 5, background: BG, paddingTop: 8, paddingBottom: 4, marginTop: 2 }}>
