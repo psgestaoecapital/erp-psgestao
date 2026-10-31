@@ -28,8 +28,8 @@ const ETAPAS_FALLBACK: Etapa[] = [
   { chave: 'perdido', rotulo: 'Perdido', ordem: 60, cor: '#F4D6D6', tipo_etapa: 'perda' },
 ]
 
-type Lead = { etapa: string; valor_estimado: number | null }
-type Prop = { status: string; valor_final: number | null }
+type Lead = { id: string; nome: string | null; empresa: string | null; etapa: string; valor_estimado: number | null; criado_em: string | null }
+type Prop = { id: string; numero: string | null; titulo: string | null; status: string; valor_final: number | null; created_at: string | null }
 type Com = { status: string; valor_comissao: number | null }
 type Ctr = { data_inicio: string | null; tipo: string | null; fee_mensal: number | null; valor_projeto: number | null }
 
@@ -52,8 +52,8 @@ export default function HubComercialPage() {
       const [l, p, c, ct, fe] = await Promise.all([
         // RD-98 pilar 1 (falso-dado): ignora registros soft-deletados. Sem o filtro, KPIs/funil contavam
         // leads/propostas excluídos (ex.: 3270 leads com só 8 vivos, 910 propostas com só 3 vivas na DEMO).
-        supabase.from('agency_leads').select('etapa, valor_estimado').eq('company_id', empresa).is('deleted_at', null),
-        supabase.from('agency_propostas').select('status, valor_final').eq('company_id', empresa).is('deleted_at', null),
+        supabase.from('agency_leads').select('id, nome, empresa, etapa, valor_estimado, criado_em').eq('company_id', empresa).is('deleted_at', null).order('criado_em', { ascending: false }),
+        supabase.from('agency_propostas').select('id, numero, titulo, status, valor_final, created_at').eq('company_id', empresa).is('deleted_at', null).order('created_at', { ascending: false }),
         supabase.from('agency_comissao').select('status, valor_comissao').eq('company_id', empresa),
         supabase.from('agency_contratos').select('data_inicio, tipo, fee_mensal, valor_projeto').eq('company_id', empresa).eq('status', 'ativo'),
         supabase.rpc('fn_funil_etapas_listar', { p_company_id: empresa, p_tipo_funil: TIPO_FUNIL }),
@@ -77,7 +77,12 @@ export default function HubComercialPage() {
     const funil = et.map((e) => ({ v: e.chave, l: e.rotulo, cor: e.cor ?? OFFWHITE, n: leads.filter((l) => l.etapa === e.chave).length }))
     const propAbertas = props.filter((x) => ['rascunho', 'enviada'].includes(x.status))
     const propAprov = props.filter((x) => x.status === 'aprovada')
-    const conversao = props.length > 0 ? Math.round((propAprov.length / props.length) * 100) : 0
+    const propRecusadas = props.filter((x) => x.status === 'recusada')
+    // Taxa de conversão = win-rate entre as propostas DECIDIDAS (aprovada + recusada). Antes o denominador era TODAS as
+    // propostas (incluindo rascunho/enviada ainda em aberto), o que fazia a taxa cair artificialmente e ficar 0% quando
+    // nada ainda tinha sido aprovado (falso-zero, RD-98 p1). Sem nenhuma proposta decidida → null (mostra "—", não 0%).
+    const decididas = propAprov.length + propRecusadas.length
+    const conversao = decididas > 0 ? Math.round((propAprov.length / decididas) * 100) : null
     // "Novos no mês" = contratos cujo início (data_inicio) cai no mês corrente. Compara por ano-mês
     // (prefixo YYYY-MM) para não sofrer com fuso na virada do dia 1.
     const now = new Date(); const curYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -91,12 +96,21 @@ export default function HubComercialPage() {
       propAprov: propAprov.length,
       emNegociacao: propAbertas.reduce((s, p) => s + Number(p.valor_final ?? 0), 0),
       conversao,
+      decididas,
       comPrevista: coms.filter((c) => c.status === 'prevista').reduce((s, c) => s + Number(c.valor_comissao ?? 0), 0),
       comAPagar: coms.filter((c) => c.status === 'a_pagar').reduce((s, c) => s + Number(c.valor_comissao ?? 0), 0),
       novosContratos: novosMes.length,
       novosContratosR: novosMes.reduce((s, c) => s + valorContrato(c), 0),
     }
   }, [leads, props, coms, ctrs, etapas])
+
+  const etapaRotulo = useMemo(() => {
+    const et = etapas.length ? etapas : ETAPAS_FALLBACK
+    const mapa = new Map(et.map((e) => [e.chave, e.rotulo]))
+    return (chave: string) => mapa.get(chave) ?? chave
+  }, [etapas])
+  const recentLeads = useMemo(() => leads.slice(0, 8), [leads])
+  const recentProps = useMemo(() => props.slice(0, 8), [props])
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
@@ -122,7 +136,7 @@ export default function HubComercialPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 10, marginBottom: 14 }}>
               <Card titulo="Pipeline (em aberto)" valor={String(m.pipelineN)} sub={brl(m.pipelineR)} href="/dashboard/pm/leads" ajuda="pm.comercial.kpi_pipeline" />
               <Card titulo="Propostas abertas" valor={String(m.propAbertas)} sub={`${m.propAprov} aprovadas`} href="/dashboard/pm/propostas" ajuda="pm.comercial.kpi_propostas" />
-              <Card titulo="Conversão" valor={`${m.conversao}%`} sub={brl(m.emNegociacao) + ' em negociação'} href="/dashboard/pm/propostas" ajuda="pm.comercial.kpi_conversao" />
+              <Card titulo="Conversão" valor={m.conversao == null ? '—' : `${m.conversao}%`} sub={m.conversao == null ? 'sem propostas decididas' : `${m.propAprov} de ${m.decididas} decididas`} href="/dashboard/pm/propostas" ajuda="pm.comercial.kpi_conversao" />
               <Card titulo="Comissão a pagar" valor={brl(m.comAPagar)} sub={brl(m.comPrevista) + ' prevista'} href="/dashboard/pm/comissao" cor={DOURADO} ajuda="pm.comercial.kpi_comissao" />
               <Card titulo="Novos contratos (mês)" valor={String(m.novosContratos)} sub={brl(m.novosContratosR) + '/mês'} cor={GREEN} ajuda="pm.comercial.kpi_contratos" />
             </div>
@@ -137,6 +151,46 @@ export default function HubComercialPage() {
                   </div>
                 ))}
               </div>
+            </div>
+
+            {/* Corpo: antes a tela terminava no funil (vazia abaixo). Agora lista os leads e as propostas recentes,
+                com atalho para editar na tela própria (lead no quadro; proposta direto no editor via ?proposta=). */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px,1fr))', gap: 12, marginTop: 14 }}>
+              <Painel titulo="Leads recentes" ajuda="pm.comercial.kpi_pipeline" verTodos="/dashboard/pm/leads" verLabel="Abrir quadro de leads →">
+                {recentLeads.length === 0 ? <Vazio>Nenhum lead ainda. Use “+ Novo lead”.</Vazio> : (
+                  <table style={tbl}>
+                    <thead><tr><Th>Lead</Th><Th>Etapa</Th><Th style={{ textAlign: 'right' }}>Valor estimado</Th><Th /></tr></thead>
+                    <tbody>
+                      {recentLeads.map((l) => (
+                        <tr key={l.id} style={linha} data-testid={`comercial-lead-${l.id}`}>
+                          <Td><b>{l.nome || 'Sem nome'}</b>{l.empresa && <span style={{ color: TEXTM }}> · {l.empresa}</span>}</Td>
+                          <Td style={{ color: TEXTM }}>{etapaRotulo(l.etapa)}</Td>
+                          <Td style={{ textAlign: 'right' }}>{l.valor_estimado != null ? brl(l.valor_estimado) : '—'}</Td>
+                          <Td style={{ textAlign: 'right' }}><Link href="/dashboard/pm/leads" style={acao}>Editar</Link></Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </Painel>
+
+              <Painel titulo="Propostas recentes" ajuda="pm.comercial.kpi_propostas" verTodos="/dashboard/pm/propostas" verLabel="Abrir propostas →">
+                {recentProps.length === 0 ? <Vazio>Nenhuma proposta ainda. Use “+ Nova proposta”.</Vazio> : (
+                  <table style={tbl}>
+                    <thead><tr><Th>Proposta</Th><Th>Status</Th><Th style={{ textAlign: 'right' }}>Valor</Th><Th /></tr></thead>
+                    <tbody>
+                      {recentProps.map((p) => (
+                        <tr key={p.id} style={linha} data-testid={`comercial-proposta-${p.id}`}>
+                          <Td><b>{p.titulo || (p.numero ? `Proposta ${p.numero}` : 'Sem título')}</b></Td>
+                          <Td><span style={{ ...badge, ...statusCor(p.status) }}>{STATUS_LABEL[p.status] ?? p.status}</span></Td>
+                          <Td style={{ textAlign: 'right' }}>{p.valor_final != null ? brl(p.valor_final) : '—'}</Td>
+                          <Td style={{ textAlign: 'right' }}><Link href={`/dashboard/pm/propostas?proposta=${p.id}`} style={acao}>Editar</Link></Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </Painel>
             </div>
           </>
         )}
@@ -160,6 +214,35 @@ function Card({ titulo, valor, sub, href, cor, ajuda }: { titulo: string; valor:
     </div>
   )
 }
+
+function Painel({ titulo, ajuda, verTodos, verLabel, children }: { titulo: string; ajuda: string; verTodos: string; verLabel: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, display: 'inline-flex', alignItems: 'center' }}>{titulo}<AjudaCampo chave={ajuda} /></div>
+        <Link href={verTodos} style={{ fontSize: 12, fontWeight: 700, color: ESPRESSO, textDecoration: 'underline' }}>{verLabel}</Link>
+      </div>
+      <div style={{ overflowX: 'auto' }}>{children}</div>
+    </div>
+  )
+}
+function Vazio({ children }: { children: React.ReactNode }) {
+  return <div style={{ padding: '20px 8px', textAlign: 'center', color: TEXTM, fontSize: 13, border: `1px dashed ${BORDA}`, borderRadius: 10 }}>{children}</div>
+}
+function Th({ children, style }: { children?: React.ReactNode; style?: CSSProperties }) { return <th style={{ textAlign: 'left', padding: '6px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: TEXTM, ...style }}>{children}</th> }
+function Td({ children, style }: { children?: React.ReactNode; style?: CSSProperties }) { return <td style={{ padding: '7px 10px', color: ESPRESSO, fontSize: 13, ...style }}>{children}</td> }
+
+const STATUS_LABEL: Record<string, string> = { rascunho: 'Rascunho', enviada: 'Enviada', aprovada: 'Aprovada', recusada: 'Recusada', cancelada: 'Cancelada' }
+function statusCor(s: string): CSSProperties {
+  if (s === 'aprovada') return { background: '#DCEFD7', color: '#1F5A1F' }
+  if (s === 'recusada' || s === 'cancelada') return { background: '#F4D6D6', color: '#7A1F1F' }
+  if (s === 'enviada') return { background: '#FCE9C2', color: '#7A5A0F' }
+  return { background: '#F0E9DE', color: TEXTM }
+}
+const tbl: CSSProperties = { width: '100%', borderCollapse: 'collapse', minWidth: 300 }
+const linha: CSSProperties = { borderTop: `1px solid ${BORDA}` }
+const acao: CSSProperties = { fontSize: 12, fontWeight: 700, color: ESPRESSO, textDecoration: 'underline' }
+const badge: CSSProperties = { display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700 }
 
 const btnPri: CSSProperties = { border: 'none', background: DOURADO, color: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 700, minHeight: 42, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }
 const btnGhost: CSSProperties = { border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO, borderRadius: 10, padding: '10px 16px', cursor: 'pointer', minHeight: 42, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }
