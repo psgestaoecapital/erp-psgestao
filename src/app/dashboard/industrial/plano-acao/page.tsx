@@ -39,7 +39,7 @@ type Plano = {
   indicador_vinculado: string | null; resultado_obtido: string | null
   reuniao_id: string | null; reuniao_codigo: string | null; reuniao_titulo: string | null
   concluida_em: string | null; criado_em: string; atualizado_em: string
-  atrasada: boolean
+  atrasada: boolean; arquivada?: boolean; arquivada_em?: string | null
 }
 type Resumo = { abertas: number; em_andamento: number; atrasadas: number; concluidas_mes: number; pct_no_prazo: number | null }
 type Setor = { id: string; nome: string }
@@ -108,6 +108,7 @@ export default function PlanoAcaoPage() {
   const [fPrioridade, setFPrioridade] = useState('')
   const [fOrigem, setFOrigem] = useState('')
   const [soAtrasadas, setSoAtrasadas] = useState(false)
+  const [incluirArq, setIncluirArq] = useState(false) // arquivo: concluída/cancelada >30 dias (nunca exclui)
 
   // visão (quadro/tabela) e arrastar cartão entre colunas (chamados #3177/#3181)
   const [visao, setVisao] = useState<'quadro' | 'tabela'>('quadro')
@@ -129,9 +130,11 @@ export default function PlanoAcaoPage() {
     if (!companyId) { setLoading(false); return }
     setLoading(true); setErro(null)
     const p_reuniao = reuniaoSel || null
+    // arquivamento automático (idempotente): concluída/cancelada há mais de 30 dias vai para o arquivo
+    await supabase.rpc('fn_plano_acao_arquivar_antigas', { p_company_id: companyId })
     const [r, l, s, reu] = await Promise.all([
       supabase.rpc('fn_plano_acao_resumo', { p_company_id: companyId, p_reuniao }),
-      supabase.rpc('fn_plano_acao_listar', { p_company_id: companyId, p_reuniao }),
+      supabase.rpc('fn_plano_acao_listar', { p_company_id: companyId, p_reuniao, p_incluir_arquivadas: incluirArq }),
       supabase.from('prod_setor').select('id, nome').eq('company_id', companyId).order('nome'),
       supabase.rpc('fn_plano_acao_reuniao_listar', { p_company_id: companyId }),
     ])
@@ -141,7 +144,7 @@ export default function PlanoAcaoPage() {
     setSetores((s.data ?? []) as Setor[])
     if (reu.data?.ok) setReunioes((reu.data.reunioes ?? []) as Reuniao[])
     setLoading(false)
-  }, [companyId, reuniaoSel])
+  }, [companyId, reuniaoSel, incluirArq])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -292,7 +295,7 @@ export default function PlanoAcaoPage() {
     { header: 'Estimado', get: (p) => p.custo_estimado, tipo: 'moeda', peso: 1.2, align: 'right', total: true },
     { header: 'Real', get: (p) => p.custo_real, tipo: 'moeda', peso: 1.2, align: 'right', total: true },
     { header: 'Prioridade', get: (p) => PRIORIDADE_ROTULO[p.prioridade], peso: 1 },
-    { header: 'Status', get: (p) => p.atrasada ? `${STATUS_ROTULO[p.status]} (atrasada)` : STATUS_ROTULO[p.status], peso: 1.4 },
+    { header: 'Status', get: (p) => (p.atrasada ? `${STATUS_ROTULO[p.status]} (atrasada)` : STATUS_ROTULO[p.status]) + (p.arquivada ? ' · arquivada' : ''), peso: 1.4 },
   ]
   function metaRelatorio() {
     const filtros: string[] = []
@@ -302,6 +305,7 @@ export default function PlanoAcaoPage() {
     if (fPrioridade) filtros.push(`prioridade ${PRIORIDADE_ROTULO[fPrioridade as Prioridade]}`)
     if (fOrigem) filtros.push(`origem ${ORIGEM_ROTULO[fOrigem as Origem]}`)
     if (soAtrasadas) filtros.push('só atrasadas')
+    if (incluirArq) filtros.push('com arquivadas')
     if (busca.trim()) filtros.push(`busca "${busca.trim()}"`)
     return {
       titulo: 'Plano de Ação 5W2H', empresa: empresaNome, filtros: filtros.length ? filtros.join(' · ') : 'todas as ações',
@@ -312,8 +316,15 @@ export default function PlanoAcaoPage() {
       ] : undefined,
     }
   }
-  function exportar(fmt: 'pdf' | 'excel') {
+  function exportar(fmt: 'pdf' | 'excel' | 'csv') {
     if (!filtrados.length) { flash('Nada para exportar com os filtros atuais.'); return }
+    if (fmt === 'csv') {
+      const cel = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+      const linhas = [colunas.map((c) => cel(c.header)).join(';'), ...filtrados.map((p) => colunas.map((c) => cel(c.get(p))).join(';'))]
+      const url = URL.createObjectURL(new Blob(['\uFEFF' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' }))
+      const a = document.createElement('a'); a.href = url; a.download = 'plano-de-acao.csv'; a.click(); URL.revokeObjectURL(url)
+      flash('CSV gerado.'); return
+    }
     const meta = metaRelatorio()
     if (fmt === 'pdf') void exportarPDF(meta, colunas, filtrados).then(() => flash('PDF gerado.')).catch(() => flash('Falha ao gerar o PDF.'))
     else { try { exportarExcel(meta, colunas, filtrados); flash('Excel gerado.') } catch { flash('Falha ao gerar o Excel.') } }
@@ -356,11 +367,11 @@ export default function PlanoAcaoPage() {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span role="group" aria-label="Forma de exibir as ações" style={{ display: 'inline-flex', border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+              <span role="group" aria-label="Forma de exibir as ações (Kanban ou Lista)" style={{ display: 'inline-flex', border: `0.5px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
                 {(['quadro', 'tabela'] as const).map((v) => (
                   <button key={v} type="button" data-testid={`plano-visao-${v}`} aria-pressed={visao === v} onClick={() => setVisao(v)}
                     style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', background: visao === v ? ESP : '#FFF', color: visao === v ? BG : ESP }}>
-                    {v === 'quadro' ? 'Quadro' : 'Tabela'}
+                    {v === 'quadro' ? 'Kanban' : 'Lista'}
                   </button>
                 ))}
               </span>
@@ -371,6 +382,10 @@ export default function PlanoAcaoPage() {
               <AjudaCampo chave="industrial.plano_acao.exportar" rota={ROTA} />
             </span>
             <button type="button" data-testid="plano-exportar-excel" onClick={() => exportar('excel')} style={btnSec}>Exportar Excel</button>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <button type="button" data-testid="plano-exportar-csv" onClick={() => exportar('csv')} style={btnSec}>Exportar CSV</button>
+              <AjudaCampo chave="industrial.plano_acao.exportar_csv" rota={ROTA} />
+            </span>
             <span style={{ display: 'inline-flex', alignItems: 'center' }}>
               <button type="button" data-testid="plano-novo" onClick={abrirNova} style={btnPrim}>+ Nova ação</button>
               <AjudaCampo chave="industrial.plano_acao.novo" rota={ROTA} />
@@ -465,6 +480,10 @@ export default function PlanoAcaoPage() {
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: ESP, padding: '7px 2px' }}>
             <input data-testid="plano-f-atrasadas" type="checkbox" checked={soAtrasadas} onChange={(e) => setSoAtrasadas(e.target.checked)} />
             Só atrasadas<AjudaCampo chave="industrial.plano_acao.f_so_atrasadas" rota={ROTA} />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: ESP, padding: '7px 2px' }}>
+            <input data-testid="plano-f-arquivadas" type="checkbox" checked={incluirArq} onChange={(e) => setIncluirArq(e.target.checked)} />
+            Incluir arquivadas<AjudaCampo chave="industrial.plano_acao.incluir_arquivadas" rota={ROTA} />
           </label>
         </div>
 
@@ -717,29 +736,63 @@ function CardAcao({ p, arrastando, onArrastar, onEditar, onStatus, onConcluir, o
   )
 }
 
+type ColTab = { k: string; h: string; v: (p: Plano) => string | number }
+const COLS_TAB: ColTab[] = [
+  { k: 'codigo', h: 'Código', v: (p) => p.codigo },
+  { k: 'titulo', h: 'Ação', v: (p) => p.titulo },
+  { k: 'por_que', h: 'Por quê', v: (p) => p.por_que ?? '' },
+  { k: 'resp', h: 'Responsável', v: (p) => p.responsavel_nome ?? '' },
+  { k: 'setor', h: 'Setor / local', v: (p) => p.setor_nome || p.onde || '' },
+  { k: 'prazo', h: 'Prazo', v: (p) => p.quando ?? '9999-12-31' },
+  { k: 'como', h: 'Como', v: (p) => p.como ?? '' },
+  { k: 'estimado', h: 'Estimado', v: (p) => p.custo_estimado ?? -1 },
+  { k: 'real', h: 'Real', v: (p) => p.custo_real ?? -1 },
+  { k: 'prio', h: 'Prioridade', v: (p) => ({ alta: 0, media: 1, baixa: 2 }[p.prioridade]) },
+  { k: 'status', h: 'Status', v: (p) => STATUS_ORDEM.indexOf(p.status) },
+]
+
 function TabelaAcoes({ planos, onEditar }: { planos: Plano[]; onEditar: (p: Plano) => void }) {
+  const [ord, setOrd] = useState<{ k: string; dir: 1 | -1 }>({ k: 'prazo', dir: 1 })
+  const linhas = useMemo(() => {
+    const c = COLS_TAB.find((x) => x.k === ord.k) ?? COLS_TAB[0]
+    return [...planos].sort((a, b) => {
+      const va = c.v(a), vb = c.v(b)
+      const r = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb), 'pt-BR', { numeric: true })
+      return r * ord.dir
+    })
+  }, [planos, ord])
   const th: React.CSSProperties = { textAlign: 'left', padding: '10px 12px', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 700, borderBottom: `0.5px solid ${LINE}`, whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '10px 12px', fontSize: 13, lineHeight: 1.45, color: ESP, borderBottom: `0.5px solid ${LINE}`, verticalAlign: 'top', overflowWrap: 'anywhere' }
   if (planos.length === 0) return <div data-testid="plano-tabela" style={{ ...CARD, textAlign: 'center', color: MUT, fontSize: 13 }}>Nenhuma ação com esses filtros. Limpe a busca ou crie uma ação em “+ Nova ação”.</div>
   return (
     <div data-testid="plano-tabela" style={{ ...CARD, padding: 0, overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
         <thead>
-          <tr>{['Código', 'Ação', 'Responsável', 'Setor / local', 'Prazo', 'Prioridade', 'Status'].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+          <tr>{COLS_TAB.map((c) => (
+            <th key={c.k} style={th} aria-sort={ord.k === c.k ? (ord.dir === 1 ? 'ascending' : 'descending') : 'none'}>
+              <button type="button" data-testid={`plano-ord-${c.k}`} onClick={() => setOrd((o) => ({ k: c.k, dir: o.k === c.k ? (o.dir === 1 ? -1 : 1) : 1 }))}
+                style={{ all: 'unset', cursor: 'pointer' }}>{c.h}{ord.k === c.k ? (ord.dir === 1 ? ' ▲' : ' ▼') : ''}</button>
+              {c.k === 'codigo' && <AjudaCampo chave="industrial.plano_acao.ordenar" rota={ROTA} />}
+            </th>
+          ))}</tr>
         </thead>
         <tbody>
-          {planos.map((p) => (
-            <tr key={p.id} data-testid="plano-linha" data-codigo={p.codigo}>
+          {linhas.map((p) => (
+            <tr key={p.id} data-testid="plano-linha" data-codigo={p.codigo} style={{ opacity: p.arquivada ? 0.6 : 1 }}>
               <td style={{ ...td, whiteSpace: 'nowrap', color: MUT, fontWeight: 600 }}>{p.codigo}</td>
               <td style={td}>
                 <button type="button" onClick={() => onEditar(p)} style={{ all: 'unset', cursor: 'pointer', fontWeight: 600, color: ESP, lineHeight: 1.45 }}>{p.titulo}</button>
                 {p.o_que && norm(p.o_que) !== norm(p.titulo) && <div style={{ fontSize: 12, color: MUT, lineHeight: 1.4, marginTop: 2 }}>{p.o_que}</div>}
               </td>
+              <td style={td}>{p.por_que || '—'}</td>
               <td style={td}>{p.responsavel_nome || <span style={{ color: VERM }}>sem responsável</span>}</td>
               <td style={td}>{p.setor_nome || p.onde || '—'}</td>
               <td style={{ ...td, whiteSpace: 'nowrap', color: p.atrasada ? VERM : ESP, fontWeight: p.atrasada ? 700 : 400 }}>{dataBR(p.quando)}{p.atrasada ? ' · ATRASADA' : ''}</td>
+              <td style={td}>{p.como || '—'}</td>
+              <td style={{ ...td, whiteSpace: 'nowrap' }}>{brl(p.custo_estimado)}</td>
+              <td style={{ ...td, whiteSpace: 'nowrap' }}>{brl(p.custo_real)}</td>
               <td style={{ ...td, color: PRIORIDADE_COR[p.prioridade], fontWeight: 700 }}>{PRIORIDADE_ROTULO[p.prioridade]}</td>
-              <td style={td}>{STATUS_ROTULO[p.status]}</td>
+              <td style={td}>{STATUS_ROTULO[p.status]}{p.arquivada ? ' · arquivada' : ''}</td>
             </tr>
           ))}
         </tbody>
