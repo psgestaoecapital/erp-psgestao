@@ -86,12 +86,15 @@ export default function NovaObraPage() {
           </label>
           <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Nome da obra<AjudaCampo chave="projetos.obra_nova.nome" /></span>
           <input data-testid="nova-obra-nome" style={campo} placeholder="Nome da obra (opcional — usa o endereço)" value={nome} onChange={(e) => setNome(e.target.value)} /></label>
-          <CepEndereco value={end} onChange={(p) => setEnd((s) => ({ ...s, ...p }))} />
+          <CepEndereco value={end} onChange={(p) => setEnd((s) => ({ ...s, ...p }))} ajuda="projetos.obra_nova.endereco" />
           {erro && <div role="alert" data-testid="nova-obra-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 10, fontSize: 13 }}>{erro}</div>}
-          <button data-testid="nova-obra-salvar" disabled={busy} onClick={() => void salvar()}
-            style={{ padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>
-            {busy ? 'Criando…' : 'Criar obra e abrir o cockpit'}
-          </button>
+          {/* RD-99: o botão de criar fica SEMPRE visível (sticky no rodapé), sem precisar rolar até o fim do formulário. */}
+          <div style={{ position: 'sticky', bottom: 0, zIndex: 5, background: BG, paddingTop: 8, paddingBottom: 4, marginTop: 2 }}>
+            <button data-testid="nova-obra-salvar" disabled={busy} onClick={() => void salvar()}
+              style={{ width: '100%', padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>
+              {busy ? 'Criando…' : 'Criar obra e abrir o cockpit'}
+            </button>
+          </div>
           <div style={{ fontSize: 11, color: MUT }}>A obra nasce pronta: número automático, nome pelo endereço, cliente ligado ao cadastro e cockpit liberado. Orçamento e itens entram depois, no cockpit.</div>
         </div>
       </div>
