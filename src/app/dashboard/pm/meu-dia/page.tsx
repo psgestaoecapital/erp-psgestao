@@ -8,7 +8,7 @@ import { BarraHorasHoje } from "@/components/pm/BarraHorasHoje";
 import { ResumoFimDia } from "@/components/pm/ResumoFimDia";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Sun, AtSign, History, StickyNote, Pin, PinOff, Archive, CalendarClock, ListChecks, AlertTriangle } from "lucide-react";
+import { Sun, AtSign, History, StickyNote, Pin, PinOff, Archive, CalendarClock, ListChecks, AlertTriangle, Pencil, Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -37,6 +37,8 @@ export default function MeuDiaPage() {
   const [acoes, setAcoes] = useState<Acao[]>([]);
   const [notas, setNotas] = useState<Nota[]>([]);
   const [novaNota, setNovaNota] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editTexto, setEditTexto] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
 
@@ -94,9 +96,29 @@ export default function MeuDiaPage() {
     if (error) { setErro(error.message); return; }
     setNovaNota(""); void carregar();
   }
-  async function mexerNota(n: Nota, campos: Partial<{ fixada: boolean; excluido_em: string }>) {
-    const { error } = await supabase.from("agency_anotacoes").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("id", n.id);
+  async function fixarNota(n: Nota) {
+    const { error } = await supabase.from("agency_anotacoes").update({ fixada: !n.fixada, atualizado_em: new Date().toISOString() }).eq("id", n.id);
     if (error) { setErro(error.message); return; }
+    void carregar();
+  }
+  // RD-98 p2: editar o texto de uma anotação já criada — RPC grava audit_log (quem/quando).
+  function abrirEdicao(n: Nota) { setEditId(n.id); setEditTexto(n.texto); setErro(null); }
+  function cancelarEdicao() { setEditId(null); setEditTexto(""); }
+  async function salvarEdicao(n: Nota) {
+    const texto = editTexto.trim();
+    if (!texto || texto === n.texto) { cancelarEdicao(); return; }
+    const { data, error } = await supabase.rpc("fn_pm_anotacao_editar", { p_id: n.id, p_texto: texto });
+    if (error) { setErro(error.message); return; }
+    const r = data as { ok: boolean; erro?: string } | null;
+    if (!r?.ok) { setErro(r?.erro ?? "Não foi possível editar a anotação."); return; }
+    cancelarEdicao(); void carregar();
+  }
+  // RD-98 p4: exclusão rastreável — RPC grava excluido_por + audit_log (antes era UPDATE direto só com excluido_em).
+  async function excluirNota(n: Nota) {
+    const { data, error } = await supabase.rpc("fn_pm_anotacao_excluir", { p_id: n.id });
+    if (error) { setErro(error.message); return; }
+    const r = data as { ok: boolean; erro?: string } | null;
+    if (!r?.ok) { setErro(r?.erro ?? "Não foi possível arquivar a anotação."); return; }
     void carregar();
   }
 
@@ -191,9 +213,31 @@ export default function MeuDiaPage() {
             <ul className="mt-2 space-y-1.5">
               {notas.map((n) => (
                 <li key={n.id} className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] ${n.fixada ? "bg-[#FAEEDA]" : "bg-[#FAF7F2]"}`} data-testid="dia-nota">
-                  <span className="min-w-0 flex-1 whitespace-pre-wrap">{n.texto}<span className="block text-[11px] text-[#3D2314]/50">{quando(n.atualizado_em)}</span></span>
-                  <button onClick={() => void mexerNota(n, { fixada: !n.fixada })} aria-label={n.fixada ? "desafixar" : "fixar"} title={n.fixada ? "desafixar" : "fixar no topo"}>{n.fixada ? <PinOff size={14} /> : <Pin size={14} />}</button>
-                  <button onClick={() => void mexerNota(n, { excluido_em: new Date().toISOString() })} aria-label="arquivar" title="arquivar"><Archive size={14} /></button>
+                  {editId === n.id ? (
+                    <>
+                      <div className="min-w-0 flex-1" data-ajuda="pm.dia.anotacao.texto">
+                        <textarea className="min-h-[56px] w-full rounded-lg border border-[#3D2314]/15 px-2.5 py-2 text-[12.5px] focus:border-[#C8941A] focus:outline-none" value={editTexto} onChange={(e) => setEditTexto(e.target.value)} data-testid="dia-nota-editar-texto" autoFocus />
+                      </div>
+                      <button onClick={() => void salvarEdicao(n)} disabled={!editTexto.trim()} aria-label="salvar" title="salvar" className="disabled:opacity-40" data-testid="dia-nota-editar-salvar"><Check size={14} /></button>
+                      <button onClick={cancelarEdicao} aria-label="cancelar" title="cancelar" data-testid="dia-nota-editar-cancelar"><X size={14} /></button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 whitespace-pre-wrap">{n.texto}<span className="block text-[11px] text-[#3D2314]/50">{quando(n.atualizado_em)}</span></span>
+                      <span className="flex shrink-0 items-center">
+                        <button onClick={() => void fixarNota(n)} aria-label={n.fixada ? "desafixar" : "fixar"} title={n.fixada ? "desafixar" : "fixar no topo"} data-testid="dia-nota-fixar">{n.fixada ? <PinOff size={14} /> : <Pin size={14} />}</button>
+                        <AjudaCampo chave="pm.dia.anotacao.fixar" />
+                      </span>
+                      <span className="flex shrink-0 items-center">
+                        <button onClick={() => abrirEdicao(n)} aria-label="editar" title="editar" data-testid="dia-nota-editar"><Pencil size={14} /></button>
+                        <AjudaCampo chave="pm.dia.anotacao.editar" />
+                      </span>
+                      <span className="flex shrink-0 items-center">
+                        <button onClick={() => void excluirNota(n)} aria-label="arquivar" title="arquivar" data-testid="dia-nota-arquivar"><Archive size={14} /></button>
+                        <AjudaCampo chave="pm.dia.anotacao.excluir" />
+                      </span>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
