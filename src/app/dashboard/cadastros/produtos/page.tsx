@@ -12,6 +12,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
   ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle,
+  Trash2, RotateCcw,
 } from 'lucide-react'
 import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
 
@@ -289,6 +290,24 @@ export default function ProdutosPage() {
     setEditando(null)
     setNovoAberto(false)
     setClonando(data as unknown as Produto)
+  }
+
+  // Chamado #3856 — "botão para deletar o produto". Exclusão REVERSÍVEL por design: inativa o produto
+  // (ativo=false). Ele sai da lista de Ativos e volta pelo filtro Situação → Inativos ("Reativar").
+  // Nunca apaga a linha: produto citado em nota fiscal, estoque ou insumo precisa do histórico
+  // (RD-98 — nada de DELETE físico de dado de cliente). O write passa pela RLS por company_id.
+  async function excluirProduto(p: Produto) {
+    if (!companyId || !p.id) return
+    if (!window.confirm(`Excluir o produto "${p.nome}"? Ele sai da lista de Ativos (exclusão reversível — volte em Situação → Inativos para Reativar). Nada é apagado de vez.`)) return
+    const { error } = await supabase.from('erp_produtos').update({ ativo: false }).eq('id', p.id).eq('company_id', companyId)
+    if (error) { setErro(error.message); return }
+    carregar(true)
+  }
+  async function reativarProduto(p: Produto) {
+    if (!companyId || !p.id) return
+    const { error } = await supabase.from('erp_produtos').update({ ativo: true }).eq('id', p.id).eq('company_id', companyId)
+    if (error) { setErro(error.message); return }
+    carregar(true)
   }
 
   function toggleOrdem(coluna: OrdenarPor) {
@@ -791,6 +810,27 @@ export default function ProdutosPage() {
                           >
                             <Edit size={14} />
                           </button>
+                          {p.ativo === false ? (
+                            <button
+                              type="button"
+                              onClick={() => reativarProduto(p)}
+                              data-testid="produto-reativar"
+                              className="text-[#1F5A1F] hover:text-[#164016]"
+                              title="Reativar (voltar para Ativos)"
+                            >
+                              <RotateCcw size={14} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => excluirProduto(p)}
+                              data-testid="produto-excluir"
+                              className="text-[#7A1F1F] hover:text-[#5c1717]"
+                              title="Excluir (reversível — vai para Inativos)"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -851,6 +891,27 @@ export default function ProdutosPage() {
                         >
                           <Edit size={14} />
                         </button>
+                        {p.ativo === false ? (
+                          <button
+                            type="button"
+                            onClick={() => reativarProduto(p)}
+                            data-testid="produto-reativar-mobile"
+                            className="text-[#1F5A1F] hover:text-[#164016]"
+                            title="Reativar"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => excluirProduto(p)}
+                            data-testid="produto-excluir-mobile"
+                            className="text-[#7A1F1F] hover:text-[#5c1717]"
+                            title="Excluir (reversível)"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
