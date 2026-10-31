@@ -7,6 +7,9 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { codigoPainel, hojeISO, type JobPainel } from "@/lib/pm/painel";
 import { alertasEstimado, cobertura, janelaDias, jobsSemHoras, type HoraDia, type Pessoa } from "@/lib/pm/painelGestor";
+import AjudaCampo from "@/components/ajuda/AjudaCampo";
+
+const ROTA = "/dashboard/pm/painel-gestor";
 
 const cartao = "rounded-2xl border border-[#3D2314]/10 bg-white p-4";
 const JANELAS = [{ d: 1, l: "Hoje" }, { d: 7, l: "7 dias" }, { d: 30, l: "30 dias" }];
@@ -52,7 +55,7 @@ export default function PainelGestorPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4">
       <header>
-        <h1 className="text-xl font-bold text-[#3D2314]">Painel do gestor · Tempo</h1>
+        <h1 className="text-xl font-bold text-[#3D2314]">Painel do gestor · Tempo<AjudaCampo chave="pm.painel_gestor.tela" rota={ROTA} /></h1>
         <p className="text-[12px] text-[#6b5444]">Quem está apontando, jobs sem horas e jobs perto de estourar o estimado.</p>
       </header>
       {erro && <p role="alert" className="rounded-lg bg-red-50 p-3 text-[13px] text-red-700">{erro}</p>}
@@ -60,11 +63,12 @@ export default function PainelGestorPage() {
         <>
           <section className={cartao} data-testid="cobertura">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-[14px] font-semibold text-[#3D2314]">Cobertura de apontamento · {comApontamento} de {cob.length} pessoas</h2>
-              <div className="flex gap-1">
+              <h2 className="text-[14px] font-semibold text-[#3D2314]">Cobertura de apontamento · {comApontamento} de {cob.length} pessoas<AjudaCampo chave="pm.painel_gestor.cobertura" rota={ROTA} /></h2>
+              <div className="flex items-center gap-1">
                 {JANELAS.map((w) => (
                   <button key={w.d} type="button" onClick={() => setDias(w.d)} className={`min-h-[40px] rounded-lg border px-3 text-[12px] ${dias === w.d ? "border-[#3D2314] bg-[#3D2314] text-white" : "border-[#E7DED3] text-[#3D2314]"}`}>{w.l}</button>
                 ))}
+                <AjudaCampo chave="pm.painel_gestor.filtro_janela" rota={ROTA} />
               </div>
             </div>
             {cob.length === 0 ? <p className="text-[12px] text-[#6b5444]">Sem equipe cadastrada.</p> : (
@@ -79,7 +83,7 @@ export default function PainelGestorPage() {
             )}
           </section>
           <section className={cartao} data-testid="sem-horas">
-            <h2 className="mb-2 text-[14px] font-semibold text-[#3D2314]">Jobs em andamento sem horas ({sem.length})</h2>
+            <h2 className="mb-2 text-[14px] font-semibold text-[#3D2314]">Jobs em andamento sem horas ({sem.length})<AjudaCampo chave="pm.painel_gestor.sem_horas" rota={ROTA} /></h2>
             {sem.length === 0 ? <p className="text-[12px] text-[#6b5444]">Todos os jobs em andamento têm horas.</p> : (
               <ul className="divide-y divide-[#E7DED3]">
                 {sem.slice(0, 50).map((j) => (
@@ -92,7 +96,7 @@ export default function PainelGestorPage() {
             )}
           </section>
           <section className={cartao} data-testid="alerta-80">
-            <h2 className="mb-2 text-[14px] font-semibold text-[#3D2314]">Alerta de 80% do estimado ({alertas.length})</h2>
+            <h2 className="mb-2 text-[14px] font-semibold text-[#3D2314]">Alerta de 80% do estimado ({alertas.length})<AjudaCampo chave="pm.painel_gestor.alerta_80" rota={ROTA} /></h2>
             {alertas.length === 0 ? <p className="text-[12px] text-[#6b5444]">Nenhum job chegou a 80% do estimado.</p> : (
               <ul className="divide-y divide-[#E7DED3]">
                 {alertas.slice(0, 50).map((a) => (
