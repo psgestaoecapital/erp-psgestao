@@ -1322,7 +1322,7 @@ function CampoRot({ id, rotulo, dica, aviso, ajuda, children }: { id: string; ro
       </span>
       {children}
       {dica && <span style={{ fontSize: 11, color: C.espL }}>{dica}</span>}
-      {aviso && <span style={{ fontSize: 11.5, color: '#8A4B08', background: C.amberBg, borderRadius: 6, padding: '3px 7px' }}>⚠ {aviso}</span>}
+      {aviso && <span style={{ fontSize: 11.5, color: '#8A4B08', background: C.amberBg, borderRadius: 6, padding: '3px 7px' }}>Atenção: {aviso}</span>}
     </div>
   )
 }
