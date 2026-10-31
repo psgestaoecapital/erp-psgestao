@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 const VERDE = '#16A34A', VERM = '#B91C1C'
@@ -101,8 +102,8 @@ function AbaAlertas({ empresa }: { empresa: string | null }) {
       <div style={{ fontSize: 12, color: MUT, marginBottom: 14 }}>Dias que um lead pode ficar parado numa etapa antes de virar âmbar (atenção) e vermelho (atrasado). Vale para todas as etapas.</div>
       {!salvo && <div style={{ fontSize: 11.5, color: ESP, background: '#FFF8E7', border: `0.5px solid ${GOLD}`, borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>Ainda usando o padrão do sistema (amarelo 3 · vermelho 7). Salve para aplicar a sua régua.</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <label><span style={lblS}>Dias para âmbar</span><input type="number" min={1} value={amarelo} onChange={(e) => setAmarelo(Math.max(1, Number(e.target.value) || 1))} style={inp} /></label>
-        <label><span style={lblS}>Dias para vermelho</span><input type="number" min={1} value={vermelho} onChange={(e) => setVermelho(Math.max(1, Number(e.target.value) || 1))} style={inp} /></label>
+        <label><span style={lblS}>Dias para âmbar<AjudaCampo chave="pm.config.alertas_ambar" /></span><input type="number" min={1} value={amarelo} onChange={(e) => setAmarelo(Math.max(1, Number(e.target.value) || 1))} style={inp} /></label>
+        <label><span style={lblS}>Dias para vermelho<AjudaCampo chave="pm.config.alertas_vermelho" /></span><input type="number" min={1} value={vermelho} onChange={(e) => setVermelho(Math.max(1, Number(e.target.value) || 1))} style={inp} /></label>
       </div>
       <Msg m={msg} />
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
@@ -267,11 +268,11 @@ function AbaProposta({ empresa }: { empresa: string | null }) {
       <div style={{ fontSize: 13, color: ESP, fontWeight: 700, marginBottom: 10 }}>Regras da proposta</div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: ESP, marginBottom: 12, cursor: 'pointer' }}>
         <input type="checkbox" checked={exigir} onChange={(e) => setExigir(e.target.checked)} />
-        Exigir que todo item venha do catálogo (bloqueia itens avulsos)
+        Exigir que todo item venha do catálogo (bloqueia itens avulsos)<AjudaCampo chave="pm.config.proposta_exigir_catalogo" />
       </label>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-        <label><span style={lblS}>Condição de pagamento padrão</span><input value={condicao} onChange={(e) => setCondicao(e.target.value)} placeholder="ex.: Mensal" style={inp} /></label>
-        <label><span style={lblS}>Desconto máximo (%) — vazio = sem limite</span><input type="number" min={0} max={100} step="0.5" value={descMax} onChange={(e) => setDescMax(e.target.value)} placeholder="sem limite" style={inp} /></label>
+        <label><span style={lblS}>Condição de pagamento padrão<AjudaCampo chave="pm.config.proposta_condicao" /></span><input value={condicao} onChange={(e) => setCondicao(e.target.value)} placeholder="ex.: Mensal" style={inp} /></label>
+        <label><span style={lblS}>Desconto máximo (%) — vazio = sem limite<AjudaCampo chave="pm.config.proposta_desconto_max" /></span><input type="number" min={0} max={100} step="0.5" value={descMax} onChange={(e) => setDescMax(e.target.value)} placeholder="sem limite" style={inp} /></label>
       </div>
       <div style={{ fontSize: 11, color: MUT, marginTop: 10 }}>Numeração (prefixo/contador) e validade padrão ficam para um próximo ajuste — dependem de mudança na função de criação da proposta, e não entram aqui como campo que não faz nada.</div>
       <Msg m={msg} />
