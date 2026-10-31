@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { situacaoCertificado } from './certificadoValidade'
 import { FocusNFeProvider } from './providers/focusnfe'
 import { decryptApiKey } from './decrypt'
 import { FiscalError } from './errors'
@@ -146,6 +147,12 @@ export async function createFiscalService(
   const diasParaExpirar = validadeFim
     ? Math.floor((validadeFim.getTime() - Date.now()) / 86_400_000)
     : undefined
+
+  // #5661: certificado vencido bloqueia a emissão com mensagem clara (em vez de falhar no emissor).
+  const sitCert = situacaoCertificado(payload.certificado?.validade_fim)
+  if (sitCert.estado === 'vencido') {
+    throw new FiscalError('CERTIFICADO_EXPIRADO', sitCert.mensagem ?? 'Certificado A1 vencido · envie um novo em /dashboard/configuracoes/fiscal')
+  }
 
   const provider: FiscalProvider = new FocusNFeProvider({
     apiKey,
