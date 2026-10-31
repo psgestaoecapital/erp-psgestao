@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'
@@ -41,10 +42,13 @@ export default function PortfolioPage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Portfolio</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Entregas publicadas por cliente.</p>
           </div>
-          <select value={fCli} onChange={(e) => setFCli(e.target.value)} style={inp}>
-            <option value="todos">Todos os clientes</option>
-            {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome_fantasia ?? c.nome}</option>)}
-          </select>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <select aria-label="Filtrar por cliente" value={fCli} onChange={(e) => setFCli(e.target.value)} style={inp}>
+              <option value="todos">Todos os clientes</option>
+              {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome_fantasia ?? c.nome}</option>)}
+            </select>
+            <AjudaCampo chave="pm.portfolio.filtro_cliente" />
+          </div>
         </header>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
