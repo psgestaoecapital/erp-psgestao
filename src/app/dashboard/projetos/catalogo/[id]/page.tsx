@@ -624,7 +624,7 @@ export default function ServicoEditorPage({
       </div>
 
       {/* Composição de Preço Unitário (CPU) completa — padrão de mercado, genérica */}
-      <ComposicaoCpu servicoId={servico.id} companyId={servico.company_id} reloadKey={cpuReload} />
+      <ComposicaoCpu servicoId={servico.id} companyId={servico.company_id} reloadKey={cpuReload} rotaAjuda={ROTA_AJUDA} />
     </main>
   );
 }
