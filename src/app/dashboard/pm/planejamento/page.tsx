@@ -274,9 +274,9 @@ export default function PlanejamentoPage() {
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {([["Planejamentos", kpis.planos], ["Posts", kpis.posts], ["Em aprovação", kpis.aprov], ["Viraram job", kpis.jobs]] as const).map(([l, v]) => (
+          {([["Planejamentos", kpis.planos, "pm.planejamento.kpi_planejamentos"], ["Posts", kpis.posts, "pm.planejamento.kpi_posts"], ["Em aprovação", kpis.aprov, "pm.planejamento.kpi_em_aprovacao"], ["Viraram job", kpis.jobs, "pm.planejamento.kpi_viraram_job"]] as [string, number, string][]).map(([l, v, chave]) => (
             <div key={l} className="rounded-2xl border border-[#3D2314]/10 bg-white px-4 py-3">
-              <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[#3D2314]/55">{l}</div>
+              <div className="flex items-center text-[10.5px] font-semibold uppercase tracking-wider text-[#3D2314]/55">{l}<AjudaCampo chave={chave} /></div>
               <div className="text-[22px] font-medium">{v}</div>
             </div>
           ))}
