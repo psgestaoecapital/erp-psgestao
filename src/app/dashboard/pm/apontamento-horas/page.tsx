@@ -201,9 +201,9 @@ export default function ApontamentoHorasPage() {
         </section>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Horas (últimas)" v={totalHorasMes.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} />
-          {podeVerCusto && <Kpi l="Custo apontado" v={brl(custoMes)} />}
-          <Kpi l="Lançamentos" v={String(linhas.length)} sub={ruidoCount > 0 ? `${linhas.length - ruidoCount} reais · ${ruidoCount} de ruído` : undefined} />
+          <Kpi l="Horas (últimas)" v={totalHorasMes.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ajuda="pm.apontamento.kpi_horas" />
+          {podeVerCusto && <Kpi l="Custo apontado" v={brl(custoMes)} ajuda="pm.apontamento.kpi_custo" />}
+          <Kpi l="Lançamentos" v={String(linhas.length)} sub={ruidoCount > 0 ? `${linhas.length - ruidoCount} reais · ${ruidoCount} de ruído` : undefined} ajuda="pm.apontamento.kpi_lancamentos" />
         </div>
 
         {!loading && linhasVis.length > 0 && (
@@ -279,9 +279,9 @@ export default function ApontamentoHorasPage() {
   )
 }
 
-function Kpi({ l, v, sub }: { l: string; v: string; sub?: string }) {
+function Kpi({ l, v, sub, ajuda }: { l: string; v: string; sub?: string; ajuda?: string }) {
   return <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center' }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
     <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
     {sub && <div style={{ fontSize: 11, color: TEXTM, marginTop: 2 }}>{sub}</div>}
   </div>
