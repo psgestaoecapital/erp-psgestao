@@ -5,15 +5,17 @@
 // status null (DEMO Construtora tinha 4 plantas, todas null → acervo vazio apesar do dado existir).
 // Agora lista TODAS as plantas não excluídas da empresa e deriva o status do dado real; com busca,
 // filtro por status, ORDENAÇÃO (recente/antiga/nome/status), contagem, paginação e EXPORTAÇÃO em CSV.
-// Cada card traz AÇÕES diretas: reabrir a análise no /takeoff, ver o orçamento vinculado (quando houver) e
-// excluir (rastreável). Mostra também QUEM enviou e QUEM analisou a planta.
+// Cada card traz AÇÕES diretas: reabrir a análise no /takeoff, ver o orçamento vinculado (quando houver),
+// BAIXAR o arquivo original da planta (quando há arquivo salvo) e excluir (rastreável). Mostra também QUEM
+// enviou e QUEM analisou a planta.
 // Click numa planta reabre no /takeoff (bridge por query param).
-// Origem do dado (system_screens): erp_obra_planta (+ public.users só para o nome de quem enviou/analisou).
-// RD-95: "?" em busca, filtro, ordenação, exportar, contagem, autor e cada ação.
+// Origem do dado (system_screens): erp_obra_planta (+ storage projetos-plantas para o download + public.users
+// só para o nome de quem enviou/analisou).
+// RD-95: "?" em busca, filtro, ordenação, exportar, contagem, autor, baixar e cada ação.
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, FileText, CheckCircle2, Loader2, UploadCloud, Search, Trash2, ArrowDownUp, FileDown, RotateCcw, Receipt } from 'lucide-react'
+import { ArrowLeft, FileText, CheckCircle2, Loader2, UploadCloud, Search, Trash2, ArrowDownUp, FileDown, RotateCcw, Receipt, Download } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -35,6 +37,7 @@ type PlantaAcervo = {
   created_at: string | null
   updated_at: string
   arquivo_tipo: string | null
+  arquivo_path: string | null
   orcamento_id: string | null
   projeto_nome: string | null
   cliente_nome: string | null
@@ -96,6 +99,7 @@ export default function AcervoTakeoffPage() {
   const [ordem, setOrdem] = useState<Ordem>('recente')
   const [pagina, setPagina] = useState(1)
   const [excluindo, setExcluindo] = useState<string | null>(null)
+  const [baixando, setBaixando] = useState<string | null>(null)
   // nome de quem enviou/analisou (id → nome), resolvido em uma busca extra; vazio se o banco não liberar
   const [autores, setAutores] = useState<Record<string, string>>({})
   const nomeAutor = (id: string | null) => (id ? autores[id] ?? null : null)
@@ -114,13 +118,31 @@ export default function AcervoTakeoffPage() {
     setPlantas((prev) => prev.filter((x) => x.id !== p.id))
   }
 
+  // Baixar o arquivo ORIGINAL da planta (o que foi enviado) direto do acervo, sem reabrir a análise.
+  // Usa o mesmo bucket do Takeoff (projetos-plantas); o download respeita a RLS do storage por empresa.
+  // Só aparece quando a planta tem arquivo salvo (arquivo_path). Falha de rede/arquivo → mensagem clara, sem quebrar.
+  const baixar = async (p: PlantaAcervo) => {
+    if (!p.arquivo_path) return
+    setBaixando(p.id); setErro(null)
+    const { data, error } = await supabase.storage.from('projetos-plantas').download(p.arquivo_path)
+    setBaixando(null)
+    if (error || !data) { setErro(error?.message ?? 'Não foi possível baixar o arquivo desta planta.'); return }
+    const ext = (p.arquivo_path.split('.').pop() || p.arquivo_tipo || 'dat').toLowerCase()
+    const base = (p.nome || 'planta').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'planta'
+    const nomeArq = base.toLowerCase().endsWith('.' + ext) ? base : `${base}.${ext}`
+    const url = URL.createObjectURL(data)
+    const a = document.createElement('a')
+    a.href = url; a.download = nomeArq; a.click()
+    URL.revokeObjectURL(url)
+  }
+
   useEffect(() => {
     if (!companyId) return
     let alive = true
     setLoading(true); setErro(null)
     supabase
       .from('erp_obra_planta')
-      .select('id,nome,aps_status,analisado_em,aps_traduzido_em,created_at,updated_at,arquivo_tipo,orcamento_id,projeto_nome,cliente_nome,criado_por,analisado_por,aps_diagnostico')
+      .select('id,nome,aps_status,analisado_em,aps_traduzido_em,created_at,updated_at,arquivo_tipo,arquivo_path,orcamento_id,projeto_nome,cliente_nome,criado_por,analisado_por,aps_diagnostico')
       .eq('company_id', companyId)
       .is('deleted_at', null)
       .order('analisado_em', { ascending: false, nullsFirst: false })
@@ -354,6 +376,20 @@ export default function AcervoTakeoffPage() {
                           <Receipt size={13} /> Ver orçamento
                         </Link>
                         <AjudaCampo chave="hub.takeoff.acervo.ver_orcamento" />
+                      </>
+                    )}
+                    {p.arquivo_path && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={baixando === p.id}
+                          onClick={() => void baixar(p)}
+                          data-testid="acervo-baixar"
+                          style={{ ...acaoLink, border: 'none', background: 'transparent', cursor: baixando === p.id ? 'wait' : 'pointer' }}
+                        >
+                          <Download size={13} /> {baixando === p.id ? 'Baixando…' : 'Baixar planta'}
+                        </button>
+                        <AjudaCampo chave="hub.takeoff.acervo.baixar" />
                       </>
                     )}
                     <button
