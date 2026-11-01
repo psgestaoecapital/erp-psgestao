@@ -1,6 +1,6 @@
 // Gate (CEO 10/10) — tema por usuário. Confere a fonte única dos presets, que o semáforo NUNCA é tematizado, a trava
 // dos documentos (@media print na marca), o modo claro, a RLS por usuário (sem company_id) e os "?" da tela.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { MODO_DEFAULT, TEMA_DEFAULT, TEMA_PRESETS, corDestaque, presetPorId, resolverModo } from '../../src/theme/theme-presets'
 
 let falhas = 0
@@ -33,7 +33,10 @@ ok(/@media print/.test(css) && /--gold: #C6973F/.test(css.slice(css.indexOf('@me
   'globals: @media print força a marca PS (documentos nunca saem no tema do usuário)')
 
 // ── migration: RLS por usuário, sem company_id, defaults, chaves de ajuda ───────────────────────────────────────
-const mig = readFileSync('supabase/migrations/20261010190005_tema_por_usuario.sql', 'utf8')
+// Acha a migration pelo SUFIXO (não pelo timestamp): a fila/renumeração pode trocar o prefixo de versão.
+const migFile = readdirSync('supabase/migrations').find((f) => f.endsWith('_tema_por_usuario.sql'))
+ok(!!migFile, 'migration: arquivo _tema_por_usuario.sql presente em supabase/migrations')
+const mig = migFile ? readFileSync(`supabase/migrations/${migFile}`, 'utf8') : ''
 ok(/CREATE TABLE IF NOT EXISTS public\.erp_usuario_preferencia/.test(mig) && !/company_id\s+(uuid|text)/.test(mig) && !/company_id\s*=/.test(mig),
   'migration: erp_usuario_preferencia SEM coluna company_id (é do usuário, não da empresa)')
 ok(/ENABLE ROW LEVEL SECURITY/.test(mig) && /REVOKE ALL ON public\.erp_usuario_preferencia FROM PUBLIC, anon/.test(mig)
