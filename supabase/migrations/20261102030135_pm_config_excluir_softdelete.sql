@@ -61,3 +61,10 @@ BEGIN
   RETURN jsonb_build_object('ok', true);
 END;
 $function$;
+
+-- 3) Guarda de função SECURITY DEFINER (check_fn_guards · regra 1 · revoke_anon):
+-- CREATE OR REPLACE preserva os grants, mas o gate exige o REVOKE/GRANT explícito em toda
+-- (re)criação de função SECURITY DEFINER (fecha IDOR via anon/PUBLIC). Casando com a ACL viva
+-- em produção ({authenticated, service_role}; anon/PUBLIC já fora).
+REVOKE ALL ON FUNCTION public.fn_agency_config_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_config_excluir(uuid) TO authenticated, service_role;
