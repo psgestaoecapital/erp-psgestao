@@ -26,3 +26,6 @@ BEGIN
             jsonb_build_object('ativo', false, 'em', now()));
   RETURN jsonb_build_object('ok', true);
 END $function$;
+
+-- check_fn_guards regra 1: fecha a função ao anon (idempotente; CREATE OR REPLACE reabriria a régua)
+REVOKE ALL ON FUNCTION public.fn_servico_excluir(uuid, uuid) FROM anon;
