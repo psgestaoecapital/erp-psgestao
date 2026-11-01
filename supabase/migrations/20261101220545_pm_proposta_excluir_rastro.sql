@@ -51,3 +51,9 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', p_id);
 END
 $function$;
+
+-- Reafirma a ACL da função SECURITY DEFINER (gate check-fn-guards / [revoke_anon]).
+-- CREATE OR REPLACE só preserva a ACL onde a função já existe; em ambiente novo volta ao
+-- default EXECUTE TO PUBLIC. Espelha a ACL viva hoje ({authenticated, service_role}).
+REVOKE ALL ON FUNCTION public.fn_agency_proposta_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_proposta_excluir(uuid) TO authenticated, service_role;
