@@ -85,6 +85,10 @@ CREATE TRIGGER trg_obra_revisao_item_piso
   BEFORE INSERT OR UPDATE ON public.projetos_obra_revisao_item
   FOR EACH ROW EXECUTE FUNCTION public.fn_obra_revisao_item_piso();
 
+-- Função de gatilho SECURITY DEFINER: fechar ao anon (não é chamável por RPC, mas a régua check-fn-guards exige o REVOKE).
+REVOKE ALL ON FUNCTION public.fn_obra_revisao_item_piso() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_revisao_item_piso() TO authenticated, service_role;
+
 -- 5) RPC para criar a revisão com itens (guardada, respeita o piso) -----------------------------------
 CREATE OR REPLACE FUNCTION public.fn_obra_revisao_criar(
   p_obra_id uuid, p_motivo text, p_origem text DEFAULT 'interno', p_itens jsonb DEFAULT '[]'::jsonb)
