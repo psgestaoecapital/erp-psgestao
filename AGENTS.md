@@ -390,6 +390,28 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
   em até 3 toques; (3) a tela aparece no menu do banco e em `system_screens` (entrega só conta se o usuário a enxerga); (4) nomes e
   fluxo próprios, nada decalcado de concorrente; (5) funciona no celular; (6) teste do caminho principal como usuário real.
 
+# RD-100 — nenhum nome de sistema de terceiros no produto (CEO 01/11, INEGOCIÁVEL) — vale para TODOS os Codes
+Nenhum nome de sistema de terceiros pode aparecer em NADA que o usuário veja: tela (strings de interface em `src/`),
+menu, catálogos (`module_catalog`, `feature_catalog`), ajuda (`erp_ajuda_campo`), blueprint vivo
+(`blueprint_tela_requisito`), rotas visíveis, PDFs e e-mails. Isto é marca própria — o produto não se posiciona pelo
+concorrente (complementa a RD-96).
+- **Lista do gate** (atualizável no próprio gate): SIGA, Conta Azul/ContaAzul, Omie, Olist, Bling, Sienge, Obra Prima,
+  Procore, Buildertrend, JobTread, CoConstruct, Knowify, Assembly, TOTVS, Protheus, Senior, Dotise, QuickBooks, Mobuss,
+  Prevision, Nibo, Aplix e similares.
+- **Termos genéricos** no lugar do nome: "sistema anterior", "seu ERP atual", "importar de outro sistema", "de mercado"
+  (ex.: "ref. Omie: …" → "ref. mercado: …"; "Paridade Sienge:" → "Paridade de mercado:"). Preserve TODO o resto do texto —
+  troque só o nome.
+- **Única exceção:** identificador técnico NÃO visível exigido pelo provedor (ex.: callback OAuth, nome de parâmetro de
+  API, slug de rota de integração real). Marque com comentário no código justificando. Cuidado com fronteira de palavra
+  (`\b`) e maiúsc./minúsc.: "Senior"/"SIGA" como marca ≠ "senior" (cargo) / "siga" (verbo).
+- **Rota visível com nome de terceiro** é renomeada com redirecionamento do caminho antigo (ex.:
+  `/dashboard/pm/importar-siga` → `/dashboard/pm/importar-sistema-anterior`).
+- **Migrations de limpeza** são aditivas e idempotentes, com cópia de segurança ANTES (ex.: `*_bkp_rd100`) e prova RD-38
+  (contagem antes/depois: 0 nomes depois, mesma contagem de linhas) no PR. Nunca altera dado de cliente (nome de cliente
+  que por acaso seja igual a um sistema NÃO é tocado).
+- **Gate:** `scripts/gates/check-sem-nome-de-terceiros.ts` reprova texto visível com nome de terceiro em `src/`, migrations/
+  seeds de ajuda e catálogos, e no blueprint vivo. Tela/texto novo com nome de terceiro não é entregue.
+
 # Sessões de rotina não prendem o CEO (Eng. Chefe 08/10) — vale para TODOS os Codes
 1. **Não use `subscribe_pr_activity` nem `unsubscribe_pr_activity`**: os eventos de PR já chegam pela fila de merge, pelo
    despertador e pelo `acionar-revisor`. Cada chamada vira um pedido de autorização no celular do CEO.
