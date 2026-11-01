@@ -218,7 +218,9 @@ export default function PropostasPage() {
 
   async function excluir(p: Proposta) {
     if (!window.confirm(`Excluir a proposta "${p.titulo}"? Ela sai da lista (exclusão reversível, nada é apagado de vez).`)) return
-    const { data, error } = await supabase.rpc('fn_agency_proposta_excluir', { p_id: p.id })
+    // RD-98 p4 · exclusão rastreável: o motivo (opcional) fica no histórico de auditoria junto de quem/quando excluiu.
+    const motivo = (window.prompt('Motivo da exclusão (opcional) — fica no histórico de auditoria:', '') ?? '').trim()
+    const { data, error } = await supabase.rpc('fn_agency_proposta_excluir', { p_id: p.id, p_motivo: motivo || null })
     const j = data as { ok?: boolean; erro?: string } | null
     if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
     setToast('Proposta EXCLUÍDA.'); void carregar()
