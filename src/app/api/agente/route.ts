@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { exigirLogin, empresasPermitidas, type UsuarioApi } from "@/lib/auth/guardaApi";
-import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
+import { modeloPara, registrarFalhaIA, assertIAPermitida, IABloqueadaError } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -22,6 +22,12 @@ async function handler(req: NextRequest, user: UsuarioApi) {
       const permitidas = await empresasPermitidas(user, compIds);
       if (permitidas instanceof NextResponse) return permitidas;
       compIds = permitidas;
+    }
+
+    // P0 CUSTO (CEO 01/11): porteiro do bloqueio global de IA paga, antes de qualquer custo.
+    try { await assertIAPermitida(); } catch (e) {
+      if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true }, { status: 503 });
+      throw e;
     }
 
     // ══════════════════════════════════════

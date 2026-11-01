@@ -44,7 +44,7 @@ export default function ApontamentoHorasPage() {
     const [j, e, t, c] = await Promise.all([
       supabase.from('agency_jobs').select('id, titulo, numero').eq('company_id', empresa).is('excluido_em', null).order('created_at', { ascending: false }),
       supabase.from('agency_equipe').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
-      supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, user_id, etapa_tipo').eq('company_id', empresa).order('data', { ascending: false }).limit(50),
+      supabase.from('agency_timesheet').select('id, job_id, data, horas, descricao, user_id, etapa_tipo').eq('company_id', empresa).is('excluido_em', null).order('data', { ascending: false }).limit(50),
       carregarCustosEquipe(supabase, empresa),
     ])
     // LGPD (20261005180000): custo por apontamento é custo por pessoa — só quem vê salário recebe (fn_pm_timesheet_custos)
@@ -133,6 +133,18 @@ export default function ApontamentoHorasPage() {
     setToast(`Apontamento CRIADO · ${horas}h${custoAp ? ` · ${brl(Number(custoAp))}` : ''}`); void carregar()
   }
 
+  // Excluir um lançamento errado (RD-98 p4): soft-delete rastreável no servidor (excluido_em + quem + audit_log).
+  async function excluir(l: Linha) {
+    if (!empresa || busy) return
+    const h = Number(l.horas ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+    if (!window.confirm(`Excluir o lançamento de ${h}h? A exclusão fica registrada (quem e quando).`)) return
+    setBusy(true)
+    const { error } = await supabase.rpc('fn_pm_timesheet_excluir', { p_company_id: empresa, p_id: l.id })
+    setBusy(false)
+    if (error) { setToast(`Erro: ${error.message}`); return }
+    setToast('Lançamento EXCLUÍDO'); void carregar()
+  }
+
   const elapsed = rodando != null ? Math.floor((Date.now() - rodando) / 1000) : 0
   const fmtT = (s: number) => `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
   void tick
@@ -189,9 +201,9 @@ export default function ApontamentoHorasPage() {
         </section>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Horas (últimas)" v={totalHorasMes.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} />
-          {podeVerCusto && <Kpi l="Custo apontado" v={brl(custoMes)} />}
-          <Kpi l="Lançamentos" v={String(linhas.length)} sub={ruidoCount > 0 ? `${linhas.length - ruidoCount} reais · ${ruidoCount} de ruído` : undefined} />
+          <Kpi l="Horas (últimas)" v={totalHorasMes.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ajuda="pm.apontamento.kpi_horas" />
+          {podeVerCusto && <Kpi l="Custo apontado" v={brl(custoMes)} ajuda="pm.apontamento.kpi_custo" />}
+          <Kpi l="Lançamentos" v={String(linhas.length)} sub={ruidoCount > 0 ? `${linhas.length - ruidoCount} reais · ${ruidoCount} de ruído` : undefined} ajuda="pm.apontamento.kpi_lancamentos" />
         </div>
 
         {!loading && linhasVis.length > 0 && (
@@ -220,10 +232,13 @@ export default function ApontamentoHorasPage() {
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 8 }}>
             <span style={{ fontSize: 12, color: TEXTM }}>A cadeia é <b>horas → job → margem</b>: só horas com um job vinculado entram na margem daquele job.</span>
             {ruidoCount > 0 && (
-              <button type="button" onClick={() => setOcultarRuido((v) => !v)} data-testid="apont-toggle-ruido"
-                style={{ ...btnSec, fontWeight: 700 }}>
-                {ocultarRuido ? `Mostrar ruído de cronômetro (${ruidoCount})` : `Ocultar ruído de cronômetro (${ruidoCount})`}
-              </button>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <button type="button" onClick={() => setOcultarRuido((v) => !v)} data-testid="apont-toggle-ruido"
+                  style={{ ...btnSec, fontWeight: 700 }}>
+                  {ocultarRuido ? `Mostrar ruído de cronômetro (${ruidoCount})` : `Ocultar ruído de cronômetro (${ruidoCount})`}
+                </button>
+                <AjudaCampo chave="pm.apontamento.ruido" />
+              </span>
             )}
           </div>
         )}
@@ -238,7 +253,7 @@ export default function ApontamentoHorasPage() {
           ) : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 520 }}>
-                <thead style={{ background: OFFWHITE }}><tr><Th>Data</Th><Th>Job</Th><Th>Etapa</Th><Th>Horas</Th>{podeVerCusto && <Th>Custo</Th>}<Th>Descrição</Th></tr></thead>
+                <thead style={{ background: OFFWHITE }}><tr><Th><span style={THWRAP}>Data <AjudaCampo chave="pm.apontamento.col_data" /></span></Th><Th><span style={THWRAP}>Job <AjudaCampo chave="pm.apontamento.col_job" /></span></Th><Th><span style={THWRAP}>Etapa <AjudaCampo chave="pm.apontamento.col_etapa" /></span></Th><Th><span style={THWRAP}>Horas <AjudaCampo chave="pm.apontamento.col_horas" /></span></Th>{podeVerCusto && <Th><span style={THWRAP}>Custo <AjudaCampo chave="pm.apontamento.col_custo" /></span></Th>}<Th><span style={THWRAP}>Descrição <AjudaCampo chave="pm.apontamento.col_descricao" /></span></Th><Th><span style={THWRAP}>Ações <AjudaCampo chave="pm.apontamento.excluir" /></span></Th></tr></thead>
                 <tbody>
                   {linhasVis.map((l) => {
                     const job = l.job_id ? jobMap.get(l.job_id) : undefined
@@ -253,6 +268,7 @@ export default function ApontamentoHorasPage() {
                       <Td>{Number(l.horas).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}h{ruido && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: AMBER, background: AMBERBG, borderRadius: 999, padding: '2px 7px' }}>ruído</span>}</Td>
                       {podeVerCusto && <Td style={{ color: GREEN, fontWeight: 600 }}>{brl(Number(l.custo_total ?? 0))}</Td>}
                       <Td style={{ color: TEXTM }}>{l.descricao ?? ''}</Td>
+                      <Td><button type="button" onClick={() => void excluir(l)} disabled={busy} data-testid={`apont-excluir-${l.id}`} title="Excluir lançamento" style={btnDel}>Excluir</button></Td>
                     </tr>
                     )
                   })}
@@ -266,9 +282,9 @@ export default function ApontamentoHorasPage() {
   )
 }
 
-function Kpi({ l, v, sub }: { l: string; v: string; sub?: string }) {
+function Kpi({ l, v, sub, ajuda }: { l: string; v: string; sub?: string; ajuda?: string }) {
   return <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center' }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
     <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
     {sub && <div style={{ fontSize: 11, color: TEXTM, marginTop: 2 }}>{sub}</div>}
   </div>
@@ -280,4 +296,7 @@ const lbl: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, f
 const btnPri: CSSProperties = { border: 'none', background: DOURADO, color: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 700, minHeight: 42 }
 const btnStop: CSSProperties = { border: 'none', background: '#7A1F1F', color: '#fff', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontWeight: 700, minHeight: 42 }
 const btnSec: CSSProperties = { border: `1px solid ${BORDA}`, color: ESPRESSO, background: '#fff', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', minHeight: 40 }
+const btnDel: CSSProperties = { border: `1px solid ${BORDA}`, color: '#7A1F1F', background: '#fff', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
 const toastStyle: CSSProperties = { position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: ESPRESSO, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, zIndex: 60 }
+// "?" (RD-95) nas colunas da tabela: rótulo + AjudaCampo lado a lado no cabeçalho.
+const THWRAP: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
