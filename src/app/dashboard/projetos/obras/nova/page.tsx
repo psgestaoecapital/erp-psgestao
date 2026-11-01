@@ -3,6 +3,8 @@
 // Usa fn_hub_criar_obra_rapida (numeração, nome pelo endereço e RLS já tratados no banco) e abre o cockpit.
 // PDCA auditor_pdca_1: a obra nascia SEM cliente_id (só texto livre). Agora o cliente é escolhido do cadastro
 // (erp_clientes) e a obra nasce LIGADA ao cliente (cliente_id); cliente ainda não cadastrado continua pelo texto livre.
+// Gestão de Obras (CEO 02/11): a obra rápida também captura valor previsto, início e previsão de término
+// (cronograma sugerido de 90 dias, editável) — base do previsto × realizado e do indicador de atraso.
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -26,6 +28,9 @@ export default function NovaObraPage() {
   const [cliOpts, setCliOpts] = useState<ClienteOpt[]>([])
   const [nome, setNome] = useState('')
   const [end, setEnd] = useState({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: '', codigo_ibge_municipio: '' })
+  const [valor, setValor] = useState('')              // valor previsto (reais, texto livre)
+  const [dataInicio, setDataInicio] = useState('')    // yyyy-mm-dd
+  const [dataFim, setDataFim] = useState('')          // yyyy-mm-dd (previsão de término)
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState('')
   const [tentou, setTentou] = useState(false)
@@ -62,6 +67,23 @@ export default function NovaObraPage() {
   ].filter(Boolean).join(', ')
   const temAlgumDado = !!cliente.trim() || !!nome.trim() || !!enderecoResumo
 
+  // Valor previsto: aceita "150000" ou "150.000,00"; vira número só na hora de salvar.
+  const valorNum = (() => {
+    const s = String(valor).replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')
+    const n = Number(s)
+    return Number.isFinite(n) && n > 0 ? n : 0
+  })()
+  const fmtData = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR') }
+  // Cronograma sugerido (RD-98 p1): a partir do início, sugere 90 dias de prazo — o usuário ajusta.
+  const fimSugerido = (() => {
+    if (!dataInicio) return ''
+    const d = new Date(dataInicio + 'T00:00:00'); if (isNaN(d.getTime())) return ''
+    d.setDate(d.getDate() + 90)
+    return d.toISOString().slice(0, 10)
+  })()
+  const fimEfetivo = dataFim || fimSugerido
+  const prazoInvalido = !!dataInicio && !!dataFim && dataFim < dataInicio
+
   // Stepper (RD-98 p1 — mostra onde o usuário está no assistente): 1 Cliente · 2 Local · 3 Criar.
   const passo1ok = !!cliente.trim()
   const passo2ok = !!end.logradouro.trim() || !!end.cidade.trim()
@@ -77,11 +99,14 @@ export default function NovaObraPage() {
   const salvar = async () => {
     if (!companyId) { setErro('Selecione uma empresa.'); return }
     if (faltaIdentificar) { setTentou(true); setErro('Informe o cliente, o nome ou o endereço da obra.'); return }
+    if (prazoInvalido) { setTentou(true); setErro('A previsão de término deve ser depois da data de início.'); return }
     setBusy(true); setErro(''); setTentou(false)
     const { data, error } = await supabase.rpc('fn_hub_criar_obra_rapida', {
       p_company_id: companyId, p_cliente_id: clienteId, p_cliente_nome: cliente.trim() || null, p_nome: nome.trim() || null,
       p_logradouro: end.logradouro || null, p_numero: end.numero || null, p_bairro: end.bairro || null, p_cidade: end.cidade || null,
       p_uf: end.uf || null, p_cep: end.cep || null, p_codigo_ibge: end.codigo_ibge_municipio || null, p_cno: null,
+      // Gestão de Obras · obra pronta já com valor e prazo; sem término informado, grava o sugerido (90 dias).
+      p_valor_previsto: valorNum > 0 ? valorNum : null, p_data_inicio: dataInicio || null, p_data_prevista_fim: fimEfetivo || null,
     })
     setBusy(false)
     if (error || !data) { setErro(error?.message ?? 'Não foi possível criar a obra.'); return }
@@ -133,6 +158,23 @@ export default function NovaObraPage() {
           <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Nome da obra<AjudaCampo chave="projetos.obra_nova.nome" /></span>
           <input data-testid="nova-obra-nome" style={marcar ? campoErro : campo} aria-invalid={marcar || undefined} placeholder="Nome da obra (opcional — usa o endereço)" value={nome} onChange={(e) => setNome(e.target.value)} /></label>
           <CepEndereco value={end} onChange={(p) => setEnd((s) => ({ ...s, ...p }))} ajuda="projetos.obra_nova.endereco" />
+
+          {/* Gestão de Obras · valor e prazo entram já na criação (obra pronta ao salvar). */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Valor previsto<AjudaCampo chave="projetos.obra_nova.valor" /></span>
+              <input data-testid="nova-obra-valor" inputMode="decimal" style={campo} placeholder="R$ (opcional)" value={valor} onChange={(e) => setValor(e.target.value)} /></label>
+            <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Início<AjudaCampo chave="projetos.obra_nova.data_inicio" /></span>
+              <input data-testid="nova-obra-inicio" type="date" style={campo} value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} /></label>
+          </div>
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Previsão de término<AjudaCampo chave="projetos.obra_nova.prazo" /></span>
+            <input data-testid="nova-obra-fim" type="date" min={dataInicio || undefined} style={tentou && prazoInvalido ? campoErro : campo} aria-invalid={(tentou && prazoInvalido) || undefined} value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+            {!dataFim && fimSugerido && (
+              <span data-testid="nova-obra-fim-sugerido" style={{ fontSize: 11, color: MUT }}>Sugerido: {fmtData(fimSugerido)} (90 dias) ·{' '}
+                <button type="button" onClick={() => setDataFim(fimSugerido)} style={{ background: 'none', border: 'none', color: GOLD, fontWeight: 600, cursor: 'pointer', padding: 0, font: 'inherit' }}>usar</button></span>
+            )}
+            {tentou && prazoInvalido && <span style={{ fontSize: 11, color: VERM, fontWeight: 600 }}>A previsão de término deve ser depois do início.</span>}
+          </label>
+
           {marcar && <div data-testid="nova-obra-obrigatorio" style={{ fontSize: 12, color: VERM, fontWeight: 600 }}>Preencha ao menos um destes: cliente, nome ou endereço.</div>}
           {erro && <div role="alert" data-testid="nova-obra-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 10, fontSize: 13 }}>{erro}</div>}
 
@@ -144,6 +186,8 @@ export default function NovaObraPage() {
                 <div><span style={{ color: MUT }}>Cliente: </span>{cliente.trim() ? <>{cliente.trim()}{clienteId ? ' ✓' : ' (novo)'}</> : <span style={{ color: MUT }}>—</span>}</div>
                 <div><span style={{ color: MUT }}>Nome: </span>{nome.trim() || <span style={{ color: MUT }}>será gerado pelo endereço</span>}</div>
                 <div><span style={{ color: MUT }}>Endereço: </span>{enderecoResumo || <span style={{ color: MUT }}>—</span>}</div>
+                <div><span style={{ color: MUT }}>Valor previsto: </span>{valorNum > 0 ? valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : <span style={{ color: MUT }}>—</span>}</div>
+                <div><span style={{ color: MUT }}>Prazo: </span>{dataInicio ? <>{fmtData(dataInicio)}{fimEfetivo ? ` → ${fmtData(fimEfetivo)}` : ''}{!dataFim && fimSugerido ? ' (sugerido)' : ''}</> : <span style={{ color: MUT }}>—</span>}</div>
               </div>
             </div>
           )}
@@ -159,7 +203,7 @@ export default function NovaObraPage() {
               Cancelar
             </button>
           </div>
-          <div style={{ fontSize: 11, color: MUT }}>A obra nasce pronta: número automático, nome pelo endereço, cliente ligado ao cadastro e cockpit liberado. Orçamento e itens entram depois, no cockpit.</div>
+          <div style={{ fontSize: 11, color: MUT }}>A obra nasce pronta: número automático, nome pelo endereço, cliente ligado ao cadastro, valor e prazo definidos e cockpit liberado. Orçamento e itens entram depois, no cockpit.</div>
         </div>
       </div>
     </div>
