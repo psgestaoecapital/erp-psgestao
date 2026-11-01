@@ -4,7 +4,7 @@
 // (sem upload de DWG/planta). Fluxo em 3 passos: (1) novo take-off → (2) ambientes+áreas+serviços →
 // (3) gerar orçamento e ver o BOM/mão-de-obra sair sozinho. Zero backend novo, zero migration.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Ruler, Plus, Check, Sparkles, AlertTriangle } from 'lucide-react'
+import { Ruler, Plus, Check, Sparkles, AlertTriangle, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -94,7 +94,7 @@ export default function EngenhariaPage() {
   const recarregarAmbientes = useCallback(async (plantaId: string) => {
     const { data } = await supabase.from('erp_obra_planta_ambiente')
       .select('id,nome,area_m2,perimetro_ml,pe_direito_m,confirmado,servico_id,base_calculo')
-      .eq('planta_id', plantaId).order('nome')
+      .eq('planta_id', plantaId).is('deleted_at', null).order('nome')
     setAmbientes((data as Ambiente[]) ?? [])
   }, [])
 
@@ -170,6 +170,39 @@ export default function EngenhariaPage() {
       setAddAberto(false)
       await recarregarAmbientes(planta.id)
       setMsg('Ambiente adicionado. Vincule um serviço e confirme.')
+    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+  }
+
+  // Passo 2 · excluir ambiente (RD-98 p4: soft-delete rastreável via RPC guardada + audit_log).
+  const excluirAmbiente = async (a: Ambiente) => {
+    if (!companyId || !planta) return
+    if (!window.confirm(`Excluir o ambiente "${a.nome}"? Ele sai do cálculo do orçamento. A exclusão fica registrada e é reversível.`)) return
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_takeoff_ambiente_excluir', { p_company_id: companyId, p_id: a.id })
+      if (error) throw error
+      const j = data as { ok?: boolean; erro?: string } | null
+      if (!j?.ok) { setErro(j?.erro === 'nao_encontrado' ? 'Ambiente não encontrado (talvez já excluído).' : (j?.erro ?? 'Falha ao excluir ambiente.')); return }
+      await recarregarAmbientes(planta.id)
+      setMsg(`Ambiente "${a.nome}" excluído.`)
+    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+  }
+
+  // Passo 1 · excluir take-off (soft-delete rastreável com motivo — fn_takeoff_planta_excluir já existente).
+  const excluirTakeoff = async () => {
+    if (!companyId || !planta) return
+    const motivo = window.prompt(`Excluir o take-off "${planta.nome}"? Informe o motivo (fica registrado):`)?.trim()
+    if (!motivo) return
+    if (motivo.length < 3) { setErro('Informe um motivo com ao menos 3 caracteres.'); return }
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_takeoff_planta_excluir', { p_planta_id: planta.id, p_motivo: motivo })
+      if (error) throw error
+      const j = data as { ok?: boolean } | null
+      if (!j?.ok) { setErro('Falha ao excluir o take-off.'); return }
+      setPlanta(null); setAmbientes([]); setItensGerados([]); setBom([])
+      await recarregarPlantas()
+      setMsg('Take-off excluído.')
     } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
   }
 
@@ -315,6 +348,12 @@ export default function EngenhariaPage() {
               <button onClick={() => setAddAberto(true)} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: GOLD, color: GOLD, background: 'transparent', opacity: busy ? 0.6 : 1 }}>
                 <Plus size={13} /> Ambiente
               </button>
+              <span className="inline-flex items-center">
+                <button onClick={excluirTakeoff} disabled={busy} data-testid="engenharia-excluir-takeoff" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: '#C59', color: '#A63A5A', background: 'transparent', opacity: busy ? 0.6 : 1 }}>
+                  <Trash2 size={13} /> Excluir take-off
+                </button>
+                <AjudaCampo chave="projetos.engenharia.excluir_takeoff" rota="/dashboard/projetos/engenharia" />
+              </span>
             </div>
           </div>
           {ambientes.length === 0 ? (
@@ -325,7 +364,7 @@ export default function EngenhariaPage() {
                 <thead className="text-xs" style={{ color: ESP60, background: BG }}>
                   <tr>
                     <th className="text-left p-2"><span className="inline-flex items-center gap-1">Nome <AjudaCampo chave="projetos.engenharia.amb_nome" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">m² <AjudaCampo chave="projetos.engenharia.amb_area" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">ml <AjudaCampo chave="projetos.engenharia.amb_perimetro" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">pé-dir. <AjudaCampo chave="projetos.engenharia.amb_pe_direito" rota="/dashboard/projetos/engenharia" /></span></th>
-                    <th className="p-2"><span className="inline-flex items-center gap-1">Serviço <AjudaCampo chave="projetos.engenharia.amb_servico" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">Base <AjudaCampo chave="projetos.engenharia.amb_base" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">OK <AjudaCampo chave="projetos.engenharia.amb_ok" rota="/dashboard/projetos/engenharia" /></span></th>
+                    <th className="p-2"><span className="inline-flex items-center gap-1">Serviço <AjudaCampo chave="projetos.engenharia.amb_servico" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">Base <AjudaCampo chave="projetos.engenharia.amb_base" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">OK <AjudaCampo chave="projetos.engenharia.amb_ok" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2 text-center"><span className="inline-flex items-center gap-1">Excluir <AjudaCampo chave="projetos.engenharia.amb_excluir" rota="/dashboard/projetos/engenharia" /></span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -349,6 +388,11 @@ export default function EngenhariaPage() {
                         </select>
                       </td>
                       <td className="p-2 text-center"><input type="checkbox" checked={a.confirmado} onChange={(e) => atualizarAmb(a, { confirmado: e.target.checked })} /></td>
+                      <td className="p-2 text-center">
+                        <button onClick={() => excluirAmbiente(a)} disabled={busy} data-testid={`engenharia-excluir-amb-${a.id}`} title={`Excluir ${a.nome}`} aria-label={`Excluir ambiente ${a.nome}`} className="inline-flex items-center justify-center p-1.5 rounded-lg" style={{ color: '#A63A5A', opacity: busy ? 0.5 : 1 }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
