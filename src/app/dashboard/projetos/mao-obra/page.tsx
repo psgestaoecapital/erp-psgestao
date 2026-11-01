@@ -147,9 +147,9 @@ export default function MaoObraPage() {
       )}
 
       {aba === "equipe" && dados && (
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[65vh] rounded-md border border-[#3D2314]/10" data-testid="mao-obra-equipe-rolagem">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-equipe">
-            <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
+            <thead className="sticky top-0 z-10 bg-[#FAF7F2]"><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
               <th className="py-2 pr-2">Nome<AjudaCampo chave="projetos.mao_obra.equipe.col_nome" /></th><th className="pr-2">Função<AjudaCampo chave="projetos.mao_obra.equipe.col_funcao" /></th><th className="pr-2">Vínculo<AjudaCampo chave="projetos.mao_obra.equipe.col_vinculo" /></th><th className="pr-2 text-right">Horas/mês<AjudaCampo chave="projetos.mao_obra.equipe.col_horas" /></th>
               <th className="pr-2 text-right">Custo mensal<AjudaCampo chave="projetos.mao_obra.equipe.col_mensal" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.equipe.col_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.equipe.col_unidade" /></th><th className="pr-2">Situação<AjudaCampo chave="projetos.mao_obra.equipe.conferido" /></th><th></th>
             </tr></thead>
@@ -219,9 +219,9 @@ export default function MaoObraPage() {
       )}
 
       {aba === "funcoes" && dados && (
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[65vh] rounded-md border border-[#3D2314]/10" data-testid="mao-obra-funcoes-rolagem">
           <table className="w-full text-[12.5px]" data-testid="mao-obra-funcoes">
-            <thead><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
+            <thead className="sticky top-0 z-10 bg-[#FAF7F2]"><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
               <th className="py-2 pr-2">Função<AjudaCampo chave="projetos.mao_obra.funcoes.col_funcao" /></th><th className="pr-2">CBO<AjudaCampo chave="projetos.mao_obra.funcoes.col_cbo" /></th><th className="pr-2">Pagamento<AjudaCampo chave="projetos.mao_obra.funcoes.col_pagamento" /></th><th className="pr-2 text-right">Custo da hora<AjudaCampo chave="projetos.mao_obra.funcoes.col_custo_hora" /></th><th className="pr-2 text-right">Por unidade<AjudaCampo chave="projetos.mao_obra.funcoes.col_unidade" /></th>
               <th className="pr-2 text-right">Salário sugerido<AjudaCampo chave="projetos.mao_obra.funcoes.col_salario_sugerido" /></th>
               <th className="pr-2">Origem<AjudaCampo chave="projetos.mao_obra.funcoes.col_origem" /></th><th className="pr-2 text-right">Pessoas conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_conferidas" /></th><th className="pr-2 text-right">Não conferidas<AjudaCampo chave="projetos.mao_obra.funcoes.col_nao_conferidas" /></th><th></th>
