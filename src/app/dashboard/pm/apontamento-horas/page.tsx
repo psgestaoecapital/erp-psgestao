@@ -253,7 +253,7 @@ export default function ApontamentoHorasPage() {
           ) : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 520 }}>
-                <thead style={{ background: OFFWHITE }}><tr><Th>Data</Th><Th>Job</Th><Th>Etapa</Th><Th>Horas</Th>{podeVerCusto && <Th>Custo</Th>}<Th>Descrição</Th><Th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ações <AjudaCampo chave="pm.apontamento.excluir" /></span></Th></tr></thead>
+                <thead style={{ background: OFFWHITE }}><tr><Th><span style={THWRAP}>Data <AjudaCampo chave="pm.apontamento.col_data" /></span></Th><Th><span style={THWRAP}>Job <AjudaCampo chave="pm.apontamento.col_job" /></span></Th><Th><span style={THWRAP}>Etapa <AjudaCampo chave="pm.apontamento.col_etapa" /></span></Th><Th><span style={THWRAP}>Horas <AjudaCampo chave="pm.apontamento.col_horas" /></span></Th>{podeVerCusto && <Th><span style={THWRAP}>Custo <AjudaCampo chave="pm.apontamento.col_custo" /></span></Th>}<Th><span style={THWRAP}>Descrição <AjudaCampo chave="pm.apontamento.col_descricao" /></span></Th><Th><span style={THWRAP}>Ações <AjudaCampo chave="pm.apontamento.excluir" /></span></Th></tr></thead>
                 <tbody>
                   {linhasVis.map((l) => {
                     const job = l.job_id ? jobMap.get(l.job_id) : undefined
@@ -298,3 +298,5 @@ const btnStop: CSSProperties = { border: 'none', background: '#7A1F1F', color: '
 const btnSec: CSSProperties = { border: `1px solid ${BORDA}`, color: ESPRESSO, background: '#fff', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', minHeight: 40 }
 const btnDel: CSSProperties = { border: `1px solid ${BORDA}`, color: '#7A1F1F', background: '#fff', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
 const toastStyle: CSSProperties = { position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: ESPRESSO, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, zIndex: 60 }
+// "?" (RD-95) nas colunas da tabela: rótulo + AjudaCampo lado a lado no cabeçalho.
+const THWRAP: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }

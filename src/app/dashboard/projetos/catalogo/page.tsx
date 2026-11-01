@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   Upload,
+  FileText,
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
@@ -142,9 +143,14 @@ export default function CatalogoServicosPage() {
   const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork" | "demo">("todos");
   const [filtroStatus, setFiltroStatus] = useState<"ativo" | "inativo" | "todos">("ativo");
   const [apenasComBom, setApenasComBom] = useState(false);
+  // Colunas de valor (Custo, BDI, Preço venda, Estoque) visíveis sem rolagem: por padrão recolhemos as
+  // secundárias (Un, Produtividade, Origem) no computador; o toggle expande para ver todas (auditoria PDCA 01/11).
+  const [colsDetalhe, setColsDetalhe] = useState(false);
 
   const [importando, setImportando] = useState(false);
   const [criando, setCriando] = useState(false);
+  // "Gerar orçamento a partir do serviço": encurta a cadeia FC (serviço → orçamento) para 1 clique.
+  const [gerandoOrc, setGerandoOrc] = useState<string | null>(null);
 
   // HB0 item 5 (CEO): clicar em "Novo serviço" NÃO grava mais em branco — abre o modal e só grava no "Criar serviço".
   // Detalhe da composição (material, mão de obra, equipamento, impostos e margem) aberto pelo selo de BOM, sem sair da tela.
@@ -477,6 +483,7 @@ export default function CatalogoServicosPage() {
       label: "Un",
       ajuda: "projetos.catalogo.col_unidade",
       hiddenOnMobile: true,
+      secondary: true,
       render: (s) => <span className="text-[#3D2314]/70">{s.unidade || "—"}</span>,
     },
     {
@@ -485,6 +492,7 @@ export default function CatalogoServicosPage() {
       ajuda: "projetos.catalogo.col_rup",
       align: "center",
       hiddenOnMobile: true,
+      secondary: true,
       render: (s) =>
         s.produtividade_unidade_dia !== null && s.produtividade_unidade_dia !== undefined ? (
           <span
@@ -503,6 +511,7 @@ export default function CatalogoServicosPage() {
       key: "origem",
       label: "Origem",
       ajuda: "projetos.catalogo.col_origem",
+      secondary: true,
       render: (s) => {
         const o = origemDoServico(s);
         return (
@@ -610,22 +619,57 @@ export default function CatalogoServicosPage() {
         );
       },
     },
-    {
-      key: "produtividade",
-      label: "Prod/dia",
-      ajuda: "projetos.catalogo.col_produtividade",
-      align: "right",
-      hiddenOnMobile: true,
-      render: (s) =>
-        s.produtividade_unidade_dia ? (
-          <span className="text-[#3D2314]/70">
-            {s.produtividade_unidade_dia.toLocaleString("pt-BR")} {s.unidade}
-          </span>
-        ) : (
-          <span className="text-[#3D2314]/40">—</span>
-        ),
-    },
+    // "Prod/dia" era redundante com a coluna "Produtividade" (RUP): as duas mostravam
+    // produtividade_unidade_dia. Mantida só a "Produtividade", que já traz a unidade/dia,
+    // o selo "Sem RUP" e a explicação do que é RUP (auditoria PDCA 01/11). 12 → 11 colunas.
   ];
+
+  // RD-99 (cadeia FC): gera um orçamento rascunho já com este serviço dentro e abre a tela de Orçamentos.
+  // Reaproveita o mesmo caminho client-side da Calculadora (RLS por empresa, sem RPC nova); preço de venda
+  // do serviço vai como preço unitário (0 quando ainda sem BDI/precificação, para o usuário completar lá).
+  async function gerarOrcamento(s: Servico) {
+    if (!companyId || gerandoOrc) return;
+    setGerandoOrc(s.id);
+    setErro(null);
+    setAviso(null);
+    try {
+      const sb = supabaseBrowser();
+      const p = precos[s.id];
+      const precoVenda = Number(p?.preco_venda) || 0;
+      const custo = Number(p?.custo) || 0;
+      const { data: novo, error: e1 } = await sb
+        .from("erp_orcamentos")
+        .insert({ company_id: companyId, status: "rascunho", cliente_nome: `Orçamento — ${s.nome}` })
+        .select("id,numero")
+        .single();
+      if (e1 || !novo) {
+        setErro("Não consegui criar o orçamento: " + (e1?.message ?? "erro desconhecido"));
+        return;
+      }
+      const { error: e2 } = await sb.from("erp_orcamentos_itens").insert({
+        orcamento_id: novo.id,
+        company_id: companyId,
+        ordem: 1,
+        tipo_item: "servico",
+        servico_id: s.id,
+        servico_codigo: s.codigo,
+        servico_descricao: s.nome,
+        produto_nome: s.nome,
+        unidade: s.unidade || "UN",
+        quantidade: 1,
+        preco_unitario: precoVenda,
+        preco_custo: custo,
+        subtotal: precoVenda,
+      });
+      if (e2) {
+        setErro(`Orçamento ${novo.numero ?? ""} criado, mas não consegui incluir o serviço: ${e2.message}`);
+        return;
+      }
+      router.push("/dashboard/orcamento");
+    } finally {
+      setGerandoOrc(null);
+    }
+  }
 
   const acoes = (s: Servico) => (
     <div className="flex items-center justify-end gap-1">
@@ -645,6 +689,15 @@ export default function CatalogoServicosPage() {
         <Copy size={14} />
       </button>
       <AjudaCampo chave="projetos.catalogo.acao_duplicar" rota={ROTA} />
+      <button
+        onClick={() => gerarOrcamento(s)}
+        disabled={gerandoOrc === s.id}
+        className="rounded-lg p-1.5 text-[#3D2314]/60 hover:bg-[#3D2314]/5 hover:text-[#3D2314] disabled:opacity-40"
+        title="Gerar orçamento com este serviço"
+      >
+        <FileText size={14} />
+      </button>
+      <AjudaCampo chave="projetos.catalogo.acao_gerar_orcamento" rota={ROTA} />
       <button
         onClick={() => pedirExclusao(s)}
         className="rounded-lg p-1.5 text-red-600 hover:bg-red-50"
@@ -800,9 +853,24 @@ export default function CatalogoServicosPage() {
               Apenas com BOM completo
               <AjudaCampo chave="projetos.catalogo.apenas_bom" rota={ROTA} />
             </label>
-            <p className="text-xs text-[#3D2314]/60">
-              {filtrados.length} de {servicos.length} serviço{servicos.length !== 1 ? "s" : ""}
-            </p>
+            <div className="flex items-center gap-3">
+              {/* No computador, mostrar/ocultar as colunas secundárias (Un, Produtividade, Origem) para que
+                  Custo, BDI e Preço venda fiquem visíveis sem rolagem horizontal (auditoria PDCA 01/11). */}
+              <button
+                type="button"
+                onClick={() => setColsDetalhe((v) => !v)}
+                aria-pressed={colsDetalhe}
+                title={colsDetalhe
+                  ? "Ocultar as colunas Un, Produtividade e Origem para ver custo e preço sem rolar"
+                  : "Mostrar as colunas Un, Produtividade e Origem"}
+                className="hidden items-center gap-1.5 rounded-lg border border-[#3D2314]/12 bg-white px-3 py-1.5 text-xs font-medium text-[#3D2314]/70 transition-colors hover:border-[#C8941A] hover:text-[#3D2314] md:inline-flex"
+              >
+                {colsDetalhe ? "Menos colunas" : "Mais colunas"}
+              </button>
+              <p className="text-xs text-[#3D2314]/60">
+                {filtrados.length} de {servicos.length} serviço{servicos.length !== 1 ? "s" : ""}
+              </p>
+            </div>
           </div>
 
           <CatalogoTable
@@ -811,6 +879,7 @@ export default function CatalogoServicosPage() {
             loading={loading}
             rowKey={(s) => s.id}
             actions={acoes}
+            collapseSecondary={!colsDetalhe}
             onRowClick={(s) => router.push(`/dashboard/projetos/catalogo/${s.id}`)}
             emptyMessage="Nenhum serviço encontrado com esses filtros"
           />
