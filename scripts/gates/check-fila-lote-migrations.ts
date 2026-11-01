@@ -14,7 +14,7 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 // ── leitura do script ──
 const sh = readFileSync(SCRIPT_FILA, 'utf8')
 ok(/LOTE_MIG_MAX=\$\{LOTE_MIG_MAX:-6\}/.test(sh), 'LOTE_MIG_MAX padrão 6 (escala no aditivo; LOTE_MIG_MAX=1 volta ao comportamento antigo)')
-ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-1\}/.test(sh), 'LOTE_MIG_CRIT_MAX padrão 1 (cautela no crítico)')
+ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-5\}/.test(sh), 'LOTE_MIG_CRIT_MAX padrão 5 (lote de críticas, CEO 01/11)')
 ok(/n_critica" = 1 \] && \[ "\$lote_mig_crit_n" -ge "\$LOTE_MIG_CRIT_MAX"/.test(sh), 'migration crítica excedente ao teto LOTE_MIG_CRIT_MAX espera a próxima rodada')
 ok(/n_critica" = 1 \] && lote_mig_crit_n=\$\(\(lote_mig_crit_n \+ 1\)\)/.test(sh), 'o merge de migration crítica incrementa o contador de críticas do lote')
 ok(/migrations-independentes\.ts/.test(sh) && /duvida:checagem falhou/.test(sh), 'a fila consulta o analisador de independência e, se ele falha, é dúvida')
@@ -50,9 +50,9 @@ else comFilaSimulada((rodar) => {
   // ESCALA NO ADITIVO: aditivas independentes batelam além do antigo teto 3 (default agora 6).
   let x = rodar([{ n: 1, ...add, sqlMigration: A }, { n: 2, ...add, sqlMigration: B }, { n: 3, ...add, sqlMigration: C }, { n: 4, ...add, sqlMigration: t_e }])
   ok(merges(x.escritas).join() === '1,2,3,4', 'fila: 4 migrations ADITIVAS independentes publicam juntas (escala no aditivo, teto 6)')
-  // CAUTELA NO CRÍTICO: críticas independentes NÃO batelam — só 1 por rodada (LOTE_MIG_CRIT_MAX=1).
+  // LOTE DE CRÍTICAS (CEO 01/11): críticas COMUNS independentes batelam até LOTE_MIG_CRIT_MAX (padrão 5), 1 @pos p/ o lote.
   x = rodar([{ n: 1, ...rev, sqlMigration: A }, { n: 2, ...rev, sqlMigration: B }, { n: 3, ...rev, sqlMigration: C }])
-  ok(merges(x.escritas).join() === '1', 'fila: migrations CRÍTICAS independentes NÃO batelam — 1 por rodada (cautela no crítico)')
+  ok(merges(x.escritas).join() === '1,2,3', 'fila: migrations CRÍTICAS comuns independentes batelam no lote (teto padrão 5)')
   // MISTO: 1 crítica entra, as aditivas independentes seguem no mesmo lote.
   x = rodar([{ n: 1, ...rev, sqlMigration: A }, { n: 2, ...add, sqlMigration: B }, { n: 3, ...add, sqlMigration: C }])
   ok(merges(x.escritas).join() === '1,2,3', 'fila: 1 crítica + aditivas independentes publicam no mesmo lote')
