@@ -31,3 +31,6 @@ BEGIN
             jsonb_build_object('deleted_at', now(), 'motivo', COALESCE(NULLIF(p_motivo,''),'Excluída pelo usuário')));
   RETURN jsonb_build_object('ok',true);
 END $function$;
+
+-- check_fn_guards regra 1: fecha a função ao anon (idempotente; CREATE OR REPLACE reabriria a régua)
+REVOKE ALL ON FUNCTION public.fn_crm_oportunidade_excluir(uuid, uuid, text) FROM anon;
