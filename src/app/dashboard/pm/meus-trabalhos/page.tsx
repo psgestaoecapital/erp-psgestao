@@ -79,7 +79,7 @@ export default function MeusTrabalhosPage() {
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C8941A]"><Briefcase size={13} /> Meus trabalhos<AjudaCampo chave="pm.meus_trabalhos.tela" /></div>
           <h1 className="text-[24px] font-medium leading-tight">O que é meu, em ordem</h1>
         </div>
-        <Link href="/dashboard/pm/meu-dia" className="rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-[12.5px]">Meu dia</Link>
+        <span className="inline-flex items-center"><Link href="/dashboard/pm/meu-dia" className="rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-[12.5px]">Meu dia</Link><AjudaCampo chave="pm.meus_trabalhos.meu_dia" /></span>
       </header>
       {erro && <div className="mb-3 rounded-lg bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F]" onClick={() => setErro(null)}>{erro}</div>}
       {carregando && <div className="text-[12.5px] text-[#3D2314]/55">carregando…</div>}
@@ -104,7 +104,7 @@ export default function MeusTrabalhosPage() {
           {!grupos.length && !carregando && !erro && (
             <div className="text-[12.5px] text-[#3D2314]/70" data-testid="mt-vazio">
               Nenhum job em andamento está com você como responsável.
-              {totalEmpresa !== null && totalEmpresa > 0 && <> A pauta da empresa tem {totalEmpresa} job(s) com outras pessoas — <Link href="/dashboard/pm/pauta" className="font-medium text-[#C8941A] underline" data-testid="mt-ver-pauta">ver na Pauta</Link>.</>}
+              {totalEmpresa !== null && totalEmpresa > 0 && <> A pauta da empresa tem {totalEmpresa} job(s) com outras pessoas — <Link href="/dashboard/pm/pauta" className="font-medium text-[#C8941A] underline" data-testid="mt-ver-pauta">ver na Pauta</Link><AjudaCampo chave="pm.meus_trabalhos.ver_pauta" />.</>}
               {totalEmpresa === 0 && <> A empresa ainda não tem jobs na pauta.</>}
             </div>
           )}
