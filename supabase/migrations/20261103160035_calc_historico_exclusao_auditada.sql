@@ -57,3 +57,12 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true);
 END $function$;
+
+-- RD (check_fn_guards): declara explicitamente a ACL das funções SECURITY DEFINER.
+-- CREATE OR REPLACE preserva a ACL viva (authenticated, service_role; sem anon/PUBLIC);
+-- estes REVOKE/GRANT apenas tornam a declaração explícita — não mudam o comportamento.
+REVOKE ALL ON FUNCTION public.fn_calc_historico_excluir(uuid)   FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_calc_historico_excluir(uuid)   TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_calc_historico_restaurar(uuid) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.fn_calc_historico_restaurar(uuid) TO authenticated, service_role;
